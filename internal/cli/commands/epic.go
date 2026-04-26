@@ -289,6 +289,16 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
+			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
+			// that --field size and --field size_label work for planning-mode epics.
+			// The struct marshals size inside the nested "epic" key; we mirror
+			// the aggregation-mode pattern by also surfacing them at the top level.
+			if epic.Size != nil {
+				infoMap["size"] = *epic.Size
+				if label, err := models.SizeLabel(*epic.Size); err == nil {
+					infoMap["size_label"] = label
+				}
+			}
 			return cli.OutputJSON(infoMap)
 		}
 		renderEpicPlanningWithTags(info, tags)

@@ -295,6 +295,16 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
+			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
+			// that --field size and --field size_label work for planning-mode features.
+			// The struct marshals size inside the nested "feature" key; we mirror
+			// the aggregation-mode pattern by also surfacing them at the top level.
+			if feature.Size != nil {
+				infoMap["size"] = *feature.Size
+				if label, err := models.SizeLabel(*feature.Size); err == nil {
+					infoMap["size_label"] = label
+				}
+			}
 			return cli.OutputJSON(infoMap)
 		}
 		renderFeaturePlanningWithTags(info, tags)

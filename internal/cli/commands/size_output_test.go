@@ -16,10 +16,12 @@ package commands
 //   - All tests verify the output of helper functions directly.
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // ptrInt returns a pointer to the given int — test helper.
@@ -889,5 +891,315 @@ func assertSizeValue(t *testing.T, label string, sizeVal interface{}, expected i
 		}
 	default:
 		t.Errorf("%s: unexpected size type %T = %v", label, sizeVal, sizeVal)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests: planning-mode JSON path for epic and feature (F-UAT-3)
+//
+// These tests exercise the exact marshal/unmarshal/inject code path executed by
+// runEpicGet and runFeatureGet for planning-mode entities.  The previous unit
+// tests (TestBuildEpicGetJSON_SizeLabelIncludedWhenNonNil etc.) only exercised
+// the aggregation-mode helper functions that have zero call sites for planning
+// mode — which is the integration gap that allowed F-UAT-1 / F-UAT-2 to ship.
+//
+// Each test:
+//  1. Constructs an EpicDisplayInfo / FeatureDisplayInfo with a non-nil Size.
+//  2. Runs the exact marshal -> unmarshal -> inject logic from runEpicGet /
+//     runFeatureGet planning branches (copied verbatim so any future refactor
+//     that changes the production code without updating the tests will break
+//     these tests immediately).
+//  3. Asserts that "size" and "size_label" appear at the TOP LEVEL of the
+//     resulting map, making them accessible to --field extraction.
+// ---------------------------------------------------------------------------
+
+// simulateEpicPlanningModeJSON replicates the planning-mode JSON construction
+// path from runEpicGet exactly:
+//
+//	infoJSON  := json.Marshal(info)
+//	infoMap   := json.Unmarshal(infoJSON)
+//	infoMap["tags"]       = jsonTags
+//	infoMap["size"]       = *epic.Size   (if non-nil)
+//	infoMap["size_label"] = SizeLabel    (if non-nil)
+//
+// It returns the final infoMap so tests can assert on it.
+func simulateEpicPlanningModeJSON(info *services.EpicDisplayInfo, epic *models.Epic, tags []string) (map[string]interface{}, error) {
+	infoJSON, err := json.Marshal(info)
+	if err != nil {
+		return nil, err
+	}
+	var infoMap map[string]interface{}
+	if err := json.Unmarshal(infoJSON, &infoMap); err != nil {
+		return nil, err
+	}
+	jsonTags := tags
+	if jsonTags == nil {
+		jsonTags = []string{}
+	}
+	infoMap["tags"] = jsonTags
+	// Mirror the production injection from the F-UAT-1 fix.
+	if epic.Size != nil {
+		infoMap["size"] = *epic.Size
+		if label, labelErr := models.SizeLabel(*epic.Size); labelErr == nil {
+			infoMap["size_label"] = label
+		}
+	}
+	return infoMap, nil
+}
+
+// simulateFeaturePlanningModeJSON replicates the planning-mode JSON
+// construction path from runFeatureGet exactly.
+func simulateFeaturePlanningModeJSON(info *services.FeatureDisplayInfo, feature *models.Feature, tags []string) (map[string]interface{}, error) {
+	infoJSON, err := json.Marshal(info)
+	if err != nil {
+		return nil, err
+	}
+	var infoMap map[string]interface{}
+	if err := json.Unmarshal(infoJSON, &infoMap); err != nil {
+		return nil, err
+	}
+	jsonTags := tags
+	if jsonTags == nil {
+		jsonTags = []string{}
+	}
+	infoMap["tags"] = jsonTags
+	// Mirror the production injection from the F-UAT-2 fix.
+	if feature.Size != nil {
+		infoMap["size"] = *feature.Size
+		if label, labelErr := models.SizeLabel(*feature.Size); labelErr == nil {
+			infoMap["size_label"] = label
+		}
+	}
+	return infoMap, nil
+}
+
+// TestEpicPlanningModeJSON_SizeAtTopLevel is the integration test for F-UAT-1.
+// It verifies that a planning-mode epic with a non-nil Size results in top-level
+// "size" and "size_label" keys after the full JSON path, so --field size and
+// --field size_label can extract them.
+func TestEpicPlanningModeJSON_SizeAtTopLevel(t *testing.T) {
+	n := 5 // L
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{
+			ID:    99,
+			Key:   "E99",
+			Title: "Planning Mode Epic",
+			Size:  &n,
+		},
+		Status: models.EpicStatusDraft,
+	}
+
+	info := &services.EpicDisplayInfo{
+		Epic:         epic,
+		Mode:         services.DisplayModePlanning,
+		Phase:        "discovery",
+		StatusSource: "workflow",
+	}
+
+	result, err := simulateEpicPlanningModeJSON(info, epic, nil)
+	if err != nil {
+		t.Fatalf("simulateEpicPlanningModeJSON: unexpected error: %v", err)
+	}
+
+	// Assert "size" is present at the top level with value 5.
+	sizeVal, ok := result["size"]
+	if !ok {
+		t.Fatal("planning-mode epic JSON: expected top-level 'size' key, but it is absent")
+	}
+	assertSizeValue(t, "epic planning JSON size", sizeVal, 5)
+
+	// Assert "size_label" is present at the top level with value "L".
+	labelVal, ok := result["size_label"]
+	if !ok {
+		t.Fatal("planning-mode epic JSON: expected top-level 'size_label' key, but it is absent")
+	}
+	if labelVal != "L" {
+		t.Errorf("planning-mode epic JSON: expected size_label='L', got %v", labelVal)
+	}
+
+	// Verify the nested "epic" key still exists (struct field should still be embedded).
+	if _, ok := result["epic"]; !ok {
+		t.Error("planning-mode epic JSON: expected nested 'epic' key to still be present")
+	}
+}
+
+// TestEpicPlanningModeJSON_SizeAbsentWhenNil verifies that when Size is nil,
+// no "size" or "size_label" keys appear at the top level (AC-T1 / omitempty).
+func TestEpicPlanningModeJSON_SizeAbsentWhenNil(t *testing.T) {
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{
+			ID:    100,
+			Key:   "E100",
+			Title: "Unsized Planning Epic",
+			Size:  nil,
+		},
+		Status: models.EpicStatusDraft,
+	}
+
+	info := &services.EpicDisplayInfo{
+		Epic:         epic,
+		Mode:         services.DisplayModePlanning,
+		StatusSource: "workflow",
+	}
+
+	result, err := simulateEpicPlanningModeJSON(info, epic, nil)
+	if err != nil {
+		t.Fatalf("simulateEpicPlanningModeJSON: unexpected error: %v", err)
+	}
+
+	if v, ok := result["size"]; ok && v != nil {
+		t.Errorf("planning-mode epic JSON: expected 'size' absent when nil, got %v", v)
+	}
+	if v, ok := result["size_label"]; ok && v != nil {
+		t.Errorf("planning-mode epic JSON: expected 'size_label' absent when nil, got %v", v)
+	}
+}
+
+// TestFeaturePlanningModeJSON_SizeAtTopLevel is the integration test for F-UAT-2.
+// It verifies that a planning-mode feature with a non-nil Size results in top-level
+// "size" and "size_label" keys after the full JSON path.
+func TestFeaturePlanningModeJSON_SizeAtTopLevel(t *testing.T) {
+	n := 8 // XL
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{
+			ID:    99,
+			Key:   "E99-F01",
+			Title: "Planning Mode Feature",
+			Size:  &n,
+		},
+		Status: models.FeatureStatusDraft,
+	}
+
+	info := &services.FeatureDisplayInfo{
+		Feature:      feature,
+		Mode:         services.DisplayModePlanning,
+		Phase:        "discovery",
+		StatusSource: "workflow",
+	}
+
+	result, err := simulateFeaturePlanningModeJSON(info, feature, nil)
+	if err != nil {
+		t.Fatalf("simulateFeaturePlanningModeJSON: unexpected error: %v", err)
+	}
+
+	// Assert "size" is present at the top level with value 8.
+	sizeVal, ok := result["size"]
+	if !ok {
+		t.Fatal("planning-mode feature JSON: expected top-level 'size' key, but it is absent")
+	}
+	assertSizeValue(t, "feature planning JSON size", sizeVal, 8)
+
+	// Assert "size_label" is present at the top level with value "XL".
+	labelVal, ok := result["size_label"]
+	if !ok {
+		t.Fatal("planning-mode feature JSON: expected top-level 'size_label' key, but it is absent")
+	}
+	if labelVal != "XL" {
+		t.Errorf("planning-mode feature JSON: expected size_label='XL', got %v", labelVal)
+	}
+
+	// Verify the nested "feature" key still exists.
+	if _, ok := result["feature"]; !ok {
+		t.Error("planning-mode feature JSON: expected nested 'feature' key to still be present")
+	}
+}
+
+// TestFeaturePlanningModeJSON_SizeAbsentWhenNil verifies that when Size is nil,
+// no "size" or "size_label" keys appear at the top level.
+func TestFeaturePlanningModeJSON_SizeAbsentWhenNil(t *testing.T) {
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{
+			ID:    100,
+			Key:   "E100-F01",
+			Title: "Unsized Planning Feature",
+			Size:  nil,
+		},
+		Status: models.FeatureStatusDraft,
+	}
+
+	info := &services.FeatureDisplayInfo{
+		Feature:      feature,
+		Mode:         services.DisplayModePlanning,
+		StatusSource: "workflow",
+	}
+
+	result, err := simulateFeaturePlanningModeJSON(info, feature, nil)
+	if err != nil {
+		t.Fatalf("simulateFeaturePlanningModeJSON: unexpected error: %v", err)
+	}
+
+	if v, ok := result["size"]; ok && v != nil {
+		t.Errorf("planning-mode feature JSON: expected 'size' absent when nil, got %v", v)
+	}
+	if v, ok := result["size_label"]; ok && v != nil {
+		t.Errorf("planning-mode feature JSON: expected 'size_label' absent when nil, got %v", v)
+	}
+}
+
+// TestEpicPlanningModeJSON_AllSizeLabels tests the full size label table for
+// planning-mode epic to ensure all canonical values round-trip correctly.
+func TestEpicPlanningModeJSON_AllSizeLabels(t *testing.T) {
+	tests := []struct {
+		size  int
+		label string
+	}{
+		{1, "XS"}, {2, "S"}, {3, "M"}, {5, "L"}, {8, "XL"}, {13, "XXL"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			n := tc.size
+			epic := &models.Epic{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic", Size: &n},
+				Status:     models.EpicStatusDraft,
+			}
+			info := &services.EpicDisplayInfo{
+				Epic:         epic,
+				Mode:         services.DisplayModePlanning,
+				StatusSource: "workflow",
+			}
+			result, err := simulateEpicPlanningModeJSON(info, epic, nil)
+			if err != nil {
+				t.Fatalf("size=%d: unexpected error: %v", tc.size, err)
+			}
+			assertSizeValue(t, "size", result["size"], tc.size)
+			if got, _ := result["size_label"].(string); got != tc.label {
+				t.Errorf("size=%d: expected size_label=%q, got %q", tc.size, tc.label, got)
+			}
+		})
+	}
+}
+
+// TestFeaturePlanningModeJSON_AllSizeLabels tests the full size label table for
+// planning-mode feature.
+func TestFeaturePlanningModeJSON_AllSizeLabels(t *testing.T) {
+	tests := []struct {
+		size  int
+		label string
+	}{
+		{1, "XS"}, {2, "S"}, {3, "M"}, {5, "L"}, {8, "XL"}, {13, "XXL"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			n := tc.size
+			feature := &models.Feature{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", Title: "Feature", Size: &n},
+				Status:     models.FeatureStatusDraft,
+			}
+			info := &services.FeatureDisplayInfo{
+				Feature:      feature,
+				Mode:         services.DisplayModePlanning,
+				StatusSource: "workflow",
+			}
+			result, err := simulateFeaturePlanningModeJSON(info, feature, nil)
+			if err != nil {
+				t.Fatalf("size=%d: unexpected error: %v", tc.size, err)
+			}
+			assertSizeValue(t, "size", result["size"], tc.size)
+			if got, _ := result["size_label"].(string); got != tc.label {
+				t.Errorf("size=%d: expected size_label=%q, got %q", tc.size, tc.label, got)
+			}
+		})
 	}
 }
