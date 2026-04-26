@@ -2252,3 +2252,86 @@ func TestViewerHTMLTabSegmentAbsentWithNoEntity(t *testing.T) {
 		t.Error("viewer.html renderBreadcrumb: must guard against null entity (no tab segment when no entity selected) (T-E27-F09-012)")
 	}
 }
+
+// TestViewerHTMLF10IdeasFilterHelper verifies that the isHiddenTerminalStatus helper
+// and HIDDEN_TERMINAL_BY_TYPE map are present. AC-005.7 (T-E27-F10-005).
+func TestViewerHTMLF10IdeasFilterHelper(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The HIDDEN_TERMINAL_BY_TYPE constant must exist
+	if !strings.Contains(content, "HIDDEN_TERMINAL_BY_TYPE") {
+		t.Error("viewer.html missing HIDDEN_TERMINAL_BY_TYPE map (T-E27-F10-005)")
+	}
+
+	// The isHiddenTerminalStatus function must exist
+	if !strings.Contains(content, "function isHiddenTerminalStatus(") {
+		t.Error("viewer.html missing isHiddenTerminalStatus function (T-E27-F10-005)")
+	}
+}
+
+// TestViewerHTMLF10IdeasStatusMap verifies that the HIDDEN_TERMINAL_BY_TYPE map
+// contains the idea-specific terminal statuses 'converted' and 'archived'.
+// AC-005.1, AC-005.2 (T-E27-F10-005).
+func TestViewerHTMLF10IdeasStatusMap(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The idea entry must map converted and archived
+	if !strings.Contains(content, "'converted'") {
+		t.Error("viewer.html HIDDEN_TERMINAL_BY_TYPE missing 'converted' for idea (T-E27-F10-005 AC-005.1)")
+	}
+	if !strings.Contains(content, "'archived'") {
+		t.Error("viewer.html HIDDEN_TERMINAL_BY_TYPE missing 'archived' for idea (T-E27-F10-005 AC-005.2)")
+	}
+
+	// The idea: entry must explicitly be present
+	if !strings.Contains(content, "idea:") {
+		t.Error("viewer.html HIDDEN_TERMINAL_BY_TYPE missing 'idea:' entry (T-E27-F10-005)")
+	}
+}
+
+// TestViewerHTMLF10CallSitesReplaced verifies that all four original
+// 'status === completed' filter predicates have been replaced with
+// isHiddenTerminalStatus calls. AC-005.7 (T-E27-F10-005).
+func TestViewerHTMLF10CallSitesReplaced(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// None of the old hardcoded 'completed' filter predicates should remain
+	// in the showCompleted guard positions.
+	// We check that 'isHiddenTerminalStatus' is called at least 4 times.
+	helperStr := "isHiddenTerminalStatus("
+	count := strings.Count(content, helperStr)
+	if count < 4 {
+		t.Errorf("viewer.html: expected at least 4 calls to isHiddenTerminalStatus, found %d (T-E27-F10-005 AC-005.7)", count)
+	}
+}
+
+// TestViewerHTMLF10FlatSectionEntityTypeParam verifies that buildFlatSectionHtml
+// now accepts an entityType parameter and the Ideas call passes 'idea'.
+// AC-005.1 (T-E27-F10-005).
+func TestViewerHTMLF10FlatSectionEntityTypeParam(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The function signature must accept entityType
+	funcStart := strings.Index(content, "function buildFlatSectionHtml(")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing buildFlatSectionHtml function")
+	}
+	// Find the closing paren of the function signature
+	sigEnd := strings.Index(content[funcStart:], ")")
+	if sigEnd < 0 {
+		t.Fatal("viewer.html buildFlatSectionHtml: cannot find closing paren of signature")
+	}
+	sig := content[funcStart : funcStart+sigEnd+1]
+	if !strings.Contains(sig, "entityType") {
+		t.Errorf("viewer.html buildFlatSectionHtml: signature must include entityType param, got: %q (T-E27-F10-005)", sig)
+	}
+
+	// The Ideas call site must pass 'idea'
+	if !strings.Contains(content, "buildFlatSectionHtml('Ideas'") && !strings.Contains(content, `buildFlatSectionHtml("Ideas"`) {
+		t.Error("viewer.html missing buildFlatSectionHtml call for Ideas (T-E27-F10-005)")
+	}
+	// Check that an 'idea' entityType is passed at the Ideas call site
+	if !strings.Contains(content, "'idea'") {
+		t.Error("viewer.html Ideas call to buildFlatSectionHtml must pass 'idea' entityType (T-E27-F10-005 AC-005.1)")
+	}
+}

@@ -1191,3 +1191,23 @@ func (r *FeatureRepository) GetFeatureDisplayDataRaw(ctx context.Context, featur
 
 	return raw, nil
 }
+
+// CountByStatus returns feature counts grouped by status.
+func (r *FeatureRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM features GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count features by status: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan feature status count: %w", err)
+		}
+		counts[status] = count
+	}
+	return counts, rows.Err()
+}

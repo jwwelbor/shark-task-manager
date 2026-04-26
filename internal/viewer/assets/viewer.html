@@ -1673,6 +1673,35 @@ function isCancelledStatus(status) {
   return CANCELLED_STATUSES.has((status || '').toLowerCase());
 }
 
+// Per-entity-type map of statuses that should be hidden when "Show all items" is OFF.
+// Falls back to TERMINAL_STATUSES ∪ CANCELLED_STATUSES for unknown entity types.
+// See REQ-F-005 (T-E27-F10-005).
+const HIDDEN_TERMINAL_BY_TYPE = {
+  epic:        new Set(['completed', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  feature:     new Set(['completed', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  task:        new Set(['completed', 'done', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  bug:         new Set(['completed', 'done', 'verified', 'closed', 'wont_fix', 'rejected']),
+  change_card: new Set(['completed', 'done', 'approved', 'rejected', 'closed']),
+  idea:        new Set(['converted', 'archived']),
+};
+
+/**
+ * Returns true if the given status should be hidden from the tree when the
+ * "Show all items" checkbox is OFF, for the given entity type.
+ * Falls back to the union of TERMINAL_STATUSES and CANCELLED_STATUSES if
+ * entityType is unknown — defensive default that hides terminal items rather than leaking them.
+ *
+ * @param {string} status      e.g. 'completed', 'converted', 'cancelled'
+ * @param {string} entityType  one of 'epic'|'feature'|'task'|'bug'|'change_card'|'idea'
+ * @returns {boolean}
+ */
+function isHiddenTerminalStatus(status, entityType) {
+  const s = (status || '').toLowerCase();
+  const set = HIDDEN_TERMINAL_BY_TYPE[entityType];
+  if (set) return set.has(s);
+  return TERMINAL_STATUSES.has(s) || CANCELLED_STATUSES.has(s);
+}
+
 /** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
 const FOLDER_KEY_PREFIX = 'folder:';
 
@@ -4717,7 +4746,7 @@ function buildFeatureNodeHtml(feature, epicKey) {
     // Render tasks
     const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
     for (const task of tasks) {
-      if (!showCompleted && task.status === 'completed') continue;
+      if (!showCompleted && isHiddenTerminalStatus(task.status, 'task')) continue;
       html += buildTaskNodeHtml(task);
     }
     // Render feature-level docs
@@ -4759,7 +4788,7 @@ function buildEpicNodeHtml(epic) {
     // Render features
     const features = Array.isArray(epic.features) ? epic.features : [];
     for (const feature of features) {
-      if (!showCompleted && feature.status === 'completed') continue;
+      if (!showCompleted && isHiddenTerminalStatus(feature.status, 'feature')) continue;
       html += buildFeatureNodeHtml(feature, epicKey);
     }
     // Render epic-level docs
@@ -4785,9 +4814,9 @@ function buildEpicNodeHtml(epic) {
  * @param {Array} items - array of items with .key/.title/.status
  * @returns {string} HTML string
  */
-function buildFlatSectionHtml(title, items) {
+function buildFlatSectionHtml(title, items, entityType) {
   if (!Array.isArray(items) || items.length === 0) return '';
-  const filtered = showCompleted ? items : items.filter(i => i.status !== 'completed');
+  const filtered = showCompleted ? items : items.filter(i => !isHiddenTerminalStatus(i.status, entityType));
   if (filtered.length === 0) return '';
   let html = `<div class="sidebar-section-header">${escapeHtml(title)}</div>`;
   for (const item of filtered) {
@@ -4834,7 +4863,7 @@ function renderSidebar() {
   // ── Hierarchy section ──
   html += `<div class="sidebar-section-header">Hierarchy</div>`;
   for (const epic of treeData) {
-    if (!showCompleted && epic.status === 'completed') continue;
+    if (!showCompleted && isHiddenTerminalStatus(epic.status, 'epic')) continue;
     html += buildEpicNodeHtml(epic);
   }
 
@@ -4845,15 +4874,15 @@ function renderSidebar() {
 
   // Bugs (from hierarchy flat section)
   const bugs = Array.isArray(hierarchyData?.bugs) ? hierarchyData.bugs : [];
-  html += buildFlatSectionHtml('Bugs', bugs);
+  html += buildFlatSectionHtml('Bugs', bugs, 'bug');
 
   // Change Cards (from hierarchy flat section)
   const changeCards = Array.isArray(hierarchyData?.change_cards) ? hierarchyData.change_cards : [];
-  html += buildFlatSectionHtml('Change Cards', changeCards);
+  html += buildFlatSectionHtml('Change Cards', changeCards, 'change_card');
 
   // Ideas (from hierarchy flat section)
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
-  html += buildFlatSectionHtml('Ideas', ideas);
+  html += buildFlatSectionHtml('Ideas', ideas, 'idea');
 
   sidebarContent.innerHTML = html;
 

@@ -56,6 +56,7 @@ func (e *FileTooLargeError) Error() string {
 // ViewerEpicRepository is the minimal epic repository interface used by ViewerService.
 type ViewerEpicRepository interface {
 	List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	CountByStatus(ctx context.Context) (map[string]int, error)
 }
 
 // ViewerFeatureRepository is the minimal feature repository interface used by ViewerService.
@@ -63,6 +64,7 @@ type ViewerFeatureRepository interface {
 	List(ctx context.Context) ([]*models.Feature, error)
 	ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error)
 	GetByKey(ctx context.Context, key string) (*models.Feature, error)
+	CountByStatus(ctx context.Context) (map[string]int, error)
 }
 
 // ViewerTaskRepository is the minimal task repository interface used by ViewerService.
@@ -70,6 +72,8 @@ type ViewerTaskRepository interface {
 	List(ctx context.Context) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
+	CountByStatus(ctx context.Context) (map[string]int, error)
+	CountBlocked(ctx context.Context) (int, error)
 	// ListWithViewerRelationships returns all tasks with pre-resolved relationship JSON
 	// from the viewer_task_relationships view. One DB round-trip replaces N+1 per-task calls.
 	ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
@@ -575,35 +579,24 @@ func (s *ViewerService) Tags(ctx context.Context) (*TagsResponse, error) {
 // Summary returns entity-type counts with per-status color/phase metadata
 // from the workflow service.
 func (s *ViewerService) Summary(ctx context.Context) (*SummaryResponse, error) {
-	epics, err := s.epicRepo.List(ctx, nil)
+	epicCounts, err := s.epicRepo.CountByStatus(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("viewer summary: failed to list epics: %w", err)
-	}
-	epicCounts := make(map[string]int, len(epics))
-	for _, e := range epics {
-		epicCounts[string(e.Status)]++
+		return nil, fmt.Errorf("viewer summary: failed to count epics: %w", err)
 	}
 
-	features, err := s.featureRepo.List(ctx)
+	featureCounts, err := s.featureRepo.CountByStatus(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("viewer summary: failed to list features: %w", err)
-	}
-	featureCounts := make(map[string]int, len(features))
-	for _, f := range features {
-		featureCounts[string(f.Status)]++
+		return nil, fmt.Errorf("viewer summary: failed to count features: %w", err)
 	}
 
-	tasks, err := s.taskRepo.List(ctx)
+	taskCounts, err := s.taskRepo.CountByStatus(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("viewer summary: failed to list tasks: %w", err)
+		return nil, fmt.Errorf("viewer summary: failed to count tasks: %w", err)
 	}
-	taskCounts := make(map[string]int, len(tasks))
-	blockedCount := 0
-	for _, t := range tasks {
-		taskCounts[string(t.Status)]++
-		if t.BlockedReason != nil {
-			blockedCount++
-		}
+
+	blockedCount, err := s.taskRepo.CountBlocked(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("viewer summary: failed to count blocked tasks: %w", err)
 	}
 
 	bugCounts, err := s.bugRepo.CountByStatus(ctx)

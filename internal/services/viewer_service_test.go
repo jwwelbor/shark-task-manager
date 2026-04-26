@@ -18,7 +18,8 @@ import (
 // ----- Mocks for ViewerService dependencies -----
 
 type mockViewerEpicRepo struct {
-	ListFunc func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	ListFunc          func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	CountByStatusFunc func(ctx context.Context) (map[string]int, error)
 }
 
 func (m *mockViewerEpicRepo) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
@@ -28,10 +29,18 @@ func (m *mockViewerEpicRepo) List(ctx context.Context, status *models.EpicStatus
 	return nil, nil
 }
 
+func (m *mockViewerEpicRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	if m.CountByStatusFunc != nil {
+		return m.CountByStatusFunc(ctx)
+	}
+	return map[string]int{}, nil
+}
+
 type mockViewerFeatureRepo struct {
-	ListFunc       func(ctx context.Context) ([]*models.Feature, error)
-	ListByEpicFunc func(ctx context.Context, epicID int64) ([]*models.Feature, error)
-	GetByKeyFunc   func(ctx context.Context, key string) (*models.Feature, error)
+	ListFunc          func(ctx context.Context) ([]*models.Feature, error)
+	ListByEpicFunc    func(ctx context.Context, epicID int64) ([]*models.Feature, error)
+	GetByKeyFunc      func(ctx context.Context, key string) (*models.Feature, error)
+	CountByStatusFunc func(ctx context.Context) (map[string]int, error)
 }
 
 func (m *mockViewerFeatureRepo) List(ctx context.Context) ([]*models.Feature, error) {
@@ -55,10 +64,19 @@ func (m *mockViewerFeatureRepo) GetByKey(ctx context.Context, key string) (*mode
 	return nil, nil
 }
 
+func (m *mockViewerFeatureRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	if m.CountByStatusFunc != nil {
+		return m.CountByStatusFunc(ctx)
+	}
+	return map[string]int{}, nil
+}
+
 type mockViewerTaskRepo struct {
 	ListFunc                                 func(ctx context.Context) ([]*models.Task, error)
 	ListByFeatureFunc                        func(ctx context.Context, featureID int64) ([]*models.Task, error)
 	GetByKeyFunc                             func(ctx context.Context, key string) (*models.Task, error)
+	CountByStatusFunc                        func(ctx context.Context) (map[string]int, error)
+	CountBlockedFunc                         func(ctx context.Context) (int, error)
 	ListWithViewerRelationshipsFunc          func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
 	ListByFeatureWithViewerRelationshipsFunc func(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error)
 }
@@ -82,6 +100,20 @@ func (m *mockViewerTaskRepo) GetByKey(ctx context.Context, key string) (*models.
 		return m.GetByKeyFunc(ctx, key)
 	}
 	return nil, nil
+}
+
+func (m *mockViewerTaskRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	if m.CountByStatusFunc != nil {
+		return m.CountByStatusFunc(ctx)
+	}
+	return map[string]int{}, nil
+}
+
+func (m *mockViewerTaskRepo) CountBlocked(ctx context.Context) (int, error) {
+	if m.CountBlockedFunc != nil {
+		return m.CountBlockedFunc(ctx)
+	}
+	return 0, nil
 }
 
 func (m *mockViewerTaskRepo) ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
@@ -399,30 +431,23 @@ func TestViewerService_Summary_EmptyProject(t *testing.T) {
 }
 
 func TestViewerService_Summary_CountsEntities(t *testing.T) {
-	reason := "waiting"
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{
-			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
-				return []*models.Epic{
-					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
-					{BaseEntity: models.BaseEntity{ID: 2, Key: "E02"}, Status: models.EpicStatusActive},
-					{BaseEntity: models.BaseEntity{ID: 3, Key: "E03"}, Status: models.EpicStatusCompleted},
-				}, nil
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+				return map[string]int{"active": 2, "completed": 1}, nil
 			},
 		},
 		&mockViewerFeatureRepo{
-			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
-				return []*models.Feature{
-					{BaseEntity: models.BaseEntity{ID: 1}, Status: "in_progress"},
-				}, nil
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+				return map[string]int{"in_progress": 1}, nil
 			},
 		},
 		&mockViewerTaskRepo{
-			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
-				return []*models.Task{
-					{BaseEntity: models.BaseEntity{ID: 1}, Status: "todo"},
-					{BaseEntity: models.BaseEntity{ID: 2}, Status: "todo", BlockedReason: &reason},
-				}, nil
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+				return map[string]int{"todo": 2}, nil
+			},
+			CountBlockedFunc: func(ctx context.Context) (int, error) {
+				return 1, nil
 			},
 		},
 		&mockViewerBugRepo{},
@@ -451,10 +476,8 @@ func TestViewerService_Summary_CountsEntities(t *testing.T) {
 func TestViewerService_Summary_UnknownStatusFallback(t *testing.T) {
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{
-			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
-				return []*models.Epic{
-					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "totally_unknown_status"},
-				}, nil
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+				return map[string]int{"totally_unknown_status": 1}, nil
 			},
 		},
 		&mockViewerFeatureRepo{},
@@ -1258,7 +1281,7 @@ func TestFileTooLargeError_Error(t *testing.T) {
 func TestViewerService_Summary_EpicRepoError(t *testing.T) {
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{
-			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
 				return nil, fmt.Errorf("epic repo error")
 			},
 		},
@@ -1278,7 +1301,7 @@ func TestViewerService_Summary_FeatureRepoError(t *testing.T) {
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{},
 		&mockViewerFeatureRepo{
-			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
 				return nil, fmt.Errorf("feature repo error")
 			},
 		},
@@ -1298,7 +1321,7 @@ func TestViewerService_Summary_TaskRepoError(t *testing.T) {
 		&mockViewerEpicRepo{},
 		&mockViewerFeatureRepo{},
 		&mockViewerTaskRepo{
-			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
 				return nil, fmt.Errorf("task repo error")
 			},
 		},

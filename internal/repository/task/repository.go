@@ -2139,6 +2139,36 @@ func (r *TaskRepository) GetContextData(ctx context.Context, taskID int64) (*str
 }
 
 // UpdateContextData updates only the context_data field of a task.
+// CountByStatus returns task counts grouped by status.
+func (r *TaskRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM tasks GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count tasks by status: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan task status count: %w", err)
+		}
+		counts[status] = count
+	}
+	return counts, rows.Err()
+}
+
+// CountBlocked returns the number of tasks that have a non-null blocked_reason.
+func (r *TaskRepository) CountBlocked(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE blocked_reason IS NOT NULL`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count blocked tasks: %w", err)
+	}
+	return count, nil
+}
+
 func (r *TaskRepository) UpdateContextData(ctx context.Context, taskID int64, contextData *string) error {
 	query := `UPDATE tasks SET context_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
 	result, err := r.db.ExecContext(ctx, query, contextData, taskID)
