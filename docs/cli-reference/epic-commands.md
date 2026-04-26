@@ -38,6 +38,9 @@ All epic commands support case-insensitive keys (`E07`, `e07`), slugged keys (`E
 | `shark epic note` | Add typed notes to an epic |
 | `shark epic notes` | List notes for an epic |
 | `shark epic resume` | Get full context for resuming work |
+| **Tags** | |
+| `shark epic tag add` | Attach a registered tag to an epic |
+| `shark epic tag rm` | Detach a registered tag from an epic |
 
 ## Global Flags
 
@@ -82,6 +85,7 @@ shark epic create <title> [flags]
 | `--priority <string>` | Priority: low, medium, high (default: medium) |
 | `--business-value <string>` | Business value: low, medium, high |
 | `--status <string>` | Initial status: draft, active, completed, archived (default: draft) |
+| `--tag <name>` | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
 
@@ -94,6 +98,9 @@ shark epic create "Q1 2025 Roadmap" --file="docs/roadmap/2025-q1/epic.md"
 
 # With priority and business value
 shark epic create "Payment Gateway" --priority=high --business-value=high --json
+
+# With one or more tags (tags must already be registered)
+shark epic create "Voice Auth Epic" --tag=voice --tag=auth
 ```
 
 **Behavior:**
@@ -361,6 +368,7 @@ shark epic update <epic-key> [flags]
 | `--key <string>` | New key (must be unique, no spaces) |
 | `--file <path>` | New file path (e.g., `docs/custom/epic.md`) |
 | `--force` | Force reassignment if file already claimed |
+| `--tag <name>` | Tag to apply additively (repeatable). Empty = no change; use `shark epic tag rm` to detach. |
 
 **Examples:**
 
@@ -373,7 +381,13 @@ shark epic update E07 --priority=high --business-value=high
 
 # Change file path
 shark epic update E07 --file="docs/roadmap/auth-system.md" --json
+
+# Additive tagging
+shark epic update E07 --tag=voice
+shark epic update E07 --tag=voice --tag=auth
 ```
+
+> `--tag` on update is **additive only**. Use `shark epic tag rm E07 <name>` to detach a single tag.
 
 Note: For workflow-aware status transitions with validation, use `shark epic set-status` or `shark epic next-status` instead of `--status` on update.
 
@@ -776,6 +790,61 @@ shark epic resume E07
 # JSON output (recommended for agents)
 shark epic resume E07 --json
 ```
+
+---
+
+## Tag Commands
+
+Retroactively attach or detach a registered tag on an existing epic. See [Tags → Retroactive Tagging](tags.md#retroactive-tagging-shark-entity-tag-addrm) for the cross-entity overview.
+
+### `shark epic tag add`
+
+Attach a registered tag to an epic. Re-running with the same arguments is a no-op (idempotent).
+
+**Usage:**
+```bash
+shark epic tag add <epic-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark epic tag add E07 voice
+shark epic tag add E07 voice --json   # idempotent
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag attached (or already attached) |
+| 1 | `not_found` | Epic key not found |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
+
+On an unregistered tag (process exit **3**, internal class `unregistered_tag`), stderr renders the SC-2 vocabulary snippet + `To add it:` remediation line. See [Tags → Unregistered Tag Errors](tags.md#unregistered-tag-errors).
+
+### `shark epic tag rm`
+
+Detach a registered tag from an epic. Removing an unattached tag is a no-op as long as the tag name is in the vocabulary.
+
+**Usage:**
+```bash
+shark epic tag rm <epic-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark epic tag rm E07 voice
+shark epic tag rm E07 voice   # idempotent no-op
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag detached (or was not attached) |
+| 1 | `not_found` | Epic key not found, or tag name not in vocabulary |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
 
 ---
 

@@ -435,7 +435,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 13
+const CurrentSchemaVersion = 14
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -821,6 +821,11 @@ func runMigrations(db *sql.DB) error {
 	// Create viewer_task_relationships view for N+1-free task relationship loading (E07-F39)
 	if err := migrateViewerTaskRelationshipsView(db); err != nil {
 		return fmt.Errorf("failed to create viewer_task_relationships view: %w", err)
+	}
+
+	// Create tags vocabulary and entity_tags polymorphic join table (E28-F01)
+	if err := migrateAddTagsAndEntityTags(db); err != nil {
+		return fmt.Errorf("failed to migrate tags and entity_tags tables: %w", err)
 	}
 
 	return nil
@@ -3266,5 +3271,121 @@ func migrateTechDebtTable(db *sql.DB) error {
 		}
 	}
 
+	return nil
+}
+
+// migrateAddTagsAndEntityTags creates the tags vocabulary table, the entity_tags
+// polymorphic join table, their indexes, and the six cascade-delete triggers (one
+// per parent entity table). All statements use CREATE TABLE IF NOT EXISTS,
+// CREATE INDEX IF NOT EXISTS, and CREATE TRIGGER IF NOT EXISTS, so the function
+// is idempotent and safe to run on databases that already contain these objects.
+//
+// DEVELOPER NOTE: This function adds schema version 14. Bump CurrentSchemaVersion
+// to 14 (if not already done) so that ApplySchemaIfNeeded detects the version gap
+// and reruns ApplySchemaAndMigrations on existing databases. The skip_migrations
+// toggle in .sharkconfig.json is not required — bumping CurrentSchemaVersion is
+// sufficient. See .claude/rules/database-critical.md for the full migration guide.
+//
+// Part of Epic E28 — Entity Tagging with Managed Vocabulary (E28-F01).
+func migrateAddTagsAndEntityTags(db *sql.DB) error {
+	stmts := []string{
+		// -----------------------------------------------------------------
+		// Vocabulary registry — one row per named tag.
+		// COLLATE NOCASE ensures "Voice" and "voice" are the same tag at the
+		// storage layer, matching ADR-4's "single canonical lowercase name".
+		// -----------------------------------------------------------------
+		`CREATE TABLE IF NOT EXISTS tags (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+
+		// Index supporting O(log n) name lookups and the UNIQUE constraint.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name ON tags(name)`,
+
+		// Index supporting chronological listing of tags.
+		`CREATE INDEX IF NOT EXISTS idx_tags_created_at ON tags(created_at)`,
+
+		// -----------------------------------------------------------------
+		// Polymorphic join — one row per (entity, tag) association.
+		// entity_type is constrained to the six supported entity types.
+		// tag_id references tags(id) with ON DELETE CASCADE so removing a
+		// tag row automatically removes all its entity associations.
+		// -----------------------------------------------------------------
+		`CREATE TABLE IF NOT EXISTS entity_tags (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT NOT NULL CHECK (entity_type IN
+                ('epic', 'feature', 'task', 'bug', 'change', 'idea')),
+            entity_id   INTEGER NOT NULL,
+            tag_id      INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(entity_type, entity_id, tag_id)
+        )`,
+
+		// (entity_type, entity_id): supports "show all tags on this entity"
+		// (entity-detail views, viewer API).
+		`CREATE INDEX IF NOT EXISTS idx_entity_tags_entity
+            ON entity_tags(entity_type, entity_id)`,
+
+		// (tag_id): supports "list all entities with this tag"
+		// (tags rm --force usage-count query, list --tag= primary path).
+		`CREATE INDEX IF NOT EXISTS idx_entity_tags_tag
+            ON entity_tags(tag_id)`,
+
+		// (tag_id, entity_type): supports "list all bugs with this tag"
+		// (tag-filtered per-entity-type lists).
+		`CREATE INDEX IF NOT EXISTS idx_entity_tags_tag_entity
+            ON entity_tags(tag_id, entity_type)`,
+
+		// -----------------------------------------------------------------
+		// Cascade-delete triggers — one per parent entity table.
+		// Mirrors the existing entity_notes_cascade_delete_* pattern.
+		// Because entity_tags cannot use a SQL FOREIGN KEY to enforce that
+		// entity_id is valid for the given entity_type, these triggers ensure
+		// orphaned rows are cleaned up when the parent row is deleted.
+		// -----------------------------------------------------------------
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_epic
+            AFTER DELETE ON epics
+            FOR EACH ROW BEGIN
+                DELETE FROM entity_tags WHERE entity_type = 'epic' AND entity_id = OLD.id;
+            END`,
+
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_feature
+            AFTER DELETE ON features
+            FOR EACH ROW BEGIN
+                DELETE FROM entity_tags WHERE entity_type = 'feature' AND entity_id = OLD.id;
+            END`,
+
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_task
+            AFTER DELETE ON tasks
+            FOR EACH ROW BEGIN
+                DELETE FROM entity_tags WHERE entity_type = 'task' AND entity_id = OLD.id;
+            END`,
+
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_bug
+            AFTER DELETE ON bugs
+            FOR EACH ROW BEGIN
+                DELETE FROM entity_tags WHERE entity_type = 'bug' AND entity_id = OLD.id;
+            END`,
+
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_change
+            AFTER DELETE ON change_cards
+            FOR EACH ROW BEGIN
+                DELETE FROM entity_tags WHERE entity_type = 'change' AND entity_id = OLD.id;
+            END`,
+
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_idea
+            AFTER DELETE ON ideas
+            FOR EACH ROW BEGIN
+                DELETE FROM entity_tags WHERE entity_type = 'idea' AND entity_id = OLD.id;
+            END`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("migrateAddTagsAndEntityTags: %w", err)
+		}
+	}
 	return nil
 }

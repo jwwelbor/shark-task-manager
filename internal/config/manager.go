@@ -128,6 +128,35 @@ func (m *Manager) Load() (*Config, error) {
 		config.Observability = &obs
 	}
 
+	// Parse maintainer config if present
+	if maintainerRaw, ok := rawData["maintainer"].(map[string]interface{}); ok {
+		mc := &MaintainerConfig{}
+		if hash, ok := maintainerRaw["password_hash"].(string); ok {
+			mc.PasswordHash = hash
+		}
+		if window, ok := maintainerRaw["cache_window_seconds"].(float64); ok {
+			mc.CacheWindowSeconds = int(window)
+		}
+		config.Maintainer = mc
+	}
+
+	// Parse tag_required_for list if present. This mirrors the maintainer
+	// parse block above and closes the wiring gap identified in the UAT for
+	// T-E28-F04-001: without this block, Manager.Load() (the production path
+	// via cli.GetConfig()) would never populate Config.TagRequiredForTypes
+	// even when the user had set "tag_required_for" in .sharkconfig.json,
+	// silently disabling services.TagService.EnforceRequired.
+	// See spec.md REQ-F-007, REQ-F-017, §2.3.
+	if raw, ok := rawData["tag_required_for"].([]interface{}); ok {
+		types := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				types = append(types, s)
+			}
+		}
+		config.TagRequiredForTypes = types
+	}
+
 	m.config = config
 	return config, nil
 }

@@ -31,6 +31,18 @@ type Config struct {
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
+	// Maintainer holds the optional maintainer authorization gate configuration.
+	// A nil or absent Maintainer is equivalent to "no password configured."
+	Maintainer *MaintainerConfig `json:"maintainer,omitempty"`
+
+	// TagRequiredForTypes lists entity types that MUST carry at least one tag
+	// at creation time. Values are entity-type strings as returned by
+	// models.EntityType.String() ("task", "feature", "epic", "bug", "change",
+	// "idea"). Absent or empty = no enforcement. The backing field name differs
+	// from the JSON tag so the exported accessor TagRequiredFor() can share
+	// the same name as the JSON field.
+	TagRequiredForTypes []string `json:"tag_required_for,omitempty"`
+
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
 	statusMetadata map[string]*StatusMetadata `json:"-"`
@@ -166,6 +178,22 @@ func (o ObservabilityConfig) GetLogTruncateBytes() int {
 // Port 0 means "use the default" (currently 7777, falling back to 7778–7790).
 type WebConfig struct {
 	Port int `json:"port,omitempty"` // TCP port for shark web; 0 means use default
+}
+
+// TagRequiredFor returns the configured list of entity types that require at
+// least one tag on create. Returns nil when the config is nil or the field is
+// absent/empty. The returned slice is a defensive copy — callers cannot
+// mutate the underlying configuration. Satisfies services.TagEnforcementConfig.
+func (c *Config) TagRequiredFor() []string {
+	if c == nil {
+		return nil
+	}
+	if len(c.TagRequiredForTypes) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.TagRequiredForTypes))
+	copy(out, c.TagRequiredForTypes)
+	return out
 }
 
 // GetWebPort returns the configured web server port, or 0 if not set.

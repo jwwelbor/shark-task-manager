@@ -14,6 +14,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ChangeCardRepository defines the data access interface needed by ChangeCardService.
@@ -44,6 +47,15 @@ type ChangeCardService struct {
 	featureRepo FeatureRepository
 	projectRoot string
 	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	// tagSvc is optional — nil disables tag integration.
+	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+	tagSvc TagQuerier
+}
+
+// SetTagService wires the optional TagQuerier dependency. When nil, tag
+// hooks in CreateChangeCard and UpdateChangeCard are skipped silently.
+func (s *ChangeCardService) SetTagService(tagSvc TagQuerier) {
+	s.tagSvc = tagSvc
 }
 
 // NewChangeCardService creates a new ChangeCardService.
@@ -98,6 +110,10 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 			return nil, fmt.Errorf("feature %s not found: %w", input.FeatureKey, err)
 		}
 		featureID = &feature.ID
+	}
+
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeChange, input.Tags); err != nil {
+		return nil, err
 	}
 
 	// Generate next key
@@ -155,6 +171,10 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 		return nil, fmt.Errorf("failed to create change-card: %w", err)
 	}
 
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, input.Tags); err != nil {
+		return nil, err
+	}
+
 	// Generate and write markdown file (best-effort)
 	content := s.generateMarkdown(card)
 	writer := fileops.NewEntityFileWriter()
@@ -182,8 +202,51 @@ func (s *ChangeCardService) GetChangeCard(ctx context.Context, key string) (*mod
 	return card, nil
 }
 
+// GetChangeCardWithTags returns the change-card and the sorted list of tag
+// names attached to it. When tagSvc is nil the tags slice is nil (graceful
+// degradation — consistent with F04 REQ-F-018). When ListTagsForEntity fails
+// the method returns (nil, nil, wrappedErr) per AC-T3.
+func (s *ChangeCardService) GetChangeCardWithTags(ctx context.Context, key string) (*models.ChangeCard, []string, error) {
+	ctx, span := otel.Tracer("shark/services/change_card").Start(ctx, "ChangeCardService.GetChangeCardWithTags",
+		trace.WithAttributes(attribute.String("change_card.key", key)),
+	)
+	defer span.End()
+
+	card, err := s.GetChangeCard(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.tagSvc == nil {
+		return card, nil, nil
+	}
+	names, err := s.tagSvc.ListTagsForEntity(ctx, models.EntityTypeChange, card.ID)
+	if err != nil {
+		return nil, nil, recordSpanError(span, fmt.Errorf("load tags for change-card %s: %w", key, err))
+	}
+	return card, names, nil
+}
+
 // ListChangeCards retrieves change-cards with optional filtering.
 func (s *ChangeCardService) ListChangeCards(ctx context.Context, filters ChangeCardFilters) ([]*models.ChangeCard, error) {
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, &TagFilterUnavailableError{}
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeChange, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return []*models.ChangeCard{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
+	}
+
 	repoFilter := &repository.ChangeCardRepoFilter{
 		IncludeTerminal: filters.ShowAll,
 	}
@@ -219,6 +282,9 @@ func (s *ChangeCardService) ListChangeCards(ctx context.Context, filters ChangeC
 	if cards == nil {
 		cards = []*models.ChangeCard{}
 	}
+
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	cards = filterByTagIDs(cards, taggedIDSet, func(c *models.ChangeCard) int64 { return c.ID })
 
 	return cards, nil
 }
@@ -267,6 +333,11 @@ func (s *ChangeCardService) UpdateChangeCard(ctx context.Context, key string, up
 
 	if err := s.repo.Update(ctx, card); err != nil {
 		return nil, fmt.Errorf("failed to update change-card %s: %w", key, err)
+	}
+
+	// `--tag` on update is additive only; detach goes through `shark change tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, updates.Tags); err != nil {
+		return nil, err
 	}
 
 	return card, nil

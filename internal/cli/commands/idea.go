@@ -14,6 +14,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ideaGetServicer defines the narrow interface used by runIdeaGet.
+// Allows tests to inject a mock without touching the global CLI layer.
+type ideaGetServicer interface {
+	GetIdea(ctx context.Context, key string) (*models.Idea, error)
+	// GetIdeaWithTags returns the idea and sorted attached tag names (REQ-F-014).
+	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
+	GetIdeaWithTags(ctx context.Context, key string) (*models.Idea, []string, error)
+}
+
+// ideaGetSvcOverride is non-nil only during tests.
+var ideaGetSvcOverride ideaGetServicer
+
+// getIdeaGetService returns the service to use for runIdeaGet, preferring the test override.
+func getIdeaGetService() ideaGetServicer {
+	if ideaGetSvcOverride != nil {
+		return ideaGetSvcOverride
+	}
+	return cli.GetIdeaService()
+}
+
 // ideaCmd represents the idea command group
 var ideaCmd = &cobra.Command{
 	Use:     "idea",
@@ -184,7 +204,29 @@ var (
 	ideaHard           bool
 	ideaConvertEpic    string
 	ideaConvertFeature string
+
+	// E28-F04 REQ-F-012: repeatable `--tag` flags for create and update.
+	// Cobra's StringSliceVar does not reset flag-backing variables between
+	// command executions (test code must zero them out to avoid cross-test
+	// bleed).
+	ideaCreateTags []string
+	ideaUpdateTags []string
 )
+
+// resolveIdeaID is the EntityKeyResolver used by the `shark idea tag`
+// subcommand factory. It uses the existing idea service accessor to find
+// an idea by key and return its numeric ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it.
+func resolveIdeaID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetIdeaService()
+	idea, err := svc.GetIdea(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return idea.ID, nil
+}
 
 func init() {
 	// Register idea command and subcommands
@@ -201,6 +243,12 @@ func init() {
 	ideaConvertCmd.AddCommand(ideaConvertFeatureCmd)
 	ideaConvertCmd.AddCommand(ideaConvertTaskCmd)
 
+	// E28-F04 T-010: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time. AC-26 is satisfied by
+	// models.EntityTypeIdea being valid per F01.
+	ideaCmd.AddCommand(makeEntityTagCmd(models.EntityTypeIdea, resolveIdeaID, nil))
+
 	// Convert command flags
 	ideaConvertFeatureCmd.Flags().StringVar(&ideaConvertEpic, "epic", "", "Target epic key (required)")
 	_ = ideaConvertFeatureCmd.MarkFlagRequired("epic")
@@ -213,6 +261,8 @@ func init() {
 	// List command flags
 	ideaListCmd.Flags().StringVar(&ideaStatus, "status", "", "Filter by status (new, on_hold, converted, archived)")
 	ideaListCmd.Flags().IntVar(&ideaPriority, "priority", 0, "Filter by priority (1-10)")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	ideaListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Create command flags
 	ideaCreateCmd.Flags().StringVar(&ideaDescription, "description", "", "Idea description")
@@ -222,6 +272,13 @@ func init() {
 	ideaCreateCmd.Flags().StringSliceVar(&ideaRelatedDocs, "related-docs", []string{}, "Related document paths")
 	ideaCreateCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Dependent idea keys")
 	ideaCreateCmd.Flags().StringVar(&ideaStatus, "status", "new", "Initial status (new, on_hold, converted, archived)")
+	// E28-F04 REQ-F-012: repeatable --tag flag. StringSliceVar collects
+	// repeated occurrences into a []string; Cobra's comma-separator
+	// behaviour means `--tag=foo,bar` becomes ["foo","bar"] — ADR-F04-5
+	// accepts this because invalid-name chars (a comma is invalid under
+	// the regex) surface as a clear exit-3 validation error.
+	ideaCreateCmd.Flags().StringSliceVar(&ideaCreateTags, "tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// Update command flags
 	ideaUpdateCmd.Flags().StringVar(&ideaStatus, "status", "", "Update status")
@@ -232,6 +289,10 @@ func init() {
 	ideaUpdateCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Update dependencies")
 	ideaUpdateCmd.Flags().IntVar(&ideaOrder, "order", 0, "Update order")
 	ideaUpdateCmd.Flags().StringVar(&ideaDescription, "title", "", "Update title")
+	// E28-F04 REQ-F-012: `--tag` on update is additive (REQ-F-010). Empty
+	// means no change; no way to detach here — use `shark idea tag rm`.
+	ideaUpdateCmd.Flags().StringSliceVar(&ideaUpdateTags, "tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark idea tag rm' to detach.")
 
 	// Delete command flags
 	ideaDeleteCmd.Flags().BoolVar(&ideaForce, "force", false, "Skip confirmation prompt")
@@ -241,11 +302,15 @@ func init() {
 // runIdeaList handles the idea list command
 func runIdeaList(cmd *cobra.Command, args []string) error {
 	filters := services.IdeaFilters{Status: ideaStatus}
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		filters.Tags = rawTags
+	}
 
 	svc := cli.GetIdeaService()
 	ideas, err := svc.ListIdeas(cmd.Context(), filters)
 	if err != nil {
-		return fmt.Errorf("failed to list ideas: %w", err)
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "idea", "")
 	}
 
 	ideas = filterIdeasByPriorityAndStatus(ideas, ideaPriority, ideaStatus)
@@ -260,16 +325,31 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 func runIdeaGet(cmd *cobra.Command, args []string) error {
 	ideaKey := args[0]
 
-	svc := cli.GetIdeaService()
-	idea, err := svc.GetIdea(cmd.Context(), ideaKey)
+	// Use GetIdeaWithTags for tag enrichment (REQ-F-014, REQ-F-015).
+	svc := getIdeaGetService()
+	idea, tags, err := svc.GetIdeaWithTags(cmd.Context(), ideaKey)
 	if err != nil {
 		return fmt.Errorf("failed to get idea: %w", err)
 	}
 
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(idea)
+		// REQ-F-015: "tags" field always present, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		// Build result with tags injected.
+		ideaJSON, jsonErr := json.Marshal(idea)
+		if jsonErr != nil {
+			return fmt.Errorf("failed to marshal idea: %w", jsonErr)
+		}
+		var result map[string]interface{}
+		if jsonErr = json.Unmarshal(ideaJSON, &result); jsonErr != nil {
+			return fmt.Errorf("failed to unmarshal idea: %w", jsonErr)
+		}
+		result["tags"] = tags
+		return cli.OutputJSON(result)
 	}
-	return printIdeaDetail(idea)
+	return printIdeaDetailWithTags(idea, tags)
 }
 
 // runIdeaCreate handles the idea create command
@@ -282,7 +362,7 @@ func runIdeaCreate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	idea, err := svc.CreateIdea(cmd.Context(), input)
 	if err != nil {
-		return fmt.Errorf("failed to create idea: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "idea", input.Title)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -303,7 +383,7 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	idea, err := svc.UpdateIdea(cmd.Context(), ideaKey, input)
 	if err != nil {
-		return fmt.Errorf("failed to update idea: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "idea", ideaKey)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -659,8 +739,9 @@ func printIdeaList(ideas []*models.Idea) error {
 	return nil
 }
 
-// printIdeaDetail prints detailed idea information.
-func printIdeaDetail(idea *models.Idea) error {
+// printIdeaDetailWithTags prints detailed idea information including the tag line.
+// tags==nil means tagSvc unavailable (no Tags line). Empty slice renders "Tags: (none)".
+func printIdeaDetailWithTags(idea *models.Idea, tags []string) error {
 	fmt.Printf("Idea: %s\n", idea.Key)
 	fmt.Printf("Title: %s\n", idea.Title)
 	fmt.Printf("Status: %s\n", idea.Status)
@@ -692,6 +773,14 @@ func printIdeaDetail(idea *models.Idea) error {
 	}
 	fmt.Printf("Created: %s\n", idea.CreatedDate.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Updated: %s\n", idea.UpdatedAt.Format("2006-01-02 15:04:05"))
+	// REQ-F-015: render tags when available. nil means tagSvc unavailable — omit.
+	if tags != nil {
+		if len(tags) == 0 {
+			fmt.Println("Tags: (none)")
+		} else {
+			fmt.Printf("Tags: %s\n", strings.Join(tags, ", "))
+		}
+	}
 	return nil
 }
 
@@ -700,6 +789,7 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 	input := services.CreateIdeaInput{
 		Title:  title,
 		Status: ideaStatus,
+		Tags:   ideaCreateTags,
 	}
 
 	if ideaDescription != "" {
@@ -735,7 +825,12 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 
 // parseUpdateIdeaInput builds an UpdateIdeaInput from changed flags.
 func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) {
-	input := services.UpdateIdeaInput{}
+	input := services.UpdateIdeaInput{
+		// E28-F04 REQ-F-010: --tag is additive. When the flag is absent,
+		// ideaUpdateTags is nil (StringSliceVar default) and the service
+		// treats len(Tags) == 0 as a no-op.
+		Tags: ideaUpdateTags,
+	}
 
 	if cmd.Flags().Changed("title") {
 		title, _ := cmd.Flags().GetString("title")

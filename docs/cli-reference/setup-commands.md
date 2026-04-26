@@ -436,6 +436,60 @@ shark workflow validate-actions --json
 
 ---
 
+## Maintainer Authorization
+
+### shark admin maintainer set-password
+
+Set the maintainer password for protecting destructive admin operations.
+The plaintext password is **never stored**; only its SHA-256 hex digest is
+written to `.sharkconfig.json` under the `maintainer.password_hash` key.
+All other config keys are preserved.
+
+Run this command once to bootstrap the gate. Run it again to rotate the
+password (the old hash is overwritten).
+
+```
+Usage:
+  shark admin maintainer set-password [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--password <value>` | Provide the plaintext password directly (not stored) |
+| `--password-stdin` | Read the password from stdin (newline-terminated) |
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Password hash written successfully |
+| `1` | Parse / validation error (empty password, invalid stdin) |
+| `2` | Config write failure |
+
+**Examples:**
+
+```bash
+# Provide password via flag
+shark admin maintainer set-password --password "hunter2"
+
+# Provide password via stdin (avoids shell history)
+echo "hunter2" | shark admin maintainer set-password --password-stdin
+```
+
+**Notes:**
+
+- The command is **not gated** — you do not need an existing password to set one.
+  This is the bootstrap scenario (chicken-and-egg: the gate cannot exist before
+  the first password is set).
+- Password rotation is also ungated in v1. A future epic may add
+  "current-password-required rotation."
+- The hash stored in `.sharkconfig.json` is `sha256(plaintext_password)` encoded
+  as lowercase hex.
+
+---
+
 ## Related Documentation
 
 - [Global Flags](global-flags.md) -- Flags available to all commands

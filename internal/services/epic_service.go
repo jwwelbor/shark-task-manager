@@ -81,6 +81,10 @@ type EpicService struct {
 	analyticsService *EpicAnalyticsService  // optional; lazy-initialized if nil
 	enrichRepo       config.TemplateEnrichmentRepository
 	tracer           trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
+
+	// tagSvc is optional — nil disables tag integration.
+	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+	tagSvc TagQuerier
 }
 
 // NewEpicService creates a new EpicService.
@@ -159,6 +163,13 @@ func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, 
 // on first analytics method call.
 func (s *EpicService) SetAnalyticsService(svc *EpicAnalyticsService) {
 	s.analyticsService = svc
+}
+
+// SetTagService wires the optional TagQuerier dependency. When nil, tag
+// hooks in CreateEpic, UpdateEpic, and ListEpics are skipped silently.
+// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+func (s *EpicService) SetTagService(tagSvc TagQuerier) {
+	s.tagSvc = tagSvc
 }
 
 // getAnalyticsService returns the analytics sub-service, creating one lazily if nil.
@@ -294,10 +305,53 @@ func (s *EpicService) GetEpic(ctx context.Context, key string) (*models.Epic, er
 	return epic, nil
 }
 
+// GetEpicWithTags returns the epic and the sorted list of tag names attached to
+// it. When tagSvc is nil the tags slice is nil (graceful degradation —
+// consistent with F04 REQ-F-018). When ListTagsForEntity fails the method
+// returns (nil, nil, wrappedErr) per AC-T3.
+func (s *EpicService) GetEpicWithTags(ctx context.Context, key string) (*models.Epic, []string, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.GetEpicWithTags",
+		trace.WithAttributes(attribute.String("epic.key", key)),
+	)
+	defer span.End()
+
+	epic, err := s.GetEpic(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.tagSvc == nil {
+		return epic, nil, nil
+	}
+	names, err := s.tagSvc.ListTagsForEntity(ctx, models.EntityTypeEpic, epic.ID)
+	if err != nil {
+		return nil, nil, recordSpanError(span, fmt.Errorf("load tags for epic %s: %w", key, err))
+	}
+	return epic, names, nil
+}
+
 // ListEpics retrieves epics with optional filtering.
 func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*models.Epic, error) {
 	ctx, span := s.getTracer().Start(ctx, "EpicService.ListEpics")
 	defer span.End()
+
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, recordSpanError(span, &TagFilterUnavailableError{})
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeEpic, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, recordSpanError(span, err)
+		}
+		if len(ids) == 0 {
+			return []*models.Epic{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
+	}
 
 	var statusPtr *models.EpicStatus
 	if filters.Status != "" {
@@ -308,6 +362,10 @@ func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*mo
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to list epics: %w", err))
 	}
+
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	epics = filterByTagIDs(epics, taggedIDSet, func(e *models.Epic) int64 { return e.ID })
+
 	return epics, nil
 }
 
@@ -406,6 +464,10 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 		return nil, fmt.Errorf("epic title cannot be empty")
 	}
 
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeEpic, input.Tags); err != nil {
+		return nil, err
+	}
+
 	// Determine epic key
 	epicKey := input.CustomKey
 	if epicKey != "" {
@@ -477,6 +539,10 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 		return nil, fmt.Errorf("failed to create epic %s: %w", epicKey, err)
 	}
 
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeEpic, epic.ID, input.Tags); err != nil {
+		return nil, err
+	}
+
 	return epic, nil
 }
 
@@ -528,6 +594,11 @@ func (s *EpicService) UpdateEpic(ctx context.Context, key string, updates EpicUp
 
 	if err := s.repo.Update(ctx, epic); err != nil {
 		return nil, fmt.Errorf("failed to update epic %s: %w", key, err)
+	}
+
+	// `--tag` on update is additive only; detach goes through `shark epic tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeEpic, epic.ID, updates.Tags); err != nil {
+		return nil, err
 	}
 
 	return epic, nil

@@ -41,6 +41,8 @@ func init() {
 	listCmd.Flags().Bool("all", false, "Show all items including completed (by default, completed items are hidden)")
 	// Idea-specific flags (only used when 'idea' or 'ideas' keyword is provided)
 	listCmd.Flags().Int("priority", 0, "Filter ideas by priority (1-10)")
+	// E28-F05 REQ-F-009: repeatable --tag flag with AND semantics.
+	listCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 }
 
 // runList executes the list command dispatcher
@@ -57,20 +59,26 @@ func runList(cmd *cobra.Command, args []string) error {
 	showAllFlag, _ := cmd.Flags().GetBool("show-all")
 	allFlag, _ := cmd.Flags().GetBool("all")
 	showAllFlag = showAllFlag || allFlag
+	// E28-F05 REQ-F-009: read the repeatable --tag flag.
+	// nil when no --tag flags were supplied (not an empty slice).
+	var tagFlags []string
+	if rawTags, err := cmd.Flags().GetStringSlice("tag"); err == nil && len(rawTags) > 0 {
+		tagFlags = rawTags
+	}
 
 	// Dispatch to appropriate subcommand
 	switch command {
 	case "epic":
 		// Call epic list command
-		return runEpicListWithFlags(cmd, statusFlag, sortByFlag, showAllFlag)
+		return runEpicListWithFlags(cmd, statusFlag, sortByFlag, showAllFlag, tagFlags)
 
 	case "feature":
 		// Call feature list command with epic filter
-		return runFeatureListWithFlags(cmd, *epicKey, statusFlag, sortByFlag, showAllFlag)
+		return runFeatureListWithFlags(cmd, *epicKey, statusFlag, sortByFlag, showAllFlag, tagFlags)
 
 	case "task":
 		// Call task list command with epic and feature filter
-		return runTaskListWithFlags(cmd, *epicKey, *featureKey, statusFlag, sortByFlag, showAllFlag)
+		return runTaskListWithFlags(cmd, *epicKey, *featureKey, statusFlag, sortByFlag, showAllFlag, tagFlags)
 
 	case "idea":
 		// Wire idea-specific flags from listCmd into package-level idea vars
@@ -78,24 +86,26 @@ func runList(cmd *cobra.Command, args []string) error {
 		if p, err := cmd.Flags().GetInt("priority"); err == nil {
 			ideaPriority = p
 		}
+		forwardTagFlags(ideaListCmd, tagFlags)
 		// Propagate context and delegate to idea list handler
 		ideaListCmd.SetContext(cmd.Context())
 		return runIdeaList(ideaListCmd, []string{})
 
 	case "bug":
-		// Forward --all flag to bug list command
 		bugListCmd.SetContext(cmd.Context())
 		_ = bugListCmd.Flags().Set("all", formatBool(showAllFlag))
+		forwardTagFlags(bugListCmd, tagFlags)
 		return runBugList(bugListCmd, []string{})
 
 	case "change":
-		// Forward --all flag to change list command
 		changeListCmd.SetContext(cmd.Context())
 		_ = changeListCmd.Flags().Set("all", formatBool(showAllFlag))
+		forwardTagFlags(changeListCmd, tagFlags)
 		return runChangeList(changeListCmd, []string{})
 
 	case "tech_debt":
-		// Forward --all flag to tech-debt list command
+		// Forward --all flag to tech-debt list command.
+		// --tag is forwarded as nil per REQ-F-009 (tech_debt out of scope).
 		tdListCmd.SetContext(cmd.Context())
 		_ = tdListCmd.Flags().Set("all", formatBool(showAllFlag))
 		return runTdList(tdListCmd, []string{})
@@ -106,38 +116,43 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// runEpicListWithFlags calls the epic list command with flags
-func runEpicListWithFlags(cmd *cobra.Command, statusFilter, sortBy string, showAll bool) error {
-	// Set flags on the epic list command
+// forwardTagFlags forwards a repeatable --tag slice from runList to a delegated
+// subcommand. nil/empty slice is a no-op so callers can pass through unconditionally.
+func forwardTagFlags(target *cobra.Command, tags []string) {
+	for _, t := range tags {
+		_ = target.Flags().Set("tag", t)
+	}
+}
+
+// runEpicListWithFlags calls the epic list command with flags.
+// tags is nil when no --tag flags were supplied (REQ-F-009).
+func runEpicListWithFlags(cmd *cobra.Command, statusFilter, sortBy string, showAll bool, tags []string) error {
 	_ = epicListCmd.Flags().Set("status", statusFilter)
 	_ = epicListCmd.Flags().Set("sort-by", sortBy)
 	// Note: epic list doesn't have show-all flag, completed epics are always shown
-
-	// Propagate context so the delegated command has a non-nil context for DB calls.
+	forwardTagFlags(epicListCmd, tags)
 	epicListCmd.SetContext(cmd.Context())
 	return runEpicList(epicListCmd, []string{})
 }
 
-// runFeatureListWithFlags calls the feature list command with epic filter and flags
-func runFeatureListWithFlags(cmd *cobra.Command, epic, statusFilter, sortBy string, showAll bool) error {
-	// Set flags on the feature list command
+// runFeatureListWithFlags calls the feature list command with epic filter and flags.
+// tags is nil when no --tag flags were supplied (REQ-F-009).
+func runFeatureListWithFlags(cmd *cobra.Command, epic, statusFilter, sortBy string, showAll bool, tags []string) error {
 	_ = featureListCmd.Flags().Set("status", statusFilter)
 	_ = featureListCmd.Flags().Set("sort-by", sortBy)
 	_ = featureListCmd.Flags().Set("all", formatBool(showAll))
-
-	// Propagate context so the delegated command has a non-nil context for DB calls.
+	forwardTagFlags(featureListCmd, tags)
 	featureListCmd.SetContext(cmd.Context())
 	return runFeatureList(featureListCmd, []string{epic})
 }
 
-// runTaskListWithFlags calls the task list command with epic and feature filter and flags
-func runTaskListWithFlags(cmd *cobra.Command, epic, feature, statusFilter, sortBy string, showAll bool) error {
-	// Set flags on the task list command
+// runTaskListWithFlags calls the task list command with epic and feature filter and flags.
+// tags is nil when no --tag flags were supplied (REQ-F-009).
+func runTaskListWithFlags(cmd *cobra.Command, epic, feature, statusFilter, sortBy string, showAll bool, tags []string) error {
 	_ = taskListCmd.Flags().Set("status", statusFilter)
 	// Note: task list doesn't have sort-by flag yet
 	_ = taskListCmd.Flags().Set("all", formatBool(showAll))
-
-	// Propagate context so the delegated command has a non-nil context for DB calls.
+	forwardTagFlags(taskListCmd, tags)
 	taskListCmd.SetContext(cmd.Context())
 	return runTaskList(taskListCmd, []string{epic, feature})
 }

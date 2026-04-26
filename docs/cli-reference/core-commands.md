@@ -97,6 +97,7 @@ The combined key format also works: `shark list E10-F01` lists tasks in feature 
 | `--all` | Show all items including completed (completed items are hidden by default) |
 | `--status <status>` | Filter by status |
 | `--sort-by <field>` | Sort by: `key`, `progress`, `status` (default: `key`) |
+| `--tag <name>` | Filter by tag (repeatable; AND — all tags must match). Tag must be registered; see [`tags.md`](tags.md) and `shark tags list`. |
 | `--json` | Output in JSON format (machine-readable) |
 | `--field <name>` | Extract a single field from JSON output |
 | `-h, --help` | Help for list |
@@ -121,10 +122,20 @@ shark list --all                   # Include completed items
 # Sort features by progress
 shark list E10 --sort-by=progress
 
+# Filter by a registered tag (AC-21 / AC-22 / AC-23)
+shark list --tag=voice                  # Epics tagged 'voice'
+shark list E10 --tag=voice              # Features in E10 tagged 'voice'
+shark list E10 F01 --tag=voice          # Tasks in E10-F01 tagged 'voice'
+
+# Multi-tag filtering uses AND semantics — only entities carrying ALL tags match
+shark list E10 --tag=auth --tag=voice
+
 # JSON output
 shark list --json
 shark list E10 F01 --json
 ```
+
+> `--tag` is **repeatable** and uses **AND semantics** across multiple values. Tag names must already be registered in the vocabulary via `shark tags add`; supplying an unregistered name exits 3. See [Tags Commands](tags.md) for the full vocabulary model and entity-level filtering reference.
 
 ---
 
@@ -356,3 +367,4 @@ All core commands support the following global flags:
 - [Task Commands](task-commands.md) - Task lifecycle commands (start, complete, approve, block)
 - [Epic Commands](epic-commands.md) - Noun-first epic commands
 - [Feature Commands](feature-commands.md) - Noun-first feature commands
+- [Tags Commands](tags.md) - Closed tag vocabulary and `--tag` filtering on list/search

@@ -32,6 +32,13 @@ type CreateIdeaInput struct {
 	// CreatedDate overrides the creation date (optional, defaults to today).
 	// Use for testing or backfilling historical ideas.
 	CreatedDate *time.Time
+
+	// Tags are optional tag names to attach after creation. E28-F04 REQ-F-012.
+	// Each name must be registered in the vocabulary; unknown names surface
+	// as *UnregisteredTagError from the tag service. When `tag_required_for`
+	// includes "idea" and Tags is empty, CreateIdea returns *TagRequiredError
+	// before persistence (REQ-F-008).
+	Tags []string
 }
 
 // UpdateIdeaInput contains the fields that can be updated on an existing idea.
@@ -60,6 +67,11 @@ type UpdateIdeaInput struct {
 
 	// Status updates the idea status if non-nil.
 	Status *string
+
+	// Tags are optional tag names to ADDITIVELY attach. E28-F04 REQ-F-010.
+	// Empty (nil or []string{}) is a no-op — detach is not supported here;
+	// removal goes through `shark idea tag rm`. Errors propagate unchanged.
+	Tags []string
 }
 
 // IdeaFilters defines filtering options for listing ideas.
@@ -73,4 +85,8 @@ type IdeaFilters struct {
 
 	// DateTo filters ideas created on or before this date (format: YYYY-MM-DD).
 	DateTo string
+
+	// Tags filters ideas to those tagged with ALL of the supplied names
+	// (AND semantics, E28-F05 REQ-F-005). Empty/nil means no tag filter.
+	Tags []string
 }

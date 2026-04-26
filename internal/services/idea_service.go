@@ -7,6 +7,9 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // IdeaRepository defines the repository interface needed by IdeaService.
@@ -32,6 +35,9 @@ type IdeaRepository interface {
 // and coordinates with the idea repository.
 type IdeaService struct {
 	repo IdeaRepository
+	// tagSvc is optional — nil disables tag integration.
+	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+	tagSvc TagQuerier
 }
 
 // NewIdeaService creates a new IdeaService with the required dependencies.
@@ -47,6 +53,13 @@ func NewIdeaService(repo IdeaRepository) (*IdeaService, error) {
 		return nil, fmt.Errorf("IdeaService requires a non-nil IdeaRepository")
 	}
 	return &IdeaService{repo: repo}, nil
+}
+
+// SetTagService wires the optional TagQuerier dependency. When nil, tag
+// hooks in CreateIdea, UpdateIdea, and ListIdeas are skipped silently.
+// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+func (s *IdeaService) SetTagService(tagSvc TagQuerier) {
+	s.tagSvc = tagSvc
 }
 
 // CreateIdea creates a new idea with a date-based key generated automatically.
@@ -65,6 +78,10 @@ func NewIdeaService(repo IdeaRepository) (*IdeaService, error) {
 func (s *IdeaService) CreateIdea(ctx context.Context, input CreateIdeaInput) (*models.Idea, error) {
 	if input.Title == "" {
 		return nil, fmt.Errorf("idea title is required")
+	}
+
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeIdea, input.Tags); err != nil {
+		return nil, err
 	}
 
 	// Determine creation date
@@ -103,6 +120,10 @@ func (s *IdeaService) CreateIdea(ctx context.Context, input CreateIdeaInput) (*m
 		return nil, fmt.Errorf("failed to create idea: %w", err)
 	}
 
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeIdea, idea.ID, input.Tags); err != nil {
+		return nil, err
+	}
+
 	return idea, nil
 }
 
@@ -123,6 +144,30 @@ func (s *IdeaService) GetIdea(ctx context.Context, key string) (*models.Idea, er
 	return idea, nil
 }
 
+// GetIdeaWithTags returns the idea and the sorted list of tag names attached to
+// it. When tagSvc is nil the tags slice is nil (graceful degradation —
+// consistent with F04 REQ-F-018). When ListTagsForEntity fails the method
+// returns (nil, nil, wrappedErr) per AC-T3.
+func (s *IdeaService) GetIdeaWithTags(ctx context.Context, key string) (*models.Idea, []string, error) {
+	ctx, span := otel.Tracer("shark/services/idea").Start(ctx, "IdeaService.GetIdeaWithTags",
+		trace.WithAttributes(attribute.String("idea.key", key)),
+	)
+	defer span.End()
+
+	idea, err := s.GetIdea(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.tagSvc == nil {
+		return idea, nil, nil
+	}
+	names, err := s.tagSvc.ListTagsForEntity(ctx, models.EntityTypeIdea, idea.ID)
+	if err != nil {
+		return nil, nil, recordSpanError(span, fmt.Errorf("load tags for idea %s: %w", key, err))
+	}
+	return idea, names, nil
+}
+
 // ListIdeas retrieves ideas matching the given filters.
 //
 // Parameters:
@@ -133,6 +178,25 @@ func (s *IdeaService) GetIdea(ctx context.Context, key string) (*models.Idea, er
 //   - []*models.Idea: list of matching ideas (may be empty, never nil)
 //   - error: repository error
 func (s *IdeaService) ListIdeas(ctx context.Context, filters IdeaFilters) ([]*models.Idea, error) {
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, &TagFilterUnavailableError{}
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeIdea, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return []*models.Idea{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
+	}
+
 	var repoFilter *repository.IdeaFilter
 
 	if filters.Status != "" {
@@ -148,6 +212,9 @@ func (s *IdeaService) ListIdeas(ctx context.Context, filters IdeaFilters) ([]*mo
 	if ideas == nil {
 		ideas = []*models.Idea{}
 	}
+
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	ideas = filterByTagIDs(ideas, taggedIDSet, func(i *models.Idea) int64 { return i.ID })
 
 	return ideas, nil
 }
@@ -198,6 +265,11 @@ func (s *IdeaService) UpdateIdea(ctx context.Context, key string, input UpdateId
 
 	if err := s.repo.Update(ctx, idea); err != nil {
 		return nil, fmt.Errorf("failed to update idea %s: %w", key, err)
+	}
+
+	// `--tag` on update is additive only; detach goes through `shark idea tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeIdea, idea.ID, input.Tags); err != nil {
+		return nil, err
 	}
 
 	return idea, nil

@@ -25,6 +25,8 @@ Features follow a complexity-adaptive workflow. Depending on the configured work
 | `notes` | Context & Notes | List notes for a feature |
 | `criteria` | Context & Notes | Show aggregated acceptance criteria |
 | `resume` | Context & Notes | Get comprehensive context for resuming work |
+| `tag add` | Tags | Attach a registered tag to a feature |
+| `tag rm` | Tags | Detach a registered tag from a feature |
 
 ## Global Flags
 
@@ -77,6 +79,7 @@ shark feature create --epic=<epic-key> "<title>" [flags]
 | `--key <key>` | Custom key for the feature |
 | `--order <n>` | Execution order within epic (lower runs first) |
 | `--status <status>` | Initial status (default: `draft`) |
+| `--tag <name>` | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
 
@@ -89,6 +92,9 @@ shark feature create E07 "User Profiles" --file="docs/features/profiles/feature.
 
 # Create with execution order and description
 shark feature create E07 "OAuth Integration" --order=2 --description="Add OAuth 2.0 support"
+
+# Create with one or more tags (tags must already be registered)
+shark feature create E07 "OAuth Integration" --tag=auth --tag=voice
 ```
 
 **JSON Output:**
@@ -296,6 +302,7 @@ shark feature update <feature-key> [flags]
 | `--key <key>` | New key (must be unique, no spaces) |
 | `--file <path>` | New file path |
 | `--force` | Force reassignment if file already claimed |
+| `--tag <name>` | Tag to apply additively (repeatable). Empty = no change; use `shark feature tag rm` to detach. |
 
 **Examples:**
 
@@ -308,7 +315,13 @@ shark feature update E07-F01 --order=1
 
 # Update multiple fields
 shark feature update E07-F01 --status=active --description="Updated scope" --json
+
+# Additive tagging (does not detach existing tags)
+shark feature update E07-F01 --tag=auth
+shark feature update E07-F01 --tag=auth --tag=voice
 ```
+
+> `--tag` on update is **additive only**. Use `shark feature tag rm E07-F01 <name>` to detach a single tag.
 
 ---
 
@@ -725,6 +738,61 @@ shark feature resume E07-F01
 # JSON output for programmatic consumption
 shark feature resume E07-F01 --json
 ```
+
+---
+
+## Tag Commands
+
+Retroactively attach or detach a registered tag on an existing feature. See [Tags → Retroactive Tagging](tags.md#retroactive-tagging-shark-entity-tag-addrm) for the cross-entity overview.
+
+### `shark feature tag add`
+
+Attach a registered tag to a feature. Re-running with the same arguments is a no-op (idempotent).
+
+**Usage:**
+```bash
+shark feature tag add <feature-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark feature tag add E07-F01 auth
+shark feature tag add E07-F01 auth --json   # idempotent
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag attached (or already attached) |
+| 1 | `not_found` | Feature key not found |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
+
+On an unregistered tag (process exit **3**, internal class `unregistered_tag`), stderr renders the SC-2 vocabulary snippet + `To add it:` remediation line. See [Tags → Unregistered Tag Errors](tags.md#unregistered-tag-errors).
+
+### `shark feature tag rm`
+
+Detach a registered tag from a feature. Removing an unattached tag is a no-op as long as the tag name is in the vocabulary.
+
+**Usage:**
+```bash
+shark feature tag rm <feature-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark feature tag rm E07-F01 auth
+shark feature tag rm E07-F01 auth   # idempotent no-op
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag detached (or was not attached) |
+| 1 | `not_found` | Feature key not found, or tag name not in vocabulary |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
 
 ---
 

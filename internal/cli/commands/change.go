@@ -18,6 +18,9 @@ import (
 type changeCardServicer interface {
 	CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
 	GetChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
+	// GetChangeCardWithTags returns the change-card along with sorted tag names (REQ-F-014).
+	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
+	GetChangeCardWithTags(ctx context.Context, key string) (*models.ChangeCard, []string, error)
 	ListChangeCards(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
 	UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCard(ctx context.Context, key string) error
@@ -159,7 +162,32 @@ var (
 	changeRequestedBy  string
 	changeAssignedTo   string
 	changeForce        bool
+	// changeCreateTags and changeUpdateTags back the repeatable --tag flag
+	// on `shark change create` and `shark change update`. Declared as
+	// distinct variables because they live on different commands; Cobra
+	// does not reset flag-backing variables between command executions
+	// (test code must zero them out to avoid cross-test bleed).
+	changeCreateTags []string
+	changeUpdateTags []string
 )
+
+// resolveChangeCardID is the EntityKeyResolver used by the `shark change tag`
+// subcommand factory. It uses the existing change-card service accessor
+// (either the production service or the test override in
+// changeCardSvcOverride) to find a change-card by key and return its numeric
+// ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it and so tests can
+// observe its behaviour through changeCardSvcOverride.
+func resolveChangeCardID(ctx context.Context, key string) (int64, error) {
+	svc := getChangeCardService()
+	card, err := svc.GetChangeCard(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return card.ID, nil
+}
 
 func init() {
 	// Register change command group
@@ -180,16 +208,30 @@ func init() {
 	// Context (generic handler)
 	changeCmd.AddCommand(makeContextCmd("change"))
 
+	// E28-F04 T-009: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	changeCmd.AddCommand(makeEntityTagCmd(models.EntityTypeChange, resolveChangeCardID, nil))
+
 	// Create flags
 	changeCreateCmd.Flags().StringVar(&changeLinkKey, "link", "", "Link to epic or feature (E## or E##-F##)")
 	changeCreateCmd.Flags().StringVar(&changeDescription, "description", "", "Change-card description")
 	changeCreateCmd.Flags().IntVar(&changePriority, "priority", 0, "Priority (1-10)")
 	changeCreateCmd.Flags().StringVar(&changeRequestedBy, "requested-by", "", "Who requested this change")
+	// E28-F04 REQ-F-012: repeatable --tag flag. StringSliceVar collects
+	// repeated occurrences into a []string; Cobra's comma-separator
+	// behaviour means `--tag=foo,bar` becomes ["foo","bar"] — ADR-F04-5
+	// accepts this because invalid-name chars (a comma is invalid under
+	// the regex) surface as a clear exit-3 validation error.
+	changeCreateCmd.Flags().StringSliceVar(&changeCreateTags, "tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// List flags
 	changeListCmd.Flags().StringVar(&changeStatusFilter, "status", "", "Filter by status (proposed, approved, in_progress, completed, declined)")
 	changeListCmd.Flags().StringVar(&changeLinkFilter, "link", "", "Filter by linked entity key (E## or E##-F##)")
 	changeListCmd.Flags().Bool("all", false, "Show all change-cards including terminal statuses (completed, declined)")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	changeListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Update flags
 	changeUpdateCmd.Flags().StringVar(&changeTitle, "title", "", "New title")
@@ -202,6 +244,10 @@ func init() {
 	changeUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = changeUpdateCmd.Flags().MarkHidden("filename")
 	_ = changeUpdateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012: `--tag` on update is additive (REQ-F-010). Empty
+	// means no change; no way to detach here — use `shark change tag rm`.
+	changeUpdateCmd.Flags().StringSliceVar(&changeUpdateTags, "tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark change tag rm' to detach.")
 
 	// Delete flags
 	changeDeleteCmd.Flags().BoolVar(&changeForce, "force", false, "Skip confirmation prompt")
@@ -213,12 +259,18 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	title := args[0]
 	input := buildCreateChangeCardInput(title)
+	// E28-F04 REQ-F-012: read --tag via the flag accessor (not the
+	// package-level variable) so test invocations that reset flags between
+	// runs see a fresh value each time.
+	if tags, err := cmd.Flags().GetStringSlice("tag"); err == nil {
+		input.Tags = tags
+	}
 
 	// Step 2: Call service
 	svc := getChangeCardService()
 	card, err := svc.CreateChangeCard(cmd.Context(), input)
 	if err != nil {
-		return fmt.Errorf("failed to create change-card: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", input.Title)
 	}
 
 	// Step 3: Format output
@@ -238,9 +290,9 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	ctx := cmd.Context()
 
-	// Step 2: Call service
+	// Step 2: Call service — use GetChangeCardWithTags for tag enrichment (REQ-F-014, REQ-F-015).
 	svc := getChangeCardService()
-	card, err := svc.GetChangeCard(ctx, key)
+	card, tags, err := svc.GetChangeCardWithTags(ctx, key)
 	if err != nil {
 		return fmt.Errorf("change-card %s not found: %w", key, err)
 	}
@@ -272,14 +324,21 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 		if contextData != nil {
 			result["context_data"] = contextData
 		}
+		// REQ-F-015: "tags" field always present, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		result["tags"] = tags
 		return cli.OutputJSON(result)
 	}
 
+	basicInfo := buildChangeCardBasicInfo(card)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "change-card",
 		Key:                card.Key,
 		Status:             string(card.Status),
-		BasicInfo:          buildChangeCardBasicInfo(card),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		Notes:              notes,
@@ -304,12 +363,16 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 			filters.EpicKey = changeLinkFilter
 		}
 	}
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		filters.Tags = rawTags
+	}
 
 	// Step 2: Call service
 	svc := getChangeCardService()
 	cards, err := svc.ListChangeCards(cmd.Context(), filters)
 	if err != nil {
-		return fmt.Errorf("failed to list change-cards: %w", err)
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "change", "")
 	}
 
 	// Step 3: Format output
@@ -329,7 +392,7 @@ func runChangeUpdate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, err := svc.UpdateChangeCard(cmd.Context(), key, updates)
 	if err != nil {
-		return fmt.Errorf("failed to update change-card %s: %w", key, err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", key)
 	}
 
 	// Step 3: Format output
@@ -408,6 +471,9 @@ func runChangeApprove(cmd *cobra.Command, args []string) error {
 // --- Helper functions ---
 
 // buildCreateChangeCardInput constructs a CreateChangeCardInput from flag values.
+// Note: Tags are threaded in by the caller (runChangeCreate) via the flag
+// accessor rather than here, to keep this function usable from tests that
+// don't build a cobra.Command (E28-F04 T-009).
 func buildCreateChangeCardInput(title string) services.CreateChangeCardInput {
 	input := services.CreateChangeCardInput{
 		Title:       title,
@@ -448,6 +514,14 @@ func buildChangeCardUpdates(cmd *cobra.Command) services.ChangeCardUpdates {
 	}
 	if v := getFileFlagValue(cmd); v != "" {
 		updates.FilePath = &v
+	}
+	// E28-F04 REQ-F-012: read --tag for additive tagging on update.
+	// `cmd.Flags().Changed("tag")` ensures we only attach the slice when
+	// the user actually passed the flag (vs. an empty default).
+	if cmd.Flags().Changed("tag") {
+		if tags, err := cmd.Flags().GetStringSlice("tag"); err == nil {
+			updates.Tags = tags
+		}
 	}
 	return updates
 }

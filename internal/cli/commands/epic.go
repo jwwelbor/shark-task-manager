@@ -2,15 +2,32 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// resolveEpicID is the EntityKeyResolver used by the `shark epic tag`
+// subcommand factory. It looks up an epic by key through the existing
+// EpicService accessor (cli.GetEpicService) and returns the numeric ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it directly.
+func resolveEpicID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetEpicService()
+	epic, err := svc.GetEpic(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return epic.ID, nil
+}
 
 var epicCmd = &cobra.Command{
 	Use:     "epic",
@@ -123,8 +140,15 @@ func init() {
 	cli.RootCmd.AddCommand(epicCmd)
 	epicCmd.AddCommand(epicListCmd, epicGetCmd, epicStatusCmd, epicCompleteCmd, epicCreateCmd, epicDeleteCmd, epicUpdateCmd)
 
+	// E28-F04 T-008: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	epicCmd.AddCommand(makeEntityTagCmd(models.EntityTypeEpic, resolveEpicID, nil))
+
 	epicListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 	epicListCmd.Flags().String("status", "", "Filter by status: draft, active, completed, archived")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	epicListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	epicCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks regardless of status")
 
@@ -139,6 +163,10 @@ func init() {
 	epicCreateCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
 	epicCreateCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
 	epicCreateCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
+	// E28-F04 REQ-F-012: repeatable --tag flag. Tag must be registered in
+	// the vocabulary (see `shark tags list` / `shark tags add`).
+	epicCreateCmd.Flags().StringSlice("tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
 
@@ -152,6 +180,10 @@ func init() {
 	epicUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = epicUpdateCmd.Flags().MarkHidden("filename")
 	_ = epicUpdateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE (no
+	// detach). Use `shark epic tag rm` to detach a single tag.
+	epicUpdateCmd.Flags().StringSlice("tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark epic tag rm' to detach.")
 }
 
 // runEpicList lists all epics with progress information.
@@ -176,13 +208,14 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	epics, err := cli.GetEpicService().ListEpics(ctx, services.EpicFilters{Status: statusFilter})
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	var tagFilter []string
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		tagFilter = rawTags
+	}
+	epics, err := cli.GetEpicService().ListEpics(ctx, services.EpicFilters{Status: statusFilter, Tags: tagFilter})
 	if err != nil {
-		cli.Error("Error: Database error. Run with --verbose for details.")
-		if cli.GlobalConfig.Verbose {
-			slog.Error("Failed to list epics", "error", err)
-		}
-		os.Exit(2)
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "epic", "")
 	}
 
 	if len(epics) == 0 {
@@ -209,11 +242,19 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	epicKey := args[0]
-	epic, err := cli.GetEpicService().GetEpic(ctx, epicKey)
+	// Use GetEpicWithTags for tag enrichment (REQ-F-014, REQ-F-015).
+	epicSvc := cli.GetEpicService()
+	epic, tags, err := epicSvc.GetEpicWithTags(ctx, epicKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
 		cli.Info("Use 'shark epic list' to see available epics")
 		os.Exit(1)
+	}
+
+	// REQ-F-015: JSON always has a "tags" key, never null.
+	jsonTags := tags
+	if jsonTags == nil {
+		jsonTags = []string{}
 	}
 
 	displaySvc := cli.GetDisplayService()
@@ -233,9 +274,19 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		info.OrchestratorAction = displaySvc.ResolveEpicAction(ctx, epic)
 
 		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(info)
+			// Add "tags" to the planning JSON envelope.
+			infoJSON, marshalErr := json.Marshal(info)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			var infoMap map[string]interface{}
+			if unmarshalErr := json.Unmarshal(infoJSON, &infoMap); unmarshalErr != nil {
+				return unmarshalErr
+			}
+			infoMap["tags"] = jsonTags
+			return cli.OutputJSON(infoMap)
 		}
-		renderEpicPlanning(info)
+		renderEpicPlanningWithTags(info, tags)
 		return nil
 	}
 
@@ -250,9 +301,11 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 
 	orchestratorAction := displaySvc.ResolveEpicAction(ctx, epic)
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(buildEpicGetJSON(epic, data, orchestratorAction))
+		result := buildEpicGetJSON(epic, data, orchestratorAction)
+		result["tags"] = jsonTags
+		return cli.OutputJSON(result)
 	}
-	renderEpicDetails(epic, data, orchestratorAction)
+	renderEpicDetailsWithTags(epic, data, orchestratorAction, tags)
 	return nil
 }
 

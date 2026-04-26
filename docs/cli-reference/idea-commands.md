@@ -45,6 +45,7 @@ shark idea create <title> [flags]
 | `--order` | int | Order for sorting ideas |
 | `--depends-on` | strings | Dependent idea keys |
 | `--related-docs` | strings | Related document paths |
+| `--tag` | string | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
 
@@ -57,6 +58,9 @@ shark idea create "Backend optimization" --description="Improve query performanc
 
 # Create idea on hold with notes
 shark idea create "UI redesign" --status=on_hold --notes="Waiting for design review"
+
+# With one or more tags (tags must already be registered)
+shark idea create "Magic-link login" --tag=auth --tag=voice
 ```
 
 **JSON Output:**
@@ -218,6 +222,7 @@ shark idea update <idea-key> [flags]
 | `--order` | int | Update order |
 | `--depends-on` | strings | Update dependencies |
 | `--related-docs` | strings | Update related document paths |
+| `--tag` | string | Tag to apply additively (repeatable). Empty = no change; use `shark idea tag rm` to detach. |
 
 **Examples:**
 
@@ -230,7 +235,12 @@ shark idea update I-2026-02-25-01 --priority=9 --status=on_hold
 
 # Add notes
 shark idea update I-2026-02-25-01 --notes="Additional context from stakeholder meeting"
+
+# Additive tagging
+shark idea update I-2026-02-25-01 --tag=auth
 ```
+
+> `--tag` on update is **additive only**. Use `shark idea tag rm I-... <name>` to detach a single tag.
 
 **JSON Output:**
 
@@ -345,6 +355,59 @@ shark idea convert epic I-2026-02-25-01 --json
   "status": "converted"
 }
 ```
+
+---
+
+## `shark idea tag add`
+
+Retroactively attach a registered tag to an existing idea (AC-26). Re-running with the same arguments is a no-op (idempotent).
+
+**Usage:**
+```bash
+shark idea tag add <idea-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark idea tag add I-2026-02-25-01 voice
+shark idea tag add I-2026-02-25-01 voice --json   # idempotent
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag attached (or already attached) |
+| 1 | `not_found` | Idea key not found |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
+
+On an unregistered tag (process exit **3**, internal class `unregistered_tag`), stderr shows the SC-2 vocabulary snippet and the `To add it: shark tags add <name>` remediation line. See [Tags → Unregistered Tag Errors](tags.md#unregistered-tag-errors).
+
+---
+
+## `shark idea tag rm`
+
+Retroactively detach a registered tag from an idea.
+
+**Usage:**
+```bash
+shark idea tag rm <idea-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark idea tag rm I-2026-02-25-01 voice
+shark idea tag rm I-2026-02-25-01 voice   # idempotent no-op
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag detached (or was not attached) |
+| 1 | `not_found` | Idea key not found, or tag name not in vocabulary |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
 
 ---
 

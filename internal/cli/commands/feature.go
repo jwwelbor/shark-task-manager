@@ -2,14 +2,32 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
+
+// resolveFeatureID is the EntityKeyResolver used by the `shark feature tag`
+// subcommand factory. It looks up a feature by key through the existing
+// FeatureService accessor (cli.GetFeatureService) and returns the numeric
+// ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it directly.
+func resolveFeatureID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetFeatureService()
+	feature, err := svc.GetFeature(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return feature.ID, nil
+}
 
 // featureCmd represents the feature command group.
 var featureCmd = &cobra.Command{
@@ -135,6 +153,11 @@ func init() {
 	featureCmd.AddCommand(featureDeleteCmd)
 	featureCmd.AddCommand(featureUpdateCmd)
 
+	// E28-F04 T-007: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	featureCmd.AddCommand(makeEntityTagCmd(models.EntityTypeFeature, resolveFeatureID, nil))
+
 	// List flags
 	featureListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
 	featureListCmd.Flags().String("status", "", "Filter by status")
@@ -142,6 +165,8 @@ func init() {
 	featureListCmd.Flags().Bool("show-all", false, "Show all features including completed")
 	_ = featureListCmd.Flags().MarkDeprecated("show-all", "use --all instead")
 	featureListCmd.Flags().Bool("all", false, "Show all features including completed")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	featureListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Create flags
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
@@ -157,6 +182,10 @@ func init() {
 	featureCreateCmd.Flags().String("path", "", "Alias for --file")
 	_ = featureCreateCmd.Flags().MarkHidden("filename")
 	_ = featureCreateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012: repeatable --tag flag. Tag must be registered in
+	// the vocabulary (see `shark tags list` / `shark tags add`).
+	featureCreateCmd.Flags().StringSlice("tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// Complete flags
 	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks")
@@ -176,6 +205,10 @@ func init() {
 	featureUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = featureUpdateCmd.Flags().MarkHidden("filename")
 	_ = featureUpdateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE (no
+	// detach). Use `shark feature tag rm` to detach a single tag.
+	featureUpdateCmd.Flags().StringSlice("tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark feature tag rm' to detach.")
 }
 
 // runFeatureList lists features with optional epic and status filtering.
@@ -183,16 +216,15 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	epicFilter, statusFilter, sortBy, showAll, err := parseFeatureListFlags(cmd, args)
+	epicFilter, statusFilter, sortBy, showAll, tagFilter, err := parseFeatureListFlags(cmd, args)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: %v", err))
 		os.Exit(1)
 	}
 
-	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll)
+	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll, tagFilter)
 	if err != nil {
-		handleServiceError(err, "feature", "")
-		return nil
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "feature", "")
 	}
 
 	if len(featuresWithTaskCount) == 0 {
@@ -224,11 +256,18 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	featureKey := args[0]
+	// Use GetFeatureWithTags for tag enrichment (REQ-F-014, REQ-F-015).
 	featureSvc := cli.GetFeatureService()
-	feature, err := featureSvc.GetFeature(ctx, featureKey)
+	feature, tags, err := featureSvc.GetFeatureWithTags(ctx, featureKey)
 	if err != nil {
 		handleServiceError(err, "feature", featureKey)
 		return nil
+	}
+
+	// REQ-F-015: JSON always has a "tags" key, never null.
+	jsonTags := tags
+	if jsonTags == nil {
+		jsonTags = []string{}
 	}
 
 	displaySvc := cli.GetDisplayService()
@@ -241,9 +280,19 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		}
 		info.ResolvedPath = resolveFeaturePath(ctx, feature)
 		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(info)
+			// Add "tags" to the planning JSON envelope.
+			infoJSON, marshalErr := json.Marshal(info)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			var infoMap map[string]interface{}
+			if unmarshalErr := json.Unmarshal(infoJSON, &infoMap); unmarshalErr != nil {
+				return unmarshalErr
+			}
+			infoMap["tags"] = jsonTags
+			return cli.OutputJSON(infoMap)
 		}
-		renderFeaturePlanning(info)
+		renderFeaturePlanningWithTags(info, tags)
 		return nil
 	}
 
@@ -255,9 +304,11 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 	orchestratorAction := displaySvc.ResolveFeatureAction(ctx, feature)
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(buildFeatureGetJSON(feature, data, orchestratorAction))
+		result := buildFeatureGetJSON(feature, data, orchestratorAction)
+		result["tags"] = jsonTags
+		return cli.OutputJSON(result)
 	}
-	renderFeatureAggregation(feature, data, orchestratorAction)
+	renderFeatureAggregationWithTags(feature, data, orchestratorAction, tags)
 	return nil
 }
 
@@ -275,8 +326,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	featureSvc := cli.GetFeatureService()
 	feature, err := featureSvc.CreateFeature(ctx, input)
 	if err != nil {
-		handleServiceError(err, "feature", input.EpicKey)
-		return nil
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", input.EpicKey)
 	}
 
 	featureFilePath := resolveFeatureFilePath(feature, input.EpicKey, projectRoot)
@@ -328,6 +378,13 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// featureUpdateImpl is the function called by runFeatureUpdate to perform the
+// update. It is a package-level variable so tests can override it without
+// touching the real database.
+var featureUpdateImpl = func(ctx context.Context, featureKey string, cmd *cobra.Command) error {
+	return performFeatureUpdate(ctx, featureKey, cmd)
+}
+
 // runFeatureUpdate updates a feature's properties.
 func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -335,8 +392,5 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 
 	featureKey := args[0]
 
-	if err := performFeatureUpdate(ctx, featureKey, cmd); err != nil {
-		handleServiceError(err, "feature", featureKey)
-	}
-	return nil
+	return featureUpdateImpl(ctx, featureKey, cmd)
 }

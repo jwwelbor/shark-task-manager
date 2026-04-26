@@ -1016,3 +1016,247 @@ func TestGetTemplateDirectoryFromConfig(t *testing.T) {
 		}
 	})
 }
+
+// TestConfig_Maintainer_RoundTrip tests that Config with a populated Maintainer field
+// survives a JSON marshal/unmarshal round-trip with all fields preserved
+// (test-plan.md §2.5, AC-T3, AC-T4, AC-T5).
+func TestConfig_Maintainer_RoundTrip(t *testing.T) {
+	t.Run("config with maintainer preserves all fields", func(t *testing.T) {
+		// Arrange
+		workflowConfig := "shark-templates/.sharkworkflow.json"
+		original := Config{
+			WorkflowConfig: &workflowConfig,
+			Maintainer: &MaintainerConfig{
+				PasswordHash:       "abc123deadbeef",
+				CacheWindowSeconds: 120,
+			},
+		}
+
+		// Act: Marshal to JSON
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		// Assert: maintainer key is present
+		jsonStr := string(data)
+		if !containsString(jsonStr, `"maintainer"`) {
+			t.Errorf("marshaled JSON missing 'maintainer' key: %s", jsonStr)
+		}
+		if !containsString(jsonStr, `"password_hash"`) {
+			t.Errorf("marshaled JSON missing 'password_hash' key: %s", jsonStr)
+		}
+		if !containsString(jsonStr, `"cache_window_seconds"`) {
+			t.Errorf("marshaled JSON missing 'cache_window_seconds' key: %s", jsonStr)
+		}
+		if !containsString(jsonStr, `"workflow_config"`) {
+			t.Errorf("marshaled JSON missing 'workflow_config' key: %s", jsonStr)
+		}
+
+		// Act: Unmarshal back
+		var got Config
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+
+		// Assert: Maintainer fields preserved
+		if got.Maintainer == nil {
+			t.Fatal("Maintainer is nil after round-trip")
+		}
+		if got.Maintainer.PasswordHash != original.Maintainer.PasswordHash {
+			t.Errorf("PasswordHash = %q, want %q", got.Maintainer.PasswordHash, original.Maintainer.PasswordHash)
+		}
+		if got.Maintainer.CacheWindowSeconds != original.Maintainer.CacheWindowSeconds {
+			t.Errorf("CacheWindowSeconds = %d, want %d", got.Maintainer.CacheWindowSeconds, original.Maintainer.CacheWindowSeconds)
+		}
+
+		// Assert: other top-level key preserved
+		if got.WorkflowConfig == nil || *got.WorkflowConfig != workflowConfig {
+			t.Errorf("WorkflowConfig = %v, want %q", got.WorkflowConfig, workflowConfig)
+		}
+	})
+
+	t.Run("config without maintainer omits maintainer key (omitempty)", func(t *testing.T) {
+		// Arrange: Config with no Maintainer field
+		original := Config{}
+
+		// Act: Marshal to JSON
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		// Assert: no "maintainer" key in JSON output
+		jsonStr := string(data)
+		if containsString(jsonStr, `"maintainer"`) {
+			t.Errorf("marshaled JSON unexpectedly contains 'maintainer' key: %s", jsonStr)
+		}
+	})
+
+	t.Run("maintainer with zero CacheWindowSeconds omits that field (omitempty)", func(t *testing.T) {
+		// Arrange
+		original := Config{
+			Maintainer: &MaintainerConfig{
+				PasswordHash:       "abc",
+				CacheWindowSeconds: 0, // zero value, should be omitted
+			},
+		}
+
+		// Act
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		// Assert: cache_window_seconds omitted when zero
+		jsonStr := string(data)
+		if containsString(jsonStr, `"cache_window_seconds"`) {
+			t.Errorf("marshaled JSON unexpectedly contains 'cache_window_seconds' for zero value: %s", jsonStr)
+		}
+		// password_hash should still be present
+		if !containsString(jsonStr, `"password_hash"`) {
+			t.Errorf("marshaled JSON missing 'password_hash': %s", jsonStr)
+		}
+	})
+}
+
+// TestConfig_TagRequiredFor_RoundTrip tests that Config with a populated
+// TagRequiredForTypes field survives a JSON marshal/unmarshal round-trip with
+// the slice preserved exactly (length, order, values).
+// Reference: E28-F04 spec.md §2.3, test-plan.md §1.4 AC-27.
+func TestConfig_TagRequiredFor_RoundTrip(t *testing.T) {
+	// Arrange
+	original := Config{
+		TagRequiredForTypes: []string{"task", "bug"},
+	}
+
+	// Act: Marshal to JSON
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	// Assert: tag_required_for key is present with expected values
+	jsonStr := string(data)
+	if !containsString(jsonStr, `"tag_required_for"`) {
+		t.Errorf("marshaled JSON missing 'tag_required_for' key: %s", jsonStr)
+	}
+	if !containsString(jsonStr, `"task"`) {
+		t.Errorf("marshaled JSON missing 'task' value: %s", jsonStr)
+	}
+	if !containsString(jsonStr, `"bug"`) {
+		t.Errorf("marshaled JSON missing 'bug' value: %s", jsonStr)
+	}
+
+	// Act: Unmarshal back
+	var got Config
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	// Assert: slice preserved exactly (length, order, values)
+	if len(got.TagRequiredForTypes) != len(original.TagRequiredForTypes) {
+		t.Fatalf("TagRequiredForTypes length = %d, want %d",
+			len(got.TagRequiredForTypes), len(original.TagRequiredForTypes))
+	}
+	for i, v := range original.TagRequiredForTypes {
+		if got.TagRequiredForTypes[i] != v {
+			t.Errorf("TagRequiredForTypes[%d] = %q, want %q",
+				i, got.TagRequiredForTypes[i], v)
+		}
+	}
+
+	// Act: Re-marshal after round-trip
+	data2, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal() second pass error = %v", err)
+	}
+
+	// Assert: re-marshal produces the same JSON
+	if string(data2) != string(data) {
+		t.Errorf("re-marshal produced different JSON:\n got: %s\nwant: %s",
+			string(data2), string(data))
+	}
+}
+
+// TestConfig_TagRequiredFor_AbsentFieldIsNilSlice verifies that JSON without
+// a tag_required_for key unmarshals to a nil slice (not an empty slice) and
+// that cfg.TagRequiredFor() returns nil in that case. Ensures omitempty
+// correctness and nil-safe method behavior.
+// Reference: E28-F04 test-plan.md §1.4 AC-27b.
+func TestConfig_TagRequiredFor_AbsentFieldIsNilSlice(t *testing.T) {
+	// Arrange: JSON with no tag_required_for key
+	raw := []byte(`{}`)
+
+	// Act
+	var cfg Config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	// Assert: underlying field is nil
+	if cfg.TagRequiredForTypes != nil {
+		t.Errorf("TagRequiredForTypes = %v, want nil", cfg.TagRequiredForTypes)
+	}
+
+	// Assert: accessor returns nil (not []string{})
+	got := cfg.TagRequiredFor()
+	if got != nil {
+		t.Errorf("cfg.TagRequiredFor() = %v, want nil", got)
+	}
+
+	// Assert: absent field is omitted on re-marshal (omitempty)
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if containsString(string(out), `"tag_required_for"`) {
+		t.Errorf("marshaled JSON unexpectedly contains 'tag_required_for' for nil slice: %s",
+			string(out))
+	}
+}
+
+// TestConfig_TagRequiredFor_NilReceiver verifies that calling TagRequiredFor
+// on a nil *Config receiver returns nil without panicking. Required by
+// REQ-F-007 / spec.md §2.3 nil-safe semantics.
+// Reference: E28-F04 test-plan.md §1.4 AC-27c, task AC-T1.
+func TestConfig_TagRequiredFor_NilReceiver(t *testing.T) {
+	var c *Config
+	got := c.TagRequiredFor()
+	if got != nil {
+		t.Errorf("(*Config)(nil).TagRequiredFor() = %v, want nil", got)
+	}
+}
+
+// TestConfig_TagRequiredFor_DefensiveCopy verifies that the slice returned by
+// TagRequiredFor is a defensive copy: callers mutating the returned slice
+// must not affect subsequent calls. Required by spec.md §2.3.
+// Reference: E28-F04 test-plan.md §1.4 AC-27d, task AC-T3.
+func TestConfig_TagRequiredFor_DefensiveCopy(t *testing.T) {
+	cfg := &Config{
+		TagRequiredForTypes: []string{"task", "bug"},
+	}
+
+	// Act: take a copy and mutate it
+	first := cfg.TagRequiredFor()
+	if len(first) != 2 {
+		t.Fatalf("first call returned %d entries, want 2", len(first))
+	}
+	first[0] = "mutated"
+
+	// Assert: a subsequent call still returns the original values
+	second := cfg.TagRequiredFor()
+	if len(second) != 2 {
+		t.Fatalf("second call returned %d entries, want 2", len(second))
+	}
+	if second[0] != "task" || second[1] != "bug" {
+		t.Errorf("second call = %v, want [task bug]; caller mutation leaked into backing field",
+			second)
+	}
+
+	// Sanity: the backing field itself is unchanged
+	if cfg.TagRequiredForTypes[0] != "task" {
+		t.Errorf("TagRequiredForTypes[0] = %q, want \"task\"; backing field was mutated",
+			cfg.TagRequiredForTypes[0])
+	}
+}

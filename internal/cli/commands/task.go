@@ -11,6 +11,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// taskGetServicer is the narrow interface consumed by runTaskGet.
+// It covers only the two methods that command uses, enabling test injection.
+type taskGetServicer interface {
+	GetTaskWithTags(ctx context.Context, key string) (*models.Task, []string, error)
+	GetTaskDisplayData(ctx context.Context, task *models.Task) (*services.TaskDisplayData, error)
+}
+
+// taskGetSvcOverride is non-nil only during tests.
+var taskGetSvcOverride taskGetServicer
+
+// getTaskGetService returns the service to use for runTaskGet, preferring the
+// test override so that unit tests can inject a mock without a real database.
+func getTaskGetService() taskGetServicer {
+	if taskGetSvcOverride != nil {
+		return taskGetSvcOverride
+	}
+	return cli.GetTaskServiceWithDocs()
+}
+
 // displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
 func displayAutoUnblockedTasks(unblockedKeys []string) {
 	if len(unblockedKeys) > 0 {
@@ -80,15 +99,22 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	blocked, _ := cmd.Flags().GetBool("blocked")
 	minPriority, _ := cmd.Flags().GetInt("priority-min")
 	maxPriority, _ := cmd.Flags().GetInt("priority-max")
+	// E28-F05 REQ-F-010: read the repeatable --tag flag.
+	// nil when no --tag flags were supplied (AC-T2).
+	var tagFilter []string
+	if rawTags, err := cmd.Flags().GetStringSlice("tag"); err == nil && len(rawTags) > 0 {
+		tagFilter = rawTags
+	}
 
 	svc := cli.GetTaskService()
 	tasks, err := svc.ListTasks(cmd.Context(), services.TaskFilters{
 		EpicKey: epicKey, FeatureKey: featureKey, Status: status,
 		AgentType: agentType, ShowAll: showAll, Blocked: blocked,
 		MinPriority: minPriority, MaxPriority: maxPriority,
+		Tags: tagFilter,
 	})
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "task", "")
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(tasks)
@@ -112,8 +138,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid task key: %w", err)
 	}
 
-	svc := cli.GetTaskServiceWithDocs()
-	task, err := svc.GetTask(ctx, taskKey)
+	// Use GetTaskWithTags for tag enrichment (REQ-F-014, REQ-F-015).
+	// getTaskGetService() returns the test override when set, else the real accessor.
+	svc := getTaskGetService()
+	task, tags, err := svc.GetTaskWithTags(ctx, taskKey)
 	if err != nil {
 		return err
 	}
@@ -143,15 +171,24 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(buildTaskGetJSON(task, deps, blockedBy, blocks,
-			relatedDocs, validTransitions, orchestratorAction, notes, contextData))
+		jsonResult := buildTaskGetJSON(task, deps, blockedBy, blocks,
+			relatedDocs, validTransitions, orchestratorAction, notes, contextData)
+		// REQ-F-015: "tags" field always present in JSON, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		jsonResult["tags"] = tags
+		return cli.OutputJSON(jsonResult)
 	}
 
+	// appendTagsToBasicInfo handles nil (graceful degradation) and empty (render "(none)").
+	basicInfo := buildTaskBasicInfo(task, deps, blockedBy, blocks)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "task",
 		Key:                task.Key,
 		Status:             string(task.Status),
-		BasicInfo:          buildTaskBasicInfo(task, deps, blockedBy, blocks),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		RelatedDocs:        relatedDocs,
@@ -216,7 +253,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetTaskService()
 	task, err := svc.CreateTask(cmd.Context(), parseCreateTaskInput(cmd, args))
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", "")
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(task)
@@ -254,7 +291,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetTaskService()
 	task, err := svc.UpdateTask(cmd.Context(), taskKey, parseTaskUpdates(cmd))
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", taskKey)
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(task)
@@ -287,6 +324,21 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// resolveTaskID is the EntityKeyResolver used by the `shark task tag`
+// subcommand factory. It looks up a task by key through the existing
+// TaskService accessor (cli.GetTaskService) and returns the numeric ID.
+//
+// Split out as a package-level function so the E28-F04 entity_tag_cmd.go
+// factory can reference it directly.
+func resolveTaskID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetTaskService()
+	task, err := svc.GetTask(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return task.ID, nil
+}
+
 func init() {
 	taskCmd.Hidden = true // Hidden from top-level help; accessible via 'shark task'
 	cli.RootCmd.AddCommand(taskCmd)
@@ -303,4 +355,9 @@ func init() {
 	registerUpdateFlags(taskUpdateCmd)
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation")
 	taskSetStatusCmd.Flags().String("notes", "", "Notes to record with status transition")
+
+	// E28-F04 T-006: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	taskCmd.AddCommand(makeEntityTagCmd(models.EntityTypeTask, resolveTaskID, nil))
 }

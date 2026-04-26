@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
+	"github.com/jwwelbor/shark-task-manager/internal/auth/maintainer"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/bug"
@@ -12,11 +15,40 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	repnote "github.com/jwwelbor/shark-task-manager/internal/repository/note"
+	tagrepo "github.com/jwwelbor/shark-task-manager/internal/repository/tag"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// loadTagEnforcementConfig reads .sharkconfig.json from projectRoot and
+// returns a services.TagEnforcementConfig. If the file is missing or fails
+// to parse, an empty fallback is returned so wiring never fails at startup.
+func loadTagEnforcementConfig(projectRoot string) services.TagEnforcementConfig {
+	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	mgr := config.NewManager(configPath)
+	cfg, err := mgr.Load()
+	if err != nil || cfg == nil {
+		return services.EmptyTagEnforcementConfig{}
+	}
+	return cfg
+}
+
+// loadMaintainerGate builds a maintainer.Gate from the project's
+// .sharkconfig.json. When no config is present, NewFileGate receives nil
+// and returns a gate that always denies — safe default for HTTP wiring
+// since attach/detach paths never consume the gate.
+func loadMaintainerGate(projectRoot string) maintainer.Gate {
+	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	mgr := config.NewManager(configPath)
+	cfg, _ := mgr.Load()
+	var mc *config.MaintainerConfig
+	if cfg != nil {
+		mc = cfg.Maintainer
+	}
+	return maintainer.NewFileGate(projectRoot, mc, mc.CacheWindow())
+}
 
 // Compile-time interface satisfaction checks for adapters.
 var (
@@ -187,6 +219,10 @@ type ServiceContainer struct {
 	ResumeService     *services.ResumeService
 	ViewerService     *services.ViewerService
 	EditSvc           *services.EditService
+	// TagService is constructed once and injected into every entity service
+	// for tag attach/detach and tag_required_for enforcement.
+	TagService    *services.TagService
+	SearchService *services.SearchService
 }
 
 // WireServices constructs all services with their dependencies.
@@ -231,9 +267,23 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
 	entitySvc.SetHistoryRepo(entityHistoryRepo)
 
+	// Step 3c: Construct the shared TagService once and inject it into every
+	// entity service. Mirrors the CLI accessor so both entry points behave
+	// identically for create-with-tag, attach/detach, and tag_required_for
+	// enforcement. Empty-stub fallback disables enforcement if config load fails.
+	tagEnforcementCfg := loadTagEnforcementConfig(projectRoot)
+	tagGate := loadMaintainerGate(projectRoot)
+	tagSvc := services.NewTagService(
+		tagrepo.NewTagRepository(db),
+		tagrepo.NewEntityTagRepository(db),
+		tagGate,
+		tagEnforcementCfg,
+	)
+
 	// Step 4: Construct entity-specific services
 	taskService := services.NewTaskService(taskRepo, entitySvc, creatorSvc)
 	taskService.SetEntityHistoryRepo(entityHistoryRepo)
+	taskService.SetTagService(tagSvc)
 
 	featureService := services.NewFeatureService(
 		featureRepo, entitySvc,
@@ -241,6 +291,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		taskRepo, epicRepo,
 	)
 	featureService.SetEntityHistoryRepo(entityHistoryRepo)
+	featureService.SetTagService(tagSvc)
 
 	// Wire FeatureService into TaskService for auto-reopen behavior
 	taskService.SetFeatureService(featureService)
@@ -256,6 +307,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		featureRepo,
 		taskRepo,
 	)
+	epicService.SetTagService(tagSvc)
 
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
 	epicService.SetAnalyticsService(analyticsSvc)
@@ -266,6 +318,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		registry.MustGetRepository(models.EntityTypeBug),
 		epicRepo, featureRepo, taskRepo,
 		projectRoot,
+		tagSvc,
 	)
 
 	changeCardService := services.NewChangeCardService(
@@ -275,6 +328,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		epicRepo, featureRepo,
 		projectRoot,
 	)
+	changeCardService.SetTagService(tagSvc)
 
 	noteService, err := services.NewNoteService(noteRepo, registry)
 	if err != nil {
@@ -313,9 +367,18 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	viewerService.WithChangeCardListRepo(&changeCardListAdapter{repo: changeCardRepoAdapter})
 	viewerService.WithNoteRepo(repnote.NewEntityNoteRepository(db))
 	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
+	// Wire tag service for decoration and filtering (REQ-F-015, T-E28-F06-002).
+	// REQ-F-014: MaintainerGate is NOT passed to ViewerService (defense-in-depth).
+	viewerService.WithTagService(tagSvc)
 
 	// Step 6: Construct EditService for the file-write endpoint.
 	editService := services.NewEditService(projectRoot)
+
+	// Step 7: Construct SearchService with TagService wired for tag post-filter
+	// (REQ-F-011, spec §2.8.3). tagSvc is passed as the second argument so that
+	// --tag filtering works on the search path.
+	searchRepo := repository.NewSearchRepository(db)
+	searchService := services.NewSearchService(searchRepo, tagSvc)
 
 	return &ServiceContainer{
 		TaskService:       taskService,
@@ -328,5 +391,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		ResumeService:     resumeService,
 		ViewerService:     viewerService,
 		EditSvc:           editService,
+		TagService:        tagSvc,
+		SearchService:     searchService,
 	}
 }

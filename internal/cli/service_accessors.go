@@ -155,6 +155,9 @@ func GetEpicService() *services.EpicService {
 	svc.SetDocRepo(docAdapter)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
+	// E28-F04 T-008: pass the shared *TagService so EpicService can
+	// enforce `tag_required_for` on create and honour --tag on create/update.
+	svc.SetTagService(GetTagService())
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
@@ -199,6 +202,9 @@ func GetFeatureService() *services.FeatureService {
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
+	// E28-F04 T-007: pass the shared *TagService so FeatureService can
+	// enforce `tag_required_for` on create and honour --tag on create/update.
+	svc.SetTagService(GetTagService())
 
 	// Wire cascade reopen dependencies so that a feature regression automatically
 	// reopens a terminal epic ancestor (AC-T3 / REQ-F-001).
@@ -229,6 +235,11 @@ func GetIdeaService() *services.IdeaService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to create IdeaService: %v", err))
 	}
+
+	// E28-F04 T-010: wire the shared *TagService so IdeaService can
+	// enforce `tag_required_for` on create and honour --tag on create/update.
+	svc.SetTagService(GetTagService())
+
 	return svc
 }
 
@@ -255,19 +266,21 @@ func GetDisplayService() *services.DisplayService {
 
 // GetSearchService returns a SearchService instance.
 // Creates a new instance each call with the global DB connection.
+// TagService is wired so that --tag filtering works on the search path
+// (REQ-F-011, spec §2.8.1).
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
 //
 // Usage:
 //
 //	svc := cli.GetSearchService()
-//	results, err := svc.SearchAll(ctx, "query", nil)
+//	results, err := svc.SearchAll(ctx, "query", "", nil)
 func GetSearchService() *services.SearchService {
 	db, err := GetDB(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
 	searchRepo := repository.NewSearchRepository(db)
-	return services.NewSearchService(searchRepo)
+	return services.NewSearchService(searchRepo, GetTagService())
 }
 
 // GetStatusService returns a StatusService instance.

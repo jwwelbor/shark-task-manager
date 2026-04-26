@@ -17,6 +17,9 @@ import (
 type bugServicer interface {
 	CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, error)
 	GetBug(ctx context.Context, key string) (*models.Bug, error)
+	// GetBugWithTags returns the bug along with the sorted tag names attached to it.
+	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
+	GetBugWithTags(ctx context.Context, key string) (*models.Bug, []string, error)
 	ListBugs(ctx context.Context, filters services.BugFilters) ([]*models.Bug, error)
 	UpdateBug(ctx context.Context, key string, updates services.BugUpdates) (*models.Bug, error)
 	DeleteBug(ctx context.Context, key string) error
@@ -154,7 +157,31 @@ var (
 	bugStatus   string
 	bugForce    bool
 	bugFilePath string
+	// bugCreateTags and bugUpdateTags back the repeatable --tag flag on
+	// `shark bug create` and `shark bug update`. Declared as distinct
+	// variables because they live on different commands; Cobra does not
+	// reset flag-backing variables between command executions (test code
+	// must zero them out to avoid cross-test bleed — see bug_test.go).
+	bugCreateTags []string
+	bugUpdateTags []string
 )
+
+// resolveBugID is the EntityKeyResolver used by the `shark bug tag`
+// subcommand factory. It uses the existing bug service accessor (either
+// the production service or the test override in bugSvcOverride) to find
+// a bug by key and return its numeric ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it and so tests can
+// observe its behaviour through bugSvcOverride.
+func resolveBugID(ctx context.Context, key string) (int64, error) {
+	svc := getBugService()
+	bug, err := svc.GetBug(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return bug.ID, nil
+}
 
 func init() {
 	// Register bug command and subcommands
@@ -169,17 +196,31 @@ func init() {
 	bugCmd.AddCommand(makeNotesCmd("bug"))
 	bugCmd.AddCommand(makeContextCmd("bug"))
 
+	// E28-F04 T-005: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	bugCmd.AddCommand(makeEntityTagCmd(models.EntityTypeBug, resolveBugID, nil))
+
 	// Create flags
 	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low)")
 	bugCreateCmd.Flags().StringVar(&bugLink, "link", "", "Entity key to link (E07, E07-F01, E07-F01-001)")
 	bugCreateCmd.Flags().StringVar(&bugFilePath, "file", "", "Custom file path for bug markdown file")
 	bugCreateCmd.Flags().BoolVar(&bugForce, "force", false, "Overwrite existing file at target path")
+	// E28-F04 REQ-F-012: repeatable --tag flag. StringSliceVar collects
+	// repeated occurrences into a []string; Cobra's comma-separator
+	// behaviour means `--tag=foo,bar` becomes ["foo","bar"] — ADR-F04-5
+	// accepts this because invalid-name chars (a comma is invalid under
+	// the regex) surface as a clear exit-3 validation error.
+	bugCreateCmd.Flags().StringSliceVar(&bugCreateTags, "tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// List flags
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
 	bugListCmd.Flags().StringVar(&bugSeverity, "severity", "", "Filter by severity")
 	bugListCmd.Flags().StringVar(&bugLink, "link", "", "Filter by linked entity key")
 	bugListCmd.Flags().Bool("all", false, "Show all bugs including terminal statuses (resolved, wont_fix, duplicate)")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	bugListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Update flags
 	bugUpdateCmd.Flags().StringVar(&bugTitle, "title", "", "New title")
@@ -189,6 +230,10 @@ func init() {
 	bugUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = bugUpdateCmd.Flags().MarkHidden("filename")
 	_ = bugUpdateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012: `--tag` on update is additive (REQ-F-010). Empty
+	// means no change; no way to detach here — use `shark bug tag rm`.
+	bugUpdateCmd.Flags().StringSliceVar(&bugUpdateTags, "tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark bug tag rm' to detach.")
 
 	// Delete flags
 	bugDeleteCmd.Flags().BoolVar(&bugForce, "force", false, "Skip confirmation prompt")
@@ -206,11 +251,16 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	link, _ := cmd.Flags().GetString("link")
 	filePath, _ := cmd.Flags().GetString("file")
 	force, _ := cmd.Flags().GetBool("force")
+	// E28-F04: read --tag via the flag accessor (not the package-level
+	// variable) so test invocations that reset flags between runs see a
+	// fresh value each time.
+	tags, _ := cmd.Flags().GetStringSlice("tag")
 
 	input := services.CreateBugInput{
 		Title:    args[0],
 		Severity: models.BugSeverity(severity),
 		Force:    force,
+		Tags:     tags,
 	}
 
 	if filePath != "" {
@@ -228,7 +278,7 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bug, err := svc.CreateBug(cmd.Context(), input)
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", input.Title)
 	}
 
 	// Step 3: Format output
@@ -248,9 +298,9 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	ctx := cmd.Context()
 
-	// Step 2: Call service
+	// Step 2: Call service — use GetBugWithTags for tag enrichment (REQ-F-014, REQ-F-015).
 	svc := getBugService()
-	bug, err := svc.GetBug(ctx, key)
+	bug, tags, err := svc.GetBugWithTags(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -282,14 +332,21 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 		if contextData != nil {
 			result["context_data"] = contextData
 		}
+		// REQ-F-015: "tags" field always present, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		result["tags"] = tags
 		return cli.OutputJSON(result)
 	}
 
+	basicInfo := buildBugBasicInfo(bug)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "bug",
 		Key:                bug.Key,
 		Status:             string(bug.Status),
-		BasicInfo:          buildBugBasicInfo(bug),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		Notes:              notes,
@@ -320,12 +377,16 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	if linkStr != "" {
 		filters.LinkedEntityKey = &linkStr
 	}
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		filters.Tags = rawTags
+	}
 
 	// Step 2: Call service
 	svc := getBugService()
 	bugs, err := svc.ListBugs(cmd.Context(), filters)
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "bug", "")
 	}
 
 	// Step 3: Format output
@@ -360,15 +421,23 @@ func runBugUpdate(cmd *cobra.Command, args []string) error {
 		updates.FilePath = &v
 	}
 
-	if updates.Title == nil && updates.Severity == nil && updates.FilePath == nil {
-		return fmt.Errorf("at least one update flag is required (--title, --severity, or --file)")
+	// E28-F04 REQ-F-012: read --tag for additive tagging on update.
+	// `cmd.Flags().Changed("tag")` guards the at-least-one-flag check
+	// below so passing ONLY --tag still counts as a valid update.
+	if cmd.Flags().Changed("tag") {
+		tags, _ := cmd.Flags().GetStringSlice("tag")
+		updates.Tags = tags
+	}
+
+	if updates.Title == nil && updates.Severity == nil && updates.FilePath == nil && updates.Tags == nil {
+		return fmt.Errorf("at least one update flag is required (--title, --severity, --file, or --tag)")
 	}
 
 	// Step 2: Call service
 	svc := getBugService()
 	bug, err := svc.UpdateBug(cmd.Context(), key, updates)
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", key)
 	}
 
 	// Step 3: Format output

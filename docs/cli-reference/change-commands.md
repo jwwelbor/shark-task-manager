@@ -29,6 +29,7 @@ shark change create <title> [flags]
 | `--requested-by` | string | — | Name or ID of the requester |
 | `--priority` | int | `5` | Priority level (1–10, where 10 = highest) |
 | `--justification` | string | — | Business justification for the change |
+| `--tag` | string | — | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 | `--json` | bool | `false` | JSON output |
 
 **Examples:**
@@ -49,6 +50,10 @@ shark change create "Increase session timeout to 8 hours" \
   --link=E07-F01 \
   --priority=6 \
   --requested-by=security-team
+
+# With one or more tags (tags must already be registered)
+shark change create "Increase session timeout" --tag=auth
+shark change create "Redesign settings panel" --tag=frontend --tag=ux
 ```
 
 **Output (default):**
@@ -172,6 +177,7 @@ shark change update <key> [flags]
 | `--justification` | string | Update business justification |
 | `--impact-analysis` | string | Update impact analysis |
 | `--rollback-plan` | string | Update rollback plan |
+| `--tag` | string | Tag to apply additively (repeatable). Empty = no change; use `shark change tag rm` to detach. |
 | `--json` | bool | JSON output |
 
 **Examples:**
@@ -182,7 +188,12 @@ shark change update CC-001 --assigned-to=bob
 shark change update CC-001 --title="Add dark mode with user preference persistence"
 shark change update CC-001 --impact-analysis="Affects UI layer only, no DB changes required"
 shark change update CC-001 --rollback-plan="Revert feature flag, redeploy previous build"
+
+# Additive tagging
+shark change update CC-001 --tag=auth
 ```
+
+> `--tag` on update is **additive only**. Use `shark change tag rm CC-001 <name>` to detach a single tag.
 
 ---
 
@@ -280,6 +291,63 @@ shark change notes <key> [--json]
 shark change notes CC-001
 shark change notes CC-001 --json
 ```
+
+---
+
+## `shark change tag add`
+
+Retroactively attach a registered tag to an existing change-card. Re-running with the same arguments is a no-op (idempotent).
+
+```bash
+shark change tag add <key> <name> [--json]
+```
+
+**Arguments:**
+- `key` — Change-card key (e.g., `CC-001`)
+- `name` — Tag name (must already be registered in the vocabulary)
+
+**Examples:**
+
+```bash
+shark change tag add CC-001 auth
+shark change tag add CC-001 auth --json   # idempotent
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag attached (or already attached) |
+| 1 | `not_found` | Change-card key not found |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
+
+On an unregistered tag (process exit **3**, internal class `unregistered_tag`), stderr shows the SC-2 vocabulary snippet and the `To add it: shark tags add <name>` remediation line. See [Tags → Unregistered Tag Errors](tags.md#unregistered-tag-errors).
+
+---
+
+## `shark change tag rm`
+
+Retroactively detach a registered tag from a change-card.
+
+```bash
+shark change tag rm <key> <name> [--json]
+```
+
+**Examples:**
+
+```bash
+shark change tag rm CC-001 auth
+shark change tag rm CC-001 auth   # idempotent no-op
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag detached (or was not attached) |
+| 1 | `not_found` | Change-card key not found, or tag name not in vocabulary |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
 
 ---
 

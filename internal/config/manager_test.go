@@ -725,6 +725,275 @@ func TestLoadConfig_ObservabilityLogFile(t *testing.T) {
 	}
 }
 
+// TestManager_Load_Maintainer tests that Manager.Load() correctly populates
+// Config.Maintainer from the "maintainer" block in the config file.
+// This is a regression test for the gap identified in QA: the production
+// Manager.Load() path did not parse the maintainer key, so Config.Maintainer
+// was always nil when loaded from a real .sharkconfig.json file.
+func TestManager_Load_Maintainer(t *testing.T) {
+	t.Run("maintainer block populated from JSON", func(t *testing.T) {
+		// Arrange: write a config file with a maintainer block
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"maintainer": map[string]interface{}{
+				"password_hash":        "abc123deadbeef",
+				"cache_window_seconds": 120,
+			},
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("Load() returned nil config")
+		}
+		if cfg.Maintainer == nil {
+			t.Fatal("Config.Maintainer is nil after Load() — Manager.Load() did not parse the maintainer block")
+		}
+		if cfg.Maintainer.PasswordHash != "abc123deadbeef" {
+			t.Errorf("PasswordHash = %q, want %q", cfg.Maintainer.PasswordHash, "abc123deadbeef")
+		}
+		if cfg.Maintainer.CacheWindowSeconds != 120 {
+			t.Errorf("CacheWindowSeconds = %d, want %d", cfg.Maintainer.CacheWindowSeconds, 120)
+		}
+	})
+
+	t.Run("config without maintainer key leaves Maintainer nil", func(t *testing.T) {
+		// Arrange: write a config file with no maintainer block
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"color_enabled": true,
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("Load() returned nil config")
+		}
+		if cfg.Maintainer != nil {
+			t.Errorf("Config.Maintainer = %+v, want nil when maintainer key is absent", cfg.Maintainer)
+		}
+	})
+
+	t.Run("maintainer with only password_hash (no cache_window_seconds)", func(t *testing.T) {
+		// Arrange: maintainer block without optional cache_window_seconds
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"maintainer": map[string]interface{}{
+				"password_hash": "onlyhash",
+			},
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.Maintainer == nil {
+			t.Fatal("Config.Maintainer is nil — expected non-nil for maintainer block with only password_hash")
+		}
+		if cfg.Maintainer.PasswordHash != "onlyhash" {
+			t.Errorf("PasswordHash = %q, want %q", cfg.Maintainer.PasswordHash, "onlyhash")
+		}
+		if cfg.Maintainer.CacheWindowSeconds != 0 {
+			t.Errorf("CacheWindowSeconds = %d, want 0 (default) when absent", cfg.Maintainer.CacheWindowSeconds)
+		}
+	})
+}
+
+// TestManager_Load_TagRequiredFor tests that Manager.Load() correctly populates
+// Config.TagRequiredForTypes from the "tag_required_for" key in the config file.
+//
+// This is a regression test for the UAT-identified wiring gap (T-E28-F04-001):
+// the production Manager.Load() path hand-parses rawData per-key and did NOT
+// extract "tag_required_for" into Config.TagRequiredForTypes, so callers that
+// reached *config.Config via cli.GetConfig() → Manager.Load() would always see
+// an empty slice even when the user had set the key in .sharkconfig.json.
+//
+// Mirrors the pattern established by TestManager_Load_Maintainer, which
+// covered the same class of bug for the maintainer block.
+func TestManager_Load_TagRequiredFor(t *testing.T) {
+	t.Run("tag_required_for populated from JSON", func(t *testing.T) {
+		// Arrange: write a config file with a tag_required_for list
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"tag_required_for": []string{"task", "bug"},
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("Load() returned nil config")
+		}
+		got := cfg.TagRequiredFor()
+		want := []string{"task", "bug"}
+		if len(got) != len(want) {
+			t.Fatalf("TagRequiredFor() = %v (len=%d), want %v (len=%d) — Manager.Load() did not parse the tag_required_for key",
+				got, len(got), want, len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("TagRequiredFor()[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("config without tag_required_for key leaves TagRequiredForTypes nil", func(t *testing.T) {
+		// Arrange: write a config file with no tag_required_for key
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"color_enabled": true,
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("Load() returned nil config")
+		}
+		if cfg.TagRequiredForTypes != nil {
+			t.Errorf("TagRequiredForTypes = %v, want nil when tag_required_for key is absent", cfg.TagRequiredForTypes)
+		}
+		// TagRequiredFor() accessor should also return nil/empty.
+		if got := cfg.TagRequiredFor(); got != nil {
+			t.Errorf("TagRequiredFor() = %v, want nil when tag_required_for key is absent", got)
+		}
+	})
+
+	t.Run("empty tag_required_for array yields nil slice", func(t *testing.T) {
+		// Arrange: config file with an empty array (consistent with omitempty semantics).
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"tag_required_for": []string{},
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert: TagRequiredFor() returns nil for empty input (see config.go:203-205).
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if got := cfg.TagRequiredFor(); got != nil {
+			t.Errorf("TagRequiredFor() = %v, want nil for empty tag_required_for array", got)
+		}
+	})
+
+	t.Run("non-string elements are skipped", func(t *testing.T) {
+		// Arrange: config file with a tag_required_for containing a non-string
+		// element. The loader should skip non-string values rather than panic,
+		// consistent with the tolerant parsing approach used for other fields.
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		// Build JSON manually to inject a mixed-type array.
+		rawJSON := `{"tag_required_for": ["task", 42, "bug", null]}`
+		if err := os.WriteFile(configPath, []byte(rawJSON), 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// Act
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+
+		// Assert: only string elements are retained, order preserved.
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		got := cfg.TagRequiredFor()
+		want := []string{"task", "bug"}
+		if len(got) != len(want) {
+			t.Fatalf("TagRequiredFor() = %v (len=%d), want %v (len=%d)",
+				got, len(got), want, len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("TagRequiredFor()[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+}
+
 // TestManager_GetActionService_Caching returns same instance on multiple calls
 func TestManager_GetActionService_Caching(t *testing.T) {
 	// Arrange

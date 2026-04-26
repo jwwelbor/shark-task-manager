@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -489,7 +491,7 @@ func TestViewerService_Hierarchy_Empty(t *testing.T) {
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
 	)
-	resp, err := svc.Hierarchy(context.Background())
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -529,7 +531,7 @@ func TestViewerService_Hierarchy_EmbedsTasks(t *testing.T) {
 		&mockViewerHistoryRepo{},
 	)
 
-	resp, err := svc.Hierarchy(context.Background())
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -584,7 +586,7 @@ func TestViewerService_Hierarchy_EmbedsDocs(t *testing.T) {
 	}
 	svc.WithEntityDocRepo(docRepo)
 
-	resp, err := svc.Hierarchy(context.Background())
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1382,7 +1384,7 @@ func TestViewerService_Hierarchy_EpicRepoError(t *testing.T) {
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
 	)
-	_, err := svc.Hierarchy(context.Background())
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err == nil {
 		t.Fatal("expected error from epic repo failure")
 	}
@@ -1407,7 +1409,7 @@ func TestViewerService_Hierarchy_FeatureRepoError(t *testing.T) {
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
 	)
-	_, err := svc.Hierarchy(context.Background())
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err == nil {
 		t.Fatal("expected error from feature repo failure")
 	}
@@ -1438,7 +1440,7 @@ func TestViewerService_Hierarchy_TaskRepoError(t *testing.T) {
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
 	)
-	_, err := svc.Hierarchy(context.Background())
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err == nil {
 		t.Fatal("expected error from task repo failure")
 	}
@@ -1469,7 +1471,7 @@ func TestViewerService_Hierarchy_SortsFeaturesByExecutionOrder(t *testing.T) {
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
 	)
-	resp, err := svc.Hierarchy(context.Background())
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2182,7 +2184,7 @@ func TestViewerService_Hierarchy_RelationshipsEmptyWhenNone(t *testing.T) {
 		&mockViewerHistoryRepo{},
 	)
 
-	resp, err := svc.Hierarchy(context.Background())
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2248,7 +2250,7 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.Hierarchy(context.Background())
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2733,5 +2735,1473 @@ func TestViewerService_RelatedDocs_ErrorFromRepoIsPropagated(t *testing.T) {
 	}
 	if resp != nil {
 		t.Errorf("expected nil response on error, got %+v", resp)
+	}
+}
+
+// ----- mockTagReader -----
+
+// mockTagReader is a test double for the TagReader interface consumed by ViewerService.
+// It uses function fields following the project mock pattern. Call counters are provided
+// for AC-16 (query-count assertions) and TC-AC02-3 (delegation assertions).
+type mockTagReader struct {
+	ListTagsFunc              func(ctx context.Context) ([]*models.Tag, error)
+	EntityIDsByTagsFunc       func(ctx context.Context, entityType models.EntityType, names []string, op TagQueryOp) ([]int64, error)
+	AttachedTagNamesByIDsFunc func(ctx context.Context, entityType models.EntityType, entityIDs []int64) (map[int64][]string, error)
+
+	// Call counters for assertion
+	ListTagsCallCount              int
+	AttachedTagNamesByIDsCallCount int
+	EntityIDsByTagsCallCount       int
+}
+
+func (m *mockTagReader) ListTags(ctx context.Context) ([]*models.Tag, error) {
+	m.ListTagsCallCount++
+	if m.ListTagsFunc != nil {
+		return m.ListTagsFunc(ctx)
+	}
+	return []*models.Tag{}, nil
+}
+
+func (m *mockTagReader) EntityIDsByTags(ctx context.Context, entityType models.EntityType, names []string, op TagQueryOp) ([]int64, error) {
+	m.EntityIDsByTagsCallCount++
+	if m.EntityIDsByTagsFunc != nil {
+		return m.EntityIDsByTagsFunc(ctx, entityType, names, op)
+	}
+	return []int64{}, nil
+}
+
+func (m *mockTagReader) AttachedTagNamesByIDs(ctx context.Context, entityType models.EntityType, entityIDs []int64) (map[int64][]string, error) {
+	m.AttachedTagNamesByIDsCallCount++
+	if m.AttachedTagNamesByIDsFunc != nil {
+		return m.AttachedTagNamesByIDsFunc(ctx, entityType, entityIDs)
+	}
+	return map[int64][]string{}, nil
+}
+
+// ----- Tags() tests (TC-AC01-1, TC-AC01-3, TC-AC02-1, TC-AC02-3, TC-AC14-1, TC-AC14-5) -----
+
+// TC-AC01-1: Tags() with empty vocabulary returns non-nil empty slice.
+func TestViewerService_Tags_EmptyVocabulary(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if resp.Tags == nil {
+		t.Error("TC-AC01-1: Tags field must be non-nil (got nil) — ADR-F06-2")
+	}
+	if len(resp.Tags) != 0 {
+		t.Errorf("TC-AC01-1: expected 0 tags, got %d", len(resp.Tags))
+	}
+}
+
+// TC-AC01-3: JSON null guard — nil slice marshals as null; []TagDTO{} marshals as [].
+func TestViewerService_Tags_NilSliceMarshalGuard(t *testing.T) {
+	// []TagDTO{} must marshal as []
+	resp := TagsResponse{Tags: []TagDTO{}}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+	if string(data) != `{"tags":[]}` {
+		t.Errorf("expected {\"tags\":[]}, got %s", string(data))
+	}
+
+	// nil slice marshals as null — our service MUST avoid this
+	respNil := TagsResponse{Tags: nil}
+	dataNil, err := json.Marshal(respNil)
+	if err != nil {
+		t.Fatalf("failed to marshal nil Tags: %v", err)
+	}
+	if string(dataNil) != `{"tags":null}` {
+		t.Errorf("expected {\"tags\":null} for nil slice, got %s — documents why we must assign []TagDTO{}", string(dataNil))
+	}
+}
+
+// TC-AC02-1: Tags() returns tags alphabetically sorted.
+func TestViewerService_Tags_AlphabeticalOrdering(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{
+				{Name: "voice"},
+				{Name: "auth"},
+			}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(resp.Tags))
+	}
+	if resp.Tags[0].Name != "auth" || resp.Tags[1].Name != "voice" {
+		t.Errorf("TC-AC02-1: expected [auth, voice] (alphabetical), got [%s, %s]",
+			resp.Tags[0].Name, resp.Tags[1].Name)
+	}
+}
+
+// TC-AC02-3: Tags() delegates to tagSvc.ListTags exactly once; no other tag methods called.
+func TestViewerService_Tags_DelegatesToListTagsOnce(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{{Name: "auth"}}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tagReader.ListTagsCallCount != 1 {
+		t.Errorf("TC-AC02-3: expected ListTags called once, got %d", tagReader.ListTagsCallCount)
+	}
+	if tagReader.AttachedTagNamesByIDsCallCount != 0 {
+		t.Errorf("TC-AC02-3: Tags() must not call AttachedTagNamesByIDs, got %d calls",
+			tagReader.AttachedTagNamesByIDsCallCount)
+	}
+	if tagReader.EntityIDsByTagsCallCount != 0 {
+		t.Errorf("TC-AC02-3: Tags() must not call EntityIDsByTags, got %d calls",
+			tagReader.EntityIDsByTagsCallCount)
+	}
+}
+
+// TC-AC14-1: Tags() with nil tagSvc returns {tags: []}, no error (graceful degradation).
+func TestViewerService_Tags_NilTagSvc_GracefulDegradation(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// Do NOT call WithTagService — tagSvc remains nil.
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("TC-AC14-1: expected no error with nil tagSvc, got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("TC-AC14-1: expected non-nil response")
+	}
+	if resp.Tags == nil {
+		t.Error("TC-AC14-1: Tags must be non-nil even with nil tagSvc — ADR-F06-2")
+	}
+	if len(resp.Tags) != 0 {
+		t.Errorf("TC-AC14-1: expected empty tags, got %d tags", len(resp.Tags))
+	}
+}
+
+// TC-AC14-5 (partial): Tags() with nil tagSvc must not panic.
+func TestViewerService_Tags_NilTagSvc_NoPanic(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("TC-AC14-5: Tags() panicked with nil tagSvc: %v", r)
+		}
+	}()
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Errorf("TC-AC14-5: unexpected error: %v", err)
+	}
+	if resp == nil {
+		t.Error("TC-AC14-5: expected non-nil response")
+	}
+}
+
+// TestViewerService_WithTagService_ReturnsService verifies the setter follows
+// the method-chaining pattern (returns *ViewerService).
+func TestViewerService_WithTagService_ReturnsService(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{}
+	returned := svc.WithTagService(tagReader)
+	if returned != svc {
+		t.Error("WithTagService must return the receiver for method chaining")
+	}
+}
+
+// IS-1 (partial for T-E28-F06-001): Tags() correctly projects *models.Tag -> TagDTO{Name}.
+func TestViewerService_Tags_ProjectsTagToDTO(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{
+				{Name: "auth"},
+				{Name: "voice"},
+			}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tags) != 2 {
+		t.Fatalf("expected 2 DTOs, got %d", len(resp.Tags))
+	}
+	if resp.Tags[0].Name != "auth" {
+		t.Errorf("expected first tag name 'auth', got %q", resp.Tags[0].Name)
+	}
+	if resp.Tags[1].Name != "voice" {
+		t.Errorf("expected second tag name 'voice', got %q", resp.Tags[1].Name)
+	}
+}
+
+// TestViewerService_Tags_ListTagsError verifies error propagation from tagSvc.ListTags.
+func TestViewerService_Tags_ListTagsError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagErr := fmt.Errorf("db connection error")
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return nil, tagErr
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err == nil {
+		t.Fatal("expected error from ListTags to propagate, got nil")
+	}
+	if resp != nil {
+		t.Errorf("expected nil response on error, got %+v", resp)
+	}
+}
+
+// TestViewerService_HierarchyEpic_HasTagsField verifies that HierarchyEpic has the Tags field
+// and that it can be initialized as a non-nil empty slice (AC-T2 prerequisite).
+func TestViewerService_DTOs_HaveTagsField(t *testing.T) {
+	epic := &HierarchyEpic{
+		Tags: []string{},
+	}
+	if epic.Tags == nil {
+		t.Error("HierarchyEpic.Tags must be initializable as non-nil empty slice")
+	}
+
+	feature := &HierarchyFeature{
+		Tags: []string{},
+	}
+	if feature.Tags == nil {
+		t.Error("HierarchyFeature.Tags must be initializable as non-nil empty slice")
+	}
+
+	task := &ViewerTask{
+		Tags: []string{},
+	}
+	if task.Tags == nil {
+		t.Error("ViewerTask.Tags must be initializable as non-nil empty slice")
+	}
+
+	flat := &FlatEntity{
+		Tags: []string{},
+	}
+	if flat.Tags == nil {
+		t.Error("FlatEntity.Tags must be initializable as non-nil empty slice")
+	}
+}
+
+// TestViewerService_FeatureTaskOptions_HasTagsField verifies the Tags field on FeatureTaskOptions.
+func TestViewerService_FeatureTaskOptions_HasTagsField(t *testing.T) {
+	opts := FeatureTaskOptions{
+		Tags: []string{"voice"},
+	}
+	if len(opts.Tags) != 1 || opts.Tags[0] != "voice" {
+		t.Error("FeatureTaskOptions.Tags field not working as expected")
+	}
+}
+
+// TestViewerService_HierarchyOptions_HasTagsField verifies the HierarchyOptions DTO exists.
+func TestViewerService_HierarchyOptions_HasTagsField(t *testing.T) {
+	opts := HierarchyOptions{
+		Tags: []string{"auth", "voice"},
+	}
+	if len(opts.Tags) != 2 {
+		t.Error("HierarchyOptions.Tags field not working as expected")
+	}
+}
+
+// ----- Mock helpers for bug/changecard/idea list repos used in tag decoration tests -----
+
+type mockViewerBugListRepo struct {
+	ListAllFunc  func(ctx context.Context) ([]*models.Bug, error)
+	GetByKeyFunc func(ctx context.Context, key string) (*models.Bug, error)
+}
+
+func (m *mockViewerBugListRepo) ListAll(ctx context.Context) ([]*models.Bug, error) {
+	if m.ListAllFunc != nil {
+		return m.ListAllFunc(ctx)
+	}
+	return []*models.Bug{}, nil
+}
+
+func (m *mockViewerBugListRepo) GetByKey(ctx context.Context, key string) (*models.Bug, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("bug not found: %s", key)
+}
+
+type mockViewerChangeCardListRepo struct {
+	ListAllFunc  func(ctx context.Context) ([]*models.ChangeCard, error)
+	GetByKeyFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
+}
+
+func (m *mockViewerChangeCardListRepo) ListAll(ctx context.Context) ([]*models.ChangeCard, error) {
+	if m.ListAllFunc != nil {
+		return m.ListAllFunc(ctx)
+	}
+	return []*models.ChangeCard{}, nil
+}
+
+func (m *mockViewerChangeCardListRepo) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("change card not found: %s", key)
+}
+
+type mockViewerIdeaListRepo struct {
+	ListAllFunc  func(ctx context.Context) ([]*models.Idea, error)
+	GetByKeyFunc func(ctx context.Context, key string) (*models.Idea, error)
+}
+
+func (m *mockViewerIdeaListRepo) ListAll(ctx context.Context) ([]*models.Idea, error) {
+	if m.ListAllFunc != nil {
+		return m.ListAllFunc(ctx)
+	}
+	return []*models.Idea{}, nil
+}
+
+func (m *mockViewerIdeaListRepo) GetByKey(ctx context.Context, key string) (*models.Idea, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("idea not found: %s", key)
+}
+
+// ----- Hierarchy tag decoration and filter tests (T-E28-F06-002) -----
+
+// TC-AC04-1: Hierarchy with nil tagSvc produces non-nil []string{} on all entity DTOs.
+func TestViewerService_Hierarchy_NilTagSvc_TagsAlwaysNonNil(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{
+					{Task: &models.Task{BaseEntity: models.BaseEntity{ID: 100}, FeatureID: 10, Status: "todo"}, RelationshipsJSON: "[]"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// Wire bug/change/idea repos so they produce entities
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 200, Key: "B001"}, Status: "new"},
+			}, nil
+		},
+	})
+	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.ChangeCard, error) {
+			return []*models.ChangeCard{
+				{BaseEntity: models.BaseEntity{ID: 300, Key: "CC-001"}, Status: "open"},
+			}, nil
+		},
+	})
+	// tagSvc is NOT wired — nil
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC04-1: unexpected error: %v", err)
+	}
+
+	if len(resp.Epics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(resp.Epics))
+	}
+	epic := resp.Epics[0]
+	if epic.Tags == nil {
+		t.Error("TC-AC04-1: HierarchyEpic.Tags must be non-nil (got nil) — ADR-F06-2")
+	}
+	if len(epic.Tags) != 0 {
+		t.Errorf("TC-AC04-1: expected empty Tags on epic, got %v", epic.Tags)
+	}
+
+	if len(epic.Features) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(epic.Features))
+	}
+	feature := epic.Features[0]
+	if feature.Tags == nil {
+		t.Error("TC-AC04-1: HierarchyFeature.Tags must be non-nil (got nil) — ADR-F06-2")
+	}
+	if len(feature.Tags) != 0 {
+		t.Errorf("TC-AC04-1: expected empty Tags on feature, got %v", feature.Tags)
+	}
+
+	if len(feature.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(feature.Tasks))
+	}
+	task := feature.Tasks[0]
+	if task.Tags == nil {
+		t.Error("TC-AC04-1: ViewerTask.Tags must be non-nil (got nil) — ADR-F06-2")
+	}
+	if len(task.Tags) != 0 {
+		t.Errorf("TC-AC04-1: expected empty Tags on task, got %v", task.Tags)
+	}
+
+	// Flat bugs
+	if len(resp.Bugs) != 1 {
+		t.Fatalf("expected 1 bug in flat section, got %d", len(resp.Bugs))
+	}
+	if resp.Bugs[0].Tags == nil {
+		t.Error("TC-AC04-1: FlatEntity(bug).Tags must be non-nil — ADR-F06-2")
+	}
+	if len(resp.Bugs[0].Tags) != 0 {
+		t.Errorf("TC-AC04-1: expected empty Tags on bug, got %v", resp.Bugs[0].Tags)
+	}
+
+	// Flat change cards
+	if len(resp.ChangeCards) != 1 {
+		t.Fatalf("expected 1 change card in flat section, got %d", len(resp.ChangeCards))
+	}
+	if resp.ChangeCards[0].Tags == nil {
+		t.Error("TC-AC04-1: FlatEntity(change_card).Tags must be non-nil — ADR-F06-2")
+	}
+}
+
+// TC-AC04-2: Hierarchy with tagSvc wired but all entities untagged — Tags is []string{} (non-nil).
+func TestViewerService_Hierarchy_TagSvcWired_UntaggedEntities(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{
+					{Task: &models.Task{BaseEntity: models.BaseEntity{ID: 100}, FeatureID: 10, Status: "todo"}, RelationshipsJSON: "[]"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		// AttachedTagNamesByIDs returns empty map — no tags attached
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, _ []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC04-2: unexpected error: %v", err)
+	}
+
+	epic := resp.Epics[0]
+	if epic.Tags == nil {
+		t.Error("TC-AC04-2: HierarchyEpic.Tags must be non-nil — ADR-F06-2")
+	}
+	if epic.Features[0].Tags == nil {
+		t.Error("TC-AC04-2: HierarchyFeature.Tags must be non-nil — ADR-F06-2")
+	}
+	if epic.Features[0].Tasks[0].Tags == nil {
+		t.Error("TC-AC04-2: ViewerTask.Tags must be non-nil — ADR-F06-2")
+	}
+}
+
+// TC-AC05-1: Single entity (epic) tagged; others untagged.
+func TestViewerService_Hierarchy_TagDecoration_SingleEpicTagged(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+					{BaseEntity: models.BaseEntity{ID: 2, Key: "E02"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		AttachedTagNamesByIDsFunc: func(_ context.Context, entityType models.EntityType, ids []int64) (map[int64][]string, error) {
+			if entityType == models.EntityTypeEpic {
+				return map[int64][]string{1: {"voice"}}, nil
+			}
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC05-1: unexpected error: %v", err)
+	}
+
+	if len(resp.Epics) != 2 {
+		t.Fatalf("expected 2 epics, got %d", len(resp.Epics))
+	}
+
+	var e01, e02 *HierarchyEpic
+	for _, e := range resp.Epics {
+		switch e.Key {
+		case "E01":
+			e01 = e
+		case "E02":
+			e02 = e
+		}
+	}
+
+	if e01 == nil || e02 == nil {
+		t.Fatal("could not find E01 or E02 in response")
+	}
+
+	if len(e01.Tags) != 1 || e01.Tags[0] != "voice" {
+		t.Errorf("TC-AC05-1: expected E01.Tags == [voice], got %v", e01.Tags)
+	}
+	if len(e02.Tags) != 0 {
+		t.Errorf("TC-AC05-1: expected E02.Tags == [], got %v", e02.Tags)
+	}
+}
+
+// TC-AC05-4: Batching correctness — AttachedTagNamesByIDs called at most once per entity type present.
+func TestViewerService_Hierarchy_TagDecoration_BatchCallCount(t *testing.T) {
+	// Build: 3 epics, 5 features, 10 tasks, 2 bugs, 2 change cards, 1 idea
+	epics := []*models.Epic{
+		{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+		{BaseEntity: models.BaseEntity{ID: 2, Key: "E02"}, Status: models.EpicStatusActive},
+		{BaseEntity: models.BaseEntity{ID: 3, Key: "E03"}, Status: models.EpicStatusActive},
+	}
+	features := make([]*models.Feature, 5)
+	for i := range features {
+		features[i] = &models.Feature{
+			BaseEntity: models.BaseEntity{ID: int64(10 + i)},
+			EpicID:     int64(1 + (i % 3)),
+			Status:     "in_progress",
+		}
+	}
+	taskRels := make([]*models.ViewerTaskWithRelationships, 10)
+	for i := range taskRels {
+		taskRels[i] = &models.ViewerTaskWithRelationships{
+			Task:              &models.Task{BaseEntity: models.BaseEntity{ID: int64(100 + i)}, FeatureID: int64(10 + (i % 5)), Status: "todo"},
+			RelationshipsJSON: "[]",
+		}
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+			return epics, nil
+		}},
+		&mockViewerFeatureRepo{ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+			return features, nil
+		}},
+		&mockViewerTaskRepo{ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+			return taskRels, nil
+		}},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 200, Key: "B001"}, Status: "new"},
+				{BaseEntity: models.BaseEntity{ID: 201, Key: "B002"}, Status: "new"},
+			}, nil
+		},
+	})
+	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.ChangeCard, error) {
+			return []*models.ChangeCard{
+				{BaseEntity: models.BaseEntity{ID: 300, Key: "CC-001"}, Status: "open"},
+				{BaseEntity: models.BaseEntity{ID: 301, Key: "CC-002"}, Status: "open"},
+			}, nil
+		},
+	})
+	svc.WithIdeaRepo(&mockViewerIdeaListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Idea, error) {
+			return []*models.Idea{
+				{ID: 400, Key: "idea-1", Title: "Test Idea", Status: "new"},
+			}, nil
+		},
+	})
+	tagReader := &mockTagReader{
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, _ []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC05-4 (AC-16): unexpected error: %v", err)
+	}
+
+	// With epics + features + tasks + bugs + change cards + ideas = 6 entity types
+	// => exactly 6 AttachedTagNamesByIDs calls
+	if tagReader.AttachedTagNamesByIDsCallCount > 6 {
+		t.Errorf("TC-AC16-1: AttachedTagNamesByIDs called %d times (must be ≤ 6 regardless of tree size)",
+			tagReader.AttachedTagNamesByIDsCallCount)
+	}
+}
+
+// TC-AC16-2: Only entity types with IDs get a call; empty types skipped.
+func TestViewerService_Hierarchy_TagDecoration_SkipsEmptyEntityTypes(t *testing.T) {
+	// Only epics and features — no tasks, bugs, changes, ideas
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil // no tasks
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// No WithBugListRepo, no WithChangeCardListRepo, no WithIdeaRepo
+	tagReader := &mockTagReader{
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, _ []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC16-2: unexpected error: %v", err)
+	}
+
+	// Only epics and features present → 2 calls (not 6)
+	if tagReader.AttachedTagNamesByIDsCallCount > 6 {
+		t.Errorf("TC-AC16-2: too many AttachedTagNamesByIDs calls: %d (want ≤ 6)",
+			tagReader.AttachedTagNamesByIDsCallCount)
+	}
+	if tagReader.AttachedTagNamesByIDsCallCount == 0 {
+		t.Error("TC-AC16-2: expected at least 1 AttachedTagNamesByIDs call for epics+features")
+	}
+}
+
+// TC-AC16-3: Empty hierarchy → zero AttachedTagNamesByIDs calls.
+func TestViewerService_Hierarchy_TagDecoration_EmptyHierarchy_ZeroCalls(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+			return []*models.Epic{}, nil
+		}},
+		&mockViewerFeatureRepo{ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		}},
+		&mockViewerTaskRepo{ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+			return []*models.ViewerTaskWithRelationships{}, nil
+		}},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC16-3: unexpected error: %v", err)
+	}
+
+	if tagReader.AttachedTagNamesByIDsCallCount != 0 {
+		t.Errorf("TC-AC16-3: expected 0 AttachedTagNamesByIDs calls for empty hierarchy, got %d",
+			tagReader.AttachedTagNamesByIDsCallCount)
+	}
+}
+
+// TC-AC06-1: Tag filter prunes epics with no matching descendants and no direct tag.
+func TestViewerService_Hierarchy_TagFilter_PrunesUnmatchedEpics(t *testing.T) {
+	// E01 has feature F1 tagged voice; E02 has no tagged features
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+					{BaseEntity: models.BaseEntity{ID: 2, Key: "E02"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"}, // F1 in E01
+					{BaseEntity: models.BaseEntity{ID: 11}, EpicID: 2, Status: "in_progress"}, // F2 in E02
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, entityType models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			switch entityType {
+			case models.EntityTypeFeature:
+				return []int64{10}, nil // Only F1 (in E01) matches "voice"
+			case models.EntityTypeEpic:
+				return []int64{}, nil // No epics directly tagged
+			case models.EntityTypeTask:
+				return []int64{}, nil
+			case models.EntityTypeBug:
+				return []int64{}, nil
+			case models.EntityTypeChange:
+				return []int64{}, nil
+			case models.EntityTypeIdea:
+				return []int64{}, nil
+			}
+			return []int64{}, nil
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, entityType models.EntityType, ids []int64) (map[int64][]string, error) {
+			if entityType == models.EntityTypeFeature {
+				return map[int64][]string{10: {"voice"}}, nil
+			}
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("TC-AC06-1: unexpected error: %v", err)
+	}
+
+	// E02 should be pruned (no matching features, not directly tagged)
+	if len(resp.Epics) != 1 {
+		t.Errorf("TC-AC06-1: expected 1 epic (E01), got %d", len(resp.Epics))
+	}
+	if len(resp.Epics) > 0 && resp.Epics[0].Key != "E01" {
+		t.Errorf("TC-AC06-1: expected E01 to survive, got %s", resp.Epics[0].Key)
+	}
+}
+
+// TC-AC06-3: Epic directly tagged voice, zero matching features → epic present with empty features.
+func TestViewerService_Hierarchy_TagFilter_EpicDirectTaggedNoMatchingFeatures(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, entityType models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			switch entityType {
+			case models.EntityTypeEpic:
+				return []int64{1}, nil // E01 directly tagged
+			case models.EntityTypeFeature:
+				return []int64{}, nil // No feature tagged
+			default:
+				return []int64{}, nil
+			}
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, entityType models.EntityType, _ []int64) (map[int64][]string, error) {
+			if entityType == models.EntityTypeEpic {
+				return map[int64][]string{1: {"voice"}}, nil
+			}
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("TC-AC06-3: unexpected error: %v", err)
+	}
+
+	// E01 is directly tagged → stays; feature F10 is untagged → pruned
+	if len(resp.Epics) != 1 {
+		t.Fatalf("TC-AC06-3: expected E01 to survive (directly tagged), got %d epics", len(resp.Epics))
+	}
+	if len(resp.Epics[0].Features) != 0 {
+		t.Errorf("TC-AC06-3: expected 0 features (untagged feature pruned), got %d", len(resp.Epics[0].Features))
+	}
+}
+
+// TC-AC06-4: Flat entities independently filtered.
+func TestViewerService_Hierarchy_TagFilter_FlatEntitiesIndependentlyFiltered(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 200, Key: "B001"}, Status: "new"},
+				{BaseEntity: models.BaseEntity{ID: 201, Key: "B002"}, Status: "new"},
+			}, nil
+		},
+	})
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, entityType models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			switch entityType {
+			case models.EntityTypeBug:
+				return []int64{200}, nil // Only B001 matches
+			default:
+				return []int64{}, nil
+			}
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, entityType models.EntityType, _ []int64) (map[int64][]string, error) {
+			if entityType == models.EntityTypeBug {
+				return map[int64][]string{200: {"voice"}}, nil
+			}
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("TC-AC06-4: unexpected error: %v", err)
+	}
+
+	// Only B001 tagged → only B001 in bugs list
+	if len(resp.Bugs) != 1 {
+		t.Errorf("TC-AC06-4: expected 1 bug (B001), got %d", len(resp.Bugs))
+	}
+	if len(resp.Bugs) > 0 && resp.Bugs[0].Key != "B001" {
+		t.Errorf("TC-AC06-4: expected B001, got %s", resp.Bugs[0].Key)
+	}
+}
+
+// TC-AC06-5: No entities tagged → empty result.
+func TestViewerService_Hierarchy_TagFilter_NothingTagged_EmptyResult(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, _ models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			return []int64{}, nil // nothing matches
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, _ []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("TC-AC06-5: unexpected error: %v", err)
+	}
+
+	if len(resp.Epics) != 0 {
+		t.Errorf("TC-AC06-5: expected 0 epics, got %d", len(resp.Epics))
+	}
+}
+
+// TC-AC07-3: EntityIDsByTags called with full multi-tag slice in ONE call per entity type.
+func TestViewerService_Hierarchy_TagFilter_AndSemanticsOneCallPerType(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	var capturedNames [][]string
+	var capturedOps []TagQueryOp
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, _ models.EntityType, names []string, op TagQueryOp) ([]int64, error) {
+			capturedNames = append(capturedNames, names)
+			capturedOps = append(capturedOps, op)
+			return []int64{1}, nil
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, _ []int64) (map[int64][]string, error) {
+			return map[int64][]string{1: {"voice", "auth"}}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice", "auth"}})
+	if err != nil {
+		t.Fatalf("TC-AC07-3: unexpected error: %v", err)
+	}
+
+	// Each call should have the full tag set ["voice", "auth"]
+	for i, names := range capturedNames {
+		if len(names) != 2 {
+			t.Errorf("TC-AC07-3: call %d had %d names (want 2); got %v", i, len(names), names)
+		}
+	}
+	// All ops should be AND
+	for i, op := range capturedOps {
+		if op != TagQueryOpAnd {
+			t.Errorf("TC-AC07-3: call %d used op %q (want %q)", i, op, TagQueryOpAnd)
+		}
+	}
+}
+
+// AC-T4: *UnregisteredTagError from EntityIDsByTags propagates unchanged.
+func TestViewerService_Hierarchy_TagFilter_UnregisteredTagErrorPropagates(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		}},
+		&mockViewerTaskRepo{ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+			return []*models.ViewerTaskWithRelationships{}, nil
+		}},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	unregErr := &UnregisteredTagError{Name: "does-not-exist"}
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, _ models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			return nil, unregErr
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"does-not-exist"}})
+	if err == nil {
+		t.Fatal("AC-T4: expected UnregisteredTagError to propagate, got nil")
+	}
+	var got *UnregisteredTagError
+	if !errors.As(err, &got) {
+		t.Errorf("AC-T4: expected *UnregisteredTagError, got %T: %v", err, err)
+	}
+}
+
+// AC-T5: Nil tagSvc + non-empty opts.Tags → no error, no panic, all DTOs carry [].
+func TestViewerService_Hierarchy_NilTagSvc_WithTagFilter_Graceful(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+			}, nil
+		}},
+		&mockViewerTaskRepo{ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+			return []*models.ViewerTaskWithRelationships{}, nil
+		}},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// tagSvc is nil — do NOT call WithTagService
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("AC-T5: panicked with nil tagSvc + opts.Tags: %v", r)
+		}
+	}()
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("AC-T5: expected no error with nil tagSvc, got %v", err)
+	}
+	// Filter is ignored — the unfiltered tree is returned
+	if len(resp.Epics) == 0 {
+		t.Error("AC-T5: expected hierarchy to be returned unfiltered when tagSvc is nil")
+	}
+	// All Tags fields are non-nil []string{}
+	if len(resp.Epics) > 0 && resp.Epics[0].Tags == nil {
+		t.Error("AC-T5: epic.Tags must be non-nil even with nil tagSvc")
+	}
+}
+
+// ----- FeatureTasks tag filter and decoration tests (T-E28-F06-002) -----
+
+// TC-AC09-1: Tag filter applied before pagination; Total reflects post-filter count.
+func TestViewerService_FeatureTasks_TagFilter_BeforePagination(t *testing.T) {
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}}
+
+	// 10 tasks, IDs 100-109
+	allTasks := make([]*models.ViewerTaskWithRelationships, 10)
+	for i := range allTasks {
+		allTasks[i] = &models.ViewerTaskWithRelationships{
+			Task:              &models.Task{BaseEntity: models.BaseEntity{ID: int64(100 + i)}, FeatureID: 20, Status: "todo"},
+			RelationshipsJSON: "[]",
+		}
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(_ context.Context, key string) (*models.Feature, error) {
+				return feature, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureWithViewerRelationshipsFunc: func(_ context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error) {
+				return allTasks, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	// 3 tasks tagged "voice": IDs 100, 101, 102
+	tagReader := &mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, entityType models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			if entityType == models.EntityTypeTask {
+				return []int64{100, 101, 102}, nil
+			}
+			return []int64{}, nil
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, ids []int64) (map[int64][]string, error) {
+			result := map[int64][]string{}
+			for _, id := range ids {
+				if id == 100 || id == 101 || id == 102 {
+					result[id] = []string{"voice"}
+				}
+			}
+			return result, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{
+		Tags:  []string{"voice"},
+		Limit: 2, // page size 2
+	})
+	if err != nil {
+		t.Fatalf("TC-AC09-1: unexpected error: %v", err)
+	}
+
+	// Total must reflect the 3 tagged tasks (post-filter, pre-pagination count)
+	if resp.Total != 3 {
+		t.Errorf("TC-AC09-1: Total must be 3 (tag-filtered count before pagination), got %d", resp.Total)
+	}
+	// Page 1 of 3 tagged tasks: 2 tasks
+	if len(resp.Tasks) != 2 {
+		t.Errorf("TC-AC09-1: expected 2 tasks on page 1, got %d", len(resp.Tasks))
+	}
+}
+
+// TC-AC09-2: No tag filter → unchanged behavior (Total = all tasks).
+func TestViewerService_FeatureTasks_NoTagFilter_UnchangedBehavior(t *testing.T) {
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}}
+	allTasks := make([]*models.ViewerTaskWithRelationships, 5)
+	for i := range allTasks {
+		allTasks[i] = &models.ViewerTaskWithRelationships{
+			Task:              &models.Task{BaseEntity: models.BaseEntity{ID: int64(100 + i)}, FeatureID: 20, Status: "todo"},
+			RelationshipsJSON: "[]",
+		}
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(_ context.Context, _ string) (*models.Feature, error) {
+				return feature, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureWithViewerRelationshipsFunc: func(_ context.Context, _ int64) ([]*models.ViewerTaskWithRelationships, error) {
+				return allTasks, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{}) // empty Tags
+	if err != nil {
+		t.Fatalf("TC-AC09-2: unexpected error: %v", err)
+	}
+	if resp.Total != 5 {
+		t.Errorf("TC-AC09-2: expected Total=5, got %d", resp.Total)
+	}
+	// EntityIDsByTags must not be called when Tags is empty
+	if tagReader.EntityIDsByTagsCallCount != 0 {
+		t.Errorf("TC-AC09-2: EntityIDsByTags should not be called when Tags is empty, got %d calls",
+			tagReader.EntityIDsByTagsCallCount)
+	}
+}
+
+// TC-AC09-3: Post-pagination decoration uses IDs of the page only (not pre-filter set).
+func TestViewerService_FeatureTasks_TagDecoration_PageScopedIDs(t *testing.T) {
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}}
+	// 10 tasks total
+	allTasks := make([]*models.ViewerTaskWithRelationships, 10)
+	for i := range allTasks {
+		allTasks[i] = &models.ViewerTaskWithRelationships{
+			Task:              &models.Task{BaseEntity: models.BaseEntity{ID: int64(100 + i)}, FeatureID: 20, Status: "todo"},
+			RelationshipsJSON: "[]",
+		}
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(_ context.Context, _ string) (*models.Feature, error) {
+				return feature, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureWithViewerRelationshipsFunc: func(_ context.Context, _ int64) ([]*models.ViewerTaskWithRelationships, error) {
+				return allTasks, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	var capturedDecorateIDs []int64
+	tagReader := &mockTagReader{
+		AttachedTagNamesByIDsFunc: func(_ context.Context, entityType models.EntityType, ids []int64) (map[int64][]string, error) {
+			if entityType == models.EntityTypeTask {
+				capturedDecorateIDs = ids
+			}
+			return map[int64][]string{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	// No tag filter, limit 3 → page has 3 tasks (IDs 100, 101, 102)
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{Limit: 3})
+	if err != nil {
+		t.Fatalf("TC-AC09-3: unexpected error: %v", err)
+	}
+	if len(resp.Tasks) != 3 {
+		t.Fatalf("TC-AC09-3: expected 3 tasks on page, got %d", len(resp.Tasks))
+	}
+
+	// Decoration must be called with IDs of the 3-item page only (not all 10)
+	if len(capturedDecorateIDs) != 3 {
+		t.Errorf("TC-AC09-3: expected 3 IDs passed to AttachedTagNamesByIDs (page-scoped), got %d: %v",
+			len(capturedDecorateIDs), capturedDecorateIDs)
+	}
+}
+
+// TC-AC14-2: Hierarchy with nil tagSvc and empty opts.Tags → all DTOs carry Tags: []string{}.
+func TestViewerService_Hierarchy_NilTagSvc_NoTagFilter_EmptyTags(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(_ context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{ListFunc: func(_ context.Context) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{BaseEntity: models.BaseEntity{ID: 10}, EpicID: 1, Status: "in_progress"},
+			}, nil
+		}},
+		&mockViewerTaskRepo{ListWithViewerRelationshipsFunc: func(_ context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+			return []*models.ViewerTaskWithRelationships{
+				{Task: &models.Task{BaseEntity: models.BaseEntity{ID: 100}, FeatureID: 10, Status: "todo"}, RelationshipsJSON: "[]"},
+			}, nil
+		}},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// tagSvc nil
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC14-2: unexpected error: %v", err)
+	}
+	if len(resp.Epics) == 0 {
+		t.Fatal("TC-AC14-2: expected at least 1 epic")
+	}
+	if resp.Epics[0].Tags == nil {
+		t.Error("TC-AC14-2: epic.Tags must be non-nil — ADR-F06-2")
+	}
+	if resp.Epics[0].Features[0].Tags == nil {
+		t.Error("TC-AC14-2: feature.Tags must be non-nil — ADR-F06-2")
+	}
+	if resp.Epics[0].Features[0].Tasks[0].Tags == nil {
+		t.Error("TC-AC14-2: task.Tags must be non-nil — ADR-F06-2")
+	}
+}
+
+// TC-AC14-4: FeatureTasks with nil tagSvc and opts.Tags set → silently ignored, no panic.
+func TestViewerService_FeatureTasks_NilTagSvc_TagFilter_Graceful(t *testing.T) {
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}}
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(_ context.Context, _ string) (*models.Feature, error) {
+				return feature, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureWithViewerRelationshipsFunc: func(_ context.Context, _ int64) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{
+					{Task: &models.Task{BaseEntity: models.BaseEntity{ID: 100}, FeatureID: 20, Status: "todo"}, RelationshipsJSON: "[]"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// tagSvc nil — do NOT call WithTagService
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("TC-AC14-4: panicked with nil tagSvc + opts.Tags: %v", r)
+		}
+	}()
+
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("TC-AC14-4: expected no error, got %v", err)
+	}
+	// Filter ignored → task still present
+	if len(resp.Tasks) == 0 {
+		t.Error("TC-AC14-4: expected task to be returned when tag filter is silently ignored")
+	}
+	if resp.Tasks[0].Tags == nil {
+		t.Error("TC-AC14-4: task.Tags must be non-nil — ADR-F06-2")
+	}
+}
+
+// FeatureTasks: tasks carry non-nil []string{} Tags even with tagSvc wired.
+func TestViewerService_FeatureTasks_TagDecoration_EmptyTagsNonNil(t *testing.T) {
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}}
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(_ context.Context, _ string) (*models.Feature, error) {
+				return feature, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureWithViewerRelationshipsFunc: func(_ context.Context, _ int64) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{
+					{Task: &models.Task{BaseEntity: models.BaseEntity{ID: 100}, FeatureID: 20, Status: "todo"}, RelationshipsJSON: "[]"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		AttachedTagNamesByIDsFunc: func(_ context.Context, _ models.EntityType, _ []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil // no tags
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(resp.Tasks))
+	}
+	if resp.Tasks[0].Tags == nil {
+		t.Error("ViewerTask.Tags must be non-nil even when untagged — ADR-F06-2")
+	}
+	if len(resp.Tasks[0].Tags) != 0 {
+		t.Errorf("expected empty Tags on untagged task, got %v", resp.Tasks[0].Tags)
 	}
 }
