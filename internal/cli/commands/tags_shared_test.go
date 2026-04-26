@@ -202,29 +202,6 @@ func TestHandleVocabularyErrorWithSnippet_JSONModeSuppressesSnippet(t *testing.T
 	}
 }
 
-// TestHandleTagsRmRenameError_BackwardsCompatAlias ensures the original
-// helper name still points at the same logic (existing callers in tags.go
-// continue to compile, and external use sites don't break).
-func TestHandleTagsRmRenameError_BackwardsCompatAlias(t *testing.T) {
-	withPlainTextGlobal(t)
-	cmd, errBuf := buildSingleCommandForHelper(false)
-
-	svc := &mockTagService{
-		listTagsFn: func(ctx context.Context) ([]*models.Tag, error) {
-			return []*models.Tag{{ID: 1, Name: "voice"}}, nil
-		},
-	}
-
-	notFound := &services.NotFoundError{Name: "missing"}
-	retErr := handleTagsRmRenameError(cmd, svc, "missing", notFound)
-	if retErr == nil {
-		t.Fatal("expected non-nil error from alias helper")
-	}
-	if !strings.Contains(errBuf.String(), "To add it: shark tags add missing") {
-		t.Errorf("alias helper stderr missing remediation, got: %q", errBuf.String())
-	}
-}
-
 // TestTagsErrorCode_TagFilterUnavailable tests AC-T3: tagsErrorCode maps
 // *TagFilterUnavailableError to exit code 3 with JSON code "unavailable".
 func TestTagsErrorCode_TagFilterUnavailable(t *testing.T) {

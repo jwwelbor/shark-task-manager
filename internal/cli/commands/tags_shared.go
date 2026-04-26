@@ -102,18 +102,6 @@ func handleEntityServiceError(
 	return err
 }
 
-// handleTagsRmRenameError is retained as a thin alias so existing call
-// sites in tags.go (rm and rename) compile unchanged. New code should
-// call handleVocabularyErrorWithSnippet directly.
-func handleTagsRmRenameError(
-	cmd *cobra.Command,
-	s tagServiceIface,
-	name string,
-	err error,
-) error {
-	return handleVocabularyErrorWithSnippet(cmd, s, name, err)
-}
-
 // appendTagsToBasicInfo appends a "Tags" row to a BasicInfo slice for entity
 // get display (REQ-F-015, AC-28 series). Renders "Tags: voice, auth" when tags
 // are present, or "Tags: (none)" when the slice is empty. When tags is nil

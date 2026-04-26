@@ -422,22 +422,11 @@ func (s *TagService) ListTagsForEntity(ctx context.Context, entityType models.En
 	)
 	defer span.End()
 
-	links, err := s.entityTagRepo.ListByEntity(ctx, entityType, entityID)
+	byID, err := s.AttachedTagNamesByIDs(ctx, entityType, []int64{entityID})
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("tag service: list tags for entity %s/%d: %w", entityType, entityID, err))
 	}
-
-	names := make([]string, 0, len(links))
-	for _, link := range links {
-		t, err := s.tagRepo.GetByID(ctx, link.TagID)
-		if err != nil {
-			return nil, recordSpanError(span, fmt.Errorf("tag service: list tags for entity %s/%d: get tag %d: %w", entityType, entityID, link.TagID, err))
-		}
-		names = append(names, t.Name)
-	}
-
-	sort.Strings(names)
-	return names, nil
+	return byID[entityID], nil
 }
 
 // AttachedTagNamesByIDs returns a map from entityID to its sorted list of

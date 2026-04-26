@@ -2533,32 +2533,14 @@ func TestEntityIDsByTags_DuplicateNamesDeduped(t *testing.T) {
 
 func TestListTagsForEntity_TwoAttachments(t *testing.T) {
 	entityTagRepo := &mockEntityTagRepo{
-		// Override ListByEntity to return two links.
-	}
-	// We need a custom mock that returns links for ListByEntity.
-	// The mockEntityTagRepo doesn't have a dedicated listByEntityFn field,
-	// so we create a separate implementation.
-
-	links := []*models.EntityTagLink{
-		{ID: 1, EntityType: models.EntityTypeTask, EntityID: 42, TagID: 7},
-		{ID: 2, EntityType: models.EntityTypeTask, EntityID: 42, TagID: 3},
-	}
-
-	tagRepo := &mockTagRepo{
-		getByIDFn: func(ctx context.Context, id int64) (*models.Tag, error) {
-			switch id {
-			case 7:
-				return &models.Tag{ID: 7, Name: "auth"}, nil
-			case 3:
-				return &models.Tag{ID: 3, Name: "voice"}, nil
-			}
-			return nil, fmt.Errorf("not found: %w", tagrepo.ErrTagNotFound)
+		listTagNamesByEntitiesFn: func(ctx context.Context, entityType models.EntityType, entityIDs []int64) ([]tagrepo.EntityIDTagName, error) {
+			return []tagrepo.EntityIDTagName{
+				{EntityID: 42, TagName: "auth"},
+				{EntityID: 42, TagName: "voice"},
+			}, nil
 		},
 	}
-
-	// Use the listTagsForEntityTestRepo helper.
-	customEntityTagRepo := &listTagsTestEntityTagRepo{links: links}
-	svc := newTagServiceForTest(tagRepo, customEntityTagRepo, &mockGate{})
+	svc := newTagServiceForTest(&mockTagRepo{}, entityTagRepo, &mockGate{})
 
 	names, err := svc.ListTagsForEntity(context.Background(), models.EntityTypeTask, 42)
 	if err != nil {
@@ -2570,7 +2552,6 @@ func TestListTagsForEntity_TwoAttachments(t *testing.T) {
 	if names[0] != "auth" || names[1] != "voice" {
 		t.Errorf("expected [auth voice] sorted ascending, got %v", names)
 	}
-	_ = entityTagRepo
 }
 
 // AC-9b: No attachments returns empty non-nil slice
@@ -2590,18 +2571,14 @@ func TestListTagsForEntity_NoAttachments(t *testing.T) {
 	}
 }
 
-// AC-9c: GetByID error propagated
+// AC-9c: ListTagNamesByEntities error propagated
 func TestListTagsForEntity_GetByIDError(t *testing.T) {
-	links := []*models.EntityTagLink{
-		{ID: 1, EntityType: models.EntityTypeTask, EntityID: 42, TagID: 7},
-	}
-	tagRepo := &mockTagRepo{
-		getByIDFn: func(ctx context.Context, id int64) (*models.Tag, error) {
-			return nil, fmt.Errorf("db error: tag %d", id)
+	entityTagRepo := &mockEntityTagRepo{
+		listTagNamesByEntitiesFn: func(ctx context.Context, entityType models.EntityType, entityIDs []int64) ([]tagrepo.EntityIDTagName, error) {
+			return nil, fmt.Errorf("db error")
 		},
 	}
-	customEntityTagRepo := &listTagsTestEntityTagRepo{links: links}
-	svc := newTagServiceForTest(tagRepo, customEntityTagRepo, &mockGate{})
+	svc := newTagServiceForTest(&mockTagRepo{}, entityTagRepo, &mockGate{})
 
 	names, err := svc.ListTagsForEntity(context.Background(), models.EntityTypeTask, 42)
 	if err == nil {

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -191,65 +190,11 @@ func makeEntityTagRm(
 }
 
 // resolveEntityTagService returns the injected override (tests) or the
-// real production tag service (cli.GetTagService()). The real service
-// satisfies both tagServiceIface and TagAttacher — so it transparently
-// fulfils entityTagServiceIface via the embedded interface.
-//
-// The real service accessor panics on DB failure (matching
-// cli.GetTagService's documented behaviour), which propagates up through
-// cobra as a process abort. In tests we always inject a non-nil override,
-// so this production branch is not exercised in the test suite.
+// real production tag service. *services.TagService satisfies
+// entityTagServiceIface, so the concrete type is returned directly.
 func resolveEntityTagService(svc entityTagServiceIface) entityTagServiceIface {
 	if svc != nil {
 		return svc
 	}
-	// cli.GetTagService() returns *services.TagService, which satisfies
-	// both of the embedded interfaces of entityTagServiceIface (TagAttacher
-	// methods plus ListTags from tagServiceIface).
-	return &realEntityTagService{inner: cli.GetTagService()}
+	return cli.GetTagService()
 }
-
-// realEntityTagService is a thin adapter that carries the production
-// *services.TagService behind the entityTagServiceIface. The adapter is
-// only needed because Go does not allow a concrete type to satisfy an
-// interface that embeds another interface unless the concrete type
-// satisfies BOTH — and *services.TagService already does. The wrapper is
-// present for future-proofing: if entityTagServiceIface grows methods
-// that the concrete TagService doesn't yet have, the wrapper becomes the
-// integration seam.
-type realEntityTagService struct {
-	inner interface {
-		entityTagServiceIface
-	}
-}
-
-func (r *realEntityTagService) AttachMany(ctx context.Context, entityType models.EntityType, entityID int64, names []string) error {
-	return r.inner.AttachMany(ctx, entityType, entityID, names)
-}
-
-func (r *realEntityTagService) DetachOne(ctx context.Context, entityType models.EntityType, entityID int64, name string) error {
-	return r.inner.DetachOne(ctx, entityType, entityID, name)
-}
-
-func (r *realEntityTagService) ListTags(ctx context.Context) ([]*models.Tag, error) {
-	return r.inner.ListTags(ctx)
-}
-
-func (r *realEntityTagService) AddTag(ctx context.Context, name, pass string) (*models.Tag, error) {
-	return r.inner.AddTag(ctx, name, pass)
-}
-
-func (r *realEntityTagService) RemoveTag(ctx context.Context, name string, force bool, pass string) error {
-	return r.inner.RemoveTag(ctx, name, force, pass)
-}
-
-func (r *realEntityTagService) RenameTag(ctx context.Context, oldName, newName, pass string) (*models.Tag, error) {
-	return r.inner.RenameTag(ctx, oldName, newName, pass)
-}
-
-// Compile-time sanity: errors.As is used in the DetachOne handler's
-// shared-helper path; keep the import resolvable (Go accepts it as
-// transitively used because handleVocabularyErrorWithSnippet consumes
-// error values we produce, but the static analyser is happier with an
-// explicit reference if the handler ever short-circuits).
-var _ = errors.As
