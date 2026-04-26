@@ -24,6 +24,14 @@ We use **MoSCoW prioritization**:
 
 ---
 
+### Cross-Cutting Dependency: Entity `Size` (E07-F42)
+
+Velocity, burndown, capacity allocation, readiness scoring, and sprint summary all read the `size` field delivered by **E07-F42**. The unit of measure throughout this document is `Σ size` over a set of entities (numeric Fibonacci: 1, 2, 3, 5, 8, 13). T-shirt labels (XS–XXL) are presentation-only and map to the same numeric values.
+
+**Handling unsized entities**: Entities with `size = NULL` contribute 0 to all sums and are surfaced separately in command output (e.g., "unsized completed: N") so unsized work is visible without distorting velocity. Sprint planning commands MAY warn when the candidate backlog contains unsized tasks; making sizing a hard prerequisite for sprint assignment is deferred (see [scope.md](./scope.md)).
+
+---
+
 ### Must Have Requirements
 
 #### Sprint Lifecycle Management
@@ -103,34 +111,39 @@ We use **MoSCoW prioritization**:
 #### Sprint Analytics
 
 **REQ-F-007**: Velocity Calculation
-- **Description**: Calculate and display team velocity from historical sprint data
+- **Description**: Calculate and display team velocity from historical sprint data, measured as the sum of completed entity `size` values per sprint
 - **User Story**: As a PM, I want to see historical velocity so that I can plan future sprints with realistic scope
+- **Depends On**: E07-F42 (entity `size` field)
 - **Acceptance Criteria**:
-  - [ ] `shark sprint velocity` shows completed task count (or points) per sprint for the last 5 sprints
-  - [ ] Displays trailing average velocity
+  - [ ] `shark sprint velocity` shows `Σ size` of completed entities per sprint for the last 5 sprints
+  - [ ] Unsized completed entities (`size = NULL`) contribute 0 to the sum and are reported separately as `unsized_completed: N` so the omission is visible
+  - [ ] Displays trailing average velocity (mean of last N sized totals)
   - [ ] `--sprints=N` flag overrides the number of historical sprints shown
-  - [ ] `--json` output includes per-sprint data and averages
+  - [ ] `--json` output includes per-sprint `completed_size`, `unsized_completed`, and trailing averages
   - [ ] Shows "insufficient data" message when fewer than 3 completed sprints exist
 - **Related Journey**: [Sprint Monitoring](./user-journeys.md#journey-3-sprint-monitoring), Step 4
 
 **REQ-F-008**: Sprint Burndown
-- **Description**: Display sprint progress as a burndown of remaining work over time
+- **Description**: Display sprint progress as a burndown of remaining `Σ size` over time
 - **User Story**: As a PM, I want to see a burndown chart so that I can tell if the sprint is on track
+- **Depends On**: E07-F42 (entity `size` field)
 - **Acceptance Criteria**:
   - [ ] `shark sprint burndown` shows burndown for the active sprint (or `shark sprint burndown S024` for a specific sprint)
-  - [ ] Displays ideal burndown line (linear from total to zero over sprint duration)
-  - [ ] Displays actual remaining tasks/points per day
+  - [ ] Displays ideal burndown line (linear from initial `Σ size` to zero over sprint duration)
+  - [ ] Displays actual remaining `Σ size` per day, computed from incomplete-entity sizes at end-of-day
+  - [ ] Unsized entities contribute 0 to remaining `Σ size`; the chart legend (and `--json` output) report `unsized_remaining: N` alongside each daily data point
   - [ ] Text-based chart suitable for terminal display (using ASCII art or Unicode block characters)
-  - [ ] `--json` output includes daily data points for both ideal and actual lines
-  - [ ] Burndown accounts for tasks added or removed mid-sprint
+  - [ ] `--json` output includes daily data points for both ideal and actual lines plus the unsized count
+  - [ ] Burndown accounts for entities added or removed mid-sprint by recalculating the ideal line from the new total
 - **Related Journey**: [Sprint Monitoring](./user-journeys.md#journey-3-sprint-monitoring), Step 2
 
 **REQ-F-009**: Sprint Summary Report
 - **Description**: Comprehensive sprint summary for retrospective discussions
 - **User Story**: As a PM, I want a detailed sprint summary so that I can run data-driven retrospectives
+- **Depends On**: E07-F42 (entity `size` field)
 - **Acceptance Criteria**:
-  - [ ] `shark sprint summary S024` displays: planned task count, completed task count, completion percentage, velocity (this sprint), velocity comparison to trailing average
-  - [ ] `shark sprint summary S024 --detailed` adds: tasks added mid-sprint, tasks removed mid-sprint, average cycle time by phase, agent utilization vs. capacity, blocked time analysis, carryover task list
+  - [ ] `shark sprint summary S024` displays: planned `Σ size`, completed `Σ size`, completion percentage by size, planned task count, completed task count, velocity (this sprint), velocity comparison to trailing average, unsized counts (planned and completed)
+  - [ ] `shark sprint summary S024 --detailed` adds: entities added mid-sprint (count and `Σ size`), entities removed mid-sprint (count and `Σ size`), average cycle time by phase, average size of completed entities, size-band distribution (count of XS/S/M/L/XL/XXL completed), agent utilization vs. capacity (in points), blocked time analysis, carryover entity list
   - [ ] `--json` output for programmatic processing
   - [ ] Summary is available for any sprint in `completed` or `archived` status
 - **Related Journey**: [Sprint Close & Retrospective](./user-journeys.md#journey-4-sprint-close--retrospective), Steps 1, 3
@@ -176,11 +189,12 @@ We use **MoSCoW prioritization**:
 **REQ-F-013**: Sprint Readiness Score
 - **Description**: Calculate a readiness score (0-100) for a sprint based on planning quality indicators
 - **User Story**: As a PM, I want a readiness score so that I know if the sprint is well-planned before starting
+- **Depends On**: E07-F42 (entity `size` field) for the sizing-coverage and oversized-entity factors
 - **Acceptance Criteria**:
   - [ ] `shark sprint readiness S024` displays score with breakdown
-  - [ ] Score factors: capacity utilization (penalizes >100% or <50%), dependency satisfaction (penalizes external blocked dependencies), task count (penalizes empty sprint), agent balance (penalizes single-agent-type sprints)
+  - [ ] Score factors: capacity utilization (penalizes >100% or <50%, computed in points), dependency satisfaction (penalizes external blocked dependencies), task count (penalizes empty sprint), agent balance (penalizes single-agent-type sprints), **sizing coverage** (penalizes sprints where `size IS NULL` for any assigned entity), **oversized-entity flag** (penalizes sprints containing entities with `size >= 8` per the L/XL/XXL-must-be-broken-down guidance in `.claude/rules/development-workflows.md`)
   - [ ] Each factor shows its individual score and contribution to overall readiness
-  - [ ] `--json` output with full breakdown
+  - [ ] `--json` output with full breakdown including the unsized entity list and the oversized entity list
 - **Related Journey**: [Sprint Planning](./user-journeys.md#journey-2-sprint-planning), Step 4
 
 #### Capacity Management
@@ -188,11 +202,13 @@ We use **MoSCoW prioritization**:
 **REQ-F-014**: Agent Capacity Configuration
 - **Description**: Set and view capacity targets per agent type per sprint
 - **User Story**: As a PM, I want to set capacity per agent type so that I can balance workload
+- **Depends On**: E07-F42 (entity `size` field) for the allocation calculation
 - **Acceptance Criteria**:
   - [ ] `shark sprint capacity set S024 --agent=backend --points=21` sets capacity for an agent type
   - [ ] `shark sprint capacity show S024` displays all agent types with capacity, allocated, and remaining points
-  - [ ] Allocated points are automatically calculated from assigned task priorities or story point estimates
-  - [ ] `--json` output for programmatic consumption
+  - [ ] Allocated points are computed as `Σ size` over assigned entities grouped by `agent_type`, evaluated at query time (not stored)
+  - [ ] Unsized assigned entities are reported in a separate `unsized_assigned` count per agent type so allocation gaps caused by missing sizes are visible
+  - [ ] `--json` output includes `capacity`, `allocated`, `remaining`, and `unsized_assigned` per agent type
 - **Related Journey**: [Sprint Creation](./user-journeys.md#journey-1-sprint-creation--configuration), Step 3
 
 **REQ-F-015**: Default Capacity Configuration

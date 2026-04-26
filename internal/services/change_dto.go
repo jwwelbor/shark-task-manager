@@ -16,6 +16,11 @@ type CreateChangeCardInput struct {
 	// *UnregisteredTagError on the first miss. Nil or empty slice means
 	// "no tags"; see REQ-F-011 and spec §2.6 for the full contract.
 	Tags []string `json:"tags,omitempty"`
+	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
+	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
+	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
+	// E07-F42 REQ-F-004.
+	Size *int `json:"size,omitempty"`
 }
 
 // ChangeCardFilters contains filtering options for listing change-cards.
@@ -45,4 +50,11 @@ type ChangeCardUpdates struct {
 	// detach). Detachment is only available via `shark change tag rm`.
 	// Type is []string (not *[]string) because empty-means-no-change.
 	Tags []string `json:"tags,omitempty"`
+	// Size updates the size when non-nil. Use models.ParseSize to convert
+	// t-shirt labels before setting. E07-F42 REQ-F-005.
+	Size *int `json:"size,omitempty"`
+	// ClearSize when true sets the change-card's size to NULL regardless of
+	// the Size field value. ClearSize takes precedence over Size.
+	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
+	ClearSize bool `json:"clear_size,omitempty"`
 }

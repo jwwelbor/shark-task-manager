@@ -3722,3 +3722,190 @@ func TestFeatureService_CreateFeature_UsesEpicFilePath(t *testing.T) {
 		t.Errorf("expected feature path to contain feature key E01-F01, got: %s", gotPath)
 	}
 }
+
+// ============================================================================
+// TC-SVC-A through TC-SVC-E: Size field propagation (E07-F42-005)
+// ============================================================================
+
+func TestFeatureService_CreateFeature_PropagatesSize(t *testing.T) {
+	// TC-SVC-A: CreateFeature propagates Size to repository.
+	var capturedFeature *models.Feature
+
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
+
+	size := 5
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Feature with size",
+		Size:    &size,
+	})
+	if err != nil {
+		t.Fatalf("CreateFeature() error = %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedFeature == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedFeature.Size == nil {
+		t.Fatal("expected capturedFeature.Size to be non-nil")
+	}
+	if *capturedFeature.Size != 5 {
+		t.Errorf("expected capturedFeature.Size=5, got %d", *capturedFeature.Size)
+	}
+}
+
+func TestFeatureService_CreateFeature_NilSizePropagated(t *testing.T) {
+	// TC-SVC-E: CreateFeature passes Size=nil when not provided.
+	var capturedFeature *models.Feature
+
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Feature without size",
+	})
+	if err != nil {
+		t.Fatalf("CreateFeature() error = %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedFeature == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedFeature.Size != nil {
+		t.Errorf("expected capturedFeature.Size=nil, got %d", *capturedFeature.Size)
+	}
+}
+
+func TestFeatureService_UpdateFeature_SetsSize(t *testing.T) {
+	// TC-SVC-C: UpdateFeature with Size=ptr(8) updates the field.
+	var capturedFeature *models.Feature
+
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Old"},
+				Status: models.FeatureStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+
+	size := 8
+	feature, err := svc.UpdateFeature(context.Background(), "E01-F01", FeatureUpdates{Size: &size})
+	if err != nil {
+		t.Fatalf("UpdateFeature() error = %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedFeature == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedFeature.Size == nil {
+		t.Fatal("expected capturedFeature.Size to be non-nil")
+	}
+	if *capturedFeature.Size != 8 {
+		t.Errorf("expected capturedFeature.Size=8, got %d", *capturedFeature.Size)
+	}
+}
+
+func TestFeatureService_UpdateFeature_ClearSize(t *testing.T) {
+	// TC-SVC-B: UpdateFeature with ClearSize=true sets model.Size = nil.
+	var capturedFeature *models.Feature
+
+	existingSize := 5
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Old", Size: &existingSize},
+				Status: models.FeatureStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+
+	feature, err := svc.UpdateFeature(context.Background(), "E01-F01", FeatureUpdates{ClearSize: true})
+	if err != nil {
+		t.Fatalf("UpdateFeature() error = %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedFeature == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedFeature.Size != nil {
+		t.Errorf("expected capturedFeature.Size=nil (ClearSize=true), got %d", *capturedFeature.Size)
+	}
+}
+
+func TestFeatureService_UpdateFeature_NoSizeChange(t *testing.T) {
+	// TC-SVC-D: UpdateFeature with neither Size nor ClearSize leaves size unchanged.
+	var capturedFeature *models.Feature
+
+	existingSize := 3
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Old", Size: &existingSize},
+				Status: models.FeatureStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+
+	feature, err := svc.UpdateFeature(context.Background(), "E01-F01", FeatureUpdates{})
+	if err != nil {
+		t.Fatalf("UpdateFeature() error = %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedFeature == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedFeature.Size == nil {
+		t.Fatal("expected capturedFeature.Size to remain non-nil")
+	}
+	if *capturedFeature.Size != 3 {
+		t.Errorf("expected capturedFeature.Size=3 (unchanged), got %d", *capturedFeature.Size)
+	}
+}

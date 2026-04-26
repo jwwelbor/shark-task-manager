@@ -19,10 +19,10 @@ This document explicitly defines what is **NOT** included in this epic. Clear bo
 - **Future Consideration**: A web dashboard epic could visualize sprint data from the database. The sprint schema is designed to support future UI layers.
 - **Workaround**: `shark sprint backlog` and `shark sprint burndown` provide text-based equivalents of board and chart views.
 
-**2. Story Point Estimation Workflow**
-- **Why It's Out of Scope**: Estimating story points requires team-level estimation ceremonies, relative sizing, and collaborative tooling that is beyond CLI sprint management. This epic uses task count or pre-assigned priority values as the capacity unit.
-- **Future Consideration**: A separate estimation feature could add story point fields to tasks and integrate with sprint capacity. The `capacity_points` schema column is generic enough to accommodate this.
-- **Workaround**: Teams can manually set task priority (1-10) as a rough size proxy. Capacity targets can be expressed in task count rather than story points.
+**2. Story Point Estimation Ceremonies**
+- **Why It's Out of Scope**: Estimating story points requires team-level estimation ceremonies (planning poker, relative sizing discussions, collaborative re-estimation, confidence intervals) that are beyond CLI sprint management. E19 *consumes* the numeric `size` field delivered by E07-F42 — it does not provide tooling for arriving at those values, recording estimation sessions, or driving multi-agent re-estimation.
+- **Future Consideration**: A separate epic could add ceremony-supporting features such as recorded estimation sessions, multi-agent re-estimation prompts, confidence intervals, or size drift analysis across re-estimations.
+- **Workaround**: Teams set entity `size` manually (numeric Fibonacci or t-shirt label, both accepted by E07-F42) per their own estimation process. Sprint commands consume whatever value is set; sprints with unsized entities receive a sizing-coverage penalty in the readiness score (REQ-F-013) but are not blocked.
 
 **3. Cross-Team Sprint Coordination**
 - **Why It's Out of Scope**: Shark operates as a single-project tool with one database. Multi-team sprint coordination (program-level PI planning, cross-team dependency tracking, shared sprint calendars) requires a fundamentally different data model.
@@ -97,7 +97,7 @@ This document explicitly defines what is **NOT** included in this epic. Clear bo
 | Future Epic Concept | Priority | Dependency |
 |---------------------|----------|------------|
 | Web Dashboard for Sprint Visualization | Medium | Depends on E19 for sprint data model |
-| Story Point Estimation System | Low | Can enhance E19's capacity model |
+| Story Point Estimation Ceremonies | Low | Builds on E07-F42's `size` field; layers ceremony tooling on top |
 | Sprint Retrospective Automation | Low | Depends on E19 for sprint summary data |
 | Multi-Team Program Increment Planning | Low | Depends on multi-project support |
 | Sprint-Aware Notification System | Low | Depends on E19 + notification infrastructure |

@@ -525,6 +525,7 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 			Title:       strings.TrimSpace(input.Title),
 			Description: input.Description,
 			FilePath:    filePath,
+			Size:        input.Size,
 		},
 		Status:        models.EpicStatus(statusStr),
 		Priority:      models.Priority(priorityStr),
@@ -583,6 +584,15 @@ func (s *EpicService) UpdateEpic(ctx context.Context, key string, updates EpicUp
 	if updates.BusinessValue != nil {
 		epic.BusinessValue = updates.BusinessValue
 	}
+
+	// Three-branch Size update logic (E07-F42 AC-T1).
+	if updates.ClearSize {
+		epic.Size = nil
+	} else if updates.Size != nil {
+		epic.Size = updates.Size
+	}
+	// else: leave epic.Size unchanged (no-op)
+
 	if err := epic.Validate(); err != nil {
 		return nil, fmt.Errorf("epic validation failed: %w", err)
 	}

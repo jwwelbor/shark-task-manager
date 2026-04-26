@@ -137,8 +137,8 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	// Build model
 	card := &models.ChangeCard{BaseEntity: models.BaseEntity{Key: nextKey,
 		Title: title,
-
-		Slug: &slugVal}, Status: models.ChangeCardStatus(defaultStatus),
+		Slug:  &slugVal,
+		Size:  input.Size}, Status: models.ChangeCardStatus(defaultStatus),
 		Priority: priority,
 
 		EpicID:    epicID,
@@ -326,6 +326,14 @@ func (s *ChangeCardService) UpdateChangeCard(ctx context.Context, key string, up
 	if updates.FilePath != nil {
 		card.FilePath = updates.FilePath
 	}
+
+	// Three-branch Size update logic (E07-F42 AC-T1).
+	if updates.ClearSize {
+		card.Size = nil
+	} else if updates.Size != nil {
+		card.Size = updates.Size
+	}
+	// else: leave card.Size unchanged (no-op)
 
 	if err := card.Validate(); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)

@@ -545,3 +545,202 @@ func TestIdeaService_ListIdeas_ReturnsEmptySlice(t *testing.T) {
 		t.Errorf("expected 0 ideas, got %d", len(result))
 	}
 }
+
+// ============================================================================
+// TC-SVC-A through TC-SVC-E: Size field propagation (E07-F42-005)
+// ============================================================================
+
+func TestIdeaService_CreateIdea_PropagatesSize(t *testing.T) {
+	// TC-SVC-A: CreateIdea propagates Size to repository.
+	ctx := context.Background()
+	var capturedIdea *models.Idea
+
+	mockRepo := &MockIdeaRepository{
+		GetNextSequenceForDateFunc: func(ctx context.Context, dateStr string) (int, error) {
+			return 1, nil
+		},
+		CreateFunc: func(ctx context.Context, idea *models.Idea) error {
+			capturedIdea = idea
+			idea.ID = 1
+			return nil
+		},
+	}
+
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+
+	size := 5
+	idea, err := svc.CreateIdea(ctx, CreateIdeaInput{
+		Title: "Idea with size",
+		Size:  &size,
+	})
+	if err != nil {
+		t.Fatalf("CreateIdea() error = %v", err)
+	}
+	if idea == nil {
+		t.Fatal("expected idea, got nil")
+	}
+	if capturedIdea == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedIdea.Size == nil {
+		t.Fatal("expected capturedIdea.Size to be non-nil")
+	}
+	if *capturedIdea.Size != 5 {
+		t.Errorf("expected capturedIdea.Size=5, got %d", *capturedIdea.Size)
+	}
+}
+
+func TestIdeaService_CreateIdea_NilSizePropagated(t *testing.T) {
+	// TC-SVC-E: CreateIdea passes Size=nil when not provided.
+	ctx := context.Background()
+	var capturedIdea *models.Idea
+
+	mockRepo := &MockIdeaRepository{
+		GetNextSequenceForDateFunc: func(ctx context.Context, dateStr string) (int, error) {
+			return 1, nil
+		},
+		CreateFunc: func(ctx context.Context, idea *models.Idea) error {
+			capturedIdea = idea
+			idea.ID = 1
+			return nil
+		},
+	}
+
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+
+	idea, err := svc.CreateIdea(ctx, CreateIdeaInput{
+		Title: "Idea without size",
+	})
+	if err != nil {
+		t.Fatalf("CreateIdea() error = %v", err)
+	}
+	if idea == nil {
+		t.Fatal("expected idea, got nil")
+	}
+	if capturedIdea == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedIdea.Size != nil {
+		t.Errorf("expected capturedIdea.Size=nil, got %d", *capturedIdea.Size)
+	}
+}
+
+func TestIdeaService_UpdateIdea_SetsSize(t *testing.T) {
+	// TC-SVC-C: UpdateIdea with Size=ptr(8) updates the field.
+	ctx := context.Background()
+	var capturedIdea *models.Idea
+
+	mockRepo := &MockIdeaRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Idea, error) {
+			return &models.Idea{ID: 1, Key: key, Title: "Old Title", Status: models.IdeaStatusNew}, nil
+		},
+		UpdateFunc: func(ctx context.Context, idea *models.Idea) error {
+			capturedIdea = idea
+			return nil
+		},
+	}
+
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+
+	size := 8
+	idea, err := svc.UpdateIdea(ctx, "I-2026-04-25-01", UpdateIdeaInput{Size: &size})
+	if err != nil {
+		t.Fatalf("UpdateIdea() error = %v", err)
+	}
+	if idea == nil {
+		t.Fatal("expected idea, got nil")
+	}
+	if capturedIdea == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedIdea.Size == nil {
+		t.Fatal("expected capturedIdea.Size to be non-nil")
+	}
+	if *capturedIdea.Size != 8 {
+		t.Errorf("expected capturedIdea.Size=8, got %d", *capturedIdea.Size)
+	}
+}
+
+func TestIdeaService_UpdateIdea_ClearSize(t *testing.T) {
+	// TC-SVC-B: UpdateIdea with ClearSize=true sets model.Size = nil.
+	ctx := context.Background()
+	var capturedIdea *models.Idea
+
+	existingSize := 5
+	mockRepo := &MockIdeaRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Idea, error) {
+			return &models.Idea{ID: 1, Key: key, Title: "Old Title", Status: models.IdeaStatusNew, Size: &existingSize}, nil
+		},
+		UpdateFunc: func(ctx context.Context, idea *models.Idea) error {
+			capturedIdea = idea
+			return nil
+		},
+	}
+
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+
+	idea, err := svc.UpdateIdea(ctx, "I-2026-04-25-01", UpdateIdeaInput{ClearSize: true})
+	if err != nil {
+		t.Fatalf("UpdateIdea() error = %v", err)
+	}
+	if idea == nil {
+		t.Fatal("expected idea, got nil")
+	}
+	if capturedIdea == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedIdea.Size != nil {
+		t.Errorf("expected capturedIdea.Size=nil (ClearSize=true), got %d", *capturedIdea.Size)
+	}
+}
+
+func TestIdeaService_UpdateIdea_NoSizeChange(t *testing.T) {
+	// TC-SVC-D: UpdateIdea with neither Size nor ClearSize leaves size unchanged.
+	ctx := context.Background()
+	var capturedIdea *models.Idea
+
+	existingSize := 3
+	mockRepo := &MockIdeaRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Idea, error) {
+			return &models.Idea{ID: 1, Key: key, Title: "Old Title", Status: models.IdeaStatusNew, Size: &existingSize}, nil
+		},
+		UpdateFunc: func(ctx context.Context, idea *models.Idea) error {
+			capturedIdea = idea
+			return nil
+		},
+	}
+
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+
+	idea, err := svc.UpdateIdea(ctx, "I-2026-04-25-01", UpdateIdeaInput{})
+	if err != nil {
+		t.Fatalf("UpdateIdea() error = %v", err)
+	}
+	if idea == nil {
+		t.Fatal("expected idea, got nil")
+	}
+	if capturedIdea == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedIdea.Size == nil {
+		t.Fatal("expected capturedIdea.Size to remain non-nil")
+	}
+	if *capturedIdea.Size != 3 {
+		t.Errorf("expected capturedIdea.Size=3 (unchanged), got %d", *capturedIdea.Size)
+	}
+}

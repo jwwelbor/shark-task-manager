@@ -26,6 +26,11 @@ type CreateEpicInput struct {
 	// no tags. Required when Config.TagRequiredFor contains "epic"
 	// (REQ-F-008 / AC-16).
 	Tags []string `json:"tags,omitempty"`
+	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
+	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
+	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
+	// E07-F42 REQ-F-004.
+	Size *int `json:"size,omitempty"`
 }
 
 // EpicUpdates contains fields that can be updated on an existing epic.
@@ -42,6 +47,13 @@ type EpicUpdates struct {
 	// means no tag change (see AC-18b). Removal on update is explicitly
 	// NOT supported — use `shark epic tag rm` (REQ-F-014).
 	Tags []string `json:"tags,omitempty"`
+	// Size updates the size when non-nil. Use models.ParseSize to convert
+	// t-shirt labels before setting. E07-F42 REQ-F-005.
+	Size *int `json:"size,omitempty"`
+	// ClearSize when true sets the epic's size to NULL regardless of the
+	// Size field value. ClearSize takes precedence over Size.
+	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
+	ClearSize bool `json:"clear_size,omitempty"`
 }
 
 // CreateFeatureInput contains the parameters for creating a new feature.
@@ -63,6 +75,11 @@ type CreateFeatureInput struct {
 	// means no tags. Required when Config.TagRequiredFor contains
 	// "feature" (REQ-F-008 / AC-16).
 	Tags []string `json:"tags,omitempty"`
+	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
+	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
+	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
+	// E07-F42 REQ-F-004.
+	Size *int `json:"size,omitempty"`
 }
 
 // FeatureUpdates contains fields that can be updated on an existing feature.
@@ -78,6 +95,13 @@ type FeatureUpdates struct {
 	// means no tag change (see AC-18b). Removal on update is explicitly
 	// NOT supported — use `shark feature tag rm` (REQ-F-014).
 	Tags []string `json:"tags,omitempty"`
+	// Size updates the size when non-nil. Use models.ParseSize to convert
+	// t-shirt labels before setting. E07-F42 REQ-F-005.
+	Size *int `json:"size,omitempty"`
+	// ClearSize when true sets the feature's size to NULL regardless of the
+	// Size field value. ClearSize takes precedence over Size.
+	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
+	ClearSize bool `json:"clear_size,omitempty"`
 }
 
 // EpicFilters contains criteria for filtering epic lists.

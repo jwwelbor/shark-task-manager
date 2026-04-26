@@ -916,8 +916,8 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       strings.TrimSpace(input.Title),
 		Description: input.Description,
-
-		FilePath: filePath}, EpicID: epic.ID,
+		FilePath:    filePath,
+		Size:        input.Size}, EpicID: epic.ID,
 
 		Status:         models.FeatureStatus(statusStr),
 		ExecutionOrder: input.ExecutionOrder,
@@ -997,6 +997,15 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 	if updates.ExecutionOrder != nil {
 		feature.ExecutionOrder = updates.ExecutionOrder
 	}
+
+	// Three-branch Size update logic (E07-F42 AC-T1).
+	if updates.ClearSize {
+		feature.Size = nil
+	} else if updates.Size != nil {
+		feature.Size = updates.Size
+	}
+	// else: leave feature.Size unchanged (no-op)
+
 	if err := feature.Validate(); err != nil {
 		return nil, fmt.Errorf("feature validation failed: %w", err)
 	}

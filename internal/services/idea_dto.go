@@ -39,6 +39,11 @@ type CreateIdeaInput struct {
 	// includes "idea" and Tags is empty, CreateIdea returns *TagRequiredError
 	// before persistence (REQ-F-008).
 	Tags []string
+	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
+	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
+	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
+	// E07-F42 REQ-F-004.
+	Size *int
 }
 
 // UpdateIdeaInput contains the fields that can be updated on an existing idea.
@@ -72,6 +77,13 @@ type UpdateIdeaInput struct {
 	// Empty (nil or []string{}) is a no-op — detach is not supported here;
 	// removal goes through `shark idea tag rm`. Errors propagate unchanged.
 	Tags []string
+	// Size updates the size when non-nil. Use models.ParseSize to convert
+	// t-shirt labels before setting. E07-F42 REQ-F-005.
+	Size *int
+	// ClearSize when true sets the idea's size to NULL regardless of the
+	// Size field value. ClearSize takes precedence over Size.
+	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
+	ClearSize bool
 }
 
 // IdeaFilters defines filtering options for listing ideas.

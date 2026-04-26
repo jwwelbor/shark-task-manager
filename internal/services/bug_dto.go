@@ -21,6 +21,11 @@ type CreateBugInput struct {
 	// *UnregisteredTagError on the first miss. Nil or empty slice means
 	// "no tags"; see REQ-F-011 and spec §2.6 for the full contract.
 	Tags []string `json:"tags,omitempty"`
+	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
+	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
+	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
+	// E07-F42 REQ-F-004.
+	Size *int `json:"size,omitempty"`
 }
 
 // BugUpdates contains optional fields for updating a bug.
@@ -36,6 +41,13 @@ type BugUpdates struct {
 	// detach). Detachment is only available via `shark bug tag rm`.
 	// Type is []string (not *[]string) because empty-means-no-change.
 	Tags []string `json:"tags,omitempty"`
+	// Size updates the size when non-nil. Use models.ParseSize to convert
+	// t-shirt labels before setting. E07-F42 REQ-F-005.
+	Size *int `json:"size,omitempty"`
+	// ClearSize when true sets the bug's size to NULL regardless of the
+	// Size field value. ClearSize takes precedence over Size.
+	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
+	ClearSize bool `json:"clear_size,omitempty"`
 }
 
 // BugFilters defines filter options for listing bugs via the service layer.
