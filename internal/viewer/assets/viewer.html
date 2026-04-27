@@ -1894,13 +1894,13 @@ async function apiGetWorkflowMeta() {
  * @returns {Promise<Object>} parsed JSON hierarchy response
  * @throws {Error} on HTTP error or network failure
  */
-async function apiGetHierarchy(tags) {
-  let url = '/api/v1/viewer/hierarchy';
+async function apiGetHierarchy(tags, includeTerminal) {
+  const url = new URL('/api/v1/viewer/hierarchy', window.location.origin);
   if (tags && tags.length > 0) {
-    const params = tags.map(t => 'tag=' + encodeURIComponent(t)).join('&');
-    url += '?' + params;
+    for (const t of tags) url.searchParams.append('tag', t);
   }
-  const resp = await fetch(url);
+  if (includeTerminal) url.searchParams.set('include_terminal', 'true');
+  const resp = await fetch(url.pathname + url.search);
   if (!resp.ok) throw new Error(`hierarchy fetch failed: HTTP ${resp.status}`);
   return await resp.json();
 }
@@ -2125,7 +2125,7 @@ async function applyTagFilter(selectedTags) {
   const tagsArg = selectedTags.length > 0 ? selectedTags : undefined;
   let hierarchy;
   try {
-    hierarchy = await apiGetHierarchy(tagsArg);
+    hierarchy = await apiGetHierarchy(tagsArg, showCompleted);
   } catch (err) {
     showToast('Failed to apply tag filter', 'error');
     return;
@@ -2222,7 +2222,7 @@ async function loadProjectData() {
   // Step 3: hierarchy (blocking — critical)
   let hierarchy;
   try {
-    hierarchy = await apiGetHierarchy();
+    hierarchy = await apiGetHierarchy(undefined, showCompleted);
   } catch (err) {
     hideLoading();
     showError('Failed to load project hierarchy. Please check the server and try again.');
@@ -4943,10 +4943,24 @@ function renderSidebar() {
   // Wire show-completed checkbox
   const showCompletedCb = document.getElementById('show-completed-checkbox');
   if (showCompletedCb) {
-    showCompletedCb.onchange = function() {
+    showCompletedCb.onchange = async function() {
       showCompleted = this.checked;
       try { localStorage.setItem('shark.viewer.showAllItems', String(this.checked)); } catch (e) {}
+      // Refetch hierarchy so terminal-status bugs/change cards are
+      // included/excluded server-side (mirrors `bug list --all`).
+      // Tree entities (epics/features/tasks) continue to be filtered
+      // client-side via isHiddenTerminalStatus + showCompleted.
+      const tagsArg = activeTagFilter.size > 0 ? Array.from(activeTagFilter) : undefined;
+      try {
+        const hierarchy = await apiGetHierarchy(tagsArg, showCompleted);
+        hierarchyData = hierarchy;
+        treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
+      } catch (err) {
+        showToast('Failed to refresh hierarchy', 'error');
+      }
       renderSidebar();
+      // If the dashboard is in view, re-render it too so flat sections refresh.
+      if (typeof render === 'function') render();
     };
   }
   const showAllFilesCb = document.getElementById('show-all-files-checkbox');
