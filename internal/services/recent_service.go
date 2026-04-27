@@ -42,31 +42,21 @@ func NewRecentService(t recentTaskRepo, f recentFeatureRepo, e recentEpicRepo) *
 	}
 }
 
-// typeOrder maps entity type strings to a numeric value used for tie-breaking.
-// Lower value = higher priority (appears first when CreatedAt is equal).
-// Order: epic (0), feature (1), task (2).
+// typeOrder assigns tie-breaking priority when CreatedAt values are equal (lower = earlier).
 var typeOrder = map[string]int{
 	"epic":    0,
 	"feature": 1,
 	"task":    2,
 }
 
-// ListRecent fans out to enabled repos, merges results, sorts by CreatedAt DESC,
-// and returns the top filters.Limit items.
-//
-// If no Include* flag is true, all three repos are treated as included (so a default
-// invocation from the command works without explicit flags).
-//
-// Returns an empty slice (not nil) if no items found. Errors from any single
-// repository call abort the whole operation and are wrapped with
-// "failed to list recent <type>: %w".
+// ListRecent returns the most recently created entities, merged and sorted by created_at DESC.
+// When no Include* filter is set, all three entity types are included.
 func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) ([]RecentItem, error) {
 	// If no type filter specified, include all three types.
 	includeAll := !filters.IncludeTasks && !filters.IncludeFeatures && !filters.IncludeEpics
 
-	var merged []RecentItem
+	merged := make([]RecentItem, 0, 3*filters.Limit)
 
-	// Fan out to task repository if applicable.
 	if includeAll || filters.IncludeTasks {
 		tasks, err := s.taskRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
@@ -83,7 +73,6 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 		}
 	}
 
-	// Fan out to feature repository if applicable.
 	if includeAll || filters.IncludeFeatures {
 		features, err := s.featureRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
@@ -100,7 +89,6 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 		}
 	}
 
-	// Fan out to epic repository if applicable.
 	if includeAll || filters.IncludeEpics {
 		epics, err := s.epicRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
@@ -117,8 +105,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 		}
 	}
 
-	// Sort merged results: primary = created_at DESC, secondary = type (epic < feature < task),
-	// tertiary = key ASC (deterministic for tests).
+	// created_at DESC; tie-break by type (epic→feature→task), then key ASC for test determinism.
 	sort.SliceStable(merged, func(i, j int) bool {
 		ti := merged[i].CreatedAt
 		tj := merged[j].CreatedAt
@@ -138,14 +125,8 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 		return merged[i].Key < merged[j].Key
 	})
 
-	// Apply the final limit after merge.
 	if filters.Limit > 0 && len(merged) > filters.Limit {
 		merged = merged[:filters.Limit]
-	}
-
-	// Always return a non-nil slice so JSON output emits [] not null.
-	if merged == nil {
-		return []RecentItem{}, nil
 	}
 
 	return merged, nil

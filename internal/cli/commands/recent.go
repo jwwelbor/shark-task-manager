@@ -11,13 +11,10 @@ import (
 )
 
 const (
-	// recentMaxLimit is the maximum allowed limit for the recent command.
-	recentMaxLimit = 10_000
-	// recentBuiltInDefault is the built-in fallback limit when config is absent.
+	recentMaxLimit       = 10_000
 	recentBuiltInDefault = 5
 )
 
-// recentCmd is the Cobra command for `shark recent [N]`.
 var recentCmd = &cobra.Command{
 	Use:     "recent [N]",
 	Short:   "List most recently created entities across tasks, features, and epics",
@@ -49,10 +46,7 @@ func init() {
 	recentCmd.Flags().Bool("epics", false, "Include only epics")
 }
 
-// runRecent is the command handler for `shark recent`.
 func runRecent(cmd *cobra.Command, args []string) error {
-	// Resolve the config-driven default limit. Failure is non-fatal: fall back
-	// to the built-in default of 5 (spec §5.3.5, §5.6).
 	cfgLimit := recentBuiltInDefault
 	if cfg, err := cli.GetConfig(); err == nil && cfg != nil {
 		cfgLimit = cfg.GetRecentDefaultLimit()
@@ -67,8 +61,6 @@ func runRecent(cmd *cobra.Command, args []string) error {
 	return runRecentWithSvc(cmd.Context(), filters, svc)
 }
 
-// runRecentWithSvc is the testable core of runRecent. Tests inject a mock
-// service here without touching the real database.
 func runRecentWithSvc(ctx context.Context, filters services.RecentFilters, svc recentServicerInternal) error {
 	items, err := svc.ListRecent(ctx, filters)
 	if err != nil {
@@ -81,29 +73,18 @@ func runRecentWithSvc(ctx context.Context, filters services.RecentFilters, svc r
 	return renderRecentTable(items)
 }
 
-// recentServicerInternal is the minimal interface consumed by runRecentWithSvc.
-// Defined consumer-side per .claude/rules/go/patterns.md "Interface Design".
 type recentServicerInternal interface {
 	ListRecent(ctx context.Context, filters services.RecentFilters) ([]services.RecentItem, error)
 }
 
-// parseRecentFiltersWithConfig resolves the effective limit and type filters
-// from cmd flags, positional args, and the provided config default.
-//
-// Precedence (highest to lowest):
-//  1. --limit flag (if > 0)
-//  2. Positional N argument (if provided)
-//  3. cfgLimit (from config or built-in default)
-//
-// Returns an error (exit code 3) if the limit is not a positive integer or
-// exceeds recentMaxLimit.
+// parseRecentFiltersWithConfig resolves the effective limit.
+// Precedence: --limit flag > positional arg > cfgLimit.
 func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit int) (services.RecentFilters, error) {
 	flagLimit, _ := cmd.Flags().GetInt("limit")
 	includeTasks, _ := cmd.Flags().GetBool("tasks")
 	includeFeatures, _ := cmd.Flags().GetBool("features")
 	includeEpics, _ := cmd.Flags().GetBool("epics")
 
-	// Determine the effective limit.
 	limit := cfgLimit
 	if limit <= 0 {
 		limit = recentBuiltInDefault
@@ -114,12 +95,7 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 
 	if hasPositional {
 		positional, err := strconv.Atoi(args[0])
-		if err != nil || positional <= 0 {
-			return services.RecentFilters{}, fmt.Errorf(
-				"exit code 3: invalid limit %q: must be a positive integer <= %d", args[0], recentMaxLimit,
-			)
-		}
-		if positional > recentMaxLimit {
+		if err != nil || positional <= 0 || positional > recentMaxLimit {
 			return services.RecentFilters{}, fmt.Errorf(
 				"exit code 3: invalid limit %q: must be a positive integer <= %d", args[0], recentMaxLimit,
 			)
@@ -128,7 +104,7 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 	}
 
 	if hasFlag {
-		if flagLimit <= 0 || flagLimit > recentMaxLimit {
+		if flagLimit > recentMaxLimit {
 			return services.RecentFilters{}, fmt.Errorf(
 				"exit code 3: invalid --limit %d: must be a positive integer <= %d", flagLimit, recentMaxLimit,
 			)
@@ -147,8 +123,6 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 	}, nil
 }
 
-// renderRecentTable renders items as a human-readable table or prints the
-// empty-state message when the slice is empty (REQ-F-009).
 func renderRecentTable(items []services.RecentItem) error {
 	if len(items) == 0 {
 		fmt.Println("No recent items found.")
