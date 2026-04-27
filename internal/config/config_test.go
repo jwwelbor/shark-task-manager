@@ -2,9 +2,13 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDatabaseConfig_Marshaling tests that db.DatabaseConfig can be marshaled and unmarshaled
@@ -1259,4 +1263,134 @@ func TestConfig_TagRequiredFor_DefensiveCopy(t *testing.T) {
 		t.Errorf("TagRequiredForTypes[0] = %q, want \"task\"; backing field was mutated",
 			cfg.TagRequiredForTypes[0])
 	}
+}
+
+// --- E07-F17-001: RecentConfig and GetRecentDefaultLimit ---
+
+// TestGetRecentDefaultLimit_NilConfig verifies that calling GetRecentDefaultLimit
+// on a nil *Config receiver returns 5 without panicking (AC-T1).
+func TestGetRecentDefaultLimit_NilConfig(t *testing.T) {
+	var cfg *Config
+	got := cfg.GetRecentDefaultLimit()
+	if got != 5 {
+		t.Errorf("GetRecentDefaultLimit() on nil receiver = %d, want 5", got)
+	}
+}
+
+// TestGetRecentDefaultLimit_SectionAbsent verifies that when the "recent" section
+// is absent from the config JSON, the default of 5 is returned (AC-T2).
+func TestGetRecentDefaultLimit_SectionAbsent(t *testing.T) {
+	configJSON := `{"color_enabled": true}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	// Recent pointer should be nil
+	if cfg.Recent != nil {
+		t.Errorf("expected Recent to be nil when section absent, got %+v", cfg.Recent)
+	}
+
+	got := cfg.GetRecentDefaultLimit()
+	if got != 5 {
+		t.Errorf("GetRecentDefaultLimit() with absent section = %d, want 5", got)
+	}
+}
+
+// TestGetRecentDefaultLimit_FieldZero verifies that when recent.default_limit is 0,
+// the default of 5 is returned (AC-T3).
+func TestGetRecentDefaultLimit_FieldZero(t *testing.T) {
+	configJSON := `{"recent": {"default_limit": 0}}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	got := cfg.GetRecentDefaultLimit()
+	if got != 5 {
+		t.Errorf("GetRecentDefaultLimit() with default_limit=0 = %d, want 5", got)
+	}
+}
+
+// TestGetRecentDefaultLimit_FieldNegative verifies that when recent.default_limit
+// is negative, the default of 5 is returned (AC-T3).
+func TestGetRecentDefaultLimit_FieldNegative(t *testing.T) {
+	configJSON := `{"recent": {"default_limit": -3}}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	got := cfg.GetRecentDefaultLimit()
+	if got != 5 {
+		t.Errorf("GetRecentDefaultLimit() with default_limit=-3 = %d, want 5", got)
+	}
+}
+
+// TestGetRecentDefaultLimit_FieldPositive verifies that when recent.default_limit
+// is a positive value, that configured value is returned (AC-T4).
+func TestGetRecentDefaultLimit_FieldPositive(t *testing.T) {
+	configJSON := `{"recent": {"default_limit": 7}}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	got := cfg.GetRecentDefaultLimit()
+	if got != 7 {
+		t.Errorf("GetRecentDefaultLimit() with default_limit=7 = %d, want 7", got)
+	}
+}
+
+// TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK verifies that an existing
+// .sharkconfig.json without a "recent" key loads without error (AC-T5 / REQ-F-011).
+func TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK(t *testing.T) {
+	// Simulate a realistic existing config without the recent section
+	configJSON := `{
+		"color_enabled": true,
+		"require_rejection_reason": false,
+		"template_directory": "shark-templates",
+		"workflow_config": "shark-templates/.sharkworkflow-short.json"
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err, "loading config without 'recent' section must not return an error")
+
+	// The Recent field should be nil (not configured)
+	if cfg.Recent != nil {
+		t.Errorf("expected Recent to be nil for existing config without 'recent' key, got %+v", cfg.Recent)
+	}
+
+	// GetRecentDefaultLimit falls back to built-in default of 5
+	got := cfg.GetRecentDefaultLimit()
+	if got != 5 {
+		t.Errorf("GetRecentDefaultLimit() for existing config = %d, want 5", got)
+	}
+
+	// Other existing fields are preserved
+	require.NotNil(t, cfg.ColorEnabled)
+	assert.True(t, *cfg.ColorEnabled)
+	require.NotNil(t, cfg.TemplateDirectory)
+	assert.Equal(t, "shark-templates", *cfg.TemplateDirectory)
 }

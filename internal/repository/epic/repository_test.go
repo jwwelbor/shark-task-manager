@@ -694,3 +694,122 @@ func TestEpicRepository_SizeRoundTrip(t *testing.T) {
 		t.Errorf("expected Size=nil after clearing, got %v", *got3.Size)
 	}
 }
+
+// --- GetRecent tests (T-E07-F17-002) ---
+
+// seedEpicsWithTimestamps creates n epics with created_at staggered by 1 second each
+// (oldest first). Uses direct SQL INSERT to bypass key-format validation and allow
+// arbitrary timestamps. Returns epic IDs for deferred cleanup.
+func seedEpicsWithTimestamps(t *testing.T, _ *EpicRepository, db *dbconn.DB, n int) []int64 {
+	t.Helper()
+	ctx := context.Background()
+	baseTime := time.Now().UTC().Add(-time.Duration(n) * time.Second)
+	ids := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		// Use a key that is clearly test-only and avoids collisions.
+		// Direct INSERT bypasses model validation; cascade-delete from id cleans up.
+		key := fmt.Sprintf("recent-bench-epic-%03d", i+1)
+		ts := baseTime.Add(time.Duration(i) * time.Second)
+		result, err := db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO epics (key, title, status, priority, created_at, updated_at)
+			 VALUES (?, ?, 'draft', 'medium', ?, CURRENT_TIMESTAMP)`,
+			key, fmt.Sprintf("Recent Epic %d", i+1), ts.Format("2006-01-02T15:04:05Z"),
+		)
+		require.NoError(t, err, "seedEpicsWithTimestamps: INSERT failed for key %s", key)
+		id, err := result.LastInsertId()
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// TestEpicRepository_GetRecent_OrdersByCreatedAtDesc seeds 5 epics with distinct timestamps
+// and asserts that GetRecent returns them in created_at DESC order.
+func TestEpicRepository_GetRecent_OrdersByCreatedAtDesc(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Pre-cleanup: remove any leftover RECENT-tagged epics
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'recent-bench-epic-%'")
+
+	ids := seedEpicsWithTimestamps(t, repo, db, 5)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", id)
+		}
+	}()
+
+	epics, err := repo.GetRecent(ctx, 5)
+	require.NoError(t, err)
+	require.Len(t, epics, 5)
+
+	for i := 1; i < len(epics); i++ {
+		assert.True(t, !epics[i-1].CreatedAt.Before(epics[i].CreatedAt),
+			"expected epics[%d].CreatedAt >= epics[%d].CreatedAt", i-1, i)
+	}
+}
+
+// TestEpicRepository_GetRecent_LimitRespected seeds 10 epics and asserts GetRecent(ctx, 3)
+// returns exactly 3 rows (AC-T1).
+func TestEpicRepository_GetRecent_LimitRespected(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'recent-bench-epic-%'")
+
+	ids := seedEpicsWithTimestamps(t, repo, db, 10)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", id)
+		}
+	}()
+
+	epics, err := repo.GetRecent(ctx, 3)
+	require.NoError(t, err)
+	assert.Len(t, epics, 3, "GetRecent(3) must return exactly 3 rows")
+}
+
+// TestEpicRepository_GetRecent_EmptyTable asserts that GetRecent returns a non-nil
+// empty slice (not nil) when the table is empty (AC-T3).
+func TestEpicRepository_GetRecent_EmptyTable(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Clean up RECENT-tagged epics to minimize rows returned
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'recent-bench-epic-%'")
+
+	epics, err := repo.GetRecent(ctx, 1)
+	require.NoError(t, err)
+	assert.NotNil(t, epics, "GetRecent must return a non-nil slice")
+}
+
+// TestEpicRepository_GetRecent_LimitExceedsRowCount seeds 2 epics and asserts that
+// GetRecent(ctx, 100) returns at least 2 rows (all rows, not an error).
+func TestEpicRepository_GetRecent_LimitExceedsRowCount(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'recent-bench-epic-%'")
+
+	ids := seedEpicsWithTimestamps(t, repo, db, 2)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", id)
+		}
+	}()
+
+	epics, err := repo.GetRecent(ctx, 100)
+	require.NoError(t, err)
+	// At least 2 rows must be returned; there may be more from the test DB.
+	assert.GreaterOrEqual(t, len(epics), 2, "GetRecent(100) must return all available rows when limit > row count")
+}

@@ -90,9 +90,14 @@ func (h *ViewerHandler) Summary(w http.ResponseWriter, r *http.Request) {
 
 // Hierarchy returns the full epic → feature tree.
 // GET /api/v1/viewer/hierarchy
-// Accepts optional repeatable ?tag=<name> query params for tag-based filtering (REQ-F-011).
+// Accepts optional repeatable ?tag=<name> query params for tag-based filtering (REQ-F-011)
+// and an optional ?include_terminal=true to mirror the CLI `--all` flag (terminal-status
+// bugs and change cards are excluded by default; pass true to include them).
 func (h *ViewerHandler) Hierarchy(w http.ResponseWriter, r *http.Request) {
-	opts := services.HierarchyOptions{Tags: parseTagsQuery(r)}
+	opts := services.HierarchyOptions{
+		Tags:            parseTagsQuery(r),
+		IncludeTerminal: r.URL.Query().Get("include_terminal") == "true",
+	}
 	result, err := h.svc.Hierarchy(r.Context(), opts)
 	if err != nil {
 		var unregErr *services.UnregisteredTagError

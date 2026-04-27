@@ -157,6 +157,17 @@ func (m *Manager) Load() (*Config, error) {
 		config.TagRequiredForTypes = types
 	}
 
+	// Parse recent config if present (E07-F17).
+	// A nil Recent pointer means "not configured — use built-in defaults."
+	// See spec.md §5.2 and REQ-F-010, REQ-F-011.
+	if recentRaw, ok := rawData["recent"].(map[string]interface{}); ok {
+		rc := &RecentConfig{}
+		if defaultLimit, ok := recentRaw["default_limit"].(float64); ok {
+			rc.DefaultLimit = int(defaultLimit)
+		}
+		config.Recent = rc
+	}
+
 	m.config = config
 	return config, nil
 }

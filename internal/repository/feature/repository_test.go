@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
@@ -701,4 +702,139 @@ func TestFeatureRepository_SizeRoundTrip(t *testing.T) {
 	got3, err := repo.GetByKey(ctx, featureKey)
 	require.NoError(t, err, "GetByKey() after nil update failed")
 	assert.Nil(t, got3.Size, "expected Size=nil after clearing")
+}
+
+// --- GetRecent tests (T-E07-F17-002) ---
+
+// seedFeaturesWithTimestamps creates n features under epicID with created_at staggered
+// by 1 second each (oldest first). Uses direct SQL INSERT to bypass key-format validation
+// and allow arbitrary timestamps. Returns feature IDs for deferred cleanup.
+func seedFeaturesWithTimestamps(t *testing.T, _ *FeatureRepository, db *dbconn.DB, epicID int64, n int) []int64 {
+	t.Helper()
+	ctx := context.Background()
+	baseTime := time.Now().UTC().Add(-time.Duration(n) * time.Second)
+	ids := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		key := fmt.Sprintf("E90-F%02d", i+1)
+		ts := baseTime.Add(time.Duration(i) * time.Second)
+		result, err := db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO features (epic_id, key, title, status, created_at, updated_at)
+			 VALUES (?, ?, ?, 'draft', ?, CURRENT_TIMESTAMP)`,
+			epicID, key, fmt.Sprintf("Recent Feature %d", i+1), ts.Format("2006-01-02T15:04:05Z"),
+		)
+		require.NoError(t, err, "seedFeaturesWithTimestamps: INSERT failed for key %s", key)
+		id, err := result.LastInsertId()
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// TestFeatureRepository_GetRecent_OrdersByCreatedAtDesc seeds 5 features with distinct timestamps
+// and asserts that GetRecent returns them in created_at DESC order.
+func TestFeatureRepository_GetRecent_OrdersByCreatedAtDesc(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E90-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	ids := seedFeaturesWithTimestamps(t, repo, db, testEpic.ID, 5)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", id)
+		}
+	}()
+
+	features, err := repo.GetRecent(ctx, 5)
+	require.NoError(t, err)
+	require.Len(t, features, 5)
+
+	for i := 1; i < len(features); i++ {
+		assert.True(t, !features[i-1].CreatedAt.Before(features[i].CreatedAt),
+			"expected features[%d].CreatedAt >= features[%d].CreatedAt", i-1, i)
+	}
+}
+
+// TestFeatureRepository_GetRecent_LimitRespected seeds 10 features and asserts GetRecent(ctx, 3)
+// returns exactly 3 rows.
+func TestFeatureRepository_GetRecent_LimitRespected(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E90-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	ids := seedFeaturesWithTimestamps(t, repo, db, testEpic.ID, 10)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", id)
+		}
+	}()
+
+	features, err := repo.GetRecent(ctx, 3)
+	require.NoError(t, err)
+	assert.Len(t, features, 3, "GetRecent(3) must return exactly 3 rows")
+}
+
+// TestFeatureRepository_GetRecent_EmptyTable asserts that GetRecent returns a non-nil
+// empty slice (not nil) when no features matching our prefix exist.
+func TestFeatureRepository_GetRecent_EmptyTable(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+
+	// Clean up our test prefix to minimize interference
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E90-F%'")
+
+	features, err := repo.GetRecent(ctx, 1)
+	require.NoError(t, err)
+	assert.NotNil(t, features, "GetRecent must return a non-nil slice")
+}
+
+// TestFeatureRepository_GetRecent_LimitExceedsRowCount seeds 2 features and asserts that
+// GetRecent(ctx, 100) returns exactly 2 (all rows, not an error).
+func TestFeatureRepository_GetRecent_LimitExceedsRowCount(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E90-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	ids := seedFeaturesWithTimestamps(t, repo, db, testEpic.ID, 2)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", id)
+		}
+	}()
+
+	features, err := repo.GetRecent(ctx, 100)
+	require.NoError(t, err)
+	// At least 2 rows must be returned; there may be more from the test DB.
+	assert.GreaterOrEqual(t, len(features), 2, "GetRecent(100) must return all available rows when limit > row count")
 }

@@ -3111,13 +3111,13 @@ func TestViewerService_HierarchyOptions_HasTagsField(t *testing.T) {
 // ----- Mock helpers for bug/changecard/idea list repos used in tag decoration tests -----
 
 type mockViewerBugListRepo struct {
-	ListAllFunc  func(ctx context.Context) ([]*models.Bug, error)
+	ListAllFunc  func(ctx context.Context, includeTerminal bool) ([]*models.Bug, error)
 	GetByKeyFunc func(ctx context.Context, key string) (*models.Bug, error)
 }
 
-func (m *mockViewerBugListRepo) ListAll(ctx context.Context) ([]*models.Bug, error) {
+func (m *mockViewerBugListRepo) ListAll(ctx context.Context, includeTerminal bool) ([]*models.Bug, error) {
 	if m.ListAllFunc != nil {
-		return m.ListAllFunc(ctx)
+		return m.ListAllFunc(ctx, includeTerminal)
 	}
 	return []*models.Bug{}, nil
 }
@@ -3130,13 +3130,13 @@ func (m *mockViewerBugListRepo) GetByKey(ctx context.Context, key string) (*mode
 }
 
 type mockViewerChangeCardListRepo struct {
-	ListAllFunc  func(ctx context.Context) ([]*models.ChangeCard, error)
+	ListAllFunc  func(ctx context.Context, includeTerminal bool) ([]*models.ChangeCard, error)
 	GetByKeyFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
 }
 
-func (m *mockViewerChangeCardListRepo) ListAll(ctx context.Context) ([]*models.ChangeCard, error) {
+func (m *mockViewerChangeCardListRepo) ListAll(ctx context.Context, includeTerminal bool) ([]*models.ChangeCard, error) {
 	if m.ListAllFunc != nil {
-		return m.ListAllFunc(ctx)
+		return m.ListAllFunc(ctx, includeTerminal)
 	}
 	return []*models.ChangeCard{}, nil
 }
@@ -3199,14 +3199,14 @@ func TestViewerService_Hierarchy_NilTagSvc_TagsAlwaysNonNil(t *testing.T) {
 	)
 	// Wire bug/change/idea repos so they produce entities
 	svc.WithBugListRepo(&mockViewerBugListRepo{
-		ListAllFunc: func(_ context.Context) ([]*models.Bug, error) {
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
 			return []*models.Bug{
 				{BaseEntity: models.BaseEntity{ID: 200, Key: "B001"}, Status: "new"},
 			}, nil
 		},
 	})
 	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
-		ListAllFunc: func(_ context.Context) ([]*models.ChangeCard, error) {
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.ChangeCard, error) {
 			return []*models.ChangeCard{
 				{BaseEntity: models.BaseEntity{ID: 300, Key: "CC-001"}, Status: "open"},
 			}, nil
@@ -3430,7 +3430,7 @@ func TestViewerService_Hierarchy_TagDecoration_BatchCallCount(t *testing.T) {
 		&mockViewerHistoryRepo{},
 	)
 	svc.WithBugListRepo(&mockViewerBugListRepo{
-		ListAllFunc: func(_ context.Context) ([]*models.Bug, error) {
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
 			return []*models.Bug{
 				{BaseEntity: models.BaseEntity{ID: 200, Key: "B001"}, Status: "new"},
 				{BaseEntity: models.BaseEntity{ID: 201, Key: "B002"}, Status: "new"},
@@ -3438,7 +3438,7 @@ func TestViewerService_Hierarchy_TagDecoration_BatchCallCount(t *testing.T) {
 		},
 	})
 	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
-		ListAllFunc: func(_ context.Context) ([]*models.ChangeCard, error) {
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.ChangeCard, error) {
 			return []*models.ChangeCard{
 				{BaseEntity: models.BaseEntity{ID: 300, Key: "CC-001"}, Status: "open"},
 				{BaseEntity: models.BaseEntity{ID: 301, Key: "CC-002"}, Status: "open"},
@@ -3705,7 +3705,7 @@ func TestViewerService_Hierarchy_TagFilter_FlatEntitiesIndependentlyFiltered(t *
 		&mockViewerHistoryRepo{},
 	)
 	svc.WithBugListRepo(&mockViewerBugListRepo{
-		ListAllFunc: func(_ context.Context) ([]*models.Bug, error) {
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
 			return []*models.Bug{
 				{BaseEntity: models.BaseEntity{ID: 200, Key: "B001"}, Status: "new"},
 				{BaseEntity: models.BaseEntity{ID: 201, Key: "B002"}, Status: "new"},

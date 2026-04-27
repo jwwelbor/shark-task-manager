@@ -2178,6 +2178,42 @@ func (r *TaskRepository) CountBlocked(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// GetRecent returns the most recently created tasks, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *TaskRepository) GetRecent(ctx context.Context, limit int) (_ []*models.Task, retErr error) {
+	ctx, span := tracer.Start(ctx, "TaskRepository.GetRecent",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+			attribute.Int("db.limit", limit),
+		))
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
+
+	query := `
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data, size
+		FROM tasks
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	tasks, err := r.queryTasks(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent tasks: %w", err)
+	}
+
+	if tasks == nil {
+		tasks = []*models.Task{}
+	}
+
+	return tasks, nil
+}
+
 // UpdateContextData updates only the context_data field of a task.
 func (r *TaskRepository) UpdateContextData(ctx context.Context, taskID int64, contextData *string) error {
 	query := `UPDATE tasks SET context_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`

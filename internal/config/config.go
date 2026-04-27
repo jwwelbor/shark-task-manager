@@ -35,6 +35,10 @@ type Config struct {
 	// A nil or absent Maintainer is equivalent to "no password configured."
 	Maintainer *MaintainerConfig `json:"maintainer,omitempty"`
 
+	// Recent holds optional configuration for the `shark recent` command.
+	// A nil or absent Recent means "use built-in defaults" (limit = 5).
+	Recent *RecentConfig `json:"recent,omitempty"`
+
 	// TagRequiredForTypes lists entity types that MUST carry at least one tag
 	// at creation time. Values are entity-type strings as returned by
 	// models.EntityType.String() ("task", "feature", "epic", "bug", "change",
@@ -202,6 +206,29 @@ func (c *Config) GetWebPort() int {
 		return 0
 	}
 	return c.Web.Port
+}
+
+// RecentConfig holds configuration for the `shark recent` command.
+// All fields have sensible defaults; the zero value means "use built-in default".
+// When Recent is nil or absent from .sharkconfig.json the built-in default of 5
+// is used for GetRecentDefaultLimit. Existing configs without a "recent" section
+// continue to load and validate without error.
+type RecentConfig struct {
+	// DefaultLimit is the maximum number of items returned by `shark recent`
+	// when no positional argument or --limit flag is given.
+	// A value of 0 or negative is treated as "use built-in default (5)".
+	DefaultLimit int `json:"default_limit,omitempty"`
+}
+
+// GetRecentDefaultLimit returns the configured default limit for `shark recent`,
+// or 5 if the field is missing, the section is absent, or the value is <= 0.
+// It is nil-safe: calling it on a nil *Config returns the built-in default.
+func (c *Config) GetRecentDefaultLimit() int {
+	const builtinDefault = 5
+	if c == nil || c.Recent == nil || c.Recent.DefaultLimit <= 0 {
+		return builtinDefault
+	}
+	return c.Recent.DefaultLimit
 }
 
 // GetTemplateDirectoryFromConfig loads the template directory setting from the given config file path.

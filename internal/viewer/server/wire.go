@@ -80,8 +80,8 @@ type bugListAdapter struct {
 	repo *bug.BugRepository
 }
 
-func (a *bugListAdapter) ListAll(ctx context.Context) ([]*models.Bug, error) {
-	return a.repo.List(ctx, nil)
+func (a *bugListAdapter) ListAll(ctx context.Context, includeTerminal bool) ([]*models.Bug, error) {
+	return a.repo.List(ctx, &bug.BugListFilters{IncludeTerminal: includeTerminal})
 }
 
 func (a *bugListAdapter) GetByKey(ctx context.Context, key string) (*models.Bug, error) {
@@ -93,8 +93,8 @@ type changeCardListAdapter struct {
 	repo *changecard.ChangeCardRepository
 }
 
-func (a *changeCardListAdapter) ListAll(ctx context.Context) ([]*models.ChangeCard, error) {
-	return a.repo.List(ctx, nil)
+func (a *changeCardListAdapter) ListAll(ctx context.Context, includeTerminal bool) ([]*models.ChangeCard, error) {
+	return a.repo.List(ctx, &changecard.ChangeCardRepoFilter{IncludeTerminal: includeTerminal})
 }
 
 func (a *changeCardListAdapter) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {

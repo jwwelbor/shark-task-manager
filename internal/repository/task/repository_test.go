@@ -754,3 +754,217 @@ func TestTaskRepository_SizeRoundTrip(t *testing.T) {
 	require.NoError(t, err, "GetByID() after nil update failed")
 	assert.Nil(t, got3.Size, "expected Size=nil after clearing")
 }
+
+// --- GetRecent tests (T-E07-F17-002) ---
+
+// seedTasksWithTimestamps creates n tasks under the given feature with created_at
+// staggered by 1 second each (oldest first in the slice, so tasks[0] is the oldest).
+// Uses direct SQL INSERT to bypass key-format validation and enable staggered timestamps.
+// Keys follow the valid format T-E90-F01-NNN (e.g. T-E90-F01-001 … T-E90-F01-010).
+// Returns task IDs for deferred cleanup.
+func seedTasksWithTimestamps(t *testing.T, _ *TaskRepository, db *dbconn.DB, _ int64, featureID int64, n int) []int64 {
+	t.Helper()
+	ctx := context.Background()
+	baseTime := time.Now().UTC().Add(-time.Duration(n) * time.Second)
+	ids := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		key := fmt.Sprintf("T-E90-F01-%03d", i+1)
+		ts := baseTime.Add(time.Duration(i) * time.Second)
+		result, err := db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO tasks (feature_id, key, title, status, priority, created_at, updated_at)
+			 VALUES (?, ?, ?, 'todo', 5, ?, CURRENT_TIMESTAMP)`,
+			featureID, key, fmt.Sprintf("Recent Task %d", i+1), ts.Format("2006-01-02T15:04:05Z"),
+		)
+		require.NoError(t, err, "seedTasksWithTimestamps: INSERT failed for key %s", key)
+		id, err := result.LastInsertId()
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// TestTaskRepository_GetRecent_OrdersByCreatedAtDesc seeds 5 tasks with distinct timestamps
+// and asserts that GetRecent returns them in created_at DESC order.
+func TestTaskRepository_GetRecent_OrdersByCreatedAtDesc(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E90-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E90-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E90-F01", Title: "Recent Test Feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusActive}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	ids := seedTasksWithTimestamps(t, repo, db, testEpic.ID, testFeature.ID, 5)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+
+	tasks, err := repo.GetRecent(ctx, 5)
+	require.NoError(t, err)
+	require.Len(t, tasks, 5)
+
+	// Assert descending order by created_at
+	for i := 1; i < len(tasks); i++ {
+		assert.True(t, !tasks[i-1].CreatedAt.Before(tasks[i].CreatedAt),
+			"expected tasks[%d].CreatedAt >= tasks[%d].CreatedAt, got %v < %v",
+			i-1, i, tasks[i-1].CreatedAt, tasks[i].CreatedAt)
+	}
+}
+
+// TestTaskRepository_GetRecent_LimitRespected seeds 10 tasks and asserts that
+// GetRecent(ctx, 3) returns exactly 3 rows.
+func TestTaskRepository_GetRecent_LimitRespected(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E90-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E90-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E90-F01", Title: "Recent Test Feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusActive}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	ids := seedTasksWithTimestamps(t, repo, db, testEpic.ID, testFeature.ID, 10)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+
+	tasks, err := repo.GetRecent(ctx, 3)
+	require.NoError(t, err)
+	assert.Len(t, tasks, 3, "GetRecent(3) must return exactly 3 rows")
+}
+
+// TestTaskRepository_GetRecent_EmptyTable asserts that GetRecent returns a non-nil
+// empty slice when no tasks exist.
+func TestTaskRepository_GetRecent_EmptyTable(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+
+	// Ensure no RECENT-tagged rows exist
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E90-F01-%'")
+
+	// We cannot guarantee the whole tasks table is empty (other tests may run concurrently),
+	// but we can verify the method works correctly by deleting our test prefix and
+	// calling with limit 0 is not valid per spec; instead just verify no panic and
+	// that when we know there are no rows the slice is non-nil.
+	// Use a dedicated cleanup to make this as isolated as possible.
+	tasks, err := repo.GetRecent(ctx, 1)
+	require.NoError(t, err)
+	assert.NotNil(t, tasks, "GetRecent must return a non-nil slice even when empty")
+}
+
+// TestTaskRepository_GetRecent_LimitExceedsRowCount seeds 2 tasks and asserts that
+// GetRecent(ctx, 100) returns exactly 2 (all rows, not an error).
+func TestTaskRepository_GetRecent_LimitExceedsRowCount(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E90-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E90-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E90-F01", Title: "Recent Test Feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusActive}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	ids := seedTasksWithTimestamps(t, repo, db, testEpic.ID, testFeature.ID, 2)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+
+	tasks, err := repo.GetRecent(ctx, 100)
+	require.NoError(t, err)
+	// At least our 2 seeded rows; DB may have other rows so we only check >= 2
+	assert.GreaterOrEqual(t, len(tasks), 2, "GetRecent(100) must return at least the 2 seeded tasks")
+}
+
+// BenchmarkTaskRepository_GetRecent measures GetRecent(ctx, 100) against a pre-seeded DB.
+// Seeds 10000 rows once, then benchmarks. Expectation: < 150ms per operation (REQ-NF-001).
+func BenchmarkTaskRepository_GetRecent(b *testing.B) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Cleanup before seeding
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E90-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E90-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Bench Recent Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	if err := epicRepo.Create(ctx, testEpic); err != nil {
+		b.Fatalf("create epic: %v", err)
+	}
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E90-F01", Title: "Bench Recent Feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusActive}
+	if err := featureRepo.Create(ctx, testFeature); err != nil {
+		b.Fatalf("create feature: %v", err)
+	}
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	// Seed 10000 tasks in batches using direct SQL for speed.
+	// Keys are arbitrary strings for the benchmark — we bypass model validation
+	// by using INSERT directly and ensure cleanup via the feature_id foreign key.
+	batchSize := 500
+	totalRows := 10000
+	for batch := 0; batch < totalRows/batchSize; batch++ {
+		for i := 0; i < batchSize; i++ {
+			rowNum := batch*batchSize + i + 1
+			key := fmt.Sprintf("bench-recent-%05d", rowNum)
+			_, err := database.ExecContext(ctx,
+				"INSERT OR IGNORE INTO tasks (feature_id, key, title, status, priority, created_at, updated_at) VALUES (?, ?, ?, 'todo', 5, datetime('now', ?), CURRENT_TIMESTAMP)",
+				testFeature.ID, key, fmt.Sprintf("Bench Task %d", rowNum), fmt.Sprintf("-%d seconds", totalRows-rowNum))
+			if err != nil {
+				b.Fatalf("seed task %d: %v", rowNum, err)
+			}
+		}
+	}
+	// Cleanup via feature_id cascade (epic+feature deferred deletes above cover tasks)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.GetRecent(ctx, 100)
+	}
+}

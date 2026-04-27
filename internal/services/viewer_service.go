@@ -140,16 +140,22 @@ type ViewerIdeaRepository interface {
 // ViewerBugListRepository lists all bugs for the hierarchy sidebar.
 // It is optional — ViewerService degrades gracefully if nil (bugs section omitted from Hierarchy).
 // Also used by resolveEntityID for bug history lookups.
+//
+// includeTerminal mirrors the CLI `bug list --all` flag: when false, terminal-status
+// bugs (resolved, wont_fix, duplicate) are excluded at the repository layer.
 type ViewerBugListRepository interface {
-	ListAll(ctx context.Context) ([]*models.Bug, error)
+	ListAll(ctx context.Context, includeTerminal bool) ([]*models.Bug, error)
 	GetByKey(ctx context.Context, key string) (*models.Bug, error)
 }
 
 // ViewerChangeCardListRepository lists all change cards for the hierarchy sidebar.
 // It is optional — ViewerService degrades gracefully if nil (change cards section omitted from Hierarchy).
 // Also used by resolveFilePath and resolveEntityID for change card lookups.
+//
+// includeTerminal mirrors the CLI `change list --all` flag: when false, terminal-status
+// change cards (completed, declined) are excluded at the repository layer.
 type ViewerChangeCardListRepository interface {
-	ListAll(ctx context.Context) ([]*models.ChangeCard, error)
+	ListAll(ctx context.Context, includeTerminal bool) ([]*models.ChangeCard, error)
 	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
 }
 
@@ -180,7 +186,8 @@ type TagsResponse struct {
 // Nil/zero values mean "no filter" — identical to pre-F06 behavior.
 // (REQ-F-010, ADR-F06-5)
 type HierarchyOptions struct {
-	Tags []string // empty → no filter (AC-04 still applies)
+	Tags            []string // empty → no filter (AC-04 still applies)
+	IncludeTerminal bool     // mirror CLI --all: when false, hide terminal-status bugs/change cards at the repo layer
 }
 
 // FlatEntity is a lightweight summary of a non-hierarchical entity (bug, change card, idea)
@@ -973,7 +980,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 	ccSvc := s.workflowSvc.ForLevel(workflow.LevelChange)
 
 	if s.bugListRepo != nil {
-		bugs, err := s.bugListRepo.ListAll(ctx)
+		bugs, err := s.bugListRepo.ListAll(ctx, opts.IncludeTerminal)
 		if err == nil {
 			result.Bugs = make([]*FlatEntity, 0, len(bugs))
 			for _, b := range bugs {
@@ -991,7 +998,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 	}
 
 	if s.changeCardListRepo != nil {
-		ccs, err := s.changeCardListRepo.ListAll(ctx)
+		ccs, err := s.changeCardListRepo.ListAll(ctx, opts.IncludeTerminal)
 		if err == nil {
 			result.ChangeCards = make([]*FlatEntity, 0, len(ccs))
 			for _, cc := range ccs {
