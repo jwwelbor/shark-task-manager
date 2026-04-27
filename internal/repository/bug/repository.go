@@ -24,7 +24,7 @@ func NewBugRepository(db *dbconn.DB) *BugRepository {
 // bugScanColumns is the ordered list of columns for scanning a Bug row.
 const bugSelectColumns = `id, key, title, slug, description, status, severity,
 	linked_entity_type, linked_entity_key, context_data, file_path,
-	created_at, updated_at`
+	size, created_at, updated_at`
 
 // scanBug scans a single Bug row from the given scanner.
 func scanBug(scanner interface {
@@ -43,6 +43,7 @@ func scanBug(scanner interface {
 		&bug.LinkedEntityKey,
 		&bug.ContextData,
 		&bug.FilePath,
+		&bug.Size,
 		&bug.CreatedAt,
 		&bug.UpdatedAt,
 	)
@@ -61,9 +62,9 @@ func (r *BugRepository) Create(ctx context.Context, bug *models.Bug) error {
 	query := `
 		INSERT INTO bugs (
 			key, title, slug, description, status, severity,
-			linked_entity_type, linked_entity_key, context_data, file_path
+			linked_entity_type, linked_entity_key, context_data, file_path, size
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -77,6 +78,7 @@ func (r *BugRepository) Create(ctx context.Context, bug *models.Bug) error {
 		bug.LinkedEntityKey,
 		bug.ContextData,
 		bug.FilePath,
+		bug.Size,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create bug: %w", err)
@@ -131,7 +133,7 @@ func (r *BugRepository) Update(ctx context.Context, bug *models.Bug) error {
 		UPDATE bugs
 		SET title = ?, slug = ?, description = ?, status = ?, severity = ?,
 			linked_entity_type = ?, linked_entity_key = ?,
-			context_data = ?, file_path = ?
+			context_data = ?, file_path = ?, size = ?
 		WHERE id = ?
 	`
 
@@ -145,6 +147,7 @@ func (r *BugRepository) Update(ctx context.Context, bug *models.Bug) error {
 		bug.LinkedEntityKey,
 		bug.ContextData,
 		bug.FilePath,
+		bug.Size,
 		bug.ID,
 	)
 	if err != nil {

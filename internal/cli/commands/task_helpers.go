@@ -97,6 +97,14 @@ func buildTaskGetJSON(
 	if len(task.Metadata) > 0 {
 		result["metadata"] = task.Metadata
 	}
+	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
+	// Both fields are omitted when Size is nil (omitempty behavior via explicit check here).
+	if task.Size != nil {
+		result["size"] = *task.Size
+		if label, err := models.SizeLabel(*task.Size); err == nil {
+			result["size_label"] = label
+		}
+	}
 
 	// Enrichment fields (matching human-readable view)
 	result["dependencies"] = deps
@@ -362,6 +370,8 @@ func registerCreateFlags(cmd *cobra.Command) {
 	// the vocabulary (see `shark tags list` / `shark tags add`).
 	cmd.Flags().StringSlice("tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar, not IntVar, per Decision D4).
+	cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 }
 
 // registerUpdateFlags adds flags for the task update command.
@@ -378,4 +388,33 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	// detach). Use `shark task tag rm` to detach a single tag.
 	cmd.Flags().StringSlice("tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark task tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	// Three-way dispatch: empty → no-op; "clear" → NULL; valid → parsed int.
+	cmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
+}
+
+// parseSizeUpdateFlag implements the three-way dispatch for the --size flag on
+// all update commands (E07-F42 REQ-F-005, spec §3.6):
+//
+//   - Flag absent or empty  → (nil, false, nil)  — no mutation
+//   - Exact lowercase "clear" → (nil, true, nil)  — set ClearSize=true
+//   - Any other value        → (ptr(n), false, nil) on success; (nil, false, err) on parse failure
+//
+// Only exact lowercase "clear" is the sentinel; "Clear" / "CLEAR" are not
+// valid size values either, so they propagate through ParseSize and surface as
+// ErrInvalidSize (AC-T1 from T-E07-F42-007).
+func parseSizeUpdateFlag(cmd *cobra.Command) (*int, bool, error) {
+	sizeStr, _ := cmd.Flags().GetString("size")
+	if sizeStr == "" {
+		return nil, false, nil
+	}
+	if sizeStr == "clear" {
+		return nil, true, nil
+	}
+	n, err := models.ParseSize(sizeStr)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid --size value: %w", err)
+	}
+	return &n, false, nil
 }

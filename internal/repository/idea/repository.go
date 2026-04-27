@@ -34,9 +34,9 @@ func (r *IdeaRepository) Create(ctx context.Context, idea *models.Idea) error {
 	query := `
 		INSERT INTO ideas (
 			key, title, description, created_date, priority, display_order,
-			notes, related_docs, dependencies, status
+			notes, related_docs, dependencies, status, size
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -50,6 +50,7 @@ func (r *IdeaRepository) Create(ctx context.Context, idea *models.Idea) error {
 		idea.RelatedDocs,
 		idea.Dependencies,
 		idea.Status,
+		idea.Size,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create idea: %w", err)
@@ -68,7 +69,7 @@ func (r *IdeaRepository) Create(ctx context.Context, idea *models.Idea) error {
 func (r *IdeaRepository) GetByID(ctx context.Context, id int64) (*models.Idea, error) {
 	query := `
 		SELECT id, key, title, description, created_date, priority, display_order,
-		       notes, related_docs, dependencies, status, created_at, updated_at,
+		       notes, related_docs, dependencies, status, size, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
 		WHERE id = ?
@@ -87,6 +88,7 @@ func (r *IdeaRepository) GetByID(ctx context.Context, id int64) (*models.Idea, e
 		&idea.RelatedDocs,
 		&idea.Dependencies,
 		&idea.Status,
+		&idea.Size,
 		&idea.CreatedAt,
 		&idea.UpdatedAt,
 		&idea.ConvertedToType,
@@ -108,7 +110,7 @@ func (r *IdeaRepository) GetByID(ctx context.Context, id int64) (*models.Idea, e
 func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea, error) {
 	query := `
 		SELECT id, key, title, description, created_date, priority, display_order,
-		       notes, related_docs, dependencies, status, created_at, updated_at,
+		       notes, related_docs, dependencies, status, size, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
 		WHERE key = ?
@@ -127,6 +129,7 @@ func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea
 		&idea.RelatedDocs,
 		&idea.Dependencies,
 		&idea.Status,
+		&idea.Size,
 		&idea.CreatedAt,
 		&idea.UpdatedAt,
 		&idea.ConvertedToType,
@@ -148,7 +151,7 @@ func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea
 func (r *IdeaRepository) List(ctx context.Context, filter *IdeaFilter) ([]*models.Idea, error) {
 	query := `
 		SELECT id, key, title, description, created_date, priority, display_order,
-		       notes, related_docs, dependencies, status, created_at, updated_at,
+		       notes, related_docs, dependencies, status, size, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
 	`
@@ -183,6 +186,7 @@ func (r *IdeaRepository) List(ctx context.Context, filter *IdeaFilter) ([]*model
 			&idea.RelatedDocs,
 			&idea.Dependencies,
 			&idea.Status,
+			&idea.Size,
 			&idea.CreatedAt,
 			&idea.UpdatedAt,
 			&idea.ConvertedToType,
@@ -211,7 +215,7 @@ func (r *IdeaRepository) Update(ctx context.Context, idea *models.Idea) error {
 	query := `
 		UPDATE ideas
 		SET title = ?, description = ?, priority = ?, display_order = ?,
-		    notes = ?, related_docs = ?, dependencies = ?, status = ?
+		    notes = ?, related_docs = ?, dependencies = ?, status = ?, size = ?
 		WHERE id = ?
 	`
 
@@ -224,6 +228,7 @@ func (r *IdeaRepository) Update(ctx context.Context, idea *models.Idea) error {
 		idea.RelatedDocs,
 		idea.Dependencies,
 		idea.Status,
+		idea.Size,
 		idea.ID,
 	)
 	if err != nil {

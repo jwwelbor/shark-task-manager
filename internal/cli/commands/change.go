@@ -225,6 +225,8 @@ func init() {
 	// the regex) surface as a clear exit-3 validation error.
 	changeCreateCmd.Flags().StringSliceVar(&changeCreateTags, "tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
+	changeCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// List flags
 	changeListCmd.Flags().StringVar(&changeStatusFilter, "status", "", "Filter by status (proposed, approved, in_progress, completed, declined)")
@@ -248,6 +250,9 @@ func init() {
 	// means no change; no way to detach here — use `shark change tag rm`.
 	changeUpdateCmd.Flags().StringSliceVar(&changeUpdateTags, "tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark change tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	changeUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
 
 	// Delete flags
 	changeDeleteCmd.Flags().BoolVar(&changeForce, "force", false, "Skip confirmation prompt")
@@ -264,6 +269,14 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 	// runs see a fresh value each time.
 	if tags, err := cmd.Flags().GetStringSlice("tag"); err == nil {
 		input.Tags = tags
+	}
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		input.Size = &n
 	}
 
 	// Step 2: Call service
@@ -386,7 +399,10 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 func runChangeUpdate(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	key := args[0]
-	updates := buildChangeCardUpdates(cmd)
+	updates, err := buildChangeCardUpdates(cmd)
+	if err != nil {
+		return err
+	}
 
 	// Step 2: Call service
 	svc := getChangeCardService()
@@ -495,7 +511,7 @@ func buildCreateChangeCardInput(title string) services.CreateChangeCardInput {
 }
 
 // buildChangeCardUpdates constructs a ChangeCardUpdates from changed flags.
-func buildChangeCardUpdates(cmd *cobra.Command) services.ChangeCardUpdates {
+func buildChangeCardUpdates(cmd *cobra.Command) (services.ChangeCardUpdates, error) {
 	updates := services.ChangeCardUpdates{}
 	if cmd.Flags().Changed("title") {
 		updates.Title = &changeTitle
@@ -523,7 +539,17 @@ func buildChangeCardUpdates(cmd *cobra.Command) services.ChangeCardUpdates {
 			updates.Tags = tags
 		}
 	}
-	return updates
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return updates, sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+	}
+	return updates, nil
 }
 
 // confirmChangeDelete prompts for confirmation before deleting a change-card.
@@ -534,6 +560,29 @@ func confirmChangeDelete(card *models.ChangeCard) bool {
 	return strings.EqualFold(response, "yes") || strings.EqualFold(response, "y")
 }
 
+// buildChangeCardListRows converts a slice of change-cards to table rows for list display.
+// Extracted for testability (E07-F42 F4 coverage requirement).
+func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
+	rows := make([][]string, 0, len(cards))
+	for _, c := range cards {
+		linkedEntity := "--"
+		if c.FeatureID != nil {
+			linkedEntity = fmt.Sprintf("F#%d", *c.FeatureID)
+		} else if c.EpicID != nil {
+			linkedEntity = fmt.Sprintf("E#%d", *c.EpicID)
+		}
+		rows = append(rows, []string{
+			c.Key,
+			c.Title,
+			string(c.Status),
+			linkedEntity,
+			c.CreatedAt.Format("2006-01-02"),
+			formatSize(c.Size), // E07-F42 REQ-F-006: Size column
+		})
+	}
+	return rows
+}
+
 // printChangeCardList renders a table of change-cards.
 func printChangeCardList(cards []*models.ChangeCard) error {
 	if len(cards) == 0 {
@@ -541,23 +590,8 @@ func printChangeCardList(cards []*models.ChangeCard) error {
 		return nil
 	}
 
-	headers := []string{"Key", "Title", "Status", "Linked Entity", "Created"}
-	rows := make([][]string, len(cards))
-	for i, c := range cards {
-		linkedEntity := "--"
-		if c.FeatureID != nil {
-			linkedEntity = fmt.Sprintf("F#%d", *c.FeatureID)
-		} else if c.EpicID != nil {
-			linkedEntity = fmt.Sprintf("E#%d", *c.EpicID)
-		}
-		rows[i] = []string{
-			c.Key,
-			c.Title,
-			string(c.Status),
-			linkedEntity,
-			c.CreatedAt.Format("2006-01-02"),
-		}
-	}
-	cli.OutputTable(headers, rows)
+	// E07-F42: Size column added to change-card list table (REQ-F-006).
+	headers := []string{"Key", "Title", "Status", "Linked Entity", "Created", "Size"}
+	cli.OutputTable(headers, buildChangeCardListRows(cards))
 	return nil
 }

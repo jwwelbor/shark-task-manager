@@ -666,3 +666,91 @@ func TestTaskRepository_GetByIDs(t *testing.T) {
 		assert.Equal(t, models.TaskStatus("in_progress"), tasks[0].Status)
 	})
 }
+
+// ptrIntTask returns a pointer to n; helper for size round-trip tests.
+func ptrIntTask(n int) *int { return &n }
+
+// TestTaskRepository_SizeRoundTrip verifies that Size persists through Create,
+// GetByKey (via GetByID), and Update without information loss (TC-F010-C).
+func TestTaskRepository_SizeRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	epicKey := "E96"
+	featureKey := "E96-F01"
+	taskKey := "T-E96-F01-001"
+
+	// Clean up before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = ?", taskKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create parent epic
+	testEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: epicKey, Title: "Task Size RT Epic"},
+		Status:     models.EpicStatusDraft,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic), "Failed to create parent epic")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	// Create parent feature
+	testFeature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: featureKey, Title: "Task Size RT Feature"},
+		EpicID:     testEpic.ID,
+		Status:     models.FeatureStatusDraft,
+	}
+	require.NoError(t, featureRepo.Create(ctx, testFeature), "Failed to create parent feature")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID)
+	}()
+
+	// Step 1: Create task with Size = ptr(5)
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:   taskKey,
+			Title: "Size Round Trip Task",
+			Size:  ptrIntTask(5),
+		},
+		FeatureID: testFeature.ID,
+		Status:    models.TaskStatus("todo"),
+		Priority:  5,
+	}
+	require.NoError(t, repo.Create(ctx, task), "Create() failed")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
+
+	// Read back and assert Size == 5
+	got, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err, "GetByID() failed")
+	if got.Size == nil {
+		t.Fatal("expected Size to be non-nil after Create")
+	}
+	assert.Equal(t, 5, *got.Size, "expected Size=5 after Create")
+
+	// Step 2: Update Size = ptr(1)
+	got.Size = ptrIntTask(1)
+	require.NoError(t, repo.Update(ctx, got), "Update() failed")
+
+	got2, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err, "GetByID() after update failed")
+	if got2.Size == nil {
+		t.Fatal("expected Size to be non-nil after Update to 1")
+	}
+	assert.Equal(t, 1, *got2.Size, "expected Size=1 after update")
+
+	// Step 3: Update Size = nil
+	got2.Size = nil
+	require.NoError(t, repo.Update(ctx, got2), "Update() to nil failed")
+
+	got3, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err, "GetByID() after nil update failed")
+	assert.Nil(t, got3.Size, "expected Size=nil after clearing")
+}

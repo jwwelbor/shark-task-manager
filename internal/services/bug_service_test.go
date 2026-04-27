@@ -1492,3 +1492,187 @@ func TestBugService_makeResolveActionFn_UnconfiguredStatus(t *testing.T) {
 		t.Error("expected nil action for status without configured orchestrator action")
 	}
 }
+
+// ============================================================================
+// TC-SVC-A through TC-SVC-E: Size field propagation (E07-F42-005)
+// ============================================================================
+
+func TestBugService_CreateBug_PropagatesSize(t *testing.T) {
+	// TC-SVC-A: CreateBug propagates Size to repository.
+	ctx := context.Background()
+	var capturedBug *models.Bug
+
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedBug = bug
+			bug.ID = 1
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	size := 5
+	bug, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Bug with size",
+		Severity: models.BugSeverityHigh,
+		Size:     &size,
+	})
+
+	if err != nil {
+		t.Fatalf("CreateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if capturedBug == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedBug.Size == nil {
+		t.Fatal("expected capturedBug.Size to be non-nil")
+	}
+	if *capturedBug.Size != 5 {
+		t.Errorf("expected capturedBug.Size=5, got %d", *capturedBug.Size)
+	}
+}
+
+func TestBugService_CreateBug_NilSizePropagated(t *testing.T) {
+	// TC-SVC-E: CreateBug passes Size=nil when not provided.
+	ctx := context.Background()
+	var capturedBug *models.Bug
+
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedBug = bug
+			bug.ID = 1
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Bug without size",
+		Severity: models.BugSeverityLow,
+	})
+
+	if err != nil {
+		t.Fatalf("CreateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if capturedBug == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedBug.Size != nil {
+		t.Errorf("expected capturedBug.Size to be nil, got %d", *capturedBug.Size)
+	}
+}
+
+func TestBugService_UpdateBug_SetsSize(t *testing.T) {
+	// TC-SVC-C: UpdateBug with Size=ptr(8) updates the field.
+	ctx := context.Background()
+	var capturedBug *models.Bug
+
+	size8 := 8
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
+		},
+		updateFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedBug = bug
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, err := svc.UpdateBug(ctx, "B001", BugUpdates{Size: &size8})
+	if err != nil {
+		t.Fatalf("UpdateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if capturedBug == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedBug.Size == nil {
+		t.Fatal("expected capturedBug.Size to be non-nil")
+	}
+	if *capturedBug.Size != 8 {
+		t.Errorf("expected capturedBug.Size=8, got %d", *capturedBug.Size)
+	}
+}
+
+func TestBugService_UpdateBug_ClearSize(t *testing.T) {
+	// TC-SVC-B: UpdateBug with ClearSize=true sets model.Size = nil.
+	ctx := context.Background()
+	var capturedBug *models.Bug
+
+	existingSize := 5
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key, Size: &existingSize}}, nil
+		},
+		updateFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedBug = bug
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, err := svc.UpdateBug(ctx, "B001", BugUpdates{ClearSize: true})
+	if err != nil {
+		t.Fatalf("UpdateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if capturedBug == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedBug.Size != nil {
+		t.Errorf("expected capturedBug.Size=nil (ClearSize=true), got %d", *capturedBug.Size)
+	}
+}
+
+func TestBugService_UpdateBug_NoSizeChange(t *testing.T) {
+	// TC-SVC-D: UpdateBug with neither Size nor ClearSize leaves size unchanged.
+	ctx := context.Background()
+	var capturedBug *models.Bug
+
+	existingSize := 3
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key, Size: &existingSize}}, nil
+		},
+		updateFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedBug = bug
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, err := svc.UpdateBug(ctx, "B001", BugUpdates{})
+	if err != nil {
+		t.Fatalf("UpdateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if capturedBug == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedBug.Size == nil {
+		t.Fatal("expected capturedBug.Size to remain non-nil")
+	}
+	if *capturedBug.Size != 3 {
+		t.Errorf("expected capturedBug.Size=3 (unchanged), got %d", *capturedBug.Size)
+	}
+}

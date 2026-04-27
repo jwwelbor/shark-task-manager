@@ -30,7 +30,7 @@ func NewChangeCardRepository(db *dbconn.DB) *ChangeCardRepository {
 }
 
 // changeCardSelectColumns defines the column list used by all SELECT queries.
-const changeCardSelectColumns = `id, key, title, description, status, priority, requested_by, assigned_to, epic_id, feature_id, related_task_id, justification, impact_analysis, rollback_plan, slug, file_path, context_data, created_at, updated_at`
+const changeCardSelectColumns = `id, key, title, description, status, priority, requested_by, assigned_to, epic_id, feature_id, related_task_id, justification, impact_analysis, rollback_plan, slug, file_path, context_data, size, created_at, updated_at`
 
 // scanCard scans a row into a ChangeCard model.
 func scanCard(scanner interface {
@@ -41,7 +41,7 @@ func scanCard(scanner interface {
 		&card.ID, &card.Key, &card.Title, &card.Description, &card.Status, &card.Priority,
 		&card.RequestedBy, &card.AssignedTo, &card.EpicID, &card.FeatureID, &card.RelatedTaskID,
 		&card.Justification, &card.ImpactAnalysis, &card.RollbackPlan,
-		&card.Slug, &card.FilePath, &card.ContextData, &card.CreatedAt, &card.UpdatedAt,
+		&card.Slug, &card.FilePath, &card.ContextData, &card.Size, &card.CreatedAt, &card.UpdatedAt,
 	)
 	return card, err
 }
@@ -54,14 +54,14 @@ func (r *ChangeCardRepository) Create(ctx context.Context, card *models.ChangeCa
 
 	query := `
 		INSERT INTO change_cards (key, title, description, status, priority, requested_by, assigned_to,
-			epic_id, feature_id, related_task_id, justification, impact_analysis, rollback_plan, slug, file_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			epic_id, feature_id, related_task_id, justification, impact_analysis, rollback_plan, slug, file_path, size)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		card.Key, card.Title, card.Description, card.Status, card.Priority,
 		card.RequestedBy, card.AssignedTo, card.EpicID, card.FeatureID, card.RelatedTaskID,
-		card.Justification, card.ImpactAnalysis, card.RollbackPlan, card.Slug, card.FilePath,
+		card.Justification, card.ImpactAnalysis, card.RollbackPlan, card.Slug, card.FilePath, card.Size,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create change-card: %w", err)
@@ -141,14 +141,14 @@ func (r *ChangeCardRepository) Update(ctx context.Context, card *models.ChangeCa
 		UPDATE change_cards
 		SET title = ?, description = ?, status = ?, priority = ?, requested_by = ?, assigned_to = ?,
 			epic_id = ?, feature_id = ?, related_task_id = ?, justification = ?, impact_analysis = ?,
-			rollback_plan = ?, slug = ?, file_path = ?
+			rollback_plan = ?, slug = ?, file_path = ?, size = ?
 		WHERE id = ?
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		card.Title, card.Description, card.Status, card.Priority,
 		card.RequestedBy, card.AssignedTo, card.EpicID, card.FeatureID, card.RelatedTaskID,
-		card.Justification, card.ImpactAnalysis, card.RollbackPlan, card.Slug, card.FilePath,
+		card.Justification, card.ImpactAnalysis, card.RollbackPlan, card.Slug, card.FilePath, card.Size,
 		card.ID,
 	)
 	if err != nil {

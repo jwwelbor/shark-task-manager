@@ -325,6 +325,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 			Filename:       input.FilePath,
 			Force:          input.Force,
 			Create:         input.CreateFile,
+			Size:           input.Size,
 		}
 
 		result, err := s.creatorSvc.CreateTask(ctx, creatorInput)
@@ -382,7 +383,8 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 	// Create task model
 	agentType := input.AgentType
 	task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
-		Title: input.Title}, Status: models.TaskStatus(s.entitySvc.GetWorkflowService().GetDefaultStatus()),
+		Title: input.Title,
+		Size:  input.Size}, Status: models.TaskStatus(s.entitySvc.GetWorkflowService().GetDefaultStatus()),
 		Priority:       priority,
 		AgentType:      &agentType,
 		ExecutionOrder: nil,
@@ -502,6 +504,14 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 	if updates.FilePath != nil {
 		task.FilePath = updates.FilePath
 	}
+
+	// Three-branch Size update logic (E07-F42 AC-T1).
+	if updates.ClearSize {
+		task.Size = nil
+	} else if updates.Size != nil {
+		task.Size = updates.Size
+	}
+	// else: leave task.Size unchanged (no-op)
 
 	// Validate updated task
 	if err := task.Validate(); err != nil {

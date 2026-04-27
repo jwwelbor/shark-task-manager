@@ -114,6 +114,7 @@ func (s *IdeaService) CreateIdea(ctx context.Context, input CreateIdeaInput) (*m
 		RelatedDocs:  input.RelatedDocs,
 		Dependencies: input.Dependencies,
 		Status:       status,
+		Size:         input.Size,
 	}
 
 	if err := s.repo.Create(ctx, idea); err != nil {
@@ -262,6 +263,14 @@ func (s *IdeaService) UpdateIdea(ctx context.Context, key string, input UpdateId
 	if input.Status != nil {
 		idea.Status = models.IdeaStatus(*input.Status)
 	}
+
+	// Three-branch Size update logic (E07-F42 AC-T1).
+	if input.ClearSize {
+		idea.Size = nil
+	} else if input.Size != nil {
+		idea.Size = input.Size
+	}
+	// else: leave idea.Size unchanged (no-op)
 
 	if err := s.repo.Update(ctx, idea); err != nil {
 		return nil, fmt.Errorf("failed to update idea %s: %w", key, err)

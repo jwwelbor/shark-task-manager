@@ -100,27 +100,37 @@ func sortEpics(epics []EpicWithProgress, sortBy string) {
 	}
 }
 
-// renderEpicListTable renders epics as a table
-func renderEpicListTable(epics []EpicWithProgress) {
-	tableData := pterm.TableData{
-		{"Key", "Title", "Status", "Progress", "Priority"},
-	}
-
+// buildEpicListRows converts a slice of EpicWithProgress to table rows for list display.
+// Extracted for testability (E07-F42 F4 coverage requirement).
+func buildEpicListRows(epics []EpicWithProgress) [][]string {
+	rows := make([][]string, 0, len(epics))
 	for _, epic := range epics {
 		title := epic.Title
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
 		progress := fmt.Sprintf("%.0f%%", epic.ProgressPct)
-		tableData = append(tableData, []string{
+		rows = append(rows, []string{
 			epic.Key,
 			title,
 			string(epic.Status),
 			progress,
 			string(epic.Priority),
+			formatSize(epic.Size), // E07-F42 REQ-F-006: Size column
 		})
 	}
+	return rows
+}
 
+// renderEpicListTable renders epics as a table
+func renderEpicListTable(epics []EpicWithProgress) {
+	// E07-F42: Size column added to epic list table (REQ-F-006).
+	tableData := pterm.TableData{
+		{"Key", "Title", "Status", "Progress", "Priority", "Size"},
+	}
+	for _, row := range buildEpicListRows(epics) {
+		tableData = append(tableData, row)
+	}
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
@@ -155,6 +165,10 @@ func buildEpicPlanningBasicInfo(info *services.EpicDisplayInfo) [][]string {
 
 	if epic.BusinessValue != nil {
 		basicInfo = append(basicInfo, []string{"Business Value", string(*epic.BusinessValue)})
+	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if epic.Size != nil {
+		basicInfo = append(basicInfo, []string{"Size", formatSize(epic.Size)})
 	}
 
 	return basicInfo
@@ -253,6 +267,10 @@ func buildEpicAggregationBasicInfo(epic *models.Epic, progress float64, path, fi
 
 	if epic.BusinessValue != nil {
 		info = append(info, []string{"Business Value", string(*epic.BusinessValue)})
+	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if epic.Size != nil {
+		info = append(info, []string{"Size", formatSize(epic.Size)})
 	}
 
 	return info
@@ -499,7 +517,7 @@ func buildEpicGetJSON(epic *models.Epic, data *EpicGetData, orchestratorAction i
 
 	validTransitions := GetValidTransitions(string(epic.Status), data.WorkflowCfg)
 
-	return map[string]interface{}{
+	epicJSON := map[string]interface{}{
 		"id":                     epic.ID,
 		"key":                    epic.Key,
 		"title":                  epic.Title,
@@ -526,6 +544,14 @@ func buildEpicGetJSON(epic *models.Epic, data *EpicGetData, orchestratorAction i
 		"orchestrator_action":    orchestratorAction,
 		"valid_transitions":      validTransitions,
 	}
+	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
+	if epic.Size != nil {
+		epicJSON["size"] = *epic.Size
+		if label, err := models.SizeLabel(*epic.Size); err == nil {
+			epicJSON["size_label"] = label
+		}
+	}
+	return epicJSON
 }
 
 // performEpicCreate handles the core logic of creating an epic
@@ -611,6 +637,16 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	// invocations see a fresh value each time.
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	var sizePtr *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		sizePtr = &n
+	}
+
 	// Build CreateEpicInput and delegate key generation, collision checks, and DB creation to service
 	input := services.CreateEpicInput{
 		Title:         epicTitle,
@@ -621,6 +657,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		CustomKey:     epicCreateKey,
 		Force:         force,
 		Tags:          tags,
+		Size:          sizePtr,
 	}
 	if customFilePath != nil {
 		input.FilePath = customFilePath
@@ -939,7 +976,19 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 		changed = true
 	}
 
-	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0) {
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+		changed = true
+	}
+
+	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0 || updates.Size != nil || updates.ClearSize) {
 		if _, err := epicSvc.UpdateEpic(ctx, epicKey, updates); err != nil {
 			return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicKey)
 		}

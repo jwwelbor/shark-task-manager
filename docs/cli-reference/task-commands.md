@@ -146,6 +146,7 @@ shark task create --epic=<epic-key> --feature=<feature-key> --title="<title>" [f
 - `--file <string>` - Custom file path (relative to root, must include .md)
 - `--create` - Create file if it does not exist
 - `--force` - Force reassignment if file already claimed
+- `--size <value>` - Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or numeric `1`, `2`, `3`, `5`, `8`, `13`. Optional; absence stores NULL.
 - `--tag <string>` - Tag to apply (repeatable). Tag must be registered; see `shark tags list`.
 - `--json` - Output in JSON format
 
@@ -159,6 +160,10 @@ shark task create E07-F01 "Implement JWT validation"
 
 # With execution order and agent
 shark task create E07 F01 "Setup JWT library" --order=1 --agent=backend
+
+# With size (label or numeric form)
+shark task create E07 F01 "Design API contract" --size=S
+shark task create E07 F01 "Implement OAuth flow" --size=8
 
 # With dependencies
 shark task create E07 F01 "Add token refresh" \
@@ -200,31 +205,32 @@ shark task get E07-F01-001 --completion-details
 shark task get E07-F01-001 --json
 ```
 
-**JSON Response Fields:**
+**JSON Response Fields (flat response — no entity wrapper):**
 ```json
 {
-  "task": {
-    "id": 5001,
-    "key": "T-E07-F01-001",
-    "slug": "implement-token-generation",
-    "title": "Implement token generation",
-    "status": "in_development",
-    "agent_type": "backend",
-    "priority": 5,
-    "execution_order": 2,
-    "file_path": "docs/plan/.../T-E07-F01-001.md"
-  },
+  "id": 5001,
+  "key": "T-E07-F01-001",
+  "slug": "implement-token-generation",
+  "title": "Implement token generation",
+  "status": "in_development",
+  "agent_type": "backend",
+  "priority": 5,
+  "execution_order": 2,
+  "size": 5,
+  "size_label": "L",
+  "file_path": "docs/plan/.../T-E07-F01-001.md",
   "dependencies": [],
-  "blocks": ["T-E07-F01-003"],
-  "related_docs": ["docs/plan/.../02-architecture.md"],
-  "status_metadata": {
-    "phase": "development",
-    "color": "yellow",
-    "progress_weight": 0.5,
-    "responsibility": "agent"
-  }
+  "blocked_by": [],
+  "blocks": [],
+  "related_documents": [],
+  "tags": [],
+  "tests_passed": false,
+  "verification_status": "pending",
+  "rejection_count": 0
 }
 ```
+
+> **Note:** `size` and `size_label` are top-level fields in the response. `size_label` is the human-readable t-shirt label (`XS`, `S`, `M`, `L`, `XL`, `XXL`) derived from the numeric `size` value. Both fields are omitted when `--size` has not been set on the task.
 
 ---
 
@@ -321,6 +327,7 @@ shark task update <task-key> [flags]
 - `--filename <string>` - New file path (relative to project root)
 - `--reason <string>` - Reason for backward status transitions
 - `--reason-doc <string>` - Path to rejection reason document
+- `--size <value>` - New size: `XS`|`S`|`M`|`L`|`XL`|`XXL` or `1`|`2`|`3`|`5`|`8`|`13`. Use `clear` to remove the size (set to NULL). Flag absent = no change.
 - `--tag <string>` - Tag to apply additively (repeatable). Empty = no change; use `shark task tag rm` to detach.
 - `--force` - Force reassignment or bypass workflow validation
 - `--json` - Output in JSON format
@@ -335,6 +342,13 @@ shark task update E07-F01-001 --priority=1 --agent=backend
 
 # Update execution order
 shark task update E07-F01-001 --order=1
+
+# Set or update size
+shark task update E07-F01-001 --size=L
+shark task update E07-F01-001 --size=5
+
+# Clear size (set back to NULL)
+shark task update E07-F01-001 --size=clear
 
 # Update multiple fields
 shark task update E07-F01-001 --priority=10 --order=1

@@ -435,7 +435,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 14
+const CurrentSchemaVersion = 15
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -826,6 +826,11 @@ func runMigrations(db *sql.DB) error {
 	// Create tags vocabulary and entity_tags polymorphic join table (E28-F01)
 	if err := migrateAddTagsAndEntityTags(db); err != nil {
 		return fmt.Errorf("failed to migrate tags and entity_tags tables: %w", err)
+	}
+
+	// Add nullable size column to all six entity tables (E07-F42)
+	if err := migrateAddSizeColumns(db); err != nil {
+		return fmt.Errorf("failed to migrate size columns: %w", err)
 	}
 
 	return nil
@@ -3385,6 +3390,49 @@ func migrateAddTagsAndEntityTags(db *sql.DB) error {
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("migrateAddTagsAndEntityTags: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateAddSizeColumns adds the nullable `size` column to each of the six
+// entity tables: epics, features, tasks, bugs, change_cards, ideas.
+//
+// The column is INTEGER NULL with no CHECK constraint — validation of the
+// canonical Fibonacci set {1,2,3,5,8,13} is handled at the model layer
+// (models.ValidateSize) per the two-level validation rule and Decision D3 in
+// the E07-F42 spec. A CHECK constraint would be brittle if the canonical set
+// ever expands (e.g., adding 21).
+//
+// Each ALTER TABLE is guarded by a pragma_table_info existence check,
+// mirroring the migrateFilePath/migrateExecutionOrder upstream pattern and the
+// migrateAddTagsAndEntityTags approach. This makes the function idempotent:
+// safe to run on a database that already has the column.
+//
+// DEVELOPER NOTE: This function adds schema version 15. CurrentSchemaVersion
+// has been bumped to 15 so that ApplySchemaIfNeeded detects the version gap
+// and re-applies on existing databases. The skip_migrations toggle in
+// .sharkconfig.json is not required — bumping CurrentSchemaVersion is the
+// only necessary step. See .claude/rules/database-critical.md.
+//
+// Part of Epic E07 — Enhancements (E07-F42).
+func migrateAddSizeColumns(db *sql.DB) error {
+	tables := []string{"epics", "features", "tasks", "bugs", "change_cards", "ideas"}
+	for _, table := range tables {
+		var exists int
+		err := db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = 'size'`,
+			table,
+		).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("migrateAddSizeColumns: check %s: %w", table, err)
+		}
+		if exists == 0 {
+			//nolint:gosec // table is from a hardcoded allowlist above; no user input
+			stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN size INTEGER NULL`, table)
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("migrateAddSizeColumns: alter %s: %w", table, err)
+			}
 		}
 	}
 	return nil

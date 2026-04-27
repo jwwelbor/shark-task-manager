@@ -90,52 +90,31 @@ shipped versions. Review the warnings printed by a normal init run first.
 See [Database Critical](../../.claude/rules/database-critical.md) for
 recovery procedures if you accidentally delete the database.
 
-## Migrating an existing project to v14 (E28 tagging)
+## Migrating an existing project to v15 (E07 size field + E28 tagging)
 
-The E28 entity tagging epic introduced a schema bump from **version 13 → 14**.
-The migration creates two new tables used by the managed tag vocabulary:
+Recent schema bumps:
 
-- `tags` — registered tag names (closed vocabulary)
-- `entity_tags` — many-to-many associations between tags and entities (epics,
-  features, tasks, bugs, change-cards, ideas)
+- **v14** (E28 tagging) — added `tags` and `entity_tags` tables for the
+  managed tag vocabulary.
+- **v15** (E07 size) — added `size` and `size_label` columns across the six
+  entity tables (`epics`, `features`, `tasks`, `bugs`, `change_cards`,
+  `ideas`).
 
 ### Local SQLite users
 
 No action required. Local SQLite databases always run pending migrations on
-the next `shark` invocation, so the v13 → v14 upgrade applies automatically
-the first time you run any command after upgrading the binary.
+the next `shark` invocation, so any pending upgrades apply automatically the
+first time you run any command after upgrading the binary.
 
 ### Turso / cloud users running with `skip_migrations: true`
 
 Turso users typically set `database.skip_migrations: true` in
-`.sharkconfig.json` to avoid the ~2-second DDL overhead on every command. With
-that flag set, the v13 → v14 migration **will not run** until you explicitly
-re-enable migrations once. Apply the bump as a one-time operation:
-
-1. Open `.sharkconfig.json` and set:
-   ```json
-   {
-     "database": {
-       "skip_migrations": false
-     }
-   }
-   ```
-2. Run any `shark` command (for example `shark status`). The migration runs,
-   creating `tags` and `entity_tags`, and bumps the recorded schema version
-   to 14.
-3. Set `skip_migrations` back to `true` in `.sharkconfig.json` to restore
-   the fast-path behavior:
-   ```json
-   {
-     "database": {
-       "skip_migrations": true
-     }
-   }
-   ```
-
-After this one-time toggle, all tag-related commands (`shark tags`,
-`shark <entity> tag add|rm`, `--tag` on `create`/`update`) will work
-correctly against your Turso database.
+`.sharkconfig.json` to avoid the ~2-second DDL overhead on every command.
+With that flag set, `ApplySchemaIfNeeded` (in `internal/db/db.go`) compares
+the recorded `schema_version` against `CurrentSchemaVersion` (currently
+**15**) and **automatically runs any pending migrations** when a gap is
+detected — no manual toggle required. Simply upgrade the binary and run any
+`shark` command; the migration applies once and records the new version.
 
 > See [`.claude/rules/database-critical.md`](../../.claude/rules/database-critical.md)
 > for the full rationale behind `skip_migrations` and the

@@ -35,6 +35,9 @@ var (
 	ErrInvalidTimestamp        = errors.New("invalid timestamp: cannot be zero value")
 	ErrEmptyKey                = errors.New("key cannot be empty")
 	ErrInvalidJSON             = errors.New("invalid JSON format")
+	// NOTE: ErrInvalidSize is declared in size.go (E07-F42).
+	// Use ValidateSize, ParseSize, and SizeLabel from that file.
+	// Pattern mirrors ValidateNoteType / ValidateRelationshipType above.
 )
 
 // Key format regex patterns

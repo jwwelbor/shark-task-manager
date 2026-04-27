@@ -185,7 +185,7 @@ Requires maintainer authorization via --pass or a live cache entry.`,
 
 			err := s.RemoveTag(cmd.Context(), name, flagForce, flagPass)
 			if err != nil {
-				return handleTagsRmRenameError(cmd, s, name, err)
+				return handleVocabularyErrorWithSnippet(cmd, s, name, err)
 			}
 
 			jsonMode := cmd.Flags().Changed("json") || cli.GlobalConfig.JSON
@@ -233,7 +233,7 @@ Requires maintainer authorization via --pass or a live cache entry.`,
 
 			tag, err := s.RenameTag(cmd.Context(), oldName, newName, flagPass)
 			if err != nil {
-				return handleTagsRmRenameError(cmd, s, oldName, err)
+				return handleVocabularyErrorWithSnippet(cmd, s, oldName, err)
 			}
 
 			jsonMode := cmd.Flags().Changed("json") || cli.GlobalConfig.JSON

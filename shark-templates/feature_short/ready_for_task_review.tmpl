@@ -27,6 +27,13 @@ VERIFY:
 - [ ] Each task references spec.md and test-plan.md sections (not copy-pasted content)
 - [ ] Task scopes are coherent (each modifies a related set of files)
 - [ ] Task titles accurately reflect their content
+- [ ] TDD shape: no task is pure "write tests for X" following a preceding
+      "implement X" task. Each implementation task owns its own tests — its
+      Scope must list both implementation file(s) AND test file(s).
+      Exception: a single feature-level integration/e2e test suite that
+      spans multiple components may be its own task (goal must say so).
+      If this rule is violated, FAIL and send back with reason: "merge
+      test-only task(s) into their implementation task(s) for TDD."
 
 ## Ordering & Dependencies
 - [ ] Execution order reflects actual dependencies

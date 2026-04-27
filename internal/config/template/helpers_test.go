@@ -2628,3 +2628,400 @@ func TestTechDebtPlaceholders_NilEntity(t *testing.T) {
 		t.Errorf("TechDebtPlaceholders(nil) returned %d entries, want 0", len(m))
 	}
 }
+
+// ============================================================================
+// E07-F42 — Size placeholder tests (TC-F011-A, TC-F011-B, TC-F011-C,
+//           TC-F012-A, TC-F012-B, IS-4)
+// ============================================================================
+
+// ptrInt returns a pointer to an int value (test helper for Size fields).
+func ptrInt(n int) *int { return &n }
+
+// TC-F011-C: applySizePlaceholders helper — tested in isolation.
+func TestApplySizePlaceholders_NonNilSize(t *testing.T) {
+	tests := []struct {
+		size      int
+		wantSize  string
+		wantLabel string
+	}{
+		{1, "1", "XS"},
+		{2, "2", "S"},
+		{3, "3", "M"},
+		{5, "5", "L"},
+		{8, "8", "XL"},
+		{13, "13", "XXL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.wantLabel, func(t *testing.T) {
+			m := make(map[string]string)
+			applySizePlaceholders(ptrInt(tt.size), m)
+			if got := m["size"]; got != tt.wantSize {
+				t.Errorf("applySizePlaceholders(%d): size = %q, want %q", tt.size, got, tt.wantSize)
+			}
+			if got := m["size_label"]; got != tt.wantLabel {
+				t.Errorf("applySizePlaceholders(%d): size_label = %q, want %q", tt.size, got, tt.wantLabel)
+			}
+		})
+	}
+}
+
+// TC-F011-C: applySizePlaceholders helper — nil produces empty strings.
+func TestApplySizePlaceholders_NilSize(t *testing.T) {
+	m := make(map[string]string)
+	applySizePlaceholders(nil, m)
+	if got := m["size"]; got != "" {
+		t.Errorf("applySizePlaceholders(nil): size = %q, want empty string", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("applySizePlaceholders(nil): size_label = %q, want empty string", got)
+	}
+}
+
+// TC-F011-C: applySizePlaceholders — both keys always written (not just absent when nil).
+func TestApplySizePlaceholders_NilSizeKeysExplicitlySet(t *testing.T) {
+	// Ensure that after calling applySizePlaceholders(nil, m), the keys
+	// exist in the map with empty-string values (no "<nil>" rendered).
+	m := make(map[string]string)
+	applySizePlaceholders(nil, m)
+	if _, exists := m["size"]; !exists {
+		t.Error("applySizePlaceholders(nil): key 'size' must be present (empty string), got absent")
+	}
+	if _, exists := m["size_label"]; !exists {
+		t.Error("applySizePlaceholders(nil): key 'size_label' must be present (empty string), got absent")
+	}
+}
+
+// TC-F011-A: TaskPlaceholders populates size and size_label for a task with Size set.
+func TestTaskPlaceholders_SizePopulated(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-001",
+			Title:     "Sized Task",
+			Size:      ptrInt(5),
+			CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC),
+		},
+		Status:   "todo",
+		Priority: 5,
+	}
+
+	m := TaskPlaceholders(task)
+
+	if got := m["size"]; got != "5" {
+		t.Errorf("TaskPlaceholders size = %q, want %q", got, "5")
+	}
+	if got := m["size_label"]; got != "L" {
+		t.Errorf("TaskPlaceholders size_label = %q, want %q", got, "L")
+	}
+}
+
+// TC-F011-B: TaskPlaceholders produces empty-string placeholders when Size is nil.
+func TestTaskPlaceholders_SizeNil(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-002",
+			Title:     "Unsized Task",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "todo",
+		Priority: 3,
+	}
+
+	m := TaskPlaceholders(task)
+
+	if got := m["size"]; got != "" {
+		t.Errorf("TaskPlaceholders size (nil) = %q, want empty string", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("TaskPlaceholders size_label (nil) = %q, want empty string", got)
+	}
+}
+
+// TC-F011-A: FeaturePlaceholders populates size and size_label for a feature with Size set.
+func TestFeaturePlaceholders_SizePopulated(t *testing.T) {
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{
+			Key:       "E07-F01",
+			Title:     "Sized Feature",
+			Size:      ptrInt(8),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status: "active",
+	}
+
+	m := FeaturePlaceholders(feature)
+
+	if got := m["size"]; got != "8" {
+		t.Errorf("FeaturePlaceholders size = %q, want %q", got, "8")
+	}
+	if got := m["size_label"]; got != "XL" {
+		t.Errorf("FeaturePlaceholders size_label = %q, want %q", got, "XL")
+	}
+}
+
+// TC-F011-B: FeaturePlaceholders produces empty-string placeholders when Size is nil.
+func TestFeaturePlaceholders_SizeNil(t *testing.T) {
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{
+			Key:       "E07-F02",
+			Title:     "Unsized Feature",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status: "active",
+	}
+
+	m := FeaturePlaceholders(feature)
+
+	if got := m["size"]; got != "" {
+		t.Errorf("FeaturePlaceholders size (nil) = %q, want empty string", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("FeaturePlaceholders size_label (nil) = %q, want empty string", got)
+	}
+}
+
+// TC-F011-A: EpicPlaceholders populates size and size_label for an epic with Size set.
+func TestEpicPlaceholders_SizePopulated(t *testing.T) {
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{
+			Key:       "E07",
+			Title:     "Sized Epic",
+			Size:      ptrInt(13),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "active",
+		Priority: models.PriorityHigh,
+	}
+
+	m := EpicPlaceholders(epic)
+
+	if got := m["size"]; got != "13" {
+		t.Errorf("EpicPlaceholders size = %q, want %q", got, "13")
+	}
+	if got := m["size_label"]; got != "XXL" {
+		t.Errorf("EpicPlaceholders size_label = %q, want %q", got, "XXL")
+	}
+}
+
+// TC-F011-B: EpicPlaceholders produces empty-string placeholders when Size is nil.
+func TestEpicPlaceholders_SizeNil(t *testing.T) {
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{
+			Key:       "E08",
+			Title:     "Unsized Epic",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "active",
+		Priority: models.PriorityLow,
+	}
+
+	m := EpicPlaceholders(epic)
+
+	if got := m["size"]; got != "" {
+		t.Errorf("EpicPlaceholders size (nil) = %q, want empty string", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("EpicPlaceholders size_label (nil) = %q, want empty string", got)
+	}
+}
+
+// TC-F011-A: BugPlaceholders populates size and size_label for a bug with Size set.
+func TestBugPlaceholders_SizePopulated(t *testing.T) {
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{
+			Key:       "B001",
+			Title:     "Sized Bug",
+			Size:      ptrInt(3),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "open",
+		Severity: models.BugSeverityHigh,
+	}
+
+	m := BugPlaceholders(bug)
+
+	if got := m["size"]; got != "3" {
+		t.Errorf("BugPlaceholders size = %q, want %q", got, "3")
+	}
+	if got := m["size_label"]; got != "M" {
+		t.Errorf("BugPlaceholders size_label = %q, want %q", got, "M")
+	}
+}
+
+// TC-F011-B: BugPlaceholders produces empty-string placeholders when Size is nil.
+func TestBugPlaceholders_SizeNil(t *testing.T) {
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{
+			Key:       "B002",
+			Title:     "Unsized Bug",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "open",
+		Severity: models.BugSeverityLow,
+	}
+
+	m := BugPlaceholders(bug)
+
+	if got := m["size"]; got != "" {
+		t.Errorf("BugPlaceholders size (nil) = %q, want empty string", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("BugPlaceholders size_label (nil) = %q, want empty string", got)
+	}
+}
+
+// TC-F011-A: ChangeCardPlaceholders populates size and size_label when Size set.
+func TestChangeCardPlaceholders_SizePopulated(t *testing.T) {
+	card := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{
+			Key:       "CC-001",
+			Title:     "Sized Change",
+			Size:      ptrInt(2),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "draft",
+		Priority: 3,
+	}
+
+	m := ChangeCardPlaceholders(card)
+
+	if got := m["size"]; got != "2" {
+		t.Errorf("ChangeCardPlaceholders size = %q, want %q", got, "2")
+	}
+	if got := m["size_label"]; got != "S" {
+		t.Errorf("ChangeCardPlaceholders size_label = %q, want %q", got, "S")
+	}
+}
+
+// TC-F011-B: ChangeCardPlaceholders produces empty-string placeholders when Size is nil.
+func TestChangeCardPlaceholders_SizeNil(t *testing.T) {
+	card := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{
+			Key:       "CC-002",
+			Title:     "Unsized Change",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "draft",
+		Priority: 1,
+	}
+
+	m := ChangeCardPlaceholders(card)
+
+	if got := m["size"]; got != "" {
+		t.Errorf("ChangeCardPlaceholders size (nil) = %q, want empty string", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("ChangeCardPlaceholders size_label (nil) = %q, want empty string", got)
+	}
+}
+
+// TC-F012-A: complexity_tier in Metadata is preserved (not overwritten) when Size is nil.
+func TestTaskPlaceholdersWithRelated_ComplexityTierPreservedWhenSizeNil(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F42-001",
+			Title:     "Task with complexity_tier only",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "todo",
+		Metadata: map[string]interface{}{"complexity_tier": "L"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+	ctx := context.Background()
+	m := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
+
+	// complexity_tier should be "L" from Metadata
+	if got := m["complexity_tier"]; got != "L" {
+		t.Errorf("complexity_tier = %q, want %q (TC-F012-A)", got, "L")
+	}
+	// size should be empty (Size is nil)
+	if got := m["size"]; got != "" {
+		t.Errorf("size = %q, want empty string when Size is nil (TC-F012-A)", got)
+	}
+	if got := m["size_label"]; got != "" {
+		t.Errorf("size_label = %q, want empty string when Size is nil (TC-F012-A)", got)
+	}
+}
+
+// TC-F012-B: Both complexity_tier and size placeholders populated independently.
+func TestTaskPlaceholdersWithRelated_BothSizeAndComplexityTierPopulated(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F42-002",
+			Title:     "Task with both fields",
+			Size:      ptrInt(8),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "todo",
+		Metadata: map[string]interface{}{"complexity_tier": "L"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+	ctx := context.Background()
+	m := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
+
+	// complexity_tier = "L" from Metadata — unchanged
+	if got := m["complexity_tier"]; got != "L" {
+		t.Errorf("complexity_tier = %q, want %q (TC-F012-B)", got, "L")
+	}
+	// size = "8" from Size field — independent
+	if got := m["size"]; got != "8" {
+		t.Errorf("size = %q, want %q (TC-F012-B)", got, "8")
+	}
+	if got := m["size_label"]; got != "XL" {
+		t.Errorf("size_label = %q, want %q (TC-F012-B)", got, "XL")
+	}
+}
+
+// IS-4: Template rendering integration — all per-entity placeholder builders
+// produce "size" and "size_label" independently of complexity_tier.
+func TestTemplatePlaceholders_SizeIndependentOfComplexityTier(t *testing.T) {
+	// Confirm that for TaskPlaceholders (base builder), size and complexity_tier
+	// are fully independent: one can be set without affecting the other.
+	task5 := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:   "T-E07-F42-003",
+			Title: "Task size=5 no tier",
+			Size:  ptrInt(5),
+		},
+		Status: "todo",
+	}
+	m5 := TaskPlaceholders(task5)
+	if m5["size"] != "5" || m5["size_label"] != "L" {
+		t.Errorf("size=5 case: size=%q size_label=%q", m5["size"], m5["size_label"])
+	}
+	// complexity_tier key should not appear (no Metadata, no ContextData)
+	if _, exists := m5["complexity_tier"]; exists {
+		t.Errorf("complexity_tier should not be in TaskPlaceholders output (only set by WithRelated)")
+	}
+
+	// Nil size — both placeholders are empty strings, not absent
+	taskNil := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:   "T-E07-F42-004",
+			Title: "Task nil size",
+		},
+		Status: "todo",
+	}
+	mNil := TaskPlaceholders(taskNil)
+	if mNil["size"] != "" {
+		t.Errorf("size (nil) = %q, want empty string", mNil["size"])
+	}
+	if mNil["size_label"] != "" {
+		t.Errorf("size_label (nil) = %q, want empty string", mNil["size_label"])
+	}
+}

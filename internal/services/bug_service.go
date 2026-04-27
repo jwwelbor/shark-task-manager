@@ -152,7 +152,8 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 
 	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: key,
 		Title: input.Title,
-		Slug:  &slug}, Status: models.BugStatus(defaultStatus),
+		Slug:  &slug,
+		Size:  input.Size}, Status: models.BugStatus(defaultStatus),
 		Severity: input.Severity,
 	}
 
@@ -301,6 +302,14 @@ func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdat
 	if updates.FilePath != nil {
 		bug.FilePath = updates.FilePath
 	}
+
+	// Three-branch Size update logic (E07-F42 AC-T1).
+	if updates.ClearSize {
+		bug.Size = nil
+	} else if updates.Size != nil {
+		bug.Size = updates.Size
+	}
+	// else: leave bug.Size unchanged (no-op)
 
 	if updates.LinkedEntityType != nil || updates.LinkedEntityKey != nil {
 		entityType := ""

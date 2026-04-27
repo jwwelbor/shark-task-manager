@@ -678,3 +678,192 @@ func TestChangeCardService_GetNextStatus_Terminal(t *testing.T) {
 		t.Errorf("expected no available transitions for terminal status, got %d", len(info.AvailableTransitions))
 	}
 }
+
+// ============================================================================
+// TC-SVC-A through TC-SVC-E: Size field propagation (E07-F42-005)
+// ============================================================================
+
+func TestChangeCardService_CreateChangeCard_PropagatesSize(t *testing.T) {
+	// TC-SVC-A: CreateChangeCard propagates Size to repository.
+	ctx := context.Background()
+	var capturedCard *models.ChangeCard
+
+	repo := &mockChangeCardRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "CC-001", nil },
+		createFn: func(ctx context.Context, card *models.ChangeCard) error {
+			capturedCard = card
+			card.ID = 1
+			return nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	size := 5
+	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+		Title: "Change card with size",
+		Size:  &size,
+	})
+	if err != nil {
+		t.Fatalf("CreateChangeCard() error = %v", err)
+	}
+	if card == nil {
+		t.Fatal("expected card, got nil")
+	}
+	if capturedCard == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedCard.Size == nil {
+		t.Fatal("expected capturedCard.Size to be non-nil")
+	}
+	if *capturedCard.Size != 5 {
+		t.Errorf("expected capturedCard.Size=5, got %d", *capturedCard.Size)
+	}
+}
+
+func TestChangeCardService_CreateChangeCard_NilSizePropagated(t *testing.T) {
+	// TC-SVC-E: CreateChangeCard passes Size=nil when not provided.
+	ctx := context.Background()
+	var capturedCard *models.ChangeCard
+
+	repo := &mockChangeCardRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "CC-001", nil },
+		createFn: func(ctx context.Context, card *models.ChangeCard) error {
+			capturedCard = card
+			card.ID = 1
+			return nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+		Title: "Change card without size",
+	})
+	if err != nil {
+		t.Fatalf("CreateChangeCard() error = %v", err)
+	}
+	if card == nil {
+		t.Fatal("expected card, got nil")
+	}
+	if capturedCard == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedCard.Size != nil {
+		t.Errorf("expected capturedCard.Size=nil, got %d", *capturedCard.Size)
+	}
+}
+
+func TestChangeCardService_UpdateChangeCard_SetsSize(t *testing.T) {
+	// TC-SVC-C: UpdateChangeCard with Size=ptr(8) updates the field.
+	ctx := context.Background()
+	var capturedCard *models.ChangeCard
+
+	repo := &mockChangeCardRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return &models.ChangeCard{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test Card"},
+				Status:     "draft",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, card *models.ChangeCard) error {
+			capturedCard = card
+			return nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	size := 8
+	card, err := svc.UpdateChangeCard(ctx, "CC-001", ChangeCardUpdates{Size: &size})
+	if err != nil {
+		t.Fatalf("UpdateChangeCard() error = %v", err)
+	}
+	if card == nil {
+		t.Fatal("expected card, got nil")
+	}
+	if capturedCard == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedCard.Size == nil {
+		t.Fatal("expected capturedCard.Size to be non-nil")
+	}
+	if *capturedCard.Size != 8 {
+		t.Errorf("expected capturedCard.Size=8, got %d", *capturedCard.Size)
+	}
+}
+
+func TestChangeCardService_UpdateChangeCard_ClearSize(t *testing.T) {
+	// TC-SVC-B: UpdateChangeCard with ClearSize=true sets model.Size = nil.
+	ctx := context.Background()
+	var capturedCard *models.ChangeCard
+
+	existingSize := 5
+	repo := &mockChangeCardRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return &models.ChangeCard{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test Card", Size: &existingSize},
+				Status:     "draft",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, card *models.ChangeCard) error {
+			capturedCard = card
+			return nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	card, err := svc.UpdateChangeCard(ctx, "CC-001", ChangeCardUpdates{ClearSize: true})
+	if err != nil {
+		t.Fatalf("UpdateChangeCard() error = %v", err)
+	}
+	if card == nil {
+		t.Fatal("expected card, got nil")
+	}
+	if capturedCard == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedCard.Size != nil {
+		t.Errorf("expected capturedCard.Size=nil (ClearSize=true), got %d", *capturedCard.Size)
+	}
+}
+
+func TestChangeCardService_UpdateChangeCard_NoSizeChange(t *testing.T) {
+	// TC-SVC-D: UpdateChangeCard with neither Size nor ClearSize leaves size unchanged.
+	ctx := context.Background()
+	var capturedCard *models.ChangeCard
+
+	existingSize := 3
+	repo := &mockChangeCardRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return &models.ChangeCard{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test Card", Size: &existingSize},
+				Status:     "draft",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, card *models.ChangeCard) error {
+			capturedCard = card
+			return nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	card, err := svc.UpdateChangeCard(ctx, "CC-001", ChangeCardUpdates{})
+	if err != nil {
+		t.Fatalf("UpdateChangeCard() error = %v", err)
+	}
+	if card == nil {
+		t.Fatal("expected card, got nil")
+	}
+	if capturedCard == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedCard.Size == nil {
+		t.Fatal("expected capturedCard.Size to remain non-nil")
+	}
+	if *capturedCard.Size != 3 {
+		t.Errorf("expected capturedCard.Size=3 (unchanged), got %d", *capturedCard.Size)
+	}
+}

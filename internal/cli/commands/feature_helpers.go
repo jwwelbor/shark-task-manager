@@ -133,6 +133,10 @@ func buildFeaturePlanningBasicInfo(info *services.FeatureDisplayInfo) [][]string
 	if feature.Description != nil && *feature.Description != "" {
 		basicInfo = append(basicInfo, []string{"Description", *feature.Description})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if feature.Size != nil {
+		basicInfo = append(basicInfo, []string{"Size", formatSize(feature.Size)})
+	}
 
 	return basicInfo
 }
@@ -203,9 +207,9 @@ func renderFeatureTasksSection(tasks []*models.Task) {
 
 // renderFeatureListTable renders features as a table.
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context) {
-	// Create table data with reordered columns (removed Notes, Health next to Status)
+	// E07-F42: Size column added to feature list table (REQ-F-006).
 	tableData := pterm.TableData{
-		{"Key", "Title", "Progress", "Status", "Health"},
+		{"Key", "Title", "Progress", "Status", "Health", "Size"},
 	}
 
 	// Batch fetch status breakdowns for all features to avoid N+1 query
@@ -285,6 +289,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			progressDisplay,
 			statusDisplay,
 			health,
+			formatSize(feature.Size), // E07-F42 REQ-F-006: Size column
 		})
 	}
 
@@ -408,6 +413,10 @@ func buildFeatureBasicInfo(feature *models.Feature, data *FeatureGetData) [][]st
 
 	if feature.Description != nil && *feature.Description != "" {
 		info = append(info, []string{"Description", *feature.Description})
+	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if feature.Size != nil {
+		info = append(info, []string{"Size", formatSize(feature.Size)})
 	}
 
 	return info
@@ -830,6 +839,16 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 	// invocations see a fresh value each time.
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	var sizePtr *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return services.CreateFeatureInput{}, "", "", fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		sizePtr = &n
+	}
+
 	input := services.CreateFeatureInput{
 		EpicKey:        featureCreateEpic,
 		Title:          featureTitle,
@@ -839,6 +858,7 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		FilePath:       filePath,
 		Force:          featureCreateForce,
 		Tags:           tags,
+		Size:           sizePtr,
 	}
 	return input, featureTitle, projectRoot, nil
 }
@@ -1034,6 +1054,18 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		changed = true
 	}
 
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+		changed = true
+	}
+
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
 			return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", featureKey)
@@ -1137,6 +1169,13 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 	}
 	if feature.ExecutionOrder != nil {
 		result["execution_order"] = *feature.ExecutionOrder
+	}
+	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
+	if feature.Size != nil {
+		result["size"] = *feature.Size
+		if label, err := models.SizeLabel(*feature.Size); err == nil {
+			result["size_label"] = label
+		}
 	}
 
 	return result

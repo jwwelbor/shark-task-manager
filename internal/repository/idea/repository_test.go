@@ -451,3 +451,80 @@ func TestIdeaRepository_MarkAsConverted_NonExistentIdea(t *testing.T) {
 		t.Error("Expected error when marking non-existent idea as converted, got none")
 	}
 }
+
+// ptrIntIdea returns a pointer to n; helper for size round-trip tests.
+func ptrIntIdea(n int) *int { return &n }
+
+// TestIdeaRepository_SizeRoundTrip verifies that Size persists through Create,
+// GetByKey, and Update without information loss (TC-F010-F).
+func TestIdeaRepository_SizeRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	dbWrapper := dbconn.NewDB(database)
+	repo := NewIdeaRepository(dbWrapper)
+
+	ideaKey := "I-2026-01-15-99"
+
+	// Clean up before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM ideas WHERE key = ?", ideaKey)
+
+	// Step 1: Create with Size = ptr(5)
+	idea := &models.Idea{
+		Key:    ideaKey,
+		Title:  "Size Round Trip Idea",
+		Status: models.IdeaStatusNew,
+		Size:   ptrIntIdea(5),
+	}
+	err := repo.Create(ctx, idea)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM ideas WHERE id = ?", idea.ID)
+	}()
+
+	// Read back and assert Size == 5
+	got, err := repo.GetByKey(ctx, ideaKey)
+	if err != nil {
+		t.Fatalf("GetByKey() error = %v", err)
+	}
+	if got.Size == nil {
+		t.Fatal("expected Size to be non-nil after Create")
+	}
+	if *got.Size != 5 {
+		t.Errorf("expected Size=5 after Create, got %d", *got.Size)
+	}
+
+	// Step 2: Update Size = ptr(1)
+	got.Size = ptrIntIdea(1)
+	err = repo.Update(ctx, got)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	got2, err := repo.GetByKey(ctx, ideaKey)
+	if err != nil {
+		t.Fatalf("GetByKey() after update error = %v", err)
+	}
+	if got2.Size == nil {
+		t.Fatal("expected Size to be non-nil after Update to 1")
+	}
+	if *got2.Size != 1 {
+		t.Errorf("expected Size=1 after update, got %d", *got2.Size)
+	}
+
+	// Step 3: Update Size = nil
+	got2.Size = nil
+	err = repo.Update(ctx, got2)
+	if err != nil {
+		t.Fatalf("Update() to nil error = %v", err)
+	}
+
+	got3, err := repo.GetByKey(ctx, ideaKey)
+	if err != nil {
+		t.Fatalf("GetByKey() after nil update error = %v", err)
+	}
+	if got3.Size != nil {
+		t.Errorf("expected Size=nil after clearing, got %v", *got3.Size)
+	}
+}

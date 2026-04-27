@@ -39,6 +39,8 @@ func (m *mockEntityForHistory) GetDescription() string           { return "" }
 func (m *mockEntityForHistory) GetFilePath() string              { return "" }
 func (m *mockEntityForHistory) GetContextData() *string          { return nil }
 func (m *mockEntityForHistory) SetContextData(*string)           {}
+func (m *mockEntityForHistory) GetSize() *int                    { return nil }
+func (m *mockEntityForHistory) SetSize(*int)                     {}
 func (m *mockEntityForHistory) GetCreatedAt() time.Time          { return time.Time{} }
 func (m *mockEntityForHistory) GetUpdatedAt() time.Time          { return time.Time{} }
 func (m *mockEntityForHistory) Validate() error                  { return nil }

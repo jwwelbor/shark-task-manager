@@ -167,6 +167,8 @@ func init() {
 	// the vocabulary (see `shark tags list` / `shark tags add`).
 	epicCreateCmd.Flags().StringSlice("tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
+	epicCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
 
@@ -184,6 +186,9 @@ func init() {
 	// detach). Use `shark epic tag rm` to detach a single tag.
 	epicUpdateCmd.Flags().StringSlice("tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark epic tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	epicUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
 }
 
 // runEpicList lists all epics with progress information.
@@ -284,6 +289,16 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
+			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
+			// that --field size and --field size_label work for planning-mode epics.
+			// The struct marshals size inside the nested "epic" key; we mirror
+			// the aggregation-mode pattern by also surfacing them at the top level.
+			if epic.Size != nil {
+				infoMap["size"] = *epic.Size
+				if label, err := models.SizeLabel(*epic.Size); err == nil {
+					infoMap["size_label"] = label
+				}
+			}
 			return cli.OutputJSON(infoMap)
 		}
 		renderEpicPlanningWithTags(info, tags)

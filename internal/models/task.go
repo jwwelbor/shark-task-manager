@@ -69,5 +69,11 @@ func (t *Task) Validate() error {
 			return err
 		}
 	}
+	// Validate size if set (E07-F42: canonical Fibonacci values only).
+	if t.Size != nil {
+		if err := ValidateSize(*t.Size); err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -2150,3 +2150,187 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 		t.Errorf("expected 'failed to unlink document from epic' in error, got: %v", err)
 	}
 }
+
+// ============================================================================
+// TC-SVC-A through TC-SVC-E: Size field propagation (E07-F42-005)
+// ============================================================================
+
+func TestEpicService_CreateEpic_PropagatesSize(t *testing.T) {
+	// TC-SVC-A: CreateEpic propagates Size to repository.
+	var capturedEpic *models.Epic
+
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, fmt.Errorf("not found") // custom key collision check
+		},
+		createFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			epic.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	size := 5
+	epic, err := svc.CreateEpic(context.Background(), CreateEpicInput{
+		Title: "Epic with size",
+		Size:  &size,
+	})
+
+	if err != nil {
+		t.Fatalf("CreateEpic() error = %v", err)
+	}
+	if epic == nil {
+		t.Fatal("expected epic, got nil")
+	}
+	if capturedEpic == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedEpic.Size == nil {
+		t.Fatal("expected capturedEpic.Size to be non-nil")
+	}
+	if *capturedEpic.Size != 5 {
+		t.Errorf("expected capturedEpic.Size=5, got %d", *capturedEpic.Size)
+	}
+}
+
+func TestEpicService_CreateEpic_NilSizePropagated(t *testing.T) {
+	// TC-SVC-E: CreateEpic passes Size=nil when not provided.
+	var capturedEpic *models.Epic
+
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, fmt.Errorf("not found")
+		},
+		createFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			epic.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	epic, err := svc.CreateEpic(context.Background(), CreateEpicInput{
+		Title: "Epic without size",
+	})
+
+	if err != nil {
+		t.Fatalf("CreateEpic() error = %v", err)
+	}
+	if epic == nil {
+		t.Fatal("expected epic, got nil")
+	}
+	if capturedEpic == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if capturedEpic.Size != nil {
+		t.Errorf("expected capturedEpic.Size=nil, got %d", *capturedEpic.Size)
+	}
+}
+
+func TestEpicService_UpdateEpic_SetsSize(t *testing.T) {
+	// TC-SVC-C: UpdateEpic with Size=ptr(8) updates the field.
+	var capturedEpic *models.Epic
+
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test"},
+				Status: "draft", Priority: "medium"}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			return nil
+		},
+	}
+
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	size := 8
+	epic, err := svc.UpdateEpic(context.Background(), "E07", EpicUpdates{Size: &size})
+	if err != nil {
+		t.Fatalf("UpdateEpic() error = %v", err)
+	}
+	if epic == nil {
+		t.Fatal("expected epic, got nil")
+	}
+	if capturedEpic == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedEpic.Size == nil {
+		t.Fatal("expected capturedEpic.Size to be non-nil")
+	}
+	if *capturedEpic.Size != 8 {
+		t.Errorf("expected capturedEpic.Size=8, got %d", *capturedEpic.Size)
+	}
+}
+
+func TestEpicService_UpdateEpic_ClearSize(t *testing.T) {
+	// TC-SVC-B: UpdateEpic with ClearSize=true sets model.Size = nil.
+	var capturedEpic *models.Epic
+
+	existingSize := 5
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test", Size: &existingSize},
+				Status: "draft", Priority: "medium"}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			return nil
+		},
+	}
+
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	epic, err := svc.UpdateEpic(context.Background(), "E07", EpicUpdates{ClearSize: true})
+	if err != nil {
+		t.Fatalf("UpdateEpic() error = %v", err)
+	}
+	if epic == nil {
+		t.Fatal("expected epic, got nil")
+	}
+	if capturedEpic == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedEpic.Size != nil {
+		t.Errorf("expected capturedEpic.Size=nil (ClearSize=true), got %d", *capturedEpic.Size)
+	}
+}
+
+func TestEpicService_UpdateEpic_NoSizeChange(t *testing.T) {
+	// TC-SVC-D: UpdateEpic with neither Size nor ClearSize leaves size unchanged.
+	var capturedEpic *models.Epic
+
+	existingSize := 3
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test", Size: &existingSize},
+				Status: "draft", Priority: "medium"}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			return nil
+		},
+	}
+
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	epic, err := svc.UpdateEpic(context.Background(), "E07", EpicUpdates{})
+	if err != nil {
+		t.Fatalf("UpdateEpic() error = %v", err)
+	}
+	if epic == nil {
+		t.Fatal("expected epic, got nil")
+	}
+	if capturedEpic == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if capturedEpic.Size == nil {
+		t.Fatal("expected capturedEpic.Size to remain non-nil")
+	}
+	if *capturedEpic.Size != 3 {
+		t.Errorf("expected capturedEpic.Size=3 (unchanged), got %d", *capturedEpic.Size)
+	}
+}

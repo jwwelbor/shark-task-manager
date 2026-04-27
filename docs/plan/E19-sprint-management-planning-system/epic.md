@@ -82,6 +82,7 @@ This epic is documented across multiple interconnected files:
 - Sprint planning view surfaces all data needed for scoping decisions in a single command
 
 **Dependencies**:
+- **E07-F42 (entity `Size` field)**: Velocity, burndown, capacity allocation, and readiness scoring all consume `size`. E19 should land after F42 so its spec can assume `size` exists rather than fall back to task-count or priority-as-proxy heuristics.
 - Builds on existing task status and session tracking (E13 workflow-aware commands)
 - Leverages task_sessions table for phase duration analysis
 - Integrates with existing `shark status`, `shark analytics`, and `shark get` command patterns

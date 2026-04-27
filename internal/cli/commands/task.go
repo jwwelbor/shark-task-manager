@@ -30,6 +30,24 @@ func getTaskGetService() taskGetServicer {
 	return cli.GetTaskServiceWithDocs()
 }
 
+// taskCreateServicer is the narrow interface consumed by runTaskCreate.
+// E07-F42: split out from the full TaskService to enable test injection for
+// create-command tests (e.g., --size flag integration tests).
+type taskCreateServicer interface {
+	CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, error)
+}
+
+// taskCreateSvcOverride is non-nil only during tests.
+var taskCreateSvcOverride taskCreateServicer
+
+// getTaskCreateService returns the service to use for runTaskCreate.
+func getTaskCreateService() taskCreateServicer {
+	if taskCreateSvcOverride != nil {
+		return taskCreateSvcOverride
+	}
+	return cli.GetTaskService()
+}
+
 // displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
 func displayAutoUnblockedTasks(unblockedKeys []string) {
 	if len(unblockedKeys) > 0 {
@@ -119,13 +137,27 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(tasks)
 	}
-	headers := []string{"Key", "Title", "Status", "Agent", "Priority"}
-	var rows [][]string
-	for _, t := range tasks {
-		rows = append(rows, []string{t.Key, t.Title, string(t.Status), derefString(t.AgentType), fmt.Sprintf("%d", t.Priority)})
-	}
-	cli.OutputTable(headers, rows)
+	// E07-F42: Size column added to task list table (REQ-F-006).
+	headers := []string{"Key", "Title", "Status", "Agent", "Priority", "Size"}
+	cli.OutputTable(headers, buildTaskListRows(tasks))
 	return nil
+}
+
+// buildTaskListRows converts a slice of tasks to table rows for list display.
+// Extracted for testability (F4 coverage requirement).
+func buildTaskListRows(tasks []*models.Task) [][]string {
+	rows := make([][]string, 0, len(tasks))
+	for _, t := range tasks {
+		rows = append(rows, []string{
+			t.Key,
+			t.Title,
+			string(t.Status),
+			derefString(t.AgentType),
+			fmt.Sprintf("%d", t.Priority),
+			formatSize(t.Size),
+		})
+	}
+	return rows
 }
 
 // runTaskGet displays details for a single task with full rich output.
@@ -214,6 +246,10 @@ func buildTaskBasicInfo(task *models.Task, deps []*models.Task, blockedBy, block
 	if task.ExecutionOrder != nil && *task.ExecutionOrder > 0 {
 		info = append(info, []string{"Execution Order", fmt.Sprintf("%d", *task.ExecutionOrder)})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if task.Size != nil {
+		info = append(info, []string{"Size", formatSize(task.Size)})
+	}
 	if fp := derefString(task.FilePath); fp != "" {
 		info = append(info, []string{"File", fp})
 	}
@@ -250,8 +286,17 @@ func buildTaskBasicInfo(task *models.Task, deps []*models.Task, blockedBy, block
 
 // runTaskCreate creates a new task.
 func runTaskCreate(cmd *cobra.Command, args []string) error {
-	svc := cli.GetTaskService()
-	task, err := svc.CreateTask(cmd.Context(), parseCreateTaskInput(cmd, args))
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	input := parseCreateTaskInput(cmd, args)
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, err := models.ParseSize(sizeStr)
+		if err != nil {
+			return fmt.Errorf("invalid --size value: %w", err)
+		}
+		input.Size = &n
+	}
+	svc := getTaskCreateService()
+	task, err := svc.CreateTask(cmd.Context(), input)
 	if err != nil {
 		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", "")
 	}
@@ -288,8 +333,22 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid task key: %w", err)
 	}
+
+	updates := parseTaskUpdates(cmd)
+
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+	}
+
 	svc := cli.GetTaskService()
-	task, err := svc.UpdateTask(cmd.Context(), taskKey, parseTaskUpdates(cmd))
+	task, err := svc.UpdateTask(cmd.Context(), taskKey, updates)
 	if err != nil {
 		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", taskKey)
 	}

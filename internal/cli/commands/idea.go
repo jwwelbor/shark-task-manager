@@ -211,6 +211,10 @@ var (
 	// bleed).
 	ideaCreateTags []string
 	ideaUpdateTags []string
+
+	// E07-F42 REQ-F-004: --size flag for idea create.
+	// StringVar (not IntVar) per Decision D4 — accepts both numeric and label forms.
+	ideaCreateSizeFlag string
 )
 
 // resolveIdeaID is the EntityKeyResolver used by the `shark idea tag`
@@ -279,6 +283,9 @@ func init() {
 	// the regex) surface as a clear exit-3 validation error.
 	ideaCreateCmd.Flags().StringSliceVar(&ideaCreateTags, "tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
+	ideaCreateCmd.Flags().StringVar(&ideaCreateSizeFlag, "size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// Update command flags
 	ideaUpdateCmd.Flags().StringVar(&ideaStatus, "status", "", "Update status")
@@ -293,6 +300,9 @@ func init() {
 	// means no change; no way to detach here — use `shark idea tag rm`.
 	ideaUpdateCmd.Flags().StringSliceVar(&ideaUpdateTags, "tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark idea tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	ideaUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
 
 	// Delete command flags
 	ideaDeleteCmd.Flags().BoolVar(&ideaForce, "force", false, "Skip confirmation prompt")
@@ -321,6 +331,31 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 	return printIdeaList(ideas)
 }
 
+// buildIdeaGetJSON converts an idea to a JSON map with tags and size_label injected.
+// tags must not be nil (pass []string{} when the tag service is unavailable).
+// E07-F42 REQ-F-007: size_label is included when idea.Size is non-nil so that
+// --field size_label is extractable for idea entities.
+func buildIdeaGetJSON(idea *models.Idea, tags []string) map[string]interface{} {
+	ideaJSON, _ := json.Marshal(idea)
+	var result map[string]interface{}
+	_ = json.Unmarshal(ideaJSON, &result)
+
+	// REQ-F-015: "tags" field always present, never null.
+	if tags == nil {
+		tags = []string{}
+	}
+	result["tags"] = tags
+
+	// E07-F42 REQ-F-007: inject size_label so --field size_label is extractable.
+	if idea.Size != nil {
+		if label, err := models.SizeLabel(*idea.Size); err == nil {
+			result["size_label"] = label
+		}
+	}
+
+	return result
+}
+
 // runIdeaGet handles the idea get command
 func runIdeaGet(cmd *cobra.Command, args []string) error {
 	ideaKey := args[0]
@@ -337,17 +372,7 @@ func runIdeaGet(cmd *cobra.Command, args []string) error {
 		if tags == nil {
 			tags = []string{}
 		}
-		// Build result with tags injected.
-		ideaJSON, jsonErr := json.Marshal(idea)
-		if jsonErr != nil {
-			return fmt.Errorf("failed to marshal idea: %w", jsonErr)
-		}
-		var result map[string]interface{}
-		if jsonErr = json.Unmarshal(ideaJSON, &result); jsonErr != nil {
-			return fmt.Errorf("failed to unmarshal idea: %w", jsonErr)
-		}
-		result["tags"] = tags
-		return cli.OutputJSON(result)
+		return cli.OutputJSON(buildIdeaGetJSON(idea, tags))
 	}
 	return printIdeaDetailWithTags(idea, tags)
 }
@@ -712,6 +737,27 @@ func filterIdeasByPriorityAndStatus(ideas []*models.Idea, priority int, status s
 	return filtered
 }
 
+// buildIdeaListRows converts a slice of ideas to table rows for list display.
+// Extracted for testability (E07-F42 F4 coverage requirement).
+func buildIdeaListRows(ideas []*models.Idea) [][]string {
+	rows := make([][]string, 0, len(ideas))
+	for _, idea := range ideas {
+		priority := "-"
+		if idea.Priority != nil {
+			priority = strconv.Itoa(*idea.Priority)
+		}
+		rows = append(rows, []string{
+			idea.Key,
+			idea.Title,
+			string(idea.Status),
+			priority,
+			idea.CreatedDate.Format("2006-01-02"),
+			formatSize(idea.Size), // E07-F42 REQ-F-006: Size column
+		})
+	}
+	return rows
+}
+
 // printIdeaList prints ideas in table format.
 func printIdeaList(ideas []*models.Idea) error {
 	if len(ideas) == 0 {
@@ -719,23 +765,9 @@ func printIdeaList(ideas []*models.Idea) error {
 		return nil
 	}
 
-	headers := []string{"Key", "Title", "Status", "Priority", "Created"}
-	rows := make([][]string, len(ideas))
-	for i, idea := range ideas {
-		priority := "-"
-		if idea.Priority != nil {
-			priority = strconv.Itoa(*idea.Priority)
-		}
-		rows[i] = []string{
-			idea.Key,
-			idea.Title,
-			string(idea.Status),
-			priority,
-			idea.CreatedDate.Format("2006-01-02"),
-		}
-	}
-
-	cli.OutputTable(headers, rows)
+	// E07-F42: Size column added to idea list table (REQ-F-006).
+	headers := []string{"Key", "Title", "Status", "Priority", "Created", "Size"}
+	cli.OutputTable(headers, buildIdeaListRows(ideas))
 	return nil
 }
 
@@ -762,6 +794,10 @@ func printIdeaDetailWithTags(idea *models.Idea, tags []string) error {
 	}
 	if idea.Dependencies != nil && *idea.Dependencies != "" {
 		fmt.Printf("Dependencies: %s\n", *idea.Dependencies)
+	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the line entirely.
+	if idea.Size != nil {
+		fmt.Printf("Size: %s\n", formatSize(idea.Size))
 	}
 	if idea.Status == models.IdeaStatusConverted {
 		if idea.ConvertedToType != nil && idea.ConvertedToKey != nil {
@@ -820,6 +856,14 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 		depsStr := string(deps)
 		input.Dependencies = &depsStr
 	}
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	if ideaCreateSizeFlag != "" {
+		n, sizeErr := models.ParseSize(ideaCreateSizeFlag)
+		if sizeErr != nil {
+			return input, fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		input.Size = &n
+	}
 	return input, nil
 }
 
@@ -866,6 +910,16 @@ func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) 
 		}
 		depsStr := string(deps)
 		input.Dependencies = &depsStr
+	}
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return input, sizeErr
+		}
+		input.Size = sizePtr
+		input.ClearSize = clearSize
 	}
 	return input, nil
 }

@@ -35,7 +35,7 @@ shark search [query] [flags]
 | `--epic <key>` | Filter by epic key (file search mode) |
 | `--feature <key>` | Filter by feature key (file search mode) |
 | `--status <status>` | Filter by task status (file search mode) |
-| `--type <type>` | Restrict full-text query to a single entity type (`epic`, `feature`, `task`, `bug`, `change`, `idea`, `tech_debt`) |
+| `--type <type>` | Restrict full-text query to a single entity type (`epic`, `feature`, `task`, `bug`, `change`, `tech_debt`) |
 | `--tag <name>` | Filter by tag (repeatable; AND — all tags must match). Applies to the full-text query mode. Tag names must be registered in the vocabulary; supplying an unregistered name exits **3** with the SC-2 vocabulary-snippet error. See [Tags Commands → Filtering by Tag](tags.md#filtering-by-tag---tag-on-list-and-search). |
 | `--json` | Output in JSON format |
 

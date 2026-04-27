@@ -22,6 +22,13 @@ type Entity interface {
 	SetContextData(data *string)
 	GetCreatedAt() time.Time
 	GetUpdatedAt() time.Time
+	// GetSize returns the entity's size value, or nil if not set.
+	// Valid numeric values are {1, 2, 3, 5, 8, 13} (Fibonacci).
+	// Use models.SizeLabel to convert to t-shirt form (XS/S/M/L/XL/XXL).
+	GetSize() *int
+	// SetSize sets the entity's size field. Pass nil to clear.
+	// The value is not validated here; call ValidateSize before persisting.
+	SetSize(s *int)
 	Validate() error
 }
 
@@ -34,15 +41,20 @@ type Entity interface {
 // appears in ~2,178 call sites. Keeping Status per-entity avoids a
 // massive codebase-wide migration.
 type BaseEntity struct {
-	ID          int64     `json:"id" db:"id"`
-	Key         string    `json:"key" db:"key"`
-	Title       string    `json:"title" db:"title"`
-	Slug        *string   `json:"slug,omitempty" db:"slug"`
-	Description *string   `json:"description,omitempty" db:"description"`
-	FilePath    *string   `json:"file_path,omitempty" db:"file_path"`
-	ContextData *string   `json:"context_data,omitempty" db:"context_data"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID          int64   `json:"id" db:"id"`
+	Key         string  `json:"key" db:"key"`
+	Title       string  `json:"title" db:"title"`
+	Slug        *string `json:"slug,omitempty" db:"slug"`
+	Description *string `json:"description,omitempty" db:"description"`
+	FilePath    *string `json:"file_path,omitempty" db:"file_path"`
+	ContextData *string `json:"context_data,omitempty" db:"context_data"`
+	// Size holds the entity size as a canonical Fibonacci integer
+	// (1=XS, 2=S, 3=M, 5=L, 8=XL, 13=XXL). NULL means "not sized".
+	// See models.ValidateSize, models.ParseSize, and models.SizeLabel.
+	// Part of E07-F42 (Add size field to all entities).
+	Size      *int      `json:"size,omitempty" db:"size"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 func (b *BaseEntity) GetID() int64            { return b.ID }
@@ -74,6 +86,12 @@ func (b *BaseEntity) GetFilePath() string {
 
 func (b *BaseEntity) GetContextData() *string     { return b.ContextData }
 func (b *BaseEntity) SetContextData(data *string) { b.ContextData = data }
+
+// GetSize returns the entity's Size field (nil if not set).
+func (b *BaseEntity) GetSize() *int { return b.Size }
+
+// SetSize sets the entity's Size field. Pass nil to clear.
+func (b *BaseEntity) SetSize(s *int) { b.Size = s }
 
 // Compile-time interface satisfaction checks.
 var (

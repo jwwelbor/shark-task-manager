@@ -45,6 +45,7 @@ shark idea create <title> [flags]
 | `--order` | int | Order for sorting ideas |
 | `--depends-on` | strings | Dependent idea keys |
 | `--related-docs` | strings | Related document paths |
+| `--size` | string | Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or numeric `1`, `2`, `3`, `5`, `8`, `13`. Optional; absence stores NULL. |
 | `--tag` | string | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
@@ -59,6 +60,10 @@ shark idea create "Backend optimization" --description="Improve query performanc
 # Create idea on hold with notes
 shark idea create "UI redesign" --status=on_hold --notes="Waiting for design review"
 
+# Create idea with size estimate
+shark idea create "Add webhook support" --size=M
+shark idea create "Full platform rewrite" --size=XXL
+
 # With one or more tags (tags must already be registered)
 shark idea create "Magic-link login" --tag=auth --tag=voice
 ```
@@ -66,22 +71,22 @@ shark idea create "Magic-link login" --tag=auth --tag=voice
 **JSON Output:**
 
 ```bash
-shark idea create "API rate limiting" --priority=7 --json
+shark idea create "API rate limiting" --priority=7 --size=M --json
 ```
 
 ```json
 {
   "key": "I-2026-02-25-01",
   "title": "API rate limiting",
-  "description": "",
   "status": "new",
   "priority": 7,
-  "notes": "",
-  "order": 0,
+  "size": 3,
   "created_at": "2026-02-25T14:30:00Z",
   "updated_at": "2026-02-25T14:30:00Z"
 }
 ```
+
+> **Note:** `size` is omitted from the JSON response when `--size` is not provided. `size_label` is only emitted by `get` / `status` commands; use `shark idea get <key> --field size_label` if you need the label after creation.
 
 ---
 
@@ -222,6 +227,7 @@ shark idea update <idea-key> [flags]
 | `--order` | int | Update order |
 | `--depends-on` | strings | Update dependencies |
 | `--related-docs` | strings | Update related document paths |
+| `--size` | string | New size: `XS`\|`S`\|`M`\|`L`\|`XL`\|`XXL` or `1`\|`2`\|`3`\|`5`\|`8`\|`13`. Use `clear` to remove (set to NULL). Flag absent = no change. |
 | `--tag` | string | Tag to apply additively (repeatable). Empty = no change; use `shark idea tag rm` to detach. |
 
 **Examples:**
@@ -235,6 +241,13 @@ shark idea update I-2026-02-25-01 --priority=9 --status=on_hold
 
 # Add notes
 shark idea update I-2026-02-25-01 --notes="Additional context from stakeholder meeting"
+
+# Set or update size
+shark idea update I-2026-02-25-01 --size=L
+shark idea update I-2026-02-25-01 --size=5
+
+# Clear size (set back to NULL)
+shark idea update I-2026-02-25-01 --size=clear
 
 # Additive tagging
 shark idea update I-2026-02-25-01 --tag=auth

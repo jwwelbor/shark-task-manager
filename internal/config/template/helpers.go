@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,6 +80,37 @@ func parseFeatureKeyFromTaskKey(taskKey string) string {
 	}
 
 	return ""
+}
+
+// applySizePlaceholders populates the "size" and "size_label" keys in the
+// placeholder map from the entity's Size field.
+//
+// When size is non-nil, "size" is set to the decimal representation of the
+// integer (e.g., "5") and "size_label" is set to the canonical t-shirt label
+// (e.g., "L") via models.SizeLabel. When size is nil, both keys are explicitly
+// set to the empty string so that templates render cleanly without producing
+// "<nil>" output.
+//
+// This helper is called from every per-entity placeholder builder
+// (TaskPlaceholders, FeaturePlaceholders, EpicPlaceholders, BugPlaceholders,
+// ChangeCardPlaceholders) to keep the size-placeholder logic in one place
+// (REQ-F-011, REQ-F-012, Decision D6 — complexity_tier is independent).
+//
+// Part of Epic E07-F42.
+func applySizePlaceholders(size *int, placeholders map[string]string) {
+	if size != nil {
+		placeholders["size"] = strconv.Itoa(*size)
+		if label, err := models.SizeLabel(*size); err == nil {
+			placeholders["size_label"] = label
+		} else {
+			// Defensive: SizeLabel only fails for non-canonical values.
+			// Populate with empty string to avoid template noise.
+			placeholders["size_label"] = ""
+		}
+	} else {
+		placeholders["size"] = ""
+		placeholders["size_label"] = ""
+	}
 }
 
 // EntityPlaceholders creates a map of template placeholders from any Entity
@@ -161,6 +193,9 @@ func TaskPlaceholders(task *models.Task) map[string]string {
 		m["files_changed"] = *task.FilesChanged
 	}
 
+	// Size placeholders (REQ-F-011): independent of complexity_tier (REQ-F-012 / D6).
+	applySizePlaceholders(task.Size, m)
+
 	return m
 }
 
@@ -184,6 +219,9 @@ func FeaturePlaceholders(feature *models.Feature) map[string]string {
 	if feature.ExecutionOrder != nil {
 		m["execution_order"] = fmt.Sprintf("%d", *feature.ExecutionOrder)
 	}
+
+	// Size placeholders (REQ-F-011): independent of complexity_tier (REQ-F-012 / D6).
+	applySizePlaceholders(feature.Size, m)
 
 	return m
 }
@@ -209,6 +247,9 @@ func EpicPlaceholders(epic *models.Epic) map[string]string {
 		m["business_value"] = string(*epic.BusinessValue)
 	}
 
+	// Size placeholders (REQ-F-011): independent of complexity_tier (REQ-F-012 / D6).
+	applySizePlaceholders(epic.Size, m)
+
 	return m
 }
 
@@ -229,6 +270,9 @@ func BugPlaceholders(bug *models.Bug) map[string]string {
 	if bug.LinkedEntityKey != nil {
 		m["linked_entity_key"] = *bug.LinkedEntityKey
 	}
+
+	// Size placeholders (REQ-F-011): independent of complexity_tier (REQ-F-012 / D6).
+	applySizePlaceholders(bug.Size, m)
 
 	return m
 }
@@ -280,6 +324,9 @@ func ChangeCardPlaceholders(card *models.ChangeCard) map[string]string {
 	if card.RollbackPlan != nil {
 		m["rollback_plan"] = *card.RollbackPlan
 	}
+
+	// Size placeholders (REQ-F-011): independent of complexity_tier (REQ-F-012 / D6).
+	applySizePlaceholders(card.Size, m)
 
 	return m
 }

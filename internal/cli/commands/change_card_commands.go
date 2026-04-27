@@ -104,6 +104,10 @@ func buildChangeCardBasicInfo(card *models.ChangeCard) [][]string {
 	if card.Justification != nil && *card.Justification != "" {
 		info = append(info, []string{"Justification", *card.Justification})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if card.Size != nil {
+		info = append(info, []string{"Size", formatSize(card.Size)})
+	}
 	info = append(info, []string{"Created", card.CreatedAt.Format(time.RFC3339)})
 	info = append(info, []string{"Updated", card.UpdatedAt.Format(time.RFC3339)})
 

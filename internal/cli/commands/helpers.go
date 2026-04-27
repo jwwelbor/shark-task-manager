@@ -10,6 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // NormalizeKey converts a key to canonical uppercase format.
@@ -786,9 +787,33 @@ func DetectEntityType(key string) string {
 	return "unknown"
 }
 
+// applySizeLabelToMap injects "size_label" into a JSON map when the entity carries a
+// non-nil Size field. This satisfies E07-F42 REQ-F-007 ("--field size_label" must be
+// a separately extractable field) for all six entity types.
+//
+// sizable is any value whose concrete type implements GetSize() *int (models.Entity,
+// *models.Idea, or any future sizable type). The function is a no-op when s is nil,
+// when GetSize() returns nil, or when the size does not map to a canonical label.
+func applySizeLabelToMap(result map[string]interface{}, sizable interface{}) {
+	type sizeGetter interface {
+		GetSize() *int
+	}
+	sg, ok := sizable.(sizeGetter)
+	if !ok || sg == nil {
+		return
+	}
+	size := sg.GetSize()
+	if size == nil {
+		return
+	}
+	if label, err := models.SizeLabel(*size); err == nil {
+		result["size_label"] = label
+	}
+}
+
 // buildEnrichedJSON converts an entity struct to a map[string]interface{} and adds
-// valid_transitions and orchestrator_action fields. This is a shared helper used by
-// bug get and change get commands to avoid code duplication.
+// valid_transitions, orchestrator_action, and (when present) size_label fields.
+// This is a shared helper used by bug get and change get commands.
 func buildEnrichedJSON(entity interface{}, orchestratorAction *config.PopulatedAction, validTransitions []string) (map[string]interface{}, error) {
 	entityJSON, err := json.Marshal(entity)
 	if err != nil {
@@ -799,6 +824,9 @@ func buildEnrichedJSON(entity interface{}, orchestratorAction *config.PopulatedA
 	if err := json.Unmarshal(entityJSON, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal entity JSON to map: %w", err)
 	}
+
+	// E07-F42 REQ-F-007: inject size_label so --field size_label is extractable.
+	applySizeLabelToMap(result, entity)
 
 	result["valid_transitions"] = validTransitions
 	result["orchestrator_action"] = orchestratorAction
@@ -867,4 +895,23 @@ func handleServiceError(err error, entityType, key string) {
 		slog.Debug("Error details", "error", err)
 	}
 	os.Exit(2)
+}
+
+// formatSize renders a size pointer for human-readable display.
+// Returns "—" when s is nil; otherwise returns "<label> (<num>)" (e.g., "L (5)").
+// Per spec.md §3.6 and REQ-F-006 (E07-F42).
+//
+// The defensive branch ("should never trigger") handles the theoretical case
+// where a non-canonical value somehow reached the model — it falls back to
+// the raw number rather than panicking.
+func formatSize(s *int) string {
+	if s == nil {
+		return "—"
+	}
+	label, err := models.SizeLabel(*s)
+	if err != nil {
+		// Defensive: canonical validation should have caught this upstream.
+		return fmt.Sprintf("%d", *s)
+	}
+	return fmt.Sprintf("%s (%d)", label, *s)
 }

@@ -53,5 +53,11 @@ func (e *Epic) Validate() error {
 			return err
 		}
 	}
+	// Validate size if set (E07-F42: canonical Fibonacci values only).
+	if e.Size != nil {
+		if err := ValidateSize(*e.Size); err != nil {
+			return err
+		}
+	}
 	return nil
 }

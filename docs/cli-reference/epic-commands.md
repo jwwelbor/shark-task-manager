@@ -85,6 +85,7 @@ shark epic create <title> [flags]
 | `--priority <string>` | Priority: low, medium, high (default: medium) |
 | `--business-value <string>` | Business value: low, medium, high |
 | `--status <string>` | Initial status: draft, active, completed, archived (default: draft) |
+| `--size <value>` | Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or numeric `1`, `2`, `3`, `5`, `8`, `13`. Optional; absence stores NULL. |
 | `--tag <name>` | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
@@ -98,6 +99,10 @@ shark epic create "Q1 2025 Roadmap" --file="docs/roadmap/2025-q1/epic.md"
 
 # With priority and business value
 shark epic create "Payment Gateway" --priority=high --business-value=high --json
+
+# With size (label or numeric form)
+shark epic create "Data Migration" --size=L
+shark epic create "Data Migration" --size=5
 
 # With one or more tags (tags must already be registered)
 shark epic create "Voice Auth Epic" --tag=voice --tag=auth
@@ -189,19 +194,19 @@ Impediments
   T-E07-F01-005 "Setup OAuth providers" (Feature: Authentication, 2 days)
 ```
 
-**JSON Output:**
+**JSON Output (active mode — flat response, no entity wrapper):**
 ```json
 {
-  "epic": {
-    "id": 7,
-    "key": "E07",
-    "slug": "user-authentication-system",
-    "title": "User Authentication System",
-    "status": "active",
-    "priority": "high",
-    "business_value": "high",
-    "file_path": "docs/plan/E07-user-authentication-system/epic.md"
-  },
+  "id": 7,
+  "key": "E07",
+  "slug": "user-authentication-system",
+  "title": "User Authentication System",
+  "status": "active",
+  "priority": "medium",
+  "business_value": null,
+  "size": 5,
+  "size_label": "L",
+  "file_path": "docs/plan/E07-user-authentication-system/epic.md",
   "progress_pct": 45.0,
   "features": [
     {
@@ -213,25 +218,21 @@ Impediments
       "task_count": 15
     }
   ],
+  "feature_status_rollup": {
+    "active": 1
+  },
   "task_status_rollup": {
     "completed": 12,
     "in_development": 5,
     "ready_for_development": 8,
     "draft": 10
   },
-  "total_tasks": 35,
-  "impediments": [
-    {
-      "task_key": "T-E07-F01-005",
-      "task_title": "Setup OAuth providers",
-      "feature_key": "E07-F01",
-      "reason": "Waiting for OAuth provider approval",
-      "blocked_since": "2026-01-14T10:00:00Z",
-      "age_days": 2
-    }
-  ]
+  "impediments": [],
+  "tags": []
 }
 ```
+
+> **Note — planning vs active mode:** When an epic is in a planning-phase status (e.g., `draft`, `in_refinement`), the response includes a `"display_mode": "planning"` field and an `"epic": { ... }` nested wrapper that contains core fields (including `size`). In both modes, `size_label` is always a top-level field — it is never nested inside the `"epic"` wrapper.
 
 **Rollup Details:**
 
@@ -368,6 +369,7 @@ shark epic update <epic-key> [flags]
 | `--key <string>` | New key (must be unique, no spaces) |
 | `--file <path>` | New file path (e.g., `docs/custom/epic.md`) |
 | `--force` | Force reassignment if file already claimed |
+| `--size <value>` | New size: `XS`\|`S`\|`M`\|`L`\|`XL`\|`XXL` or `1`\|`2`\|`3`\|`5`\|`8`\|`13`. Use `clear` to remove the size (set to NULL). Flag absent = no change. |
 | `--tag <name>` | Tag to apply additively (repeatable). Empty = no change; use `shark epic tag rm` to detach. |
 
 **Examples:**
@@ -378,6 +380,13 @@ shark epic update E07 --title="Authentication and Authorization System"
 
 # Update priority and business value
 shark epic update E07 --priority=high --business-value=high
+
+# Set or update size
+shark epic update E07 --size=XL
+shark epic update E07 --size=8
+
+# Clear size (set back to NULL)
+shark epic update E07 --size=clear
 
 # Change file path
 shark epic update E07 --file="docs/roadmap/auth-system.md" --json

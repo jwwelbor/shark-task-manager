@@ -186,6 +186,8 @@ func init() {
 	// the vocabulary (see `shark tags list` / `shark tags add`).
 	featureCreateCmd.Flags().StringSlice("tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
+	featureCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// Complete flags
 	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks")
@@ -209,6 +211,9 @@ func init() {
 	// detach). Use `shark feature tag rm` to detach a single tag.
 	featureUpdateCmd.Flags().StringSlice("tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark feature tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	featureUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
 }
 
 // runFeatureList lists features with optional epic and status filtering.
@@ -290,6 +295,16 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
+			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
+			// that --field size and --field size_label work for planning-mode features.
+			// The struct marshals size inside the nested "feature" key; we mirror
+			// the aggregation-mode pattern by also surfacing them at the top level.
+			if feature.Size != nil {
+				infoMap["size"] = *feature.Size
+				if label, err := models.SizeLabel(*feature.Size); err == nil {
+					infoMap["size_label"] = label
+				}
+			}
 			return cli.OutputJSON(infoMap)
 		}
 		renderFeaturePlanningWithTags(info, tags)
