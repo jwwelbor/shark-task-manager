@@ -885,6 +885,64 @@ func (r *EpicRepository) GetEpicDisplayDataRaw(ctx context.Context, epicID int64
 	return raw, nil
 }
 
+// GetRecent returns the most recently created epics, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *EpicRepository) GetRecent(ctx context.Context, limit int) (_ []*models.Epic, retErr error) {
+	ctx, span := tracer.Start(ctx, "EpicRepository.GetRecent",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "epics"),
+			attribute.Int("db.limit", limit),
+		))
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
+
+	query := `
+		SELECT id, key, title, description, status, priority, business_value,
+		       slug, file_path, context_data, size, created_at, updated_at
+		FROM epics
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent epics: %w", err)
+	}
+	defer rows.Close()
+
+	epics := []*models.Epic{}
+	for rows.Next() {
+		e := &models.Epic{}
+		err := rows.Scan(
+			&e.ID,
+			&e.Key,
+			&e.Title,
+			&e.Description,
+			&e.Status,
+			&e.Priority,
+			&e.BusinessValue,
+			&e.Slug,
+			&e.FilePath,
+			&e.ContextData,
+			&e.Size,
+			&e.CreatedAt,
+			&e.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan epic: %w", err)
+		}
+		epics = append(epics, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating epics: %w", err)
+	}
+
+	return epics, nil
+}
+
 // CountByStatus returns epic counts grouped by status.
 func (r *EpicRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM epics GROUP BY status`)

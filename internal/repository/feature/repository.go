@@ -1207,6 +1207,66 @@ func (r *FeatureRepository) GetFeatureDisplayDataRaw(ctx context.Context, featur
 }
 
 // CountByStatus returns feature counts grouped by status.
+// GetRecent returns the most recently created features, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *FeatureRepository) GetRecent(ctx context.Context, limit int) (_ []*models.Feature, retErr error) {
+	ctx, span := tracer.Start(ctx, "FeatureRepository.GetRecent",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "features"),
+			attribute.Int("db.limit", limit),
+		))
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
+
+	query := `
+		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
+		       execution_order, file_path, context_data, size, created_at, updated_at
+		FROM features
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent features: %w", err)
+	}
+	defer rows.Close()
+
+	features := []*models.Feature{}
+	for rows.Next() {
+		f := &models.Feature{}
+		err := rows.Scan(
+			&f.ID,
+			&f.EpicID,
+			&f.Key,
+			&f.Title,
+			&f.Slug,
+			&f.Description,
+			&f.Status,
+			&f.StatusOverride,
+			&f.ProgressPct,
+			&f.ExecutionOrder,
+			&f.FilePath,
+			&f.ContextData,
+			&f.Size,
+			&f.CreatedAt,
+			&f.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan feature: %w", err)
+		}
+		features = append(features, f)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating features: %w", err)
+	}
+
+	return features, nil
+}
+
 func (r *FeatureRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM features GROUP BY status`)
 	if err != nil {
