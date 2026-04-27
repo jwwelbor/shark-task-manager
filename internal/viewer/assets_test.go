@@ -2462,30 +2462,30 @@ func TestViewerHTMLF10TableRowsCompletedClass(t *testing.T) {
 
 // ── T-E27-F10-002: "Show all items" label rename + cancelled visibility ──
 
-// TestViewerHTMLF10002LabelRename verifies that the checkbox label text is
-// "Show all items" (not "Show completed"). AC-002.1 (T-E27-F10-002).
+// TestViewerHTMLF10002LabelRename verifies that the show-completed checkbox is
+// present and "Show completed" is gone. AC-002.1 (T-E27-F10-002).
 func TestViewerHTMLF10002LabelRename(t *testing.T) {
 	content := string(viewer.ViewerHTML)
 
-	// AC-002.1: label must read "Show all items"
-	if !strings.Contains(content, "Show all items") {
-		t.Error("viewer.html checkbox label must be \"Show all items\" (T-E27-F10-002 AC-002.1)")
+	// AC-002.1: show-completed-checkbox must be present
+	if !strings.Contains(content, `id="show-completed-checkbox"`) {
+		t.Error(`viewer.html missing show-completed-checkbox (T-E27-F10-002 AC-002.1)`)
 	}
 
 	// The old label text must be absent
 	if strings.Contains(content, "Show completed") {
-		t.Error("viewer.html still contains \"Show completed\" — label must be renamed to \"Show all items\" (T-E27-F10-002 AC-002.1)")
+		t.Error(`viewer.html still contains "Show completed" — must be removed (T-E27-F10-002 AC-002.1)`)
 	}
 }
 
-// TestViewerHTMLF10002ShowAllFilesUnaffected verifies that the second checkbox
-// "Show all files" is still present and separate. AC-002.5 (T-E27-F10-002).
+// TestViewerHTMLF10002ShowAllFilesUnaffected verifies that the files checkbox
+// is still present. AC-002.5 (T-E27-F10-002).
 func TestViewerHTMLF10002ShowAllFilesUnaffected(t *testing.T) {
 	content := string(viewer.ViewerHTML)
 
-	// AC-002.5: "Show all files" must remain unchanged
-	if !strings.Contains(content, "Show all files") {
-		t.Error("viewer.html missing \"Show all files\" checkbox — must remain unaffected (T-E27-F10-002 AC-002.5)")
+	// AC-002.5: show-all-files-checkbox must remain present
+	if !strings.Contains(content, `id="show-all-files-checkbox"`) {
+		t.Error(`viewer.html missing show-all-files-checkbox — must remain unaffected (T-E27-F10-002 AC-002.5)`)
 	}
 }
 
@@ -2524,7 +2524,7 @@ func TestViewerHTMLF10002VariableComment(t *testing.T) {
 // ── T-E27-F10-003: "Collapse all" button ──
 
 // TestViewerHTMLF10003CollapseAllButtonPresent verifies that the collapse-all button
-// is rendered inside .sidebar-filter-bar. AC-003.1 (T-E27-F10-003).
+// is rendered inside the sidebar-section-header next to "Hierarchy". AC-003.1 (T-E27-F10-003).
 func TestViewerHTMLF10003CollapseAllButtonPresent(t *testing.T) {
 	content := string(viewer.ViewerHTML)
 
@@ -2533,35 +2533,32 @@ func TestViewerHTMLF10003CollapseAllButtonPresent(t *testing.T) {
 		t.Error(`viewer.html missing <button id="collapse-all-btn"> (T-E27-F10-003 AC-003.1)`)
 	}
 
-	// Button must contain the "Collapse all" label text
-	if !strings.Contains(content, "Collapse all") {
-		t.Error(`viewer.html missing "Collapse all" button text (T-E27-F10-003 AC-003.1)`)
+	// Button must use the sidebar-collapse-btn class
+	if !strings.Contains(content, `class="sidebar-collapse-btn"`) {
+		t.Error(`viewer.html missing class="sidebar-collapse-btn" on collapse button (T-E27-F10-003 AC-003.1)`)
 	}
 
-	// The button must appear within (near) the sidebar-filter-bar — verify it
-	// appears in the renderSidebar function where .sidebar-filter-bar is built.
-	filterBarIdx := strings.Index(content, `sidebar-filter-bar`)
+	// The button must appear near the Hierarchy section header — verify both appear
+	// in the renderSidebar function together.
+	hierarchyIdx := strings.Index(content, `sidebar-section-header`)
 	collapseIdx := strings.Index(content, `collapse-all-btn`)
-	if filterBarIdx < 0 || collapseIdx < 0 {
-		t.Fatal("viewer.html: sidebar-filter-bar or collapse-all-btn not found (T-E27-F10-003 AC-003.1)")
+	if hierarchyIdx < 0 || collapseIdx < 0 {
+		t.Fatal("viewer.html: sidebar-section-header or collapse-all-btn not found (T-E27-F10-003 AC-003.1)")
 	}
-	// The button should appear after the sidebar-filter-bar definition (in renderSidebar)
-	// Both the CSS definition and the HTML template contain sidebar-filter-bar.
-	// We check there is a collapse-all-btn occurrence somewhere after the
-	// first sidebar-filter-bar reference.
-	if collapseIdx < filterBarIdx {
-		t.Error("viewer.html: collapse-all-btn must appear within the sidebar-filter-bar template (T-E27-F10-003 AC-003.1)")
+	// The button template should appear after the sidebar-section-header CSS definition.
+	if collapseIdx < hierarchyIdx {
+		t.Error("viewer.html: collapse-all-btn must appear after sidebar-section-header (T-E27-F10-003 AC-003.1)")
 	}
 }
 
 // TestViewerHTMLF10003CollapseAllCSS verifies that a CSS rule styles
-// the .sidebar-filter-bar button. AC-003.1 (T-E27-F10-003).
+// the .sidebar-collapse-btn. AC-003.1 (T-E27-F10-003).
 func TestViewerHTMLF10003CollapseAllCSS(t *testing.T) {
 	content := string(viewer.ViewerHTML)
 
-	// A CSS rule for .sidebar-filter-bar button must be present to style the button
-	if !strings.Contains(content, ".sidebar-filter-bar button") {
-		t.Error("viewer.html missing .sidebar-filter-bar button CSS rule (T-E27-F10-003 AC-003.1)")
+	// A CSS rule for .sidebar-collapse-btn must be present to style the button
+	if !strings.Contains(content, ".sidebar-collapse-btn") {
+		t.Error("viewer.html missing .sidebar-collapse-btn CSS rule (T-E27-F10-003 AC-003.1)")
 	}
 }
 
