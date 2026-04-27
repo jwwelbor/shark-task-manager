@@ -249,6 +249,34 @@ func (r *TechDebtRepository) UpdateStatus(ctx context.Context, id int64, status 
 	return nil
 }
 
+// GetRecent returns the most recently created tech-debt items, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *TechDebtRepository) GetRecent(ctx context.Context, limit int) ([]*models.TechDebt, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tech_debts ORDER BY created_at DESC LIMIT ?`, techDebtSelectColumns)
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent tech-debts: %w", err)
+	}
+	defer rows.Close()
+
+	items := []*models.TechDebt{}
+	for rows.Next() {
+		td, scanErr := scanTechDebt(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan tech-debt: %w", scanErr)
+		}
+		items = append(items, td)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating tech-debts: %w", err)
+	}
+
+	return items, nil
+}
+
 // List retrieves all tech-debt items ordered by key ascending.
 func (r *TechDebtRepository) List(ctx context.Context) ([]*models.TechDebt, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tech_debts ORDER BY key ASC`, techDebtSelectColumns)

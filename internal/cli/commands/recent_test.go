@@ -78,6 +78,10 @@ func buildRecentCmd(svc recentServicer, cfgLimit int) *cobra.Command {
 	cmd.Flags().Bool("tasks", false, "Show only tasks")
 	cmd.Flags().Bool("features", false, "Show only features")
 	cmd.Flags().Bool("epics", false, "Show only epics")
+	cmd.Flags().Bool("bugs", false, "Show only bugs")
+	cmd.Flags().Bool("changes", false, "Show only change-cards")
+	cmd.Flags().Bool("ideas", false, "Show only ideas")
+	cmd.Flags().Bool("tech-debt", false, "Show only tech-debt items")
 	return cmd
 }
 
@@ -218,6 +222,70 @@ func TestRunRecent_InvalidLimitReturnsExit3(t *testing.T) {
 	}
 	if serviceCallCount > 0 {
 		t.Errorf("expected service NOT to be called on invalid input, but it was called %d times", serviceCallCount)
+	}
+}
+
+// TestRunRecent_ExtendedTypeFlagsSetCorrectly verifies that --bugs, --changes,
+// --ideas, and --tech-debt flags populate RecentFilters correctly so all entity
+// types behave consistently with the original task/feature/epic flags.
+func TestRunRecent_ExtendedTypeFlagsSetCorrectly(t *testing.T) {
+	tests := []struct {
+		name string
+		flag string
+		want func(f services.RecentFilters) bool
+	}{
+		{"bugs flag", "--bugs", func(f services.RecentFilters) bool { return f.IncludeBugs }},
+		{"changes flag", "--changes", func(f services.RecentFilters) bool { return f.IncludeChanges }},
+		{"ideas flag", "--ideas", func(f services.RecentFilters) bool { return f.IncludeIdeas }},
+		{"tech-debt flag", "--tech-debt", func(f services.RecentFilters) bool { return f.IncludeTechDebt }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedFilters services.RecentFilters
+
+			mock := &mockRecentService{
+				ListRecentFunc: func(ctx context.Context, filters services.RecentFilters) ([]services.RecentItem, error) {
+					capturedFilters = filters
+					return []services.RecentItem{}, nil
+				},
+			}
+
+			cmd := buildRecentCmd(mock, 5)
+			cmd.SetArgs([]string{tt.flag})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !tt.want(capturedFilters) {
+				t.Errorf("expected %s to be set in filters, got: %+v", tt.flag, capturedFilters)
+			}
+		})
+	}
+}
+
+// TestRunRecent_AllEntityFlagsCombineCorrectly verifies that multiple entity-type
+// flags can be combined and all are propagated to the service layer.
+func TestRunRecent_AllEntityFlagsCombineCorrectly(t *testing.T) {
+	var capturedFilters services.RecentFilters
+
+	mock := &mockRecentService{
+		ListRecentFunc: func(ctx context.Context, filters services.RecentFilters) ([]services.RecentItem, error) {
+			capturedFilters = filters
+			return []services.RecentItem{}, nil
+		},
+	}
+
+	cmd := buildRecentCmd(mock, 5)
+	cmd.SetArgs([]string{"--tasks", "--features", "--epics", "--bugs", "--changes", "--ideas", "--tech-debt"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !capturedFilters.IncludeTasks || !capturedFilters.IncludeFeatures || !capturedFilters.IncludeEpics ||
+		!capturedFilters.IncludeBugs || !capturedFilters.IncludeChanges ||
+		!capturedFilters.IncludeIdeas || !capturedFilters.IncludeTechDebt {
+		t.Errorf("expected all Include* fields to be true, got: %+v", capturedFilters)
 	}
 }
 

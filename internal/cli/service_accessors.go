@@ -305,7 +305,11 @@ func GetRecentService() *services.RecentService {
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	featureRepo := repository.NewFeatureRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
-	return services.NewRecentService(taskRepo, featureRepo, epicRepo)
+	bugRepo := repository.NewBugRepository(db)
+	changeRepo := repository.NewChangeCardRepository(db)
+	ideaRepo := repository.NewIdeaRepository(db)
+	techDebtRepo := repository.NewTechDebtRepository(db)
+	return services.NewRecentService(taskRepo, featureRepo, epicRepo, bugRepo, changeRepo, ideaRepo, techDebtRepo)
 }
 
 // GetStatusService returns a StatusService instance.

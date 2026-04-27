@@ -206,6 +206,60 @@ func (r *IdeaRepository) List(ctx context.Context, filter *IdeaFilter) ([]*model
 	return ideas, nil
 }
 
+// GetRecent returns the most recently created ideas, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *IdeaRepository) GetRecent(ctx context.Context, limit int) ([]*models.Idea, error) {
+	query := `
+		SELECT id, key, title, description, created_date, priority, display_order,
+		       notes, related_docs, dependencies, status, size, created_at, updated_at,
+		       converted_to_type, converted_to_key, converted_at
+		FROM ideas
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent ideas: %w", err)
+	}
+	defer rows.Close()
+
+	ideas := []*models.Idea{}
+	for rows.Next() {
+		idea := &models.Idea{}
+		err := rows.Scan(
+			&idea.ID,
+			&idea.Key,
+			&idea.Title,
+			&idea.Description,
+			&idea.CreatedDate,
+			&idea.Priority,
+			&idea.Order,
+			&idea.Notes,
+			&idea.RelatedDocs,
+			&idea.Dependencies,
+			&idea.Status,
+			&idea.Size,
+			&idea.CreatedAt,
+			&idea.UpdatedAt,
+			&idea.ConvertedToType,
+			&idea.ConvertedToKey,
+			&idea.ConvertedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan idea: %w", err)
+		}
+		ideas = append(ideas, idea)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating ideas: %w", err)
+	}
+
+	return ideas, nil
+}
+
 // Update updates an existing idea
 func (r *IdeaRepository) Update(ctx context.Context, idea *models.Idea) error {
 	if err := idea.Validate(); err != nil {

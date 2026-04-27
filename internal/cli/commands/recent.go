@@ -17,23 +17,26 @@ const (
 
 var recentCmd = &cobra.Command{
 	Use:     "recent [N]",
-	Short:   "List most recently created entities across tasks, features, and epics",
+	Short:   "List most recently created entities across all entity types",
 	GroupID: "inspect",
-	Long: `List the most recently created entities across tasks, features, and epics.
+	Long: `List the most recently created entities across all entity types
+(tasks, features, epics, bugs, change-cards, ideas, and tech-debt).
 
 The optional positional argument N (or --limit=N flag) controls how many items
 to return. When both are given, the flag wins and a warning is printed (unless
 --json mode is active).
 
 Type filter flags narrow the result to specific entity kinds; without any type
-flag all three types are included.
+flag all entity types are included.
 
 Examples:
   shark recent
   shark recent 10
   shark recent --limit=20
   shark recent --tasks --features
-  shark recent 5 --epics --json`,
+  shark recent 5 --epics --json
+  shark recent --bugs --changes
+  shark recent --ideas --tech-debt`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRecent,
 }
@@ -44,6 +47,10 @@ func init() {
 	recentCmd.Flags().Bool("tasks", false, "Include only tasks")
 	recentCmd.Flags().Bool("features", false, "Include only features")
 	recentCmd.Flags().Bool("epics", false, "Include only epics")
+	recentCmd.Flags().Bool("bugs", false, "Include only bugs")
+	recentCmd.Flags().Bool("changes", false, "Include only change-cards")
+	recentCmd.Flags().Bool("ideas", false, "Include only ideas")
+	recentCmd.Flags().Bool("tech-debt", false, "Include only tech-debt items")
 }
 
 func runRecent(cmd *cobra.Command, args []string) error {
@@ -84,6 +91,10 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 	includeTasks, _ := cmd.Flags().GetBool("tasks")
 	includeFeatures, _ := cmd.Flags().GetBool("features")
 	includeEpics, _ := cmd.Flags().GetBool("epics")
+	includeBugs, _ := cmd.Flags().GetBool("bugs")
+	includeChanges, _ := cmd.Flags().GetBool("changes")
+	includeIdeas, _ := cmd.Flags().GetBool("ideas")
+	includeTechDebt, _ := cmd.Flags().GetBool("tech-debt")
 
 	limit := cfgLimit
 	if limit <= 0 {
@@ -120,6 +131,10 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 		IncludeTasks:    includeTasks,
 		IncludeFeatures: includeFeatures,
 		IncludeEpics:    includeEpics,
+		IncludeBugs:     includeBugs,
+		IncludeChanges:  includeChanges,
+		IncludeIdeas:    includeIdeas,
+		IncludeTechDebt: includeTechDebt,
 	}, nil
 }
 
