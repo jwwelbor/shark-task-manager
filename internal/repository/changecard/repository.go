@@ -11,12 +11,23 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
+// defaultChangeCardTerminalStatuses is the fallback terminal-status list used when
+// the caller does not supply TerminalStatuses in ChangeCardRepoFilter. It matches
+// the shipped .sharkworkflow.json change_workflow _complete_ set.
+var defaultChangeCardTerminalStatuses = []string{"completed", "declined"}
+
 // ChangeCardRepoFilter represents filtering options for listing change-cards.
 type ChangeCardRepoFilter struct {
 	Status          *models.ChangeCardStatus
 	EpicID          *int64
 	FeatureID       *int64
-	IncludeTerminal bool // if false, excludes completed + declined
+	IncludeTerminal bool // if false, excludes terminal statuses from results
+	// TerminalStatuses is the authoritative list of terminal statuses to exclude
+	// when IncludeTerminal is false. Callers should populate this from
+	// workflow.Service.GetTerminalStatuses() for the change level. When empty and
+	// IncludeTerminal is false the repository falls back to the shipped default
+	// list so that callers that do not yet supply this field continue to work.
+	TerminalStatuses []string
 }
 
 // ChangeCardRepository handles CRUD operations for change-cards.
@@ -254,7 +265,16 @@ func (r *ChangeCardRepository) List(ctx context.Context, filter *ChangeCardRepoF
 		}
 
 		if !filter.IncludeTerminal {
-			conditions = append(conditions, "status NOT IN ('completed', 'declined')")
+			terminalStatuses := filter.TerminalStatuses
+			if len(terminalStatuses) == 0 {
+				terminalStatuses = defaultChangeCardTerminalStatuses
+			}
+			placeholders := make([]string, len(terminalStatuses))
+			for i, s := range terminalStatuses {
+				placeholders[i] = "?"
+				args = append(args, s)
+			}
+			conditions = append(conditions, "status NOT IN ("+strings.Join(placeholders, ", ")+")")
 		}
 	}
 
@@ -271,6 +291,34 @@ func (r *ChangeCardRepository) List(ctx context.Context, filter *ChangeCardRepoF
 	defer rows.Close()
 
 	var cards []*models.ChangeCard
+	for rows.Next() {
+		card, scanErr := scanCard(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan change-card: %w", scanErr)
+		}
+		cards = append(cards, card)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating change-cards: %w", err)
+	}
+
+	return cards, nil
+}
+
+// GetRecent returns the most recently created change-cards, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *ChangeCardRepository) GetRecent(ctx context.Context, limit int) ([]*models.ChangeCard, error) {
+	query := `SELECT ` + changeCardSelectColumns + ` FROM change_cards ORDER BY created_at DESC LIMIT ?`
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent change-cards: %w", err)
+	}
+	defer rows.Close()
+
+	cards := []*models.ChangeCard{}
 	for rows.Next() {
 		card, scanErr := scanCard(rows)
 		if scanErr != nil {

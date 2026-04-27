@@ -385,10 +385,11 @@ func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*model
 	}
 
 	repoFilters := &repository.BugListFilters{
-		Status:          filters.Status,
-		Severity:        filters.Severity,
-		LinkedEntityKey: filters.LinkedEntityKey,
-		IncludeTerminal: filters.ShowAll,
+		Status:           filters.Status,
+		Severity:         filters.Severity,
+		LinkedEntityKey:  filters.LinkedEntityKey,
+		IncludeTerminal:  filters.ShowAll,
+		TerminalStatuses: s.workflowSvc.GetTerminalStatuses(),
 	}
 
 	bugs, err := s.repo.List(ctx, repoFilters)

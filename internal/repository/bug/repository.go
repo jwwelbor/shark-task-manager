@@ -222,12 +222,23 @@ func (r *BugRepository) GetNextKey(ctx context.Context) (string, error) {
 	return nextKey, nil
 }
 
+// defaultBugTerminalStatuses is the fallback terminal-status list used when the
+// caller does not supply TerminalStatuses in BugListFilters. It matches the
+// shipped .sharkworkflow.json bug_workflow _complete_ set.
+var defaultBugTerminalStatuses = []string{"resolved", "wont_fix", "duplicate"}
+
 // BugListFilters defines filter options for listing bugs.
 type BugListFilters struct {
 	Status          *models.BugStatus
 	Severity        *models.BugSeverity
 	LinkedEntityKey *string
-	IncludeTerminal bool // if false, excludes resolved + wont_fix + duplicate
+	IncludeTerminal bool // if false, excludes terminal statuses from results
+	// TerminalStatuses is the authoritative list of terminal statuses to exclude
+	// when IncludeTerminal is false. Callers should populate this from
+	// workflow.Service.GetTerminalStatuses() for the bug level. When empty and
+	// IncludeTerminal is false the repository falls back to the shipped default
+	// list so that callers that do not yet supply this field continue to work.
+	TerminalStatuses []string
 }
 
 // List retrieves all bugs, optionally filtered.
@@ -252,7 +263,16 @@ func (r *BugRepository) List(ctx context.Context, filters *BugListFilters) ([]*m
 		}
 
 		if !filters.IncludeTerminal {
-			conditions = append(conditions, "status NOT IN ('resolved', 'wont_fix', 'duplicate')")
+			terminalStatuses := filters.TerminalStatuses
+			if len(terminalStatuses) == 0 {
+				terminalStatuses = defaultBugTerminalStatuses
+			}
+			placeholders := make([]string, len(terminalStatuses))
+			for i, s := range terminalStatuses {
+				placeholders[i] = "?"
+				args = append(args, s)
+			}
+			conditions = append(conditions, "status NOT IN ("+strings.Join(placeholders, ", ")+")")
 		}
 	}
 
@@ -273,6 +293,34 @@ func (r *BugRepository) List(ctx context.Context, filters *BugListFilters) ([]*m
 		bug, err := scanBug(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan bug: %w", err)
+		}
+		bugs = append(bugs, bug)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating bugs: %w", err)
+	}
+
+	return bugs, nil
+}
+
+// GetRecent returns the most recently created bugs, ordered by created_at DESC.
+// limit must be positive; the caller (service) is responsible for bounds-checking.
+// Returns an empty (non-nil) slice if no rows exist.
+func (r *BugRepository) GetRecent(ctx context.Context, limit int) ([]*models.Bug, error) {
+	query := fmt.Sprintf(`SELECT %s FROM bugs ORDER BY created_at DESC LIMIT ?`, bugSelectColumns)
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent bugs: %w", err)
+	}
+	defer rows.Close()
+
+	bugs := []*models.Bug{}
+	for rows.Next() {
+		bug, scanErr := scanBug(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan bug: %w", scanErr)
 		}
 		bugs = append(bugs, bug)
 	}

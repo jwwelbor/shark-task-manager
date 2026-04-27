@@ -248,7 +248,8 @@ func (s *ChangeCardService) ListChangeCards(ctx context.Context, filters ChangeC
 	}
 
 	repoFilter := &repository.ChangeCardRepoFilter{
-		IncludeTerminal: filters.ShowAll,
+		IncludeTerminal:  filters.ShowAll,
+		TerminalStatuses: s.workflowSvc.GetTerminalStatuses(),
 	}
 
 	if filters.Status != "" {

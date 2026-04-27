@@ -76,12 +76,19 @@ func (a *ideaAdapter) GetByKey(ctx context.Context, key string) (*models.Idea, e
 }
 
 // bugListAdapter adapts *bug.BugRepository to services.ViewerBugListRepository.
+// terminalStatuses comes from workflow.Service.ForLevel(LevelBug).GetTerminalStatuses()
+// and is injected at construction time so the adapter uses the project-specific
+// terminal set rather than the hardcoded fallback.
 type bugListAdapter struct {
-	repo *bug.BugRepository
+	repo             *bug.BugRepository
+	terminalStatuses []string
 }
 
 func (a *bugListAdapter) ListAll(ctx context.Context, includeTerminal bool) ([]*models.Bug, error) {
-	return a.repo.List(ctx, &bug.BugListFilters{IncludeTerminal: includeTerminal})
+	return a.repo.List(ctx, &bug.BugListFilters{
+		IncludeTerminal:  includeTerminal,
+		TerminalStatuses: a.terminalStatuses,
+	})
 }
 
 func (a *bugListAdapter) GetByKey(ctx context.Context, key string) (*models.Bug, error) {
@@ -89,12 +96,19 @@ func (a *bugListAdapter) GetByKey(ctx context.Context, key string) (*models.Bug,
 }
 
 // changeCardListAdapter adapts *changecard.ChangeCardRepository to services.ViewerChangeCardListRepository.
+// terminalStatuses comes from workflow.Service.ForLevel(LevelChange).GetTerminalStatuses()
+// and is injected at construction time so the adapter uses the project-specific
+// terminal set rather than the hardcoded fallback.
 type changeCardListAdapter struct {
-	repo *changecard.ChangeCardRepository
+	repo             *changecard.ChangeCardRepository
+	terminalStatuses []string
 }
 
 func (a *changeCardListAdapter) ListAll(ctx context.Context, includeTerminal bool) ([]*models.ChangeCard, error) {
-	return a.repo.List(ctx, &changecard.ChangeCardRepoFilter{IncludeTerminal: includeTerminal})
+	return a.repo.List(ctx, &changecard.ChangeCardRepoFilter{
+		IncludeTerminal:  includeTerminal,
+		TerminalStatuses: a.terminalStatuses,
+	})
 }
 
 func (a *changeCardListAdapter) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
@@ -363,8 +377,14 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	)
 	viewerService.WithEntityDocRepo(&entityDocAdapter{repo: entitydoc.NewEntityDocumentRepository(db)})
 	viewerService.WithIdeaRepo(&ideaAdapter{repo: idea.NewIdeaRepository(db)})
-	viewerService.WithBugListRepo(&bugListAdapter{repo: bugRepoAdapter})
-	viewerService.WithChangeCardListRepo(&changeCardListAdapter{repo: changeCardRepoAdapter})
+	viewerService.WithBugListRepo(&bugListAdapter{
+		repo:             bugRepoAdapter,
+		terminalStatuses: workflowSvc.ForLevel(workflow.LevelBug).GetTerminalStatuses(),
+	})
+	viewerService.WithChangeCardListRepo(&changeCardListAdapter{
+		repo:             changeCardRepoAdapter,
+		terminalStatuses: workflowSvc.ForLevel(workflow.LevelChange).GetTerminalStatuses(),
+	})
 	viewerService.WithNoteRepo(repnote.NewEntityNoteRepository(db))
 	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
 	// Wire tag service for decoration and filtering (REQ-F-015, T-E28-F06-002).

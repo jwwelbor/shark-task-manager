@@ -426,6 +426,109 @@ func TestBugRepository_List(t *testing.T) {
 	})
 }
 
+// TestBugRepository_List_TerminalStatusFiltering verifies that IncludeTerminal=false
+// filters out exactly the statuses listed in TerminalStatuses, and that a custom
+// terminal set (different from the hardcoded default) is respected.
+func TestBugRepository_List_TerminalStatusFiltering(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewBugRepository(db)
+
+	// Clean up test bugs
+	_, _ = database.ExecContext(ctx, "DELETE FROM bugs WHERE key IN ('B980','B981','B982','B983')")
+
+	// Create bugs covering default terminal statuses and a custom one
+	bugs := []*models.Bug{
+		newTestBug("B980", "Active bug", "reported", models.BugSeverityHigh),
+		newTestBug("B981", "Resolved bug", "resolved", models.BugSeverityHigh),
+		newTestBug("B982", "Wont-fix bug", "wont_fix", models.BugSeverityLow),
+		newTestBug("B983", "Closed bug (custom terminal)", "closed", models.BugSeverityLow),
+	}
+	for _, b := range bugs {
+		if err := repo.Create(ctx, b); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM bugs WHERE key IN ('B980','B981','B982','B983')")
+	}()
+
+	t.Run("default terminal statuses exclude resolved and wont_fix", func(t *testing.T) {
+		// IncludeTerminal=false with no TerminalStatuses uses the hardcoded fallback
+		results, err := repo.List(ctx, &BugListFilters{IncludeTerminal: false})
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		for _, b := range results {
+			if b.Key == "B981" || b.Key == "B982" {
+				t.Errorf("List(IncludeTerminal=false) returned terminal bug %s with status %s", b.Key, b.Status)
+			}
+		}
+		// B980 (reported) and B983 (closed) should appear since 'closed' is not in the default list
+		found980, found983 := false, false
+		for _, b := range results {
+			if b.Key == "B980" {
+				found980 = true
+			}
+			if b.Key == "B983" {
+				found983 = true
+			}
+		}
+		if !found980 {
+			t.Error("List(IncludeTerminal=false) should include B980 (reported)")
+		}
+		if !found983 {
+			t.Error("List(IncludeTerminal=false) with default terminals should include B983 (closed is not a default terminal)")
+		}
+	})
+
+	t.Run("custom terminal statuses exclude closed but not resolved", func(t *testing.T) {
+		// Supply a custom terminal set: only 'closed' is terminal
+		results, err := repo.List(ctx, &BugListFilters{
+			IncludeTerminal:  false,
+			TerminalStatuses: []string{"closed"},
+		})
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		for _, b := range results {
+			if b.Key == "B983" {
+				t.Errorf("List(TerminalStatuses=['closed']) returned terminal bug %s with status %s", b.Key, b.Status)
+			}
+		}
+		// resolved, wont_fix, and reported should appear since they are not in the custom terminal set
+		foundResolved := false
+		for _, b := range results {
+			if b.Key == "B981" {
+				foundResolved = true
+			}
+		}
+		if !foundResolved {
+			t.Error("List(TerminalStatuses=['closed']) should include B981 (resolved) because it is not in the custom terminal set")
+		}
+	})
+
+	t.Run("IncludeTerminal=true returns all bugs regardless of TerminalStatuses", func(t *testing.T) {
+		results, err := repo.List(ctx, &BugListFilters{
+			IncludeTerminal:  true,
+			TerminalStatuses: []string{"resolved", "wont_fix", "closed"},
+		})
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		keys := make(map[string]bool)
+		for _, b := range results {
+			keys[b.Key] = true
+		}
+		for _, k := range []string{"B980", "B981", "B982", "B983"} {
+			if !keys[k] {
+				t.Errorf("List(IncludeTerminal=true) should include bug %s", k)
+			}
+		}
+	})
+}
+
 func TestBugRepository_CountByStatus(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
