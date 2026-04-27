@@ -107,7 +107,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if includeAll || filters.IncludeTasks {
 		tasks, err := s.taskRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent task: %w", err)
+			return nil, fmt.Errorf("failed to list recent tasks: %w", err)
 		}
 		for _, t := range tasks {
 			merged = append(merged, RecentItem{
@@ -123,7 +123,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if includeAll || filters.IncludeFeatures {
 		features, err := s.featureRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent feature: %w", err)
+			return nil, fmt.Errorf("failed to list recent features: %w", err)
 		}
 		for _, f := range features {
 			merged = append(merged, RecentItem{
@@ -139,7 +139,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if includeAll || filters.IncludeEpics {
 		epics, err := s.epicRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent epic: %w", err)
+			return nil, fmt.Errorf("failed to list recent epics: %w", err)
 		}
 		for _, e := range epics {
 			merged = append(merged, RecentItem{
@@ -155,7 +155,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if (includeAll || filters.IncludeBugs) && s.bugRepo != nil {
 		bugs, err := s.bugRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent bug: %w", err)
+			return nil, fmt.Errorf("failed to list recent bugs: %w", err)
 		}
 		for _, b := range bugs {
 			merged = append(merged, RecentItem{
@@ -171,7 +171,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if (includeAll || filters.IncludeChanges) && s.changeRepo != nil {
 		cards, err := s.changeRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent change: %w", err)
+			return nil, fmt.Errorf("failed to list recent change-cards: %w", err)
 		}
 		for _, c := range cards {
 			merged = append(merged, RecentItem{
@@ -187,7 +187,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if (includeAll || filters.IncludeIdeas) && s.ideaRepo != nil {
 		ideas, err := s.ideaRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent idea: %w", err)
+			return nil, fmt.Errorf("failed to list recent ideas: %w", err)
 		}
 		for _, i := range ideas {
 			merged = append(merged, RecentItem{
@@ -203,7 +203,7 @@ func (s *RecentService) ListRecent(ctx context.Context, filters RecentFilters) (
 	if (includeAll || filters.IncludeTechDebt) && s.techDebtRepo != nil {
 		items, err := s.techDebtRepo.GetRecent(ctx, filters.Limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list recent tech_debt: %w", err)
+			return nil, fmt.Errorf("failed to list recent tech-debts: %w", err)
 		}
 		for _, td := range items {
 			merged = append(merged, RecentItem{

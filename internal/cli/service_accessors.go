@@ -286,16 +286,6 @@ func GetSearchService() *services.SearchService {
 // GetRecentService returns a RecentService instance.
 // Creates a new instance each call with the global DB connection.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
-//
-// Pattern:
-//   - Creates new service instance per call (lightweight, no shared state)
-//   - Reuses global DB and workflow service (expensive to recreate)
-//   - Panics on DB failure (fail-fast for CLI entry points)
-//
-// Usage:
-//
-//	svc := cli.GetRecentService()
-//	items, err := svc.ListRecent(ctx, filters)
 func GetRecentService() *services.RecentService {
 	db, err := GetDB(context.Background())
 	if err != nil {
