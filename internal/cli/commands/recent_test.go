@@ -59,26 +59,19 @@ func captureRecentOutput(fn func()) string {
 	return buf.String()
 }
 
-// buildRecentCmd returns a fresh cobra command wired to parseRecentFilters and
-// the provided service, enabling per-test mock injection without touching global
+// buildRecentCmd returns a fresh cobra command wired to parseRecentFiltersWithConfig
+// and runRecentWithSvc, enabling per-test mock injection without touching global
 // state or the real database.
 func buildRecentCmd(svc recentServicer, cfgLimit int) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "recent [N]",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			filters, err := parseRecentFiltersForTest(cmd, args, cfgLimit)
+			filters, err := parseRecentFiltersWithConfig(cmd, args, cfgLimit)
 			if err != nil {
 				return err
 			}
-			items, err := svc.ListRecent(cmd.Context(), filters)
-			if err != nil {
-				return err
-			}
-			if cli.GlobalConfig.JSON {
-				return cli.OutputJSON(items)
-			}
-			return renderRecentTable(items)
+			return runRecentWithSvc(cmd.Context(), filters, svc)
 		},
 	}
 	cmd.Flags().Int("limit", 0, "Limit results")
@@ -86,12 +79,6 @@ func buildRecentCmd(svc recentServicer, cfgLimit int) *cobra.Command {
 	cmd.Flags().Bool("features", false, "Show only features")
 	cmd.Flags().Bool("epics", false, "Show only epics")
 	return cmd
-}
-
-// parseRecentFiltersForTest is a test-friendly wrapper that takes cfgLimit
-// instead of calling cli.GetConfig() so tests remain hermetic.
-func parseRecentFiltersForTest(cmd *cobra.Command, args []string, cfgLimit int) (services.RecentFilters, error) {
-	return parseRecentFiltersWithConfig(cmd, args, cfgLimit)
 }
 
 // ---------------------------------------------------------------------------

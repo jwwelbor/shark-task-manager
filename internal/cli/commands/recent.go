@@ -91,7 +91,7 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 	}
 
 	hasPositional := len(args) > 0
-	hasFlag := flagLimit > 0
+	hasFlag := cmd.Flags().Changed("limit")
 
 	if hasPositional {
 		positional, err := strconv.Atoi(args[0])
@@ -104,7 +104,7 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 	}
 
 	if hasFlag {
-		if flagLimit > recentMaxLimit {
+		if flagLimit <= 0 || flagLimit > recentMaxLimit {
 			return services.RecentFilters{}, fmt.Errorf(
 				"exit code 3: invalid --limit %d: must be a positive integer <= %d", flagLimit, recentMaxLimit,
 			)
