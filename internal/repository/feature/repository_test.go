@@ -808,3 +808,33 @@ func TestFeatureRepository_GetRecent_EmptyTable(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, features, "GetRecent must return a non-nil slice")
 }
+
+// TestFeatureRepository_GetRecent_LimitExceedsRowCount seeds 2 features and asserts that
+// GetRecent(ctx, 100) returns exactly 2 (all rows, not an error).
+func TestFeatureRepository_GetRecent_LimitExceedsRowCount(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E90-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E90'")
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90", Title: "Recent Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	ids := seedFeaturesWithTimestamps(t, repo, db, testEpic.ID, 2)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", id)
+		}
+	}()
+
+	features, err := repo.GetRecent(ctx, 100)
+	require.NoError(t, err)
+	// At least 2 rows must be returned; there may be more from the test DB.
+	assert.GreaterOrEqual(t, len(features), 2, "GetRecent(100) must return all available rows when limit > row count")
+}

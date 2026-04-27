@@ -789,3 +789,27 @@ func TestEpicRepository_GetRecent_EmptyTable(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, epics, "GetRecent must return a non-nil slice")
 }
+
+// TestEpicRepository_GetRecent_LimitExceedsRowCount seeds 2 epics and asserts that
+// GetRecent(ctx, 100) returns at least 2 rows (all rows, not an error).
+func TestEpicRepository_GetRecent_LimitExceedsRowCount(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Pre-cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'recent-bench-epic-%'")
+
+	ids := seedEpicsWithTimestamps(t, repo, db, 2)
+	defer func() {
+		for _, id := range ids {
+			_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", id)
+		}
+	}()
+
+	epics, err := repo.GetRecent(ctx, 100)
+	require.NoError(t, err)
+	// At least 2 rows must be returned; there may be more from the test DB.
+	assert.GreaterOrEqual(t, len(epics), 2, "GetRecent(100) must return all available rows when limit > row count")
+}
