@@ -25,6 +25,41 @@ func NewIdeaRepository(db *dbconn.DB) *IdeaRepository {
 	return &IdeaRepository{db: db}
 }
 
+// ideaSelectColumns is the ordered list of columns for scanning an Idea row.
+const ideaSelectColumns = `id, key, title, description, created_date, priority, display_order,
+	notes, related_docs, dependencies, status, size, created_at, updated_at,
+	converted_to_type, converted_to_key, converted_at`
+
+// scanIdea scans a single Idea row from the given scanner.
+func scanIdea(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*models.Idea, error) {
+	idea := &models.Idea{}
+	err := scanner.Scan(
+		&idea.ID,
+		&idea.Key,
+		&idea.Title,
+		&idea.Description,
+		&idea.CreatedDate,
+		&idea.Priority,
+		&idea.Order,
+		&idea.Notes,
+		&idea.RelatedDocs,
+		&idea.Dependencies,
+		&idea.Status,
+		&idea.Size,
+		&idea.CreatedAt,
+		&idea.UpdatedAt,
+		&idea.ConvertedToType,
+		&idea.ConvertedToKey,
+		&idea.ConvertedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return idea, nil
+}
+
 // Create creates a new idea
 func (r *IdeaRepository) Create(ctx context.Context, idea *models.Idea) error {
 	if err := idea.Validate(); err != nil {
@@ -210,14 +245,7 @@ func (r *IdeaRepository) List(ctx context.Context, filter *IdeaFilter) ([]*model
 // limit must be positive; the caller (service) is responsible for bounds-checking.
 // Returns an empty (non-nil) slice if no rows exist.
 func (r *IdeaRepository) GetRecent(ctx context.Context, limit int) ([]*models.Idea, error) {
-	query := `
-		SELECT id, key, title, description, created_date, priority, display_order,
-		       notes, related_docs, dependencies, status, size, created_at, updated_at,
-		       converted_to_type, converted_to_key, converted_at
-		FROM ideas
-		ORDER BY created_at DESC
-		LIMIT ?
-	`
+	query := fmt.Sprintf(`SELECT %s FROM ideas ORDER BY created_at DESC LIMIT ?`, ideaSelectColumns)
 
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
@@ -227,28 +255,9 @@ func (r *IdeaRepository) GetRecent(ctx context.Context, limit int) ([]*models.Id
 
 	ideas := []*models.Idea{}
 	for rows.Next() {
-		idea := &models.Idea{}
-		err := rows.Scan(
-			&idea.ID,
-			&idea.Key,
-			&idea.Title,
-			&idea.Description,
-			&idea.CreatedDate,
-			&idea.Priority,
-			&idea.Order,
-			&idea.Notes,
-			&idea.RelatedDocs,
-			&idea.Dependencies,
-			&idea.Status,
-			&idea.Size,
-			&idea.CreatedAt,
-			&idea.UpdatedAt,
-			&idea.ConvertedToType,
-			&idea.ConvertedToKey,
-			&idea.ConvertedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan idea: %w", err)
+		idea, scanErr := scanIdea(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan idea: %w", scanErr)
 		}
 		ideas = append(ideas, idea)
 	}
