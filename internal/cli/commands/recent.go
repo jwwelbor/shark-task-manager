@@ -116,12 +116,12 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 		positional, err := strconv.Atoi(args[0])
 		if err != nil || positional <= 0 {
 			return services.RecentFilters{}, fmt.Errorf(
-				"invalid limit %q: must be a positive integer <= %d", args[0], recentMaxLimit,
+				"exit code 3: invalid limit %q: must be a positive integer <= %d", args[0], recentMaxLimit,
 			)
 		}
 		if positional > recentMaxLimit {
 			return services.RecentFilters{}, fmt.Errorf(
-				"invalid limit %q: must be a positive integer <= %d", args[0], recentMaxLimit,
+				"exit code 3: invalid limit %q: must be a positive integer <= %d", args[0], recentMaxLimit,
 			)
 		}
 		limit = positional
@@ -130,7 +130,7 @@ func parseRecentFiltersWithConfig(cmd *cobra.Command, args []string, cfgLimit in
 	if hasFlag {
 		if flagLimit <= 0 || flagLimit > recentMaxLimit {
 			return services.RecentFilters{}, fmt.Errorf(
-				"invalid --limit %d: must be a positive integer <= %d", flagLimit, recentMaxLimit,
+				"exit code 3: invalid --limit %d: must be a positive integer <= %d", flagLimit, recentMaxLimit,
 			)
 		}
 		if hasPositional && !cli.GlobalConfig.JSON {

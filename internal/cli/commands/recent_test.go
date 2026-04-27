@@ -223,6 +223,9 @@ func TestRunRecent_InvalidLimitReturnsExit3(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid limit 'abc', got nil")
 	}
+	if !strings.Contains(err.Error(), "exit code 3:") {
+		t.Errorf("expected exit code 3 prefix in error, got: %v", err)
+	}
 	if !strings.Contains(err.Error(), "abc") {
 		t.Errorf("expected error message to name the offending argument 'abc', got: %v", err)
 	}
