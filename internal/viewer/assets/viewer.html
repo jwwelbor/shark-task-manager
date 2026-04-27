@@ -4971,7 +4971,7 @@ function renderSidebar() {
         expandedEpics.clear();
         expandedFeatures.clear();
       } else {
-        for (const epic of treeData) {
+        for (const epic of (treeData || [])) {
           expandedEpics.add(epic.key || '');
         }
       }

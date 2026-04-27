@@ -2138,7 +2138,6 @@ func (r *TaskRepository) GetContextData(ctx context.Context, taskID int64) (*str
 	return contextData, nil
 }
 
-// UpdateContextData updates only the context_data field of a task.
 // CountByStatus returns task counts grouped by status.
 func (r *TaskRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM tasks GROUP BY status`)
@@ -2169,6 +2168,7 @@ func (r *TaskRepository) CountBlocked(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// UpdateContextData updates only the context_data field of a task.
 func (r *TaskRepository) UpdateContextData(ctx context.Context, taskID int64, contextData *string) error {
 	query := `UPDATE tasks SET context_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
 	result, err := r.db.ExecContext(ctx, query, contextData, taskID)
