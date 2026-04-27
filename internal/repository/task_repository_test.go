@@ -474,9 +474,12 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	// Seed test data
 	_, featureID := test.SeedTestData()
 
-	// Create task in ready_for_review status with unique key
-	timestamp := time.Now().UnixNano() % 1000
+	// Create task in ready_for_review status with unique key.
+	// SeedTestData reserves T-E99-F99-001..004, so use the 900-range and
+	// pre-clean to avoid UNIQUE constraint collisions across runs.
+	timestamp := (time.Now().UnixNano() % 100) + 900
 	taskKey := fmt.Sprintf("T-E99-F99-%03d", timestamp)
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = ?", taskKey)
 	priority := 5
 	task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
 		Title: "Test Rejection Reason Storage"}, Status: models.TaskStatus("ready_for_review"),

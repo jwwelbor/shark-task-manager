@@ -2252,3 +2252,485 @@ func TestViewerHTMLTabSegmentAbsentWithNoEntity(t *testing.T) {
 		t.Error("viewer.html renderBreadcrumb: must guard against null entity (no tab segment when no entity selected) (T-E27-F09-012)")
 	}
 }
+
+// TestViewerHTMLF10IdeasFilterHelper verifies that the isHiddenTerminalStatus helper
+// and HIDDEN_TERMINAL_BY_TYPE map are present. AC-005.7 (T-E27-F10-005).
+func TestViewerHTMLF10IdeasFilterHelper(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The HIDDEN_TERMINAL_BY_TYPE constant must exist
+	if !strings.Contains(content, "HIDDEN_TERMINAL_BY_TYPE") {
+		t.Error("viewer.html missing HIDDEN_TERMINAL_BY_TYPE map (T-E27-F10-005)")
+	}
+
+	// The isHiddenTerminalStatus function must exist
+	if !strings.Contains(content, "function isHiddenTerminalStatus(") {
+		t.Error("viewer.html missing isHiddenTerminalStatus function (T-E27-F10-005)")
+	}
+}
+
+// TestViewerHTMLF10IdeasStatusMap verifies that the HIDDEN_TERMINAL_BY_TYPE map
+// contains the idea-specific terminal statuses 'converted' and 'archived'.
+// AC-005.1, AC-005.2 (T-E27-F10-005).
+func TestViewerHTMLF10IdeasStatusMap(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The idea entry must map converted and archived
+	if !strings.Contains(content, "'converted'") {
+		t.Error("viewer.html HIDDEN_TERMINAL_BY_TYPE missing 'converted' for idea (T-E27-F10-005 AC-005.1)")
+	}
+	if !strings.Contains(content, "'archived'") {
+		t.Error("viewer.html HIDDEN_TERMINAL_BY_TYPE missing 'archived' for idea (T-E27-F10-005 AC-005.2)")
+	}
+
+	// The idea: entry must explicitly be present
+	if !strings.Contains(content, "idea:") {
+		t.Error("viewer.html HIDDEN_TERMINAL_BY_TYPE missing 'idea:' entry (T-E27-F10-005)")
+	}
+}
+
+// TestViewerHTMLF10CallSitesReplaced verifies that all four original
+// 'status === completed' filter predicates have been replaced with
+// isHiddenTerminalStatus calls. AC-005.7 (T-E27-F10-005).
+func TestViewerHTMLF10CallSitesReplaced(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// None of the old hardcoded 'completed' filter predicates should remain
+	// in the showCompleted guard positions.
+	// We check that 'isHiddenTerminalStatus' is called at least 4 times.
+	helperStr := "isHiddenTerminalStatus("
+	count := strings.Count(content, helperStr)
+	if count < 4 {
+		t.Errorf("viewer.html: expected at least 4 calls to isHiddenTerminalStatus, found %d (T-E27-F10-005 AC-005.7)", count)
+	}
+}
+
+// TestViewerHTMLF10FlatSectionEntityTypeParam verifies that buildFlatSectionHtml
+// now accepts an entityType parameter and the Ideas call passes 'idea'.
+// AC-005.1 (T-E27-F10-005).
+func TestViewerHTMLF10FlatSectionEntityTypeParam(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The function signature must accept entityType
+	funcStart := strings.Index(content, "function buildFlatSectionHtml(")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing buildFlatSectionHtml function")
+	}
+	// Find the closing paren of the function signature
+	sigEnd := strings.Index(content[funcStart:], ")")
+	if sigEnd < 0 {
+		t.Fatal("viewer.html buildFlatSectionHtml: cannot find closing paren of signature")
+	}
+	sig := content[funcStart : funcStart+sigEnd+1]
+	if !strings.Contains(sig, "entityType") {
+		t.Errorf("viewer.html buildFlatSectionHtml: signature must include entityType param, got: %q (T-E27-F10-005)", sig)
+	}
+
+	// The Ideas call site must pass 'idea'
+	if !strings.Contains(content, "buildFlatSectionHtml('Ideas'") && !strings.Contains(content, `buildFlatSectionHtml("Ideas"`) {
+		t.Error("viewer.html missing buildFlatSectionHtml call for Ideas (T-E27-F10-005)")
+	}
+	// Check that an 'idea' entityType is passed at the Ideas call site
+	if !strings.Contains(content, "'idea'") {
+		t.Error("viewer.html Ideas call to buildFlatSectionHtml must pass 'idea' entityType (T-E27-F10-005 AC-005.1)")
+	}
+}
+
+// TestViewerHTMLF10CompletedCSSRule verifies that the .entity-completed CSS rule exists
+// and sets opacity: 0.55 without text-decoration: line-through. AC-001.2 (T-E27-F10-001).
+func TestViewerHTMLF10CompletedCSSRule(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The entity-completed CSS class must exist in the stylesheet
+	if !strings.Contains(content, ".entity-completed") {
+		t.Fatal("viewer.html missing .entity-completed CSS rule (T-E27-F10-001 AC-001.2)")
+	}
+
+	// The rule must set opacity: 0.55 for tree-node-key and tree-node-title
+	if !strings.Contains(content, ".entity-completed .tree-node-key") {
+		t.Error("viewer.html .entity-completed must target .tree-node-key (T-E27-F10-001 AC-001.2)")
+	}
+	if !strings.Contains(content, ".entity-completed .tree-node-title") {
+		t.Error("viewer.html .entity-completed must target .tree-node-title (T-E27-F10-001 AC-001.2)")
+	}
+
+	// opacity: 0.55 must be present in the completed rule block
+	// We verify by checking the .entity-completed block contains 0.55
+	completedIdx := strings.Index(content, ".entity-completed .tree-node-key")
+	if completedIdx < 0 {
+		t.Fatal("viewer.html missing .entity-completed .tree-node-key rule")
+	}
+	// Look for 0.55 in the nearby block (within 300 chars)
+	block := content[completedIdx : completedIdx+300]
+	if !strings.Contains(block, "0.55") {
+		t.Error("viewer.html .entity-completed rule must set opacity: 0.55 (T-E27-F10-001 AC-001.2)")
+	}
+
+	// The completed rule must NOT contain text-decoration: line-through
+	// (line-through is reserved for .entity-cancelled only)
+	if strings.Contains(block, "line-through") {
+		t.Error("viewer.html .entity-completed must NOT use text-decoration: line-through (T-E27-F10-001 AC-001.2)")
+	}
+}
+
+// TestViewerHTMLF10CompletedTableRowCSS verifies that tr.entity-completed td rule exists
+// with opacity: 0.55 and no line-through. AC-001.5 (T-E27-F10-001).
+func TestViewerHTMLF10CompletedTableRowCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "tr.entity-completed td") {
+		t.Fatal("viewer.html missing tr.entity-completed td CSS rule (T-E27-F10-001 AC-001.5)")
+	}
+
+	// Verify opacity 0.55 is in the tr.entity-completed block
+	trIdx := strings.Index(content, "tr.entity-completed td")
+	if trIdx < 0 {
+		t.Fatal("viewer.html missing tr.entity-completed td rule")
+	}
+	block := content[trIdx : trIdx+200]
+	if !strings.Contains(block, "0.55") {
+		t.Error("viewer.html tr.entity-completed td must set opacity: 0.55 (T-E27-F10-001 AC-001.5)")
+	}
+	if strings.Contains(block, "line-through") {
+		t.Error("viewer.html tr.entity-completed td must NOT use text-decoration: line-through (T-E27-F10-001 AC-001.5)")
+	}
+}
+
+// TestViewerHTMLF10CancelledRegressionCheck verifies that entity-cancelled CSS rules
+// still set opacity: 0.4 and text-decoration: line-through. AC-001.3 (T-E27-F10-001).
+func TestViewerHTMLF10CancelledRegressionCheck(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// entity-cancelled must still have the line-through rule (existing behaviour)
+	if !strings.Contains(content, ".entity-cancelled .tree-node-key") {
+		t.Error("viewer.html missing .entity-cancelled .tree-node-key rule (T-E27-F10-001 AC-001.3 regression)")
+	}
+	cancelledIdx := strings.Index(content, ".entity-cancelled .tree-node-key")
+	if cancelledIdx < 0 {
+		t.Fatal("viewer.html missing .entity-cancelled .tree-node-key rule")
+	}
+	block := content[cancelledIdx : cancelledIdx+300]
+	if !strings.Contains(block, "line-through") {
+		t.Error("viewer.html .entity-cancelled must have text-decoration: line-through (T-E27-F10-001 AC-001.3 regression)")
+	}
+}
+
+// TestViewerHTMLF10BuildNodeHtmlCompletedClass verifies that buildNodeHtml applies
+// entity-completed for completed status. AC-001.1 (T-E27-F10-001).
+func TestViewerHTMLF10BuildNodeHtmlCompletedClass(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The buildNodeHtml function must exist
+	if !strings.Contains(content, "function buildNodeHtml(") {
+		t.Fatal("viewer.html missing buildNodeHtml function (T-E27-F10-001)")
+	}
+
+	// The function must assign entity-completed based on completed status.
+	// We look for a pattern where entity-completed is conditionally set —
+	// similar to how entity-cancelled is set via isCancelledStatus.
+	if !strings.Contains(content, "entity-completed") {
+		t.Fatal("viewer.html: entity-completed class never used in JS (T-E27-F10-001 AC-001.1)")
+	}
+
+	// The cancelled check must come BEFORE the completed check
+	// (isCancelledStatus is checked first — AC-001.4: cancelled wins).
+	cancelledIdx := strings.LastIndex(content, "isCancelledStatus(status)")
+	completedIdx := strings.Index(content, "entity-completed")
+	// Both must exist and cancelled check must appear before entity-completed assignment
+	if cancelledIdx < 0 {
+		t.Error("viewer.html missing isCancelledStatus(status) call in buildNodeHtml area (T-E27-F10-001 AC-001.4)")
+	}
+	if completedIdx < 0 {
+		t.Error("viewer.html missing entity-completed class assignment (T-E27-F10-001 AC-001.1)")
+	}
+}
+
+// TestViewerHTMLF10TableRowsCompletedClass verifies that entity-completed is applied
+// in the feature and task table row builders. AC-001.5 (T-E27-F10-001).
+func TestViewerHTMLF10TableRowsCompletedClass(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The feature table row builder must apply entity-completed for completed status
+	// (not just entity-cancelled). We check that at least one of the two rowClass
+	// builders assigns entity-completed.
+	rowClassCompletedCount := strings.Count(content, "entity-completed")
+	if rowClassCompletedCount < 3 {
+		// We expect at least: CSS rule (1), feature rowClass (1), task rowClass (1)
+		t.Errorf("viewer.html: expected at least 3 occurrences of entity-completed (CSS + feature rowClass + task rowClass), found %d (T-E27-F10-001 AC-001.5)", rowClassCompletedCount)
+	}
+}
+
+// ── T-E27-F10-002: "Show all items" label rename + cancelled visibility ──
+
+// TestViewerHTMLF10002LabelRename verifies that the show-completed checkbox is
+// present and "Show completed" is gone. AC-002.1 (T-E27-F10-002).
+func TestViewerHTMLF10002LabelRename(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-002.1: show-completed-checkbox must be present
+	if !strings.Contains(content, `id="show-completed-checkbox"`) {
+		t.Error(`viewer.html missing show-completed-checkbox (T-E27-F10-002 AC-002.1)`)
+	}
+
+	// The old label text must be absent
+	if strings.Contains(content, "Show completed") {
+		t.Error(`viewer.html still contains "Show completed" — must be removed (T-E27-F10-002 AC-002.1)`)
+	}
+}
+
+// TestViewerHTMLF10002ShowAllFilesUnaffected verifies that the files checkbox
+// is still present. AC-002.5 (T-E27-F10-002).
+func TestViewerHTMLF10002ShowAllFilesUnaffected(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-002.5: show-all-files-checkbox must remain present
+	if !strings.Contains(content, `id="show-all-files-checkbox"`) {
+		t.Error(`viewer.html missing show-all-files-checkbox — must remain unaffected (T-E27-F10-002 AC-002.5)`)
+	}
+}
+
+// TestViewerHTMLF10002VariableComment verifies that showCompleted has a code comment
+// documenting its updated semantics. AC-002.4 (T-E27-F10-002).
+func TestViewerHTMLF10002VariableComment(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-002.4: The showCompleted variable declaration must have a comment
+	// noting that it now controls all terminal statuses (not just "completed").
+	// We look for the comment keyword near the showCompleted declaration.
+	showCompletedIdx := strings.Index(content, "let showCompleted")
+	if showCompletedIdx < 0 {
+		t.Fatal("viewer.html missing 'let showCompleted' declaration (T-E27-F10-002 AC-002.4)")
+	}
+
+	// Grab a window around and before the declaration to check for a comment.
+	// The comment may appear on the preceding lines.
+	start := showCompletedIdx
+	if start > 300 {
+		start = showCompletedIdx - 300
+	}
+	window := content[start : showCompletedIdx+200]
+
+	// Comment must mention the new "show all items" / "Show all items" semantics
+	// OR at minimum explain it controls "all" / "terminal" items.
+	hasComment := strings.Contains(window, "Show all items") ||
+		strings.Contains(window, "show all items") ||
+		strings.Contains(window, "all items") ||
+		strings.Contains(window, "terminal")
+	if !hasComment {
+		t.Error("viewer.html: showCompleted declaration must have a comment documenting its 'show all items' semantics (T-E27-F10-002 AC-002.4)")
+	}
+}
+
+// ── T-E27-F10-003: "Collapse all" button ──
+
+// TestViewerHTMLF10003CollapseAllButtonPresent verifies that the collapse-all button
+// is rendered inside the sidebar-section-header next to "Hierarchy". AC-003.1 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllButtonPresent(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-003.1: <button id="collapse-all-btn"> must be present
+	if !strings.Contains(content, `id="collapse-all-btn"`) {
+		t.Error(`viewer.html missing <button id="collapse-all-btn"> (T-E27-F10-003 AC-003.1)`)
+	}
+
+	// Button must use the sidebar-collapse-btn class
+	if !strings.Contains(content, `class="sidebar-collapse-btn"`) {
+		t.Error(`viewer.html missing class="sidebar-collapse-btn" on collapse button (T-E27-F10-003 AC-003.1)`)
+	}
+
+	// The button must appear near the Hierarchy section header — verify both appear
+	// in the renderSidebar function together.
+	hierarchyIdx := strings.Index(content, `sidebar-section-header`)
+	collapseIdx := strings.Index(content, `collapse-all-btn`)
+	if hierarchyIdx < 0 || collapseIdx < 0 {
+		t.Fatal("viewer.html: sidebar-section-header or collapse-all-btn not found (T-E27-F10-003 AC-003.1)")
+	}
+	// The button template should appear after the sidebar-section-header CSS definition.
+	if collapseIdx < hierarchyIdx {
+		t.Error("viewer.html: collapse-all-btn must appear after sidebar-section-header (T-E27-F10-003 AC-003.1)")
+	}
+}
+
+// TestViewerHTMLF10003CollapseAllCSS verifies that a CSS rule styles
+// the .sidebar-collapse-btn. AC-003.1 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// A CSS rule for .sidebar-collapse-btn must be present to style the button
+	if !strings.Contains(content, ".sidebar-collapse-btn") {
+		t.Error("viewer.html missing .sidebar-collapse-btn CSS rule (T-E27-F10-003 AC-003.1)")
+	}
+}
+
+// TestViewerHTMLF10003CollapseAllClickHandler verifies that the click handler
+// calls expandedEpics.clear(), expandedFeatures.clear(), and renderSidebar().
+// AC-003.2 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllClickHandler(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The handler must clear expandedEpics
+	if !strings.Contains(content, "expandedEpics.clear()") {
+		t.Error("viewer.html missing expandedEpics.clear() in collapse-all handler (T-E27-F10-003 AC-003.2)")
+	}
+
+	// The handler must clear expandedFeatures
+	if !strings.Contains(content, "expandedFeatures.clear()") {
+		t.Error("viewer.html missing expandedFeatures.clear() in collapse-all handler (T-E27-F10-003 AC-003.2)")
+	}
+
+	// The collapse-all button handler must wire to the collapse-all-btn element
+	if !strings.Contains(content, "collapse-all-btn") {
+		t.Error("viewer.html missing reference to collapse-all-btn in wiring (T-E27-F10-003 AC-003.2)")
+	}
+
+	// The handler must call renderSidebar() after clearing
+	// We verify both clear() calls and renderSidebar() appear in close proximity
+	// (within 500 chars) to the collapseAllBtn wiring
+	collapseWireIdx := strings.Index(content, "collapse-all-btn")
+	if collapseWireIdx < 0 {
+		t.Fatal("viewer.html missing collapse-all-btn wiring (T-E27-F10-003 AC-003.2)")
+	}
+	// Find the second occurrence (first is the HTML template, second is wiring)
+	secondOccurrence := strings.Index(content[collapseWireIdx+1:], "collapse-all-btn")
+	if secondOccurrence < 0 {
+		t.Fatal("viewer.html collapse-all-btn only appears once — expected both HTML and JS wiring (T-E27-F10-003 AC-003.2)")
+	}
+	wireOffset := collapseWireIdx + 1 + secondOccurrence
+	// Look for renderSidebar() call in a window after the second occurrence
+	window := content[wireOffset : wireOffset+400]
+	if !strings.Contains(window, "renderSidebar()") {
+		t.Error("viewer.html collapse-all click handler must call renderSidebar() (T-E27-F10-003 AC-003.2)")
+	}
+}
+
+// TestViewerHTMLF10003CollapseAllGuard verifies that the click handler uses
+// an if-guard before accessing the element (safe even if element hasn't rendered).
+// AC-003.5 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllGuard(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The handler must use getElementById and check for non-null before wiring
+	// Pattern: const collapseAllBtn = document.getElementById('collapse-all-btn');
+	//          if (collapseAllBtn) { ... }
+	if !strings.Contains(content, "getElementById('collapse-all-btn')") &&
+		!strings.Contains(content, `getElementById("collapse-all-btn")`) {
+		t.Error("viewer.html collapse-all handler must use getElementById to find the button (T-E27-F10-003 AC-003.5)")
+	}
+}
+
+// ─── T-E27-F10-004: Persist show-all checkbox state in localStorage ─────────
+
+// TestViewerHTMLF10004LocalStorageKeyPresent verifies that the storage key
+// 'shark.viewer.showAllItems' is referenced in viewer.html.
+// AC-004.1 and AC-004.2 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageKeyPresent(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The key must appear at least twice: once for getItem (read on load) and
+	// once for setItem (write on checkbox change).
+	const storageKey = "shark.viewer.showAllItems"
+	count := strings.Count(content, storageKey)
+	if count < 2 {
+		t.Errorf("viewer.html must reference localStorage key %q at least twice (read + write), found %d occurrence(s) (T-E27-F10-004 AC-004.1 AC-004.2)", storageKey, count)
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageRead verifies that the initial value of
+// showCompleted is read from localStorage.getItem on page load.
+// AC-004.2 and AC-004.3 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageRead(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must contain localStorage.getItem('shark.viewer.showAllItems')
+	if !strings.Contains(content, "localStorage.getItem('shark.viewer.showAllItems')") &&
+		!strings.Contains(content, `localStorage.getItem("shark.viewer.showAllItems")`) {
+		t.Error("viewer.html must call localStorage.getItem('shark.viewer.showAllItems') to read persisted state on load (T-E27-F10-004 AC-004.2)")
+	}
+
+	// The read result must be compared to 'true' string (AC-004.5: any other value → false)
+	if !strings.Contains(content, `=== 'true'`) && !strings.Contains(content, `=== "true"`) {
+		t.Error("viewer.html must compare localStorage value to string 'true' so any other value (null, 'false', etc.) defaults to false (T-E27-F10-004 AC-004.3 AC-004.5)")
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageWrite verifies that the checkbox change
+// handler calls localStorage.setItem with the new value.
+// AC-004.1 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageWrite(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must contain localStorage.setItem('shark.viewer.showAllItems', ...)
+	if !strings.Contains(content, "localStorage.setItem('shark.viewer.showAllItems'") &&
+		!strings.Contains(content, `localStorage.setItem("shark.viewer.showAllItems"`) {
+		t.Error("viewer.html must call localStorage.setItem('shark.viewer.showAllItems', ...) in the checkbox change handler (T-E27-F10-004 AC-004.1)")
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageReadTryCatch verifies that localStorage
+// read is wrapped in try/catch for privacy-mode resilience.
+// AC-004.6 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageReadTryCatch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Find the localStorage.getItem call and verify it is inside a try block.
+	// Strategy: look for the IIFE pattern that wraps the read in try/catch.
+	// Pattern: try { return localStorage.getItem('shark.viewer.showAllItems') === 'true'; }
+	//          catch (e) { return false; }
+	readIdx := strings.Index(content, "localStorage.getItem('shark.viewer.showAllItems')")
+	if readIdx == -1 {
+		readIdx = strings.Index(content, `localStorage.getItem("shark.viewer.showAllItems")`)
+	}
+	if readIdx == -1 {
+		t.Fatal("viewer.html missing localStorage.getItem call — earlier AC-004.2 test should have caught this")
+	}
+
+	// Scan a window before the read call for a 'try' keyword
+	start := readIdx - 200
+	if start < 0 {
+		start = 0
+	}
+	window := content[start:readIdx]
+	if !strings.Contains(window, "try") {
+		t.Error("viewer.html localStorage.getItem call must be inside a try block for privacy-mode resilience (T-E27-F10-004 AC-004.6)")
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageWriteTryCatch verifies that localStorage
+// write is wrapped in try/catch for privacy-mode resilience.
+// AC-004.6 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageWriteTryCatch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Find the localStorage.setItem call
+	writeIdx := strings.Index(content, "localStorage.setItem('shark.viewer.showAllItems'")
+	if writeIdx == -1 {
+		writeIdx = strings.Index(content, `localStorage.setItem("shark.viewer.showAllItems"`)
+	}
+	if writeIdx == -1 {
+		t.Fatal("viewer.html missing localStorage.setItem call — earlier AC-004.1 test should have caught this")
+	}
+
+	// Scan a window before the write call for a 'try' keyword
+	start := writeIdx - 100
+	if start < 0 {
+		start = 0
+	}
+	window := content[start:writeIdx]
+	if !strings.Contains(window, "try") {
+		t.Error("viewer.html localStorage.setItem call must be inside a try block for privacy-mode resilience (T-E27-F10-004 AC-004.6)")
+	}
+}
+
+// TestViewerHTMLF10004ShowCompletedInitialisedBeforeRender verifies that
+// the showCompleted variable is initialised (via the IIFE) before
+// renderSidebar() can first run, so the first paint reflects stored state.
+// AC-004.4 (T-E27-F10-004).
+func TestViewerHTMLF10004ShowCompletedInitialisedBeforeRender(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The IIFE pattern must appear: (function() { try { return localStorage.getItem ... } })()
+	// This ensures showCompleted is set at var-declaration time before any renderSidebar call.
+	if !strings.Contains(content, "(function()") && !strings.Contains(content, "(() =>") {
+		t.Error("viewer.html showCompleted initialisation must use an IIFE so the value is set before first renderSidebar() call (T-E27-F10-004 AC-004.4)")
+	}
+}

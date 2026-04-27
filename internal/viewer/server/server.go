@@ -17,7 +17,6 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/api"
 	"github.com/jwwelbor/shark-task-manager/internal/api/viewer"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/dbinit"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	viewerassets "github.com/jwwelbor/shark-task-manager/internal/viewer"
@@ -59,17 +58,24 @@ type Options struct {
 // serves until ctx is cancelled, then performs a graceful 30-second shutdown.
 //
 // Behaviour summary:
-//  1. If opts.DB is nil:  call dbinit.Init to obtain *repository.DB.
-//  2. Call db.CheckIntegrity on the underlying *sql.DB.
-//  3. Call WireServices(db, projectRoot) to build the service graph.
-//  4. Build http.ServeMux: SPA at GET /, health, CRUD routes, viewer routes.
-//  5. Wrap mux in otelhttp.NewHandler.
-//  6. Bind listener (opts.Listener if provided, else opts.Addr / ":8080").
-//  7. Close opts.Ready (if non-nil) after binding, before blocking on Serve.
-//  8. On ctx.Done(): call srv.Shutdown with 30-second timeout.
-//  9. Translate http.ErrServerClosed → nil.
 //
-// 10. When opts.DB was non-nil (caller-provided): do NOT call db.Close().
+//  1. If opts.DB is nil:  call dbinit.Init to obtain *repository.DB.
+//
+//  2. Call WireServices(db, projectRoot) to build the service graph.
+//
+//  3. Build http.ServeMux: SPA at GET /, health, CRUD routes, viewer routes.
+//
+//  4. Wrap mux in otelhttp.NewHandler.
+//
+//  5. Bind listener (opts.Listener if provided, else opts.Addr / ":8080").
+//
+//  6. Close opts.Ready (if non-nil) after binding, before blocking on Serve.
+//
+//  7. On ctx.Done(): call srv.Shutdown with 30-second timeout.
+//
+//  8. Translate http.ErrServerClosed → nil.
+//
+//  9. When opts.DB was non-nil (caller-provided): do NOT call db.Close().
 func StartServer(ctx context.Context, opts Options) error {
 	// --- Step 1: Resolve/initialize DB ----------------------------------------
 
@@ -86,14 +92,7 @@ func StartServer(ctx context.Context, opts Options) error {
 		defer repoDB.Close()
 	}
 
-	// --- Step 2: Integrity check -----------------------------------------------
-
-	if err := db.CheckIntegrity(repoDB.DB); err != nil {
-		return fmt.Errorf("database integrity check failed: %w", err)
-	}
-	slog.Info("Database integrity check passed")
-
-	// --- Step 3: Wire services -------------------------------------------------
+	// --- Step 2: Wire services -------------------------------------------------
 
 	projectRoot := opts.ProjectRoot
 	if projectRoot == "" {

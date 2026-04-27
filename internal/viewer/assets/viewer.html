@@ -236,13 +236,18 @@
     .sidebar-filter-label {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       font-size: 11px;
       color: var(--fg-dim);
-      cursor: pointer;
       user-select: none;
     }
-    .sidebar-filter-label input[type="checkbox"] {
+    .sidebar-filter-inline {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+    }
+    .sidebar-filter-inline input[type="checkbox"] {
       cursor: pointer;
     }
     .sidebar-section-header {
@@ -257,6 +262,27 @@
       color: var(--fg-dim);
       border-bottom: 1px solid var(--border);
       z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .sidebar-collapse-btn {
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      font-size: 14px;
+      line-height: 14px;
+      text-align: center;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: var(--bg-2);
+      color: var(--fg-dim);
+      flex-shrink: 0;
+    }
+    .sidebar-collapse-btn:hover {
+      background: var(--bg-3, var(--border));
+      color: var(--fg);
     }
 
     .tree-node {
@@ -319,6 +345,16 @@
     tr.entity-cancelled td {
       opacity: 0.4;
       text-decoration: line-through;
+    }
+
+    /* Completed entities: dimmed text only — no line-through (reserved for cancelled).
+       Provides a non-color affordance for colorblind users (WCAG 2.1 SC 1.4.1). */
+    .entity-completed .tree-node-key,
+    .entity-completed .tree-node-title {
+      opacity: 0.55;
+    }
+    tr.entity-completed td {
+      opacity: 0.55;
     }
 
     /* Compensate selected border for indented nodes */
@@ -1673,6 +1709,35 @@ function isCancelledStatus(status) {
   return CANCELLED_STATUSES.has((status || '').toLowerCase());
 }
 
+// Per-entity-type map of statuses that should be hidden when "Show all items" is OFF.
+// Falls back to TERMINAL_STATUSES ∪ CANCELLED_STATUSES for unknown entity types.
+// See REQ-F-005 (T-E27-F10-005).
+const HIDDEN_TERMINAL_BY_TYPE = {
+  epic:        new Set(['completed', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  feature:     new Set(['completed', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  task:        new Set(['completed', 'done', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  bug:         new Set(['completed', 'done', 'verified', 'closed', 'wont_fix', 'rejected']),
+  change_card: new Set(['completed', 'done', 'approved', 'rejected', 'closed']),
+  idea:        new Set(['converted', 'archived']),
+};
+
+/**
+ * Returns true if the given status should be hidden from the tree when the
+ * "Show all items" checkbox is OFF, for the given entity type.
+ * Falls back to the union of TERMINAL_STATUSES and CANCELLED_STATUSES if
+ * entityType is unknown — defensive default that hides terminal items rather than leaking them.
+ *
+ * @param {string} status      e.g. 'completed', 'converted', 'cancelled'
+ * @param {string} entityType  one of 'epic'|'feature'|'task'|'bug'|'change_card'|'idea'
+ * @returns {boolean}
+ */
+function isHiddenTerminalStatus(status, entityType) {
+  const s = (status || '').toLowerCase();
+  const set = HIDDEN_TERMINAL_BY_TYPE[entityType];
+  if (set) return set.has(s);
+  return TERMINAL_STATUSES.has(s) || CANCELLED_STATUSES.has(s);
+}
+
 /** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
 const FOLDER_KEY_PREFIX = 'folder:';
 
@@ -2236,7 +2301,16 @@ let hierarchyData  = null;           // full cached /hierarchy response (include
 let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
-let showCompleted    = false;         // sidebar filter: show completed entities
+// showCompleted: when true, shows ALL items regardless of terminal status.
+// User-facing label: "Show all items". Variable name kept for diff minimization.
+// Previously only hid 'completed'; now hides all terminal statuses via isHiddenTerminalStatus.
+// Persisted in localStorage as 'shark.viewer.showAllItems'.
+// IIFE runs at declaration time (before first renderSidebar) so the stored value takes effect
+// on the first paint. All localStorage access is wrapped in try/catch for privacy-mode resilience.
+let showCompleted = (function() {
+  try { return localStorage.getItem('shark.viewer.showAllItems') === 'true'; }
+  catch (e) { return false; }
+})();         // false = hide terminal-status entities when no stored value
 let showAllFiles     = false;         // sidebar filter: show untracked folder files
 let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
@@ -4129,7 +4203,10 @@ function renderFeaturesTableSection(epic) {
     const pct = typeof f.progress_pct === 'number' ? f.progress_pct : 0;
     const badge = ovStatusBadge(f.status || 'unknown');
     const barColor = 'var(--accent)';
-    const rowClass = isCancelledStatus(f.status) ? ' class="entity-cancelled"' : '';
+    // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+    let rowClass = '';
+    if (isCancelledStatus(f.status))           rowClass = ' class="entity-cancelled"';
+    else if ((f.status || '') === 'completed') rowClass = ' class="entity-completed"';
     return `<tr${rowClass}>
       <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
@@ -4243,7 +4320,10 @@ function renderTasksTableSection(feature) {
     const title = escapeHtml(t.title || t.key || '');
     const badge = ovStatusBadge(t.status || 'unknown');
     const order = t.execution_order != null ? t.execution_order : '';
-    const rowClass = isCancelledStatus(t.status) ? ' class="entity-cancelled"' : '';
+    // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+    let rowClass = '';
+    if (isCancelledStatus(t.status))           rowClass = ' class="entity-cancelled"';
+    else if ((t.status || '') === 'completed') rowClass = ' class="entity-completed"';
     return `<tr${rowClass}>
       <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
@@ -4653,14 +4733,17 @@ function buildArrowHtml(expandable, expanded, key) {
 function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold }) {
   const isSelected = key === selectedKey;
   const selectedClass = isSelected ? ' selected' : '';
-  const cancelledClass = isCancelledStatus(status) ? ' entity-cancelled' : '';
+  // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+  const statusClass = isCancelledStatus(status) ? ' entity-cancelled'
+    : (status || '') === 'completed' ? ' entity-completed'
+    : '';
   const arrowHtml = buildArrowHtml(expandable, expanded, key);
   const dotHtml = buildStatusDotHtml(status);
   const keyLabel = bold
     ? `<strong class="tree-node-key">${escapeHtml(key)}</strong>`
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
 }
 
 /**
@@ -4717,7 +4800,7 @@ function buildFeatureNodeHtml(feature, epicKey) {
     // Render tasks
     const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
     for (const task of tasks) {
-      if (!showCompleted && task.status === 'completed') continue;
+      if (!showCompleted && isHiddenTerminalStatus(task.status, 'task')) continue;
       html += buildTaskNodeHtml(task);
     }
     // Render feature-level docs
@@ -4759,7 +4842,7 @@ function buildEpicNodeHtml(epic) {
     // Render features
     const features = Array.isArray(epic.features) ? epic.features : [];
     for (const feature of features) {
-      if (!showCompleted && feature.status === 'completed') continue;
+      if (!showCompleted && isHiddenTerminalStatus(feature.status, 'feature')) continue;
       html += buildFeatureNodeHtml(feature, epicKey);
     }
     // Render epic-level docs
@@ -4785,17 +4868,20 @@ function buildEpicNodeHtml(epic) {
  * @param {Array} items - array of items with .key/.title/.status
  * @returns {string} HTML string
  */
-function buildFlatSectionHtml(title, items) {
+function buildFlatSectionHtml(title, items, entityType) {
   if (!Array.isArray(items) || items.length === 0) return '';
-  const filtered = showCompleted ? items : items.filter(i => i.status !== 'completed');
+  const filtered = showCompleted ? items : items.filter(i => !isHiddenTerminalStatus(i.status, entityType));
   if (filtered.length === 0) return '';
   let html = `<div class="sidebar-section-header">${escapeHtml(title)}</div>`;
   for (const item of filtered) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
     const selectedClass = isSelected ? ' selected' : '';
-    const cancelledClass = isCancelledStatus(item.status) ? ' entity-cancelled' : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
+    // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+    const statusClass = isCancelledStatus(item.status) ? ' entity-cancelled'
+      : (item.status || '') === 'completed' ? ' entity-completed'
+      : '';
+    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
   }
   return html;
 }
@@ -4818,23 +4904,20 @@ function renderSidebar() {
 
   // ── Filter bar ──
   html += `<div class="sidebar-filter-bar">
-    <label class="sidebar-filter-label">
-      <input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}>
-      Show completed
-    </label>
-    <label class="sidebar-filter-label">
-      <input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}>
-      Show all files
-    </label>
+    <span class="sidebar-filter-label">show all
+      <label class="sidebar-filter-inline"><input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}> items</label>
+      <label class="sidebar-filter-inline"><input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}> files</label>
+    </span>
   </div>`;
 
   // ── Tag filter control (E28-F06 REQ-F-017, AC-12) ──
   html += buildTagFilterControlHtml();
 
   // ── Hierarchy section ──
-  html += `<div class="sidebar-section-header">Hierarchy</div>`;
+  const collapseSymbol = expandedEpics.size > 0 ? '−' : '+';
+  html += `<div class="sidebar-section-header">Hierarchy<button id="collapse-all-btn" class="sidebar-collapse-btn" type="button" title="${expandedEpics.size > 0 ? 'Collapse all' : 'Expand all'}">${collapseSymbol}</button></div>`;
   for (const epic of treeData) {
-    if (!showCompleted && epic.status === 'completed') continue;
+    if (!showCompleted && isHiddenTerminalStatus(epic.status, 'epic')) continue;
     html += buildEpicNodeHtml(epic);
   }
 
@@ -4845,15 +4928,15 @@ function renderSidebar() {
 
   // Bugs (from hierarchy flat section)
   const bugs = Array.isArray(hierarchyData?.bugs) ? hierarchyData.bugs : [];
-  html += buildFlatSectionHtml('Bugs', bugs);
+  html += buildFlatSectionHtml('Bugs', bugs, 'bug');
 
   // Change Cards (from hierarchy flat section)
   const changeCards = Array.isArray(hierarchyData?.change_cards) ? hierarchyData.change_cards : [];
-  html += buildFlatSectionHtml('Change Cards', changeCards);
+  html += buildFlatSectionHtml('Change Cards', changeCards, 'change_card');
 
   // Ideas (from hierarchy flat section)
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
-  html += buildFlatSectionHtml('Ideas', ideas);
+  html += buildFlatSectionHtml('Ideas', ideas, 'idea');
 
   sidebarContent.innerHTML = html;
 
@@ -4862,6 +4945,7 @@ function renderSidebar() {
   if (showCompletedCb) {
     showCompletedCb.onchange = function() {
       showCompleted = this.checked;
+      try { localStorage.setItem('shark.viewer.showAllItems', String(this.checked)); } catch (e) {}
       renderSidebar();
     };
   }
@@ -4872,6 +4956,22 @@ function renderSidebar() {
       if (showAllFiles) {
         // Auto-expand all epics so Folder files links become visible
         for (const epic of treeData) {
+          expandedEpics.add(epic.key || '');
+        }
+      }
+      renderSidebar();
+    };
+  }
+
+  // ── Wire collapse/expand-all button (T-E27-F10-003 REQ-F-003) ──
+  const collapseAllBtn = document.getElementById('collapse-all-btn');
+  if (collapseAllBtn) {
+    collapseAllBtn.onclick = function() {
+      if (expandedEpics.size > 0) {
+        expandedEpics.clear();
+        expandedFeatures.clear();
+      } else {
+        for (const epic of (treeData || [])) {
           expandedEpics.add(epic.key || '');
         }
       }
