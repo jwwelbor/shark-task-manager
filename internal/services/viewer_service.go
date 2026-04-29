@@ -197,7 +197,8 @@ type FlatEntity struct {
 	Title       string   `json:"title"`
 	Status      string   `json:"status"`
 	StatusColor string   `json:"status_color"`
-	Tags        []string `json:"tags"` // NEW (REQ-F-003); always non-nil (ADR-F06-2)
+	Tags        []string `json:"tags"`           // NEW (REQ-F-003); always non-nil (ADR-F06-2)
+	Size        *int     `json:"size,omitempty"` // E27-F11 (REQ-F-001, REQ-F-002, REQ-F-008)
 	dbID        int64    // unexported; used for tag decoration and filter. Not serialized.
 }
 
@@ -991,6 +992,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 					Status:      string(b.Status),
 					StatusColor: colorOrGray(meta.Color),
 					Tags:        []string{}, // ADR-F06-2: always non-nil
+					Size:        b.Size,     // E27-F11: sourced from BaseEntity.Size
 					dbID:        b.ID,       // tracked for tag decoration / filter
 				})
 			}
@@ -1009,6 +1011,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 					Status:      string(cc.Status),
 					StatusColor: colorOrGray(meta.Color),
 					Tags:        []string{}, // ADR-F06-2: always non-nil
+					Size:        cc.Size,    // E27-F11: sourced from BaseEntity.Size
 					dbID:        cc.ID,      // tracked for tag decoration / filter
 				})
 			}
@@ -1030,6 +1033,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 					Status:      string(idea.Status),
 					StatusColor: color,
 					Tags:        []string{}, // ADR-F06-2: always non-nil
+					Size:        idea.Size,  // E27-F11: sourced from Idea.Size (no BaseEntity embed)
 					dbID:        idea.ID,    // tracked for tag decoration / filter
 				})
 			}
