@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -3105,6 +3106,323 @@ func TestViewerService_HierarchyOptions_HasTagsField(t *testing.T) {
 	}
 	if len(opts.Tags) != 2 {
 		t.Error("HierarchyOptions.Tags field not working as expected")
+	}
+}
+
+// ----- E27-F11: FlatEntity.Size field population and wire-format tests -----
+
+// TC-AC01-1 / TC-AC10-1: Bug size populated from model.
+func TestViewerService_Hierarchy_FlatEntity_BugSize_Populated(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Size: ptr(5)}, Status: "triaged"},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC01-1: unexpected error: %v", err)
+	}
+	if len(resp.Bugs) != 1 {
+		t.Fatalf("TC-AC01-1: expected 1 bug, got %d", len(resp.Bugs))
+	}
+	if resp.Bugs[0].Size == nil {
+		t.Fatal("TC-AC01-1: expected Size to be non-nil for bug with Size=5")
+	}
+	if *resp.Bugs[0].Size != 5 {
+		t.Errorf("TC-AC01-1: expected Size=5, got %d", *resp.Bugs[0].Size)
+	}
+}
+
+// TC-AC02-1 / TC-AC10-2: Bug size nil produces nil FlatEntity.Size.
+func TestViewerService_Hierarchy_FlatEntity_BugSize_Nil(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Size: nil}, Status: "triaged"},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC02-1: unexpected error: %v", err)
+	}
+	if len(resp.Bugs) != 1 {
+		t.Fatalf("TC-AC02-1: expected 1 bug, got %d", len(resp.Bugs))
+	}
+	if resp.Bugs[0].Size != nil {
+		t.Errorf("TC-AC02-1: expected Size to be nil for bug with no size, got %v", resp.Bugs[0].Size)
+	}
+}
+
+// TC-AC02-2: Bug size nil — omitempty wire-level check.
+func TestViewerService_Hierarchy_FlatEntity_BugSize_OmitemptyJSON(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	// Sub-test: populated size serializes with "size" key.
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Size: ptr(5)}, Status: "triaged"},
+			}, nil
+		},
+	})
+	respPopulated, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC02-2 populated: unexpected error: %v", err)
+	}
+	if len(respPopulated.Bugs) != 1 {
+		t.Fatalf("TC-AC02-2 populated: expected 1 bug")
+	}
+	dataPopulated, err := json.Marshal(respPopulated.Bugs[0])
+	if err != nil {
+		t.Fatalf("TC-AC02-2 populated: json.Marshal failed: %v", err)
+	}
+	if !bytes.Contains(dataPopulated, []byte(`"size":5`)) {
+		t.Errorf("TC-AC02-2: expected populated bug JSON to contain \"size\":5, got: %s", dataPopulated)
+	}
+
+	// Sub-test: nil size omits "size" key from JSON.
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.Bug, error) {
+			return []*models.Bug{
+				{BaseEntity: models.BaseEntity{ID: 2, Key: "B002", Size: nil}, Status: "triaged"},
+			}, nil
+		},
+	})
+	respNil, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC02-2 nil: unexpected error: %v", err)
+	}
+	if len(respNil.Bugs) != 1 {
+		t.Fatalf("TC-AC02-2 nil: expected 1 bug")
+	}
+	dataNil, err := json.Marshal(respNil.Bugs[0])
+	if err != nil {
+		t.Fatalf("TC-AC02-2 nil: json.Marshal failed: %v", err)
+	}
+	if bytes.Contains(dataNil, []byte(`"size"`)) {
+		t.Errorf("TC-AC02-2: expected nil-size bug JSON to omit \"size\" key, got: %s", dataNil)
+	}
+}
+
+// TC-AC03-1 / TC-AC10-3: ChangeCard size populated.
+func TestViewerService_Hierarchy_FlatEntity_ChangeCardSize_Populated(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.ChangeCard, error) {
+			return []*models.ChangeCard{
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Size: ptr(3)}, Status: "open"},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC03-1: unexpected error: %v", err)
+	}
+	if len(resp.ChangeCards) != 1 {
+		t.Fatalf("TC-AC03-1: expected 1 change card, got %d", len(resp.ChangeCards))
+	}
+	if resp.ChangeCards[0].Size == nil {
+		t.Fatal("TC-AC03-1: expected Size to be non-nil for change card with Size=3")
+	}
+	if *resp.ChangeCards[0].Size != 3 {
+		t.Errorf("TC-AC03-1: expected Size=3, got %d", *resp.ChangeCards[0].Size)
+	}
+}
+
+// TC-AC03-2 / TC-AC10-4: ChangeCard size nil.
+func TestViewerService_Hierarchy_FlatEntity_ChangeCardSize_Nil(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.ChangeCard, error) {
+			return []*models.ChangeCard{
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Size: nil}, Status: "open"},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC03-2: unexpected error: %v", err)
+	}
+	if len(resp.ChangeCards) != 1 {
+		t.Fatalf("TC-AC03-2: expected 1 change card, got %d", len(resp.ChangeCards))
+	}
+	if resp.ChangeCards[0].Size != nil {
+		t.Errorf("TC-AC03-2: expected Size to be nil for change card with no size, got %v", resp.ChangeCards[0].Size)
+	}
+}
+
+// TC-AC03-3: ChangeCard size nil — wire omitempty.
+func TestViewerService_Hierarchy_FlatEntity_ChangeCardSize_OmitemptyJSON(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
+		ListAllFunc: func(_ context.Context, _ bool) ([]*models.ChangeCard, error) {
+			return []*models.ChangeCard{
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Size: nil}, Status: "open"},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC03-3: unexpected error: %v", err)
+	}
+	if len(resp.ChangeCards) != 1 {
+		t.Fatalf("TC-AC03-3: expected 1 change card")
+	}
+	data, err := json.Marshal(resp.ChangeCards[0])
+	if err != nil {
+		t.Fatalf("TC-AC03-3: json.Marshal failed: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"size"`)) {
+		t.Errorf("TC-AC03-3: expected nil-size change card JSON to omit \"size\" key, got: %s", data)
+	}
+}
+
+// TC-AC03-4 / TC-AC10-5: Idea size populated (sourced from idea.Size directly).
+func TestViewerService_Hierarchy_FlatEntity_IdeaSize_Populated(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithIdeaRepo(&mockViewerIdeaListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Idea, error) {
+			return []*models.Idea{
+				{ID: 1, Key: "I-2025-01-01-01", Title: "Big Idea", Status: "new", Size: ptr(8)},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC03-4: unexpected error: %v", err)
+	}
+	if len(resp.Ideas) != 1 {
+		t.Fatalf("TC-AC03-4: expected 1 idea, got %d", len(resp.Ideas))
+	}
+	if resp.Ideas[0].Size == nil {
+		t.Fatal("TC-AC03-4: expected Size to be non-nil for idea with Size=8")
+	}
+	if *resp.Ideas[0].Size != 8 {
+		t.Errorf("TC-AC03-4: expected Size=8, got %d", *resp.Ideas[0].Size)
+	}
+}
+
+// TC-AC03-5 / TC-AC10-6: Idea size nil.
+func TestViewerService_Hierarchy_FlatEntity_IdeaSize_Nil(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithIdeaRepo(&mockViewerIdeaListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Idea, error) {
+			return []*models.Idea{
+				{ID: 1, Key: "I-2025-01-01-01", Title: "Small Idea", Status: "new", Size: nil},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC03-5: unexpected error: %v", err)
+	}
+	if len(resp.Ideas) != 1 {
+		t.Fatalf("TC-AC03-5: expected 1 idea, got %d", len(resp.Ideas))
+	}
+	if resp.Ideas[0].Size != nil {
+		t.Errorf("TC-AC03-5: expected Size to be nil for idea with no size, got %v", resp.Ideas[0].Size)
+	}
+}
+
+// TC-AC03-6: Idea size nil — wire omitempty.
+func TestViewerService_Hierarchy_FlatEntity_IdeaSize_OmitemptyJSON(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithIdeaRepo(&mockViewerIdeaListRepo{
+		ListAllFunc: func(_ context.Context) ([]*models.Idea, error) {
+			return []*models.Idea{
+				{ID: 1, Key: "I-2025-01-01-01", Title: "Small Idea", Status: "new", Size: nil},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("TC-AC03-6: unexpected error: %v", err)
+	}
+	if len(resp.Ideas) != 1 {
+		t.Fatalf("TC-AC03-6: expected 1 idea")
+	}
+	data, err := json.Marshal(resp.Ideas[0])
+	if err != nil {
+		t.Fatalf("TC-AC03-6: json.Marshal failed: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"size"`)) {
+		t.Errorf("TC-AC03-6: expected nil-size idea JSON to omit \"size\" key, got: %s", data)
 	}
 }
 
