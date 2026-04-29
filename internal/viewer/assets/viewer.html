@@ -428,6 +428,21 @@
       padding: 1px 5px;
     }
 
+    /* E27-F11: size badge — shown in sidebar tree nodes and detail panel */
+    .size-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      margin-left: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.4;
+      color: #cbd5e1;
+      background: #334155;
+      border-radius: 8px;
+      vertical-align: middle;
+    }
+    .props-row-size .props-cell-value { font-weight: 500; }
+
     /* ============================================================
        PICK FOLDER SCREEN
        ============================================================ */
@@ -3330,6 +3345,35 @@ function statusBadgeCell(s) {
   return `<span class="status-badge" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(s.replace(/_/g,' '))}</span>`;
 }
 
+// ----- E27-F11: size badge helpers -----
+
+/** Canonical t-shirt size labels. Mirrors internal/models/size.go:25. */
+const SIZE_LABELS = { 1: 'XS', 2: 'S', 3: 'M', 5: 'L', 8: 'XL', 13: 'XXL' };
+
+/**
+ * Returns the t-shirt label for a canonical size integer, or the raw integer
+ * as a string for non-canonical values (REQ-F-007 defensive fallback).
+ * Returns '' for null/undefined.
+ * @param {number|null|undefined} n
+ * @returns {string}
+ */
+function formatSizeLabel(n) {
+  if (n == null) return '';
+  return SIZE_LABELS[n] || String(n);
+}
+
+/**
+ * Builds a small size badge HTML span, or '' when size is absent (AC-T1).
+ * All values are run through escapeHtml for XSS safety (AC-T4).
+ * @param {number|null|undefined} size
+ * @returns {string}
+ */
+function buildSizeBadgeHtml(size) {
+  if (size == null) return '';
+  const label = formatSizeLabel(size);
+  return `<span class="size-badge" title="size ${escapeHtml(String(size))}">${escapeHtml(label)}</span>`;
+}
+
 /**
  * Appends epic-specific fields to the rows array. (AC-003.1)
  * @param {string[]} rows
@@ -3348,6 +3392,7 @@ function appendEpicFields(rows, e) {
     }).join(' ');
     pushRow(rows, 'Feature Rollup', chips || null);
   }
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
 }
 
 /**
@@ -3367,6 +3412,7 @@ function appendFeatureFields(rows, e) {
       pushRow(rows, 'Workflow Position', `${escapeHtml(String(wp.current_index + 1))}/${escapeHtml(String(wp.statuses.length))}`);
     }
   }
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
 }
 
 /**
@@ -3395,6 +3441,7 @@ function appendTaskFields(rows, e) {
   if (Array.isArray(e.blocks) && e.blocks.length) {
     pushRow(rows, 'Blocks', e.blocks.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', '));
   }
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
 }
 
 /**
@@ -3407,6 +3454,7 @@ function appendBugFields(rows, e) {
   if (e.priority != null)    pushRow(rows, 'Priority',  String(e.priority));
   if (e.assignee)            pushRow(rows, 'Assignee',  escapeHtml(e.assignee));
   if (e.linked_entity_key)   pushRow(rows, 'Linked To', monoCell(e.linked_entity_key));
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
 }
 
 /**
@@ -3418,6 +3466,17 @@ function appendChangeCardFields(rows, e) {
   if (e.priority != null)    pushRow(rows, 'Priority',  String(e.priority));
   if (e.assignee)            pushRow(rows, 'Assignee',  escapeHtml(e.assignee));
   if (e.linked_entity_key)   pushRow(rows, 'Linked To', monoCell(e.linked_entity_key));
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
+}
+
+/**
+ * Appends idea-specific fields to the rows array. (E27-F11 D5)
+ * @param {string[]} rows
+ * @param {Object} e - idea entity
+ */
+function appendIdeaFields(rows, e) {
+  if (e.priority != null) pushRow(rows, 'Priority', String(e.priority));
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
 }
 
 /**
@@ -3475,6 +3534,7 @@ function renderPropertiesPanel(entity) {
     case 'task':        appendTaskFields(rows, entity);        break;
     case 'bug':         appendBugFields(rows, entity);         break;
     case 'change_card': appendChangeCardFields(rows, entity);  break;
+    case 'idea':        appendIdeaFields(rows, entity);        break; // E27-F11 D5
   }
 
   // Shared trailing timestamps and paths
@@ -4730,7 +4790,7 @@ function buildArrowHtml(expandable, expanded, key) {
  * @param {boolean} opts.bold - if true wraps key in <strong>
  * @returns {string} HTML string
  */
-function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold }) {
+function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold, size }) {
   const isSelected = key === selectedKey;
   const selectedClass = isSelected ? ' selected' : '';
   // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
@@ -4743,7 +4803,8 @@ function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bo
     ? `<strong class="tree-node-key">${escapeHtml(key)}</strong>`
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
+  const sizeHtml = buildSizeBadgeHtml(size); // E27-F11: size badge (empty string when absent)
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}${sizeHtml}</div>`;
 }
 
 /**
@@ -4760,6 +4821,7 @@ function buildTaskNodeHtml(task) {
     expandable: false,
     expanded: false,
     bold: false,
+    size: task.size,  // E27-F11: pass size for badge
   });
 }
 
@@ -4794,6 +4856,7 @@ function buildFeatureNodeHtml(feature, epicKey) {
     expandable: true,
     expanded: isExpanded,
     bold: false,
+    size: feature.size,  // E27-F11: pass size for badge
   });
 
   if (isExpanded) {
@@ -4836,6 +4899,7 @@ function buildEpicNodeHtml(epic) {
     expandable: true,
     expanded: isExpanded,
     bold: true,
+    size: epic.size,  // E27-F11: pass size for badge
   });
 
   if (isExpanded) {
@@ -4881,7 +4945,7 @@ function buildFlatSectionHtml(title, items, entityType) {
     const statusClass = isCancelledStatus(item.status) ? ' entity-cancelled'
       : (item.status || '') === 'completed' ? ' entity-completed'
       : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
+    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span>${buildSizeBadgeHtml(item.size)}</div>`; // E27-F11: size badge
   }
   return html;
 }
