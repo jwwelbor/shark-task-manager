@@ -53,11 +53,14 @@ func ResequenceOrders(items []OrderedItem, changedID int64, newOrder *int) []Ord
 		return items
 	}
 
-	// Separate items with orders from those without
+	// changedItem is excluded here and reinserted into reorderedItems below.
 	var orderedItems []OrderedItem
 	var unorderedItems []OrderedItem
 
 	for i := range items {
+		if items[i].ID == changedID {
+			continue
+		}
 		if items[i].ExecutionOrder != nil {
 			orderedItems = append(orderedItems, items[i])
 		} else {
@@ -65,35 +68,24 @@ func ResequenceOrders(items []OrderedItem, changedID int64, newOrder *int) []Ord
 		}
 	}
 
-	// Sort by current execution order
 	sort.Slice(orderedItems, func(i, j int) bool {
 		return *orderedItems[i].ExecutionOrder < *orderedItems[j].ExecutionOrder
 	})
 
-	// Remove the changed item from its current position
-	var remainingItems []OrderedItem
-	for _, item := range orderedItems {
-		if item.ID != changedID {
-			remainingItems = append(remainingItems, item)
-		}
-	}
-
-	// Insert the changed item at the new position
 	// newOrder is 1-based, so position index is newOrder - 1
 	insertIndex := *newOrder - 1
 	if insertIndex < 0 {
 		insertIndex = 0
 	}
-	if insertIndex > len(remainingItems) {
-		insertIndex = len(remainingItems)
+	if insertIndex > len(orderedItems) {
+		insertIndex = len(orderedItems)
 	}
 
-	// Build the new ordered list
 	var reorderedItems []OrderedItem
-	reorderedItems = append(reorderedItems, remainingItems[:insertIndex]...)
+	reorderedItems = append(reorderedItems, orderedItems[:insertIndex]...)
 	changedItem.ExecutionOrder = newOrder
 	reorderedItems = append(reorderedItems, *changedItem)
-	reorderedItems = append(reorderedItems, remainingItems[insertIndex:]...)
+	reorderedItems = append(reorderedItems, orderedItems[insertIndex:]...)
 
 	// Reassign sequential orders (1, 2, 3, ...)
 	for i := range reorderedItems {
