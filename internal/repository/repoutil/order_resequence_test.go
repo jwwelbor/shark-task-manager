@@ -193,6 +193,50 @@ func TestResequenceOrders_NilNewOrder(t *testing.T) {
 	assert.Equal(t, 1, *result[0].ExecutionOrder)
 }
 
+// Setting an order on an item with a nil current order must not duplicate it
+// in the result, and must not promote other nil siblings.
+func TestResequenceOrders_ChangedItemHasNilOrder(t *testing.T) {
+	order1 := 1
+	order2 := 2
+
+	items := []OrderedItem{
+		{ID: 1, ExecutionOrder: &order1},
+		{ID: 2, ExecutionOrder: nil},
+		{ID: 3, ExecutionOrder: &order2},
+		{ID: 4, ExecutionOrder: nil},
+	}
+
+	newOrder := 2
+	result := ResequenceOrders(items, 2, &newOrder)
+
+	seen := map[int64]int{}
+	for _, item := range result {
+		seen[item.ID]++
+	}
+	for id, count := range seen {
+		if count != 1 {
+			t.Errorf("ID %d appears %d times in result, expected exactly 1", id, count)
+		}
+	}
+	assert.Len(t, result, 4)
+
+	for _, item := range result {
+		switch item.ID {
+		case 1:
+			assert.NotNil(t, item.ExecutionOrder)
+			assert.Equal(t, 1, *item.ExecutionOrder)
+		case 2:
+			assert.NotNil(t, item.ExecutionOrder)
+			assert.Equal(t, 2, *item.ExecutionOrder)
+		case 3:
+			assert.NotNil(t, item.ExecutionOrder)
+			assert.Equal(t, 3, *item.ExecutionOrder)
+		case 4:
+			assert.Nil(t, item.ExecutionOrder)
+		}
+	}
+}
+
 // TestResequenceOrders_ItemNotFound tests when changedID is not in the list
 func TestResequenceOrders_ItemNotFound(t *testing.T) {
 	order1 := 1
