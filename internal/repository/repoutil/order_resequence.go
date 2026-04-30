@@ -54,8 +54,8 @@ func ResequenceOrders(items []OrderedItem, changedID int64, newOrder *int) []Ord
 	}
 
 	// changedItem is excluded here and reinserted into reorderedItems below.
-	var orderedItems []OrderedItem
-	var unorderedItems []OrderedItem
+	orderedItems := make([]OrderedItem, 0, len(items))
+	unorderedItems := make([]OrderedItem, 0, len(items))
 
 	for i := range items {
 		if items[i].ID == changedID {
@@ -81,7 +81,7 @@ func ResequenceOrders(items []OrderedItem, changedID int64, newOrder *int) []Ord
 		insertIndex = len(orderedItems)
 	}
 
-	var reorderedItems []OrderedItem
+	reorderedItems := make([]OrderedItem, 0, len(orderedItems)+1)
 	reorderedItems = append(reorderedItems, orderedItems[:insertIndex]...)
 	changedItem.ExecutionOrder = newOrder
 	reorderedItems = append(reorderedItems, *changedItem)
