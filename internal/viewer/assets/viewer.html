@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shark Status Viewer</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <style>
     /* ============================================================
        CSS CUSTOM PROPERTIES — Dark Slate Palette
@@ -1074,6 +1075,32 @@
       padding: 14px 16px;
       overflow-x: auto;
       margin-bottom: 14px;
+    }
+
+    /* E27-F12: Mermaid diagram rendering (REQ-F-010, D9) */
+    .mermaid-render-container {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 14px;
+      overflow-x: auto;
+      text-align: center;
+    }
+
+    .mermaid-render-container svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .mermaid-error-banner {
+      background: rgba(220, 60, 60, 0.08);
+      border: 1px solid rgba(220, 60, 60, 0.4);
+      border-radius: var(--radius-sm);
+      color: #ff8b8b;
+      font-size: 12px;
+      padding: 6px 10px;
+      margin-bottom: 6px;
     }
 
     .markdown-body pre code {
@@ -3700,6 +3727,72 @@ function renderFrontmatterTable(entries) {
   </details>`;
 }
 
+// ============================================================
+// E27-F12: Mermaid diagram support
+// ============================================================
+
+let __mermaidInitialized = false;
+
+/**
+ * One-time Mermaid initialization. Idempotent. Safe to call repeatedly.
+ * Guards against CDN unavailability (REQ-F-004).
+ */
+function initMermaid() {
+  if (__mermaidInitialized) return;
+  if (typeof mermaid === 'undefined') return; // CDN unavailable; REQ-F-004
+  mermaid.initialize({
+    startOnLoad: false,      // D3: SPA mode — manual render per pane
+    theme: 'dark',           // REQ-F-007
+    securityLevel: 'strict', // REQ-F-008, D4
+    themeVariables: {
+      // Align with --bg-2 / --fg / --accent / --border (REQ-NF-006, viewer.html:12-32)
+      background:         '#161920',
+      primaryColor:       '#1e222b',
+      primaryTextColor:   '#e8eaf0',
+      primaryBorderColor: '#2a2f3d',
+      lineColor:          '#8a8f9e',
+      secondaryColor:     '#252a35',
+      tertiaryColor:      '#0d0f12'
+    }
+  });
+  __mermaidInitialized = true;
+}
+
+/**
+ * Post-processes all <pre><code class="language-mermaid"> blocks inside rootEl,
+ * replacing each with a rendered SVG in a .mermaid-render-container div.
+ * Per-block try/catch ensures one bad block never breaks siblings (REQ-F-002, D6).
+ * Falls through silently when Mermaid CDN is unavailable (REQ-F-004).
+ * @param {HTMLElement} rootEl
+ */
+async function renderMermaidIn(rootEl) {
+  if (!rootEl) return;
+  if (typeof mermaid === 'undefined') return; // REQ-F-004: leave <pre><code> as-is
+  initMermaid();
+
+  const codeBlocks = rootEl.querySelectorAll('pre > code.language-mermaid');
+  for (const codeEl of codeBlocks) {
+    const preEl = codeEl.parentElement;
+    const source = codeEl.textContent || '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mermaid-render-container';
+    preEl.parentElement.replaceChild(wrapper, preEl);
+
+    try {
+      const id = 'mmd-' + Math.random().toString(36).slice(2, 10);
+      const { svg } = await mermaid.render(id, source);
+      wrapper.innerHTML = svg;
+    } catch (err) {
+      // REQ-F-003: per-block fallback — show escaped raw source + error banner
+      wrapper.innerHTML =
+        '<div class="mermaid-error-banner">Mermaid render failed: ' +
+          escapeHtml(String(err && err.message || err)) +
+        '</div>' +
+        '<pre style="white-space:pre-wrap">' + escapeHtml(source) + '</pre>';
+    }
+  }
+}
+
 function renderMarkdownFromString(rawContent, paneEl) {
   if (!paneEl) return;
 
@@ -3718,6 +3811,10 @@ function renderMarkdownFromString(rawContent, paneEl) {
       mdDiv.innerHTML = marked.parse(rawContent);
     }
     contentWrapper.appendChild(mdDiv);
+    // E27-F12: post-process mermaid fences after marked has produced
+    // <pre><code class="language-mermaid"> blocks. Async, fire-and-forget;
+    // failures are isolated per block (REQ-F-002, REQ-F-003).
+    renderMermaidIn(mdDiv);
   } else {
     // Fallback: CDN blocked — show raw content as <pre> with warning banner
     contentWrapper.innerHTML = `
