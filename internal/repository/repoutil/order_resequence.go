@@ -81,7 +81,7 @@ func ResequenceOrders(items []OrderedItem, changedID int64, newOrder *int) []Ord
 		insertIndex = len(orderedItems)
 	}
 
-	reorderedItems := make([]OrderedItem, 0, len(orderedItems)+1)
+	reorderedItems := make([]OrderedItem, 0, len(items))
 	reorderedItems = append(reorderedItems, orderedItems[:insertIndex]...)
 	changedItem.ExecutionOrder = newOrder
 	reorderedItems = append(reorderedItems, *changedItem)
