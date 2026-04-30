@@ -3475,7 +3475,6 @@ function appendChangeCardFields(rows, e) {
  * @param {Object} e - idea entity
  */
 function appendIdeaFields(rows, e) {
-  if (e.priority != null) pushRow(rows, 'Priority', String(e.priority));
   if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
 }
 
