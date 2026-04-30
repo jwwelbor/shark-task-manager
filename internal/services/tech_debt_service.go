@@ -94,6 +94,7 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 			Key:   key,
 			Title: input.Title,
 			Slug:  &slug,
+			Size:  input.Size,
 		},
 		Status:   models.TechDebtStatus(defaultStatus),
 		Category: input.Category,
@@ -225,6 +226,16 @@ func (s *TechDebtService) UpdateTechDebt(ctx context.Context, key string, update
 
 	if updates.FilePath != nil {
 		td.FilePath = updates.FilePath
+	}
+
+	// Three-branch Size update logic:
+	//   ClearSize=true       → set to NULL
+	//   Size != nil          → set to value
+	//   neither              → leave unchanged (no-op)
+	if updates.ClearSize {
+		td.Size = nil
+	} else if updates.Size != nil {
+		td.Size = updates.Size
 	}
 
 	if err := s.repo.Update(ctx, td); err != nil {

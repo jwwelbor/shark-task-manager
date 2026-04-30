@@ -32,7 +32,7 @@ func NewTechDebtRepository(db *dbconn.DB) *TechDebtRepository {
 
 // techDebtSelectColumns is the ordered list of columns for scanning a TechDebt row.
 const techDebtSelectColumns = `id, key, title, slug, description, status, category, severity,
-	effort_estimate, context_data, file_path, created_at, updated_at`
+	effort_estimate, context_data, file_path, size, created_at, updated_at`
 
 // scanTechDebt scans a single TechDebt row from the given scanner.
 func scanTechDebt(scanner interface {
@@ -51,6 +51,7 @@ func scanTechDebt(scanner interface {
 		&td.EffortEstimate,
 		&td.ContextData,
 		&td.FilePath,
+		&td.Size,
 		&td.CreatedAt,
 		&td.UpdatedAt,
 	)
@@ -85,9 +86,9 @@ func (r *TechDebtRepository) Create(ctx context.Context, td *models.TechDebt) er
 	query := `
 		INSERT INTO tech_debts (
 			key, title, slug, description, status, category, severity,
-			effort_estimate, context_data, file_path
+			effort_estimate, context_data, file_path, size
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -101,6 +102,7 @@ func (r *TechDebtRepository) Create(ctx context.Context, td *models.TechDebt) er
 		td.EffortEstimate,
 		td.ContextData,
 		td.FilePath,
+		td.Size,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create tech-debt: %w", err)
@@ -163,7 +165,8 @@ func (r *TechDebtRepository) GetByID(ctx context.Context, id int64) (*models.Tec
 	return td, nil
 }
 
-// Update updates an existing tech-debt record (title, description, category, severity, effort_estimate).
+// Update updates an existing tech-debt record (title, description, category, severity,
+// effort_estimate, size).
 func (r *TechDebtRepository) Update(ctx context.Context, td *models.TechDebt) error {
 	if err := td.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -172,7 +175,7 @@ func (r *TechDebtRepository) Update(ctx context.Context, td *models.TechDebt) er
 	query := `
 		UPDATE tech_debts
 		SET title = ?, slug = ?, description = ?, category = ?, severity = ?,
-			effort_estimate = ?, context_data = ?, file_path = ?
+			effort_estimate = ?, context_data = ?, file_path = ?, size = ?
 		WHERE id = ?
 	`
 
@@ -185,6 +188,7 @@ func (r *TechDebtRepository) Update(ctx context.Context, td *models.TechDebt) er
 		td.EffortEstimate,
 		td.ContextData,
 		td.FilePath,
+		td.Size,
 		td.ID,
 	)
 	if err != nil {

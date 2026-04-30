@@ -39,6 +39,8 @@ func TestSizeFlag_RegisteredOnAllUpdateCommands(t *testing.T) {
 		{"bug update", bugUpdateCmd},
 		{"change update", changeUpdateCmd},
 		{"idea update", ideaUpdateCmd},
+		{"td update", tdUpdateCmd},
+		{"update (dispatch)", updateCmd},
 	}
 
 	for _, tc := range cmds {

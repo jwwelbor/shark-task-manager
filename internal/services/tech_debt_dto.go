@@ -14,6 +14,10 @@ type CreateTechDebtInput struct {
 	FilePath *string `json:"file_path,omitempty"`
 	// Force allows overwriting an existing file at the target path.
 	Force bool `json:"force,omitempty"`
+	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
+	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
+	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
+	Size *int `json:"size,omitempty"`
 }
 
 // TechDebtUpdates contains optional fields for updating a tech-debt item.
@@ -25,6 +29,13 @@ type TechDebtUpdates struct {
 	Severity       *models.TechDebtSeverity `json:"severity,omitempty"`
 	EffortEstimate *string                  `json:"effort_estimate,omitempty"`
 	FilePath       *string                  `json:"file_path,omitempty"`
+	// Size updates the size when non-nil. Use models.ParseSize to convert
+	// t-shirt labels before setting.
+	Size *int `json:"size,omitempty"`
+	// ClearSize when true sets the tech-debt's size to NULL regardless of the
+	// Size field value. ClearSize takes precedence over Size. Corresponds to
+	// `--size clear` on the CLI.
+	ClearSize bool `json:"clear_size,omitempty"`
 }
 
 // TechDebtFilters defines filter options for listing tech-debt items via the service layer.

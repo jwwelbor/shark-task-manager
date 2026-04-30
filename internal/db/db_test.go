@@ -381,6 +381,11 @@ func TestMigration_SizeColumn_ExistingRowsHaveNullSize(t *testing.T) {
 			`INSERT INTO ideas (key, title, created_date, status) VALUES (?, ?, ?, ?)`,
 			[]interface{}{"I-2099-01-01-01", "Test Idea for Size Null Check", "2099-01-01", "new"},
 		},
+		{
+			"tech_debts",
+			`INSERT INTO tech_debts (key, title) VALUES (?, ?)`,
+			[]interface{}{"TD-999", "Test Tech-Debt for Size Null Check"},
+		},
 	}
 
 	// Track inserted IDs for cleanup.
@@ -435,7 +440,7 @@ func TestMigration_SizeColumn_Idempotent(t *testing.T) {
 	require.NoError(t, err, "second call to migrateAddSizeColumns should be idempotent (no error)")
 
 	// Confirm exactly one size column per table.
-	tables := []string{"epics", "features", "tasks", "bugs", "change_cards", "ideas"}
+	tables := []string{"epics", "features", "tasks", "bugs", "change_cards", "ideas", "tech_debts"}
 	for _, table := range tables {
 		t.Run(table, func(t *testing.T) {
 			var count int
@@ -451,14 +456,15 @@ func TestMigration_SizeColumn_Idempotent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TC-F009-B: CurrentSchemaVersion is 15 after migration.
-// Part of E07-F42 (Add Size field to all entities).
+// TC-F009-B: CurrentSchemaVersion is at the expected value after migration.
+// Originally pinned to 15 by E07-F42 (Add Size field to all entities). Bumped
+// to 16 when migrateAddSizeColumns was extended to also cover tech_debts.
 // ---------------------------------------------------------------------------
 
-// TestMigration_SchemaVersion15 verifies that InitDB stores CurrentSchemaVersion
-// >= 15 in the schema_version table after applying all migrations.
-// (TC-F009-B from test-plan.md)
-func TestMigration_SchemaVersion15(t *testing.T) {
+// TestMigration_SchemaVersion verifies that InitDB stores CurrentSchemaVersion
+// in the schema_version table after applying all migrations, and that the
+// constant matches the expected current value.
+func TestMigration_SchemaVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"
 
@@ -470,12 +476,12 @@ func TestMigration_SchemaVersion15(t *testing.T) {
 	// reads the maximum stored value.
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.GreaterOrEqual(t, version, 15,
-		"schema version should be at least 15 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
+	assert.GreaterOrEqual(t, version, 16,
+		"schema version should be at least 16 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
-	// Also confirm the constant itself is set to 15.
-	assert.Equal(t, 15, CurrentSchemaVersion,
-		"CurrentSchemaVersion constant should be 15 for this feature")
+	// Also confirm the constant itself is set to the expected current value.
+	assert.Equal(t, 16, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 16 (size column extended to tech_debts)")
 }
 
 // ---------------------------------------------------------------------------
