@@ -62,7 +62,8 @@ var tdCreateCmd = &cobra.Command{
 Examples:
   shark td create "Refactor auth module"
   shark td create "Update dependencies" --category=dependency --severity=high
-  shark td create "Add unit tests" --effort-estimate=M --json`,
+  shark td create "Add unit tests" --effort-estimate=M --json
+  shark td create "Refactor auth module" --size=L`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTdCreate,
 }
@@ -104,7 +105,7 @@ Examples:
 var tdUpdateCmd = &cobra.Command{
 	Use:   "update <key>",
 	Short: "Update a tech-debt item",
-	Long: `Update tech-debt fields (title, category, severity, effort-estimate, description).
+	Long: `Update tech-debt fields (title, category, severity, effort-estimate, description, size).
 
 At least one update flag must be provided.
 Does NOT accept --status; use "shark status set" instead.
@@ -112,7 +113,9 @@ Does NOT accept --status; use "shark status set" instead.
 Examples:
   shark td update TD-001 --title="Updated title"
   shark td update TD-001 --category=architecture --severity=critical
-  shark td update TD-001 --effort-estimate=L --json`,
+  shark td update TD-001 --effort-estimate=L --json
+  shark td update TD-001 --size=XL
+  shark td update TD-001 --size=clear`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTdUpdate,
 }
@@ -181,6 +184,7 @@ func init() {
 	tdCreateCmd.Flags().StringVar(&tdDescription, "description", "", "Description of the tech debt")
 	tdCreateCmd.Flags().StringVar(&tdFilePath, "file", "", "Custom file path for tech-debt markdown file")
 	tdCreateCmd.Flags().BoolVar(&tdForce, "force", false, "Overwrite existing file at target path")
+	tdCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// List flags
 	tdListCmd.Flags().StringVar(&tdStatus, "status", "", "Filter by status")
@@ -199,6 +203,8 @@ func init() {
 	tdUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = tdUpdateCmd.Flags().MarkHidden("filename")
 	_ = tdUpdateCmd.Flags().MarkHidden("path")
+	tdUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)")
 
 	// Delete flags
 	tdDeleteCmd.Flags().BoolVar(&tdForce, "force", false, "Skip confirmation prompt")
@@ -227,6 +233,16 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 		severity = string(models.TechDebtSeverityMedium)
 	}
 
+	// Parse --size before calling the service so invalid values are rejected early.
+	var sizePtr *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		sizePtr = &n
+	}
+
 	input := services.CreateTechDebtInput{
 		Title:          args[0],
 		Category:       models.TechDebtCategory(category),
@@ -234,6 +250,7 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 		EffortEstimate: effortEstimate,
 		Description:    description,
 		Force:          force,
+		Size:           sizePtr,
 	}
 
 	if filePath != "" {
@@ -389,9 +406,21 @@ func runTdUpdate(cmd *cobra.Command, args []string) error {
 		updates.FilePath = &v
 	}
 
+	// Three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+	}
+
 	if updates.Title == nil && updates.Category == nil && updates.Severity == nil &&
-		updates.EffortEstimate == nil && updates.Description == nil && updates.FilePath == nil {
-		return fmt.Errorf("at least one update flag is required (--title, --category, --severity, --effort-estimate, --description, or --file)")
+		updates.EffortEstimate == nil && updates.Description == nil && updates.FilePath == nil &&
+		updates.Size == nil && !updates.ClearSize {
+		return fmt.Errorf("at least one update flag is required (--title, --category, --severity, --effort-estimate, --description, --file, or --size)")
 	}
 
 	// Step 2: Call service
@@ -484,6 +513,9 @@ func buildTechDebtBasicInfo(td *models.TechDebt) [][]string {
 
 	if td.EffortEstimate != nil && *td.EffortEstimate != "" {
 		info = append(info, []string{"Effort Estimate", *td.EffortEstimate})
+	}
+	if td.Size != nil {
+		info = append(info, []string{"Size", formatSize(td.Size)})
 	}
 	if td.FilePath != nil && *td.FilePath != "" {
 		info = append(info, []string{"File", *td.FilePath})

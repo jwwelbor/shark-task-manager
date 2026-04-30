@@ -28,6 +28,7 @@ Common flags (all entities):
   --key            Rename entity key
   --file           New file path
   --force          Force file reassignment
+  --size           New size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)
 
 Priority & agent flags:
   --priority       New priority (1-10 for tasks; low/medium/high for epics)
@@ -43,7 +44,9 @@ Examples:
   shark update E07-F01 --title="New Feature Title" --file=docs/custom/feature.md
   shark update E07-F01 --key=E07-F02
   shark update E07-F01-001 --title="New Task Title" --priority=8
-  shark update E07-F01-001 --agent=backend`,
+  shark update E07-F01-001 --agent=backend
+  shark update E07-F01-001 --size=L
+  shark update TD-001 --size=clear`,
 	GroupID: "manage",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runUpdate,
@@ -75,6 +78,11 @@ func init() {
 
 	// Epic-specific flags
 	updateCmd.Flags().String("business-value", "", "New business value: low, medium, high (epic only)")
+
+	// Size flag (all entities) — string form per Decision D4: accepts numeric (5)
+	// or t-shirt label (L) and the literal "clear" sentinel for removal.
+	updateCmd.Flags().String("size", "",
+		"New size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)")
 
 	// Deprecated aliases
 	updateCmd.Flags().Int("execution-order", -1, "New execution order (-1=no change)")

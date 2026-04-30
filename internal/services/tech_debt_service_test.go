@@ -327,6 +327,146 @@ func TestTechDebtService_Update_Success(t *testing.T) {
 	}
 }
 
+// --- Size on Create / Update ---
+
+// TestTechDebtService_Create_WithSize verifies that a Size value passed in the
+// CreateTechDebtInput is propagated to the persisted TechDebt model.
+func TestTechDebtService_Create_WithSize(t *testing.T) {
+	ctx := context.Background()
+
+	var createdTD *models.TechDebt
+	repo := &mockTechDebtRepo{
+		generateNextKeyFn: func(_ context.Context) (string, error) { return "TD-001", nil },
+		createFn: func(_ context.Context, td *models.TechDebt) error {
+			createdTD = td
+			td.ID = 1
+			return nil
+		},
+	}
+
+	svc := newTechDebtService(repo)
+	five := 5
+	td, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
+		Title:    "Refactor auth",
+		Category: models.TechDebtCategoryArchitecture,
+		Severity: models.TechDebtSeverityMedium,
+		Size:     &five,
+	})
+	if err != nil {
+		t.Fatalf("CreateTechDebt() error = %v", err)
+	}
+	if td.Size == nil || *td.Size != 5 {
+		t.Errorf("expected returned td.Size=5, got %v", td.Size)
+	}
+	if createdTD == nil || createdTD.Size == nil || *createdTD.Size != 5 {
+		t.Errorf("expected persisted td.Size=5, got %v", createdTD)
+	}
+}
+
+// TestTechDebtService_Update_SetSize verifies the three-branch dispatch:
+// Size != nil → set; ClearSize=true → clear; both empty → no-op.
+func TestTechDebtService_Update_SetSize(t *testing.T) {
+	ctx := context.Background()
+	existingSize := 3
+	var updatedTD *models.TechDebt
+
+	repo := &mockTechDebtRepo{
+		getByKeyFn: func(_ context.Context, key string) (*models.TechDebt, error) {
+			return &models.TechDebt{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Old", Size: &existingSize},
+				Status:     "identified",
+				Category:   models.TechDebtCategoryCodeQuality,
+				Severity:   models.TechDebtSeverityMedium,
+			}, nil
+		},
+		updateFn: func(_ context.Context, td *models.TechDebt) error {
+			updatedTD = td
+			return nil
+		},
+	}
+	svc := newTechDebtService(repo)
+
+	eight := 8
+	td, err := svc.UpdateTechDebt(ctx, "TD-001", TechDebtUpdates{Size: &eight})
+	if err != nil {
+		t.Fatalf("UpdateTechDebt() error = %v", err)
+	}
+	if td.Size == nil || *td.Size != 8 {
+		t.Errorf("expected td.Size=8 after update, got %v", td.Size)
+	}
+	if updatedTD == nil || updatedTD.Size == nil || *updatedTD.Size != 8 {
+		t.Errorf("expected persisted td.Size=8, got %v", updatedTD)
+	}
+}
+
+func TestTechDebtService_Update_ClearSize(t *testing.T) {
+	ctx := context.Background()
+	existingSize := 5
+	var updatedTD *models.TechDebt
+
+	repo := &mockTechDebtRepo{
+		getByKeyFn: func(_ context.Context, key string) (*models.TechDebt, error) {
+			return &models.TechDebt{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Old", Size: &existingSize},
+				Status:     "identified",
+				Category:   models.TechDebtCategoryCodeQuality,
+				Severity:   models.TechDebtSeverityMedium,
+			}, nil
+		},
+		updateFn: func(_ context.Context, td *models.TechDebt) error {
+			updatedTD = td
+			return nil
+		},
+	}
+	svc := newTechDebtService(repo)
+
+	td, err := svc.UpdateTechDebt(ctx, "TD-001", TechDebtUpdates{ClearSize: true})
+	if err != nil {
+		t.Fatalf("UpdateTechDebt() error = %v", err)
+	}
+	if td.Size != nil {
+		t.Errorf("expected td.Size=nil after ClearSize, got %d", *td.Size)
+	}
+	if updatedTD == nil {
+		t.Fatal("expected update to be called")
+	}
+	if updatedTD.Size != nil {
+		t.Errorf("expected persisted td.Size=nil, got %d", *updatedTD.Size)
+	}
+}
+
+func TestTechDebtService_Update_SizeNoOpPreservesExisting(t *testing.T) {
+	ctx := context.Background()
+	existingSize := 5
+	var updatedTD *models.TechDebt
+
+	repo := &mockTechDebtRepo{
+		getByKeyFn: func(_ context.Context, key string) (*models.TechDebt, error) {
+			return &models.TechDebt{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Old", Size: &existingSize},
+				Status:     "identified",
+				Category:   models.TechDebtCategoryCodeQuality,
+				Severity:   models.TechDebtSeverityMedium,
+			}, nil
+		},
+		updateFn: func(_ context.Context, td *models.TechDebt) error {
+			updatedTD = td
+			return nil
+		},
+	}
+	svc := newTechDebtService(repo)
+
+	newTitle := "New Title"
+	// Touch only Title; Size and ClearSize both unset → existing size preserved.
+	_, err := svc.UpdateTechDebt(ctx, "TD-001", TechDebtUpdates{Title: &newTitle})
+	if err != nil {
+		t.Fatalf("UpdateTechDebt() error = %v", err)
+	}
+	if updatedTD == nil || updatedTD.Size == nil || *updatedTD.Size != 5 {
+		t.Errorf("expected td.Size to be preserved as 5, got %v", updatedTD)
+	}
+}
+
 // --- DeleteTechDebt tests ---
 
 func TestTechDebtService_Delete_Success(t *testing.T) {

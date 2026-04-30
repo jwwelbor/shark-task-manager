@@ -435,7 +435,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 15
+const CurrentSchemaVersion = 16
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -3395,8 +3395,8 @@ func migrateAddTagsAndEntityTags(db *sql.DB) error {
 	return nil
 }
 
-// migrateAddSizeColumns adds the nullable `size` column to each of the six
-// entity tables: epics, features, tasks, bugs, change_cards, ideas.
+// migrateAddSizeColumns adds the nullable `size` column to each entity table:
+// epics, features, tasks, bugs, change_cards, ideas, tech_debts.
 //
 // The column is INTEGER NULL with no CHECK constraint — validation of the
 // canonical Fibonacci set {1,2,3,5,8,13} is handled at the model layer
@@ -3409,15 +3409,14 @@ func migrateAddTagsAndEntityTags(db *sql.DB) error {
 // migrateAddTagsAndEntityTags approach. This makes the function idempotent:
 // safe to run on a database that already has the column.
 //
-// DEVELOPER NOTE: This function adds schema version 15. CurrentSchemaVersion
-// has been bumped to 15 so that ApplySchemaIfNeeded detects the version gap
-// and re-applies on existing databases. The skip_migrations toggle in
-// .sharkconfig.json is not required — bumping CurrentSchemaVersion is the
-// only necessary step. See .claude/rules/database-critical.md.
-//
-// Part of Epic E07 — Enhancements (E07-F42).
+// DEVELOPER NOTE: Schema version 15 added size to the original six entities
+// (E07-F42). Schema version 16 extends the column to tech_debts so that
+// `shark td create/update --size=...` and the unified `shark update` dispatch
+// can persist size for tech-debt items. CurrentSchemaVersion is bumped to 16;
+// ApplySchemaIfNeeded detects the version gap and re-applies on existing
+// databases. See .claude/rules/database-critical.md.
 func migrateAddSizeColumns(db *sql.DB) error {
-	tables := []string{"epics", "features", "tasks", "bugs", "change_cards", "ideas"}
+	tables := []string{"epics", "features", "tasks", "bugs", "change_cards", "ideas", "tech_debts"}
 	for _, table := range tables {
 		var exists int
 		err := db.QueryRow(

@@ -90,6 +90,12 @@ func (td *TechDebt) Validate() error {
 	if !ValidTechDebtSeverities[td.Severity] {
 		return fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", td.Severity)
 	}
+	// Validate size if set (canonical Fibonacci values only).
+	if td.Size != nil {
+		if err := ValidateSize(*td.Size); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
