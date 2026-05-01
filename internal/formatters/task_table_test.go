@@ -70,6 +70,12 @@ func TestFeatureGetTaskTableConfig_TitleScalesWithConsoleWidth(t *testing.T) {
 }
 
 func TestDefaultTaskTableConfig(t *testing.T) {
+	// CC-036: stub console width to the documented baseline so the
+	// TitleMaxLength assertion is deterministic regardless of the terminal
+	// the test runs in.
+	restore := cli.SetConsoleWidthForTesting(120)
+	defer restore()
+
 	config := DefaultTaskTableConfig()
 
 	assert.True(t, config.ShowKey)
@@ -86,6 +92,12 @@ func TestDefaultTaskTableConfig(t *testing.T) {
 }
 
 func TestFeatureGetTaskTableConfig(t *testing.T) {
+	// CC-036: stub console width to the documented baseline so the
+	// TitleMaxLength assertion is deterministic regardless of the terminal
+	// the test runs in.
+	restore := cli.SetConsoleWidthForTesting(120)
+	defer restore()
+
 	config := FeatureGetTaskTableConfig()
 
 	assert.True(t, config.ShowKey)
