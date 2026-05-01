@@ -579,6 +579,10 @@ func buildBugBasicInfo(bug *models.Bug) [][]string {
 // buildBugListRows converts a slice of bugs to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildBugListRows(bugs []*models.Bug) [][]string {
+	// CC-036: Title column scales with resolved console width.
+	// Reserved width (~75 cols) covers key + status + severity + linked-to +
+	// size columns plus separators.
+	titleMax := cli.TitleColumnWidth(75)
 	rows := make([][]string, 0, len(bugs))
 	for _, b := range bugs {
 		linkedTo := ""
@@ -587,7 +591,7 @@ func buildBugListRows(bugs []*models.Bug) [][]string {
 		}
 		rows = append(rows, []string{
 			b.Key,
-			truncateBugString(b.Title, 45),
+			truncateBugString(b.Title, titleMax),
 			string(b.Status),
 			string(b.Severity),
 			linkedTo,

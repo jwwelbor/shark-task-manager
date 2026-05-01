@@ -1035,3 +1035,56 @@ func TestManager_GetActionService_Caching(t *testing.T) {
 		t.Error("expected same service instance on multiple calls")
 	}
 }
+
+// TestLoadConfig_ConsoleWidth_Present verifies that Manager.Load() populates
+// Config.ConsoleWidth from the `console_width` JSON field. CC-036.
+func TestLoadConfig_ConsoleWidth_Present(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+	configData := map[string]interface{}{
+		"console_width": 100,
+	}
+	data, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := NewManager(configPath).Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.ConsoleWidth != 100 {
+		t.Errorf("ConsoleWidth = %d, want 100", cfg.ConsoleWidth)
+	}
+}
+
+// TestLoadConfig_ConsoleWidth_Absent verifies that absence of console_width
+// in JSON leaves ConsoleWidth at its zero value (which means "auto-detect"
+// per GetConsoleWidth contract). CC-036.
+func TestLoadConfig_ConsoleWidth_Absent(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+	configData := map[string]interface{}{
+		"color_enabled": true,
+	}
+	data, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := NewManager(configPath).Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.ConsoleWidth != 0 {
+		t.Errorf("ConsoleWidth = %d, want 0 (unset → auto-detect)", cfg.ConsoleWidth)
+	}
+}

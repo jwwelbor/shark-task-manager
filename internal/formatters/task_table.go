@@ -30,7 +30,22 @@ type TaskTableConfig struct {
 	UsePterm bool // If true, uses pterm.DefaultTable; otherwise returns headers/rows for cli.OutputTable
 }
 
+// Reserved-column estimates for title-column sizing. These approximate the
+// non-title chrome in a "task list"/"feature get" table (key + status +
+// priority + agent + order + separators). They are intentionally rough — the
+// goal is to scale title width with console width, not to be pixel-perfect.
+//
+// CC-036: prior to console-width support these were hardcoded at 40 (task
+// list) and 60 (feature get) for a ~120-column baseline. Subtracting these
+// reserved values from a 120-column width reproduces the historical caps,
+// so existing layouts on 120-column terminals are preserved.
+const (
+	taskListReservedColumns = 80 // 120 - 40 = 80
+	featureGetTaskReserved  = 60 // 120 - 60 = 60
+)
+
 // DefaultTaskTableConfig returns the standard configuration used by "task list" command.
+// CC-036: TitleMaxLength is now derived from the resolved console width.
 func DefaultTaskTableConfig() TaskTableConfig {
 	return TaskTableConfig{
 		ShowKey:            true,
@@ -40,7 +55,7 @@ func DefaultTaskTableConfig() TaskTableConfig {
 		ShowAgentType:      true,
 		ShowExecutionOrder: true,
 		ShowRejections:     true,
-		TitleMaxLength:     40,
+		TitleMaxLength:     cli.TitleColumnWidth(taskListReservedColumns),
 		ColorEnabled:       true,
 		UseHeader:          true,
 		UsePterm:           false,
@@ -49,6 +64,7 @@ func DefaultTaskTableConfig() TaskTableConfig {
 
 // FeatureGetTaskTableConfig returns the configuration used by "feature get" command.
 // This has a wider title column and uses pterm for rendering.
+// CC-036: TitleMaxLength is now derived from the resolved console width.
 func FeatureGetTaskTableConfig() TaskTableConfig {
 	return TaskTableConfig{
 		ShowKey:            true,
@@ -58,7 +74,7 @@ func FeatureGetTaskTableConfig() TaskTableConfig {
 		ShowAgentType:      true,
 		ShowExecutionOrder: false, // Not shown in feature get
 		ShowRejections:     false, // Not shown in feature get
-		TitleMaxLength:     60,
+		TitleMaxLength:     cli.TitleColumnWidth(featureGetTaskReserved),
 		ColorEnabled:       true,
 		UseHeader:          true,
 		UsePterm:           true,

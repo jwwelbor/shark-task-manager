@@ -10,6 +10,18 @@ import (
 // custom template_directory is configured in .sharkconfig.json.
 const DefaultTemplateDir = "shark-templates"
 
+// DefaultConsoleWidth is the fallback console width used by GetConsoleWidth
+// when (a) the config field is unset/zero AND (b) terminal-size detection by
+// the caller has failed. It is also the value returned by GetConsoleWidth on
+// a nil *Config. Chosen to match the historical layout assumption for shark
+// list views (~85-90 column terminals leave room for surrounding chrome).
+const DefaultConsoleWidth = 120
+
+// MinConsoleWidth is the lower clamp applied to GetConsoleWidth when the
+// configured value is positive but extremely small. Below ~40 columns column
+// titles and dashes do not fit in any reasonable list view, so we clamp.
+const MinConsoleWidth = 40
+
 // Config represents the .sharkconfig.json structure
 type Config struct {
 	// LastSyncTime is the timestamp of the last successful sync
@@ -38,6 +50,13 @@ type Config struct {
 	// Recent holds optional configuration for the `shark recent` command.
 	// A nil or absent Recent means "use built-in defaults" (limit = 5).
 	Recent *RecentConfig `json:"recent,omitempty"`
+
+	// ConsoleWidth is the width (in columns) used to size CLI list views
+	// (description column truncation, etc.). Zero or negative means
+	// "auto-detect from the controlling terminal, falling back to
+	// DefaultConsoleWidth." Positive values are clamped to >= MinConsoleWidth.
+	// See GetConsoleWidth for resolution rules.
+	ConsoleWidth int `json:"console_width,omitempty"`
 
 	// TagRequiredForTypes lists entity types that MUST carry at least one tag
 	// at creation time. Values are entity-type strings as returned by
@@ -229,6 +248,35 @@ func (c *Config) GetRecentDefaultLimit() int {
 		return builtinDefault
 	}
 	return c.Recent.DefaultLimit
+}
+
+// GetConsoleWidth returns the console width to use when rendering CLI list
+// views.
+//
+// Resolution rules:
+//
+//  1. If c is nil or c.ConsoleWidth is zero/negative, the caller-supplied
+//     detected width is used. Callers detect the controlling terminal width
+//     once (e.g., via golang.org/x/term.GetSize) and pass it in. A
+//     detectedWidth of zero or negative means "detection failed" and is
+//     replaced by DefaultConsoleWidth.
+//  2. If c.ConsoleWidth is positive, it is used as-is, clamped to
+//     >= MinConsoleWidth (so config values like 5 don't produce unrenderable
+//     tables).
+//
+// This method is the single source of truth for resolved console width and is
+// safe to call on a nil *Config.
+func (c *Config) GetConsoleWidth(detectedWidth int) int {
+	if c == nil || c.ConsoleWidth <= 0 {
+		if detectedWidth <= 0 {
+			return DefaultConsoleWidth
+		}
+		return detectedWidth
+	}
+	if c.ConsoleWidth < MinConsoleWidth {
+		return MinConsoleWidth
+	}
+	return c.ConsoleWidth
 }
 
 // GetTemplateDirectoryFromConfig loads the template directory setting from the given config file path.

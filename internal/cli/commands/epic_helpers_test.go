@@ -2,8 +2,10 @@ package commands
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
@@ -586,4 +588,113 @@ func TestGetRelativePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuildEpicListRows_TitleScalesWithConsoleWidth verifies that
+// buildEpicListRows truncates the Title column at a width derived from
+// the resolved console width (CC-036). Mirrors the rendering-path test
+// in internal/formatters/task_table_test.go to lock in the contract that
+// `cli.TitleColumnWidth(70)` flows through this list view.
+//
+// At the 120-col baseline the truncation cap is 50 chars (120 - 70),
+// matching the historical hardcoded behavior. At a 60-col terminal the
+// cap clamps to the 20-char floor in TitleColumnWidth. At 200 cols the
+// cap widens to 130 chars so longer titles render in full.
+func TestBuildEpicListRows_TitleScalesWithConsoleWidth(t *testing.T) {
+	// 200 chars — long enough that every test case truncates except the
+	// widest terminal.
+	longTitle := strings.Repeat("A", 200)
+
+	tests := []struct {
+		name              string
+		stubbedWidth      int
+		wantTruncatedLen  int  // expected len(title) in the rendered row
+		wantHasEllipsis   bool // expected to end in "..."
+		wantUntruncatedAt int  // sanity: TitleColumnWidth(70) at this width
+	}{
+		{
+			name:              "narrow terminal yields min title width (clamped to 20)",
+			stubbedWidth:      60,
+			wantTruncatedLen:  20, // 60-70 < 20 floor → 20
+			wantHasEllipsis:   true,
+			wantUntruncatedAt: 20,
+		},
+		{
+			name:              "baseline 120 reproduces historical 50-char cap",
+			stubbedWidth:      120,
+			wantTruncatedLen:  50, // 120-70 = 50
+			wantHasEllipsis:   true,
+			wantUntruncatedAt: 50,
+		},
+		{
+			name:              "wide terminal yields wider title (130 chars)",
+			stubbedWidth:      200,
+			wantTruncatedLen:  130, // 200-70 = 130
+			wantHasEllipsis:   true,
+			wantUntruncatedAt: 130,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := cli.SetConsoleWidthForTesting(tt.stubbedWidth)
+			defer restore()
+
+			epics := []EpicWithProgress{
+				{
+					Epic: &models.Epic{
+						BaseEntity: models.BaseEntity{Key: "E07", Title: longTitle},
+						Status:     models.EpicStatusActive,
+						Priority:   models.PriorityMedium,
+					},
+					ProgressPct: 50.0,
+				},
+			}
+
+			rows := buildEpicListRows(epics)
+			if len(rows) != 1 {
+				t.Fatalf("buildEpicListRows returned %d rows, want 1", len(rows))
+			}
+
+			gotTitle := rows[0][1] // Title is column index 1
+			if len(gotTitle) != tt.wantTruncatedLen {
+				t.Errorf("title length = %d, want %d (console width %d, title=%q)",
+					len(gotTitle), tt.wantTruncatedLen, tt.stubbedWidth, gotTitle)
+			}
+			if tt.wantHasEllipsis && !strings.HasSuffix(gotTitle, "...") {
+				t.Errorf("title %q should end in '...' when truncated (console width %d)",
+					gotTitle, tt.stubbedWidth)
+			}
+			if got := cli.TitleColumnWidth(70); got != tt.wantUntruncatedAt {
+				t.Errorf("cli.TitleColumnWidth(70) = %d, want %d (console width %d)",
+					got, tt.wantUntruncatedAt, tt.stubbedWidth)
+			}
+		})
+	}
+
+	// Sanity check: differing widths produce differing truncated lengths.
+	// This is the headline contract — width-sensitive rendering.
+	t.Run("narrow vs wide produce different lengths", func(t *testing.T) {
+		longRow := func(width int) string {
+			restore := cli.SetConsoleWidthForTesting(width)
+			defer restore()
+			rows := buildEpicListRows([]EpicWithProgress{
+				{
+					Epic: &models.Epic{
+						BaseEntity: models.BaseEntity{Key: "E07", Title: longTitle},
+						Status:     models.EpicStatusActive,
+						Priority:   models.PriorityMedium,
+					},
+				},
+			})
+			return rows[0][1]
+		}
+
+		narrow := longRow(60)
+		wide := longRow(200)
+		if len(narrow) == len(wide) {
+			t.Errorf("expected narrow (%d) and wide (%d) titles to differ in length, got both %d",
+				60, 200, len(narrow))
+		}
+	})
 }

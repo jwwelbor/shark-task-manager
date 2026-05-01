@@ -243,11 +243,19 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	}
 	workflowService := workflow.NewService(projectRoot)
 
+	// CC-036: Title column width scales with the resolved console width.
+	// Reserved width (~75 cols) accounts for key + progress + status + health
+	// + size columns plus their separators in the feature list table.
+	titleMax := cli.TitleColumnWidth(75)
 	for _, feature := range features {
-		// Reduce title to 45 characters for 85-90 char terminal width
+		// CC-036: title truncation uses the resolved console width.
 		title := feature.Title
-		if len(title) > 45 {
-			title = title[:42] + "..."
+		if len(title) > titleMax {
+			if titleMax <= 3 {
+				title = title[:titleMax]
+			} else {
+				title = title[:titleMax-3] + "..."
+			}
 		}
 
 		// Get status breakdown from batch result

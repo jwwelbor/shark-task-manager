@@ -103,11 +103,21 @@ func sortEpics(epics []EpicWithProgress, sortBy string) {
 // buildEpicListRows converts a slice of EpicWithProgress to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildEpicListRows(epics []EpicWithProgress) [][]string {
+	// CC-036: Title column width scales with the resolved console width.
+	// Reserved width (~70 cols) accounts for key + status + progress + priority
+	// + size columns plus their separators in the epic list table. At the
+	// 120-col baseline this yields a 50-char title cap, matching the prior
+	// hardcoded behavior.
+	titleMax := cli.TitleColumnWidth(70)
 	rows := make([][]string, 0, len(epics))
 	for _, epic := range epics {
 		title := epic.Title
-		if len(title) > 50 {
-			title = title[:47] + "..."
+		if len(title) > titleMax {
+			if titleMax <= 3 {
+				title = title[:titleMax]
+			} else {
+				title = title[:titleMax-3] + "..."
+			}
 		}
 		progress := fmt.Sprintf("%.0f%%", epic.ProgressPct)
 		rows = append(rows, []string{
@@ -345,10 +355,20 @@ func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[
 		{"Key", "Title", "Status", "Progress", "Tasks"},
 	}
 
+	// CC-036: Title column width scales with the resolved console width.
+	// Reserved width (~85 cols) accounts for key + status + progress + tasks
+	// columns plus their separators in the epic-get features sub-table. At
+	// the 120-col baseline this yields a 35-char title cap, matching the
+	// prior hardcoded behavior.
+	titleMax := cli.TitleColumnWidth(85)
 	for _, feature := range features {
 		title := feature.Title
-		if len(title) > 35 {
-			title = title[:32] + "..."
+		if len(title) > titleMax {
+			if titleMax <= 3 {
+				title = title[:titleMax]
+			} else {
+				title = title[:titleMax-3] + "..."
+			}
 		}
 
 		progress := fmt.Sprintf("%.0f%%", feature.ProgressPct)

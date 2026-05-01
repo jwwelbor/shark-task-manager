@@ -495,6 +495,10 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("-", 80))
 
 	headers := []string{"Timestamp", "Old Status", "New Status", "Agent", "Notes"}
+	// CC-036: Notes column scales with resolved console width.
+	// Reserved width (~60 cols) covers timestamp + 2 status columns + agent
+	// columns plus separators in the status history table.
+	notesMax := cli.TitleColumnWidth(60)
 	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
 		oldStatus := e.OldStatus
@@ -506,7 +510,7 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 			oldStatus,
 			e.NewStatus,
 			e.Agent,
-			truncateString(formatHistoryNotesForDisplay(e.Notes), 60),
+			truncateString(formatHistoryNotesForDisplay(e.Notes), notesMax),
 		})
 	}
 
