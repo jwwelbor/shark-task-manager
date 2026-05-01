@@ -273,7 +273,7 @@ func TestChangeCardService_CreateChangeCard(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	card, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Add dark mode toggle",
 	})
 	if err != nil {
@@ -294,7 +294,7 @@ func TestChangeCardService_CreateChangeCard_EmptyTitle(t *testing.T) {
 	ctx := context.Background()
 	svc := newChangeCardService(&mockChangeCardRepo{}, nil, nil)
 
-	_, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{Title: ""})
+	_, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{Title: ""})
 	if err == nil {
 		t.Fatal("expected error for empty title")
 	}
@@ -324,7 +324,7 @@ func TestChangeCardService_CreateChangeCard_WithEpicLink(t *testing.T) {
 
 	svc := newChangeCardService(repo, epicRepo, nil)
 
-	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	card, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title:   "Linked to epic",
 		EpicKey: "E07",
 	})
@@ -700,7 +700,7 @@ func TestChangeCardService_CreateChangeCard_PropagatesSize(t *testing.T) {
 	svc := newChangeCardService(repo, nil, nil)
 
 	size := 5
-	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	card, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Change card with size",
 		Size:  &size,
 	})
@@ -737,7 +737,7 @@ func TestChangeCardService_CreateChangeCard_NilSizePropagated(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	card, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Change card without size",
 	})
 	if err != nil {

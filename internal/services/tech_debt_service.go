@@ -70,28 +70,32 @@ func NewTechDebtService(
 }
 
 // CreateTechDebt creates a new tech-debt item with auto-generated key and slug.
-func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDebtInput) (*models.TechDebt, error) {
+//
+// Returns the created tech-debt, a boolean indicating whether an existing
+// markdown file was linked (vs. a fresh placeholder being written), and any
+// error.
+func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDebtInput) (*models.TechDebt, bool, error) {
 	if strings.TrimSpace(input.Title) == "" {
-		return nil, fmt.Errorf("tech-debt title cannot be empty")
+		return nil, false, fmt.Errorf("tech-debt title cannot be empty")
 	}
 
 	if !models.ValidTechDebtCategories[input.Category] {
-		return nil, fmt.Errorf("invalid category %q: must be one of code-quality, architecture, dependency, testing, performance, documentation", input.Category)
+		return nil, false, fmt.Errorf("invalid category %q: must be one of code-quality, architecture, dependency, testing, performance, documentation", input.Category)
 	}
 
 	if !models.ValidTechDebtSeverities[input.Severity] {
-		return nil, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", input.Severity)
+		return nil, false, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", input.Severity)
 	}
 
 	// Enforce tag_required_for before key allocation or persistence.
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeTechDebt, input.Tags); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Generate key
 	key, err := s.repo.GenerateNextKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate tech-debt key: %w", err)
+		return nil, false, fmt.Errorf("failed to generate tech-debt key: %w", err)
 	}
 
 	// Get default status from workflow
@@ -130,20 +134,23 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 	td.FilePath = &filePath
 
 	if err := s.repo.Create(ctx, td); err != nil {
-		return nil, fmt.Errorf("failed to create tech-debt: %w", err)
+		return nil, false, fmt.Errorf("failed to create tech-debt: %w", err)
 	}
 
 	// Attach tags after insert so td.ID is valid. Not wrapped in a
 	// transaction — on failure the row is persisted with zero tags and
 	// the user retries via `shark td update --tag=...`.
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTechDebt, td.ID, input.Tags); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Generate and write markdown file (best-effort)
 	content := s.generateMarkdown(td)
+	if input.Body != "" {
+		content = fileops.ReplaceBodyAfterFrontmatter(content, input.Body)
+	}
 	writer := fileops.NewEntityFileWriter()
-	_, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
+	writeResult, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
 		Content:        []byte(content),
 		ProjectRoot:    s.projectRoot,
 		FilePath:       filePath,
@@ -156,7 +163,8 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 		slog.Warn("failed to write tech-debt file", "path", filePath, "error", writeErr)
 	}
 
-	return td, nil
+	fileWasLinked := writeResult != nil && writeResult.Linked
+	return td, fileWasLinked, nil
 }
 
 // generateMarkdown produces a markdown document for a newly created tech-debt item.

@@ -16,18 +16,18 @@ import (
 // `--tag` flag tests. It records the CreateBug / UpdateBug inputs so tests
 // can assert that the CLI threaded the --tag slice through to the DTO.
 type mockBugServiceForTags struct {
-	createBugFn func(ctx context.Context, input services.CreateBugInput) (*models.Bug, error)
+	createBugFn func(ctx context.Context, input services.CreateBugInput) (*models.Bug, bool, error)
 	updateBugFn func(ctx context.Context, key string, updates services.BugUpdates) (*models.Bug, error)
 	lastCreate  services.CreateBugInput
 	lastUpdate  services.BugUpdates
 }
 
-func (m *mockBugServiceForTags) CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, error) {
+func (m *mockBugServiceForTags) CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, bool, error) {
 	m.lastCreate = input
 	if m.createBugFn != nil {
 		return m.createBugFn(ctx, input)
 	}
-	return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}, Severity: input.Severity}, nil
+	return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}, Severity: input.Severity}, false, nil
 }
 
 func (m *mockBugServiceForTags) GetBug(ctx context.Context, key string) (*models.Bug, error) {

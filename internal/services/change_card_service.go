@@ -86,10 +86,13 @@ func NewChangeCardService(
 }
 
 // CreateChangeCard creates a new change-card with optional entity linking.
-func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateChangeCardInput) (*models.ChangeCard, error) {
+//
+// Returns the created card, a boolean indicating whether an existing markdown
+// file was linked (vs. a fresh placeholder being written), and any error.
+func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 	title := strings.TrimSpace(input.Title)
 	if title == "" {
-		return nil, fmt.Errorf("change-card title cannot be empty")
+		return nil, false, fmt.Errorf("change-card title cannot be empty")
 	}
 
 	// Resolve epic link
@@ -97,7 +100,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	if input.EpicKey != "" && s.epicRepo != nil {
 		epic, err := s.epicRepo.GetByKey(ctx, input.EpicKey)
 		if err != nil {
-			return nil, fmt.Errorf("epic %s not found: %w", input.EpicKey, err)
+			return nil, false, fmt.Errorf("epic %s not found: %w", input.EpicKey, err)
 		}
 		epicID = &epic.ID
 	}
@@ -107,19 +110,19 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	if input.FeatureKey != "" && s.featureRepo != nil {
 		feature, err := s.featureRepo.GetByKey(ctx, input.FeatureKey)
 		if err != nil {
-			return nil, fmt.Errorf("feature %s not found: %w", input.FeatureKey, err)
+			return nil, false, fmt.Errorf("feature %s not found: %w", input.FeatureKey, err)
 		}
 		featureID = &feature.ID
 	}
 
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeChange, input.Tags); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Generate next key
 	nextKey, err := s.repo.GetNextKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate change-card key: %w", err)
+		return nil, false, fmt.Errorf("failed to generate change-card key: %w", err)
 	}
 
 	// Generate slug
@@ -159,7 +162,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	}
 
 	if err := card.Validate(); err != nil {
-		return nil, fmt.Errorf("validation failed: %w", err)
+		return nil, false, fmt.Errorf("validation failed: %w", err)
 	}
 
 	// Set file path
@@ -168,17 +171,20 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 
 	// Create in database
 	if err := s.repo.Create(ctx, card); err != nil {
-		return nil, fmt.Errorf("failed to create change-card: %w", err)
+		return nil, false, fmt.Errorf("failed to create change-card: %w", err)
 	}
 
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, input.Tags); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Generate and write markdown file (best-effort)
 	content := s.generateMarkdown(card)
+	if input.Body != "" {
+		content = fileops.ReplaceBodyAfterFrontmatter(content, input.Body)
+	}
 	writer := fileops.NewEntityFileWriter()
-	_, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
+	writeResult, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
 		Content:        []byte(content),
 		ProjectRoot:    s.projectRoot,
 		FilePath:       filePath,
@@ -190,7 +196,8 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 		slog.Warn("failed to write change-card file", "path", filePath, "error", writeErr)
 	}
 
-	return card, nil
+	fileWasLinked := writeResult != nil && writeResult.Linked
+	return card, fileWasLinked, nil
 }
 
 // GetChangeCard retrieves a change-card by key.

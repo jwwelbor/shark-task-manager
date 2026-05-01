@@ -169,6 +169,7 @@ func init() {
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	epicCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	epicCreateCmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
 
 	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
 

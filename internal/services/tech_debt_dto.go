@@ -22,6 +22,10 @@ type CreateTechDebtInput struct {
 	// Each tag must already be registered in the vocabulary; see `shark tags
 	// list` / `shark tags add`. Mirrors bug/change-card semantics on create.
 	Tags []string `json:"tags,omitempty"`
+	// Body, when non-empty, replaces the rendered placeholder body of the
+	// tech-debt's markdown file (frontmatter is preserved). Sourced from the
+	// CLI `--content` flag or piped stdin via cli.ResolveContentInput.
+	Body string `json:"body,omitempty"`
 }
 
 // TechDebtUpdates contains optional fields for updating a tech-debt item.

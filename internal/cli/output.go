@@ -5,57 +5,32 @@ import (
 	"strings"
 )
 
-// GetRequiredSectionsForEntityType returns the required sections for a given entity type
-func GetRequiredSectionsForEntityType(entityType string) []string {
-	switch strings.ToLower(entityType) {
-	case "epic":
-		return []string{"Vision & Goals", "Success Criteria", "Features"}
-	case "feature":
-		return []string{"Requirements", "Design", "Test Plan"}
-	case "task":
-		return []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"}
-	case "bug":
-		return []string{"Description", "Steps to Reproduce", "Expected Behavior"}
-	case "change":
-		return []string{"Description", "Justification", "Impact Analysis"}
-	default:
-		// Default to task sections for unknown types
-		return []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"}
-	}
-}
-
-// FormatEntityCreationMessage formats a human-readable creation message for epic/feature/task
-func FormatEntityCreationMessage(entityType, entityKey, entityTitle, filePath, projectRoot string, fileWasLinked bool, requiredSections []string) string {
+// FormatEntityCreationMessage formats a human-readable creation message for any
+// entity type. The output is intentionally generic — callers no longer pass a
+// list of required sections. The message either tells the user a placeholder
+// file was created (and to edit it) or that an existing file was linked.
+func FormatEntityCreationMessage(entityType, entityKey, entityTitle, filePath, projectRoot string, fileWasLinked bool) string {
 	var sb strings.Builder
-
-	// Success header
 	sb.WriteString(fmt.Sprintf("✅ Created %s %s: %s\n", entityType, entityKey, entityTitle))
-
 	if fileWasLinked {
-		// File was linked to existing content
 		sb.WriteString("📎 LINKED TO EXISTING FILE\n\n")
 		sb.WriteString(fmt.Sprintf("File: %s\n\n", filePath))
 		sb.WriteString("No action required - using existing file content.\n")
 	} else {
-		// New placeholder file was created
 		sb.WriteString("⚠️  PLACEHOLDER FILE CREATED - EDITING REQUIRED\n\n")
 		sb.WriteString(fmt.Sprintf("File: %s\n\n", filePath))
-		sb.WriteString("REQUIRED ACTIONS:\n")
-		sb.WriteString("1. Edit the task file to add implementation details\n")
-		sb.WriteString("2. Fill in required sections:\n")
-		for _, section := range requiredSections {
-			sb.WriteString(fmt.Sprintf("   • %s\n", section))
-		}
+		sb.WriteString("Edit the file to fill in the relevant sections.\n")
 	}
-
 	return sb.String()
 }
 
-// FormatEntityCreationJSON formats JSON output for entity creation
-func FormatEntityCreationJSON(entityType, entityKey, entityTitle, filePath, projectRoot string, requiredSections []string) map[string]interface{} {
+// FormatEntityCreationJSON formats JSON output for entity creation. The shape
+// is intentionally minimal — callers no longer pass a list of required
+// sections. `next_commands` is populated for known entity types and is empty
+// (but always present) for unknown types.
+func FormatEntityCreationJSON(entityType, entityKey, entityTitle, filePath, projectRoot string) map[string]interface{} {
 	result := make(map[string]interface{})
 
-	// Basic fields
 	result["status"] = "created"
 	result["entity_type"] = entityType
 	result["key"] = entityKey
@@ -64,18 +39,15 @@ func FormatEntityCreationJSON(entityType, entityKey, entityTitle, filePath, proj
 	result["file_state"] = "placeholder"
 	result["requires_editing"] = true
 
-	// Required actions
 	requiredActions := []map[string]interface{}{
 		{
-			"action":            "edit_file",
-			"path":              filePath,
-			"required_sections": requiredSections,
-			"priority":          "blocking",
+			"action":   "edit_file",
+			"path":     filePath,
+			"priority": "blocking",
 		},
 	}
 	result["required_actions"] = requiredActions
 
-	// Next commands based on entity type
 	var nextCommands []string
 	switch strings.ToLower(entityType) {
 	case "epic":
@@ -100,6 +72,12 @@ func FormatEntityCreationJSON(entityType, entityKey, entityTitle, filePath, proj
 		nextCommands = []string{
 			fmt.Sprintf("shark change get %s", entityKey),
 		}
+	case "tech-debt":
+		nextCommands = []string{
+			fmt.Sprintf("shark td get %s", entityKey),
+		}
+	default:
+		nextCommands = []string{}
 	}
 	result["next_commands"] = nextCommands
 

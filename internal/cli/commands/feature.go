@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
@@ -188,6 +189,7 @@ func init() {
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	featureCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	featureCreateCmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
 
 	// Complete flags
 	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks")
@@ -351,17 +353,19 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		cli.Error(fmt.Sprintf("Error: %v", err))
 		os.Exit(1)
 	}
+	if input.Body != "" {
+		content = []byte(fileops.ReplaceBodyAfterFrontmatter(string(content), input.Body))
+	}
 	fileWasLinked, err := writeFeatureFile(content, featureFilePath, projectRoot)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: %v", err))
 		os.Exit(1)
 	}
 
-	requiredSections := cli.GetRequiredSectionsForEntityType("feature")
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(cli.FormatEntityCreationJSON("feature", feature.Key, featureTitle, featureFilePath, projectRoot, requiredSections))
+		return cli.OutputJSON(cli.FormatEntityCreationJSON("feature", feature.Key, featureTitle, featureFilePath, projectRoot))
 	}
-	fmt.Print(cli.FormatEntityCreationMessage("feature", feature.Key, featureTitle, featureFilePath, projectRoot, fileWasLinked, requiredSections))
+	fmt.Print(cli.FormatEntityCreationMessage("feature", feature.Key, featureTitle, featureFilePath, projectRoot, fileWasLinked))
 	return nil
 }
 

@@ -15,7 +15,7 @@ import (
 type TaskServicer interface {
 	GetTask(ctx context.Context, key string) (*models.Task, error)
 	ListTasks(ctx context.Context, filters services.TaskFilters) ([]*models.Task, error)
-	CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, error)
+	CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, bool, error)
 	UpdateTask(ctx context.Context, key string, updates services.TaskUpdates) (*models.Task, error)
 	DeleteTask(ctx context.Context, key string) error
 	TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
@@ -137,7 +137,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Description:    req.Description,
 	}
 
-	task, err := h.svc.CreateTask(r.Context(), input)
+	task, _, err := h.svc.CreateTask(r.Context(), input)
 	if err != nil {
 		handleServiceError(w, err, "task")
 		return

@@ -176,7 +176,7 @@ func TestTechDebtService_Create_Success(t *testing.T) {
 
 	svc := newTechDebtService(repo)
 
-	td, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
+	td, _, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
 		Title:    "Refactor database layer",
 		Category: models.TechDebtCategoryArchitecture,
 		Severity: models.TechDebtSeverityHigh,
@@ -199,7 +199,7 @@ func TestTechDebtService_Create_ValidationError(t *testing.T) {
 	ctx := context.Background()
 	svc := newTechDebtService(&mockTechDebtRepo{})
 
-	_, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
+	_, _, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
 		Title:    "",
 		Category: models.TechDebtCategoryCodeQuality,
 		Severity: models.TechDebtSeverityMedium,
@@ -216,7 +216,7 @@ func TestTechDebtService_Create_InvalidCategory(t *testing.T) {
 	ctx := context.Background()
 	svc := newTechDebtService(&mockTechDebtRepo{})
 
-	_, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
+	_, _, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
 		Title:    "Some debt",
 		Category: "invalid-category",
 		Severity: models.TechDebtSeverityMedium,
@@ -346,7 +346,7 @@ func TestTechDebtService_Create_WithSize(t *testing.T) {
 
 	svc := newTechDebtService(repo)
 	five := 5
-	td, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
+	td, _, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
 		Title:    "Refactor auth",
 		Category: models.TechDebtCategoryArchitecture,
 		Severity: models.TechDebtSeverityMedium,

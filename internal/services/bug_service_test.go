@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -299,7 +301,7 @@ func TestBugService_CreateBug(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	bug, err := svc.CreateBug(ctx, CreateBugInput{
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Login page crashes on submit",
 		Severity: models.BugSeverityHigh,
 	})
@@ -317,11 +319,64 @@ func TestBugService_CreateBug(t *testing.T) {
 	}
 }
 
+// TestBugService_CreateBug_BodyHonored verifies that when CreateBugInput.Body
+// is supplied, the rendered markdown file's body region contains the supplied
+// content (frontmatter remains intact).
+func TestBugService_CreateBug_BodyHonored(t *testing.T) {
+	ctx := context.Background()
+
+	root := t.TempDir()
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) {
+			return "B042", nil
+		},
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			bug.ID = 42
+			return nil
+		},
+	}
+	wfSvc := newBugWorkflowSvc()
+	entitySvc := NewEntityService(wfSvc)
+	entityRepo := &mockBugEntityRepo{bugRepo: repo}
+	svc := NewBugService(repo, entitySvc, entityRepo, &bugLinkEpicRepo{}, &bugLinkFeatureRepo{}, &bugLinkTaskRepo{}, root, nil)
+
+	customBody := "## Custom Description\n\nThis is what the user piped in."
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Body override test",
+		Severity: models.BugSeverityMedium,
+		Body:     customBody,
+	})
+	if err != nil {
+		t.Fatalf("CreateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+
+	// Read the file written by the service and assert the body is present.
+	raw, err := os.ReadFile(filepath.Join(root, "docs/plan/bugs/B042.md"))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	contents := string(raw)
+	if !strings.Contains(contents, "## Custom Description") {
+		t.Errorf("expected custom body in file, got:\n%s", contents)
+	}
+	// Frontmatter (bug_key) must still be present.
+	if !strings.Contains(contents, "bug_key: B042") {
+		t.Errorf("expected frontmatter to be preserved; got:\n%s", contents)
+	}
+	// Default placeholder text must NOT appear (body fully replaced).
+	if strings.Contains(contents, "[Describe the bug and how to reproduce it]") {
+		t.Errorf("default placeholder should be replaced; got:\n%s", contents)
+	}
+}
+
 func TestBugService_CreateBug_EmptyTitle(t *testing.T) {
 	ctx := context.Background()
 	svc := newBugService(&mockBugRepo{}, nil, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "",
 		Severity: models.BugSeverityHigh,
 	})
@@ -337,7 +392,7 @@ func TestBugService_CreateBug_InvalidSeverity(t *testing.T) {
 	ctx := context.Background()
 	svc := newBugService(&mockBugRepo{}, nil, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Some bug",
 		Severity: models.BugSeverity("unknown"),
 	})
@@ -364,7 +419,7 @@ func TestBugService_CreateBug_WithDescription(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:       "Bug with description",
 		Severity:    models.BugSeverityMedium,
 		Description: "Detailed description here",
@@ -401,7 +456,7 @@ func TestBugService_CreateBug_WithLinkedEntity(t *testing.T) {
 
 	svc := newBugService(repo, epicRepo, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:            "Bug linked to epic",
 		Severity:         models.BugSeverityCritical,
 		LinkedEntityType: "epic",
@@ -429,7 +484,7 @@ func TestBugService_CreateBug_LinkedEntityNotFound(t *testing.T) {
 
 	svc := newBugService(&mockBugRepo{}, epicRepo, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:            "Bug with bad link",
 		Severity:         models.BugSeverityHigh,
 		LinkedEntityType: "epic",
@@ -448,7 +503,7 @@ func TestBugService_CreateBug_LinkedEntityTypeMissingKey(t *testing.T) {
 	svc := newBugService(&mockBugRepo{}, nil, nil, nil)
 
 	// Type provided but no key
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:            "Bug missing key",
 		Severity:         models.BugSeverityHigh,
 		LinkedEntityType: "epic",
@@ -463,7 +518,7 @@ func TestBugService_CreateBug_InvalidLinkedEntityType(t *testing.T) {
 	ctx := context.Background()
 	svc := newBugService(&mockBugRepo{}, nil, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:            "Bug with invalid entity type",
 		Severity:         models.BugSeverityHigh,
 		LinkedEntityType: "sprint", // invalid type
@@ -485,7 +540,7 @@ func TestBugService_CreateBug_GetNextKeyError(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Some bug",
 		Severity: models.BugSeverityHigh,
 	})
@@ -988,7 +1043,7 @@ func TestBugService_CreateBug_LinkedToFeature(t *testing.T) {
 
 	svc := newBugService(repo, nil, featureRepo, nil)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:            "Feature-linked bug",
 		Severity:         models.BugSeverityMedium,
 		LinkedEntityType: "feature",
@@ -1024,7 +1079,7 @@ func TestBugService_CreateBug_LinkedToTask(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, taskRepo)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:            "Task-linked bug",
 		Severity:         models.BugSeverityLow,
 		LinkedEntityType: "task",
@@ -1177,7 +1232,7 @@ func TestBugService_CreateBug_NoTagsAndNoRequirement(t *testing.T) {
 	tagSvc := NewMockTagService() // no enforcement; no tags
 	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
 
-	bug, err := svc.CreateBug(ctx, CreateBugInput{
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "No tags here",
 		Severity: models.BugSeverityLow,
 		Tags:     nil,
@@ -1216,7 +1271,7 @@ func TestBugService_CreateBug_NilTagSvcIsSkippedCleanly(t *testing.T) {
 	// Explicit nil tagSvc — production code paths that predate F04 wiring.
 	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, nil)
 
-	bug, err := svc.CreateBug(ctx, CreateBugInput{
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Nil tagSvc bug",
 		Severity: models.BugSeverityMedium,
 		Tags:     []string{"voice"}, // even with tags, nil svc is OK
@@ -1253,7 +1308,7 @@ func TestBugService_CreateBug_RequiredTypeMissingTagsAborts(t *testing.T) {
 	)
 	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Should fail enforcement",
 		Severity: models.BugSeverityLow,
 		Tags:     nil,
@@ -1299,7 +1354,7 @@ func TestBugService_CreateBug_TagsProvidedAttachAfterPersist(t *testing.T) {
 	}
 	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Bug with tags",
 		Severity: models.BugSeverityHigh,
 		Tags:     []string{"voice", "auth"},
@@ -1351,7 +1406,7 @@ func TestBugService_CreateBug_AttachFailurePropagates(t *testing.T) {
 	)
 	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
 
-	_, err := svc.CreateBug(ctx, CreateBugInput{
+	_, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Attach will fail",
 		Severity: models.BugSeverityLow,
 		Tags:     []string{"ghost"},
@@ -1514,7 +1569,7 @@ func TestBugService_CreateBug_PropagatesSize(t *testing.T) {
 	svc := newBugService(repo, nil, nil, nil)
 
 	size := 5
-	bug, err := svc.CreateBug(ctx, CreateBugInput{
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Bug with size",
 		Severity: models.BugSeverityHigh,
 		Size:     &size,
@@ -1553,7 +1608,7 @@ func TestBugService_CreateBug_NilSizePropagated(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	bug, err := svc.CreateBug(ctx, CreateBugInput{
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
 		Title:    "Bug without size",
 		Severity: models.BugSeverityLow,
 	})

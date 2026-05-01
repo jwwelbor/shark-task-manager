@@ -19,7 +19,7 @@ import (
 
 // MockTechDebtService implements techDebtServicer for testing.
 type MockTechDebtService struct {
-	CreateTechDebtFunc           func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, error)
+	CreateTechDebtFunc           func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error)
 	GetTechDebtFunc              func(ctx context.Context, key string) (*models.TechDebt, error)
 	ListTechDebtsFunc            func(ctx context.Context, filters services.TechDebtFilters) ([]*models.TechDebt, error)
 	UpdateTechDebtFunc           func(ctx context.Context, key string, updates services.TechDebtUpdates) (*models.TechDebt, error)
@@ -29,11 +29,11 @@ type MockTechDebtService struct {
 	GetOrchestratorActionFunc    func(td *models.TechDebt) *config.PopulatedAction
 }
 
-func (m *MockTechDebtService) CreateTechDebt(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, error) {
+func (m *MockTechDebtService) CreateTechDebt(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error) {
 	if m.CreateTechDebtFunc != nil {
 		return m.CreateTechDebtFunc(ctx, input)
 	}
-	return nil, fmt.Errorf("CreateTechDebt not implemented in mock")
+	return nil, false, fmt.Errorf("CreateTechDebt not implemented in mock")
 }
 
 func (m *MockTechDebtService) GetTechDebt(ctx context.Context, key string) (*models.TechDebt, error) {
@@ -116,13 +116,13 @@ func newTdCmdWithCtx() *cobra.Command {
 
 func TestRunTdCreate_Success(t *testing.T) {
 	restore := injectMockTdSvc(t, &MockTechDebtService{
-		CreateTechDebtFunc: func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, error) {
+		CreateTechDebtFunc: func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error) {
 			return &models.TechDebt{
 				BaseEntity: models.BaseEntity{Key: "TD-001", Title: input.Title},
 				Status:     "identified",
 				Category:   input.Category,
 				Severity:   input.Severity,
-			}, nil
+			}, false, nil
 		},
 	})
 	defer restore()
@@ -150,8 +150,8 @@ func TestRunTdCreate_Success(t *testing.T) {
 
 func TestRunTdCreate_ServiceError(t *testing.T) {
 	restore := injectMockTdSvc(t, &MockTechDebtService{
-		CreateTechDebtFunc: func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, error) {
-			return nil, fmt.Errorf("db error")
+		CreateTechDebtFunc: func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error) {
+			return nil, false, fmt.Errorf("db error")
 		},
 	})
 	defer restore()
@@ -179,13 +179,13 @@ func TestRunTdCreate_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 
 	restore := injectMockTdSvc(t, &MockTechDebtService{
-		CreateTechDebtFunc: func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, error) {
+		CreateTechDebtFunc: func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error) {
 			return &models.TechDebt{
 				BaseEntity: models.BaseEntity{Key: "TD-001", Title: "Test"},
 				Status:     "identified",
 				Category:   "code-quality",
 				Severity:   "medium",
-			}, nil
+			}, false, nil
 		},
 	})
 	defer restore()

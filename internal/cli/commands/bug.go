@@ -15,7 +15,7 @@ import (
 
 // bugServicer defines the interface for bug service operations used by CLI commands.
 type bugServicer interface {
-	CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, error)
+	CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, bool, error)
 	GetBug(ctx context.Context, key string) (*models.Bug, error)
 	// GetBugWithTags returns the bug along with the sorted tag names attached to it.
 	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
@@ -215,6 +215,7 @@ func init() {
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	bugCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	bugCreateCmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
 
 	// List flags
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
@@ -271,12 +272,18 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 		sizePtr = &n
 	}
 
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
+
 	input := services.CreateBugInput{
 		Title:    args[0],
 		Severity: models.BugSeverity(severity),
 		Force:    force,
 		Tags:     tags,
 		Size:     sizePtr,
+		Body:     body,
 	}
 
 	if filePath != "" {
@@ -292,19 +299,18 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 
 	// Step 2: Call service
 	svc := getBugService()
-	bug, err := svc.CreateBug(cmd.Context(), input)
+	bug, fileWasLinked, err := svc.CreateBug(cmd.Context(), input)
 	if err != nil {
 		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", input.Title)
 	}
 
 	// Step 3: Format output
+	projectRoot, _ := cli.FindProjectRoot()
+	bugFilePath := bug.GetFilePath()
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(bug)
+		return cli.OutputJSON(cli.FormatEntityCreationJSON("bug", bug.Key, bug.Title, bugFilePath, projectRoot))
 	}
-	cli.Success(fmt.Sprintf("Created bug %s: %s", bug.Key, bug.Title))
-	if fp := bug.GetFilePath(); fp != "" {
-		cli.Info(fmt.Sprintf("File: %s", fp))
-	}
+	fmt.Print(cli.FormatEntityCreationMessage("bug", bug.Key, bug.Title, bugFilePath, projectRoot, fileWasLinked))
 	return nil
 }
 

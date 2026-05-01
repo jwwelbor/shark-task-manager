@@ -215,7 +215,7 @@ func TestTaskService_CreateTask_Happy_Path(t *testing.T) {
 	}
 
 	// Act: Create task
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	// Assert: Success
 	assert.NoError(t, err)
@@ -237,7 +237,7 @@ func TestTaskService_CreateTask_Empty_Title(t *testing.T) {
 		Priority:   5,
 	}
 
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	assert.Error(t, err)
 	assert.Nil(t, task)
@@ -256,7 +256,7 @@ func TestTaskService_CreateTask_Missing_Epic_Key(t *testing.T) {
 		Priority:   5,
 	}
 
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	assert.Error(t, err)
 	assert.Nil(t, task)
@@ -275,7 +275,7 @@ func TestTaskService_CreateTask_Missing_Feature_Key(t *testing.T) {
 		Priority:   5,
 	}
 
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	assert.Error(t, err)
 	assert.Nil(t, task)
@@ -294,7 +294,7 @@ func TestTaskService_CreateTask_Invalid_Priority(t *testing.T) {
 		Priority:   15, // Invalid: > 10
 	}
 
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	assert.Error(t, err)
 	assert.Nil(t, task)
@@ -319,7 +319,7 @@ func TestTaskService_CreateTask_Default_Priority(t *testing.T) {
 		// Priority not set - should default
 	}
 
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	assert.NoError(t, err)
 	assert.Equal(t, 5, task.Priority) // Default priority
@@ -342,7 +342,7 @@ func TestTaskService_CreateTask_Repository_Error(t *testing.T) {
 		Priority:   5,
 	}
 
-	task, err := svc.CreateTask(context.Background(), input)
+	task, _, err := svc.CreateTask(context.Background(), input)
 
 	assert.Error(t, err)
 	assert.Nil(t, task)
@@ -2228,7 +2228,7 @@ func TestTaskService_CreateTask_ReopensTerminalFeature(t *testing.T) {
 	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "completed", nil)
 	svc.SetFeatureService(featureSvc)
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "New task under completed feature",
@@ -2261,7 +2261,7 @@ func TestTaskService_CreateTask_ReopenRecordsHistory(t *testing.T) {
 	historyRecorder := &mockEntityHistoryRecorder{}
 	svc.SetEntityHistoryRepo(historyRecorder)
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Task triggering history record",
@@ -2299,7 +2299,7 @@ func TestTaskService_CreateTask_ReopensArchivedFeature(t *testing.T) {
 	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "archived", nil)
 	svc.SetFeatureService(featureSvc)
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Revived task under archived feature",
@@ -2327,7 +2327,7 @@ func TestTaskService_CreateTask_NoReopenNonTerminalFeature(t *testing.T) {
 	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "active", nil)
 	svc.SetFeatureService(featureSvc)
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Task under active feature",
@@ -2353,7 +2353,7 @@ func TestTaskService_CreateTask_NoReopenNilFeatureService(t *testing.T) {
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	// Do NOT set featureService -- it remains nil
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Task with nil featureService",
@@ -2382,7 +2382,7 @@ func TestTaskService_CreateTask_ReopenFailureDoesNotFailCreate(t *testing.T) {
 	featureSvc, _ := newFeatureServiceForReopenTest(t, "completed", fmt.Errorf("simulated DB error"))
 	svc.SetFeatureService(featureSvc)
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Task when feature update fails",
@@ -2460,7 +2460,7 @@ func TestTaskService_CreateTask_CustomAggregationStatus(t *testing.T) {
 	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), featureRepoAsEntityRepo(featureRepo), nil, nil)
 	svc.SetFeatureService(featureSvc)
 
-	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Task under done feature with custom aggregation",
@@ -2541,7 +2541,7 @@ func TestTaskService_CreateTask_ReopensCancelledFeature(t *testing.T) {
 	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), featureRepoAsEntityRepo(featureRepo), nil, nil)
 	svc.SetFeatureService(featureSvc)
 
-	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Revived task under cancelled feature",
@@ -2603,7 +2603,7 @@ func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
 	svc.SetEntityHistoryRepo(historyRecorder)
 
 	// Create task via the creatorSvc path (creatorSvc != nil)
-	task, err := svc.CreateTask(ctx, CreateTaskInput{
+	task, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E98",
 		FeatureKey: "F01",
 		Title:      "Task via creatorSvc path",
@@ -2750,7 +2750,7 @@ func TestTaskService_CreateTask_PropagatesSize(t *testing.T) {
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	size := 5
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "Sized task",
@@ -2781,7 +2781,7 @@ func TestTaskService_CreateTask_NilSizePropagated(t *testing.T) {
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
-	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "No size task",
@@ -2936,7 +2936,7 @@ func TestTaskService_CreateTask_CreatorSvcPath_PropagatesSize(t *testing.T) {
 
 	// Create task via the creatorSvc path with a non-nil Size
 	size := 5
-	task, err := svc.CreateTask(ctx, CreateTaskInput{
+	task, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E97",
 		FeatureKey: "F01",
 		Title:      "Sized task via creator path",

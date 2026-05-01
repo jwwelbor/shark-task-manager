@@ -667,6 +667,11 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		sizePtr = &n
 	}
 
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
+
 	// Build CreateEpicInput and delegate key generation, collision checks, and DB creation to service
 	input := services.CreateEpicInput{
 		Title:         epicTitle,
@@ -678,6 +683,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		Force:         force,
 		Tags:          tags,
 		Size:          sizePtr,
+		Body:          body,
 	}
 	if customFilePath != nil {
 		input.FilePath = customFilePath
@@ -736,9 +742,14 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		os.Exit(1)
 	}
 
+	rendered := buf.Bytes()
+	if input.Body != "" {
+		rendered = []byte(fileops.ReplaceBodyAfterFrontmatter(string(rendered), input.Body))
+	}
+
 	writer := fileops.NewEntityFileWriter()
 	result, err := writer.WriteEntityFile(fileops.WriteOptions{
-		Content:        buf.Bytes(),
+		Content:        rendered,
 		ProjectRoot:    projectRoot,
 		FilePath:       actualFilePath,
 		Verbose:        cli.GlobalConfig.Verbose,
@@ -755,13 +766,12 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 
 	fileWasLinked := result.Linked
 
-	requiredSections := cli.GetRequiredSectionsForEntityType("epic")
 	if cli.GlobalConfig.JSON {
-		jsonOutput := cli.FormatEntityCreationJSON("epic", nextKey, epicTitle, actualFilePath, projectRoot, requiredSections)
+		jsonOutput := cli.FormatEntityCreationJSON("epic", nextKey, epicTitle, actualFilePath, projectRoot)
 		return cli.OutputJSON(jsonOutput)
 	}
 
-	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, fileWasLinked, requiredSections)
+	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, fileWasLinked)
 	fmt.Print(message)
 	return nil
 }

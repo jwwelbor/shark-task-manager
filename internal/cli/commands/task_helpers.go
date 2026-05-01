@@ -372,6 +372,7 @@ func registerCreateFlags(cmd *cobra.Command) {
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 	// E07-F42 REQ-F-004: optional size flag (StringVar, not IntVar, per Decision D4).
 	cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	cmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
 }
 
 // registerUpdateFlags adds flags for the task update command.

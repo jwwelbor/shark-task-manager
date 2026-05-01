@@ -857,6 +857,11 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		sizePtr = &n
 	}
 
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return services.CreateFeatureInput{}, "", "", err
+	}
+
 	input := services.CreateFeatureInput{
 		EpicKey:        featureCreateEpic,
 		Title:          featureTitle,
@@ -867,6 +872,7 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		Force:          featureCreateForce,
 		Tags:           tags,
 		Size:           sizePtr,
+		Body:           body,
 	}
 	return input, featureTitle, projectRoot, nil
 }

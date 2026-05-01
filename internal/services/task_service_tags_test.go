@@ -54,7 +54,7 @@ func TestTaskService_CreateTask_NoTagsAndNoRequirement(t *testing.T) {
 	tagSvc := NewMockTagService() // no enforcement; no tags
 	svc := newTaskServiceWithTagSvc(repo, tagSvc)
 
-	task, err := svc.CreateTask(ctx, CreateTaskInput{
+	task, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "No tags here",
@@ -95,7 +95,7 @@ func TestTaskService_CreateTask_NilTagSvcIsSkippedCleanly(t *testing.T) {
 	// Explicit nil tagSvc — production code paths that predate F04 wiring.
 	svc := newTaskServiceWithTagSvc(repo, nil)
 
-	task, err := svc.CreateTask(ctx, CreateTaskInput{
+	task, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "Nil tagSvc task",
@@ -134,7 +134,7 @@ func TestTaskService_CreateTask_RequiredTypeMissingTagsAborts(t *testing.T) {
 	)
 	svc := newTaskServiceWithTagSvc(repo, tagSvc)
 
-	_, err := svc.CreateTask(ctx, CreateTaskInput{
+	_, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "Should fail enforcement",
@@ -182,7 +182,7 @@ func TestTaskService_CreateTask_TagsProvidedAttachAfterPersist(t *testing.T) {
 	}
 	svc := newTaskServiceWithTagSvc(repo, tagSvc)
 
-	_, err := svc.CreateTask(ctx, CreateTaskInput{
+	_, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "Task with tags",
@@ -236,7 +236,7 @@ func TestTaskService_CreateTask_AttachFailurePropagates(t *testing.T) {
 	)
 	svc := newTaskServiceWithTagSvc(repo, tagSvc)
 
-	_, err := svc.CreateTask(ctx, CreateTaskInput{
+	_, _, err := svc.CreateTask(ctx, CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "Attach will fail",

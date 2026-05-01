@@ -34,7 +34,7 @@ func getTaskGetService() taskGetServicer {
 // E07-F42: split out from the full TaskService to enable test injection for
 // create-command tests (e.g., --size flag integration tests).
 type taskCreateServicer interface {
-	CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, error)
+	CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, bool, error)
 }
 
 // taskCreateSvcOverride is non-nil only during tests.
@@ -302,18 +302,22 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		}
 		input.Size = &n
 	}
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
+	input.Body = body
 	svc := getTaskCreateService()
-	task, err := svc.CreateTask(cmd.Context(), input)
+	task, fileWasLinked, err := svc.CreateTask(cmd.Context(), input)
 	if err != nil {
 		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", "")
 	}
+	projectRoot, _ := cli.FindProjectRoot()
+	filePath := derefString(task.FilePath)
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
+		return cli.OutputJSON(cli.FormatEntityCreationJSON("task", task.Key, task.Title, filePath, projectRoot))
 	}
-	cli.Success(fmt.Sprintf("Created task %s", task.Key))
-	if fp := derefString(task.FilePath); fp != "" {
-		cli.Info(fmt.Sprintf("File: %s", fp))
-	}
+	fmt.Print(cli.FormatEntityCreationMessage("task", task.Key, task.Title, filePath, projectRoot, fileWasLinked))
 	return nil
 }
 
