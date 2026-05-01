@@ -518,7 +518,10 @@ func GetTechDebtService() *services.TechDebtService {
 	entitySvc := GetEntityService()
 	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeTechDebt)
 
-	svc := services.NewTechDebtService(tdRepo, entitySvc, entityRepo, projectRoot)
+	// Pass the shared *TagService so TechDebtService can enforce
+	// `tag_required_for` on create and honour --tag on create/update.
+	tagSvc := GetTagService()
+	svc := services.NewTechDebtService(tdRepo, entitySvc, entityRepo, projectRoot, tagSvc)
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)

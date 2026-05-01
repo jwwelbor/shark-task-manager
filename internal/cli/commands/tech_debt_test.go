@@ -131,7 +131,6 @@ func TestRunTdCreate_Success(t *testing.T) {
 	tdCategory = ""
 	tdSeverity = ""
 	tdEffortEstimate = ""
-	tdDescription = ""
 
 	restore2 := suppressOutput(t)
 	defer restore2()
@@ -160,7 +159,6 @@ func TestRunTdCreate_ServiceError(t *testing.T) {
 	tdCategory = ""
 	tdSeverity = ""
 	tdEffortEstimate = ""
-	tdDescription = ""
 
 	cmd := newTdCmd()
 	cmd.Flags().String("category", "", "")
@@ -195,7 +193,6 @@ func TestRunTdCreate_JSONOutput(t *testing.T) {
 	tdCategory = ""
 	tdSeverity = ""
 	tdEffortEstimate = ""
-	tdDescription = ""
 
 	out := captureOutput(t, func() {
 		cmd := newTdCmd()
@@ -732,13 +729,14 @@ func TestPrintTechDebtTable_NonEmpty(t *testing.T) {
 }
 
 // newTestTdUpdateCmd builds a cobra.Command with the flags used by runTdUpdate.
+// Mirrors registerTdUpdateFlags but stripped to flags exercised by the tests.
 func newTestTdUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "update"}
-	cmd.Flags().StringVar(&tdTitle, "title", "", "Title")
-	cmd.Flags().StringVar(&tdCategory, "category", "", "Category")
-	cmd.Flags().StringVar(&tdSeverity, "severity", "", "Severity")
-	cmd.Flags().StringVar(&tdEffortEstimate, "effort-estimate", "", "Effort estimate")
-	cmd.Flags().StringVar(&tdDescription, "description", "", "Description")
+	cmd.Flags().String("title", "", "Title")
+	cmd.Flags().String("category", "", "Category")
+	cmd.Flags().String("severity", "", "Severity")
+	cmd.Flags().String("effort-estimate", "", "Effort estimate")
+	cmd.Flags().String("description", "", "Description")
 	cmd.Flags().String("file", "", "File path")
 	cmd.Flags().String("filename", "", "Alias")
 	cmd.Flags().String("path", "", "Alias")

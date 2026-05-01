@@ -152,16 +152,17 @@ Examples:
 	RunE: runTdTriage,
 }
 
-// Command flag variables for tech-debt commands
+// Command flag variables for tech-debt commands.
+// These globals are bound by list/delete/triage flag registrations only.
+// Create/update flag values are read via cmd.Flags().GetString(...) instead
+// (see registerTdCreateFlags / registerTdUpdateFlags), so the create/update
+// counterparts (tdTitle, tdDescription, tdFilePath) are not needed here.
 var (
 	tdCategory       string
 	tdSeverity       string
 	tdEffortEstimate string
-	tdDescription    string
-	tdTitle          string
 	tdStatus         string
 	tdForce          bool
-	tdFilePath       string
 )
 
 func init() {
@@ -178,13 +179,7 @@ func init() {
 	tdCmd.AddCommand(makeContextCmd("tech_debt"))
 
 	// Create flags
-	tdCreateCmd.Flags().StringVar(&tdCategory, "category", "", "Category (code-quality, architecture, dependency, testing, performance, documentation)")
-	tdCreateCmd.Flags().StringVar(&tdSeverity, "severity", "", "Severity (critical, high, medium, low)")
-	tdCreateCmd.Flags().StringVar(&tdEffortEstimate, "effort-estimate", "", "Effort estimate (e.g., XS, S, M, L, XL)")
-	tdCreateCmd.Flags().StringVar(&tdDescription, "description", "", "Description of the tech debt")
-	tdCreateCmd.Flags().StringVar(&tdFilePath, "file", "", "Custom file path for tech-debt markdown file")
-	tdCreateCmd.Flags().BoolVar(&tdForce, "force", false, "Overwrite existing file at target path")
-	tdCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	registerTdCreateFlags(tdCreateCmd)
 
 	// List flags
 	tdListCmd.Flags().StringVar(&tdStatus, "status", "", "Filter by status")
@@ -192,19 +187,7 @@ func init() {
 	tdListCmd.Flags().StringVar(&tdSeverity, "severity", "", "Filter by severity")
 	tdListCmd.Flags().Bool("all", false, "Show all items including terminal statuses (resolved, wont_fix, cancelled)")
 
-	// Update flags
-	tdUpdateCmd.Flags().StringVar(&tdTitle, "title", "", "New title")
-	tdUpdateCmd.Flags().StringVar(&tdCategory, "category", "", "New category")
-	tdUpdateCmd.Flags().StringVar(&tdSeverity, "severity", "", "New severity")
-	tdUpdateCmd.Flags().StringVar(&tdEffortEstimate, "effort-estimate", "", "New effort estimate")
-	tdUpdateCmd.Flags().StringVar(&tdDescription, "description", "", "New description")
-	tdUpdateCmd.Flags().String("file", "", "New file path")
-	tdUpdateCmd.Flags().String("filename", "", "Alias for --file")
-	tdUpdateCmd.Flags().String("path", "", "Alias for --file")
-	_ = tdUpdateCmd.Flags().MarkHidden("filename")
-	_ = tdUpdateCmd.Flags().MarkHidden("path")
-	tdUpdateCmd.Flags().String("size", "",
-		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)")
+	registerTdUpdateFlags(tdUpdateCmd)
 
 	// Delete flags
 	tdDeleteCmd.Flags().BoolVar(&tdForce, "force", false, "Skip confirmation prompt")
@@ -215,6 +198,49 @@ func init() {
 	tdTriageCmd.Flags().StringVar(&tdEffortEstimate, "effort-estimate", "", "Effort estimate (e.g., XS, S, M, L, XL)")
 }
 
+// registerTdCreateFlags registers the create-specific flags on a cobra
+// command. Used by both `shark td create` and the unified `shark create
+// tech-debt` alias so both surfaces accept identical flags. Reads happen via
+// cmd.Flags().GetString — no global bindings.
+func registerTdCreateFlags(cmd *cobra.Command) {
+	cmd.Flags().String("category", "", "Category (code-quality, architecture, dependency, testing, performance, documentation)")
+	cmd.Flags().String("severity", "", "Severity (critical, high, medium, low)")
+	cmd.Flags().String("effort-estimate", "", "Effort estimate (e.g., XS, S, M, L, XL)")
+	cmd.Flags().String("description", "", "Description of the tech debt")
+	cmd.Flags().String("file", "", "Custom file path for tech-debt markdown file")
+	cmd.Flags().String("filename", "", "Alias for --file")
+	cmd.Flags().String("path", "", "Alias for --file")
+	_ = cmd.Flags().MarkHidden("filename")
+	_ = cmd.Flags().MarkHidden("path")
+	cmd.Flags().Bool("force", false, "Overwrite existing file at target path")
+	cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	// Repeatable --tag flag. Tag must be registered in the vocabulary
+	// (see `shark tags list` / `shark tags add`).
+	cmd.Flags().StringSlice("tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+}
+
+// registerTdUpdateFlags registers update-specific flags. Mirrors
+// registerTdCreateFlags but uses additive --tag semantics matching the
+// bug/change-card update pattern.
+func registerTdUpdateFlags(cmd *cobra.Command) {
+	cmd.Flags().String("title", "", "New title")
+	cmd.Flags().String("category", "", "New category")
+	cmd.Flags().String("severity", "", "New severity")
+	cmd.Flags().String("effort-estimate", "", "New effort estimate")
+	cmd.Flags().String("description", "", "New description")
+	cmd.Flags().String("file", "", "New file path")
+	cmd.Flags().String("filename", "", "Alias for --file")
+	cmd.Flags().String("path", "", "Alias for --file")
+	_ = cmd.Flags().MarkHidden("filename")
+	_ = cmd.Flags().MarkHidden("path")
+	cmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)")
+	// `--tag` on update is ADDITIVE only; detach via `shark td tag rm`.
+	cmd.Flags().StringSlice("tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark td tag rm' to detach.")
+}
+
 // runTdCreate handles the `shark td create` command.
 func runTdCreate(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
@@ -222,8 +248,9 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 	severity, _ := cmd.Flags().GetString("severity")
 	effortEstimate, _ := cmd.Flags().GetString("effort-estimate")
 	description, _ := cmd.Flags().GetString("description")
-	filePath, _ := cmd.Flags().GetString("file")
+	filePath := getFileFlagValue(cmd)
 	force, _ := cmd.Flags().GetBool("force")
+	tags, _ := cmd.Flags().GetStringSlice("tag")
 
 	// Apply defaults for category and severity if not provided
 	if category == "" {
@@ -251,6 +278,7 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 		Description:    description,
 		Force:          force,
 		Size:           sizePtr,
+		Tags:           tags,
 	}
 
 	if filePath != "" {
@@ -417,10 +445,17 @@ func runTdUpdate(cmd *cobra.Command, args []string) error {
 		updates.ClearSize = clearSize
 	}
 
+	// `--tag` on update is additive only. Guard with Changed so only
+	// explicit --tag usage sets Tags (nil otherwise; empty = no change).
+	if cmd.Flags().Changed("tag") {
+		tags, _ := cmd.Flags().GetStringSlice("tag")
+		updates.Tags = tags
+	}
+
 	if updates.Title == nil && updates.Category == nil && updates.Severity == nil &&
 		updates.EffortEstimate == nil && updates.Description == nil && updates.FilePath == nil &&
-		updates.Size == nil && !updates.ClearSize {
-		return fmt.Errorf("at least one update flag is required (--title, --category, --severity, --effort-estimate, --description, --file, or --size)")
+		updates.Size == nil && !updates.ClearSize && len(updates.Tags) == 0 {
+		return fmt.Errorf("at least one update flag is required (--title, --category, --severity, --effort-estimate, --description, --file, --size, or --tag)")
 	}
 
 	// Step 2: Call service

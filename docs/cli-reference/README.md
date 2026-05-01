@@ -73,9 +73,9 @@ Commands for creating, updating, and organizing entities.
 
 | Command | Description |
 |---------|-------------|
-| `shark create <type> [args]` | Create epic, feature, or task |
-| `shark update <key> [flags]` | Update entity (auto-detects epic/feature/task from key) |
-| `shark delete <key>` | Delete an entity |
+| `shark create <type> [args]` | Create an epic, feature, task, bug, change, tech-debt, idea, or note |
+| `shark update <key> [flags]` | Update entity (auto-detects type from key — epic/feature/task/bug/change/tech-debt/idea) |
+| `shark delete <key>` | Delete an entity (auto-detects type from key, including tech-debt TD-###) |
 | `shark context get/set/clear <key>` | Manage entity context fields |
 | `shark notes <key>` | View entity notes |
 | `shark related-docs` | Manage related documents |
@@ -124,9 +124,10 @@ All six entity families support the `--tag <name>` repeatable flag on `create` a
 | `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, tag, ...) | [Epic Commands](epic-commands.md) |
 | `shark bug` | 10 subcommands (create, get, list, update, delete, triage, note, notes, context, tag) | [Bug Commands](bug-commands.md) |
 | `shark change` | 10 subcommands (create, get, list, update, delete, approve, note, notes, context, tag) | [Change Commands](change-commands.md) |
+| `shark td` | 9 subcommands (create, get, list, update, delete, triage, note, notes, context). Also reachable via the unified surface: `shark create tech-debt`, `shark list tech-debt`, `shark update TD-###`, `shark delete TD-###`, `shark get TD-###`. Supports repeatable `--tag` on create/update. |  |
 | `shark idea` | 7 subcommands (create, get, list, update, delete, convert, tag) | [Idea Commands](idea-commands.md) |
 
-**Note:** `shark task update`, `shark feature update`, `shark epic update`, `shark bug update`, and `shark change update` do not accept `--status`. Use `shark status set <key> <status>` instead.
+**Note:** `shark task update`, `shark feature update`, `shark epic update`, `shark bug update`, `shark change update`, and `shark td update` do not accept `--status`. Use `shark status set <key> <status>` instead.
 
 #### Admin Commands (`shark admin`)
 
@@ -194,6 +195,7 @@ Epic (E07)
 
 Bug (B001)           ← standalone, optionally linked to any entity
 Change-Card (CC-001) ← standalone, optionally linked to epic or feature
+Tech-Debt (TD-001)   ← standalone, tracked for cleanup/refactor work
 ```
 
 ### Key Format Auto-Detection
@@ -207,6 +209,7 @@ Shark detects entity type from key format:
 | `E##-F##-###` | Task | `E07-F01-001`, `T-E07-F01-001` |
 | `B###` | Bug | `B001`, `B042` |
 | `CC-###` | Change-Card | `CC-001`, `CC-042` |
+| `TD-###` | Tech-Debt | `TD-001`, `TD-042` |
 
 All keys are **case insensitive**.
 

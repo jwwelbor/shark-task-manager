@@ -13,7 +13,7 @@ import (
 // createCmd is the parent command for creating entities
 var createCmd = &cobra.Command{
 	Use:     "create <type> [args]",
-	Short:   "Create an epic, feature, task, bug, change, idea, or note",
+	Short:   "Create an epic, feature, task, bug, change, tech-debt, idea, or note",
 	GroupID: "manage",
 	Long: `Create a new entity. Dispatches to the appropriate create handler based on type.
 
@@ -23,6 +23,7 @@ Entity types:
   task        Create a task in a feature
   bug         Create a bug report
   change      Create a change card (also: change-card)
+  tech-debt   Create a tech-debt item (also: td)
   idea        Create a new idea
   note        Add a note to any entity (auto-detects type from key)
 
@@ -32,6 +33,7 @@ Examples:
   shark create task E07 F01 "Implement login" --agent=backend --priority=5
   shark create bug "Login page crashes on Safari" --severity=high
   shark create change "Migrate auth to OAuth2" --justification="Security requirement"
+  shark create tech-debt "Refactor auth module" --category=architecture --severity=high
   shark create note E07-F01-001 "Decided to use JWT for stateless auth" --type=decision`,
 }
 
@@ -114,6 +116,26 @@ Examples:
 	RunE: runChangeCardCreate,
 }
 
+// createTechDebtCmd delegates to runTdCreate. `td` is registered as an alias
+// so `shark create td "..."` also works (matches the top-level `shark td`
+// command name). Flags are registered via the same helper used by
+// `shark td create`, ensuring identical behavior.
+var createTechDebtCmd = &cobra.Command{
+	Use:     "tech-debt <title> [flags]",
+	Aliases: []string{"td"},
+	Short:   "Create a new tech-debt item (alias for 'td create')",
+	Long: `Create a new tech-debt item with auto-generated key (TD-### format).
+Equivalent to 'shark td create'.
+
+Examples:
+  shark create tech-debt "Refactor auth module"
+  shark create tech-debt "Update dependencies" --category=dependency --severity=high
+  shark create tech-debt "Add unit tests" --effort-estimate=M --tag=cleanup
+  shark create tech-debt "Refactor auth module" --file=docs/plan/td/refactor.md`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTdCreate,
+}
+
 // createIdeaCmd delegates to runIdeaCreate
 var createIdeaCmd = &cobra.Command{
 	Use:   "idea <title> [flags]",
@@ -184,6 +206,7 @@ var entityTypeMap = map[string]models.EntityType{
 	"bug":         models.EntityTypeBug,
 	"change":      models.EntityTypeChange,
 	"change_card": models.EntityTypeChange,
+	"tech_debt":   models.EntityTypeTechDebt,
 }
 
 func runCreateNote(cmd *cobra.Command, args []string) error {
@@ -238,8 +261,14 @@ func init() {
 	createCmd.AddCommand(createBugCmd)
 	createCmd.AddCommand(createChangeCmd)
 	createCmd.AddCommand(createChangeCardCmd)
+	createCmd.AddCommand(createTechDebtCmd)
 	createCmd.AddCommand(createIdeaCmd)
 	createCmd.AddCommand(createNoteCmd)
+
+	// Tech-debt alias under `shark create` needs the same flags as
+	// `shark td create` since cobra subcommands don't inherit flags from
+	// peer commands. registerTdCreateFlags is the shared helper.
+	registerTdCreateFlags(createTechDebtCmd)
 
 	// ======================================================================
 	// Note Create Flags

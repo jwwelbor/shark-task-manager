@@ -144,7 +144,7 @@ func newTechDebtService(repo *mockTechDebtRepo) *TechDebtService {
 	wfSvc := newTDWorkflowSvc()
 	entitySvc := NewEntityService(wfSvc)
 	entityRepo := &mockTDEntityRepo{tdRepo: repo}
-	return NewTechDebtService(repo, entitySvc, entityRepo, "")
+	return NewTechDebtService(repo, entitySvc, entityRepo, "", nil)
 }
 
 // --- CreateTechDebt tests ---

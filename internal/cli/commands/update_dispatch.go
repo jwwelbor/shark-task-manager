@@ -8,7 +8,7 @@ import (
 
 var updateCmd = &cobra.Command{
 	Use:   "update <KEY> [flags]",
-	Short: "Update an epic, feature, task, bug, change, or idea",
+	Short: "Update an epic, feature, task, bug, change, tech-debt, or idea",
 	Long: `Update an entity by key. The entity type is auto-detected from the key format.
 
 Key format detection:
@@ -17,6 +17,7 @@ Key format detection:
   E##-F##-### or T-E##-F##-### Task
   B###                       Bug
   C###                       Change card
+  TD-###                     Tech-debt
   I-YYYY-MM-DD-##            Idea
 
 Use 'shark status set' to change entity status.

@@ -273,6 +273,9 @@ shark task list --status=in_development --agent=backend
 # Show blocked tasks only
 shark task list --blocked
 
+# Show only tasks that have been rejected at least once
+shark task list --has-rejections
+
 # Include orchestrator actions for automation
 shark task list --status=ready_for_development --with-actions --json
 ```
@@ -280,6 +283,10 @@ shark task list --status=ready_for_development --with-actions --json
 **The `--with-actions` Flag:**
 
 When included, each task in the JSON response gains an `orchestrator_action` field containing agent dispatch instructions. See [Orchestrator Actions](orchestrator-actions.md) for details.
+
+**Rejection Indicator and `--has-rejections`:**
+
+Each task in the JSON response carries a `rejection_count` field (and `last_rejection_at` when applicable) sourced from rejection notes recorded on backward/forced status transitions (see [Rejection Reasons](rejection-reasons.md)). In the table view, tasks with `rejection_count > 0` display a ⚠️(N) indicator next to their key. Pass `--has-rejections` to filter the list to only those tasks.
 
 ---
 
