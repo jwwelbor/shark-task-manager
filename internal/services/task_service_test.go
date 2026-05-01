@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -44,6 +45,7 @@ type MockTaskRepository struct {
 	StatusUpdateRawFunc               func(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
 	ListByKeyPrefixFunc               func(ctx context.Context, prefix string) ([]*models.Task, error)
 	GetTaskDisplayDataRawFunc         func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error)
+	GetRejectionCountsFunc            func(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error)
 }
 
 func (m *MockTaskRepository) Create(ctx context.Context, task *models.Task) error {
@@ -171,6 +173,15 @@ func (m *MockTaskRepository) GetTaskDisplayDataRaw(ctx context.Context, taskID i
 		return m.GetTaskDisplayDataRawFunc(ctx, taskID)
 	}
 	return nil, fmt.Errorf("GetTaskDisplayDataRaw not implemented in mock")
+}
+
+func (m *MockTaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error) {
+	if m.GetRejectionCountsFunc != nil {
+		return m.GetRejectionCountsFunc(ctx, taskIDs)
+	}
+	// Default: return zero counts for all task IDs (no rejections).
+	// Tests that need non-zero counts override GetRejectionCountsFunc.
+	return make(map[int64]int), make(map[int64]*time.Time), nil
 }
 
 // Helper function to create a minimal workflow service for testing

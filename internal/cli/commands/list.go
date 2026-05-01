@@ -8,15 +8,18 @@ import (
 // listCmd represents the unified list command
 var listCmd = &cobra.Command{
 	Use:     "list [EPIC] [FEATURE]",
-	Short:   "List epics, features, tasks, or ideas",
+	Short:   "List epics, features, tasks, ideas, bugs, changes, or tech-debt",
 	GroupID: "inspect",
 	Long: `Smart list command that dispatches to the appropriate subcommand based on arguments.
 
 Positional Arguments:
-  (no args)       List all epics
-  EPIC            List features in epic (e.g., E04)
-  EPIC FEATURE    List tasks in feature (e.g., E04 F01 or E04-F01)
-  idea / ideas    List all ideas
+  (no args)              List all epics
+  EPIC                   List features in epic (e.g., E04)
+  EPIC FEATURE           List tasks in feature (e.g., E04 F01 or E04-F01)
+  idea / ideas           List all ideas
+  bug / bugs             List all bugs
+  change / changes       List all change cards (also: change-card / change-cards)
+  tech-debt / td         List all tech-debt items (also: tech_debt / techdebt)
 
 Examples:
   shark list                      List all epics
@@ -24,7 +27,10 @@ Examples:
   shark list E10 F01              List tasks in epic E10, feature F01
   shark list E10-F01              List tasks in feature E10-F01 (combined format)
   shark list idea                 List all ideas
-  shark list ideas                List all ideas (alias)
+  shark list bugs                 List all bugs
+  shark list changes              List all change cards
+  shark list tech-debt            List all tech-debt items
+  shark list td                   List all tech-debt items (alias)
   shark list --json               Output as JSON`,
 	RunE: runList,
 }

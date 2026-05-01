@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -117,6 +118,10 @@ func (m *mockTaskRepo) ListByKeyPrefix(ctx context.Context, prefix string) ([]*m
 }
 func (m *mockTaskRepo) GetTaskDisplayDataRaw(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
 	return nil, nil
+}
+func (m *mockTaskRepo) GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error) {
+	// Default for tracing tests: no rejections.
+	return map[int64]int{}, map[int64]*time.Time{}, nil
 }
 
 // newTestTracer creates an in-memory tracer for testing span output.

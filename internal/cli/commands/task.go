@@ -117,6 +117,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	blocked, _ := cmd.Flags().GetBool("blocked")
 	minPriority, _ := cmd.Flags().GetInt("priority-min")
 	maxPriority, _ := cmd.Flags().GetInt("priority-max")
+	hasRejections, _ := cmd.Flags().GetBool("has-rejections")
 	// E28-F05 REQ-F-010: read the repeatable --tag flag.
 	// nil when no --tag flags were supplied (AC-T2).
 	var tagFilter []string
@@ -129,7 +130,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		EpicKey: epicKey, FeatureKey: featureKey, Status: status,
 		AgentType: agentType, ShowAll: showAll, Blocked: blocked,
 		MinPriority: minPriority, MaxPriority: maxPriority,
-		Tags: tagFilter,
+		Tags: tagFilter, HasRejections: hasRejections,
 	})
 	if err != nil {
 		return handleEntityServiceError(cmd, cli.GetTagService(), err, "task", "")
@@ -145,11 +146,17 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 
 // buildTaskListRows converts a slice of tasks to table rows for list display.
 // Extracted for testability (F4 coverage requirement).
+// Tasks with RejectionCount > 0 get a ⚠️(N) suffix on their key column so
+// reviewers can spot rework-prone tasks at a glance.
 func buildTaskListRows(tasks []*models.Task) [][]string {
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
+		key := t.Key
+		if ind := formatRejectionIndicator(t.RejectionCount); ind != "" {
+			key = t.Key + " " + ind
+		}
 		rows = append(rows, []string{
-			t.Key,
+			key,
 			t.Title,
 			string(t.Status),
 			derefString(t.AgentType),

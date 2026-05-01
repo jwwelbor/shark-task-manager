@@ -8,7 +8,7 @@ import (
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete <KEY>",
-	Short: "Delete an epic, feature, task, bug, change-card, or idea",
+	Short: "Delete an epic, feature, task, bug, change-card, tech-debt, or idea",
 	Long: `Delete an entity by key. The entity type is auto-detected from the key format.
 
 Key format detection:
@@ -17,6 +17,7 @@ Key format detection:
   E##-F##-### or T-E##-F##-### Task
   B###                       Bug
   CC-###                     Change-card
+  TD-###                     Tech-debt
   I-YYYY-MM-DD-##            Idea
 
 Examples:
@@ -25,6 +26,7 @@ Examples:
   shark delete E07-F01-001            Delete task E07-F01-001
   shark delete B001                   Delete bug B001
   shark delete CC-001                 Delete change-card CC-001
+  shark delete TD-001                 Delete tech-debt TD-001
   shark delete I-2026-01-15-01        Delete idea I-2026-01-15-01
   shark delete E07-F01 --force        Force delete (cascade children)`,
 	GroupID: "manage",

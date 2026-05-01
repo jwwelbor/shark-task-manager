@@ -104,6 +104,13 @@ type TaskRepository interface {
 
 	// Display data - single-query aggregation via task_display_data view
 	GetTaskDisplayDataRaw(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error)
+
+	// GetRejectionCounts returns rejection counts and last rejection timestamps
+	// for a batch of tasks. Counts come from entity_notes rows with
+	// note_type='rejection' (written when a backward/forced status transition
+	// stores a rejection reason). Used by GetTask/ListTasks to populate the
+	// derived RejectionCount/LastRejectionAt fields on models.Task.
+	GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error)
 }
 
 // TaskHistoryRepository defines the repository interface for task history access.
@@ -431,7 +438,35 @@ func (s *TaskService) GetTask(ctx context.Context, key string) (*models.Task, er
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to get task %s: %w", key, err))
 	}
+	if err := s.enrichRejectionCounts(ctx, []*models.Task{task}); err != nil {
+		return nil, recordSpanError(span, err)
+	}
 	return task, nil
+}
+
+// enrichRejectionCounts populates the derived RejectionCount and LastRejectionAt
+// fields on each task by issuing a single batched query against entity_notes.
+// No-op for an empty slice. Mirrors the pattern used by GetTaskWithTags for tag
+// enrichment.
+func (s *TaskService) enrichRejectionCounts(ctx context.Context, tasks []*models.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	counts, lastTimes, err := s.repo.GetRejectionCounts(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("failed to load rejection counts: %w", err)
+	}
+	for _, t := range tasks {
+		t.RejectionCount = counts[t.ID]
+		if last, ok := lastTimes[t.ID]; ok {
+			t.LastRejectionAt = last
+		}
+	}
+	return nil
 }
 
 // GetTaskWithTags returns the task and the sorted list of tag names attached to
@@ -617,6 +652,24 @@ func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*mo
 
 	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
 	tasks = filterByTagIDs(tasks, taggedIDSet, func(t *models.Task) int64 { return t.ID })
+
+	// Block 3: enrich tasks with rejection counts before any rejection-aware
+	// filtering or downstream display (warning indicator in task_table, JSON
+	// rejection_count field, --has-rejections filter).
+	if err := s.enrichRejectionCounts(ctx, tasks); err != nil {
+		return nil, recordSpanError(span, err)
+	}
+
+	// Block 4: apply HasRejections filter after enrichment populates counts.
+	if filters.HasRejections {
+		filtered := tasks[:0]
+		for _, t := range tasks {
+			if t.RejectionCount > 0 {
+				filtered = append(filtered, t)
+			}
+		}
+		tasks = filtered
+	}
 
 	span.SetAttributes(attribute.Int("task.result_count", len(tasks)))
 	return tasks, nil

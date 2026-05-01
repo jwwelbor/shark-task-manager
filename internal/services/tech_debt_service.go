@@ -38,10 +38,14 @@ type TechDebtService struct {
 	entityRepo  EntityRepository
 	projectRoot string
 	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	// tagSvc is optional — nil disables tag integration on create/update.
+	// Mirrors the bug/change-card pattern (E28-F04).
+	tagSvc TagQuerier
 }
 
 // NewTechDebtService creates a new TechDebtService with injected dependencies.
 // entitySvc and entityRepo are required for status transition delegation.
+// tagSvc is optional (pass nil to disable tag integration).
 //
 // Panics:
 //   - If repo is nil (required dependency)
@@ -51,6 +55,7 @@ func NewTechDebtService(
 	entitySvc *EntityService,
 	entityRepo EntityRepository,
 	projectRoot string,
+	tagSvc TagQuerier,
 ) *TechDebtService {
 	requireNonNil(repo, "TechDebtService requires a non-nil TechDebtRepository")
 	requireNonNil(entitySvc, "TechDebtService requires a non-nil EntityService")
@@ -60,6 +65,7 @@ func NewTechDebtService(
 		entitySvc:   entitySvc.ForLevel(workflow.LevelTechDebt),
 		entityRepo:  entityRepo,
 		projectRoot: projectRoot,
+		tagSvc:      tagSvc,
 	}
 }
 
@@ -75,6 +81,11 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 
 	if !models.ValidTechDebtSeverities[input.Severity] {
 		return nil, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", input.Severity)
+	}
+
+	// Enforce tag_required_for before key allocation or persistence.
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeTechDebt, input.Tags); err != nil {
+		return nil, err
 	}
 
 	// Generate key
@@ -120,6 +131,13 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 
 	if err := s.repo.Create(ctx, td); err != nil {
 		return nil, fmt.Errorf("failed to create tech-debt: %w", err)
+	}
+
+	// Attach tags after insert so td.ID is valid. Not wrapped in a
+	// transaction — on failure the row is persisted with zero tags and
+	// the user retries via `shark td update --tag=...`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTechDebt, td.ID, input.Tags); err != nil {
+		return nil, err
 	}
 
 	// Generate and write markdown file (best-effort)
@@ -240,6 +258,11 @@ func (s *TechDebtService) UpdateTechDebt(ctx context.Context, key string, update
 
 	if err := s.repo.Update(ctx, td); err != nil {
 		return nil, fmt.Errorf("failed to update tech-debt %s: %w", key, err)
+	}
+
+	// `--tag` on update is additive only; detach goes through `shark td tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTechDebt, td.ID, updates.Tags); err != nil {
+		return nil, err
 	}
 
 	return td, nil

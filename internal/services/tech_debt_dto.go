@@ -18,6 +18,10 @@ type CreateTechDebtInput struct {
 	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert
 	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
 	Size *int `json:"size,omitempty"`
+	// Tags are repeatable tag names to attach to the new tech-debt item.
+	// Each tag must already be registered in the vocabulary; see `shark tags
+	// list` / `shark tags add`. Mirrors bug/change-card semantics on create.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // TechDebtUpdates contains optional fields for updating a tech-debt item.
@@ -36,6 +40,10 @@ type TechDebtUpdates struct {
 	// Size field value. ClearSize takes precedence over Size. Corresponds to
 	// `--size clear` on the CLI.
 	ClearSize bool `json:"clear_size,omitempty"`
+	// Tags is additive on update — listed tags are attached to the entity but
+	// no detachment is performed. To remove a tag, use `shark td tag rm`.
+	// Empty/nil means no change. Mirrors bug/change-card semantics on update.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // TechDebtFilters defines filter options for listing tech-debt items via the service layer.

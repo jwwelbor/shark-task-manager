@@ -78,6 +78,10 @@ type TaskFilters struct {
 	// When non-empty, requires tagSvc to be wired; otherwise
 	// *TagFilterUnavailableError is returned (AC-30).
 	Tags []string `json:"tags,omitempty"`
+	// HasRejections, when true, restricts results to tasks with at least one
+	// rejection note (RejectionCount > 0). Wired from the `--has-rejections`
+	// CLI flag. The filter is applied after rejection-count enrichment.
+	HasRejections bool `json:"has_rejections,omitempty"`
 }
 
 // DependencyTree represents the hierarchical dependency structure for a task.

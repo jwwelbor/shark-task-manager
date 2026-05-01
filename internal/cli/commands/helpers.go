@@ -239,6 +239,13 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 			return "change", nil, nil, nil
 		}
 
+		// Check if it's "tech-debt", "tech_debt", "techdebt", or "td" keyword.
+		// The dispatcher in list.go already has a "tech_debt" case; this enables
+		// `shark list tech-debt` / `shark list td` to reach it.
+		if normalized == "TECH-DEBT" || normalized == "TECH_DEBT" || normalized == "TECHDEBT" || normalized == "TD" {
+			return "tech_debt", nil, nil, nil
+		}
+
 		// Check if it's a combined feature key (E##-F##)
 		if IsFeatureKey(normalized) {
 			epic, feature, err := ParseFeatureKey(normalized)
@@ -265,12 +272,13 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 
 		// Generic invalid format
 		return "", nil, nil, InvalidPositionalArgsError("list",
-			fmt.Sprintf("invalid key format %q - expected E##, E##-F##, bugs, changes, or ideas", args[0]),
+			fmt.Sprintf("invalid key format %q - expected E##, E##-F##, bugs, changes, tech-debt, or ideas", args[0]),
 			[]string{
 				"shark list E07",
 				"shark list E07-F01",
 				"shark list bugs",
 				"shark list changes",
+				"shark list tech-debt",
 			})
 	}
 
