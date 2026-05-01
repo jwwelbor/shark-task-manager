@@ -91,7 +91,7 @@ func TestWireServices_ConstructsTagService(t *testing.T) {
 func tagSvcField(t *testing.T, svc interface{}) reflect.Value {
 	t.Helper()
 	v := reflect.ValueOf(svc)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		t.Fatalf("service value is not a non-nil pointer: %T", svc)
 	}
 	elem := v.Elem()
