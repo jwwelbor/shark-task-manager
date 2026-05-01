@@ -66,24 +66,34 @@ func findFreePort(start, end int) (int, error) {
 	return 0, fmt.Errorf("no free port found in range %d–%d", start, end)
 }
 
+// browserCommand constructs the *exec.Cmd that would launch the system
+// default browser for the given URL on the specified OS. It does NOT start
+// the process — that is the caller's responsibility. Splitting construction
+// from execution lets unit tests verify the OS-dispatch logic without
+// actually opening a browser.
+func browserCommand(goos, url string) (*exec.Cmd, error) {
+	switch goos {
+	case "linux":
+		return exec.Command("xdg-open", url), nil
+	case "darwin":
+		return exec.Command("open", url), nil
+	case "windows":
+		return exec.Command("cmd", "/c", "start", url), nil
+	default:
+		return nil, fmt.Errorf("unsupported OS: %s", goos)
+	}
+}
+
 // openBrowserForOS launches the system default browser for the given URL on
-// the specified OS.  Separating the OS selection from runtime.GOOS makes the
-// function unit-testable.
+// the specified OS.
 // The command is started asynchronously (fire-and-forget) so the caller is
 // not blocked waiting for the browser to exit.
 // Returns an error if the OS is unsupported or the command fails to start;
 // this error is non-fatal at the call site.
 func openBrowserForOS(goos, url string) error {
-	var cmd *exec.Cmd
-	switch goos {
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default:
-		return fmt.Errorf("unsupported OS: %s", goos)
+	cmd, err := browserCommand(goos, url)
+	if err != nil {
+		return err
 	}
 	return cmd.Start()
 }

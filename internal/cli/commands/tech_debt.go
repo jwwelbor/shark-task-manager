@@ -532,11 +532,15 @@ func buildTechDebtBasicInfo(td *models.TechDebt) [][]string {
 // printTechDebtTable renders a table for tech-debt list output.
 func printTechDebtTable(items []*models.TechDebt) error {
 	headers := []string{"KEY", "TITLE", "STATUS", "CATEGORY", "SEVERITY"}
+	// CC-036: Title column scales with resolved console width.
+	// Reserved width (~75 cols) covers key + status + category + severity
+	// columns plus separators.
+	titleMax := cli.TitleColumnWidth(75)
 	rows := make([][]string, 0, len(items))
 	for _, td := range items {
 		rows = append(rows, []string{
 			td.Key,
-			truncateTdString(td.Title, 45),
+			truncateTdString(td.Title, titleMax),
 			string(td.Status),
 			string(td.Category),
 			string(td.Severity),

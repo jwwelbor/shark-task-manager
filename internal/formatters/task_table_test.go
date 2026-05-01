@@ -3,11 +3,71 @@ package formatters
 import (
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestDefaultTaskTableConfig_TitleScalesWithConsoleWidth verifies that
+// changing the resolved console width (via cli.SetConsoleWidthForTesting)
+// changes TitleMaxLength produced by DefaultTaskTableConfig.
+//
+// This is the "at least one updated rendering path" test required by
+// CC-036's exit gate: it proves the width plumbing actually flows from
+// config → cli helper → formatter default.
+func TestDefaultTaskTableConfig_TitleScalesWithConsoleWidth(t *testing.T) {
+	tests := []struct {
+		name            string
+		stubbedWidth    int
+		wantTitleMaxLen int
+	}{
+		{"narrow terminal yields minimum title", 60, 20},        // 60-80 < min → 20
+		{"baseline 120 reproduces historical default", 120, 40}, // 120-80 = 40
+		{"wide terminal yields wider title", 200, 120},          // 200-80 = 120
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := cli.SetConsoleWidthForTesting(tt.stubbedWidth)
+			defer restore()
+
+			cfg := DefaultTaskTableConfig()
+			if cfg.TitleMaxLength != tt.wantTitleMaxLen {
+				t.Errorf("DefaultTaskTableConfig().TitleMaxLength = %d, want %d (console width %d)",
+					cfg.TitleMaxLength, tt.wantTitleMaxLen, tt.stubbedWidth)
+			}
+		})
+	}
+}
+
+// TestFeatureGetTaskTableConfig_TitleScalesWithConsoleWidth mirrors the
+// task-list test but for the wider feature-get config (smaller reserved
+// area → larger title cap at any given width). CC-036.
+func TestFeatureGetTaskTableConfig_TitleScalesWithConsoleWidth(t *testing.T) {
+	tests := []struct {
+		name            string
+		stubbedWidth    int
+		wantTitleMaxLen int
+	}{
+		{"baseline 120 reproduces historical default", 120, 60}, // 120-60 = 60
+		{"wide terminal yields wider title", 200, 140},          // 200-60 = 140
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := cli.SetConsoleWidthForTesting(tt.stubbedWidth)
+			defer restore()
+
+			cfg := FeatureGetTaskTableConfig()
+			if cfg.TitleMaxLength != tt.wantTitleMaxLen {
+				t.Errorf("FeatureGetTaskTableConfig().TitleMaxLength = %d, want %d (console width %d)",
+					cfg.TitleMaxLength, tt.wantTitleMaxLen, tt.stubbedWidth)
+			}
+		})
+	}
+}
 
 func TestDefaultTaskTableConfig(t *testing.T) {
 	config := DefaultTaskTableConfig()

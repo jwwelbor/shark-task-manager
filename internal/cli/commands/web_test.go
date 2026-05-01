@@ -3,7 +3,6 @@ package commands
 import (
 	"fmt"
 	"net"
-	"runtime"
 	"testing"
 )
 
@@ -60,63 +59,61 @@ func TestFindFreePort_AllBusy(t *testing.T) {
 	}
 }
 
-// TestOpenBrowser_CommandConstruction verifies the OS-dispatch logic of
-// openBrowserForOS.  Supported OS strings (linux, darwin, windows) must not
-// return the "unsupported OS" error; they may return an exec error when the
-// native binary is unavailable (e.g. testing Windows paths on Linux).
-// Unsupported OS strings (plan9, freebsd, …) must always return an error
-// whose message contains "unsupported OS".
-func TestOpenBrowser_CommandConstruction(t *testing.T) {
-	supportedOSes := []string{"linux", "darwin", "windows"}
-	unsupportedOSes := []string{"plan9", "freebsd"}
+// TestBrowserCommand_OSDispatch verifies the OS-dispatch logic of
+// browserCommand. It checks the constructed *exec.Cmd's argv without
+// invoking Start(), so running tests does not actually launch any browsers.
+func TestBrowserCommand_OSDispatch(t *testing.T) {
+	const url = "http://127.0.0.1:7777"
 
-	for _, goos := range supportedOSes {
-		goos := goos
-		t.Run(goos, func(t *testing.T) {
-			err := openBrowserForOS(goos, "http://127.0.0.1:7777")
-			// Supported OSes must not return the "unsupported OS" sentinel.
-			// An exec error (binary not found, no display) is acceptable in CI.
-			if err != nil && err.Error() == fmt.Sprintf("unsupported OS: %s", goos) {
-				t.Errorf("openBrowserForOS(%q) returned unsupported-OS error on a known platform: %v", goos, err)
-			}
-		})
+	cases := []struct {
+		goos     string
+		wantArgs []string
+	}{
+		{"linux", []string{"xdg-open", url}},
+		{"darwin", []string{"open", url}},
+		{"windows", []string{"cmd", "/c", "start", url}},
 	}
 
-	for _, goos := range unsupportedOSes {
-		goos := goos
-		t.Run(goos, func(t *testing.T) {
-			err := openBrowserForOS(goos, "http://127.0.0.1:7777")
-			if err == nil {
-				t.Errorf("openBrowserForOS(%q) expected error for unsupported OS, got nil", goos)
-				return
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.goos, func(t *testing.T) {
+			cmd, err := browserCommand(tc.goos, url)
+			if err != nil {
+				t.Fatalf("browserCommand(%q) unexpected error: %v", tc.goos, err)
 			}
-			want := fmt.Sprintf("unsupported OS: %s", goos)
-			if err.Error() != want {
-				t.Errorf("openBrowserForOS(%q) error = %q, want %q", goos, err.Error(), want)
+			if cmd == nil {
+				t.Fatalf("browserCommand(%q) returned nil cmd", tc.goos)
+			}
+			if len(cmd.Args) != len(tc.wantArgs) {
+				t.Fatalf("browserCommand(%q) args = %v, want %v", tc.goos, cmd.Args, tc.wantArgs)
+			}
+			for i, want := range tc.wantArgs {
+				if cmd.Args[i] != want {
+					t.Errorf("browserCommand(%q) args[%d] = %q, want %q", tc.goos, i, cmd.Args[i], want)
+				}
 			}
 		})
 	}
 }
 
-// TestOpenBrowser_CurrentOS confirms that openBrowser does not immediately
-// return an error on the current platform (the command may fail to start a
-// browser in a headless environment, but it should at least resolve the
-// command name without an "unsupported OS" error).
-func TestOpenBrowser_CurrentOS(t *testing.T) {
-	switch runtime.GOOS {
-	case "linux", "darwin", "windows":
-		// openBrowser may fail to launch a browser in CI (xdg-open not found,
-		// no display, etc.) but it must NOT return the "unsupported OS" error.
-		err := openBrowser("http://127.0.0.1:7777")
-		if err != nil {
-			// A start failure (e.g. exec: "xdg-open": not found) is acceptable
-			// in headless environments.  Only fail if we get an "unsupported OS"
-			// error.
-			if err.Error() == fmt.Sprintf("unsupported OS: %s", runtime.GOOS) {
-				t.Errorf("unexpected unsupported-OS error on %s: %v", runtime.GOOS, err)
+// TestBrowserCommand_UnsupportedOS verifies that browserCommand returns an
+// "unsupported OS" error for non-supported GOOS values.
+func TestBrowserCommand_UnsupportedOS(t *testing.T) {
+	for _, goos := range []string{"plan9", "freebsd"} {
+		goos := goos
+		t.Run(goos, func(t *testing.T) {
+			cmd, err := browserCommand(goos, "http://127.0.0.1:7777")
+			if err == nil {
+				t.Errorf("browserCommand(%q) expected error for unsupported OS, got nil", goos)
+				return
 			}
-		}
-	default:
-		t.Skipf("skipping on %s — not a supported platform", runtime.GOOS)
+			if cmd != nil {
+				t.Errorf("browserCommand(%q) returned non-nil cmd alongside error", goos)
+			}
+			want := fmt.Sprintf("unsupported OS: %s", goos)
+			if err.Error() != want {
+				t.Errorf("browserCommand(%q) error = %q, want %q", goos, err.Error(), want)
+			}
+		})
 	}
 }

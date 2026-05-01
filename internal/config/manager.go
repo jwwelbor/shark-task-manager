@@ -83,6 +83,12 @@ func (m *Manager) Load() (*Config, error) {
 		config.WorkflowConfig = &workflowConfig
 	}
 
+	// Parse console_width if present (CC-036). JSON numbers decode as float64.
+	// A zero or negative value means "auto-detect" (handled in GetConsoleWidth).
+	if consoleWidth, ok := rawData["console_width"].(float64); ok {
+		config.ConsoleWidth = int(consoleWidth)
+	}
+
 	// Parse observability config if present
 	if obsRaw, ok := rawData["observability"].(map[string]interface{}); ok {
 		var obs ObservabilityConfig
