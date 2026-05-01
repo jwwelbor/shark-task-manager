@@ -23,7 +23,7 @@ import (
 // Each method delegates to the corresponding Func field if set, otherwise
 // returns a sensible default so callers don't panic on unimplemented methods.
 type MockChangeCardService struct {
-	CreateChangeCardFunc      func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
+	CreateChangeCardFunc      func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error)
 	GetChangeCardFunc         func(ctx context.Context, key string) (*models.ChangeCard, error)
 	ListChangeCardsFunc       func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
 	UpdateChangeCardFunc      func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
@@ -34,11 +34,11 @@ type MockChangeCardService struct {
 	GetOrchestratorActionFunc func(card *models.ChangeCard) *config.PopulatedAction
 }
 
-func (m *MockChangeCardService) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+func (m *MockChangeCardService) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 	if m.CreateChangeCardFunc != nil {
 		return m.CreateChangeCardFunc(ctx, input)
 	}
-	return nil, fmt.Errorf("CreateChangeCard not implemented in mock")
+	return nil, false, fmt.Errorf("CreateChangeCard not implemented in mock")
 }
 
 func (m *MockChangeCardService) GetChangeCard(ctx context.Context, key string) (*models.ChangeCard, error) {
@@ -171,8 +171,8 @@ func captureOutput(t *testing.T, fn func()) []byte {
 
 func TestRunChangeCreate_Success(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
-		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: input.Title}, Status: "proposed"}, nil
+		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: input.Title}, Status: "proposed"}, false, nil
 		},
 	})
 	defer restore()
@@ -195,8 +195,8 @@ func TestRunChangeCreate_Success(t *testing.T) {
 
 func TestRunChangeCreate_ServiceError(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
-		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
-			return nil, fmt.Errorf("db error")
+		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+			return nil, false, fmt.Errorf("db error")
 		},
 	})
 	defer restore()
@@ -219,8 +219,8 @@ func TestRunChangeCreate_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
-		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
+		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "Test"}, Status: "proposed"}, false, nil
 		},
 	})
 	defer restore()
@@ -1008,12 +1008,12 @@ type mockChangeCardSvcForTags struct {
 	lastUpdate services.ChangeCardUpdates
 }
 
-func (m *mockChangeCardSvcForTags) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+func (m *mockChangeCardSvcForTags) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 	m.lastCreate = input
 	if m.CreateChangeCardFunc != nil {
 		return m.CreateChangeCardFunc(ctx, input)
 	}
-	return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}, Status: "proposed"}, nil
+	return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}, Status: "proposed"}, false, nil
 }
 
 func (m *mockChangeCardSvcForTags) UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error) {

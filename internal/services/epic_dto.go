@@ -31,6 +31,12 @@ type CreateEpicInput struct {
 	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
 	// E07-F42 REQ-F-004.
 	Size *int `json:"size,omitempty"`
+	// Body, when non-empty, replaces the rendered placeholder body of the
+	// epic's markdown file (frontmatter is preserved). Sourced from the CLI
+	// `--content` flag or piped stdin via cli.ResolveContentInput. Applied
+	// in the CLI helper because the epic markdown is rendered there, not in
+	// the service.
+	Body string `json:"body,omitempty"`
 }
 
 // EpicUpdates contains fields that can be updated on an existing epic.
@@ -80,6 +86,12 @@ type CreateFeatureInput struct {
 	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
 	// E07-F42 REQ-F-004.
 	Size *int `json:"size,omitempty"`
+	// Body, when non-empty, replaces the rendered placeholder body of the
+	// feature's markdown file (frontmatter is preserved). Sourced from the
+	// CLI `--content` flag or piped stdin via cli.ResolveContentInput.
+	// Applied in the CLI helper because the feature markdown is rendered
+	// there, not in the service.
+	Body string `json:"body,omitempty"`
 }
 
 // FeatureUpdates contains fields that can be updated on an existing feature.

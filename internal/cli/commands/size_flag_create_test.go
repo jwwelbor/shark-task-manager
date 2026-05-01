@@ -66,9 +66,9 @@ func TestSizeFlag_RegisteredOnAllCreateCommands(t *testing.T) {
 func TestBugCreate_SizeFlag_LabelForm_PassesParsedSizeToService(t *testing.T) {
 	var capturedInput services.CreateBugInput
 	stub := &mockBugServiceForTags{
-		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, error) {
+		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, bool, error) {
 			capturedInput = input
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}}, false, nil
 		},
 	}
 	withBugSvcOverride(t, stub)
@@ -91,9 +91,9 @@ func TestBugCreate_SizeFlag_LabelForm_PassesParsedSizeToService(t *testing.T) {
 func TestBugCreate_SizeFlag_NumericForm_PassesParsedSizeToService(t *testing.T) {
 	var capturedInput services.CreateBugInput
 	stub := &mockBugServiceForTags{
-		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, error) {
+		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, bool, error) {
 			capturedInput = input
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}}, false, nil
 		},
 	}
 	withBugSvcOverride(t, stub)
@@ -117,9 +117,9 @@ func TestBugCreate_SizeFlag_NumericForm_PassesParsedSizeToService(t *testing.T) 
 func TestBugCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 	var capturedInput services.CreateBugInput
 	stub := &mockBugServiceForTags{
-		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, error) {
+		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, bool, error) {
 			capturedInput = input
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: input.Title}}, false, nil
 		},
 	}
 	withBugSvcOverride(t, stub)
@@ -139,9 +139,9 @@ func TestBugCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 // TC-F004-E: invalid value returns error before calling service
 func TestBugCreate_SizeFlag_Invalid_ReturnsErrorBeforeCallingService(t *testing.T) {
 	stub := &mockBugServiceForTags{
-		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, error) {
+		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, bool, error) {
 			t.Error("service should not have been called for invalid --size")
-			return nil, nil
+			return nil, false, nil
 		},
 	}
 	withBugSvcOverride(t, stub)
@@ -167,9 +167,9 @@ func TestBugCreate_SizeFlag_Invalid_ReturnsErrorBeforeCallingService(t *testing.
 // AC-T3: --size clear on a create command must return an error
 func TestBugCreate_SizeFlag_Clear_ReturnsError(t *testing.T) {
 	stub := &mockBugServiceForTags{
-		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, error) {
+		createBugFn: func(_ context.Context, input services.CreateBugInput) (*models.Bug, bool, error) {
 			t.Error("service should not have been called for --size clear on create")
-			return nil, nil
+			return nil, false, nil
 		},
 	}
 	withBugSvcOverride(t, stub)
@@ -194,9 +194,9 @@ func TestBugCreate_SizeFlag_Clear_ReturnsError(t *testing.T) {
 func TestChangeCreate_SizeFlag_LabelForm(t *testing.T) {
 	var capturedInput services.CreateChangeCardInput
 	stub := &MockChangeCardService{
-		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 			capturedInput = input
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
 		},
 	}
 	withChangeCardSvcOverrideForSize(t, stub)
@@ -219,9 +219,9 @@ func TestChangeCreate_SizeFlag_LabelForm(t *testing.T) {
 func TestChangeCreate_SizeFlag_NumericForm(t *testing.T) {
 	var capturedInput services.CreateChangeCardInput
 	stub := &MockChangeCardService{
-		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 			capturedInput = input
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
 		},
 	}
 	withChangeCardSvcOverrideForSize(t, stub)
@@ -244,9 +244,9 @@ func TestChangeCreate_SizeFlag_NumericForm(t *testing.T) {
 func TestChangeCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 	var capturedInput services.CreateChangeCardInput
 	stub := &MockChangeCardService{
-		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 			capturedInput = input
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
 		},
 	}
 	withChangeCardSvcOverrideForSize(t, stub)
@@ -265,9 +265,9 @@ func TestChangeCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 
 func TestChangeCreate_SizeFlag_Invalid_ReturnsError(t *testing.T) {
 	stub := &MockChangeCardService{
-		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 			t.Error("service should not have been called for invalid --size")
-			return nil, nil
+			return nil, false, nil
 		},
 	}
 	withChangeCardSvcOverrideForSize(t, stub)
@@ -304,9 +304,9 @@ func TestTaskCreate_SizeFlag_RegisteredAndIsString(t *testing.T) {
 func TestTaskCreate_SizeFlag_LabelL(t *testing.T) {
 	var capturedInput services.CreateTaskInput
 	stub := &mockTaskCreateService{
-		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, error) {
+		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 			capturedInput = input
-			return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, false, nil
 		},
 	}
 	withTaskCreateSvcOverride(t, stub)
@@ -328,9 +328,9 @@ func TestTaskCreate_SizeFlag_LabelL(t *testing.T) {
 func TestTaskCreate_SizeFlag_Numeric8(t *testing.T) {
 	var capturedInput services.CreateTaskInput
 	stub := &mockTaskCreateService{
-		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, error) {
+		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 			capturedInput = input
-			return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, false, nil
 		},
 	}
 	withTaskCreateSvcOverride(t, stub)
@@ -352,9 +352,9 @@ func TestTaskCreate_SizeFlag_Numeric8(t *testing.T) {
 func TestTaskCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 	var capturedInput services.CreateTaskInput
 	stub := &mockTaskCreateService{
-		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, error) {
+		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 			capturedInput = input
-			return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, false, nil
 		},
 	}
 	withTaskCreateSvcOverride(t, stub)
@@ -372,9 +372,9 @@ func TestTaskCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 
 func TestTaskCreate_SizeFlag_Invalid_ReturnsError(t *testing.T) {
 	stub := &mockTaskCreateService{
-		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, error) {
+		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 			t.Error("service should not have been called for invalid --size")
-			return nil, nil
+			return nil, false, nil
 		},
 	}
 	withTaskCreateSvcOverride(t, stub)
@@ -566,14 +566,14 @@ func withChangeCardSvcOverrideForSize(t *testing.T, svc changeCardServicer) {
 // ---------------------------------------------------------------------------
 
 type mockTaskCreateService struct {
-	createFn func(ctx context.Context, input services.CreateTaskInput) (*models.Task, error)
+	createFn func(ctx context.Context, input services.CreateTaskInput) (*models.Task, bool, error)
 }
 
-func (m *mockTaskCreateService) CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, error) {
+func (m *mockTaskCreateService) CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 	if m.createFn != nil {
 		return m.createFn(ctx, input)
 	}
-	return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, nil
+	return &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: input.Title}}, false, nil
 }
 
 // Compile-time check.

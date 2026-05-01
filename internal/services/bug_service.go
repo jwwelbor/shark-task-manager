@@ -114,34 +114,37 @@ func NewBugService(
 }
 
 // CreateBug creates a new bug with auto-generated key and slug.
-func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*models.Bug, error) {
+//
+// Returns the created bug, a boolean indicating whether an existing markdown
+// file was linked (vs. a fresh placeholder being written), and any error.
+func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*models.Bug, bool, error) {
 	if strings.TrimSpace(input.Title) == "" {
-		return nil, fmt.Errorf("bug title cannot be empty")
+		return nil, false, fmt.Errorf("bug title cannot be empty")
 	}
 
 	if !models.ValidBugSeverities[input.Severity] {
-		return nil, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", input.Severity)
+		return nil, false, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", input.Severity)
 	}
 
 	// Validate linked entity if provided
 	if input.LinkedEntityType != "" || input.LinkedEntityKey != "" {
 		if input.LinkedEntityType == "" || input.LinkedEntityKey == "" {
-			return nil, fmt.Errorf("both linked_entity_type and linked_entity_key must be provided together")
+			return nil, false, fmt.Errorf("both linked_entity_type and linked_entity_key must be provided together")
 		}
 		if err := s.validateLinkedEntity(ctx, input.LinkedEntityType, input.LinkedEntityKey); err != nil {
-			return nil, fmt.Errorf("linked entity validation failed: %w", err)
+			return nil, false, fmt.Errorf("linked entity validation failed: %w", err)
 		}
 	}
 
 	// Enforce tag_required_for before key allocation or persistence.
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeBug, input.Tags); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Generate key
 	key, err := s.repo.GetNextKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate bug key: %w", err)
+		return nil, false, fmt.Errorf("failed to generate bug key: %w", err)
 	}
 
 	// Get default status from workflow
@@ -176,20 +179,23 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 	bug.FilePath = &filePath
 
 	if err := s.repo.Create(ctx, bug); err != nil {
-		return nil, fmt.Errorf("failed to create bug: %w", err)
+		return nil, false, fmt.Errorf("failed to create bug: %w", err)
 	}
 
 	// Attach tags after insert so bug.ID is valid. Not wrapped in a
 	// transaction — on failure the row is persisted with zero tags and
 	// the user retries via `shark bug update --tag=...`.
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bug.ID, input.Tags); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Generate and write markdown file (best-effort)
 	content := s.generateMarkdown(bug)
+	if input.Body != "" {
+		content = fileops.ReplaceBodyAfterFrontmatter(content, input.Body)
+	}
 	writer := fileops.NewEntityFileWriter()
-	_, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
+	writeResult, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
 		Content:        []byte(content),
 		ProjectRoot:    s.projectRoot,
 		FilePath:       filePath,
@@ -202,7 +208,8 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 		slog.Warn("failed to write bug file", "path", filePath, "error", writeErr)
 	}
 
-	return bug, nil
+	fileWasLinked := writeResult != nil && writeResult.Linked
+	return bug, fileWasLinked, nil
 }
 
 // generateMarkdown produces a markdown document for a newly created bug.

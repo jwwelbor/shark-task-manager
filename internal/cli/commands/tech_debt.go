@@ -15,7 +15,7 @@ import (
 
 // techDebtServicer defines the interface for tech-debt service operations used by CLI commands.
 type techDebtServicer interface {
-	CreateTechDebt(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, error)
+	CreateTechDebt(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error)
 	GetTechDebt(ctx context.Context, key string) (*models.TechDebt, error)
 	ListTechDebts(ctx context.Context, filters services.TechDebtFilters) ([]*models.TechDebt, error)
 	UpdateTechDebt(ctx context.Context, key string, updates services.TechDebtUpdates) (*models.TechDebt, error)
@@ -218,6 +218,7 @@ func registerTdCreateFlags(cmd *cobra.Command) {
 	// (see `shark tags list` / `shark tags add`).
 	cmd.Flags().StringSlice("tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	cmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
 }
 
 // registerTdUpdateFlags registers update-specific flags. Mirrors
@@ -270,6 +271,11 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 		sizePtr = &n
 	}
 
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
+
 	input := services.CreateTechDebtInput{
 		Title:          args[0],
 		Category:       models.TechDebtCategory(category),
@@ -279,6 +285,7 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 		Force:          force,
 		Size:           sizePtr,
 		Tags:           tags,
+		Body:           body,
 	}
 
 	if filePath != "" {
@@ -287,19 +294,18 @@ func runTdCreate(cmd *cobra.Command, args []string) error {
 
 	// Step 2: Call service
 	svc := getTechDebtService()
-	td, err := svc.CreateTechDebt(cmd.Context(), input)
+	td, fileWasLinked, err := svc.CreateTechDebt(cmd.Context(), input)
 	if err != nil {
 		return err
 	}
 
 	// Step 3: Format output
+	projectRoot, _ := cli.FindProjectRoot()
+	tdFilePath := td.GetFilePath()
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(td)
+		return cli.OutputJSON(cli.FormatEntityCreationJSON("tech-debt", td.Key, td.Title, tdFilePath, projectRoot))
 	}
-	cli.Success(fmt.Sprintf("Created tech-debt %s: %s", td.Key, td.Title))
-	if fp := td.GetFilePath(); fp != "" {
-		cli.Info(fmt.Sprintf("File: %s", fp))
-	}
+	fmt.Print(cli.FormatEntityCreationMessage("tech-debt", td.Key, td.Title, tdFilePath, projectRoot, fileWasLinked))
 	return nil
 }
 

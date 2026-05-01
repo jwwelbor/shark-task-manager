@@ -17,7 +17,7 @@ import (
 type mockTaskService struct {
 	getTaskFn          func(ctx context.Context, key string) (*models.Task, error)
 	listTasksFn        func(ctx context.Context, filters services.TaskFilters) ([]*models.Task, error)
-	createTaskFn       func(ctx context.Context, input services.CreateTaskInput) (*models.Task, error)
+	createTaskFn       func(ctx context.Context, input services.CreateTaskInput) (*models.Task, bool, error)
 	updateTaskFn       func(ctx context.Context, key string, updates services.TaskUpdates) (*models.Task, error)
 	deleteTaskFn       func(ctx context.Context, key string) error
 	transitionStatusFn func(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
@@ -38,11 +38,11 @@ func (m *mockTaskService) ListTasks(ctx context.Context, filters services.TaskFi
 	return nil, nil
 }
 
-func (m *mockTaskService) CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, error) {
+func (m *mockTaskService) CreateTask(ctx context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 	if m.createTaskFn != nil {
 		return m.createTaskFn(ctx, input)
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 func (m *mockTaskService) UpdateTask(ctx context.Context, key string, updates services.TaskUpdates) (*models.Task, error) {
@@ -202,12 +202,12 @@ func TestTaskHandler_CreateTask(t *testing.T) {
 	t.Run("creates task with valid input", func(t *testing.T) {
 		var capturedInput services.CreateTaskInput
 		svc := &mockTaskService{
-			createTaskFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, error) {
+			createTaskFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
 				capturedInput = input
 				task := &models.Task{Status: "todo"}
 				task.Key = "E07-F01-003"
 				task.Title = input.Title
-				return task, nil
+				return task, false, nil
 			},
 		}
 

@@ -271,13 +271,14 @@ func (s *TaskService) getOrInitQueryService() *TaskQueryService {
 //
 // Returns:
 //   - *models.Task: the created task with generated key and ID
+//   - bool: true when an existing file was linked (vs. a new placeholder created)
 //   - error: validation errors, repository errors, or file creation errors
 //
 // Errors:
 //   - ValidationError: if input validation fails (missing epic/feature, invalid priority)
 //   - ConflictError: if task key already exists or file path is claimed
 //   - RepositoryError: if database operation fails
-func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*models.Task, error) {
+func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*models.Task, bool, error) {
 	ctx, span := s.getTracer().Start(ctx, "TaskService.CreateTask",
 		trace.WithAttributes(
 			attribute.String("task.epic_key", input.EpicKey),
@@ -289,22 +290,22 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 
 	// Validate required fields
 	if input.EpicKey == "" {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: epic key is required"))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: epic key is required"))
 	}
 	if input.FeatureKey == "" {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: feature key is required"))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: feature key is required"))
 	}
 	if input.Title == "" {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: title is required"))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: title is required"))
 	}
 
 	// Validate optional fields
 	if input.Priority > 10 {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: priority must be between 1 and 10"))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: priority must be between 1 and 10"))
 	}
 
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeTask, input.Tags); err != nil {
-		return nil, recordSpanError(span, err)
+		return nil, false, recordSpanError(span, err)
 	}
 
 	// Set default priority if not provided
@@ -333,19 +334,20 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 			Force:          input.Force,
 			Create:         input.CreateFile,
 			Size:           input.Size,
+			Body:           input.Body,
 		}
 
 		result, err := s.creatorSvc.CreateTask(ctx, creatorInput)
 		if err != nil {
-			return nil, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
+			return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
 		}
 
 		if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, result.Task.ID, input.Tags); err != nil {
-			return nil, recordSpanError(span, err)
+			return nil, false, recordSpanError(span, err)
 		}
 
 		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
-		return result.Task, nil
+		return result.Task, result.FileWasLinked, nil
 	}
 
 	// Fallback path (no creatorSvc): generate key via repository prefix search.
@@ -366,7 +368,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 	// Find existing tasks with this prefix to determine next sequence number
 	existing, err := s.repo.ListByKeyPrefix(ctx, keyPrefix)
 	if err != nil {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: could not query existing keys: %w", err))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: could not query existing keys: %w", err))
 	}
 	nextSeq := len(existing) + 1
 	taskKey := fmt.Sprintf("%s%03d", keyPrefix, nextSeq)
@@ -399,20 +401,20 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 
 	// Validate model
 	if err := task.Validate(); err != nil {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: validation error: %w", err))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: validation error: %w", err))
 	}
 
 	// Save to repository
 	if err := s.repo.Create(ctx, task); err != nil {
-		return nil, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
 	}
 
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, task.ID, input.Tags); err != nil {
-		return nil, recordSpanError(span, err)
+		return nil, false, recordSpanError(span, err)
 	}
 
 	s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
-	return task, nil
+	return task, false, nil
 }
 
 // GetTask retrieves a task by key.

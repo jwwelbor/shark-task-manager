@@ -59,7 +59,7 @@ func TestChangeCardService_CreateChangeCard_NoTagsAndNoRequirement(t *testing.T)
 	tagSvc := NewMockTagService() // no enforcement; no tags
 	svc := newChangeCardServiceWithTagSvc(repo, tagSvc)
 
-	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	card, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "No tags here",
 		Tags:  nil,
 	})
@@ -97,7 +97,7 @@ func TestChangeCardService_CreateChangeCard_NilTagSvcIsSkippedCleanly(t *testing
 	// Explicit nil tagSvc — production code paths that predate F04 wiring.
 	svc := newChangeCardServiceWithTagSvc(repo, nil)
 
-	card, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	card, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Nil tagSvc card",
 		Tags:  []string{"voice"}, // even with tags, nil svc is OK
 	})
@@ -133,7 +133,7 @@ func TestChangeCardService_CreateChangeCard_RequiredTypeMissingTagsAborts(t *tes
 	)
 	svc := newChangeCardServiceWithTagSvc(repo, tagSvc)
 
-	_, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	_, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Should fail enforcement",
 		Tags:  nil,
 	})
@@ -178,7 +178,7 @@ func TestChangeCardService_CreateChangeCard_TagsProvidedAttachAfterPersist(t *te
 	}
 	svc := newChangeCardServiceWithTagSvc(repo, tagSvc)
 
-	_, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	_, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Change with tags",
 		Tags:  []string{"voice", "auth"},
 	})
@@ -230,7 +230,7 @@ func TestChangeCardService_CreateChangeCard_AttachFailurePropagates(t *testing.T
 	)
 	svc := newChangeCardServiceWithTagSvc(repo, tagSvc)
 
-	_, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
+	_, _, err := svc.CreateChangeCard(ctx, CreateChangeCardInput{
 		Title: "Attach will fail",
 		Tags:  []string{"ghost"},
 	})

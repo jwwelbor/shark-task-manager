@@ -21,6 +21,10 @@ type CreateChangeCardInput struct {
 	// t-shirt labels (XS/S/M/L/XL/XXL) to numeric form before setting.
 	// E07-F42 REQ-F-004.
 	Size *int `json:"size,omitempty"`
+	// Body, when non-empty, replaces the rendered placeholder body of the
+	// change-card's markdown file (frontmatter is preserved). Sourced from
+	// the CLI `--content` flag or piped stdin via cli.ResolveContentInput.
+	Body string `json:"body,omitempty"`
 }
 
 // ChangeCardFilters contains filtering options for listing change-cards.

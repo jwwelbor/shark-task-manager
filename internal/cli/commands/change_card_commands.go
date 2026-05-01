@@ -34,6 +34,10 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 	requestedBy, _ := cmd.Flags().GetString("requested-by")
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
 
 	input := services.CreateChangeCardInput{
 		Title:         title,
@@ -42,22 +46,21 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 		RequestedBy:   requestedBy,
 		EpicKey:       epicKey,
 		FeatureKey:    featureKey,
+		Body:          body,
 	}
 
 	svc := cli.GetChangeCardService()
-	card, err := svc.CreateChangeCard(ctx, input)
+	card, fileWasLinked, err := svc.CreateChangeCard(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to create change-card: %w", err)
 	}
 
+	projectRoot, _ := cli.FindProjectRoot()
+	cardFilePath := card.GetFilePath()
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(card)
+		return cli.OutputJSON(cli.FormatEntityCreationJSON("change", card.Key, card.Title, cardFilePath, projectRoot))
 	}
-
-	cli.Success(fmt.Sprintf("Created change-card %s: %s", card.Key, card.Title))
-	if fp := card.GetFilePath(); fp != "" {
-		cli.Info(fmt.Sprintf("File: %s", fp))
-	}
+	fmt.Print(cli.FormatEntityCreationMessage("change", card.Key, card.Title, cardFilePath, projectRoot, fileWasLinked))
 	return nil
 }
 

@@ -91,6 +91,10 @@ type CreateTaskInput struct {
 	Force          bool   // Force reassignment if file already claimed
 	Create         bool   // Create file if it doesn't exist (when Filename is specified)
 	Size           *int   // Optional size value (nil = unset)
+	// Body, when non-empty, replaces the rendered placeholder body of the
+	// task's markdown file (frontmatter is preserved). Empty string means
+	// "use the rendered template body as-is".
+	Body string
 }
 
 // CreateTaskResult holds the result of task creation
@@ -298,6 +302,11 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	markdown, err := c.renderer.Render(validated.AgentType, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render template: %w", err)
+	}
+
+	// Apply caller-supplied body override (e.g. --content / piped stdin).
+	if input.Body != "" {
+		markdown = fileops.ReplaceBodyAfterFrontmatter(markdown, input.Body)
 	}
 
 	// 8. Write markdown file using unified file writer

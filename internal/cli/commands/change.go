@@ -16,7 +16,7 @@ import (
 // changeCardServicer is the interface used by change-card CLI commands.
 // Defined here so tests can inject a mock without touching the global CLI layer.
 type changeCardServicer interface {
-	CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
+	CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error)
 	GetChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
 	// GetChangeCardWithTags returns the change-card along with sorted tag names (REQ-F-014).
 	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
@@ -227,6 +227,7 @@ func init() {
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	changeCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	changeCreateCmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
 
 	// List flags
 	changeListCmd.Flags().StringVar(&changeStatusFilter, "status", "", "Filter by status (proposed, approved, in_progress, completed, declined)")
@@ -278,22 +279,26 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 		}
 		input.Size = &n
 	}
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
+	input.Body = body
 
 	// Step 2: Call service
 	svc := getChangeCardService()
-	card, err := svc.CreateChangeCard(cmd.Context(), input)
+	card, fileWasLinked, err := svc.CreateChangeCard(cmd.Context(), input)
 	if err != nil {
 		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", input.Title)
 	}
 
 	// Step 3: Format output
+	projectRoot, _ := cli.FindProjectRoot()
+	cardFilePath := card.GetFilePath()
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(card)
+		return cli.OutputJSON(cli.FormatEntityCreationJSON("change", card.Key, card.Title, cardFilePath, projectRoot))
 	}
-	cli.Success(fmt.Sprintf("Created change-card %s: %s", card.Key, card.Title))
-	if fp := card.GetFilePath(); fp != "" {
-		cli.Info(fmt.Sprintf("File: %s", fp))
-	}
+	fmt.Print(cli.FormatEntityCreationMessage("change", card.Key, card.Title, cardFilePath, projectRoot, fileWasLinked))
 	return nil
 }
 

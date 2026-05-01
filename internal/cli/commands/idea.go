@@ -286,6 +286,8 @@ func init() {
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	ideaCreateCmd.Flags().StringVar(&ideaCreateSizeFlag, "size", "",
 		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+	ideaCreateCmd.Flags().String("content", "",
+		"Pre-populate description (stdin pipe also accepted; overrides --description)")
 
 	// Update command flags
 	ideaUpdateCmd.Flags().StringVar(&ideaStatus, "status", "", "Update status")
@@ -382,6 +384,16 @@ func runIdeaCreate(cmd *cobra.Command, args []string) error {
 	input, err := parseCreateIdeaInput(args[0])
 	if err != nil {
 		return err
+	}
+
+	// --content / stdin overrides --description for ideas (no markdown file).
+	body, err := cli.ResolveContentInput(cmd)
+	if err != nil {
+		return err
+	}
+	if body != "" {
+		desc := body
+		input.Description = &desc
 	}
 
 	svc := cli.GetIdeaService()
@@ -696,7 +708,7 @@ func runIdeaConvertTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get idea: %w", err)
 	}
-	task, err := cli.GetTaskService().CreateTask(cmd.Context(), services.CreateTaskInput{
+	task, _, err := cli.GetTaskService().CreateTask(cmd.Context(), services.CreateTaskInput{
 		EpicKey: ideaConvertEpic, FeatureKey: ideaConvertFeature,
 		Title: idea.Title, Description: getIdeaDescription(idea),
 	})

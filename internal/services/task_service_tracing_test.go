@@ -241,7 +241,7 @@ func TestTaskService_CreateTask_Tracing(t *testing.T) {
 	svc := NewTaskService(mockRepo, entitySvc, nil)
 	svc.SetTracer(tracer)
 
-	_, err := svc.CreateTask(context.Background(), CreateTaskInput{
+	_, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
 		EpicKey:    "E07",
 		FeatureKey: "F01",
 		Title:      "New Task",
