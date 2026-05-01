@@ -100,6 +100,23 @@ func sortEpics(epics []EpicWithProgress, sortBy string) {
 	}
 }
 
+// truncateTitleWithEllipsis truncates a title to exactly maxLen bytes, using
+// "..." as the ellipsis when there is room. This preserves the historical
+// title-cap contract used by the epic list and epic-get features sub-table:
+// the returned string is at most maxLen bytes (not maxLen+3 like
+// truncateRunes). Byte-level slicing matches the prior inlined behavior; for
+// ASCII titles this is exact, and the rendering paths covered here have
+// always operated on byte-truncated titles.
+func truncateTitleWithEllipsis(title string, maxLen int) string {
+	if len(title) <= maxLen {
+		return title
+	}
+	if maxLen <= 3 {
+		return title[:maxLen]
+	}
+	return title[:maxLen-3] + "..."
+}
+
 // buildEpicListRows converts a slice of EpicWithProgress to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildEpicListRows(epics []EpicWithProgress) [][]string {
@@ -111,18 +128,10 @@ func buildEpicListRows(epics []EpicWithProgress) [][]string {
 	titleMax := cli.TitleColumnWidth(70)
 	rows := make([][]string, 0, len(epics))
 	for _, epic := range epics {
-		title := epic.Title
-		if len(title) > titleMax {
-			if titleMax <= 3 {
-				title = title[:titleMax]
-			} else {
-				title = title[:titleMax-3] + "..."
-			}
-		}
 		progress := fmt.Sprintf("%.0f%%", epic.ProgressPct)
 		rows = append(rows, []string{
 			epic.Key,
-			title,
+			truncateTitleWithEllipsis(epic.Title, titleMax),
 			string(epic.Status),
 			progress,
 			string(epic.Priority),
@@ -362,15 +371,6 @@ func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[
 	// prior hardcoded behavior.
 	titleMax := cli.TitleColumnWidth(85)
 	for _, feature := range features {
-		title := feature.Title
-		if len(title) > titleMax {
-			if titleMax <= 3 {
-				title = title[:titleMax]
-			} else {
-				title = title[:titleMax-3] + "..."
-			}
-		}
-
 		progress := fmt.Sprintf("%.0f%%", feature.ProgressPct)
 		taskDisplay := fmt.Sprintf("%d", feature.TaskCount)
 		if feature.IsPlanning {
@@ -380,7 +380,7 @@ func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[
 
 		tableData = append(tableData, []string{
 			feature.Key,
-			title,
+			truncateTitleWithEllipsis(feature.Title, titleMax),
 			string(feature.Status),
 			progress,
 			taskDisplay,
