@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -142,6 +143,29 @@ func truncateRunes(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// fitColumn returns s adjusted to exactly maxLen runes — truncating with
+// "..." if longer, right-padding with spaces if shorter. Used by Title
+// columns in list-view tables so the renderer (pterm) does not shrink
+// the column to the widest actual title, leaving the table narrower than
+// the terminal.
+func fitColumn(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	switch {
+	case len(runes) > maxLen:
+		if maxLen <= 3 {
+			return string(runes[:maxLen])
+		}
+		return string(runes[:maxLen-3]) + "..."
+	case len(runes) < maxLen:
+		return s + strings.Repeat(" ", maxLen-len(runes))
+	default:
+		return s
+	}
 }
 
 // renderBasicInfo renders key-value info table.

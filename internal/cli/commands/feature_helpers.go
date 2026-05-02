@@ -206,10 +206,15 @@ func renderFeatureTasksSection(tasks []*models.Task) {
 }
 
 // renderFeatureListTable renders features as a table.
+//
+// Health is folded into the Status column: status text is colored by health
+// and a `!` / `!!` suffix is appended for non-color signal so colorblind
+// users still see the warning without relying on hue. A legend is printed
+// below the table when any non-healthy row is shown.
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context) {
 	// E07-F42: Size column added to feature list table (REQ-F-006).
 	tableData := pterm.TableData{
-		{"Key", "Title", "Progress", "Status", "Health", "Size"},
+		{"Key", "Title", "Progress", "Status", "Size"},
 	}
 
 	// Batch fetch status breakdowns for all features to avoid N+1 query
@@ -236,27 +241,19 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		slog.Warn("Failed to load config", "error", cfgErr)
 	}
 
-	// Get project root for WorkflowService
-	projectRoot, err := cli.FindProjectRoot()
-	if err != nil {
-		projectRoot = ""
-	}
-	workflowService := workflow.NewService(projectRoot)
-
 	// CC-036: Title column width scales with the resolved console width.
-	// Reserved width (~75 cols) accounts for key + progress + status + health
-	// + size columns plus their separators in the feature list table.
-	titleMax := cli.TitleColumnWidth(75)
+	// Reserved width (~52 cols) accounts for the actual chrome: key (7) +
+	// progress (14) + status (≤12 incl. *!! suffixes) + size (5) + four
+	// " | " separators (12), plus a small margin. Titles are right-padded
+	// to titleMax so pterm renders the column at full width instead of
+	// shrinking it to the widest actual title — which is what makes the
+	// table fill the terminal.
+	titleMax := cli.TitleColumnWidth(52)
+	worstLevel := healthHealthy
 	for _, feature := range features {
-		// CC-036: title truncation uses the resolved console width.
-		title := feature.Title
-		if len(title) > titleMax {
-			if titleMax <= 3 {
-				title = title[:titleMax]
-			} else {
-				title = title[:titleMax-3] + "..."
-			}
-		}
+		// CC-036: title truncation uses the resolved console width;
+		// shorter titles are right-padded to keep the column full-width.
+		title := fitColumn(feature.Title, titleMax)
 
 		// Get status breakdown from batch result
 		statusBreakdown := statusBreakdownBatch[feature.ID]
@@ -270,8 +267,11 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			statusCounts[string(taskStatus)] = count
 		}
 
-		// Calculate health indicator
-		health := calculateHealthIndicator(statusCounts, cfg)
+		// Calculate health (folded into Status column color + suffix).
+		level := healthLevelFromCounts(statusCounts, cfg)
+		if level > worstLevel {
+			worstLevel = level
+		}
 
 		// Calculate progress with weighted ratio
 		var progressDisplay string
@@ -283,63 +283,139 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			progressDisplay = fmt.Sprintf("%.0f%%", feature.ProgressPct)
 		}
 
-		// Apply color coding using workflow service
-		formatted := workflowService.FormatStatusForDisplay(string(feature.Status), !cli.GlobalConfig.NoColor)
-		statusDisplay := formatted.Colored
-		// Add indicator for manual override
+		// Status text + manual-override indicator + non-color health signal.
+		statusText := string(feature.Status)
 		if feature.StatusOverride {
-			statusDisplay += "*"
+			statusText += "*"
 		}
+		statusText += healthSuffix(level)
+		statusDisplay := colorByHealthLevel(statusText, level, !cli.GlobalConfig.NoColor)
 
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
 			progressDisplay,
 			statusDisplay,
-			health,
 			formatSize(feature.Size), // E07-F42 REQ-F-006: Size column
 		})
 	}
 
 	// Render table
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+
+	// Print legend below the table when any non-healthy row was shown,
+	// so the meaning of "!" / "!!" and the color is discoverable at the
+	// point of use (not buried in --help).
+	if worstLevel > healthHealthy {
+		fmt.Println(healthLegend(!cli.GlobalConfig.NoColor))
+	}
 }
 
-// calculateHealthIndicator calculates health emoji based on status breakdown.
-// Returns: 🔴 (at risk, 3+ blocked), 🟡 (attention needed), or 🟢 (healthy).
-func calculateHealthIndicator(statusCounts map[string]int, cfg *config.WorkflowConfig) string {
+// healthLegend returns a one-line key explaining the "!" / "!!" suffixes
+// used in the Status column. When useColor is true the markers are colored
+// to match the corresponding row coloring.
+func healthLegend(useColor bool) string {
+	warn := colorByHealthLevel("!", healthWarning, useColor)
+	risk := colorByHealthLevel("!!", healthAtRisk, useColor)
+	return fmt.Sprintf("  key:  %s = attention   %s = at-risk", warn, risk)
+}
+
+// healthLevel is a typed enum for feature health, decoupled from any
+// particular display representation (emoji, color, suffix).
+type healthLevel int
+
+const (
+	healthHealthy healthLevel = iota // on track
+	healthWarning                    // 1-2 blocking tasks
+	healthAtRisk                     // 3+ blocking tasks
+)
+
+// healthLevelFromCounts derives a healthLevel from a feature's task status
+// breakdown. When cfg is nil it falls back to hardcoded behavior matching
+// the legacy calculateHealthIndicator implementation.
+func healthLevelFromCounts(statusCounts map[string]int, cfg *config.WorkflowConfig) healthLevel {
 	if cfg == nil {
-		// Fallback to hardcoded behavior if no config
 		blockedCount := statusCounts[string(models.TaskStatus("blocked"))]
-		if blockedCount >= 3 {
-			return "🔴"
+		switch {
+		case blockedCount >= 3:
+			return healthAtRisk
+		case blockedCount >= 1 || statusCounts["ready_for_approval"] > 0:
+			return healthWarning
+		default:
+			return healthHealthy
 		}
-		if blockedCount >= 1 || statusCounts["ready_for_approval"] > 0 {
-			return "🟡"
-		}
-		return "🟢"
 	}
 
-	// Config-driven approach: check statuses with blocks_feature: true
 	blockingCount := 0
 	for s, count := range statusCounts {
 		if meta, ok := cfg.StatusMetadata[s]; ok && meta.BlocksFeature {
 			blockingCount += count
 		}
 	}
+	switch {
+	case blockingCount >= 3:
+		return healthAtRisk
+	case blockingCount >= 1:
+		return healthWarning
+	default:
+		return healthHealthy
+	}
+}
 
-	// At risk: 3 or more blocking tasks
-	if blockingCount >= 3 {
+// healthSuffix returns a non-color signal appended to the Status text so
+// colorblind users (and --no-color terminals) still see degraded health
+// without relying on hue. Empty for healthy features.
+func healthSuffix(l healthLevel) string {
+	switch l {
+	case healthAtRisk:
+		return "!!"
+	case healthWarning:
+		return "!"
+	default:
+		return ""
+	}
+}
+
+// colorByHealthLevel wraps text in an ANSI color matching the health level.
+//
+// Palette is bright blue (healthy) / yellow (attention) / red (at-risk),
+// chosen for distinguishability under red-green color blindness: blue and
+// red sit on opposite ends of the spectrum and remain distinct where
+// red/green confusion would otherwise collapse them. The "!" / "!!"
+// suffix from healthSuffix provides a non-color signal as a second layer
+// of redundancy.
+//
+// Returns text unchanged when useColor is false.
+func colorByHealthLevel(text string, l healthLevel, useColor bool) string {
+	if !useColor {
+		return text
+	}
+	var color string
+	switch l {
+	case healthAtRisk:
+		color = cli.ColorRed
+	case healthWarning:
+		color = cli.ColorYellow
+	default:
+		color = cli.ColorBrightBlue
+	}
+	return color + text + cli.ColorReset
+}
+
+// calculateHealthIndicator calculates health emoji based on status breakdown.
+// Returns: 🔴 (at risk, 3+ blocked), 🟡 (attention needed), or 🟢 (healthy).
+//
+// Retained for the JSON output path (`outputFeatureListJSON`), which exposes
+// the emoji string in the `health` field of the API response.
+func calculateHealthIndicator(statusCounts map[string]int, cfg *config.WorkflowConfig) string {
+	switch healthLevelFromCounts(statusCounts, cfg) {
+	case healthAtRisk:
 		return "🔴"
-	}
-
-	// Attention needed: 1+ blocking tasks
-	if blockingCount >= 1 {
+	case healthWarning:
 		return "🟡"
+	default:
+		return "🟢"
 	}
-
-	// Healthy: on track
-	return "🟢"
 }
 
 // generateNotesColumn generates status summary notes for feature list.
