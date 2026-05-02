@@ -168,13 +168,14 @@ func runEntityHistory(cmd *cobra.Command, entityType string, key string) error {
 	fmt.Println(strings.Repeat("-", 80))
 
 	headers := []string{"Timestamp", "Old Status", "New Status", "Agent", "Notes"}
+	notesMax := cli.TitleColumnWidth(75)
 	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
 		oldStatus := e.OldStatus
 		if oldStatus == "" {
 			oldStatus = "(initial)"
 		}
-		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, e.Notes})
+		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, truncateRunes(e.Notes, notesMax)})
 	}
 
 	cli.OutputTable(headers, rows)
@@ -308,6 +309,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 
 	// Print table
 	headers := []string{"Timestamp", "Task", "Old Status", "New Status", "Agent", "Notes"}
+	notesMax := cli.TitleColumnWidth(85)
 	var rows [][]string
 	for _, record := range displayRecords {
 		rows = append(rows, []string{
@@ -316,7 +318,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 			record.OldStatus,
 			record.NewStatus,
 			record.Agent,
-			record.Notes,
+			truncateRunes(record.Notes, notesMax),
 		})
 	}
 

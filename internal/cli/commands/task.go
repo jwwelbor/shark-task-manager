@@ -139,7 +139,8 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(tasks)
 	}
 	// E07-F42: Size column added to task list table (REQ-F-006).
-	headers := []string{"Key", "Title", "Status", "Agent", "Priority", "Size"}
+	// Agent column dropped and Status abbreviated to free width for Title.
+	headers := []string{"Key", "Title", "St", "Pri", "Size"}
 	cli.OutputTable(headers, buildTaskListRows(tasks))
 	return nil
 }
@@ -148,7 +149,18 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 // Extracted for testability (F4 coverage requirement).
 // Tasks with RejectionCount > 0 get a ⚠️(N) suffix on their key column so
 // reviewers can spot rework-prone tasks at a glance.
+//
+// Columns: Key | Title | St (abbreviated status) | Pri | Size.
+// Agent is intentionally omitted from the list view to keep the row compact;
+// `shark task get <key>` still shows it.
 func buildTaskListRows(tasks []*models.Task) [][]string {
+	// Title is right-padded to titleMax via fitColumn so pterm renders
+	// the column at full reserved width — without that, the table shrinks
+	// to the widest actual title and leaves empty space on the right.
+	// Reserved (~45) covers key (≤18 incl. ⚠️(N) indicator) + status (≤5) +
+	// priority (≤2) + size (≤5) + four " | " separators (12), with a
+	// small safety margin.
+	titleMax := cli.TitleColumnWidth(45)
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
 		key := t.Key
@@ -157,9 +169,8 @@ func buildTaskListRows(tasks []*models.Task) [][]string {
 		}
 		rows = append(rows, []string{
 			key,
-			t.Title,
-			string(t.Status),
-			derefString(t.AgentType),
+			fitColumn(t.Title, titleMax),
+			abbreviateStatus(string(t.Status)),
 			fmt.Sprintf("%d", t.Priority),
 			formatSize(t.Size),
 		})

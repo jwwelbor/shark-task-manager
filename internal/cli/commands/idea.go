@@ -752,6 +752,7 @@ func filterIdeasByPriorityAndStatus(ideas []*models.Idea, priority int, status s
 // buildIdeaListRows converts a slice of ideas to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildIdeaListRows(ideas []*models.Idea) [][]string {
+	titleMax := cli.TitleColumnWidth(70)
 	rows := make([][]string, 0, len(ideas))
 	for _, idea := range ideas {
 		priority := "-"
@@ -760,7 +761,7 @@ func buildIdeaListRows(ideas []*models.Idea) [][]string {
 		}
 		rows = append(rows, []string{
 			idea.Key,
-			idea.Title,
+			truncateRunes(idea.Title, titleMax),
 			string(idea.Status),
 			priority,
 			idea.CreatedDate.Format("2006-01-02"),
