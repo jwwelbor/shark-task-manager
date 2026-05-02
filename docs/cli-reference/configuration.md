@@ -22,6 +22,7 @@ The `.sharkconfig.json` file is automatically created by `shark init` and contai
   "interactive_mode": false,
   "require_rejection_reason": true,
   "template_directory": "shark-templates",
+  "console_width": 0,
   "web": {
     "port": 7777
   },
@@ -101,6 +102,46 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 | `require_rejection_reason` | bool | `true` | Require reason when rejecting tasks |
 | `viewer` | string | `"cat"` | External viewer for `shark view` (e.g., `"glow"`, `"nano"`) |
 | `template_directory` | string | `"shark-templates"` | Template directory path relative to project root for `.tmpl` files |
+| `console_width` | int | `0` (auto-detect) | Override the console width used by list-view tables. See [Console Width](#console-width) below. |
+
+<a id="console-width"></a>
+#### Console Width
+
+`console_width` controls the column width used by list-view tables (`shark list`,
+`shark task list`, `shark feature list`, `shark recent`, `shark history`, etc.).
+Width-sensitive renderers consult this value to decide how wide to draw the
+Title / Notes column so the table fills the terminal without overflowing.
+
+**Resolution order** (highest priority first):
+
+1. **`console_width` from `.sharkconfig.json`** when set to a positive integer
+   (clamped to a minimum of 40 cols so list views remain legible).
+2. **Auto-detected terminal width** via `term.GetSize` on stdout — the default
+   when `console_width` is `0` or missing.
+3. **Built-in fallback** (120 cols) — used when stdout is not a TTY (e.g., piped
+   output, CI logs).
+
+**When to set it explicitly:**
+
+- You want fixed-width output regardless of your terminal size — e.g. for
+  screenshots, code reviews, or sharing in chat where wrap behavior matters.
+- You're running `shark` in a wrapper / TUI that lies about its size to
+  `term.GetSize`.
+- You want narrower output than your terminal width to keep tables readable
+  side-by-side with other panes.
+
+**Example** — cap list views at 100 cols even on a wide terminal:
+
+```json
+{
+  "console_width": 100
+}
+```
+
+**Override-by-flag is intentionally not supported.** Set `console_width` in
+config when you want a non-default; otherwise auto-detect handles the common
+case. Use `--no-color` to drop ANSI codes if your wrapper has trouble with
+escape sequences but renders width correctly.
 
 ### Web Server Configuration
 
