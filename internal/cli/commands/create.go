@@ -177,6 +177,8 @@ Key format detection:
   E##-F##-### or T-E##-F##-### Task
   B###                       Bug
   C### or CC-###             Change card
+  TD-###                     Tech-debt
+  I-YYYY-MM-DD-##            Idea
 
 Note Types:
   comment        General observation (default)
@@ -207,6 +209,7 @@ var entityTypeMap = map[string]models.EntityType{
 	"change":      models.EntityTypeChange,
 	"change_card": models.EntityTypeChange,
 	"tech_debt":   models.EntityTypeTechDebt,
+	"idea":        models.EntityTypeIdea,
 }
 
 func runCreateNote(cmd *cobra.Command, args []string) error {
@@ -220,7 +223,7 @@ func runCreateNote(cmd *cobra.Command, args []string) error {
 	detected := DetectEntityType(entityKey)
 	entityType, ok := entityTypeMap[detected]
 	if !ok {
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card)", entityKey)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", entityKey)
 	}
 
 	noteSvc, err := cli.GetNoteService(cmd.Context())
