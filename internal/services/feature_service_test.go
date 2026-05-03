@@ -21,6 +21,7 @@ type mockFeatureRepo struct {
 	getByIDFn                     func(ctx context.Context, id int64) (*models.Feature, error)
 	createFn                      func(ctx context.Context, feature *models.Feature) error
 	updateFn                      func(ctx context.Context, feature *models.Feature) error
+	updateNoResequenceFn          func(ctx context.Context, feature *models.Feature) error
 	deleteFn                      func(ctx context.Context, id int64) error
 	listFn                        func(ctx context.Context) ([]*models.Feature, error)
 	listByEpicFn                  func(ctx context.Context, epicID int64) ([]*models.Feature, error)
@@ -83,6 +84,16 @@ func (m *mockFeatureRepo) GetByID(ctx context.Context, id int64) (*models.Featur
 		return m.getByIDFn(ctx, id)
 	}
 	return nil, nil
+}
+
+func (m *mockFeatureRepo) UpdateNoResequence(ctx context.Context, feature *models.Feature) error {
+	if m.updateNoResequenceFn != nil {
+		return m.updateNoResequenceFn(ctx, feature)
+	}
+	if m.updateFn != nil {
+		return m.updateFn(ctx, feature)
+	}
+	return nil
 }
 
 func (m *mockFeatureRepo) Update(ctx context.Context, feature *models.Feature) error {

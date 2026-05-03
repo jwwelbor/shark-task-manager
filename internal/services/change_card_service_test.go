@@ -173,8 +173,11 @@ func (m *changeCardFeatureRepo) GetByKey(ctx context.Context, key string) (*mode
 func (m *changeCardFeatureRepo) GetByID(context.Context, int64) (*models.Feature, error) {
 	return nil, nil
 }
-func (m *changeCardFeatureRepo) Create(context.Context, *models.Feature) error   { return nil }
-func (m *changeCardFeatureRepo) Update(context.Context, *models.Feature) error   { return nil }
+func (m *changeCardFeatureRepo) Create(context.Context, *models.Feature) error { return nil }
+func (m *changeCardFeatureRepo) Update(context.Context, *models.Feature) error { return nil }
+func (m *changeCardFeatureRepo) UpdateNoResequence(context.Context, *models.Feature) error {
+	return nil
+}
 func (m *changeCardFeatureRepo) Delete(context.Context, int64) error             { return nil }
 func (m *changeCardFeatureRepo) List(context.Context) ([]*models.Feature, error) { return nil, nil }
 func (m *changeCardFeatureRepo) ListByEpic(context.Context, int64) ([]*models.Feature, error) {

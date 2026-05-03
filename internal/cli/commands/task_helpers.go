@@ -300,6 +300,9 @@ func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
 			updates.ExecutionOrder = &v
 		}
 	}
+	if parallel, _ := cmd.Flags().GetBool("parallel"); parallel {
+		updates.SkipResequence = true
+	}
 	if v := getFileFlagValue(cmd); v != "" {
 		updates.FilePath = &v
 	}
@@ -385,6 +388,7 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("filename", "", "New file path (relative to project root)")
 	cmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
 	cmd.Flags().Int("order", -1, "New execution order (-1=no change)")
+	cmd.Flags().Bool("parallel", false, "Set --order without renumbering siblings (preserve duplicate-order parallel groups)")
 	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE (no
 	// detach). Use `shark task tag rm` to detach a single tag.
 	cmd.Flags().StringSlice("tag", nil,

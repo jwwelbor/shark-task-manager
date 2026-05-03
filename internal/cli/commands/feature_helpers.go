@@ -1135,6 +1135,11 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		changed = true
 	}
 
+	if parallel, _ := cmd.Flags().GetBool("parallel"); parallel {
+		updates.SkipResequence = true
+		changed = true
+	}
+
 	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE only.
 	// Guard with `Changed` so only explicit --tag usage sets Tags (nil
 	// otherwise). The service-layer hook skips when len(Tags)==0.
