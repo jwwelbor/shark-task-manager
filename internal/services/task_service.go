@@ -58,6 +58,10 @@ type TaskRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 	Update(ctx context.Context, task *models.Task) error
+	// UpdateNoResequence updates a task without cascading execution_order
+	// changes to siblings. Used to preserve intentional duplicate-order
+	// groups (parallel work). Wired from `--parallel` on `shark task update`.
+	UpdateNoResequence(ctx context.Context, task *models.Task) error
 	Delete(ctx context.Context, id int64) error
 
 	// Query operations
@@ -555,9 +559,17 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: validation error: %w", key, err))
 	}
 
-	// Save updated task
-	if err := s.repo.Update(ctx, task); err != nil {
-		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: %w", key, err))
+	// Save updated task. When --parallel was passed (SkipResequence=true), use
+	// the no-resequence path so siblings keep their existing execution_order
+	// values instead of being renumbered.
+	var saveErr error
+	if updates.SkipResequence {
+		saveErr = s.repo.UpdateNoResequence(ctx, task)
+	} else {
+		saveErr = s.repo.Update(ctx, task)
+	}
+	if saveErr != nil {
+		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: %w", key, saveErr))
 	}
 
 	// `--tag` on update is additive only; detach goes through `shark task tag rm`.

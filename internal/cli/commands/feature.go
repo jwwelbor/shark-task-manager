@@ -203,6 +203,7 @@ func init() {
 	featureUpdateCmd.Flags().Int("execution-order", -1, "New execution order (-1 = no change)")
 	_ = featureUpdateCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
 	featureUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
+	featureUpdateCmd.Flags().Bool("parallel", false, "Set --order without renumbering siblings (preserve duplicate-order parallel groups)")
 	featureUpdateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")
 	featureUpdateCmd.Flags().String("file", "", "New file path")
 	featureUpdateCmd.Flags().String("filename", "", "Alias for --file")

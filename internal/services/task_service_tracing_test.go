@@ -53,6 +53,12 @@ func (m *mockTaskRepo) Update(ctx context.Context, task *models.Task) error {
 	}
 	return nil
 }
+func (m *mockTaskRepo) UpdateNoResequence(ctx context.Context, task *models.Task) error {
+	if m.updateFn != nil {
+		return m.updateFn(ctx, task)
+	}
+	return nil
+}
 func (m *mockTaskRepo) Delete(ctx context.Context, id int64) error {
 	if m.deleteFn != nil {
 		return m.deleteFn(ctx, id)

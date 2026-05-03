@@ -25,6 +25,10 @@ type FeatureRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Feature, error)
 	Create(ctx context.Context, feature *models.Feature) error
 	Update(ctx context.Context, feature *models.Feature) error
+	// UpdateNoResequence updates a feature without cascading execution_order
+	// changes to siblings. Used to preserve intentional duplicate-order
+	// groups (parallel work). Wired from `--parallel` on `shark feature update`.
+	UpdateNoResequence(ctx context.Context, feature *models.Feature) error
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context) ([]*models.Feature, error)
 	ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error)
@@ -1015,8 +1019,16 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 		feature.FilePath = updates.FilePath
 	}
 
-	if err := s.repo.Update(ctx, feature); err != nil {
-		return nil, fmt.Errorf("failed to update feature %s: %w", key, err)
+	// When --parallel was passed (SkipResequence=true), use the no-resequence
+	// path so siblings keep their existing execution_order values.
+	var saveErr error
+	if updates.SkipResequence {
+		saveErr = s.repo.UpdateNoResequence(ctx, feature)
+	} else {
+		saveErr = s.repo.Update(ctx, feature)
+	}
+	if saveErr != nil {
+		return nil, fmt.Errorf("failed to update feature %s: %w", key, saveErr)
 	}
 
 	// `--tag` on update is additive only; detach goes through `shark feature tag rm`.
