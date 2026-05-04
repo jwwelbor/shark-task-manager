@@ -568,7 +568,12 @@ func confirmChangeDelete(card *models.ChangeCard) bool {
 // buildChangeCardListRows converts a slice of change-cards to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
-	titleMax := cli.TitleColumnWidth(80)
+	// CC-036: Title column scales with resolved console width.
+	// Reserved width (~65 cols) covers key + status + linked-entity +
+	// created + size columns plus separators. fitColumn pads/truncates
+	// the title to exactly titleMax so pterm renders the table at full
+	// reserved width instead of shrinking to the widest actual title.
+	titleMax := cli.TitleColumnWidth(65)
 	rows := make([][]string, 0, len(cards))
 	for _, c := range cards {
 		linkedEntity := "--"
@@ -579,7 +584,7 @@ func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
 		}
 		rows = append(rows, []string{
 			c.Key,
-			truncateRunes(c.Title, titleMax),
+			fitColumn(c.Title, titleMax),
 			string(c.Status),
 			linkedEntity,
 			c.CreatedAt.Format("2006-01-02"),
