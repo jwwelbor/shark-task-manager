@@ -27,9 +27,17 @@ SCALE OUTPUT BY TIER:
 
 Tests must trace to USER GOALS and persona needs.
 
+CALLER-PATH CONTRACT (MANDATORY for STANDARD and COMPLEX; required for SIMPLE if test exercises a service with a production caller above it):
+Every test case must declare (per quality/workflows/test-planning.md Step 5.8):
+- Production entrypoint (function + argument shape production callers actually use)
+- Lowest allowed mock seam
+- Forbidden mocks (seams that hid prior bugs)
+- Counter-factual (one sentence: what a buggy impl would do that this test would catch)
+Internal-only opt-out is permitted only for pure value objects / private functions with no production caller above them, with a written justification.
+
 EXIT GATE varies by tier:
-- SIMPLE (every AC has test case, actionable for TDD)
-- STANDARD (AC coverage, API contracts tested, integration points identified)
-- COMPLEX (full 6-section plan, epic UAT traceability, quality skill checklist passes)
+- SIMPLE (every AC has test case, actionable for TDD; caller-path contract present where applicable)
+- STANDARD (AC coverage, API contracts tested, integration points identified, every test case has caller-path contract)
+- COMPLEX (full 6-section plan, epic UAT traceability, quality skill checklist passes including Step 5.8 caller-path contracts and Step 7.5 codex red-team)
 
 Write to 09-test-plan.md.

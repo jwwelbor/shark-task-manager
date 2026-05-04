@@ -1,5 +1,9 @@
 {{define "_tdd_process"}}TDD PROCESS:
-1. Write failing test first (red)
-2. Implement minimum code to pass (green)
-3. Refactor while keeping tests green
-4. Commit when test suite passes{{end}}
+1. Read 09-test-plan.md for the TC-IDs this task must satisfy. For each TC, read the Caller-Path Contract block (entrypoint, lowest mock seam, forbidden mocks, counter-factual).
+2. Write failing test first (red) — the test MUST drive the prescribed entrypoint with the prescribed argument shape, must NOT mock above the entrypoint, must NOT touch any seam in the forbidden-mocks list, and must satisfy the counter-factual (would actually fail against an empty/buggy impl, not just pass because the type signature exists).
+3. Run the test, confirm it fails for the right reason (the assertion the counter-factual describes — not an import error or fixture bug). Commit the failing test atomically.
+4. Implement minimum code to pass (green).
+5. Refactor while keeping tests green.
+6. Commit when test suite passes.
+
+Tests that mock above the prescribed entrypoint, or use helper-test signatures production never passes, will be rejected at code review.{{end}}
