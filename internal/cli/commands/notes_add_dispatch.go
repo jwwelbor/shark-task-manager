@@ -111,8 +111,8 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(note)
 	}
 
-	creator := "unknown"
-	if note.CreatedBy != nil {
+creator := "unknown"
+	if note.CreatedBy != nil && *note.CreatedBy != "" {
 		creator = *note.CreatedBy
 	}
 
