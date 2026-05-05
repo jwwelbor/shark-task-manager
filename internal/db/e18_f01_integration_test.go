@@ -2,7 +2,6 @@ package db
 
 import (
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -68,16 +67,25 @@ func TestE18F01_INT01_FreshDatabaseFullInitialization(t *testing.T) {
 		}
 	}
 
-	// Verify entity_notes has expanded CHECK constraint
-	var tableSql string
-	if err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_notes'").Scan(&tableSql); err != nil {
-		t.Fatalf("INT-01: Failed to get entity_notes schema: %v", err)
+	// Verify entity_notes accepts the bug and change entity types end-to-end.
+	// Originally this asserted a CHECK constraint listed 'bug'/'change'; B018
+	// removed the entity_type CHECK in favour of app-layer validation
+	// (models.ValidEntityTypes), so the relevant integration check is now
+	// the actual INSERT round-trip rather than reading sqlite_master.sql.
+	if _, err := db.Exec(`INSERT INTO bugs (key, title) VALUES ('BUG-INT-01', 'INT-01 bug')`); err != nil {
+		t.Fatalf("INT-01: failed to seed bug: %v", err)
 	}
-	if !strings.Contains(tableSql, "'bug'") {
-		t.Error("INT-01: entity_notes CHECK constraint does not include 'bug'")
+	if _, err := db.Exec(`INSERT INTO change_cards (key, title) VALUES ('CC-INT-01', 'INT-01 change')`); err != nil {
+		t.Fatalf("INT-01: failed to seed change_card: %v", err)
 	}
-	if !strings.Contains(tableSql, "'change'") {
-		t.Error("INT-01: entity_notes CHECK constraint does not include 'change'")
+	for _, et := range []string{"bug", "change"} {
+		_, err := db.Exec(`
+			INSERT INTO entity_notes (entity_type, entity_id, note_type, content)
+			VALUES (?, 1, 'comment', 'INT-01 round-trip')
+		`, et)
+		if err != nil {
+			t.Errorf("INT-01: entity_notes does not accept entity_type=%q: %v", et, err)
+		}
 	}
 }
 

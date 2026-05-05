@@ -76,7 +76,15 @@ func TestEntityNotesAcceptsChangeEntityType(t *testing.T) {
 	}
 }
 
-// TestEntityNotesRejectsInvalidEntityType tests that invalid entity_type values are rejected (TC-S5-03)
+// TestEntityNotesRejectsInvalidEntityType originally asserted that the
+// entity_notes.entity_type CHECK constraint rejected unknown entity types.
+//
+// B018 removed that CHECK and moved validation to the app-layer allowlist
+// models.ValidEntityTypes (matching the bugs.linked_entity_type precedent).
+// The test now asserts the inverse: raw SQL inserts of unknown entity types
+// succeed at the DB layer, because validation happens in
+// models.EntityNote.Validate() before reaching the repository. App-layer
+// rejection is covered by internal/models/entity_test.go.
 func TestEntityNotesRejectsInvalidEntityType(t *testing.T) {
 	tmpFile := "test_entity_notes_invalid_type.db"
 	defer os.Remove(tmpFile)
@@ -92,9 +100,11 @@ func TestEntityNotesRejectsInvalidEntityType(t *testing.T) {
 	_, err = db.Exec(`
 		INSERT INTO entity_notes (entity_type, entity_id, note_type, content)
 		VALUES (?, ?, ?, ?)
-	`, "invalid_type", 1, "comment", "This should fail")
-	if err == nil {
-		t.Error("Expected CHECK constraint error for invalid entity_type, but got none")
+	`, "invalid_type", 1, "comment", "Raw insert no longer rejected at DB layer post-B018")
+	if err != nil {
+		t.Errorf("Post-B018 the entity_type CHECK is removed; raw SQL insert "+
+			"of an unknown entity_type should succeed at the DB layer "+
+			"(app-layer validation rejects it instead). Got: %v", err)
 	}
 }
 
@@ -124,7 +134,11 @@ func TestEntityNotesStillAcceptsExistingEntityTypes(t *testing.T) {
 	}
 }
 
-// TestEntityNotesSchemaContainsBugAndChange verifies the SQL schema reflects the expanded CHECK (TC-S5-05)
+// TestEntityNotesSchemaContainsBugAndChange originally verified that the
+// entity_notes CHECK constraint listed 'bug' and 'change'. After B018 the
+// CHECK is gone entirely (validation lives in models.ValidEntityTypes),
+// so this test now asserts the opposite: the column is declared NOT NULL
+// with no inline CHECK, and the entity_type column itself still exists.
 func TestEntityNotesSchemaContainsBugAndChange(t *testing.T) {
 	tmpFile := "test_entity_notes_schema_check.db"
 	defer os.Remove(tmpFile)
@@ -143,11 +157,14 @@ func TestEntityNotesSchemaContainsBugAndChange(t *testing.T) {
 		t.Fatalf("Failed to get entity_notes schema: %v", err)
 	}
 
-	if !strings.Contains(tableSql, "'bug'") {
-		t.Errorf("Expected entity_notes schema to contain 'bug' in CHECK constraint, got: %s", tableSql)
+	if !strings.Contains(tableSql, "entity_type TEXT NOT NULL") {
+		t.Errorf("Expected entity_notes schema to declare entity_type as TEXT NOT NULL, got: %s", tableSql)
 	}
-	if !strings.Contains(tableSql, "'change'") {
-		t.Errorf("Expected entity_notes schema to contain 'change' in CHECK constraint, got: %s", tableSql)
+	// Post-B018: the CHECK constraint is removed in favour of app-layer
+	// validation. The schema must NOT contain an entity_type CHECK clause.
+	if strings.Contains(tableSql, "entity_type IN") {
+		t.Errorf("Expected entity_notes.entity_type CHECK to be removed post-B018, "+
+			"but found 'entity_type IN' in schema: %s", tableSql)
 	}
 }
 
