@@ -6,10 +6,11 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// TestNotesAddDispatch_ResolvesEntityType verifies the verb-first
-// `shark notes add <KEY>` dispatch picks the correct EntityType for every
-// supported key shape (epic, feature, task, bug, change card, tech-debt, idea).
-func TestNotesAddDispatch_ResolvesEntityType(t *testing.T) {
+// TestResolveEntityFromKey verifies that resolveEntityFromKey picks the
+// correct EntityType and display label for every supported key shape
+// (epic, feature, task, bug, change card, tech-debt, idea). This is the
+// shared helper behind both `shark notes add` and `shark create note`.
+func TestResolveEntityFromKey(t *testing.T) {
 	cases := []struct {
 		name     string
 		key      string
@@ -31,9 +32,9 @@ func TestNotesAddDispatch_ResolvesEntityType(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotType, gotName, err := resolveNoteEntityType(tc.key)
+			gotType, gotName, err := resolveEntityFromKey(tc.key)
 			if err != nil {
-				t.Fatalf("resolveNoteEntityType(%q) returned error: %v", tc.key, err)
+				t.Fatalf("resolveEntityFromKey(%q) returned error: %v", tc.key, err)
 			}
 			if gotType != tc.wantType {
 				t.Errorf("entity type for %q: got %q, want %q", tc.key, gotType, tc.wantType)
@@ -45,11 +46,11 @@ func TestNotesAddDispatch_ResolvesEntityType(t *testing.T) {
 	}
 }
 
-// TestNotesAddDispatch_RejectsUnknownKey verifies that the dispatch returns a
-// helpful error when the key shape doesn't match any known entity, instead of
-// silently picking the wrong service.
-func TestNotesAddDispatch_RejectsUnknownKey(t *testing.T) {
-	_, _, err := resolveNoteEntityType("garbage-key-123")
+// TestResolveEntityFromKey_RejectsUnknownKey verifies that the helper
+// returns a helpful error when the key shape doesn't match any known
+// entity, instead of silently picking the wrong service.
+func TestResolveEntityFromKey_RejectsUnknownKey(t *testing.T) {
+	_, _, err := resolveEntityFromKey("garbage-key-123")
 	if err == nil {
 		t.Fatal("expected error for unknown key, got nil")
 	}

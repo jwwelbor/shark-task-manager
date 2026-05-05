@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -57,30 +56,6 @@ func init() {
 	notesCmd.AddCommand(notesAddCmd)
 }
 
-// resolveNoteEntityType maps a DetectEntityType string to the EntityType
-// constant the NoteService expects. Returns (entityType, entityName, error)
-// where entityName is the human label used in error/output messages.
-func resolveNoteEntityType(key string) (models.EntityType, string, error) {
-	switch DetectEntityType(key) {
-	case "epic":
-		return models.EntityTypeEpic, "epic", nil
-	case "feature":
-		return models.EntityTypeFeature, "feature", nil
-	case "task":
-		return models.EntityTypeTask, "task", nil
-	case "bug":
-		return models.EntityTypeBug, "bug", nil
-	case "change", "change_card":
-		return models.EntityTypeChange, "change", nil
-	case "tech_debt":
-		return models.EntityTypeTechDebt, "tech-debt", nil
-	case "idea":
-		return models.EntityTypeIdea, "idea", nil
-	default:
-		return "", "", fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
-	}
-}
-
 func runNotesAdd(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	content := args[1]
@@ -88,7 +63,7 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 	noteTypeStr, _ := cmd.Flags().GetString("type")
 	createdBy, _ := cmd.Flags().GetString("created-by")
 
-	entityType, entityName, err := resolveNoteEntityType(key)
+	entityType, entityName, err := resolveEntityFromKey(key)
 	if err != nil {
 		return err
 	}

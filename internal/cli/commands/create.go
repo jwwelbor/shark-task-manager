@@ -200,16 +200,34 @@ Examples:
 	RunE: runCreateNote,
 }
 
-// entityTypeMap maps DetectEntityType strings to models.EntityType values
-var entityTypeMap = map[string]models.EntityType{
-	"epic":        models.EntityTypeEpic,
-	"feature":     models.EntityTypeFeature,
-	"task":        models.EntityTypeTask,
-	"bug":         models.EntityTypeBug,
-	"change":      models.EntityTypeChange,
-	"change_card": models.EntityTypeChange,
-	"tech_debt":   models.EntityTypeTechDebt,
-	"idea":        models.EntityTypeIdea,
+// resolveEntityFromKey returns the models.EntityType and human-readable
+// display label for a key, or an error if the format isn't recognized.
+//
+// Two translations are needed beyond a direct cast of DetectEntityType's
+// return value:
+//   - CC-### keys are detected as "change_card" but share EntityTypeChange.
+//   - EntityTypeTechDebt is "tech_debt" (underscore) but displays as
+//     "tech-debt" (hyphen).
+func resolveEntityFromKey(key string) (models.EntityType, string, error) {
+	detected := DetectEntityType(key)
+	if detected == "change_card" {
+		detected = string(models.EntityTypeChange)
+	}
+	et := models.EntityType(detected)
+	if !models.ValidEntityTypes[et] {
+		return "", "", unknownEntityKeyError(key)
+	}
+	if et == models.EntityTypeTechDebt {
+		return et, "tech-debt", nil
+	}
+	return et, string(et), nil
+}
+
+// unknownEntityKeyError is the canonical error when a key can't be
+// resolved. Centralized so the long format list stays consistent across
+// `create note`, `notes add`, and any future dispatch surface.
+func unknownEntityKeyError(key string) error {
+	return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
 }
 
 func runCreateNote(cmd *cobra.Command, args []string) error {
@@ -220,10 +238,9 @@ func runCreateNote(cmd *cobra.Command, args []string) error {
 	createdBy, _ := cmd.Flags().GetString("created-by")
 
 	// Auto-detect entity type from key
-	detected := DetectEntityType(entityKey)
-	entityType, ok := entityTypeMap[detected]
-	if !ok {
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", entityKey)
+	entityType, _, err := resolveEntityFromKey(entityKey)
+	if err != nil {
+		return err
 	}
 
 	noteSvc, err := cli.GetNoteService(cmd.Context())
