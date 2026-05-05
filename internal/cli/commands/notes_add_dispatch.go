@@ -24,8 +24,9 @@ Key format detection:
   E##-F##            Feature
   E##-F##-### or T-* Task
   B###               Bug
-  CC-###             Change card
+  C### or CC-###     Change card
   TD-###             Tech-debt
+  I-YYYY-MM-DD-##    Idea
 
 Note Types:
   comment        - General observation
