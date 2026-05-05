@@ -168,20 +168,22 @@ func runEntityHistory(cmd *cobra.Command, entityType string, key string) error {
 	fmt.Println(strings.Repeat("-", 80))
 
 	headers := []string{"Timestamp", "Old Status", "New Status", "Agent", "Notes"}
-	// CC-036: Notes column width scales with the resolved console width.
-	// Reserved width (~75 cols) accounts for the actual chrome: timestamp
-	// (RFC3339, ≤25) + old status (≤12) + new status (≤12) + agent (≤12)
-	// + four " | " separators (12), plus a small margin. Notes are
-	// right-padded via fitColumn so pterm renders the column at full
-	// width instead of shrinking it to the widest actual note.
-	notesMax := cli.TitleColumnWidth(75)
+	const notesColIdx = 4
+
+	notesText := make([]string, 0, len(entries))
 	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
 		oldStatus := e.OldStatus
 		if oldStatus == "" {
 			oldStatus = "(initial)"
 		}
-		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, fitColumn(e.Notes, notesMax)})
+		notesText = append(notesText, e.Notes)
+		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, ""})
+	}
+
+	notesMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, notesColIdx)
+	for i := range rows {
+		rows[i][notesColIdx] = truncateToWidth(notesText[i], notesMax)
 	}
 
 	cli.OutputTable(headers, rows)
@@ -315,24 +317,25 @@ func runHistory(cmd *cobra.Command, args []string) error {
 
 	// Print table
 	headers := []string{"Timestamp", "Task", "Old Status", "New Status", "Agent", "Notes"}
-	// CC-036: Notes column width scales with the resolved console width.
-	// Reserved width (~85 cols) accounts for the actual chrome: timestamp
-	// (19 for "YYYY-MM-DD HH:MM:SS") + task key (~13 for T-EXX-FYY-ZZZ) +
-	// old status (≤12) + new status (≤12) + agent (≤12) + five " | "
-	// separators (15), plus a small margin. Notes are right-padded via
-	// fitColumn so pterm renders the column at full width instead of
-	// shrinking it to the widest actual note.
-	notesMax := cli.TitleColumnWidth(85)
+	const notesColIdx = 5
+
+	notesText := make([]string, 0, len(displayRecords))
 	var rows [][]string
 	for _, record := range displayRecords {
+		notesText = append(notesText, record.Notes)
 		rows = append(rows, []string{
 			record.Timestamp,
 			record.TaskKey,
 			record.OldStatus,
 			record.NewStatus,
 			record.Agent,
-			fitColumn(record.Notes, notesMax),
+			"",
 		})
+	}
+
+	notesMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, notesColIdx)
+	for i := range rows {
+		rows[i][notesColIdx] = truncateToWidth(notesText[i], notesMax)
 	}
 
 	cli.OutputTable(headers, rows)

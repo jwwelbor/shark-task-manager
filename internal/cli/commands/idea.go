@@ -749,16 +749,13 @@ func filterIdeasByPriorityAndStatus(ideas []*models.Idea, priority int, status s
 	return filtered
 }
 
+var ideaListHeaders = []string{"Key", "Title", "Status", "Priority", "Created", "Size"}
+
+const ideaListTitleColIdx = 1
+
 // buildIdeaListRows converts a slice of ideas to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildIdeaListRows(ideas []*models.Idea) [][]string {
-	// CC-036: Title column width scales with the resolved console width.
-	// Reserved width (~70 cols) accounts for the actual chrome: key (~6
-	// for I-NNN) + status (≤12) + priority (≤3) + created date (10) +
-	// size (≤3) + five " | " separators (15), plus a small margin.
-	// Titles are right-padded via fitColumn so pterm renders the column
-	// at full width instead of shrinking it to the widest actual title.
-	titleMax := cli.TitleColumnWidth(70)
 	rows := make([][]string, 0, len(ideas))
 	for _, idea := range ideas {
 		priority := "-"
@@ -767,12 +764,17 @@ func buildIdeaListRows(ideas []*models.Idea) [][]string {
 		}
 		rows = append(rows, []string{
 			idea.Key,
-			fitColumn(idea.Title, titleMax),
+			"", // title placeholder; filled below after width is computed
 			string(idea.Status),
 			priority,
 			idea.CreatedDate.Format("2006-01-02"),
 			formatSize(idea.Size), // E07-F42 REQ-F-006: Size column
 		})
+	}
+
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), ideaListHeaders, rows, ideaListTitleColIdx)
+	for i, idea := range ideas {
+		rows[i][ideaListTitleColIdx] = truncateToWidth(idea.Title, titleMax)
 	}
 	return rows
 }
@@ -785,8 +787,7 @@ func printIdeaList(ideas []*models.Idea) error {
 	}
 
 	// E07-F42: Size column added to idea list table (REQ-F-006).
-	headers := []string{"Key", "Title", "Status", "Priority", "Created", "Size"}
-	cli.OutputTable(headers, buildIdeaListRows(ideas))
+	cli.OutputTable(ideaListHeaders, buildIdeaListRows(ideas))
 	return nil
 }
 

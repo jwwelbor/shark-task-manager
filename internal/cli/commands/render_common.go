@@ -2,11 +2,11 @@ package commands
 
 import (
 	"fmt"
-	"strings"
 	"unicode"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/mattn/go-runewidth"
 	"github.com/pterm/pterm"
 )
 
@@ -145,27 +145,95 @@ func truncateRunes(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
-// fitColumn returns s adjusted to exactly maxLen runes — truncating with
-// "..." if longer, right-padding with spaces if shorter. Used by Title
-// columns in list-view tables so the renderer (pterm) does not shrink
-// the column to the widest actual title, leaving the table narrower than
-// the terminal.
-func fitColumn(s string, maxLen int) string {
+// truncateToWidth returns s truncated to at most maxLen runes, using "..."
+// as the ellipsis when there is room. Short strings are returned unchanged
+// — the cell is NOT right-padded, so pterm's column shrinks to actual
+// content rather than reserving empty space.
+//
+// Used by list-view title columns paired with availableTitleWidth: the
+// max width grows with terminal width (so wider terminals show more
+// title), but no extra padding is added on the right edge of the table.
+func truncateToWidth(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""
 	}
 	runes := []rune(s)
-	switch {
-	case len(runes) > maxLen:
-		if maxLen <= 3 {
-			return string(runes[:maxLen])
-		}
-		return string(runes[:maxLen-3]) + "..."
-	case len(runes) < maxLen:
-		return s + strings.Repeat(" ", maxLen-len(runes))
-	default:
+	if len(runes) <= maxLen {
 		return s
 	}
+	if maxLen <= 3 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
+
+// availableTitleWidth returns the width to allocate to a Title column in a
+// pterm-rendered list table, derived from the resolved console width minus
+// the actual rendered widths of all OTHER columns plus separators.
+//
+// Unlike cli.TitleColumnWidth (which subtracts a caller-supplied worst-case
+// estimate), this measures the real max width of each non-title column from
+// the headers and rows it is given, so the title column expands to fill the
+// terminal whenever sibling columns are shorter than their worst case (e.g.,
+// short keys, short statuses).
+//
+// Inputs:
+//   - consoleWidth: total width to render within (typically cli.GetConsoleWidth())
+//   - headers: full header row, including the title header
+//   - rows: pre-built data rows; the title cell at titleColIdx is ignored
+//     (it can be empty — this function is called BEFORE the title is fitted)
+//   - titleColIdx: index of the title column in headers/rows
+//
+// pterm's default table separator is " | " (3 runes). The minimum returned
+// width is 20 so titles stay legible on unrealistically narrow terminals.
+func availableTitleWidth(consoleWidth int, headers []string, rows [][]string, titleColIdx int) int {
+	const (
+		minTitleWidth  = 20
+		separatorWidth = 3 // pterm DefaultTable separator " | "
+	)
+
+	if len(headers) == 0 {
+		return minTitleWidth
+	}
+
+	nonTitleSum := 0
+	for i, h := range headers {
+		if i == titleColIdx {
+			continue
+		}
+		maxW := displayCellWidth(h)
+		for _, r := range rows {
+			if i >= len(r) {
+				continue
+			}
+			if w := displayCellWidth(r[i]); w > maxW {
+				maxW = w
+			}
+		}
+		nonTitleSum += maxW
+	}
+
+	separatorTotal := (len(headers) - 1) * separatorWidth
+
+	available := consoleWidth - nonTitleSum - separatorTotal
+	if available < minTitleWidth {
+		available = minTitleWidth
+	}
+	if titleColIdx >= 0 && titleColIdx < len(headers) {
+		if h := displayCellWidth(headers[titleColIdx]); available < h {
+			available = h
+		}
+	}
+	return available
+}
+
+// displayCellWidth measures the rendered width of a single-line cell, in
+// the same way pterm.DefaultTable does — ANSI color codes stripped, then
+// runewidth.StringWidth so wide-glyph runes (emoji, CJK) are counted at
+// their visible cell width. Used by availableTitleWidth so colored status
+// cells do not inflate the measured non-title width.
+func displayCellWidth(s string) int {
+	return runewidth.StringWidth(pterm.RemoveColorFromString(s))
 }
 
 // renderBasicInfo renders key-value info table.

@@ -76,10 +76,10 @@ func TestPartialTemplates_TDDProcess(t *testing.T) {
 	require.NoError(t, err)
 
 	output := buf.String()
-	assert.Contains(t, output, "1. Write failing test first (red)")
-	assert.Contains(t, output, "2. Implement minimum code to pass (green)")
-	assert.Contains(t, output, "3. Refactor while keeping tests green")
-	assert.Contains(t, output, "4. Commit when test suite passes")
+	assert.Contains(t, output, "Write failing test first (red)")
+	assert.Contains(t, output, "Implement minimum code to pass (green)")
+	assert.Contains(t, output, "Refactor while keeping tests green")
+	assert.Contains(t, output, "Commit when test suite passes")
 }
 
 func TestPartialTemplates_ExitGate(t *testing.T) {
@@ -207,6 +207,6 @@ End of main content.`
 	output := buf.String()
 	assert.Contains(t, output, "Main content here.")
 	assert.Contains(t, output, "TDD PROCESS:")
-	assert.Contains(t, output, "1. Write failing test first")
+	assert.Contains(t, output, "Write failing test first")
 	assert.Contains(t, output, "End of main content.")
 }

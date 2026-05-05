@@ -565,17 +565,16 @@ func confirmChangeDelete(card *models.ChangeCard) bool {
 	return strings.EqualFold(response, "yes") || strings.EqualFold(response, "y")
 }
 
+var changeCardListHeaders = []string{"Key", "Title", "Status", "Linked Entity", "Created", "Size"}
+
+const changeCardListTitleColIdx = 1
+
 // buildChangeCardListRows converts a slice of change-cards to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
+//
+// The title column is sized from the actual rendered widths of the other
+// columns so the table fills the configured console_width.
 func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
-	// CC-036: Title column width scales with the resolved console width.
-	// Reserved width (~65 cols) accounts for the actual chrome: key (~7
-	// for CC-NNN) + status (≤12) + linked entity (~5 for E#NN/F#NN) +
-	// created date (10) + size (≤3) + five " | " separators (15), plus a
-	// small margin. Titles are right-padded via fitColumn so pterm
-	// renders the column at full width instead of shrinking it to the
-	// widest actual title.
-	titleMax := cli.TitleColumnWidth(65)
 	rows := make([][]string, 0, len(cards))
 	for _, c := range cards {
 		linkedEntity := "--"
@@ -586,12 +585,17 @@ func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
 		}
 		rows = append(rows, []string{
 			c.Key,
-			fitColumn(c.Title, titleMax),
+			"", // title placeholder; filled below after width is computed
 			string(c.Status),
 			linkedEntity,
 			c.CreatedAt.Format("2006-01-02"),
 			formatSize(c.Size), // E07-F42 REQ-F-006: Size column
 		})
+	}
+
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), changeCardListHeaders, rows, changeCardListTitleColIdx)
+	for i, c := range cards {
+		rows[i][changeCardListTitleColIdx] = truncateToWidth(c.Title, titleMax)
 	}
 	return rows
 }
@@ -604,7 +608,6 @@ func printChangeCardList(cards []*models.ChangeCard) error {
 	}
 
 	// E07-F42: Size column added to change-card list table (REQ-F-006).
-	headers := []string{"Key", "Title", "Status", "Linked Entity", "Created", "Size"}
-	cli.OutputTable(headers, buildChangeCardListRows(cards))
+	cli.OutputTable(changeCardListHeaders, buildChangeCardListRows(cards))
 	return nil
 }
