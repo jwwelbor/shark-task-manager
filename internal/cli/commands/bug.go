@@ -582,13 +582,17 @@ func buildBugBasicInfo(bug *models.Bug) [][]string {
 	return info
 }
 
+var bugListHeaders = []string{"KEY", "TITLE", "STATUS", "SEVERITY", "LINKED TO", "SIZE"}
+
+const bugListTitleColIdx = 1
+
 // buildBugListRows converts a slice of bugs to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
+//
+// Title is truncated to a width derived from the actual rendered widths
+// of the other columns, so wider terminals show more title without
+// padding the table out artificially when content is short.
 func buildBugListRows(bugs []*models.Bug) [][]string {
-	// CC-036: Title column scales with resolved console width.
-	// Reserved width (~75 cols) covers key + status + severity + linked-to +
-	// size columns plus separators.
-	titleMax := cli.TitleColumnWidth(75)
 	rows := make([][]string, 0, len(bugs))
 	for _, b := range bugs {
 		linkedTo := ""
@@ -597,12 +601,17 @@ func buildBugListRows(bugs []*models.Bug) [][]string {
 		}
 		rows = append(rows, []string{
 			b.Key,
-			truncateBugString(b.Title, titleMax),
+			"", // title placeholder; filled below after width is computed
 			string(b.Status),
 			string(b.Severity),
 			linkedTo,
 			formatSize(b.Size), // E07-F42 REQ-F-006: Size column
 		})
+	}
+
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), bugListHeaders, rows, bugListTitleColIdx)
+	for i, b := range bugs {
+		rows[i][bugListTitleColIdx] = truncateToWidth(b.Title, titleMax)
 	}
 	return rows
 }
@@ -610,8 +619,7 @@ func buildBugListRows(bugs []*models.Bug) [][]string {
 // printBugTable renders a table for bug list output.
 func printBugTable(bugs []*models.Bug) error {
 	// E07-F42: Size column added to bug list table (REQ-F-006).
-	headers := []string{"KEY", "TITLE", "STATUS", "SEVERITY", "LINKED TO", "SIZE"}
-	cli.OutputTable(headers, buildBugListRows(bugs))
+	cli.OutputTable(bugListHeaders, buildBugListRows(bugs))
 	return nil
 }
 

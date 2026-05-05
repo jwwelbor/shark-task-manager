@@ -46,8 +46,9 @@ func assertTruncated(t *testing.T, label, cell string) {
 }
 
 // assertNotTruncated checks that `cell` contains the full untouched
-// title (the cell may be right-padded with spaces by fitColumn so the
-// table fills the terminal — that padding is expected).
+// title. Trailing spaces are tolerated so the assertion stays robust if
+// a renderer ever pads (current renderers do not — title cells are
+// truncated only, never padded).
 func assertNotTruncated(t *testing.T, label, cell string) {
 	t.Helper()
 	trimmed := strings.TrimRight(cell, " ")

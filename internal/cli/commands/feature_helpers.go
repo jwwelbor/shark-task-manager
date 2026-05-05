@@ -213,9 +213,8 @@ func renderFeatureTasksSection(tasks []*models.Task) {
 // below the table when any non-healthy row is shown.
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context) {
 	// E07-F42: Size column added to feature list table (REQ-F-006).
-	tableData := pterm.TableData{
-		{"Key", "Title", "Progress", "Status", "Size"},
-	}
+	headers := []string{"Key", "Title", "Progress", "Status", "Size"}
+	const titleColIdx = 1
 
 	// Batch fetch status breakdowns for all features to avoid N+1 query
 	featureSvc := cli.GetFeatureService()
@@ -241,19 +240,15 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		slog.Warn("Failed to load config", "error", cfgErr)
 	}
 
-	// CC-036: Title column width scales with the resolved console width.
-	// Reserved width (~52 cols) accounts for the actual chrome: key (7) +
-	// progress (14) + status (≤12 incl. *!! suffixes) + size (5) + four
-	// " | " separators (12), plus a small margin. Titles are right-padded
-	// to titleMax so pterm renders the column at full width instead of
-	// shrinking it to the widest actual title — which is what makes the
-	// table fill the terminal.
-	titleMax := cli.TitleColumnWidth(52)
+	// First pass: build rows with empty title cells so the title width can
+	// be derived from the actual rendered widths of the other columns
+	// (key, progress, status incl. ANSI color, size). Titles are then
+	// fitted/padded so pterm renders the table at full console width.
+	titles := make([]string, len(features))
+	rows := make([][]string, 0, len(features))
 	worstLevel := healthHealthy
-	for _, feature := range features {
-		// CC-036: title truncation uses the resolved console width;
-		// shorter titles are right-padded to keep the column full-width.
-		title := fitColumn(feature.Title, titleMax)
+	for i, feature := range features {
+		titles[i] = feature.Title
 
 		// Get status breakdown from batch result
 		statusBreakdown := statusBreakdownBatch[feature.ID]
@@ -291,13 +286,23 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		statusText += healthSuffix(level)
 		statusDisplay := colorByHealthLevel(statusText, level, !cli.GlobalConfig.NoColor)
 
-		tableData = append(tableData, []string{
+		rows = append(rows, []string{
 			feature.Key,
-			title,
+			"", // title placeholder
 			progressDisplay,
 			statusDisplay,
 			formatSize(feature.Size), // E07-F42 REQ-F-006: Size column
 		})
+	}
+
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, titleColIdx)
+	for i := range rows {
+		rows[i][titleColIdx] = truncateToWidth(titles[i], titleMax)
+	}
+
+	tableData := pterm.TableData{headers}
+	for _, r := range rows {
+		tableData = append(tableData, r)
 	}
 
 	// Render table

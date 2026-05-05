@@ -100,43 +100,29 @@ func sortEpics(epics []EpicWithProgress, sortBy string) {
 	}
 }
 
-// truncateTitleWithEllipsis truncates a title to exactly maxLen bytes, using
-// "..." as the ellipsis when there is room. This preserves the historical
-// title-cap contract used by the epic list and epic-get features sub-table:
-// the returned string is at most maxLen bytes (not maxLen+3 like
-// truncateRunes). Byte-level slicing matches the prior inlined behavior; for
-// ASCII titles this is exact, and the rendering paths covered here have
-// always operated on byte-truncated titles.
-func truncateTitleWithEllipsis(title string, maxLen int) string {
-	if len(title) <= maxLen {
-		return title
-	}
-	if maxLen <= 3 {
-		return title[:maxLen]
-	}
-	return title[:maxLen-3] + "..."
-}
+var epicListHeaders = []string{"Key", "Title", "Status", "Progress", "Priority", "Size"}
+
+const epicListTitleColIdx = 1
 
 // buildEpicListRows converts a slice of EpicWithProgress to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildEpicListRows(epics []EpicWithProgress) [][]string {
-	// CC-036: Title column width scales with the resolved console width.
-	// Reserved width (~70 cols) accounts for key + status + progress + priority
-	// + size columns plus their separators in the epic list table. At the
-	// 120-col baseline this yields a 50-char title cap, matching the prior
-	// hardcoded behavior.
-	titleMax := cli.TitleColumnWidth(70)
 	rows := make([][]string, 0, len(epics))
 	for _, epic := range epics {
 		progress := fmt.Sprintf("%.0f%%", epic.ProgressPct)
 		rows = append(rows, []string{
 			epic.Key,
-			truncateTitleWithEllipsis(epic.Title, titleMax),
+			"", // title placeholder; filled below after width is computed
 			string(epic.Status),
 			progress,
 			string(epic.Priority),
 			formatSize(epic.Size), // E07-F42 REQ-F-006: Size column
 		})
+	}
+
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), epicListHeaders, rows, epicListTitleColIdx)
+	for i, epic := range epics {
+		rows[i][epicListTitleColIdx] = truncateToWidth(epic.Title, titleMax)
 	}
 	return rows
 }
@@ -144,9 +130,7 @@ func buildEpicListRows(epics []EpicWithProgress) [][]string {
 // renderEpicListTable renders epics as a table
 func renderEpicListTable(epics []EpicWithProgress) {
 	// E07-F42: Size column added to epic list table (REQ-F-006).
-	tableData := pterm.TableData{
-		{"Key", "Title", "Status", "Progress", "Priority", "Size"},
-	}
+	tableData := pterm.TableData{epicListHeaders}
 	for _, row := range buildEpicListRows(epics) {
 		tableData = append(tableData, row)
 	}
@@ -360,17 +344,13 @@ func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[
 	pterm.DefaultSection.Println("Features")
 	fmt.Println()
 
-	tableData := pterm.TableData{
-		{"Key", "Title", "Status", "Progress", "Tasks"},
-	}
+	headers := []string{"Key", "Title", "Status", "Progress", "Tasks"}
+	const titleColIdx = 1
 
-	// CC-036: Title column width scales with the resolved console width.
-	// Reserved width (~85 cols) accounts for key + status + progress + tasks
-	// columns plus their separators in the epic-get features sub-table. At
-	// the 120-col baseline this yields a 35-char title cap, matching the
-	// prior hardcoded behavior.
-	titleMax := cli.TitleColumnWidth(85)
-	for _, feature := range features {
+	titles := make([]string, len(features))
+	rows := make([][]string, 0, len(features))
+	for i, feature := range features {
+		titles[i] = feature.Title
 		progress := fmt.Sprintf("%.0f%%", feature.ProgressPct)
 		taskDisplay := fmt.Sprintf("%d", feature.TaskCount)
 		if feature.IsPlanning {
@@ -378,13 +358,23 @@ func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[
 			taskDisplay = "-"
 		}
 
-		tableData = append(tableData, []string{
+		rows = append(rows, []string{
 			feature.Key,
-			truncateTitleWithEllipsis(feature.Title, titleMax),
+			"", // title placeholder; filled below after width is computed
 			string(feature.Status),
 			progress,
 			taskDisplay,
 		})
+	}
+
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, titleColIdx)
+	for i := range rows {
+		rows[i][titleColIdx] = truncateToWidth(titles[i], titleMax)
+	}
+
+	tableData := pterm.TableData{headers}
+	for _, r := range rows {
+		tableData = append(tableData, r)
 	}
 
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()

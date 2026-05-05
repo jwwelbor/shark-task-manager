@@ -500,49 +500,6 @@ func TestTruncateRunes(t *testing.T) {
 	}
 }
 
-// TestFitColumn covers the truncate-or-pad helper used by Title columns
-// in list views. Each output must be exactly maxLen runes so pterm renders
-// the column at full reserved width.
-func TestFitColumn(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		maxLen int
-		want   string
-	}{
-		{"short padded with spaces", "abc", 6, "abc   "},
-		{"exact length unchanged", "abcdef", 6, "abcdef"},
-		{"longer truncated with ellipsis", "abcdefghij", 6, "abc..."},
-		{"unicode short padded", "café", 6, "café  "},
-		{"unicode truncated", "caférestaurant", 6, "caf..."},
-		{"empty padded", "", 4, "    "},
-		{"empty maxLen returns empty", "anything", 0, ""},
-		{"negative maxLen returns empty", "anything", -1, ""},
-		{"maxLen 1 truncates without ellipsis", "abcdef", 1, "a"},
-		{"maxLen 3 truncates without ellipsis", "abcdef", 3, "abc"},
-		{"maxLen 4 truncates with ellipsis", "abcdef", 4, "a..."},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := fitColumn(tt.input, tt.maxLen)
-			if got != tt.want {
-				t.Errorf("fitColumn(%q, %d) = %q (len %d), want %q (len %d)",
-					tt.input, tt.maxLen, got, len([]rune(got)), tt.want, len([]rune(tt.want)))
-			}
-			// Invariant: output length equals maxLen (or 0 when maxLen <= 0).
-			gotLen := len([]rune(got))
-			wantLen := tt.maxLen
-			if wantLen <= 0 {
-				wantLen = 0
-			}
-			if gotLen != wantLen {
-				t.Errorf("fitColumn(%q, %d): output len %d, want %d",
-					tt.input, tt.maxLen, gotLen, wantLen)
-			}
-		})
-	}
-}
-
 // Test capitalize helper function
 func TestCapitalize(t *testing.T) {
 	tests := []struct {

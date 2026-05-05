@@ -168,14 +168,22 @@ func runEntityHistory(cmd *cobra.Command, entityType string, key string) error {
 	fmt.Println(strings.Repeat("-", 80))
 
 	headers := []string{"Timestamp", "Old Status", "New Status", "Agent", "Notes"}
-	notesMax := cli.TitleColumnWidth(75)
+	const notesColIdx = 4
+
+	notesText := make([]string, 0, len(entries))
 	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
 		oldStatus := e.OldStatus
 		if oldStatus == "" {
 			oldStatus = "(initial)"
 		}
-		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, truncateRunes(e.Notes, notesMax)})
+		notesText = append(notesText, e.Notes)
+		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, ""})
+	}
+
+	notesMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, notesColIdx)
+	for i := range rows {
+		rows[i][notesColIdx] = truncateToWidth(notesText[i], notesMax)
 	}
 
 	cli.OutputTable(headers, rows)
@@ -309,17 +317,25 @@ func runHistory(cmd *cobra.Command, args []string) error {
 
 	// Print table
 	headers := []string{"Timestamp", "Task", "Old Status", "New Status", "Agent", "Notes"}
-	notesMax := cli.TitleColumnWidth(85)
+	const notesColIdx = 5
+
+	notesText := make([]string, 0, len(displayRecords))
 	var rows [][]string
 	for _, record := range displayRecords {
+		notesText = append(notesText, record.Notes)
 		rows = append(rows, []string{
 			record.Timestamp,
 			record.TaskKey,
 			record.OldStatus,
 			record.NewStatus,
 			record.Agent,
-			truncateRunes(record.Notes, notesMax),
+			"",
 		})
+	}
+
+	notesMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, notesColIdx)
+	for i := range rows {
+		rows[i][notesColIdx] = truncateToWidth(notesText[i], notesMax)
 	}
 
 	cli.OutputTable(headers, rows)
