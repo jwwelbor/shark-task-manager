@@ -273,6 +273,15 @@ func (s *TagService) AttachMany(
 		return nil
 	}
 
+	// B018: With the entity_tags entity_type CHECK constraint dropped, the
+	// Go layer is the sole enforcement point for valid entity types on the
+	// attach path. Guard before any GetByName lookup or Attach call so that
+	// invalid types (e.g. "garbage", "task " with trailing space) cannot
+	// silently insert rows into entity_tags.
+	if !models.ValidEntityTypes[entityType] {
+		return recordSpanError(span, fmt.Errorf("tag service: invalid entity_type: %s", entityType))
+	}
+
 	resolved := make([]*models.Tag, 0, len(names))
 	for _, raw := range names {
 		normalized, err := s.ValidateName(raw)
@@ -310,6 +319,16 @@ func (s *TagService) DetachOne(
 ) error {
 	ctx, span := s.getTracer().Start(ctx, "tag_service.detach_one")
 	defer span.End()
+
+	// B018: With the entity_tags entity_type CHECK constraint dropped, the
+	// Go layer is the sole enforcement point for valid entity types on the
+	// detach path. Guard before name validation so that invalid types
+	// surface a clear, distinct error instead of relying on the underlying
+	// Detach being a no-op for an impossible (entity_type, entity_id, tag_id)
+	// triple.
+	if !models.ValidEntityTypes[entityType] {
+		return recordSpanError(span, fmt.Errorf("tag service: invalid entity_type: %s", entityType))
+	}
 
 	normalized, err := s.ValidateName(name)
 	if err != nil {
