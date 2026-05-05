@@ -476,12 +476,13 @@ func TestMigration_SchemaVersion(t *testing.T) {
 	// reads the maximum stored value.
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.GreaterOrEqual(t, version, 16,
-		"schema version should be at least 16 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
+	assert.GreaterOrEqual(t, version, 17,
+		"schema version should be at least 17 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 16, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 16 (size column extended to tech_debts)")
+	assert.Equal(t, 17, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 17 (B018 — drop entity_type CHECK "+
+			"constraints from polymorphic-association tables)")
 }
 
 // ---------------------------------------------------------------------------

@@ -61,6 +61,11 @@ type TaskUpdates struct {
 	// Size field value. ClearSize takes precedence over Size.
 	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
 	ClearSize bool `json:"clear_size,omitempty"`
+	// SkipResequence, when true, applies an ExecutionOrder change without
+	// renumbering sibling tasks. Enables intentional duplicate-order groups
+	// (parallel work). Wired from `--parallel` on `shark task update`.
+	// Has no effect when ExecutionOrder is nil.
+	SkipResequence bool `json:"skip_resequence,omitempty"`
 }
 
 // TaskFilters contains criteria for filtering task lists.

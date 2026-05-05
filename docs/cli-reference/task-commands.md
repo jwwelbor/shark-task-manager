@@ -328,6 +328,7 @@ shark task update <task-key> [flags]
 - `-a, --agent <string>` - New agent type
 - `-p, --priority <int>` - New priority (1-10, -1=no change)
 - `--order <int>` - New execution order (-1=no change)
+- `--parallel` - Set `--order` without renumbering siblings (preserve duplicate-order parallel groups). Pairs with `--order`; without `--order`, has no effect.
 - `--status <string>` - New status (uses workflow validation)
 - `--depends-on <string>` - New comma-separated dependency task keys
 - `--key <string>` - New key
@@ -347,8 +348,12 @@ shark task update E07-F01-001 --title="Implement JWT token generation with RSA"
 # Update priority and agent
 shark task update E07-F01-001 --priority=1 --agent=backend
 
-# Update execution order
+# Update execution order (renumbers siblings to keep them sequential)
 shark task update E07-F01-001 --order=1
+
+# Set order WITHOUT renumbering siblings — for forming parallel-work groups
+# (multiple tasks at the same order run as a parallel batch)
+shark task update E07-F01-002 --order=1 --parallel
 
 # Set or update size
 shark task update E07-F01-001 --size=L

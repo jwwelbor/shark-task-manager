@@ -309,6 +309,7 @@ shark feature update <feature-key> [flags]
 | `--description <text>` | New description |
 | `--status <status>` | New status |
 | `--order <n>` | New execution order (`-1` = no change) |
+| `--parallel` | Set `--order` without renumbering siblings (preserve duplicate-order parallel groups). Pairs with `--order`; without `--order`, has no effect. |
 | `--key <key>` | New key (must be unique, no spaces) |
 | `--file <path>` | New file path |
 | `--force` | Force reassignment if file already claimed |
@@ -321,8 +322,12 @@ shark feature update <feature-key> [flags]
 # Update title
 shark feature update E07-F01 --title="JWT Token Generation and Validation"
 
-# Update execution order
+# Update execution order (renumbers siblings to keep them sequential)
 shark feature update E07-F01 --order=1
+
+# Set order WITHOUT renumbering siblings — for forming parallel-work groups
+# (multiple features at the same order run as a parallel batch)
+shark feature update E07-F02 --order=1 --parallel
 
 # Set or update size
 shark feature update E07-F01 --size=S

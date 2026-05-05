@@ -26,6 +26,7 @@ Common flags (all entities):
   --title          New title
   --description    New description
   --order          New execution order
+  --parallel       Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)
   --key            Rename entity key
   --file           New file path
   --force          Force file reassignment
@@ -47,6 +48,7 @@ Examples:
   shark update E07-F01-001 --title="New Task Title" --priority=8
   shark update E07-F01-001 --agent=backend
   shark update E07-F01-001 --size=L
+  shark update E07-F01-002 --order=1 --parallel    # join existing order=1 group as parallel work
   shark update TD-001 --size=clear`,
 	GroupID: "manage",
 	Args:    cobra.ExactArgs(1),
@@ -58,6 +60,7 @@ func init() {
 	updateCmd.Flags().String("title", "", "New title")
 	updateCmd.Flags().StringP("description", "d", "", "New description")
 	updateCmd.Flags().Int("order", -1, "New execution order (-1=no change)")
+	updateCmd.Flags().Bool("parallel", false, "Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)")
 
 	// Key rename
 	updateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")

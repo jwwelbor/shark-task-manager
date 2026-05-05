@@ -3035,3 +3035,132 @@ func TestMockTagService_AttachedTagNamesByIDsDefaultReturnsEmpty(t *testing.T) {
 		t.Errorf("AttachedTagNamesByIDsCalls = %d, want 1", m.AttachedTagNamesByIDsCalls)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// B018: Regression — entity_tags entity_type validation
+//
+// With the entity_tags entity_type CHECK constraint dropped (migration in
+// internal/db/db.go: migrateDropPolymorphicEntityTypeChecks), the Go layer
+// is the sole enforcement point. AttachMany and DetachOne MUST reject any
+// entity_type that is not present in models.ValidEntityTypes BEFORE issuing
+// any GetByName lookup or Attach/Detach call.
+// ---------------------------------------------------------------------------
+
+func TestB018_AttachMany_RejectsInvalidEntityType(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityType models.EntityType
+	}{
+		{"unknown type", models.EntityType("garbage")},
+		{"trailing whitespace bypass attempt", models.EntityType("task ")},
+		{"empty string", models.EntityType("")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getByNameCalled := false
+			tagRepo := &mockTagRepo{
+				getByNameFn: func(ctx context.Context, name string) (*models.Tag, error) {
+					getByNameCalled = true
+					return &models.Tag{ID: 10, Name: name}, nil
+				},
+			}
+			var attaches []attachCall
+			entityTagRepo := newRecordingEntityTagRepo(&attaches)
+			svc := NewTagService(tagRepo, entityTagRepo, &mockGate{}, &stubCfg{})
+
+			err := svc.AttachMany(context.Background(), tt.entityType, 42, []string{"voice"})
+			if err == nil {
+				t.Fatalf("expected error for entity_type %q, got nil", tt.entityType)
+			}
+			if !strings.Contains(err.Error(), "invalid entity_type") {
+				t.Errorf("expected error to mention 'invalid entity_type', got: %v", err)
+			}
+			if !strings.Contains(err.Error(), string(tt.entityType)) {
+				t.Errorf("expected error to include the bad value %q, got: %v", tt.entityType, err)
+			}
+			if getByNameCalled {
+				t.Error("GetByName must NOT be called when entity_type is invalid")
+			}
+			if len(attaches) != 0 {
+				t.Errorf("expected zero Attach calls, got %d", len(attaches))
+			}
+		})
+	}
+}
+
+func TestB018_DetachOne_RejectsInvalidEntityType(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityType models.EntityType
+	}{
+		{"unknown type", models.EntityType("garbage")},
+		{"trailing whitespace bypass attempt", models.EntityType("task ")},
+		{"empty string", models.EntityType("")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getByNameCalled := false
+			tagRepo := &mockTagRepo{
+				getByNameFn: func(ctx context.Context, name string) (*models.Tag, error) {
+					getByNameCalled = true
+					return &models.Tag{ID: 10, Name: name}, nil
+				},
+			}
+			detachCalled := false
+			entityTagRepo := &recordingEntityTagRepo{
+				detachFn: func(ctx context.Context, entityType models.EntityType, entityID, tagID int64) error {
+					detachCalled = true
+					return nil
+				},
+			}
+			svc := NewTagService(tagRepo, entityTagRepo, &mockGate{}, &stubCfg{})
+
+			err := svc.DetachOne(context.Background(), tt.entityType, 42, "voice")
+			if err == nil {
+				t.Fatalf("expected error for entity_type %q, got nil", tt.entityType)
+			}
+			if !strings.Contains(err.Error(), "invalid entity_type") {
+				t.Errorf("expected error to mention 'invalid entity_type', got: %v", err)
+			}
+			if !strings.Contains(err.Error(), string(tt.entityType)) {
+				t.Errorf("expected error to include the bad value %q, got: %v", tt.entityType, err)
+			}
+			if getByNameCalled {
+				t.Error("GetByName must NOT be called when entity_type is invalid")
+			}
+			if detachCalled {
+				t.Error("Detach must NOT be called when entity_type is invalid")
+			}
+		})
+	}
+}
+
+// TestB018_AttachMany_AcceptsAllValidEntityTypes is the positive control —
+// every entity type registered in models.ValidEntityTypes must pass the new
+// guard and proceed to GetByName resolution. Regression-protects against an
+// over-eager guard that could exclude e.g. "idea" or "tech_debt".
+func TestB018_AttachMany_AcceptsAllValidEntityTypes(t *testing.T) {
+	for et := range models.ValidEntityTypes {
+		et := et // pin loop var for subtest closure
+		t.Run(string(et), func(t *testing.T) {
+			tagRepo := &mockTagRepo{
+				getByNameFn: func(ctx context.Context, name string) (*models.Tag, error) {
+					return &models.Tag{ID: 10, Name: "voice"}, nil
+				},
+			}
+			var attaches []attachCall
+			entityTagRepo := newRecordingEntityTagRepo(&attaches)
+			svc := NewTagService(tagRepo, entityTagRepo, &mockGate{}, &stubCfg{})
+
+			err := svc.AttachMany(context.Background(), et, 42, []string{"voice"})
+			if err != nil {
+				t.Fatalf("AttachMany rejected valid entity_type %q: %v", et, err)
+			}
+			if len(attaches) != 1 {
+				t.Errorf("expected 1 Attach call, got %d", len(attaches))
+			}
+		})
+	}
+}

@@ -551,6 +551,67 @@ func TestFeatureRepository_UpdateCascadesOrder(t *testing.T) {
 	assert.Equal(t, 4, featureOrders["Feature C"], "Feature C should be at order 4 (shifted)")
 }
 
+// TestFeatureRepository_UpdateNoResequence_PreservesDuplicateOrders verifies that
+// UpdateNoResequence sets the target feature's execution_order without renumbering
+// siblings, allowing intentional duplicate-order groups (parallel work) to be
+// formed via `shark feature update --parallel`.
+func TestFeatureRepository_UpdateNoResequence_PreservesDuplicateOrders(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	featureRepo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E96-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
+
+	// Create test epic
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+		Title: "Test Epic for Feature No-Resequence"}, Status: models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic), "Failed to create test epic")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	// Seed features at orders 1, 2, 3
+	order1, order2, order3 := 1, 2, 3
+	featureA := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F01", Title: "Feature A"},
+		EpicID: testEpic.ID, Status: models.FeatureStatusDraft, ExecutionOrder: &order1}
+	featureB := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F02", Title: "Feature B"},
+		EpicID: testEpic.ID, Status: models.FeatureStatusDraft, ExecutionOrder: &order2}
+	featureC := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F03", Title: "Feature C"},
+		EpicID: testEpic.ID, Status: models.FeatureStatusDraft, ExecutionOrder: &order3}
+	require.NoError(t, featureRepo.Create(ctx, featureA))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureA.ID) }()
+	require.NoError(t, featureRepo.Create(ctx, featureB))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureB.ID) }()
+	require.NoError(t, featureRepo.Create(ctx, featureC))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureC.ID) }()
+
+	// When: move Feature C to order=1 WITHOUT cascade
+	newOrder := 1
+	featureC.ExecutionOrder = &newOrder
+	require.NoError(t, featureRepo.UpdateNoResequence(ctx, featureC), "UpdateNoResequence should succeed")
+
+	// Then: A and C share order=1 (parallel batch); B remains at 2
+	features, err := featureRepo.ListByEpic(ctx, testEpic.ID)
+	require.NoError(t, err, "Failed to list features by epic ID")
+	require.Len(t, features, 3, "Should have 3 features")
+
+	featureOrders := make(map[string]int)
+	for _, feature := range features {
+		require.NotNil(t, feature.ExecutionOrder, "Feature %s should have an execution order", feature.Title)
+		featureOrders[feature.Title] = *feature.ExecutionOrder
+	}
+
+	assert.Equal(t, 1, featureOrders["Feature A"], "Feature A should remain at order 1")
+	assert.Equal(t, 2, featureOrders["Feature B"], "Feature B should remain at order 2 (no cascade)")
+	assert.Equal(t, 1, featureOrders["Feature C"], "Feature C should be at order 1 alongside Feature A")
+}
+
 // TestFeatureRepository_UpdateStatusTx tests the transactional status update method.
 func TestFeatureRepository_UpdateStatusTx(t *testing.T) {
 	ctx := context.Background()

@@ -21,6 +21,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// TestUpdateDispatch_ParallelFlagRegistered asserts that --parallel is
+// registered on the unified `update` dispatch command as a bool-typed flag
+// defaulting to false. The per-entity update runners (runTaskUpdate,
+// runFeatureUpdate) read `--parallel` directly via cmd.Flags().GetBool, so
+// registering it on the dispatch is sufficient for `shark update <KEY>
+// --order=N --parallel` to flow through to TaskUpdates.SkipResequence /
+// FeatureUpdates.SkipResequence.
+func TestUpdateDispatch_ParallelFlagRegistered(t *testing.T) {
+	flag := updateCmd.Flags().Lookup("parallel")
+	if flag == nil {
+		t.Fatal("--parallel flag not registered on updateCmd (dispatch)")
+	}
+	if flag.Value.Type() != "bool" {
+		t.Errorf("expected --parallel to be bool type on updateCmd, got %s", flag.Value.Type())
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("expected --parallel default \"false\" on updateCmd, got %q", flag.DefValue)
+	}
+}
+
+// TestUpdateDispatch_ParallelFlagInLongHelp asserts that the dispatch's Long
+// description mentions the `--parallel` flag so `shark update --help`
+// documents it.
+func TestUpdateDispatch_ParallelFlagInLongHelp(t *testing.T) {
+	if updateCmd.Long == "" {
+		t.Fatal("updateCmd.Long is empty")
+	}
+	if !containsAll(updateCmd.Long, "--parallel") {
+		t.Errorf("updateCmd.Long does not mention --parallel:\n%s", updateCmd.Long)
+	}
+}
+
 // TestUpdateDispatch_SizeFlagRegistered asserts that --size is registered on
 // the unified `update` dispatch command as a string-typed flag with no default.
 // Mirrors the per-entity check in TestSizeFlag_RegisteredOnAllUpdateCommands.
@@ -124,6 +156,7 @@ func buildIsolatedDispatchCmd(t *testing.T) *cobra.Command {
 	cmd.Flags().String("title", "", "title")
 	cmd.Flags().StringP("description", "d", "", "description")
 	cmd.Flags().Int("order", -1, "order")
+	cmd.Flags().Bool("parallel", false, "parallel")
 	cmd.Flags().String("key", "", "key")
 	cmd.Flags().String("file", "", "file")
 	cmd.Flags().String("filename", "", "alias for --file")

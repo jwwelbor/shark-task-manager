@@ -279,6 +279,83 @@ func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 	assert.Equal(t, 4, taskOrders["Task C"], "Task C should be at order 4 (shifted)")
 }
 
+// TestTaskRepository_UpdateNoResequence_PreservesDuplicateOrders verifies that
+// UpdateNoResequence sets the target task's execution_order without renumbering
+// siblings, allowing intentional duplicate-order groups (parallel work) to be
+// formed via `shark task update --parallel`.
+func TestTaskRepository_UpdateNoResequence_PreservesDuplicateOrders(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	taskRepo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E97-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E97-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
+
+	// Create test epic
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic for No-Resequence"}, Status: models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic), "Failed to create test epic")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	// Create test feature
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F01",
+		Title: "Test Feature for No-Resequence"}, EpicID: testEpic.ID,
+		Status: models.FeatureStatusDraft,
+	}
+	require.NoError(t, featureRepo.Create(ctx, testFeature), "Failed to create test feature")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	// Seed tasks at orders 1, 2, 3
+	order1, order2, order3 := 1, 2, 3
+	taskA := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task A"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order1,
+	}
+	taskB := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task B"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order2,
+	}
+	taskC := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task C"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order3,
+	}
+	require.NoError(t, taskRepo.Create(ctx, taskA))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskA.ID) }()
+	require.NoError(t, taskRepo.Create(ctx, taskB))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskB.ID) }()
+	require.NoError(t, taskRepo.Create(ctx, taskC))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskC.ID) }()
+
+	// When: move Task C to order=1 WITHOUT cascade
+	newOrder := 1
+	taskC.ExecutionOrder = &newOrder
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, taskC), "UpdateNoResequence should succeed")
+
+	// Then: A and C share order=1 (parallel batch); B remains at 2
+	tasks, err := taskRepo.ListByFeature(ctx, testFeature.ID)
+	require.NoError(t, err, "Failed to list tasks by feature ID")
+	require.Len(t, tasks, 3, "Should have 3 tasks")
+
+	taskOrders := make(map[string]int)
+	for _, task := range tasks {
+		require.NotNil(t, task.ExecutionOrder, "Task %s should have an execution order", task.Title)
+		taskOrders[task.Title] = *task.ExecutionOrder
+	}
+
+	assert.Equal(t, 1, taskOrders["Task A"], "Task A should remain at order 1")
+	assert.Equal(t, 2, taskOrders["Task B"], "Task B should remain at order 2 (no cascade)")
+	assert.Equal(t, 1, taskOrders["Task C"], "Task C should be at order 1 alongside Task A")
+}
+
 // TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason tests rejection reason validation
 func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing.T) {
 	ctx := context.Background()

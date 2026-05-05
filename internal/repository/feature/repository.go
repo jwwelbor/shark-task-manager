@@ -491,17 +491,39 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		))
 	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
+	return r.updateInternal(ctx, feature, false)
+}
+
+// UpdateNoResequence updates a feature without cascading execution_order changes
+// to siblings. Used to preserve intentional duplicate-order groups (parallel
+// work) when callers re-assign a feature's order via
+// `shark feature update --parallel`. Equivalent to Update in every other respect.
+func (r *FeatureRepository) UpdateNoResequence(ctx context.Context, feature *models.Feature) (retErr error) {
+	ctx, span := tracer.Start(ctx, "FeatureRepository.UpdateNoResequence",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "features"),
+			attribute.String("db.key", feature.Key),
+		))
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
+
+	return r.updateInternal(ctx, feature, true)
+}
+
+// updateInternal performs the feature update. When forceSkipCascade is true the
+// execution_order resequence is suppressed regardless of whether the order has
+// actually changed.
+func (r *FeatureRepository) updateInternal(ctx context.Context, feature *models.Feature, forceSkipCascade bool) error {
 	if err := feature.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Check if execution_order is being changed - if so, cascade to other features
-	var oldFeature *models.Feature
-	var err error
+	// Check if execution_order is being changed - if so, cascade to other features.
+	// Skipped entirely when forceSkipCascade is true.
 	var needsCascade bool
-
-	if feature.ExecutionOrder != nil {
-		oldFeature, err = r.GetByID(ctx, feature.ID)
+	if !forceSkipCascade && feature.ExecutionOrder != nil {
+		oldFeature, err := r.GetByID(ctx, feature.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get old feature: %w", err)
 		}
