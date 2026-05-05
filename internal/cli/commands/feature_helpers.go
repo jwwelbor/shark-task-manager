@@ -1137,7 +1137,6 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 
 	if parallel, _ := cmd.Flags().GetBool("parallel"); parallel {
 		updates.SkipResequence = true
-		changed = true
 	}
 
 	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE only.

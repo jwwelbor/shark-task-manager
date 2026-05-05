@@ -77,7 +77,7 @@ func resolveNoteEntityType(key string) (models.EntityType, string, error) {
 	case "idea":
 		return models.EntityTypeIdea, "idea", nil
 	default:
-return "", "", fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
+		return "", "", fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
 	}
 }
 
@@ -87,10 +87,6 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 
 	noteTypeStr, _ := cmd.Flags().GetString("type")
 	createdBy, _ := cmd.Flags().GetString("created-by")
-
-	if noteTypeStr == "" {
-		return fmt.Errorf("--type flag is required")
-	}
 
 	entityType, entityName, err := resolveNoteEntityType(key)
 	if err != nil {
@@ -111,7 +107,7 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(note)
 	}
 
-creator := "unknown"
+	creator := "unknown"
 	if note.CreatedBy != nil && *note.CreatedBy != "" {
 		creator = *note.CreatedBy
 	}
