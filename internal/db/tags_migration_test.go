@@ -1,7 +1,6 @@
 package db
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -259,13 +258,18 @@ func TestMigration_EntityTagsTable_CheckConstraint(t *testing.T) {
 	tagID, err := res.LastInsertId()
 	require.NoError(t, err)
 
-	// Attempt to insert an invalid entity_type — should fail CHECK constraint
+	// B018 removed the entity_type CHECK from entity_tags. Validation now
+	// lives in the app-layer allowlist models.ValidEntityTypes (matching the
+	// bugs.linked_entity_type precedent and avoiding the recurring class of
+	// bug where a new entity type required a SQL migration). Raw SQL inserts
+	// of unknown entity types must therefore succeed at the DB layer; the
+	// repository / service layer is responsible for rejecting them.
 	_, err = db.Exec(`INSERT INTO entity_tags (entity_type, entity_id, tag_id) VALUES ('invalid_type', 1, ?)`, tagID)
-	require.Error(t, err, "inserting an invalid entity_type into entity_tags should fail")
-	assert.True(t, strings.Contains(err.Error(), "CHECK constraint") ||
-		strings.Contains(err.Error(), "UNIQUE constraint") ||
-		strings.Contains(err.Error(), "constraint"),
-		"error should mention a constraint failure, got: %v", err)
+	if err != nil {
+		t.Errorf("Post-B018 the entity_tags entity_type CHECK is removed; raw "+
+			"SQL insert of an unknown entity_type should succeed at the DB "+
+			"layer (app-layer validation rejects it instead). Got: %v", err)
+	}
 }
 
 // TestMigration_TagsTable_UniqueNameConstraint verifies that tags rejects

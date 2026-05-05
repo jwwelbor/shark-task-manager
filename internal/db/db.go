@@ -434,8 +434,14 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 }
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
+// History:
+//
+//	16 — E07-F42 (size columns)
+//	17 — B018  (drop entity_type CHECKs from polymorphic-association tables:
+//	            entity_notes, entity_relationships, entity_tags)
+//
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 16
+const CurrentSchemaVersion = 17
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -833,6 +839,21 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate size columns: %w", err)
 	}
 
+	// B018: Drop entity_type CHECK constraints from polymorphic-association
+	// tables (entity_notes, entity_relationships, entity_tags). These CHECKs
+	// rejected idea and tech_debt entity types — a class of bug that
+	// recurred each time a new entity type was added. Validation now lives
+	// solely in models.ValidEntityTypes (matches bugs.linked_entity_type
+	// precedent and the E18 tech-feasibility recommendation).
+	//
+	// migrateDropPolymorphicEntityTypeChecks owns its own transaction and
+	// drops/recreates the display views and viewer_task_relationships within
+	// it, so the schema is atomically consistent on commit. No post-migration
+	// view recreation is needed here.
+	if err := migrateDropPolymorphicEntityTypeChecks(db); err != nil {
+		return fmt.Errorf("failed to drop polymorphic entity_type CHECK constraints: %w", err)
+	}
+
 	return nil
 }
 
@@ -855,13 +876,10 @@ func migrateDropLegacyRelationshipTables(db *sql.DB) error {
 	return nil
 }
 
-// migrateViewerTaskRelationshipsView creates the viewer_task_relationships view
-// that pre-resolves entity relationship data for each task in a single SQL query,
-// eliminating the N+1 per-task DB round-trips in the viewer Hierarchy and FeatureTasks
-// endpoints. The view embeds relationship JSON using correlated subqueries inside
-// json_group_array — one query returns all tasks with relationship data already resolved.
-func migrateViewerTaskRelationshipsView(db *sql.DB) error {
-	_, err := db.Exec(`
+// viewerTaskRelationshipsViewSQL is the canonical CREATE VIEW statement for
+// viewer_task_relationships. Defined once so it can be reused inside other
+// migrations' transactions when entity_relationships is rebuilt.
+const viewerTaskRelationshipsViewSQL = `
 		CREATE VIEW IF NOT EXISTS viewer_task_relationships AS
 		SELECT
 		  t.id AS task_id,
@@ -901,8 +919,15 @@ func migrateViewerTaskRelationshipsView(db *sql.DB) error {
 		     OR (er.to_entity_type   = 'task' AND er.to_entity_id   = t.id)
 		  ) AS relationships_json
 		FROM tasks t
-	`)
-	if err != nil {
+	`
+
+// migrateViewerTaskRelationshipsView creates the viewer_task_relationships view
+// that pre-resolves entity relationship data for each task in a single SQL query,
+// eliminating the N+1 per-task DB round-trips in the viewer Hierarchy and FeatureTasks
+// endpoints. The view embeds relationship JSON using correlated subqueries inside
+// json_group_array — one query returns all tasks with relationship data already resolved.
+func migrateViewerTaskRelationshipsView(db *sql.DB) error {
+	if _, err := db.Exec(viewerTaskRelationshipsViewSQL); err != nil {
 		return fmt.Errorf("failed to create viewer_task_relationships view: %w", err)
 	}
 	return nil
@@ -1912,11 +1937,10 @@ func migrateRelationshipTables(db *sql.DB) error {
 	return nil
 }
 
-// migrateEpicDisplayDataView creates the epic_display_data SQL view that aggregates
-// all epic-related data (features, task breakdown, blocked tasks, documents, notes)
-// into a single queryable view for efficient epic detail retrieval.
-func migrateEpicDisplayDataView(db *sql.DB) error {
-	_, err := db.Exec(`
+// epicDisplayDataViewSQL is the canonical CREATE VIEW statement for
+// epic_display_data. Defined once so it can be reused inside other migrations'
+// transactions when entity_notes is rebuilt.
+const epicDisplayDataViewSQL = `
 CREATE VIEW IF NOT EXISTS epic_display_data AS
 SELECT
   e.*,
@@ -1968,20 +1992,20 @@ SELECT
   ) AS notes_json
 
 FROM epics e;
-`)
+`
+
+// migrateEpicDisplayDataView creates the epic_display_data SQL view that aggregates
+// all epic-related data (features, task breakdown, blocked tasks, documents, notes)
+// into a single queryable view for efficient epic detail retrieval.
+func migrateEpicDisplayDataView(db *sql.DB) error {
+	_, err := db.Exec(epicDisplayDataViewSQL)
 	return err
 }
 
-// migrateFeatureDisplayDataView creates the feature_display_data SQL view that aggregates
-// all feature-related data (tasks, task breakdown, documents, notes) into a single
-// queryable view for efficient feature detail retrieval.
-func migrateFeatureDisplayDataView(db *sql.DB) error {
-	_, err := db.Exec(`DROP VIEW IF EXISTS feature_display_data`)
-	if err != nil {
-		return fmt.Errorf("failed to drop old feature_display_data view: %w", err)
-	}
-
-	_, err = db.Exec(`
+// featureDisplayDataViewSQL is the canonical CREATE VIEW statement for
+// feature_display_data. Defined once so it can be reused inside other
+// migrations' transactions when entity_notes is rebuilt.
+const featureDisplayDataViewSQL = `
 CREATE VIEW IF NOT EXISTS feature_display_data AS
 SELECT
   f.*,
@@ -2025,20 +2049,24 @@ SELECT
   ) AS notes_json
 
 FROM features f;
-`)
+`
+
+// migrateFeatureDisplayDataView creates the feature_display_data SQL view that aggregates
+// all feature-related data (tasks, task breakdown, documents, notes) into a single
+// queryable view for efficient feature detail retrieval.
+func migrateFeatureDisplayDataView(db *sql.DB) error {
+	if _, err := db.Exec(`DROP VIEW IF EXISTS feature_display_data`); err != nil {
+		return fmt.Errorf("failed to drop old feature_display_data view: %w", err)
+	}
+
+	_, err := db.Exec(featureDisplayDataViewSQL)
 	return err
 }
 
-// migrateTaskDisplayDataView creates the task_display_data SQL view that aggregates
-// all task-related data (blocked_by, blocks, dependencies, documents, notes) into a single
-// queryable view for efficient task detail retrieval.
-func migrateTaskDisplayDataView(db *sql.DB) error {
-	_, err := db.Exec(`DROP VIEW IF EXISTS task_display_data`)
-	if err != nil {
-		return fmt.Errorf("failed to drop old task_display_data view: %w", err)
-	}
-
-	_, err = db.Exec(`
+// taskDisplayDataViewSQL is the canonical CREATE VIEW statement for
+// task_display_data. Defined once so it can be reused inside other migrations'
+// transactions when entity_notes or entity_relationships is rebuilt.
+const taskDisplayDataViewSQL = `
 CREATE VIEW IF NOT EXISTS task_display_data AS
 SELECT
   t.*,
@@ -2099,7 +2127,17 @@ SELECT
   ) AS notes_json
 
 FROM tasks t;
-`)
+`
+
+// migrateTaskDisplayDataView creates the task_display_data SQL view that aggregates
+// all task-related data (blocked_by, blocks, dependencies, documents, notes) into a single
+// queryable view for efficient task detail retrieval.
+func migrateTaskDisplayDataView(db *sql.DB) error {
+	if _, err := db.Exec(`DROP VIEW IF EXISTS task_display_data`); err != nil {
+		return fmt.Errorf("failed to drop old task_display_data view: %w", err)
+	}
+
+	_, err := db.Exec(taskDisplayDataViewSQL)
 	return err
 }
 
@@ -2260,6 +2298,17 @@ func migrateEntityNotesExpandEntityTypes(db *sql.DB) error {
 
 	// If the table already has 'bug' in the CHECK constraint, skip
 	if strings.Contains(tableSql, "'bug'") {
+		return nil
+	}
+
+	// Post-B018, the entity_type CHECK constraint is removed entirely.
+	// Detect that case by checking whether the column constraint is still
+	// present at all — if neither 'epic' nor 'feature' appears, the CHECK
+	// has already been dropped by migrateDropPolymorphicEntityTypeChecks
+	// and there is nothing to expand. Skip rather than re-running the
+	// rebuild (which would fail because cascade triggers for bug/change
+	// reference the table by name).
+	if !strings.Contains(tableSql, "'epic'") && !strings.Contains(tableSql, "'feature'") {
 		return nil
 	}
 
@@ -3432,6 +3481,364 @@ func migrateAddSizeColumns(db *sql.DB) error {
 			if _, err := db.Exec(stmt); err != nil {
 				return fmt.Errorf("migrateAddSizeColumns: alter %s: %w", table, err)
 			}
+		}
+	}
+	return nil
+}
+
+// migrateDropPolymorphicEntityTypeChecks drops the entity_type CHECK
+// constraints from the three polymorphic-association tables (entity_notes,
+// entity_relationships, entity_tags).
+//
+// Background (B018):
+//   - entity_notes.entity_type CHECK was last extended for 'bug'/'change' in
+//     E18-F01 but never for 'idea' (E08) or 'tech_debt' (E25).
+//   - entity_relationships.{from,to}_entity_type CHECKs were never extended
+//     beyond the original {epic, feature, task, bug, change} set.
+//   - entity_tags.entity_type CHECK was extended to include 'idea' in E28
+//     but never extended for 'tech_debt' (E25).
+//
+// The fix replaces the CHECK constraints with the existing app-layer
+// allowlist `models.ValidEntityTypes` (in internal/models/entity_note.go),
+// matching the bugs.linked_entity_type precedent (no DB CHECK, app-layer
+// validation only) and the E18 tech-feasibility recommendation. This makes
+// the allowlist single-sourced — adding a new entity type requires updating
+// `models.ValidEntityTypes` and nothing else, eliminating the recurring class
+// of bug B018 represents.
+//
+// SQLite cannot DROP a CHECK constraint in place, so each table is rebuilt
+// using the standard recreate pattern: CREATE _new → INSERT SELECT → DROP
+// old → RENAME. The function is idempotent: each table is checked via
+// sqlite_master.sql for the presence of `entity_type IN (` (or the
+// from/to_entity_type variants) before being rebuilt. If all CHECKs have
+// already been removed, the function is a no-op.
+//
+// All three rebuilds run inside a single transaction, with the four affected
+// views (epic_display_data, feature_display_data, task_display_data,
+// viewer_task_relationships) dropped before any RENAME and recreated before
+// commit. This is required for two reasons:
+//   - SQLite revalidates dependent view definitions during ALTER TABLE
+//     RENAME; if a view references a column that does not yet exist on an
+//     older database, the rename would fail. Dropping the views first
+//     sidesteps that.
+//   - It guarantees atomicity: the database is never observed in a state
+//     where the rebuilt tables exist but the views do not, even if the
+//     process is interrupted mid-migration.
+//
+// DEVELOPER NOTE: This function adds schema version 17. Bump
+// CurrentSchemaVersion when adding the next migration. See
+// .claude/rules/database-critical.md.
+func migrateDropPolymorphicEntityTypeChecks(db *sql.DB) error {
+	// Idempotent pre-flight: read each table's current schema once and decide
+	// what (if anything) needs to be rebuilt before opening the transaction.
+	notesSQL, err := readTableSQL(db, "entity_notes")
+	if err != nil {
+		return fmt.Errorf("failed to read entity_notes schema: %w", err)
+	}
+	relationshipsSQL, err := readTableSQL(db, "entity_relationships")
+	if err != nil {
+		return fmt.Errorf("failed to read entity_relationships schema: %w", err)
+	}
+	tagsSQL, err := readTableSQL(db, "entity_tags")
+	if err != nil {
+		return fmt.Errorf("failed to read entity_tags schema: %w", err)
+	}
+
+	notesNeedsRebuild := notesSQL != "" &&
+		(strings.Contains(notesSQL, "entity_type IN (") || strings.Contains(notesSQL, "entity_type IN("))
+	relationshipsNeedsRebuild := relationshipsSQL != "" &&
+		(strings.Contains(relationshipsSQL, "from_entity_type IN(") || strings.Contains(relationshipsSQL, "from_entity_type IN ("))
+	tagsNeedsRebuild := tagsSQL != "" && strings.Contains(tagsSQL, "entity_type IN")
+
+	if !notesNeedsRebuild && !relationshipsNeedsRebuild && !tagsNeedsRebuild {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Drop ALL display views and viewer_task_relationships up front. SQLite
+	// re-validates dependent views during ALTER TABLE ... RENAME, so any view
+	// referencing a column that hasn't been added yet (e.g. f.description on
+	// older databases) would cause the rename to fail. Keeping the views
+	// dropped throughout every rebuild and recreating them at the end of the
+	// same transaction makes the entire migration atomic.
+	dropViewSteps := []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+	}
+	for _, step := range dropViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop view failed: %w (step: %s)", err, step)
+		}
+	}
+
+	if notesNeedsRebuild {
+		if err := rebuildEntityNotesTx(tx); err != nil {
+			return fmt.Errorf("entity_notes: %w", err)
+		}
+	}
+	if relationshipsNeedsRebuild {
+		if err := rebuildEntityRelationshipsTx(tx); err != nil {
+			return fmt.Errorf("entity_relationships: %w", err)
+		}
+	}
+	if tagsNeedsRebuild {
+		if err := rebuildEntityTagsTx(tx); err != nil {
+			return fmt.Errorf("entity_tags: %w", err)
+		}
+	}
+
+	// Recreate all views inside the same transaction so the schema is fully
+	// consistent before commit.
+	recreateViewSteps := []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+	}
+	for _, step := range recreateViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("recreate view failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+	return nil
+}
+
+// readTableSQL returns the CREATE statement stored in sqlite_master for the
+// given table, or "" if the table doesn't exist.
+func readTableSQL(db *sql.DB, name string) (string, error) {
+	var tableSQL string
+	err := db.QueryRow(`
+		SELECT COALESCE(sql, '') FROM sqlite_master WHERE type='table' AND name=?
+	`, name).Scan(&tableSQL)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return tableSQL, nil
+}
+
+// rebuildEntityNotesTx rebuilds the entity_notes table without the
+// entity_type CHECK constraint. Runs inside the caller's transaction; the
+// caller is responsible for dropping/recreating views and committing.
+func rebuildEntityNotesTx(tx *sql.Tx) error {
+	steps := []string{
+		// Build the rebuilt table without the entity_type CHECK. Note types
+		// keep their CHECK (it is a domain enum with stable membership, not a
+		// growing entity-type allowlist).
+		`CREATE TABLE entity_notes_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			note_type TEXT CHECK (note_type IN (
+				'comment', 'decision', 'blocker', 'solution', 'reference',
+				'implementation', 'testing', 'future', 'question', 'rejection'
+			)) NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT
+		);`,
+		`INSERT INTO entity_notes_new (id, entity_type, entity_id, note_type, content, created_by, created_at, metadata)
+			SELECT id, entity_type, entity_id, note_type, content, created_by, created_at, metadata FROM entity_notes;`,
+		// Cascade-delete triggers reference entity_notes by name — drop them
+		// so they don't keep a dangling reference to the about-to-be-renamed
+		// table. They are recreated immediately below against the new table.
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_task;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_feature;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_epic;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_bug;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_change;`,
+		`DROP TABLE entity_notes;`,
+		`ALTER TABLE entity_notes_new RENAME TO entity_notes;`,
+		// Recreate indexes (mirrors migrateEntityNotes / migrateEntityNotesExpandEntityTypes).
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type_entity ON entity_notes(note_type, entity_type, entity_id);`,
+		// Recreate cascade-delete triggers.
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_change
+			AFTER DELETE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'change' AND entity_id = OLD.id;
+			END;`,
+		// New cascade triggers for idea and tech_debt — previously missing
+		// because entity_notes never accepted those entity_types before this
+		// migration. Now that the CHECK is gone, add the cascade so deleting
+		// the parent row cleans up dangling notes.
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_idea
+			AFTER DELETE ON ideas
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'idea' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_tech_debt
+			AFTER DELETE ON tech_debts
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'tech_debt' AND entity_id = OLD.id;
+			END;`,
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("step failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+	return nil
+}
+
+// rebuildEntityRelationshipsTx rebuilds the entity_relationships table without
+// the from_entity_type/to_entity_type CHECK constraints. The relationship_type
+// CHECK is preserved (stable domain enum, not a growing entity-type allowlist).
+// Runs inside the caller's transaction.
+func rebuildEntityRelationshipsTx(tx *sql.Tx) error {
+	steps := []string{
+		`CREATE TABLE entity_relationships_new (
+			id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			from_entity_type  TEXT NOT NULL,
+			from_entity_id    INTEGER NOT NULL,
+			to_entity_type    TEXT NOT NULL,
+			to_entity_id      INTEGER NOT NULL,
+			relationship_type TEXT NOT NULL CHECK(relationship_type IN (
+				'depends_on','blocks','related_to','follows',
+				'spawned_from','duplicates','references','linked_to'
+			)),
+			created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(from_entity_type, from_entity_id,
+			       to_entity_type,   to_entity_id, relationship_type)
+		);`,
+		`INSERT INTO entity_relationships_new
+			(id, from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at)
+			SELECT id, from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at
+			FROM entity_relationships;`,
+		`DROP TABLE entity_relationships;`,
+		`ALTER TABLE entity_relationships_new RENAME TO entity_relationships;`,
+		`CREATE INDEX IF NOT EXISTS idx_er_from
+			ON entity_relationships(from_entity_type, from_entity_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_er_to
+			ON entity_relationships(to_entity_type, to_entity_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_er_type
+			ON entity_relationships(relationship_type);`,
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("step failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+	return nil
+}
+
+// rebuildEntityTagsTx rebuilds the entity_tags table without the entity_type
+// CHECK constraint. Cascade-delete triggers are preserved (re-created against
+// the rebuilt table). Runs inside the caller's transaction.
+func rebuildEntityTagsTx(tx *sql.Tx) error {
+	steps := []string{
+		`CREATE TABLE entity_tags_new (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id   INTEGER NOT NULL,
+			tag_id      INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(entity_type, entity_id, tag_id)
+		);`,
+		`INSERT INTO entity_tags_new (id, entity_type, entity_id, tag_id, created_at)
+			SELECT id, entity_type, entity_id, tag_id, created_at FROM entity_tags;`,
+		// Drop cascade-delete triggers — they reference entity_tags by name
+		// and must be recreated against the rebuilt table.
+		`DROP TRIGGER IF EXISTS entity_tags_cascade_delete_epic;`,
+		`DROP TRIGGER IF EXISTS entity_tags_cascade_delete_feature;`,
+		`DROP TRIGGER IF EXISTS entity_tags_cascade_delete_task;`,
+		`DROP TRIGGER IF EXISTS entity_tags_cascade_delete_bug;`,
+		`DROP TRIGGER IF EXISTS entity_tags_cascade_delete_change;`,
+		`DROP TRIGGER IF EXISTS entity_tags_cascade_delete_idea;`,
+		`DROP TABLE entity_tags;`,
+		`ALTER TABLE entity_tags_new RENAME TO entity_tags;`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_tags_entity
+			ON entity_tags(entity_type, entity_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_tags_tag
+			ON entity_tags(tag_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_tags_tag_entity
+			ON entity_tags(tag_id, entity_type);`,
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_change
+			AFTER DELETE ON change_cards
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'change' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_idea
+			AFTER DELETE ON ideas
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'idea' AND entity_id = OLD.id;
+			END;`,
+		// New trigger for tech_debt cascade — was missing before B018.
+		`CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_tech_debt
+			AFTER DELETE ON tech_debts
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'tech_debt' AND entity_id = OLD.id;
+			END;`,
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("step failed: %w (step: %s)", err, step[:min(len(step), 60)])
 		}
 	}
 	return nil

@@ -145,16 +145,23 @@ func renderRecentTable(items []services.RecentItem) error {
 	}
 
 	headers := []string{"Type", "Key", "Title", "Created", "Status"}
+	cli.OutputTable(headers, buildRecentRows(items))
+	return nil
+}
+
+// buildRecentRows converts recent items to table rows for list display.
+// Extracted for testability (CC-036 follow-up: console_width coverage).
+func buildRecentRows(items []services.RecentItem) [][]string {
+	titleMax := cli.TitleColumnWidth(75)
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
 			item.Type,
 			item.Key,
-			item.Title,
+			truncateRunes(item.Title, titleMax),
 			item.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			item.Status,
 		})
 	}
-	cli.OutputTable(headers, rows)
-	return nil
+	return rows
 }
