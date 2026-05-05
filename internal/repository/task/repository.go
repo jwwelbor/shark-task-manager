@@ -854,6 +854,30 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr 
 		))
 	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
+	return r.updateInternal(ctx, task, false)
+}
+
+// UpdateNoResequence updates a task without cascading execution_order changes
+// to siblings. Used to preserve intentional duplicate-order groups (parallel
+// work) when callers re-assign a task's order via `shark task update --parallel`.
+// Equivalent to Update in every other respect.
+func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Task) (retErr error) {
+	ctx, span := tracer.Start(ctx, "TaskRepository.UpdateNoResequence",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "tasks"),
+			attribute.String("db.key", task.Key),
+		))
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
+
+	return r.updateInternal(ctx, task, true)
+}
+
+// updateInternal performs the task update. When forceSkipCascade is true the
+// execution_order resequence is suppressed regardless of whether the order has
+// actually changed.
+func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool) error {
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -863,13 +887,11 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr 
 		return fmt.Errorf("dependency validation failed: %w", err)
 	}
 
-	// Check if execution_order is being changed - if so, cascade to other tasks
-	var oldTask *models.Task
-	var err error
+	// Check if execution_order is being changed - if so, cascade to other tasks.
+	// Skipped entirely when forceSkipCascade is true.
 	var needsCascade bool
-
-	if task.ExecutionOrder != nil {
-		oldTask, err = r.GetByID(ctx, task.ID)
+	if !forceSkipCascade && task.ExecutionOrder != nil {
+		oldTask, err := r.GetByID(ctx, task.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get old task: %w", err)
 		}

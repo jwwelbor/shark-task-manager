@@ -568,6 +568,13 @@ func confirmChangeDelete(card *models.ChangeCard) bool {
 // buildChangeCardListRows converts a slice of change-cards to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
+	// CC-036: Title column width scales with the resolved console width.
+	// Reserved width (~65 cols) accounts for the actual chrome: key (~7
+	// for CC-NNN) + status (≤12) + linked entity (~5 for E#NN/F#NN) +
+	// created date (10) + size (≤3) + five " | " separators (15), plus a
+	// small margin. Titles are right-padded via fitColumn so pterm
+	// renders the column at full width instead of shrinking it to the
+	// widest actual title.
 	titleMax := cli.TitleColumnWidth(65)
 	rows := make([][]string, 0, len(cards))
 	for _, c := range cards {

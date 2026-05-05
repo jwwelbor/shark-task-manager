@@ -34,6 +34,7 @@ type MockTaskRepository struct {
 	GetByKeyFunc                      func(ctx context.Context, key string) (*models.Task, error)
 	GetByIDFunc                       func(ctx context.Context, id int64) (*models.Task, error)
 	UpdateFunc                        func(ctx context.Context, task *models.Task) error
+	UpdateNoResequenceFunc            func(ctx context.Context, task *models.Task) error
 	DeleteFunc                        func(ctx context.Context, id int64) error
 	ListFunc                          func(ctx context.Context) ([]*models.Task, error)
 	ListByFeatureFunc                 func(ctx context.Context, featureID int64) ([]*models.Task, error)
@@ -74,6 +75,13 @@ func (m *MockTaskRepository) Update(ctx context.Context, task *models.Task) erro
 		return m.UpdateFunc(ctx, task)
 	}
 	return fmt.Errorf("Update not implemented in mock")
+}
+
+func (m *MockTaskRepository) UpdateNoResequence(ctx context.Context, task *models.Task) error {
+	if m.UpdateNoResequenceFunc != nil {
+		return m.UpdateNoResequenceFunc(ctx, task)
+	}
+	return fmt.Errorf("UpdateNoResequence not implemented in mock")
 }
 
 func (m *MockTaskRepository) Delete(ctx context.Context, id int64) error {
@@ -458,6 +466,88 @@ func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "New Title", task.Title)
 	assert.Equal(t, 8, task.Priority)
+}
+
+// TestTaskService_UpdateTask_SkipResequence_DispatchesToNoResequence verifies that
+// when TaskUpdates.SkipResequence is true (set by `--parallel`), the service calls
+// repo.UpdateNoResequence instead of repo.Update, preserving sibling orders.
+func TestTaskService_UpdateTask_SkipResequence_DispatchesToNoResequence(t *testing.T) {
+	existingOrder := 1
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key: "T-E07-F01-002", Title: "B"},
+		Priority:       5,
+		Status:         models.TaskStatus("todo"),
+		ExecutionOrder: &existingOrder,
+	}
+
+	updateCalled := false
+	noResequenceCalled := false
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return existingTask, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			updateCalled = true
+			return nil
+		},
+		UpdateNoResequenceFunc: func(ctx context.Context, task *models.Task) error {
+			noResequenceCalled = true
+			require.NotNil(t, task.ExecutionOrder)
+			assert.Equal(t, 2, *task.ExecutionOrder)
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	newOrder := 2
+	_, err := svc.UpdateTask(context.Background(), "E07-F01-002", TaskUpdates{
+		ExecutionOrder: &newOrder,
+		SkipResequence: true,
+	})
+	assert.NoError(t, err)
+	assert.True(t, noResequenceCalled, "expected UpdateNoResequence to be called when SkipResequence=true")
+	assert.False(t, updateCalled, "expected Update to NOT be called when SkipResequence=true")
+}
+
+// TestTaskService_UpdateTask_DefaultDispatchesToUpdate verifies that the default
+// (no --parallel) path still calls repo.Update so the existing cascade behavior
+// is preserved.
+func TestTaskService_UpdateTask_DefaultDispatchesToUpdate(t *testing.T) {
+	existingOrder := 1
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key: "T-E07-F01-003", Title: "C"},
+		Priority:       5,
+		Status:         models.TaskStatus("todo"),
+		ExecutionOrder: &existingOrder,
+	}
+
+	updateCalled := false
+	noResequenceCalled := false
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return existingTask, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			updateCalled = true
+			return nil
+		},
+		UpdateNoResequenceFunc: func(ctx context.Context, task *models.Task) error {
+			noResequenceCalled = true
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	newOrder := 2
+	_, err := svc.UpdateTask(context.Background(), "E07-F01-003", TaskUpdates{
+		ExecutionOrder: &newOrder,
+		// SkipResequence intentionally omitted
+	})
+	assert.NoError(t, err)
+	assert.True(t, updateCalled, "expected Update to be called when SkipResequence is false")
+	assert.False(t, noResequenceCalled, "expected UpdateNoResequence to NOT be called when SkipResequence is false")
 }
 
 func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {

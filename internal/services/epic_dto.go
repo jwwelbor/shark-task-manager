@@ -114,6 +114,11 @@ type FeatureUpdates struct {
 	// Size field value. ClearSize takes precedence over Size.
 	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
 	ClearSize bool `json:"clear_size,omitempty"`
+	// SkipResequence, when true, applies an ExecutionOrder change without
+	// renumbering sibling features. Enables intentional duplicate-order
+	// groups (parallel work). Wired from `--parallel` on
+	// `shark feature update`. Has no effect when ExecutionOrder is nil.
+	SkipResequence bool `json:"skip_resequence,omitempty"`
 }
 
 // EpicFilters contains criteria for filtering epic lists.

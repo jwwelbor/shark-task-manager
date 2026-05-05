@@ -752,6 +752,12 @@ func filterIdeasByPriorityAndStatus(ideas []*models.Idea, priority int, status s
 // buildIdeaListRows converts a slice of ideas to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
 func buildIdeaListRows(ideas []*models.Idea) [][]string {
+	// CC-036: Title column width scales with the resolved console width.
+	// Reserved width (~70 cols) accounts for the actual chrome: key (~6
+	// for I-NNN) + status (≤12) + priority (≤3) + created date (10) +
+	// size (≤3) + five " | " separators (15), plus a small margin.
+	// Titles are right-padded via fitColumn so pterm renders the column
+	// at full width instead of shrinking it to the widest actual title.
 	titleMax := cli.TitleColumnWidth(70)
 	rows := make([][]string, 0, len(ideas))
 	for _, idea := range ideas {
@@ -761,7 +767,7 @@ func buildIdeaListRows(ideas []*models.Idea) [][]string {
 		}
 		rows = append(rows, []string{
 			idea.Key,
-			truncateRunes(idea.Title, titleMax),
+			fitColumn(idea.Title, titleMax),
 			string(idea.Status),
 			priority,
 			idea.CreatedDate.Format("2006-01-02"),
