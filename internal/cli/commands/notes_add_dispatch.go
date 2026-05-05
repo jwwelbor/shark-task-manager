@@ -77,7 +77,7 @@ func resolveNoteEntityType(key string) (models.EntityType, string, error) {
 	case "idea":
 		return models.EntityTypeIdea, "idea", nil
 	default:
-		return "", "", fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
+return "", "", fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
 	}
 }
 
