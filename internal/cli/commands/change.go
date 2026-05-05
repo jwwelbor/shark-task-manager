@@ -579,7 +579,7 @@ func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
 		}
 		rows = append(rows, []string{
 			c.Key,
-			truncateRunes(c.Title, titleMax),
+			fitColumn(c.Title, titleMax),
 			string(c.Status),
 			linkedEntity,
 			c.CreatedAt.Format("2006-01-02"),
