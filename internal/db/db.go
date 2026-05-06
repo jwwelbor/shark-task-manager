@@ -439,9 +439,11 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	16 — E07-F42 (size columns)
 //	17 — B018  (drop entity_type CHECKs from polymorphic-association tables:
 //	            entity_notes, entity_relationships, entity_tags)
+//	18 — E19-F01 (sprints, sprint_assignments, sprint_capacity)
+//	19 — E19-F03 (sprint_completions table for carryover transaction and velocity analytics)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 17
+const CurrentSchemaVersion = 19
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -817,6 +819,16 @@ func runMigrations(db *sql.DB) error {
 	// Create tech_debts table (E25-F01)
 	if err := migrateTechDebtTable(db); err != nil {
 		return fmt.Errorf("failed to migrate tech_debts table: %w", err)
+	}
+
+	// Create sprint tables — sprints, sprint_assignments, sprint_capacity (E19-F01)
+	if err := migrateSprintTables(db); err != nil {
+		return fmt.Errorf("sprint tables migration: %w", err)
+	}
+
+	// Create sprint_completions table for carryover transaction and velocity analytics (E19-F03)
+	if err := migrateSprintCompletionsTable(db); err != nil {
+		return fmt.Errorf("sprint_completions table migration: %w", err)
 	}
 
 	// Drop legacy task_relationships, feature_relationships, epic_relationships tables (E07-F39)
@@ -3323,6 +3335,311 @@ func migrateTechDebtTable(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to create tech_debts updated_at trigger: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// migrateSprintTables creates the schema objects backing Epic E19's sprint
+// management feature: the sprints table, its three indexes
+// (idx_sprints_key UNIQUE, idx_sprints_status, idx_sprints_slug), the
+// sprints_updated_at trigger, the sprint_assignments and sprint_capacity
+// tables along with their cascade-delete and updated_at triggers. T-007
+// (this commit) wires this function into runMigrations() and bumps
+// CurrentSchemaVersion to 18.
+//
+// All DDL uses CREATE TABLE/INDEX/TRIGGER IF NOT EXISTS so the function is
+// idempotent and safe to rerun on databases that already contain these objects.
+//
+// The slug column intentionally has no UNIQUE constraint — sprint slugs are
+// not required to be globally unique (per the slug architecture documented in
+// .claude/rules/database/schema.md). Lookups combine numeric key + slug, so
+// non-unique slugs cannot cause false matches.
+//
+// Per the post-B018 convention (see migrateDropPolymorphicEntityTypeChecks),
+// no DB-level CHECK constraint is added for entity_type on sprint_assignments;
+// validation lives at the app layer in internal/models/validation.go.
+//
+// Part of Epic E19 — Sprint Management & Planning System (E19-F01).
+func migrateSprintTables(db *sql.DB) error {
+	// Check if sprints table already exists.
+	var sprintsExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sprints'
+	`).Scan(&sprintsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check sprints table: %w", err)
+	}
+
+	if sprintsExists == 0 {
+		// CREATE TABLE IF NOT EXISTS is used (rather than bare CREATE TABLE)
+		// to keep this DDL idempotent even if a partial prior run created the
+		// table outside the existence check above.
+		_, err = db.Exec(`
+			CREATE TABLE IF NOT EXISTS sprints (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				key         TEXT NOT NULL UNIQUE,
+				name        TEXT NOT NULL,
+				goal        TEXT,
+				start_date  DATE NOT NULL,
+				end_date    DATE NOT NULL,
+				status      TEXT NOT NULL DEFAULT 'planning',
+				slug        TEXT,
+				file_path   TEXT,
+				created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				CHECK (start_date < end_date)
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create sprints table: %w", err)
+		}
+
+		// Create indexes for sprints. The key index is UNIQUE to mirror
+		// the table-level UNIQUE constraint and provide O(log n) key lookups.
+		sprintIndexes := []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_sprints_key    ON sprints(key);`,
+			`CREATE INDEX        IF NOT EXISTS idx_sprints_status ON sprints(status);`,
+			`CREATE INDEX        IF NOT EXISTS idx_sprints_slug   ON sprints(slug);`,
+		}
+		for _, idx := range sprintIndexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create sprints index: %w", err)
+			}
+		}
+
+		// Create updated_at trigger for sprints (mirrors the pattern used
+		// by tech_debts_updated_at, bugs_updated_at, change_cards_updated_at).
+		_, err = db.Exec(`
+			CREATE TRIGGER IF NOT EXISTS sprints_updated_at
+			AFTER UPDATE ON sprints
+			FOR EACH ROW
+			BEGIN
+				UPDATE sprints SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END;
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create sprints updated_at trigger: %w", err)
+		}
+	}
+
+	// ────────────────────────────────────────────────────────────────────────
+	// sprint_assignments — polymorphic join table (T-E19-F01-005).
+	//
+	// Mirrors the entity_notes polymorphic pattern (db.go:1698-1811). Permitted
+	// entity_type values (validated at the app layer, not the DB layer):
+	//   'task' | 'bug' | 'change_card' | 'tech_debt'
+	//
+	// Per the post-B018 convention (see migrateDropPolymorphicEntityTypeChecks
+	// and spec §3.4), there is intentionally NO CHECK constraint on
+	// entity_type — re-introducing one would re-create exactly the migration
+	// pain B018 removed. App-layer validation lives in
+	// internal/models/validation.go (ValidateSprintAssignmentEntityType).
+	// ────────────────────────────────────────────────────────────────────────
+	var sprintAssignmentsExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sprint_assignments'
+	`).Scan(&sprintAssignmentsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check sprint_assignments table: %w", err)
+	}
+
+	if sprintAssignmentsExists == 0 {
+		_, err = db.Exec(`
+			CREATE TABLE IF NOT EXISTS sprint_assignments (
+				id           INTEGER PRIMARY KEY AUTOINCREMENT,
+				sprint_id    INTEGER NOT NULL,
+				entity_type  TEXT    NOT NULL,
+				entity_id    INTEGER NOT NULL,
+				assigned_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				removed_at   TIMESTAMP,
+				FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create sprint_assignments table: %w", err)
+		}
+	}
+
+	// Indexes on sprint_assignments.
+	//
+	// idx_sprint_assignments_active_one is a PARTIAL UNIQUE index — its
+	// WHERE clause restricts uniqueness to rows where removed_at IS NULL.
+	// This is the integrity guarantee for the one-active-sprint-per-entity
+	// rule (REQ-F-004 AC-5). Soft-deleted (removed_at NOT NULL) rows are
+	// exempt, allowing an entity to be re-assigned to a future sprint.
+	sprintAssignmentIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_sprint_assignments_sprint
+			ON sprint_assignments(sprint_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_sprint_assignments_entity
+			ON sprint_assignments(entity_type, entity_id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sprint_assignments_active_one
+			ON sprint_assignments(entity_type, entity_id)
+			WHERE removed_at IS NULL;`,
+	}
+	for _, idx := range sprintAssignmentIndexes {
+		if _, err := db.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create sprint_assignments index: %w", err)
+		}
+	}
+
+	// Cascade-delete triggers — one per parent table.
+	//
+	// Because sprint_assignments is polymorphic, we cannot express the
+	// (entity_type, entity_id) → parent-row link as a foreign key. Instead,
+	// each parent table gets an AFTER DELETE trigger that hard-deletes any
+	// sprint_assignments rows referencing the deleted entity. This mirrors
+	// the entity_notes cascade-trigger pattern at db.go:1750-1773.
+	//
+	// Important: there is one trigger per parent. Missing one of the four
+	// would leak orphaned rows when that parent type is deleted; the test
+	// TestMigrateSprintTables_CascadeDeleteFrom* covers each parent.
+	sprintAssignmentCascadeTriggers := []string{
+		`CREATE TRIGGER IF NOT EXISTS sprint_assignments_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM sprint_assignments
+				 WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS sprint_assignments_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM sprint_assignments
+				 WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS sprint_assignments_cascade_delete_change_card
+			AFTER DELETE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM sprint_assignments
+				 WHERE entity_type = 'change_card' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS sprint_assignments_cascade_delete_tech_debt
+			AFTER DELETE ON tech_debts
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM sprint_assignments
+				 WHERE entity_type = 'tech_debt' AND entity_id = OLD.id;
+			END;`,
+	}
+	for _, trigger := range sprintAssignmentCascadeTriggers {
+		if _, err := db.Exec(trigger); err != nil {
+			return fmt.Errorf("failed to create sprint_assignments cascade trigger: %w", err)
+		}
+	}
+
+	// sprint_capacity — per-(sprint, agent_type) capacity tracking (T-E19-F01-006).
+	//
+	// Spec §3.3: capacity_points is the planned capacity (set by PM, NOT NULL,
+	// DEFAULT 0). allocated_points is intentionally nullable — NULL means
+	// "not yet computed". Per REQ-F-014, allocated_points is computed at query
+	// time (Σ(size) over assigned entities) and the column exists for future
+	// caching/snapshot use; no trigger maintains it in this feature.
+	//
+	// UNIQUE(sprint_id, agent_type) is declared as a TABLE-LEVEL constraint
+	// (inline in CREATE TABLE), per AC. The accompanying idx_sprint_capacity_sprint
+	// is a separate non-unique index for sprint-scoped lookups (e.g.,
+	// "all capacity rows for sprint X"); both are needed.
+	var sprintCapacityTableExists int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sprint_capacity'
+	`).Scan(&sprintCapacityTableExists); err != nil {
+		return fmt.Errorf("failed to check sprint_capacity table: %w", err)
+	}
+	if sprintCapacityTableExists == 0 {
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS sprint_capacity (
+				id               INTEGER PRIMARY KEY AUTOINCREMENT,
+				sprint_id        INTEGER NOT NULL,
+				agent_type       TEXT NOT NULL,
+				capacity_points  REAL NOT NULL DEFAULT 0,
+				allocated_points REAL,
+				created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+				UNIQUE (sprint_id, agent_type)
+			);
+		`); err != nil {
+			return fmt.Errorf("failed to create sprint_capacity table: %w", err)
+		}
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_sprint_capacity_sprint
+			ON sprint_capacity(sprint_id);
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_sprint_capacity_sprint: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE TRIGGER IF NOT EXISTS sprint_capacity_updated_at
+			AFTER UPDATE ON sprint_capacity
+			FOR EACH ROW
+			BEGIN
+				UPDATE sprint_capacity SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END;
+	`); err != nil {
+		return fmt.Errorf("failed to create sprint_capacity_updated_at trigger: %w", err)
+	}
+
+	return nil
+}
+
+// migrateSprintCompletionsTable creates the sprint_completions table and its
+// supporting index. This table stores one completion record per sprint close
+// operation and is the primary source of velocity analytics in E19-F04.
+//
+// The table is created with CREATE TABLE IF NOT EXISTS and the index with
+// CREATE INDEX IF NOT EXISTS, making this function fully idempotent — safe to
+// rerun on databases that already contain these objects.
+//
+// Schema design (spec §3.2):
+//   - sprint_id is UNIQUE: exactly one completion record per sprint.
+//   - planned_size_sum and completed_size_sum are REAL (nullable): NULL when
+//     all assigned entities are unsized, rather than conflating "no entities"
+//     with "zero total size".
+//   - carryover_mode stores 'next' or 'backlog' — validated at app layer.
+//   - next_sprint_id is nullable: populated only when carryover_mode='next'.
+//
+// CurrentSchemaVersion is bumped to 19 in the same commit that wires this
+// function into runMigrations(). See database-critical.md for the version-bump
+// checklist — bumping CurrentSchemaVersion is the only required step; the
+// skip_migrations toggle is not required per-migration.
+//
+// Part of Epic E19 — Sprint Management & Planning System (T-E19-F03-001).
+func migrateSprintCompletionsTable(db *sql.DB) error {
+	// CREATE TABLE IF NOT EXISTS is idempotent regardless of whether the table
+	// already exists. The single DDL statement covers both first-run and
+	// idempotent-rerun paths without an explicit existence check.
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprint_completions (
+			id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id              INTEGER NOT NULL UNIQUE,
+			completed_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			planned_entity_count   INTEGER NOT NULL DEFAULT 0,
+			completed_entity_count INTEGER NOT NULL DEFAULT 0,
+			carried_over_count     INTEGER NOT NULL DEFAULT 0,
+			dropped_count          INTEGER NOT NULL DEFAULT 0,
+			planned_size_sum       REAL,
+			completed_size_sum     REAL,
+			carryover_mode         TEXT NOT NULL,
+			next_sprint_id         INTEGER,
+			FOREIGN KEY (sprint_id)      REFERENCES sprints(id) ON DELETE CASCADE,
+			FOREIGN KEY (next_sprint_id) REFERENCES sprints(id)
+		);
+	`); err != nil {
+		return fmt.Errorf("failed to create sprint_completions table: %w", err)
+	}
+
+	// Index on sprint_id for fast lookups by sprint (required for velocity queries
+	// in E19-F04 which join sprint_completions to sprints).
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_sprint_completions_sprint
+			ON sprint_completions(sprint_id);
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_sprint_completions_sprint: %w", err)
 	}
 
 	return nil
