@@ -1549,3 +1549,71 @@ func TestSprintDefaultsConfig_AbsentCarryoverDefaultsToEmpty(t *testing.T) {
 	assert.Equal(t, "", cfg.SprintDefaults.CarryoverBehavior,
 		"absent carryover_behavior must default to empty string")
 }
+
+// TestManagerLoad_SprintDefaults_CarryoverBehavior verifies that Manager.Load()
+// (the production config path) correctly populates Config.SprintDefaults.CarryoverBehavior
+// from the sprint_defaults.carryover_behavior key in .sharkconfig.json.
+//
+// AC-12 wiring test: REQ-F-006 requires that the default carryover behavior is
+// read from .sharkconfig.json. This test uses Manager.Load() rather than
+// json.Unmarshal to exercise the actual production code path.
+func TestManagerLoad_SprintDefaults_CarryoverBehavior(t *testing.T) {
+	tests := []struct {
+		name            string
+		configJSON      string
+		wantNilDefaults bool
+		wantCarryover   string
+		wantCapacity    map[string]float64
+	}{
+		{
+			name:          "carryover_behavior=backlog is loaded",
+			configJSON:    `{"sprint_defaults":{"carryover_behavior":"backlog"}}`,
+			wantCarryover: "backlog",
+		},
+		{
+			name:          "carryover_behavior=next is loaded",
+			configJSON:    `{"sprint_defaults":{"carryover_behavior":"next"}}`,
+			wantCarryover: "next",
+		},
+		{
+			name:          "capacity map is loaded alongside carryover_behavior",
+			configJSON:    `{"sprint_defaults":{"carryover_behavior":"backlog","capacity":{"backend":21,"frontend":13}}}`,
+			wantCarryover: "backlog",
+			wantCapacity:  map[string]float64{"backend": 21, "frontend": 13},
+		},
+		{
+			name:            "absent sprint_defaults section leaves SprintDefaults nil",
+			configJSON:      `{"color_enabled":true}`,
+			wantNilDefaults: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+			err := os.WriteFile(configPath, []byte(tt.configJSON), 0644)
+			require.NoError(t, err)
+
+			mgr := NewManager(configPath)
+			cfg, err := mgr.Load()
+			require.NoError(t, err)
+
+			if tt.wantNilDefaults {
+				assert.Nil(t, cfg.SprintDefaults,
+					"SprintDefaults must be nil when sprint_defaults section is absent")
+				return
+			}
+
+			require.NotNil(t, cfg.SprintDefaults,
+				"SprintDefaults must not be nil when sprint_defaults section is present")
+			assert.Equal(t, tt.wantCarryover, cfg.SprintDefaults.CarryoverBehavior,
+				"CarryoverBehavior must match what was written to .sharkconfig.json")
+
+			if tt.wantCapacity != nil {
+				assert.Equal(t, tt.wantCapacity, cfg.SprintDefaults.Capacity,
+					"Capacity map must match what was written to .sharkconfig.json")
+			}
+		})
+	}
+}

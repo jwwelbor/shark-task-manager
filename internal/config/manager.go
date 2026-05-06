@@ -163,6 +163,44 @@ func (m *Manager) Load() (*Config, error) {
 		config.TagRequiredForTypes = types
 	}
 
+	// Parse size_required_for list if present. Mirrors tag_required_for above.
+	// Without this block Manager.Load() would never populate
+	// Config.SizeRequiredForTypes even when the user had set
+	// "size_required_for" in .sharkconfig.json, silently disabling
+	// services.enforceSizeRequired.
+	if raw, ok := rawData["size_required_for"].([]interface{}); ok {
+		types := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				types = append(types, s)
+			}
+		}
+		config.SizeRequiredForTypes = types
+	}
+
+	// Parse sprint_defaults config if present (T-E19-F03-008, REQ-F-006/REQ-F-012).
+	// Without this block Manager.Load() would never populate Config.SprintDefaults
+	// even when the user had set "sprint_defaults" in .sharkconfig.json, silently
+	// disabling resolveCarryoverMode() from reading the configured default.
+	if sprintDefaultsRaw, ok := rawData["sprint_defaults"].(map[string]interface{}); ok {
+		sd := &SprintDefaultsConfig{}
+		if cb, ok := sprintDefaultsRaw["carryover_behavior"].(string); ok {
+			sd.CarryoverBehavior = cb
+		}
+		if autoCreate, ok := sprintDefaultsRaw["auto_create"].(bool); ok {
+			sd.AutoCreate = autoCreate
+		}
+		if cap, ok := sprintDefaultsRaw["capacity"].(map[string]interface{}); ok {
+			sd.Capacity = make(map[string]float64)
+			for k, v := range cap {
+				if f, ok := v.(float64); ok {
+					sd.Capacity[k] = f
+				}
+			}
+		}
+		config.SprintDefaults = sd
+	}
+
 	// Parse recent config if present (E07-F17).
 	// A nil Recent pointer means "not configured — use built-in defaults."
 	// See spec.md §5.2 and REQ-F-010, REQ-F-011.

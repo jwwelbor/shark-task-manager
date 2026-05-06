@@ -31,7 +31,7 @@ type SprintDefaultsConfig struct {
 
 	// CarryoverBehavior is the default --carryover flag value for shark sprint close.
 	// Valid values: "next" (move to next planning sprint) or "backlog" (unassign).
-	// Default: "backlog" when absent.
+	// Default: "next" when absent (resolveCarryoverMode() returns CarryoverNext).
 	CarryoverBehavior string `json:"carryover_behavior,omitempty"`
 
 	// AutoCreate, when true, causes shark sprint close to create a new sprint
