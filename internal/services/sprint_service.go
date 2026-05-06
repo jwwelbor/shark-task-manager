@@ -26,6 +26,7 @@ type SprintRepository interface {
 
 	// Assignment methods (T-E19-F03-005)
 	AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error
+	RemoveAssignment(ctx context.Context, sprintID int64, entityType string, entityID int64) error
 	GetActiveAssignment(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error)
 
 	// Entity ID resolution helpers — one per assignable entity type.
@@ -519,4 +520,46 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 	}
 
 	return assignment, nil, nil
+}
+
+// RemoveEntityFromSprint removes a previously assigned entity from a sprint.
+//
+// Steps:
+//  1. Resolve sprint by key.
+//  2. Parse entity key to determine entity_type (task/bug/change_card/tech_debt).
+//  3. Resolve entity_id by querying the entity's table.
+//  4. Confirm an active assignment exists via repo.GetActiveAssignment; return an
+//     error if the entity is not currently assigned to this sprint.
+//  5. Call repo.RemoveAssignment (soft-delete: sets removed_at = NOW()).
+func (s *SprintService) RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error {
+	// Step 1: Resolve sprint
+	sprintEntity, err := s.repo.GetByKey(ctx, sprintKey)
+	if err != nil {
+		return fmt.Errorf("failed to resolve sprint %q: %w", sprintKey, err)
+	}
+
+	// Step 2+3: Parse entity key and resolve entity ID
+	entityType, entityID, err := resolveEntityTypeAndID(ctx, s.repo, entityKey)
+	if err != nil {
+		return fmt.Errorf("failed to resolve entity %q for sprint removal: %w", entityKey, err)
+	}
+
+	// Step 4: Confirm active assignment exists for this sprint
+	existing, err := s.repo.GetActiveAssignment(ctx, entityType, entityID)
+	if err != nil {
+		return fmt.Errorf("failed to check active assignment for %q: %w", entityKey, err)
+	}
+	if existing == nil {
+		return fmt.Errorf("entity %q is not assigned to sprint %s", entityKey, sprintKey)
+	}
+	if existing.SprintID != sprintEntity.ID {
+		return fmt.Errorf("entity %q is not assigned to sprint %s (it is assigned to a different sprint)", entityKey, sprintKey)
+	}
+
+	// Step 5: Soft-delete the assignment
+	if err := s.repo.RemoveAssignment(ctx, sprintEntity.ID, entityType, entityID); err != nil {
+		return fmt.Errorf("failed to remove assignment for %q from sprint %s: %w", entityKey, sprintKey, err)
+	}
+
+	return nil
 }

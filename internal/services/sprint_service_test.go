@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ type MockSprintRepository struct {
 	GetNextKeyFunc           func(ctx context.Context) (string, error)
 	ListFunc                 func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
 	AddAssignmentFunc        func(ctx context.Context, assignment *models.SprintAssignment) error
+	RemoveAssignmentFunc     func(ctx context.Context, sprintID int64, entityType string, entityID int64) error
 	GetActiveAssignmentFunc  func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error)
 	GetTaskIDByKeyFunc       func(ctx context.Context, key string) (int64, error)
 	GetBugIDByKeyFunc        func(ctx context.Context, key string) (int64, error)
@@ -90,6 +92,13 @@ func (m *MockSprintRepository) List(ctx context.Context, filters *sprint.SprintL
 func (m *MockSprintRepository) AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error {
 	if m.AddAssignmentFunc != nil {
 		return m.AddAssignmentFunc(ctx, assignment)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) RemoveAssignment(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+	if m.RemoveAssignmentFunc != nil {
+		return m.RemoveAssignmentFunc(ctx, sprintID, entityType, entityID)
 	}
 	return nil
 }
@@ -813,6 +822,124 @@ func TestAddEntityToSprint_SprintNotPlanningOrActive_Rejects(t *testing.T) {
 	assert.Nil(t, assignment)
 	assert.Nil(t, warning)
 	assert.False(t, addAssignmentCalled, "AddAssignment must NOT be called when sprint is not planning or active")
+}
+
+// TestRemoveEntityFromSprint_HappyPath tests that a successfully assigned entity
+// can be removed from a sprint via RemoveEntityFromSprint.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.RemoveEntityFromSprint(ctx, sprintKey, entityKey)
+//   - Lowest mock seam: SprintRepository interface
+//   - Forbidden mocks: Do NOT mock resolveEntityTypeAndID — the real key-parsing path runs
+//   - Counter-factual: a buggy impl that skips GetActiveAssignment would attempt
+//     RemoveAssignment for a non-existent assignment and would not surface the
+//     "not assigned" error
+func TestRemoveEntityFromSprint_HappyPath(t *testing.T) {
+	ctx := context.Background()
+
+	planningsprint := &models.Sprint{ID: 10, Key: "S010", Name: "Sprint 10", Status: models.SprintStatus("planning")}
+	existingAssignment := &models.SprintAssignment{ID: 1, SprintID: 10, EntityType: "task", EntityID: 42}
+
+	removeAssignmentCalled := false
+	var capturedSprintID int64
+	var capturedEntityType string
+	var capturedEntityID int64
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return planningsprint, nil
+		},
+		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			return 42, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return existingAssignment, nil
+		},
+		RemoveAssignmentFunc: func(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+			removeAssignmentCalled = true
+			capturedSprintID = sprintID
+			capturedEntityType = entityType
+			capturedEntityID = entityID
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc)
+
+	err := svc.RemoveEntityFromSprint(ctx, "S010", "E07-F01-001")
+
+	assert.NoError(t, err)
+	assert.True(t, removeAssignmentCalled, "RemoveAssignment must be called")
+	assert.Equal(t, int64(10), capturedSprintID)
+	assert.Equal(t, "task", capturedEntityType)
+	assert.Equal(t, int64(42), capturedEntityID)
+}
+
+// TestRemoveEntityFromSprint_EntityNotAssigned tests that removing an entity that
+// is not currently assigned to the sprint returns an informative error without
+// calling RemoveAssignment.
+//
+// Counter-factual: a buggy impl that skips the active-assignment check would call
+// RemoveAssignment unconditionally, either erroring at the DB level or silently
+// doing nothing — neither of which surfaces a clear user-facing error.
+func TestRemoveEntityFromSprint_EntityNotAssigned(t *testing.T) {
+	ctx := context.Background()
+
+	planningSprintNotAssigned := &models.Sprint{ID: 20, Key: "S020", Name: "Sprint 20", Status: models.SprintStatus("planning")}
+
+	removeAssignmentCalled := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return planningSprintNotAssigned, nil
+		},
+		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			return 99, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			// No active assignment
+			return nil, nil
+		},
+		RemoveAssignmentFunc: func(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+			removeAssignmentCalled = true
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc)
+
+	err := svc.RemoveEntityFromSprint(ctx, "S020", "E07-F01-001")
+
+	assert.Error(t, err, "removing an unassigned entity must return an error")
+	assert.Contains(t, err.Error(), "not assigned", "error should indicate entity is not assigned")
+	assert.False(t, removeAssignmentCalled, "RemoveAssignment must NOT be called when entity is not assigned")
+}
+
+// TestRemoveEntityFromSprint_SprintNotFound tests that an error is returned when
+// the sprint key does not exist.
+func TestRemoveEntityFromSprint_SprintNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	removeAssignmentCalled := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return nil, fmt.Errorf("sprint not found: %s", key)
+		},
+		RemoveAssignmentFunc: func(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+			removeAssignmentCalled = true
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc)
+
+	err := svc.RemoveEntityFromSprint(ctx, "S999", "E07-F01-001")
+
+	assert.Error(t, err, "removing from a non-existent sprint must return an error")
+	assert.Contains(t, err.Error(), "S999")
+	assert.False(t, removeAssignmentCalled, "RemoveAssignment must NOT be called when sprint is not found")
 }
 
 // Helper function to create string pointers for tests
