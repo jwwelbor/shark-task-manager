@@ -611,7 +611,8 @@ func GetSprintService() *services.SprintService {
 	cfg, _ := GetConfig() // nil-safe; sprint_defaults read from .sharkconfig.json
 	sprintRepo := repository.NewSprintRepository(db)
 	workflowSvc := GetWorkflowService()
-	return services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, cfg)
+	// Pass db for CloseSprintWithCarryover transaction support (T-E19-F03-007)
+	return services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, cfg, db)
 }
 
 // resetEntityService resets only the entity service singleton within the current container.

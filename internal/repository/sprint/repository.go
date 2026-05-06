@@ -196,6 +196,28 @@ func (r *SprintRepository) UpdateStatus(ctx context.Context, id int64, status mo
 	return nil
 }
 
+// UpdateStatusTx updates the sprint status within a caller-supplied transaction.
+// Used by CloseSprintWithCarryover to atomically advance sprint status.
+func (r *SprintRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+	query := `UPDATE sprints SET status = ? WHERE id = ?`
+
+	result, err := tx.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return fmt.Errorf("failed to update sprint status in transaction: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("sprint not found with id %d", id)
+	}
+
+	return nil
+}
+
 // GetNextKey returns the next available sprint key (e.g., S001, S002, ...).
 func (r *SprintRepository) GetNextKey(ctx context.Context) (string, error) {
 	query := `SELECT COALESCE(MAX(CAST(SUBSTR(key, 2) AS INTEGER)), 0) FROM sprints`
