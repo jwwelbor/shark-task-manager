@@ -714,18 +714,18 @@ type BacklogOptions struct {
 
 // SprintBacklog is the return value of GetSprintBacklog.
 type SprintBacklog struct {
-	SprintKey         string
-	SprintName        string
-	TotalCount        int
-	CompletedCount    int
-	CompletionPercent float64
-	Groups            []*BacklogGroup // ordered by status phase
+	SprintKey         string          `json:"sprint_key"`
+	SprintName        string          `json:"sprint_name"`
+	TotalCount        int             `json:"total_count"`
+	CompletedCount    int             `json:"completed_count"`
+	CompletionPercent float64         `json:"completion_percent"`
+	Groups            []*BacklogGroup `json:"groups"` // ordered by status phase
 }
 
 // BacklogGroup is a set of entities sharing the same status category.
 type BacklogGroup struct {
-	StatusCategory string // e.g., "in_progress", "todo", "completed", "blocked"
-	Items          []*BacklogItemView
+	StatusCategory string             `json:"status_category"` // e.g., "in_progress", "todo", "completed", "blocked"
+	Items          []*BacklogItemView `json:"items"`
 }
 
 // BacklogItemView is the CLI-friendly projection of a BacklogItem.

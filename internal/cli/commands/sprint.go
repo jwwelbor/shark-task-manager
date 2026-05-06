@@ -24,13 +24,16 @@ type sprintServicer interface {
 	CloseSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryover(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
+	// F03: entity assignment and backlog
+	AddEntityToSprint(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
+	RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error
+	GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
 	// F05: planning view, readiness, capacity, bulk-add
 	PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error)
 	GetSprintReadiness(ctx context.Context, key string) (*services.SprintReadiness, error)
 	SetSprintCapacity(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
 	GetSprintCapacity(ctx context.Context, key string) ([]services.CapacityRow, error)
 	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
-	AddEntityToSprint(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
 }
 
 // sprintAnalyticsServicer defines the interface for sprint analytics operations used by CLI commands.
@@ -262,11 +265,14 @@ Examples:
 
 // sprintAddCmd assigns one entity (or a bulk set) to a sprint.
 var sprintAddCmd = &cobra.Command{
-	Use:   "add <sprint-key>",
+	Use:   "add <sprint-key> [entity-key]",
 	Short: "Add an entity (or bulk entities) to a sprint",
 	Long: `Assign one entity or a group of entities to a sprint.
 
-Single-entity add:
+Single-entity add (positional):
+  shark sprint add S001 E07-F01-001
+
+Single-entity add (flag):
   shark sprint add S001 --entity=E07-F01-001
 
 Bulk-add all eligible tasks from a feature:
@@ -278,11 +284,45 @@ Bulk-add all open bugs/tech-debt/change-cards not yet in a sprint:
   shark sprint add S001 --bulk-changes
 
 Examples:
+  shark sprint add S001 E07-F01-001
+  shark sprint add S001 B001
   shark sprint add S001 --entity=B001
   shark sprint add S001 --bulk=E07-F34
   shark sprint add S001 --bulk-bugs --json`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(1, 2),
 	RunE: runSprintAdd,
+}
+
+// sprintRemoveCmd removes an entity from a sprint.
+var sprintRemoveCmd = &cobra.Command{
+	Use:   "remove <sprint-key> <entity-key>",
+	Short: "Remove an entity from a sprint",
+	Long: `Remove an entity assignment from a sprint.
+
+Examples:
+  shark sprint remove S001 E07-F01-001
+  shark sprint remove S001 B001
+  shark sprint remove S001 CC-001
+  shark sprint remove S001 TD-001 --json`,
+	Args: cobra.ExactArgs(2),
+	RunE: runSprintRemove,
+}
+
+// sprintBacklogCmd shows all entities assigned to a sprint.
+var sprintBacklogCmd = &cobra.Command{
+	Use:   "backlog <sprint-key> [--type=task|bug|change_card|tech_debt] [--blocked]",
+	Short: "View all entities assigned to a sprint",
+	Long: `Display all entities assigned to a sprint, grouped by status.
+
+Use --type to filter by entity type. Use --blocked to show only blocked entities.
+
+Examples:
+  shark sprint backlog S001
+  shark sprint backlog S001 --type=task
+  shark sprint backlog S001 --blocked
+  shark sprint backlog S001 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSprintBacklog,
 }
 
 // sprintPlanCmd shows the composite planning view for a sprint.
@@ -385,8 +425,11 @@ func init() {
 	sprintCmd.AddCommand(sprintVelocityCmd)
 	sprintCmd.AddCommand(sprintBurndownCmd)
 	sprintCmd.AddCommand(sprintSummaryCmd)
-	// F05 commands
+	// F03 assignment commands
 	sprintCmd.AddCommand(sprintAddCmd)
+	sprintCmd.AddCommand(sprintRemoveCmd)
+	sprintCmd.AddCommand(sprintBacklogCmd)
+	// F05 commands
 	sprintCmd.AddCommand(sprintPlanCmd)
 	sprintCmd.AddCommand(sprintReadinessCmd)
 	sprintCapacityCmd.AddCommand(sprintCapacitySetCmd)
@@ -419,6 +462,10 @@ func init() {
 
 	// Summary flags
 	sprintSummaryCmd.Flags().Bool("detailed", false, "Include detailed cycle-time, size-band distribution, and carryover entities")
+
+	// Backlog flags
+	sprintBacklogCmd.Flags().String("type", "", "Filter by entity type: task, bug, change_card, tech_debt")
+	sprintBacklogCmd.Flags().Bool("blocked", false, "Show only blocked entities")
 
 	// Add flags (F05 - single entity and bulk)
 	sprintAddCmd.Flags().String("entity", "", "Entity key to assign (e.g., E07-F01-001, B001)")
@@ -677,10 +724,10 @@ func runSprintClose(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Closed sprint %s (%s)", result.Sprint.Key, result.Sprint.Name))
-	cli.Info(fmt.Sprintf("  Completed: %d  Carried over: %d  Dropped: %d",
-		result.CompletedCount, result.CarriedOverCount, result.DroppedCount))
+	fmt.Printf("  Completed: %d  Carried over: %d  Dropped: %d\n",
+		result.CompletedCount, result.CarriedOverCount, result.DroppedCount)
 	if result.NextSprintKey != "" {
-		cli.Info(fmt.Sprintf("  Incomplete entities moved to: %s", result.NextSprintKey))
+		fmt.Printf("  Incomplete entities moved to: %s\n", result.NextSprintKey)
 	}
 	return nil
 }
@@ -884,10 +931,10 @@ func printSummaryTable(result *services.SprintSummaryResult, detailed bool) erro
 // F05 run functions: add, plan, readiness, capacity set/show
 // =============================================================================
 
-// runSprintAdd handles `shark sprint add <sprint-key>`.
-// Supports single-entity add (--entity) and bulk-add (--bulk, --bulk-bugs,
-// --bulk-tech-debt, --bulk-changes). Bulk flags route to BulkAddToSprint;
-// single-entity flag routes to AddEntityToSprint.
+// runSprintAdd handles `shark sprint add <sprint-key> [entity-key]`.
+// Supports single-entity add (positional args[1] or --entity flag) and
+// bulk-add (--bulk, --bulk-bugs, --bulk-tech-debt, --bulk-changes).
+// Bulk flags route to BulkAddToSprint; single-entity routes to AddEntityToSprint.
 func runSprintAdd(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	sprintKey := args[0]
@@ -896,7 +943,13 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 	bulkBugs, _ := cmd.Flags().GetBool("bulk-bugs")
 	bulkTechDebt, _ := cmd.Flags().GetBool("bulk-tech-debt")
 	bulkChanges, _ := cmd.Flags().GetBool("bulk-changes")
-	entityKey, _ := cmd.Flags().GetString("entity")
+	entityKeyFlag, _ := cmd.Flags().GetString("entity")
+
+	// Entity key may come from positional arg or --entity flag.
+	entityKey := entityKeyFlag
+	if entityKey == "" && len(args) >= 2 {
+		entityKey = args[1]
+	}
 
 	svc := getSprintService()
 
@@ -931,7 +984,7 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 
 	// Single-entity add
 	if entityKey == "" {
-		return fmt.Errorf("provide --entity=<key> for a single add, or --bulk/--bulk-bugs/--bulk-tech-debt/--bulk-changes for bulk add")
+		return fmt.Errorf("provide an entity key (positional arg or --entity=<key>), or use --bulk/--bulk-bugs/--bulk-tech-debt/--bulk-changes for bulk add")
 	}
 	assignment, warning, err := svc.AddEntityToSprint(cmd.Context(), services.AddEntityInput{
 		SprintKey: sprintKey,
@@ -942,13 +995,94 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Format
+	if warning != nil {
+		cli.Warning(fmt.Sprintf("Capacity warning: %s is over capacity (%.0f/%.0f pts allocated)",
+			warning.AgentType, warning.Allocated, warning.Capacity))
+	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(assignment)
 	}
 	cli.Success(fmt.Sprintf("Added %s to sprint %s", entityKey, sprintKey))
-	if warning != nil {
-		cli.Warning(fmt.Sprintf("Capacity warning: %s is over capacity (%.0f/%.0f pts allocated)",
-			warning.AgentType, warning.Allocated, warning.Capacity))
+	return nil
+}
+
+// runSprintRemove handles `shark sprint remove <sprint-key> <entity-key>`.
+func runSprintRemove(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+	entityKey := args[1]
+
+	// Step 2: Call service
+	svc := getSprintService()
+	if err := svc.RemoveEntityFromSprint(cmd.Context(), sprintKey, entityKey); err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{
+			"ok":         true,
+			"sprint_key": sprintKey,
+			"entity_key": entityKey,
+		})
+	}
+	cli.Success(fmt.Sprintf("Removed %s from sprint %s", entityKey, sprintKey))
+	return nil
+}
+
+// runSprintBacklog handles `shark sprint backlog <sprint-key>`.
+func runSprintBacklog(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+	entityType, _ := cmd.Flags().GetString("type")
+	blockedOnly, _ := cmd.Flags().GetBool("blocked")
+
+	// Step 2: Call service
+	svc := getSprintService()
+	backlog, err := svc.GetSprintBacklog(cmd.Context(), sprintKey, services.BacklogOptions{
+		EntityType:  entityType,
+		BlockedOnly: blockedOnly,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(backlog)
+	}
+	return printBacklog(backlog)
+}
+
+// printBacklog prints the sprint backlog as human-readable grouped sections.
+func printBacklog(backlog *services.SprintBacklog) error {
+	fmt.Printf("\nBacklog: %s (%s)  —  %.0f%% complete (%d/%d)\n\n",
+		backlog.SprintKey, backlog.SprintName,
+		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount)
+
+	if backlog.TotalCount == 0 {
+		cli.Info("No entities assigned to this sprint.")
+		return nil
+	}
+
+	for _, group := range backlog.Groups {
+		fmt.Printf("--- %s (%d) ---\n", group.StatusCategory, len(group.Items))
+		if len(group.Items) == 0 {
+			continue
+		}
+		fmt.Printf("  %-15s %-12s %-12s  %s\n", "KEY", "TYPE", "STATUS", "TITLE")
+		fmt.Printf("  %-15s %-12s %-12s  %s\n",
+			strings.Repeat("-", 15), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 30))
+		for _, item := range group.Items {
+			// Display label uses brackets (display-only); JSON uses raw entity_type string.
+			typeLabel := fmt.Sprintf("[%s]", item.EntityType)
+			title := item.Title
+			if len(title) > 40 {
+				title = title[:37] + "..."
+			}
+			fmt.Printf("  %-15s %-12s %-12s  %s\n", item.Key, typeLabel, item.Status, title)
+		}
+		fmt.Println()
 	}
 	return nil
 }
