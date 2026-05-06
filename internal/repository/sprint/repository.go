@@ -489,9 +489,6 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		var statusFilter string
 		if blockedOnly && len(blockedStatuses) > 0 {
 			statusFilter = fmt.Sprintf(blockedClause, alias)
-			for _, s := range blockedStatuses {
-				args = append(args, s)
-			}
 		}
 
 		//nolint:gosec // tableName and alias come from the hardcoded subSelects slice; no user input
@@ -510,7 +507,14 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 			statusFilter,
 		)
 		parts = append(parts, part)
+		// sprintID must come before blockedStatuses to match the WHERE clause
+		// placeholder order: WHERE sa.sprint_id = ? ... AND alias.status IN (?, ...)
 		args = append(args, sprintID)
+		if blockedOnly && len(blockedStatuses) > 0 {
+			for _, s := range blockedStatuses {
+				args = append(args, s)
+			}
+		}
 	}
 
 	if len(parts) == 0 {

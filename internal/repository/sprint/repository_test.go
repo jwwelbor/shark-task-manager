@@ -870,6 +870,96 @@ func TestListBacklog_StatusFieldPresent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TC-B08: ListBacklog — blockedOnly=true returns only entities in blocked statuses
+// TC-B09: ListBacklog — blockedOnly=true excludes entities NOT in blocked statuses
+// ---------------------------------------------------------------------------
+
+// TestListBacklog_BlockedOnly_ReturnsOnlyBlocked exercises the blockedOnly=true
+// path of ListBacklog with the bug entity type (TC-B08). It verifies that only
+// the entity with a status matching the provided blockedStatuses list is returned,
+// and that the arg ordering bug (sprintID vs blockedStatuses order) is caught:
+// if the args were inverted the query would either produce wrong results or a
+// runtime error.
+func TestListBacklog_BlockedOnly_ReturnsOnlyBlocked(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	sprintID := seedTestSprint(t, database, "S986", "active")
+	defer cleanupSprintAndAssignments(t, database, sprintID)
+
+	// One bug in a "blocked" status, one bug in a non-blocked status.
+	blockedBugID := seedEntityRow(t, database, "bug", "B-BLK-001", "Blocked Bug", "blocked")
+	activeBugID := seedEntityRow(t, database, "bug", "B-BLK-002", "Active Bug", "in_progress")
+	defer cleanupTestEntities(t, database, [][2]string{
+		{"bug", "B-BLK-001"},
+		{"bug", "B-BLK-002"},
+	})
+
+	_ = seedSprintAssignment(t, database, sprintID, "bug", blockedBugID)
+	_ = seedSprintAssignment(t, database, sprintID, "bug", activeBugID)
+
+	// Call ListBacklog with blockedOnly=true and the "blocked" status in the set.
+	items, err := repo.ListBacklog(ctx, sprintID, nil, true, "blocked")
+	require.NoError(t, err)
+
+	// Only the blocked bug should appear.
+	require.Len(t, items, 1, "blockedOnly=true should return only the entity in a blocked status")
+	assert.Equal(t, "bug", items[0].EntityType)
+	assert.Equal(t, "B-BLK-001", items[0].EntityKey)
+	assert.Equal(t, "blocked", items[0].Status)
+}
+
+// TestListBacklog_BlockedOnly_ExcludesNonBlocked exercises the blockedOnly=true
+// path (TC-B09). It verifies that entities NOT in any of the provided blocked
+// statuses are excluded even when they have active assignments in the sprint.
+//
+// Uses change_card entities (no feature_id FK cascade) to avoid the cascade-
+// delete side-effect of calling seedEntityRow("task") twice (each call invokes
+// test.SeedTestData() which deletes+recreates the E99 feature, cascade-deleting
+// tasks created in the previous call). change_cards have no such FK dependency.
+//
+// The multi-placeholder blockedStatuses path ("blocked", "needs_info") is
+// exercised here to confirm the arg-ordering fix works across both cardinalities.
+func TestListBacklog_BlockedOnly_ExcludesNonBlocked(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	sprintID := seedTestSprint(t, database, "S987", "active")
+	defer cleanupSprintAndAssignments(t, database, sprintID)
+
+	// Two change_cards: one in a blocked-equivalent status, one not.
+	// change_cards have no feature_id FK so calling seedEntityRow twice is safe.
+	blockedCCID := seedEntityRow(t, database, "change_card", "CC-BLK-001", "Blocked CC", "blocked")
+	activeCCID := seedEntityRow(t, database, "change_card", "CC-BLK-002", "Active CC", "in_progress")
+	defer cleanupTestEntities(t, database, [][2]string{
+		{"change_card", "CC-BLK-001"},
+		{"change_card", "CC-BLK-002"},
+	})
+
+	_ = seedSprintAssignment(t, database, sprintID, "change_card", blockedCCID)
+	_ = seedSprintAssignment(t, database, sprintID, "change_card", activeCCID)
+
+	// blockedOnly=true with two blocked-status values exercises the multi-placeholder path.
+	// Correct arg ordering: sprintID before blockedStatuses for each sub-select.
+	items, err := repo.ListBacklog(ctx, sprintID, nil, true, "blocked", "needs_info")
+	require.NoError(t, err)
+
+	// Only the blocked change_card should appear; in_progress is excluded.
+	require.Len(t, items, 1, "blockedOnly=true must exclude entities not in blocked statuses")
+	assert.Equal(t, "change_card", items[0].EntityType)
+	assert.Equal(t, "CC-BLK-001", items[0].EntityKey)
+
+	// Verify blockedOnly=false returns both (sanity check).
+	allItems, err := repo.ListBacklog(ctx, sprintID, nil, false)
+	require.NoError(t, err)
+	assert.Len(t, allItems, 2, "blockedOnly=false should return both change_cards")
+}
+
+// ---------------------------------------------------------------------------
 // Entity ID helpers: GetTaskIDByKey, GetBugIDByKey, GetChangeCardIDByKey,
 //                   GetTechDebtIDByKey
 // ---------------------------------------------------------------------------
