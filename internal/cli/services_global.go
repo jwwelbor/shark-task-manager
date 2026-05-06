@@ -270,6 +270,10 @@ func GetTaskService() *services.TaskService {
 	// `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
 
+	// Wire size enforcement (mirrors tag enforcement). When `size_required_for`
+	// in .sharkconfig.json contains "task", CreateTask rejects calls without --size.
+	svc.SetSizeEnforcement(getSizeEnforcement())
+
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
@@ -351,6 +355,7 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	// E28-F05 T-010: wire TagService so GetTaskWithTags renders the Tags row
 	// in rich-display (REQ-F-014 / AC-28c). Must match the wiring in GetTaskService().
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
@@ -453,6 +458,7 @@ func GetChangeCardService() *services.ChangeCardService {
 	// E28-F04 T-009: wire the shared *TagService so ChangeCardService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
@@ -488,6 +494,7 @@ func GetBugService() *services.BugService {
 	// `tag_required_for` on create and honour --tag on create/update.
 	tagSvc := GetTagService()
 	svc := services.NewBugService(bugRepo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, projectRoot, tagSvc)
+	svc.SetSizeEnforcement(getSizeEnforcement())
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
@@ -522,6 +529,7 @@ func GetTechDebtService() *services.TechDebtService {
 	// `tag_required_for` on create and honour --tag on create/update.
 	tagSvc := GetTagService()
 	svc := services.NewTechDebtService(tdRepo, entitySvc, entityRepo, projectRoot, tagSvc)
+	svc.SetSizeEnforcement(getSizeEnforcement())
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
@@ -581,6 +589,24 @@ func GetEntityRelationshipService() *services.EntityRelationshipService {
 	repo := repository.NewEntityRelationshipRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	return services.NewEntityRelationshipService(repo, taskRepo)
+}
+
+// GetSprintService returns a SprintService instance.
+// Creates a new instance each call with the global DB and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetSprintService()
+//	sprint, err := svc.CreateSprint(ctx, input)
+func GetSprintService() *services.SprintService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	sprintRepo := repository.NewSprintRepository(db)
+	workflowSvc := GetWorkflowService()
+	return services.NewSprintService(sprintRepo, workflowSvc)
 }
 
 // resetEntityService resets only the entity service singleton within the current container.

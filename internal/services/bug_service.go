@@ -84,6 +84,16 @@ type BugService struct {
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
+
+	// sizeCfg is optional — nil disables size enforcement on create.
+	sizeCfg SizeEnforcementConfig
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "bug" in SizeRequiredFor, CreateBug accepts
+// nil Size silently.
+func (s *BugService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // NewBugService creates a BugService. tagSvc is optional (pass nil to
@@ -137,6 +147,9 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 	}
 
 	// Enforce tag_required_for before key allocation or persistence.
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeBug, input.Size); err != nil {
+		return nil, false, err
+	}
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeBug, input.Tags); err != nil {
 		return nil, false, err
 	}

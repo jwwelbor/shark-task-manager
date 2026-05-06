@@ -66,6 +66,12 @@ type Config struct {
 	// the same name as the JSON field.
 	TagRequiredForTypes []string `json:"tag_required_for,omitempty"`
 
+	// SizeRequiredForTypes lists entity types that MUST carry a non-nil --size
+	// at creation time. Values match models.EntityType.String() ("task",
+	// "feature", "epic", "bug", "change", "idea", "tech-debt"). Absent or
+	// empty = no enforcement. Mirrors TagRequiredForTypes; see SizeRequiredFor.
+	SizeRequiredForTypes []string `json:"size_required_for,omitempty"`
+
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
 	statusMetadata map[string]*StatusMetadata `json:"-"`
@@ -216,6 +222,22 @@ func (c *Config) TagRequiredFor() []string {
 	}
 	out := make([]string, len(c.TagRequiredForTypes))
 	copy(out, c.TagRequiredForTypes)
+	return out
+}
+
+// SizeRequiredFor returns the configured list of entity types that require a
+// non-nil --size on create. Returns nil when the config is nil or the field is
+// absent/empty. Defensive copy — callers cannot mutate the underlying config.
+// Satisfies services.SizeEnforcementConfig.
+func (c *Config) SizeRequiredFor() []string {
+	if c == nil {
+		return nil
+	}
+	if len(c.SizeRequiredForTypes) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.SizeRequiredForTypes))
+	copy(out, c.SizeRequiredForTypes)
 	return out
 }
 

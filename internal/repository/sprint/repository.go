@@ -255,3 +255,171 @@ func (r *SprintRepository) List(ctx context.Context, filters *SprintListFilters)
 
 	return sprints, nil
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Assignment CRUD methods (T-E19-F03-002)
+//
+// All methods follow the parameterized-query pattern established above.
+// Entity-type validation is performed at the app layer via
+// models.ValidateSprintAssignmentEntityType before any DB write — this
+// matches the post-B018 convention (no CHECK constraint on entity_type).
+//
+// When adding a new assignable entity type in the future, update only
+// models.ValidateSprintAssignmentEntityType — no DB migration is needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// scanAssignment scans a single sprint_assignments row from the given scanner.
+func scanAssignment(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*models.SprintAssignment, error) {
+	a := &models.SprintAssignment{}
+	return a, scanner.Scan(
+		&a.ID,
+		&a.SprintID,
+		&a.EntityType,
+		&a.EntityID,
+		&a.AssignedAt,
+		&a.RemovedAt,
+	)
+}
+
+// AddAssignment creates a sprint_assignments row for the given entity.
+//
+// Validates entity_type against the allowlist before inserting.
+// Returns an error if a duplicate active assignment exists for the same entity
+// (detected by the partial unique index idx_sprint_assignments_active_one).
+// The caller should inspect the error message to identify the conflicting sprint
+// when implementing user-facing messages.
+func (r *SprintRepository) AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error {
+	if err := assignment.Validate(); err != nil {
+		return fmt.Errorf("invalid assignment: %w", err)
+	}
+
+	query := `
+		INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at)
+		VALUES (?, ?, ?, ?)
+	`
+
+	result, err := r.db.ExecContext(ctx, query,
+		assignment.SprintID,
+		assignment.EntityType,
+		assignment.EntityID,
+		assignment.AssignedAt,
+	)
+	if err != nil {
+		// Surface the partial unique index violation as a recognisable conflict.
+		// SQLite returns "UNIQUE constraint failed" in the error message when the
+		// partial index idx_sprint_assignments_active_one fires.
+		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "unique") {
+			return fmt.Errorf("entity %s/%d is already actively assigned to a sprint (conflict): %w",
+				assignment.EntityType, assignment.EntityID, err)
+		}
+		return fmt.Errorf("failed to add sprint assignment: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert id for sprint assignment: %w", err)
+	}
+
+	assignment.ID = id
+	return nil
+}
+
+// RemoveAssignment soft-deletes an active assignment by setting removed_at = NOW().
+//
+// Returns an error if no active assignment exists for (sprint_id, entity_type, entity_id).
+// Soft-delete preserves velocity history: completed entities remain queryable by E19-F04.
+func (r *SprintRepository) RemoveAssignment(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+	query := `
+		UPDATE sprint_assignments
+		SET removed_at = CURRENT_TIMESTAMP
+		WHERE sprint_id = ?
+		  AND entity_type = ?
+		  AND entity_id = ?
+		  AND removed_at IS NULL
+	`
+
+	result, err := r.db.ExecContext(ctx, query, sprintID, entityType, entityID)
+	if err != nil {
+		return fmt.Errorf("failed to remove sprint assignment: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected for remove assignment: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no active assignment found for sprint_id=%d entity_type=%q entity_id=%d",
+			sprintID, entityType, entityID)
+	}
+
+	return nil
+}
+
+// GetActiveAssignment returns the active assignment for an entity, or nil if none.
+//
+// "Active" means removed_at IS NULL — the partial unique index ensures at most one
+// active assignment exists per (entity_type, entity_id) pair.
+func (r *SprintRepository) GetActiveAssignment(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+	query := `
+		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at
+		FROM sprint_assignments
+		WHERE entity_type = ?
+		  AND entity_id = ?
+		  AND removed_at IS NULL
+	`
+
+	a, err := scanAssignment(r.db.QueryRowContext(ctx, query, entityType, entityID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil // No active assignment — not an error
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active assignment for %s/%d: %w", entityType, entityID, err)
+	}
+
+	return a, nil
+}
+
+// ListAssignments returns all active assignments for a sprint, optionally filtered by entity_type.
+//
+// When entityType is non-nil only rows matching that type are returned.
+// Rows with removed_at set (soft-deleted) are excluded.
+func (r *SprintRepository) ListAssignments(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+	query := `
+		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at
+		FROM sprint_assignments
+		WHERE sprint_id = ?
+		  AND removed_at IS NULL
+	`
+
+	args := []interface{}{sprintID}
+	if entityType != nil {
+		query += " AND entity_type = ?"
+		args = append(args, *entityType)
+	}
+
+	query += " ORDER BY assigned_at ASC"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sprint assignments for sprint %d: %w", sprintID, err)
+	}
+	defer rows.Close()
+
+	var assignments []*models.SprintAssignment
+	for rows.Next() {
+		a, err := scanAssignment(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan sprint assignment: %w", err)
+		}
+		assignments = append(assignments, a)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating sprint assignments: %w", err)
+	}
+
+	return assignments, nil
+}

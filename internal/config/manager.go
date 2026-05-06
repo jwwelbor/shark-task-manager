@@ -163,6 +163,21 @@ func (m *Manager) Load() (*Config, error) {
 		config.TagRequiredForTypes = types
 	}
 
+	// Parse size_required_for list if present. Mirrors tag_required_for above.
+	// Without this block Manager.Load() would never populate
+	// Config.SizeRequiredForTypes even when the user had set
+	// "size_required_for" in .sharkconfig.json, silently disabling
+	// services.enforceSizeRequired.
+	if raw, ok := rawData["size_required_for"].([]interface{}); ok {
+		types := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				types = append(types, s)
+			}
+		}
+		config.SizeRequiredForTypes = types
+	}
+
 	// Parse recent config if present (E07-F17).
 	// A nil Recent pointer means "not configured — use built-in defaults."
 	// See spec.md §5.2 and REQ-F-010, REQ-F-011.

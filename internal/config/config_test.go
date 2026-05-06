@@ -1265,6 +1265,88 @@ func TestConfig_TagRequiredFor_DefensiveCopy(t *testing.T) {
 	}
 }
 
+// TestConfig_SizeRequiredFor_RoundTrip mirrors TestConfig_TagRequiredFor_RoundTrip
+// for the size_required_for field. Verifies marshal/unmarshal preserves the
+// slice exactly and re-marshal is idempotent.
+func TestConfig_SizeRequiredFor_RoundTrip(t *testing.T) {
+	original := Config{SizeRequiredForTypes: []string{"task", "feature"}}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	jsonStr := string(data)
+	if !containsString(jsonStr, `"size_required_for"`) {
+		t.Errorf("marshaled JSON missing 'size_required_for' key: %s", jsonStr)
+	}
+	if !containsString(jsonStr, `"task"`) || !containsString(jsonStr, `"feature"`) {
+		t.Errorf("marshaled JSON missing expected values: %s", jsonStr)
+	}
+
+	var got Config
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(got.SizeRequiredForTypes) != 2 ||
+		got.SizeRequiredForTypes[0] != "task" ||
+		got.SizeRequiredForTypes[1] != "feature" {
+		t.Errorf("SizeRequiredForTypes = %v, want [task feature]", got.SizeRequiredForTypes)
+	}
+
+	data2, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("re-marshal error = %v", err)
+	}
+	if string(data2) != string(data) {
+		t.Errorf("re-marshal produced different JSON:\n got: %s\nwant: %s", data2, data)
+	}
+}
+
+// TestConfig_SizeRequiredFor_AbsentFieldIsNilSlice verifies omitempty + nil
+// accessor behavior — mirrors the equivalent tag test.
+func TestConfig_SizeRequiredFor_AbsentFieldIsNilSlice(t *testing.T) {
+	var cfg Config
+	if err := json.Unmarshal([]byte(`{}`), &cfg); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if cfg.SizeRequiredForTypes != nil {
+		t.Errorf("SizeRequiredForTypes = %v, want nil", cfg.SizeRequiredForTypes)
+	}
+	if got := cfg.SizeRequiredFor(); got != nil {
+		t.Errorf("cfg.SizeRequiredFor() = %v, want nil", got)
+	}
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if containsString(string(out), `"size_required_for"`) {
+		t.Errorf("marshaled JSON unexpectedly contains 'size_required_for' for nil slice: %s", out)
+	}
+}
+
+// TestConfig_SizeRequiredFor_NilReceiver verifies nil-safe accessor behavior.
+func TestConfig_SizeRequiredFor_NilReceiver(t *testing.T) {
+	var c *Config
+	if got := c.SizeRequiredFor(); got != nil {
+		t.Errorf("(*Config)(nil).SizeRequiredFor() = %v, want nil", got)
+	}
+}
+
+// TestConfig_SizeRequiredFor_DefensiveCopy verifies returned slice is a copy.
+func TestConfig_SizeRequiredFor_DefensiveCopy(t *testing.T) {
+	cfg := &Config{SizeRequiredForTypes: []string{"task", "feature"}}
+	first := cfg.SizeRequiredFor()
+	first[0] = "mutated"
+	second := cfg.SizeRequiredFor()
+	if second[0] != "task" {
+		t.Errorf("second call = %v, want [task feature]; caller mutation leaked", second)
+	}
+	if cfg.SizeRequiredForTypes[0] != "task" {
+		t.Errorf("backing field mutated: SizeRequiredForTypes[0] = %q", cfg.SizeRequiredForTypes[0])
+	}
+}
+
 // --- E07-F17-001: RecentConfig and GetRecentDefaultLimit ---
 
 // TestGetRecentDefaultLimit_NilConfig verifies that calling GetRecentDefaultLimit

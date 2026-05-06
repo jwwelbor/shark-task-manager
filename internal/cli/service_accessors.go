@@ -158,6 +158,7 @@ func GetEpicService() *services.EpicService {
 	// E28-F04 T-008: pass the shared *TagService so EpicService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
@@ -205,6 +206,7 @@ func GetFeatureService() *services.FeatureService {
 	// E28-F04 T-007: pass the shared *TagService so FeatureService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	// Wire cascade reopen dependencies so that a feature regression automatically
 	// reopens a terminal epic ancestor (AC-T3 / REQ-F-001).
@@ -239,6 +241,7 @@ func GetIdeaService() *services.IdeaService {
 	// E28-F04 T-010: wire the shared *TagService so IdeaService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	return svc
 }

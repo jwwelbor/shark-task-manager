@@ -3,6 +3,10 @@ feature_key: {{.FeatureSlug}}
 epic_key: {{.EpicKey}}
 title: {{.Title}}
 description: {{.Description}}
+# size: required when creating. Fibonacci 1|2|3|5|8|13 or t-shirt XS|S|M|L|XL|XXL.
+# Pass via the CLI: `shark create feature <epic> "<title>" --size=<S>`.
+# Features sized 8/XL or 13/XXL should be split before decomposition completes.
+size:
 ---
 
 # {{.Title}}

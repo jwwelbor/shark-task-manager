@@ -11,10 +11,12 @@ FEATURE = multi-capability (4+ user-facing capabilities), user journey focus (ma
 TASK = single atomic change (e.g., 'update button', 'fix typo', 'change color'), implementation detail, 1-3 files, days of work, applies existing patterns.
 
 IF MISCLASSIFIED:
-(1) Find or create enhancement feature: {{template "list_epic" .}} | grep -i enhance OR {{template "create_feature_epic" .}} "Enhancements and Maintenance"
-(2) Convert to task: shark create task {enhancement_feature_id} "{{.title}}"
+(1) Find or create enhancement feature: {{template "list_epic" .}} | grep -i enhance OR {{template "create_feature_epic" .}} "Enhancements and Maintenance" --size=<1|2|3|5|8|13>
+(2) Convert to task: shark create task {enhancement_feature_id} "{{.title}}" --size=<1|2|3|5|8|13>
 (3) Cancel this feature: shark status set {{.id}} cancelled --note='Converted to task {task_id} under {enhancement_feature_id}'
 (4) Report to user with task ID and feature ID
+
+{{template "_sizing_required" .}}
 
 IF PROPERLY SCOPED:
 (1) Add validation note: {{template "create_note" .}} 'Scope validated as feature: {reasoning}'

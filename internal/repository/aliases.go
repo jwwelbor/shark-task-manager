@@ -16,6 +16,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/search"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	taskpkg "github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/techdebt"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/templateenrich"
@@ -80,6 +81,17 @@ type ChangeCardThroughputStats = changecard.ChangeCardThroughputStats
 
 // NewChangeCardRepository creates a new ChangeCardRepository.
 var NewChangeCardRepository = changecard.NewChangeCardRepository
+
+// --- Sprint ---
+
+// SprintRepository is an alias for sprint.SprintRepository.
+type SprintRepository = sprint.SprintRepository
+
+// SprintListFilters is an alias for sprint.SprintListFilters.
+type SprintListFilters = sprint.SprintListFilters
+
+// NewSprintRepository creates a new SprintRepository.
+var NewSprintRepository = sprint.NewSprintRepository
 
 // --- WorkSession ---
 

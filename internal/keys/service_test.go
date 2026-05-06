@@ -833,3 +833,246 @@ func TestKeyService_IsValid_BugAndChange(t *testing.T) {
 		})
 	}
 }
+
+// ─── Sprint key parsing (T-E19-F01-001) ──────────────────────────────────────
+
+// TestKeyService_DetectEntityType_Sprint covers the S### detection table from
+// spec.md §6.2 (Key parsing tests). Sprint keys use a strict 3-digit
+// zero-padded format (regex ^S(\d{3})$) and are case-insensitive at Parse time
+// (Validate enforces uppercase canonical form — that's tested in
+// validation_test.go for T-E19-F01-003).
+func TestKeyService_DetectEntityType_Sprint(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name string
+		key  string
+		want EntityType
+	}{
+		// Valid sprint keys (strict 3-digit)
+		{"sprint 3 digits uppercase", "S001", EntityTypeSprint},
+		{"sprint 3 digits zero-padded", "S024", EntityTypeSprint},
+		{"sprint 3 digits maximum", "S999", EntityTypeSprint},
+		{"sprint lowercase parses (case-insensitive)", "s024", EntityTypeSprint},
+
+		// Boundary cases / lookalikes — must NOT parse as Sprint
+		{"sprint 1 digit rejected", "S1", EntityTypeUnknown},
+		{"sprint 2 digits rejected", "S42", EntityTypeUnknown},
+		{"sprint zero rejected", "S0", EntityTypeUnknown},
+		{"sprint 4 digits rejected", "S0001", EntityTypeUnknown},
+		{"sprint 4 digits high rejected", "S1000", EntityTypeUnknown},
+		{"SPRINT-1 lookalike rejected", "SPRINT-1", EntityTypeUnknown},
+		{"S-001 lookalike rejected", "S-001", EntityTypeUnknown},
+		{"S001-suffix rejected", "S001-something", EntityTypeUnknown},
+		{"S no digits rejected", "S", EntityTypeUnknown},
+		{"S alpha chars rejected", "SABC", EntityTypeUnknown},
+
+		// Must not interfere with existing entity types
+		{"epic still works", "E07", EntityTypeEpic},
+		{"feature still works", "F01", EntityTypeFeature},
+		{"task still works", "T-E07-F01-001", EntityTypeTask},
+		{"bug still works", "B001", EntityTypeBug},
+		{"change still works", "C001", EntityTypeChange},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.DetectEntityType(tt.key)
+			if got != tt.want {
+				t.Errorf("DetectEntityType(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKeyService_Parse_Sprint verifies the full ParsedKey shape for sprint
+// keys: EntityType, Normalized (canonical uppercase), SprintNum (the 3-digit
+// capture), and Raw (original input preserved).
+func TestKeyService_Parse_Sprint(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name           string
+		key            string
+		wantEntityType EntityType
+		wantNormalized string
+		wantSprintNum  string
+	}{
+		{
+			name:           "sprint S001",
+			key:            "S001",
+			wantEntityType: EntityTypeSprint,
+			wantNormalized: "S001",
+			wantSprintNum:  "001",
+		},
+		{
+			name:           "sprint S024",
+			key:            "S024",
+			wantEntityType: EntityTypeSprint,
+			wantNormalized: "S024",
+			wantSprintNum:  "024",
+		},
+		{
+			name:           "sprint S999",
+			key:            "S999",
+			wantEntityType: EntityTypeSprint,
+			wantNormalized: "S999",
+			wantSprintNum:  "999",
+		},
+		{
+			name:           "sprint lowercase normalizes to upper",
+			key:            "s024",
+			wantEntityType: EntityTypeSprint,
+			wantNormalized: "S024",
+			wantSprintNum:  "024",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Parse(tt.key)
+			if got.EntityType != tt.wantEntityType {
+				t.Errorf("Parse(%q).EntityType = %q, want %q", tt.key, got.EntityType, tt.wantEntityType)
+			}
+			if got.Normalized != tt.wantNormalized {
+				t.Errorf("Parse(%q).Normalized = %q, want %q", tt.key, got.Normalized, tt.wantNormalized)
+			}
+			if got.SprintNum != tt.wantSprintNum {
+				t.Errorf("Parse(%q).SprintNum = %q, want %q", tt.key, got.SprintNum, tt.wantSprintNum)
+			}
+			if got.Raw != tt.key {
+				t.Errorf("Parse(%q).Raw = %q, want %q", tt.key, got.Raw, tt.key)
+			}
+		})
+	}
+}
+
+// TestKeyService_Format_Sprint verifies Format() round-trips a sprint
+// ParsedKey to the canonical "S###" string.
+func TestKeyService_Format_Sprint(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name   string
+		parsed ParsedKey
+		want   string
+	}{
+		{
+			name: "format sprint S001",
+			parsed: ParsedKey{
+				EntityType: EntityTypeSprint,
+				SprintNum:  "001",
+			},
+			want: "S001",
+		},
+		{
+			name: "format sprint S024",
+			parsed: ParsedKey{
+				EntityType: EntityTypeSprint,
+				SprintNum:  "024",
+			},
+			want: "S024",
+		},
+		{
+			name: "format sprint S999",
+			parsed: ParsedKey{
+				EntityType: EntityTypeSprint,
+				SprintNum:  "999",
+			},
+			want: "S999",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Format(tt.parsed)
+			if got != tt.want {
+				t.Errorf("Format() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKeyService_IsValid_Sprint verifies IsValid integrates with sprint
+// detection.
+func TestKeyService_IsValid_Sprint(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"valid sprint 3 digits", "S001", true},
+		{"valid sprint lowercase", "s024", true},
+		{"valid sprint S999", "S999", true},
+		{"invalid sprint 1 digit", "S1", false},
+		{"invalid sprint 4 digits", "S0001", false},
+		{"invalid SPRINT-1", "SPRINT-1", false},
+		{"invalid S-001", "S-001", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.IsValid(tt.key)
+			if got != tt.want {
+				t.Errorf("IsValid(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKeyService_Normalize_Sprint verifies Normalize returns the canonical
+// uppercase form for sprint keys.
+func TestKeyService_Normalize_Sprint(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name string
+		key  string
+		want string
+	}{
+		{"sprint uppercase", "S024", "S024"},
+		{"sprint lowercase", "s024", "S024"},
+		{"sprint S001", "S001", "S001"},
+		{"sprint S999", "S999", "S999"},
+		// Invalid sprint-lookalikes get the unknown-key uppercase fallthrough.
+		{"S1 unknown uppercased", "s1", "S1"},
+		{"S0001 unknown uppercased", "s0001", "S0001"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Normalize(tt.key)
+			if got != tt.want {
+				t.Errorf("Normalize(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKeyService_Parse_Sprint_RoundTrip verifies Parse → Format produces the
+// normalized canonical key for sprint inputs.
+func TestKeyService_Parse_Sprint_RoundTrip(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name    string
+		key     string
+		wantFmt string
+	}{
+		{"sprint uppercase", "S001", "S001"},
+		{"sprint lowercase", "s024", "S024"},
+		{"sprint S999", "S999", "S999"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed := ks.Parse(tt.key)
+			formatted := ks.Format(parsed)
+			if formatted != tt.wantFmt {
+				t.Errorf("Format(Parse(%q)) = %q, want %q", tt.key, formatted, tt.wantFmt)
+			}
+		})
+	}
+}

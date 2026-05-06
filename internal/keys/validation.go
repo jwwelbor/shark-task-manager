@@ -24,6 +24,10 @@ var (
 	techDebtKeyPattern = regexp.MustCompile(`^TD-\d{3}$`)
 	// ideaKeyPattern matches idea keys (I-YYYY-MM-DD-## format)
 	ideaKeyPattern = regexp.MustCompile(`^I-\d{4}-\d{2}-\d{2}-\d{2}$`)
+
+	// Note: sprintKeyPattern is declared in service.go (this same package) for use
+	// by KeyService.Parse, and is reused here by IsSprintKey. The strict 3-digit
+	// shape (S001/S024/S999) is intentional — see comments in service.go.
 )
 
 // Normalize converts a key to canonical uppercase format.
@@ -206,6 +210,14 @@ func IsTechDebtKey(s string) bool {
 func IsIdeaKey(s string) bool {
 	normalized := Normalize(s)
 	return ideaKeyPattern.MatchString(normalized)
+}
+
+// IsSprintKey validates if a string is a valid sprint key format (S###).
+// Sprint keys are strict 3-digit zero-padded — S1 / S0001 / SPRINT-1 are
+// not sprint keys. Case insensitive: s001 is normalized to S001 before validation.
+func IsSprintKey(s string) bool {
+	normalized := Normalize(s)
+	return sprintKeyPattern.MatchString(normalized)
 }
 
 // ParseTaskNumber parses a task number string and validates it's in range 1-999

@@ -2,6 +2,10 @@
 task_key: T-E##-F##-###
 title: Task Title Here
 description: Task description here
+# size: required when creating. Fibonacci 1|2|3|5|8|13 or t-shirt XS|S|M|L|XL|XXL.
+# Pass via the CLI: `shark create task <epic> <feature> "<title>" --size=<S>`.
+# Tasks should target 1/XS – 3/M; sizes 5/L+ must be decomposed before starting.
+size:
 ---
 
 # Task: [Task Title]
