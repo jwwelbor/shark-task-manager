@@ -66,9 +66,37 @@ type Config struct {
 	// the same name as the JSON field.
 	TagRequiredForTypes []string `json:"tag_required_for,omitempty"`
 
+	// SprintDefaults holds optional team-level defaults for sprint creation and
+	// lifecycle behavior. A nil or absent SprintDefaults is equivalent to "no
+	// defaults configured." Introduced by E19-F05, REQ-F-015.
+	SprintDefaults *SprintDefaultsConfig `json:"sprint_defaults,omitempty"`
+
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
 	statusMetadata map[string]*StatusMetadata `json:"-"`
+}
+
+// SprintDefaultsConfig holds team-level defaults for sprint creation and
+// lifecycle behavior, parsed from the sprint_defaults section in .sharkconfig.json.
+//
+// All fields are optional; absence of the entire sprint_defaults key in the config
+// results in a nil *SprintDefaultsConfig pointer on Config (handled gracefully by
+// callers via nil check).
+type SprintDefaultsConfig struct {
+	// Capacity is a map of agent_type -> default capacity_points.
+	// Applied to new sprints at creation time when no sprint_capacity rows exist.
+	// Example: {"backend": 21, "frontend": 13}
+	Capacity map[string]float64 `json:"capacity,omitempty"`
+
+	// CarryoverBehavior is the default --carryover flag value for shark sprint close.
+	// Valid values: "next" (move to next planning sprint) or "backlog" (unassign).
+	// Defaults to "backlog" when absent (zero value).
+	CarryoverBehavior string `json:"carryover_behavior,omitempty"`
+
+	// AutoCreate, when true, causes shark sprint close to automatically create a
+	// new sprint if no planning sprint exists. REQ-F-016 (Could Have); the flag is
+	// parsed and stored but the auto-creation behavior is gated separately.
+	AutoCreate bool `json:"auto_create,omitempty"`
 }
 
 // GetStatusMetadata returns metadata for a given status

@@ -1358,6 +1358,80 @@ func TestGetRecentDefaultLimit_FieldPositive(t *testing.T) {
 	}
 }
 
+// --- E19-F05-001: SprintDefaultsConfig struct and sprint_defaults parsing ---
+
+// TC-015-05: carryover_behavior and auto_create parsed from config.
+// Verifies that when sprint_defaults section is present, all fields are parsed
+// correctly. Production entrypoint: config.Manager.Load() reads real file.
+func TestSprintDefaults_ParsedFromConfig(t *testing.T) {
+	configJSON := `{
+		"sprint_defaults": {
+			"carryover_behavior": "next",
+			"auto_create": false,
+			"capacity": {}
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.SprintDefaults, "SprintDefaults must not be nil when section present")
+	assert.Equal(t, "next", cfg.SprintDefaults.CarryoverBehavior)
+	assert.False(t, cfg.SprintDefaults.AutoCreate)
+}
+
+// TC-015-05 (capacity map): capacity values in sprint_defaults.capacity parsed correctly.
+func TestSprintDefaults_CapacityParsed(t *testing.T) {
+	configJSON := `{
+		"sprint_defaults": {
+			"capacity": {"backend": 21, "frontend": 13},
+			"carryover_behavior": "backlog",
+			"auto_create": true
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.SprintDefaults)
+	assert.Equal(t, float64(21), cfg.SprintDefaults.Capacity["backend"])
+	assert.Equal(t, float64(13), cfg.SprintDefaults.Capacity["frontend"])
+	assert.Equal(t, "backlog", cfg.SprintDefaults.CarryoverBehavior)
+	assert.True(t, cfg.SprintDefaults.AutoCreate)
+}
+
+// TC-015-06: sprint_defaults absent — graceful defaults (nil pointer, no panic).
+// Production entrypoint: config.Manager.Load() reads real file.
+func TestSprintDefaults_AbsentSectionIsNil(t *testing.T) {
+	configJSON := `{"color_enabled": true}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	// SprintDefaults must be nil (not present in config)
+	assert.Nil(t, cfg.SprintDefaults, "SprintDefaults must be nil when section absent")
+}
+
+// TC-015-06: nil SprintDefaults causes no panic when accessed.
+func TestSprintDefaults_NilSafe(t *testing.T) {
+	cfg := &Config{} // SprintDefaults is nil
+	// Accessing SprintDefaults.Capacity on nil pointer must not panic
+	assert.Nil(t, cfg.SprintDefaults)
+}
+
 // TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK verifies that an existing
 // .sharkconfig.json without a "recent" key loads without error (AC-T5 / REQ-F-011).
 func TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK(t *testing.T) {
