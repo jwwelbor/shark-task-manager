@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 	"unicode"
@@ -14,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -851,6 +853,8 @@ func TestSprintBurndown_JSONSchema(t *testing.T) {
 
 func TestSprintBurndown_FutureDaysDash(t *testing.T) {
 	// TC-B-12: ActualRemaining=nil for future days renders as "—" in human output.
+	// The table is rendered via cli.OutputTable (pterm), so we redirect pterm's
+	// default output writer to capture the em-dash cell value.
 	pastDay := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
 	futureDay := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
 	f42 := 42.0
@@ -876,6 +880,12 @@ func TestSprintBurndown_FutureDaysDash(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
+	// Redirect pterm's output writer to capture table rendering (which uses pterm internally).
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
+	// Also capture plain fmt.Printf output via os.Stdout pipe.
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
@@ -888,13 +898,15 @@ func TestSprintBurndown_FutureDaysDash(t *testing.T) {
 
 	w.Close()
 	os.Stdout = origOut
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
 
 	assert.NoError(t, runErr)
-	output := buf.String()
+
+	// Combined output: fmt.Printf goes to stdoutBuf; pterm table goes to ptermBuf.
+	combined := stdoutBuf.String() + ptermBuf.String()
 	// Human output should contain em-dash for future days
-	assert.Contains(t, output, "—", "future days should show em-dash in human output")
+	assert.Contains(t, combined, "—", "future days should show em-dash in human output")
 }
 
 // =============================================================================
@@ -1352,7 +1364,8 @@ func TestSprintAdd_DoubleAssignmentErrorContainsSprintKey(t *testing.T) {
 // =============================================================================
 
 func TestSprintAdd_CapacityWarningEmittedBeforeSuccess(t *testing.T) {
-	// TC-U02: When service returns a CapacityWarning, command proceeds successfully (advisory only).
+	// TC-U02: When service returns a CapacityWarning, command proceeds successfully (advisory only)
+	// AND the warning text must be emitted to stdout before the success message.
 	assignment := &models.SprintAssignment{
 		ID:         1,
 		SprintID:   24,
@@ -1375,8 +1388,20 @@ func TestSprintAdd_CapacityWarningEmittedBeforeSuccess(t *testing.T) {
 	defer cleanup()
 
 	origJSON := cli.GlobalConfig.JSON
-	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	origNoColor := cli.GlobalConfig.NoColor
+	defer func() {
+		cli.GlobalConfig.JSON = origJSON
+		cli.GlobalConfig.NoColor = origNoColor
+	}()
 	cli.GlobalConfig.JSON = false
+	// Disable color so cli.Warning/cli.Success fall back to fmt.Println (writes to os.Stdout)
+	// instead of pterm (which writes to its own internal writer, not the redirected os.Stdout).
+	cli.GlobalConfig.NoColor = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
@@ -1387,8 +1412,21 @@ func TestSprintAdd_CapacityWarningEmittedBeforeSuccess(t *testing.T) {
 	cmd.Flags().Bool("bulk-changes", false, "")
 
 	// No error expected — capacity warning is advisory; assignment still succeeds
-	err := runSprintAdd(cmd, []string{"S024", "E07-F01-001"})
-	assert.NoError(t, err, "capacity warning must not cause an error — assignment should succeed")
+	runErr := runSprintAdd(cmd, []string{"S024", "E07-F01-001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr, "capacity warning must not cause an error — assignment should succeed")
+	output := buf.String()
+	assert.Contains(t, output, "Capacity warning", "output must contain the capacity warning message")
+	warningIdx := strings.Index(output, "Capacity warning")
+	successIdx := strings.Index(output, "Added")
+	assert.True(t, warningIdx >= 0, "capacity warning text must appear in output")
+	assert.True(t, successIdx >= 0, "success message must appear in output")
+	assert.Less(t, warningIdx, successIdx, "capacity warning must appear before the success message")
 }
 
 // =============================================================================

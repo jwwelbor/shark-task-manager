@@ -829,18 +829,19 @@ func printVelocityTable(result *services.VelocityResult) error {
 	}
 
 	fmt.Printf("\nSprint Velocity (last %d sprints)\n", result.SprintCount)
-	fmt.Printf("%-10s %-30s %10s %10s\n", "KEY", "NAME", "COMPLETED", "UNSIZED")
-	fmt.Printf("%-10s %-30s %10s %10s\n", strings.Repeat("-", 10), strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 10))
 
+	headers := []string{"KEY", "NAME", "COMPLETED", "UNSIZED"}
+	rows := make([][]string, 0, len(result.Sprints))
 	for _, s := range result.Sprints {
-		name := s.Name
-		if len(name) > 30 {
-			name = name[:27] + "..."
-		}
-		fmt.Printf("%-10s %-30s %10d %10d\n", s.Key, name, s.CompletedSize, s.UnsizedCompleted)
+		rows = append(rows, []string{
+			s.Key,
+			s.Name,
+			fmt.Sprintf("%d", s.CompletedSize),
+			fmt.Sprintf("%d", s.UnsizedCompleted),
+		})
 	}
+	cli.OutputTable(headers, rows)
 
-	fmt.Printf("%-10s %-30s %10s %10s\n", strings.Repeat("-", 10), strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 10))
 	fmt.Printf("Trailing Average: %.1f\n\n", result.TrailingAverage)
 	return nil
 }
@@ -855,20 +856,24 @@ func printBurndownTable(result *services.BurndownResult) error {
 
 	fmt.Printf("\nBurndown: %s (%s)\n", result.SprintKey, result.SprintName)
 	fmt.Printf("Total Size: %d  Unsized: %d\n\n", result.TotalSize, result.UnsizedTotal)
-	fmt.Printf("%-12s %10s %10s %8s\n", "DAY", "IDEAL", "ACTUAL", "UNSIZED")
-	fmt.Printf("%-12s %10s %10s %8s\n", strings.Repeat("-", 12), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 8))
 
+	headers := []string{"DAY", "IDEAL", "ACTUAL", "UNSIZED"}
+	rows := make([][]string, 0, len(result.DataPoints))
 	for _, dp := range result.DataPoints {
-		dayStr := dp.Date.Format("2006-01-02")
-		idealStr := fmt.Sprintf("%.1f", dp.IdealRemaining)
 		var actualStr string
 		if dp.ActualRemaining != nil {
 			actualStr = fmt.Sprintf("%.1f", *dp.ActualRemaining)
 		} else {
 			actualStr = "—" // em-dash U+2014 for future days (AC-B-6 allows em-dash)
 		}
-		fmt.Printf("%-12s %10s %10s %8d\n", dayStr, idealStr, actualStr, dp.UnsizedRemaining)
+		rows = append(rows, []string{
+			dp.Date.Format("2006-01-02"),
+			fmt.Sprintf("%.1f", dp.IdealRemaining),
+			actualStr,
+			fmt.Sprintf("%d", dp.UnsizedRemaining),
+		})
 	}
+	cli.OutputTable(headers, rows)
 	fmt.Println()
 	return nil
 }
@@ -898,18 +903,24 @@ func printSummaryTable(result *services.SprintSummaryResult, detailed bool) erro
 
 		if len(result.CycleTimeByPhase) > 0 {
 			fmt.Printf("\nCycle Time by Phase\n")
+			cycleHeaders := []string{"PHASE", "AVG DAYS"}
+			cycleRows := make([][]string, 0, len(result.CycleTimeByPhase))
 			for _, p := range result.CycleTimeByPhase {
-				fmt.Printf("  %-20s %.1f days\n", p.Phase, p.AverageDays)
+				cycleRows = append(cycleRows, []string{p.Phase, fmt.Sprintf("%.1f", p.AverageDays)})
 			}
+			cli.OutputTable(cycleHeaders, cycleRows)
 		} else {
 			fmt.Printf("\n  No session data available (install E13 for cycle-time tracking)\n")
 		}
 
 		if len(result.SizeBandDistribution) > 0 {
 			fmt.Printf("\nSize Distribution\n")
+			sizeHeaders := []string{"SIZE", "COUNT"}
+			sizeRows := make([][]string, 0, len(result.SizeBandDistribution))
 			for _, b := range result.SizeBandDistribution {
-				fmt.Printf("  %3s: %d\n", b.Label, b.Count)
+				sizeRows = append(sizeRows, []string{b.Label, fmt.Sprintf("%d", b.Count)})
 			}
+			cli.OutputTable(sizeHeaders, sizeRows)
 		}
 
 		if len(result.CarryoverEntities) > 0 {
