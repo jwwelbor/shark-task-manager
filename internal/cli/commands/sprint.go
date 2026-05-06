@@ -25,8 +25,18 @@ type sprintServicer interface {
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
 }
 
+// sprintAnalyticsServicer defines the interface for sprint analytics operations used by CLI commands.
+type sprintAnalyticsServicer interface {
+	GetVelocity(ctx context.Context, n int) (*services.VelocityResult, error)
+	GetBurndown(ctx context.Context, sprintKey string) (*services.BurndownResult, error)
+	GetSummary(ctx context.Context, sprintKey string, detailed bool) (*services.SprintSummaryResult, error)
+}
+
 // sprintSvcOverride is non-nil only during tests.
 var sprintSvcOverride sprintServicer
+
+// sprintAnalyticsSvcOverride is non-nil only during tests.
+var sprintAnalyticsSvcOverride sprintAnalyticsServicer
 
 // getSprintService returns the service to use, preferring the test override.
 func getSprintService() sprintServicer {
@@ -34,6 +44,14 @@ func getSprintService() sprintServicer {
 		return sprintSvcOverride
 	}
 	return cli.GetSprintService()
+}
+
+// getSprintAnalyticsService returns the analytics service to use, preferring the test override.
+func getSprintAnalyticsService() sprintAnalyticsServicer {
+	if sprintAnalyticsSvcOverride != nil {
+		return sprintAnalyticsSvcOverride
+	}
+	return cli.GetSprintAnalyticsService()
 }
 
 // sprintCmd is the parent command for all sprint operations.
@@ -180,6 +198,60 @@ Examples:
 	RunE: runSprintArchive,
 }
 
+// sprintVelocityCmd shows velocity data for recent completed sprints.
+var sprintVelocityCmd = &cobra.Command{
+	Use:   "velocity",
+	Short: "Show sprint velocity history",
+	Long: `Show velocity data for the last N completed sprints.
+
+Velocity is the total completed story-point size across the sprint.
+Unsized entities are counted separately and do not contribute to velocity.
+
+Examples:
+  shark sprint velocity
+  shark sprint velocity --sprints=10
+  shark sprint velocity --json`,
+	Args: cobra.NoArgs,
+	RunE: runSprintVelocity,
+}
+
+// sprintBurndownCmd shows burndown data for a sprint.
+var sprintBurndownCmd = &cobra.Command{
+	Use:   "burndown [SPRINT_KEY]",
+	Short: "Show sprint burndown chart",
+	Long: `Show burndown data for a sprint.
+
+When SPRINT_KEY is omitted, the current active sprint is used.
+Future days show — in the Actual column.
+
+Examples:
+  shark sprint burndown
+  shark sprint burndown S001
+  shark sprint burndown S001 --json`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runSprintBurndown,
+}
+
+// sprintSummaryCmd shows a summary report for a completed or archived sprint.
+var sprintSummaryCmd = &cobra.Command{
+	Use:   "summary <SPRINT_KEY>",
+	Short: "Show sprint summary report",
+	Long: `Show a summary report for a completed or archived sprint.
+
+Summary includes: planned/completed size and count, velocity metrics,
+and optionally detailed cycle-time, size-band distribution, and carryover entities.
+
+Use --detailed to include extended analytics.
+
+Examples:
+  shark sprint summary S001
+  shark sprint summary S001 --detailed
+  shark sprint summary S001 --json
+  shark sprint summary S001 --detailed --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSprintSummary,
+}
+
 // Command flag variables
 var (
 	sprintStartDate string
@@ -201,6 +273,9 @@ func init() {
 	sprintCmd.AddCommand(sprintStartCmd)
 	sprintCmd.AddCommand(sprintCloseCmd)
 	sprintCmd.AddCommand(sprintArchiveCmd)
+	sprintCmd.AddCommand(sprintVelocityCmd)
+	sprintCmd.AddCommand(sprintBurndownCmd)
+	sprintCmd.AddCommand(sprintSummaryCmd)
 
 	// Create flags
 	sprintCreateCmd.Flags().StringVar(&sprintStartDate, "start", "", "Sprint start date (YYYY-MM-DD)")
@@ -222,6 +297,12 @@ func init() {
 
 	// Close flags (T-E19-F03-007)
 	sprintCloseCmd.Flags().String("carryover", "", "Carryover mode: next or backlog (default from config)")
+
+	// Velocity flags
+	sprintVelocityCmd.Flags().Int("sprints", 5, "Number of recent sprints to include (1–100, default 5)")
+
+	// Summary flags
+	sprintSummaryCmd.Flags().Bool("detailed", false, "Include detailed cycle-time, size-band distribution, and carryover entities")
 }
 
 // runSprintCreate handles the `shark sprint create` command.
@@ -492,6 +573,180 @@ func runSprintArchive(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Archived sprint %s (%s)", sprint.Key, sprint.Name))
+	return nil
+}
+
+// runSprintVelocity handles the `shark sprint velocity` command.
+func runSprintVelocity(cmd *cobra.Command, _ []string) error {
+	// Step 1: Parse
+	n, _ := cmd.Flags().GetInt("sprints")
+
+	// Step 2: Call service (validation of n range 1–100 happens in service)
+	svc := getSprintAnalyticsService()
+	result, err := svc.GetVelocity(cmd.Context(), n)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format output
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+
+	return printVelocityTable(result)
+}
+
+// runSprintBurndown handles the `shark sprint burndown [SPRINT_KEY]` command.
+func runSprintBurndown(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse — key is optional; empty string means "active sprint"
+	var sprintKey string
+	if len(args) > 0 {
+		sprintKey = args[0]
+	}
+
+	// Step 2: Call service
+	svc := getSprintAnalyticsService()
+	result, err := svc.GetBurndown(cmd.Context(), sprintKey)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format output
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+
+	return printBurndownTable(result)
+}
+
+// runSprintSummary handles the `shark sprint summary <SPRINT_KEY>` command.
+func runSprintSummary(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+	detailed, _ := cmd.Flags().GetBool("detailed")
+
+	// Step 2: Call service
+	svc := getSprintAnalyticsService()
+	result, err := svc.GetSummary(cmd.Context(), sprintKey, detailed)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format output
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+
+	return printSummaryTable(result, detailed)
+}
+
+// printVelocityTable formats and prints velocity data as a human-readable table.
+func printVelocityTable(result *services.VelocityResult) error {
+	if result.InsufficientData {
+		cli.Warning(fmt.Sprintf("Insufficient data: need at least 3 completed sprints (have %d)", result.SprintCount))
+	}
+
+	if len(result.Sprints) == 0 {
+		cli.Info("No completed sprints found")
+		return nil
+	}
+
+	fmt.Printf("\nSprint Velocity (last %d sprints)\n", result.SprintCount)
+	fmt.Printf("%-10s %-30s %10s %10s\n", "KEY", "NAME", "COMPLETED", "UNSIZED")
+	fmt.Printf("%-10s %-30s %10s %10s\n", strings.Repeat("-", 10), strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 10))
+
+	for _, s := range result.Sprints {
+		name := s.Name
+		if len(name) > 30 {
+			name = name[:27] + "..."
+		}
+		fmt.Printf("%-10s %-30s %10d %10d\n", s.Key, name, s.CompletedSize, s.UnsizedCompleted)
+	}
+
+	fmt.Printf("%-10s %-30s %10s %10s\n", strings.Repeat("-", 10), strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 10))
+	fmt.Printf("Trailing Average: %.1f\n\n", result.TrailingAverage)
+	return nil
+}
+
+// printBurndownTable formats and prints burndown data as a human-readable ASCII table.
+// Uses ASCII-only characters except for em-dash (U+2014) for future days (AC-B-6).
+func printBurndownTable(result *services.BurndownResult) error {
+	if len(result.DataPoints) == 0 {
+		cli.Info(fmt.Sprintf("No burndown data available for sprint %s (planning status has no data)", result.SprintKey))
+		return nil
+	}
+
+	fmt.Printf("\nBurndown: %s (%s)\n", result.SprintKey, result.SprintName)
+	fmt.Printf("Total Size: %d  Unsized: %d\n\n", result.TotalSize, result.UnsizedTotal)
+	fmt.Printf("%-12s %10s %10s %8s\n", "DAY", "IDEAL", "ACTUAL", "UNSIZED")
+	fmt.Printf("%-12s %10s %10s %8s\n", strings.Repeat("-", 12), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 8))
+
+	for _, dp := range result.DataPoints {
+		dayStr := dp.Date.Format("2006-01-02")
+		idealStr := fmt.Sprintf("%.1f", dp.IdealRemaining)
+		var actualStr string
+		if dp.ActualRemaining != nil {
+			actualStr = fmt.Sprintf("%.1f", *dp.ActualRemaining)
+		} else {
+			actualStr = "—" // em-dash U+2014 for future days (AC-B-6 allows em-dash)
+		}
+		fmt.Printf("%-12s %10s %10s %8d\n", dayStr, idealStr, actualStr, dp.UnsizedRemaining)
+	}
+	fmt.Println()
+	return nil
+}
+
+// printSummaryTable formats and prints sprint summary data as a human-readable display.
+func printSummaryTable(result *services.SprintSummaryResult, detailed bool) error {
+	fmt.Printf("\nSprint Summary: %s (%s)\n\n", result.SprintKey, result.SprintName)
+	fmt.Printf("  Planned size:     %d\n", result.PlannedSize)
+	fmt.Printf("  Completed size:   %d  (%.1f%%)\n", result.CompletedSize, result.CompletionPctBySize)
+	fmt.Printf("  Planned count:    %d\n", result.PlannedCount)
+	fmt.Printf("  Completed count:  %d\n", result.CompletedCount)
+	fmt.Printf("  Unsized planned:  %d\n", result.UnsizedPlanned)
+	fmt.Printf("  Unsized completed:%d\n", result.UnsizedCompleted)
+	fmt.Printf("\nVelocity\n")
+	fmt.Printf("  This sprint:      %d\n", result.VelocityThisSprint)
+	fmt.Printf("  Trailing average: %.1f\n", result.TrailingAvgVelocity)
+	fmt.Printf("  Delta:            %+.1f  (%+.1f%%)\n", result.VelocityDelta, result.VelocityDeltaPct)
+
+	if detailed {
+		fmt.Printf("\nDetailed\n")
+		if result.AddedMidSprintCount != nil {
+			fmt.Printf("  Added mid-sprint: %d (size: %d)\n", *result.AddedMidSprintCount, *result.AddedMidSprintSize)
+		}
+		if result.RemovedMidSprintCount != nil {
+			fmt.Printf("  Removed mid-sprint:%d (size: %d)\n", *result.RemovedMidSprintCount, *result.RemovedMidSprintSize)
+		}
+
+		if len(result.CycleTimeByPhase) > 0 {
+			fmt.Printf("\nCycle Time by Phase\n")
+			for _, p := range result.CycleTimeByPhase {
+				fmt.Printf("  %-20s %.1f days\n", p.Phase, p.AverageDays)
+			}
+		} else {
+			fmt.Printf("\n  No session data available (install E13 for cycle-time tracking)\n")
+		}
+
+		if len(result.SizeBandDistribution) > 0 {
+			fmt.Printf("\nSize Distribution\n")
+			for _, b := range result.SizeBandDistribution {
+				fmt.Printf("  %3s: %d\n", b.Label, b.Count)
+			}
+		}
+
+		if len(result.CarryoverEntities) > 0 {
+			fmt.Printf("\nCarryover Entities (%d)\n", len(result.CarryoverEntities))
+			for _, e := range result.CarryoverEntities {
+				sizeStr := "unsized"
+				if e.Size != nil {
+					sizeStr = fmt.Sprintf("size=%d", *e.Size)
+				}
+				fmt.Printf("  %s (%s, %s)\n", e.Key, e.EntityType, sizeStr)
+			}
+		}
+	}
+	fmt.Println()
 	return nil
 }
 

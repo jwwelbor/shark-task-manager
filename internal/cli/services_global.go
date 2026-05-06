@@ -11,6 +11,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -613,6 +614,27 @@ func GetSprintService() *services.SprintService {
 	workflowSvc := GetWorkflowService()
 	// Pass db for CloseSprintWithCarryover transaction support (T-E19-F03-007)
 	return services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, cfg, db)
+}
+
+// GetSprintAnalyticsService returns a SprintAnalyticsService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// SprintAnalyticsService is read-only and has no workflow validation dependencies.
+// It is kept separate from SprintService to maintain single responsibility.
+//
+// Usage:
+//
+//	svc := cli.GetSprintAnalyticsService()
+//	result, err := svc.GetVelocity(ctx, 5)
+func GetSprintAnalyticsService() *services.SprintAnalyticsService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	analyticsRepo := sprintrepo.NewSprintAnalyticsRepository(db)
+	sprintRepo := repository.NewSprintRepository(db)
+	return services.NewSprintAnalyticsService(analyticsRepo, sprintRepo)
 }
 
 // resetEntityService resets only the entity service singleton within the current container.
