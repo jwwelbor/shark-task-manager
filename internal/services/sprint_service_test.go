@@ -1966,8 +1966,8 @@ func TestSprintService_RemoveEntityFromSprint_NotAssigned(t *testing.T) {
 
 // MockSprintAssignmentQueryRepository is a test double for SprintAssignmentQueryRepository.
 type MockSprintAssignmentQueryRepository struct {
-	BulkAssignFunc           func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error)
-	ListUnassignedBacklogFunc func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error)
+	BulkAssignFunc             func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error)
+	ListUnassignedBacklogFunc  func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error)
 	GetAssignmentsWithSizeFunc func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error)
 }
 
@@ -1994,9 +1994,6 @@ func (m *MockSprintAssignmentQueryRepository) GetAssignmentsWithSize(ctx context
 
 // ptrStr returns a pointer to the given string.
 func ptrStr(s string) *string { return &s }
-
-// ptrInt returns a pointer to the given int.
-func ptrInt(i int) *int { return &i }
 
 // TestBulkAddToSprint_FeatureKey_AddsEligible tests TC-K01 (decision table):
 // BulkAddToSprint with a feature key assigns eligible tasks and skips ineligible ones.
