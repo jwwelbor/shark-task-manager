@@ -510,8 +510,20 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 			}
 			return "tech_debt", entityID, nil
 		}
+		// Change-card keys in the legacy CC-### format are not handled by
+		// KeyService.Parse (which uses the C### pattern). Fall back to
+		// IsChangeCardKey to support the CC-### format used in the feature spec
+		// (REQ-F-004) and by older workflows.
+		if keys.IsChangeCardKey(entityKey) {
+			normalized := strings.ToUpper(strings.TrimSpace(entityKey))
+			entityID, err = repo.GetChangeCardIDByKey(ctx, normalized)
+			if err != nil {
+				return "", 0, fmt.Errorf("change_card %q not found: %w", entityKey, err)
+			}
+			return "change_card", entityID, nil
+		}
 		return "", 0, fmt.Errorf(
-			"unsupported entity type %q for sprint assignment: entity key %q must be a task, bug, change-card (C###), or tech-debt (TD-###) key",
+			"unsupported entity type %q for sprint assignment: entity key %q must be a task, bug, change-card (C### or CC-###), or tech-debt (TD-###) key",
 			parsed.EntityType, entityKey,
 		)
 	}
@@ -536,10 +548,21 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 // Returns the created SprintAssignment and an optional CapacityWarning.
 // A non-nil CapacityWarning does NOT indicate failure; the assignment was created.
 func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityInput) (*models.SprintAssignment, *CapacityWarning, error) {
-	// Step 1: Resolve sprint
+	// Step 1: Resolve sprint and validate its status.
+	// Per spec §4.2.1 step 1, only planning ("todo") and active ("in_progress")
+	// sprints may accept new entity assignments.
 	sprintEntity, err := s.repo.GetByKey(ctx, input.SprintKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve sprint %q: %w", input.SprintKey, err)
+	}
+	switch sprintEntity.Status {
+	case "todo", "in_progress":
+		// planning or active — allowed
+	default:
+		return nil, nil, fmt.Errorf(
+			"cannot assign entity to sprint %s: sprint is in %q status (only planning or active sprints accept new assignments)",
+			input.SprintKey, sprintEntity.Status,
+		)
 	}
 
 	// Step 2+3: Parse entity key and resolve entity ID

@@ -1493,7 +1493,7 @@ func TestSprintService_GetSprintBacklog_BacklogItemViewFields(t *testing.T) {
 func TestSprintService_AddEntityToSprint_TaskSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
 	now := time.Now()
 	var capturedAssignment *models.SprintAssignment
 
@@ -1547,7 +1547,7 @@ func TestSprintService_AddEntityToSprint_TaskSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_BugSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1590,7 +1590,7 @@ func TestSprintService_AddEntityToSprint_BugSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_ChangeCardSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1632,7 +1632,7 @@ func TestSprintService_AddEntityToSprint_ChangeCardSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_TechDebtSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1675,7 +1675,7 @@ func TestSprintService_AddEntityToSprint_TechDebtSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1709,7 +1709,7 @@ func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
 func TestSprintService_AddEntityToSprint_ConflictError(t *testing.T) {
 	ctx := context.Background()
 
-	sprint25 := &models.Sprint{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"}
+	sprint25 := &models.Sprint{ID: 25, Key: "S025", Name: "Sprint 25", Status: "todo"}
 	// Entity task 1001 is already actively assigned to sprint S024
 	existingAssignment := &models.SprintAssignment{
 		ID: 100, SprintID: 24, EntityType: "task", EntityID: 1001,
@@ -1727,7 +1727,7 @@ func TestSprintService_AddEntityToSprint_ConflictError(t *testing.T) {
 		},
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Sprint, error) {
 			if id == 24 {
-				return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}, nil
+				return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}, nil
 			}
 			return nil, fmt.Errorf("sprint not found with id %d", id)
 		},
@@ -1815,7 +1815,7 @@ func TestSprintService_AddEntityToSprint_CapacityWarning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+			sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
 
 			var mockCapacityRepo *MockSprintCapacityRepository
 			if tt.sprintCap != nil {
@@ -1872,6 +1872,163 @@ func TestSprintService_AddEntityToSprint_CapacityWarning(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAddEntityToSprint_RejectsCompletedSprint verifies BUG-001 fix:
+// AddEntityToSprint must reject sprints that are not in planning ("todo") or
+// active ("in_progress") status. This covers spec §4.2.1 step 1.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{SprintKey:"S_DONE", EntityKey:"E07-F01-001"})
+//   - Lowest mock seam: SprintRepository interface
+//   - Forbidden mocks: Do NOT mock the status check — service must perform it
+//   - Counter-factual: a buggy impl that skips the status check would call GetTaskIDByKey,
+//     then AddAssignment and succeed, whereas the correct impl must return an error here.
+func TestAddEntityToSprint_RejectsCompletedSprint(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{"completed sprint rejected", "completed"},
+		{"ready_for_review sprint rejected", "ready_for_review"},
+		{"archived sprint rejected", "archived"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			completedSprint := &models.Sprint{ID: 99, Key: "S099", Name: "Done Sprint", Status: models.SprintStatus(tt.status)}
+
+			addAssignmentCalled := false
+
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+					return completedSprint, nil
+				},
+				GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+					return 1001, nil
+				},
+				AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+					addAssignmentCalled = true
+					return nil
+				},
+			}
+
+			workflowSvc := workflow.NewService("")
+			svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+			assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+				SprintKey: "S099",
+				EntityKey: "E07-F01-001",
+			})
+
+			require.Error(t, err, "sprint in %q status must be rejected", tt.status)
+			assert.Contains(t, err.Error(), tt.status, "error must mention the invalid sprint status")
+			assert.Nil(t, assignment)
+			assert.Nil(t, warning)
+			assert.False(t, addAssignmentCalled, "AddAssignment must NOT be called for non-planning/non-active sprint")
+		})
+	}
+}
+
+// TestAddEntityToSprint_AllowsPlanningAndActiveSprints verifies that planning ("todo")
+// and active ("in_progress") sprints still accept entity assignments after the BUG-001 fix.
+func TestAddEntityToSprint_AllowsPlanningAndActiveSprints(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{"planning sprint accepted", "todo"},
+		{"active sprint accepted", "in_progress"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validSprint := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: models.SprintStatus(tt.status)}
+
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+					return validSprint, nil
+				},
+				GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+					return 1001, nil
+				},
+				GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+					return nil, nil
+				},
+				AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+					assignment.ID = 1
+					return nil
+				},
+			}
+
+			workflowSvc := workflow.NewService("")
+			svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+			assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+				SprintKey: "S024",
+				EntityKey: "E07-F01-001",
+			})
+
+			assert.NoError(t, err, "sprint in %q status must be accepted", tt.status)
+			assert.NotNil(t, assignment)
+		})
+	}
+}
+
+// TestAddEntityToSprint_ChangeCardKeyFormat verifies BUG-002 fix:
+// AddEntityToSprint must accept "CC-001" format change-card keys (old CC-### format)
+// as well as the current C001 format. Spec REQ-F-004 explicitly uses CC-001.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{SprintKey:"S024", EntityKey:"CC-001"})
+//   - Lowest mock seam: SprintRepository interface (specifically GetChangeCardIDByKey)
+//   - Forbidden mocks: Do NOT mock keys.KeyService.Parse — real key parsing must run to
+//     demonstrate the CC-001 → change_card routing works end-to-end
+//   - Counter-factual: a buggy impl that only handles C001 format would return an
+//     "unsupported entity type" error for CC-001
+func TestAddEntityToSprint_ChangeCardKeyFormat(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "in_progress"}
+
+	var capturedKey string
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetChangeCardIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			capturedKey = key
+			return 3001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			assert.Equal(t, "change_card", assignment.EntityType, "CC-001 must map to change_card entity type")
+			assert.Equal(t, int64(3001), assignment.EntityID)
+			assignment.ID = 1
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "CC-001",
+	})
+
+	require.NoError(t, err, "CC-001 format change-card key must be accepted")
+	require.NotNil(t, assignment)
+	assert.Equal(t, "change_card", assignment.EntityType)
+	assert.NotEmpty(t, capturedKey, "GetChangeCardIDByKey must have been called")
+	assert.Nil(t, warning)
 }
 
 // TestSprintService_RemoveEntityFromSprint_Succeeds tests TC-R07 (service variant):
@@ -3282,4 +3439,251 @@ func TestSprintService_GetSprintReadiness_NilAssignmentRepoError(t *testing.T) {
 	result, err := svc.GetSprintReadiness(ctx, "S001")
 	assert.Error(t, err)
 	assert.Nil(t, result)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T-E19-F05-004: PlanSprint tests (TC-011-01..04)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// makePlanSvc creates a SprintService with controlled backlog, assignments, and capacity.
+func makePlanSvc(
+	sprintObj *models.Sprint,
+	backlog []sprint.BacklogItem,
+	assignments []sprint.AssignmentWithSize,
+	capacityRows []*models.SprintCapacity,
+) *SprintService {
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	if backlog == nil {
+		backlog = []sprint.BacklogItem{}
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(_ context.Context, _ []string) ([]sprint.BacklogItem, error) {
+			return backlog, nil
+		},
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return assignments, nil
+		},
+	}
+	rows := capacityRows
+	if rows == nil {
+		rows = []*models.SprintCapacity{}
+	}
+	mockCapRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(_ context.Context, _ int64) ([]*models.SprintCapacity, error) {
+			return rows, nil
+		},
+	}
+	return NewSprintService(mockRepo, workflow.NewService(""), mockAssignRepo, mockCapRepo, nil)
+}
+
+// TestPlanSprint_HappyPath tests TC-011-04: composite view with all three sections populated.
+//
+// Caller-Path Contract (TC-011-04):
+//   - Entrypoint: SprintService.PlanSprint(ctx, "S024") — key string, not ID
+//   - Lowest mock seam: SprintAssignmentQueryRepository and SprintCapacityRepository interfaces
+//   - Forbidden mocks: Do NOT mock PlanSprint itself; GetSprintReadiness/readiness compute in-memory
+//   - Counter-factual: an impl that returns Readiness: nil panics when CLI formats the readiness section
+func TestPlanSprint_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	agentBackend := "backend"
+	agentFrontend := "frontend"
+	sz5 := 5
+	sz7 := 7
+
+	backlog := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 101, Key: "E07-F01-010", Title: "Unassigned A", Priority: 8, AgentType: &agentBackend},
+		{EntityType: "task", EntityID: 102, Key: "E07-F01-011", Title: "Unassigned B", Priority: 5, AgentType: &agentFrontend},
+	}
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", EntityID: 201, Key: "E07-F01-001", AgentType: &agentBackend, Size: &sz5},
+		{EntityType: "task", EntityID: 202, Key: "E07-F01-002", AgentType: &agentBackend, Size: &sz7},
+		{EntityType: "task", EntityID: 203, Key: "E07-F01-003", AgentType: &agentFrontend, Size: nil},
+	}
+	capRows := []*models.SprintCapacity{
+		{AgentType: "backend", CapacityPoints: 21},
+		{AgentType: "frontend", CapacityPoints: 13},
+	}
+
+	svc := makePlanSvc(sprintObj, backlog, assignments, capRows)
+	result, err := svc.PlanSprint(ctx, "S024")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Sprint is populated
+	assert.Equal(t, "S024", result.Sprint.Key)
+
+	// Backlog has 2 items (from ListUnassignedBacklog mock)
+	require.Len(t, result.Backlog, 2, "backlog must have 2 unassigned items")
+	assert.Equal(t, "E07-F01-010", result.Backlog[0].Key)
+
+	// Capacity has 2 rows with correct allocation
+	require.Len(t, result.Capacity, 2)
+	var backendCap, frontendCap *CapacityRow
+	for i := range result.Capacity {
+		if result.Capacity[i].AgentType == "backend" {
+			backendCap = &result.Capacity[i]
+		}
+		if result.Capacity[i].AgentType == "frontend" {
+			frontendCap = &result.Capacity[i]
+		}
+	}
+	require.NotNil(t, backendCap)
+	assert.Equal(t, float64(12), backendCap.AllocatedPoints, "backend = 5+7 = 12")
+	assert.Equal(t, float64(9), backendCap.Remaining, "backend remaining = 21-12 = 9")
+	assert.Equal(t, 0, backendCap.UnsizedAssigned, "no unsized backend tasks")
+
+	require.NotNil(t, frontendCap)
+	assert.Equal(t, float64(0), frontendCap.AllocatedPoints, "frontend unsized contributes 0")
+	assert.Equal(t, 1, frontendCap.UnsizedAssigned, "one unsized frontend task")
+
+	// Readiness is non-nil with 6 factors (score computed in-memory)
+	require.NotNil(t, result.Readiness)
+	assert.Len(t, result.Readiness.Factors, 6)
+	assert.GreaterOrEqual(t, result.Readiness.OverallScore, 0)
+	assert.LessOrEqual(t, result.Readiness.OverallScore, 100)
+}
+
+// TestPlanSprint_EmptySprint tests TC-011-01 edge case: empty backlog, zero readiness.
+//
+// Caller-Path Contract (TC-011-01):
+//   - Counter-factual: an impl that returns nil Backlog slice fails JSON marshal (must be [])
+func TestPlanSprint_EmptySprint(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 10, Key: "S010", Name: "Empty Sprint", Status: "planning"}
+
+	svc := makePlanSvc(sprintObj, []sprint.BacklogItem{}, []sprint.AssignmentWithSize{}, []*models.SprintCapacity{})
+	result, err := svc.PlanSprint(ctx, "S010")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.NotNil(t, result.Backlog, "backlog must be non-nil (empty slice, not nil)")
+	assert.Len(t, result.Backlog, 0)
+	assert.NotNil(t, result.Capacity, "capacity must be non-nil (empty slice, not nil)")
+	assert.Len(t, result.Capacity, 0)
+	require.NotNil(t, result.Readiness)
+	assert.Equal(t, 0, result.Readiness.OverallScore, "zero entities → readiness score = 0")
+}
+
+// TestPlanSprint_BacklogFiltering tests TC-011-01: backlog comes from ListUnassignedBacklog
+// and excludes already-assigned entities.
+//
+// Caller-Path Contract:
+//   - Lowest mock seam: ListUnassignedBacklog returns controlled set (exclusion done by repo)
+//   - Counter-factual: an impl that ignores removed_at IS NULL would include removed assignments
+func TestPlanSprint_BacklogFiltering(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	agentBackend := "backend"
+	// Mock returns only unassigned/eligible tasks (repo has already filtered)
+	backlog := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 300, Key: "E07-F01-300", Title: "Task C (unassigned)", Priority: 7, AgentType: &agentBackend},
+		{EntityType: "task", EntityID: 400, Key: "E07-F01-400", Title: "Task D (was removed, now eligible)", Priority: 3, AgentType: &agentBackend},
+	}
+
+	svc := makePlanSvc(sprintObj, backlog, []sprint.AssignmentWithSize{}, []*models.SprintCapacity{})
+	result, err := svc.PlanSprint(ctx, "S024")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, result.Backlog, 2, "backlog must have exactly the items returned by ListUnassignedBacklog")
+	assert.Equal(t, "E07-F01-300", result.Backlog[0].Key)
+	assert.Equal(t, "E07-F01-400", result.Backlog[1].Key)
+}
+
+// TestPlanSprint_ThreeSectionOutput tests TC-011-04: Sprint field, Backlog, Capacity, and Readiness
+// are all non-nil in the result.
+//
+// Caller-Path Contract:
+//   - Counter-factual: an impl that returns SprintPlanView with nil Readiness would fail
+//     when the CLI tries to access Readiness.OverallScore
+func TestPlanSprint_ThreeSectionOutput(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 5, Key: "S005", Status: "planning"}
+	agentBackend := "backend"
+	sz3 := 3
+
+	backlog := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 501, Key: "E01-F01-501", Title: "Ready task", Priority: 5, AgentType: &agentBackend},
+	}
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", EntityID: 601, Key: "E01-F01-601", AgentType: &agentBackend, Size: &sz3},
+	}
+	capRows := []*models.SprintCapacity{
+		{AgentType: "backend", CapacityPoints: 10},
+	}
+
+	svc := makePlanSvc(sprintObj, backlog, assignments, capRows)
+	result, err := svc.PlanSprint(ctx, "S005")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// All three sections must be non-nil
+	assert.NotNil(t, result.Sprint, "Sprint section must be non-nil")
+	assert.NotNil(t, result.Backlog, "Backlog section must be non-nil")
+	assert.NotNil(t, result.Capacity, "Capacity section must be non-nil")
+	assert.NotNil(t, result.Readiness, "Readiness section must be non-nil")
+
+	// Sprint field correctly populated
+	assert.Equal(t, "S005", result.Sprint.Key)
+
+	// Backlog has 1 item
+	assert.Len(t, result.Backlog, 1)
+
+	// Capacity has 1 row
+	assert.Len(t, result.Capacity, 1)
+	assert.Equal(t, "backend", result.Capacity[0].AgentType)
+	assert.Equal(t, float64(10), result.Capacity[0].CapacityPoints)
+	assert.Equal(t, float64(3), result.Capacity[0].AllocatedPoints)
+
+	// Readiness has 6 factors and valid score
+	assert.Len(t, result.Readiness.Factors, 6)
+	assert.GreaterOrEqual(t, result.Readiness.OverallScore, 0)
+	assert.LessOrEqual(t, result.Readiness.OverallScore, 100)
+}
+
+// TestPlanSprint_SprintNotFound tests that PlanSprint propagates sprint-not-found error.
+func TestPlanSprint_SprintNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return nil, fmt.Errorf("sprint %q not found", key)
+		},
+	}
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	result, err := svc.PlanSprint(ctx, "S999")
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "S999")
+}
+
+// TestPlanSprint_NilAssignmentRepo tests graceful degradation when assignmentRepo is nil.
+//
+// Caller-Path Contract:
+//   - Counter-factual: an impl that panics on nil assignmentRepo breaks degraded-mode callers
+func TestPlanSprint_NilAssignmentRepo(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 1, Key: "S001", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	result, err := svc.PlanSprint(ctx, "S001")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.NotNil(t, result.Backlog, "backlog must be empty slice, not nil")
+	assert.Len(t, result.Backlog, 0)
+	assert.NotNil(t, result.Capacity, "capacity must be empty slice, not nil")
+	assert.Len(t, result.Capacity, 0)
+	require.NotNil(t, result.Readiness, "readiness must be non-nil even with nil repos")
+	assert.Equal(t, 0, result.Readiness.OverallScore, "nil repos → no assignments → score=0")
 }
