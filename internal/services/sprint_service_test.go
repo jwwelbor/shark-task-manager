@@ -15,14 +15,20 @@ import (
 
 // MockSprintRepository is a test double for SprintRepository.
 type MockSprintRepository struct {
-	CreateFunc       func(ctx context.Context, s *models.Sprint) error
-	GetByKeyFunc     func(ctx context.Context, key string) (*models.Sprint, error)
-	GetByIDFunc      func(ctx context.Context, id int64) (*models.Sprint, error)
-	UpdateFunc       func(ctx context.Context, s *models.Sprint) error
-	DeleteFunc       func(ctx context.Context, id int64) error
-	UpdateStatusFunc func(ctx context.Context, id int64, status models.SprintStatus) error
-	GetNextKeyFunc   func(ctx context.Context) (string, error)
-	ListFunc         func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
+	CreateFunc               func(ctx context.Context, s *models.Sprint) error
+	GetByKeyFunc             func(ctx context.Context, key string) (*models.Sprint, error)
+	GetByIDFunc              func(ctx context.Context, id int64) (*models.Sprint, error)
+	UpdateFunc               func(ctx context.Context, s *models.Sprint) error
+	DeleteFunc               func(ctx context.Context, id int64) error
+	UpdateStatusFunc         func(ctx context.Context, id int64, status models.SprintStatus) error
+	GetNextKeyFunc           func(ctx context.Context) (string, error)
+	ListFunc                 func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
+	AddAssignmentFunc        func(ctx context.Context, assignment *models.SprintAssignment) error
+	GetActiveAssignmentFunc  func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error)
+	GetTaskIDByKeyFunc       func(ctx context.Context, key string) (int64, error)
+	GetBugIDByKeyFunc        func(ctx context.Context, key string) (int64, error)
+	GetChangeCardIDByKeyFunc func(ctx context.Context, key string) (int64, error)
+	GetTechDebtIDByKeyFunc   func(ctx context.Context, key string) (int64, error)
 }
 
 func (m *MockSprintRepository) Create(ctx context.Context, s *models.Sprint) error {
@@ -79,6 +85,48 @@ func (m *MockSprintRepository) List(ctx context.Context, filters *sprint.SprintL
 		return m.ListFunc(ctx, filters)
 	}
 	return []*models.Sprint{}, nil
+}
+
+func (m *MockSprintRepository) AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error {
+	if m.AddAssignmentFunc != nil {
+		return m.AddAssignmentFunc(ctx, assignment)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) GetActiveAssignment(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+	if m.GetActiveAssignmentFunc != nil {
+		return m.GetActiveAssignmentFunc(ctx, entityType, entityID)
+	}
+	return nil, nil
+}
+
+func (m *MockSprintRepository) GetTaskIDByKey(ctx context.Context, key string) (int64, error) {
+	if m.GetTaskIDByKeyFunc != nil {
+		return m.GetTaskIDByKeyFunc(ctx, key)
+	}
+	return 0, errors.New("GetTaskIDByKey not implemented in mock")
+}
+
+func (m *MockSprintRepository) GetBugIDByKey(ctx context.Context, key string) (int64, error) {
+	if m.GetBugIDByKeyFunc != nil {
+		return m.GetBugIDByKeyFunc(ctx, key)
+	}
+	return 0, errors.New("GetBugIDByKey not implemented in mock")
+}
+
+func (m *MockSprintRepository) GetChangeCardIDByKey(ctx context.Context, key string) (int64, error) {
+	if m.GetChangeCardIDByKeyFunc != nil {
+		return m.GetChangeCardIDByKeyFunc(ctx, key)
+	}
+	return 0, errors.New("GetChangeCardIDByKey not implemented in mock")
+}
+
+func (m *MockSprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (int64, error) {
+	if m.GetTechDebtIDByKeyFunc != nil {
+		return m.GetTechDebtIDByKeyFunc(ctx, key)
+	}
+	return 0, errors.New("GetTechDebtIDByKey not implemented in mock")
 }
 
 // TestSprintService_NewSprintService tests constructor validation.
@@ -724,6 +772,47 @@ func TestSprintService_ArchiveSprint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAddEntityToSprint_SprintNotPlanningOrActive_Rejects tests the spec §4.2.1 Step 1
+// status guard: assigning an entity to a sprint that is not in "planning" or "active"
+// (in_progress) status must be rejected with an informative error.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.AddEntityToSprint with sprint status="completed"
+//   - Lowest mock seam: SprintRepository interface (GetByKey)
+//   - Forbidden mocks: Do NOT mock the status check itself — service must perform it
+//   - Counter-factual: a buggy impl that skips the status guard would proceed to
+//     resolveEntityTypeAndID and eventually call repo.AddAssignment, succeeding silently
+func TestAddEntityToSprint_SprintNotPlanningOrActive_Rejects(t *testing.T) {
+	ctx := context.Background()
+
+	completedSprint := &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: models.SprintStatus("completed")}
+
+	addAssignmentCalled := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return completedSprint, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			addAssignmentCalled = true
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+	})
+
+	assert.Error(t, err, "assigning to a completed sprint must return an error")
+	assert.Contains(t, err.Error(), "completed", "error should mention the invalid status")
+	assert.Nil(t, assignment)
+	assert.Nil(t, warning)
+	assert.False(t, addAssignmentCalled, "AddAssignment must NOT be called when sprint is not planning or active")
 }
 
 // Helper function to create string pointers for tests

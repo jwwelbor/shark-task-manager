@@ -423,3 +423,78 @@ func (r *SprintRepository) ListAssignments(ctx context.Context, sprintID int64, 
 
 	return assignments, nil
 }
+
+// Entity ID resolution helpers — T-E19-F03-005
+//
+// Each method queries its entity's own table using a parameterized key lookup.
+// Using UPPER(key) = UPPER(?) for case-insensitive matching consistent with the
+// rest of the codebase (see task_repository.go, bug_repository.go patterns).
+// Separate methods per entity type keep all queries static (no table-name
+// interpolation), satisfying the SQL injection prevention mandate.
+
+// GetTaskIDByKey returns the internal ID of a task given its key.
+// Returns a not-found error if no task with that key exists.
+func (r *SprintRepository) GetTaskIDByKey(ctx context.Context, key string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM tasks WHERE UPPER(key) = UPPER(?)`, key,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("task %q not found", key)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to look up task %q: %w", key, err)
+	}
+	return id, nil
+}
+
+// GetBugIDByKey returns the internal ID of a bug given its key.
+// Returns a not-found error if no bug with that key exists.
+func (r *SprintRepository) GetBugIDByKey(ctx context.Context, key string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM bugs WHERE UPPER(key) = UPPER(?)`, key,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("bug %q not found", key)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to look up bug %q: %w", key, err)
+	}
+	return id, nil
+}
+
+// GetChangeCardIDByKey returns the internal ID of a change-card given its key.
+// Returns a not-found error if no change-card with that key exists.
+func (r *SprintRepository) GetChangeCardIDByKey(ctx context.Context, key string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM change_cards WHERE UPPER(key) = UPPER(?)`, key,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("change-card %q not found", key)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to look up change-card %q: %w", key, err)
+	}
+	return id, nil
+}
+
+// GetTechDebtIDByKey returns the internal ID of a tech-debt item given its key.
+// Returns a not-found error if no tech-debt with that key exists.
+func (r *SprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (int64, error) {
+	// Tech-debt keys may be passed as "TD-001" or with the normalized prefix.
+	// Normalize to uppercase before lookup to support case-insensitive input.
+	upperKey := strings.ToUpper(strings.TrimSpace(key))
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM tech_debts WHERE UPPER(key) = ?`, upperKey,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("tech-debt %q not found", key)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to look up tech-debt %q: %w", key, err)
+	}
+	return id, nil
+}
