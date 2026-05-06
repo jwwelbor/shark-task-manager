@@ -1053,3 +1053,487 @@ func TestSprintService_CreateSprint_AppliesDefaults(t *testing.T) {
 func ptrString(s string) *string {
 	return &s
 }
+
+// ---------------------------------------------------------------------------
+// T-E19-F03-005: Service-level tests for AddEntityToSprint / RemoveEntityFromSprint
+// ---------------------------------------------------------------------------
+
+// TestSprintService_AddEntityToSprint_TaskSucceeds tests TC-R01 (service variant):
+// assigning a task entity via AddEntityToSprint resolves key, checks no conflict,
+// calls AddAssignment, and returns the created assignment.
+//
+// Caller-Path Contract (per test-plan TC-R01..R04):
+//   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{SprintKey:"S024", EntityKey:"E07-F01-001"})
+//   - Lowest mock seam: SprintRepository interface
+//   - Forbidden mocks: Do NOT mock keys.KeyService.Parse — real key parsing must run
+//   - Counter-factual: a buggy impl that calls GetBugIDByKey for a task key would fail
+//     when entity_type in the returned assignment is wrong.
+func TestSprintService_AddEntityToSprint_TaskSucceeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	now := time.Now()
+	var capturedAssignment *models.SprintAssignment
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			if key == "S024" {
+				return sprint1, nil
+			}
+			return nil, fmt.Errorf("sprint not found: %q", key)
+		},
+		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			require.Equal(t, "T-E07-F01-001", key, "task key must be normalized before lookup")
+			return 1001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			// No active assignment — entity is free to assign
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			capturedAssignment = assignment
+			assert.Equal(t, int64(24), assignment.SprintID)
+			assert.Equal(t, "task", assignment.EntityType)
+			assert.Equal(t, int64(1001), assignment.EntityID)
+			assignment.ID = 1
+			assignment.AssignedAt = now
+			return nil
+		},
+		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "E07-F01-001",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment, "assignment must be returned on success")
+	require.NotNil(t, capturedAssignment, "AddAssignment must have been called")
+	assert.Equal(t, "task", assignment.EntityType)
+	assert.Equal(t, int64(1001), assignment.EntityID)
+	assert.Nil(t, warning, "no capacity configured means no warning")
+}
+
+// TestSprintService_AddEntityToSprint_BugSucceeds tests TC-R02 (service variant):
+// assigning a bug entity type resolves "B001" to entity_type="bug".
+func TestSprintService_AddEntityToSprint_BugSucceeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetBugIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			assert.Equal(t, "B1", key)
+			return 2001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			assert.Equal(t, "bug", assignment.EntityType)
+			assert.Equal(t, int64(2001), assignment.EntityID)
+			assignment.ID = 1
+			return nil
+		},
+		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "B1",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.Equal(t, "bug", assignment.EntityType)
+	assert.Nil(t, warning)
+}
+
+// TestSprintService_AddEntityToSprint_ChangeCardSucceeds tests TC-R03 (service variant):
+// assigning a change card ("C001") maps to entity_type="change_card".
+func TestSprintService_AddEntityToSprint_ChangeCardSucceeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetChangeCardIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			return 3001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			assert.Equal(t, "change_card", assignment.EntityType)
+			assert.Equal(t, int64(3001), assignment.EntityID)
+			assignment.ID = 1
+			return nil
+		},
+		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "C1",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.Equal(t, "change_card", assignment.EntityType)
+	assert.Nil(t, warning)
+}
+
+// TestSprintService_AddEntityToSprint_TechDebtSucceeds tests TC-R04 (service variant):
+// assigning a tech_debt item ("TD-001") maps to entity_type="tech_debt".
+func TestSprintService_AddEntityToSprint_TechDebtSucceeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetTechDebtIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			assert.Equal(t, "TD-001", key)
+			return 4001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			assert.Equal(t, "tech_debt", assignment.EntityType)
+			assert.Equal(t, int64(4001), assignment.EntityID)
+			assignment.ID = 1
+			return nil
+		},
+		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "TD-001",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.Equal(t, "tech_debt", assignment.EntityType)
+	assert.Nil(t, warning)
+}
+
+// TestSprintService_AddEntityToSprint_InvalidEntityType tests TC-R05 (service variant):
+// entity key that resolves to an unsupported type (e.g., epic) returns an error.
+func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "E07", // epic key — not assignable to sprint
+	})
+
+	assert.Error(t, err, "epic keys should be rejected")
+	assert.Nil(t, assignment)
+	assert.Nil(t, warning)
+}
+
+// TestSprintService_AddEntityToSprint_ConflictError tests TC-R09 (service variant):
+// when entity is already assigned to another sprint, AddEntityToSprint returns
+// an error naming the conflicting sprint key — without calling AddAssignment.
+//
+// Caller-Path Contract (per test-plan TC-R09):
+//   - Entrypoint: SprintService.AddEntityToSprint with entity already in S024
+//   - Lowest mock seam: SprintRepository interface
+//   - Forbidden mocks: Do NOT mock conflict detection — service must call GetActiveAssignment
+//   - Counter-factual: buggy impl that skips GetActiveAssignment would call AddAssignment
+//     and get a DB unique-constraint error instead of a named ConflictError
+func TestSprintService_AddEntityToSprint_ConflictError(t *testing.T) {
+	ctx := context.Background()
+
+	sprint25 := &models.Sprint{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"}
+	// Entity task 1001 is already actively assigned to sprint S024
+	existingAssignment := &models.SprintAssignment{
+		ID: 100, SprintID: 24, EntityType: "task", EntityID: 1001,
+	}
+
+	getActiveAssignmentCalled := false
+	addAssignmentCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			if key == "S025" {
+				return sprint25, nil
+			}
+			return nil, fmt.Errorf("sprint not found: %q", key)
+		},
+		GetByIDFunc: func(ctx context.Context, id int64) (*models.Sprint, error) {
+			if id == 24 {
+				return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}, nil
+			}
+			return nil, fmt.Errorf("sprint not found with id %d", id)
+		},
+		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			return 1001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			getActiveAssignmentCalled = true
+			// Entity is already assigned to S024
+			return existingAssignment, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			addAssignmentCalled = true
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S025",
+		EntityKey: "E07-F01-001",
+	})
+
+	assert.Error(t, err)
+	assert.Nil(t, assignment)
+	assert.Nil(t, warning)
+	assert.True(t, getActiveAssignmentCalled, "service must call GetActiveAssignment to detect conflict")
+	assert.False(t, addAssignmentCalled, "AddAssignment must NOT be called when conflict is detected")
+	// Error must contain the conflicting sprint key (S024) so user can identify it
+	assert.Contains(t, err.Error(), "S024", "error must name the conflicting sprint key")
+}
+
+// TestSprintService_AddEntityToSprint_CapacityWarning tests TC-R11 (decision table):
+// capacity warning is advisory only — assignment proceeds even when over capacity.
+//
+// Caller-Path Contract (per test-plan TC-R11):
+//   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{...}) with capacity configured
+//   - Lowest mock seam: SprintRepository (mock ListAssignments to simulate allocated state)
+//   - Forbidden mocks: Do NOT mock the capacity check logic — only mock the repo data
+//   - Counter-factual: a buggy impl that always returns nil CapacityWarning would fail the
+//     "exceeds capacity" row (row 3: expected non-nil warning)
+func TestSprintService_AddEntityToSprint_CapacityWarning(t *testing.T) {
+	ctx := context.Background()
+
+	// Decision table:
+	// | Capacity Configured | Exceeds Capacity | Expected Result |
+	// | No                  | N/A              | warning=nil     |
+	// | Yes                 | No               | warning=nil     |
+	// | Yes                 | Yes              | warning non-nil |
+	tests := []struct {
+		name          string
+		sprintCap     []*models.SprintCapacity // nil means no capacity configured
+		agentType     string
+		newEntitySize int
+		expectWarning bool
+	}{
+		{
+			name:          "no capacity configured — no warning",
+			sprintCap:     nil,
+			agentType:     "backend",
+			newEntitySize: 2,
+			expectWarning: false,
+		},
+		{
+			name: "capacity configured, not exceeded — no warning",
+			sprintCap: []*models.SprintCapacity{
+				{AgentType: "backend", CapacityPoints: 10, AllocatedPoints: func() *float64 { v := 4.0; return &v }()},
+			},
+			agentType:     "backend",
+			newEntitySize: 2,
+			expectWarning: false,
+		},
+		{
+			name: "capacity configured and exceeded — warning emitted",
+			sprintCap: []*models.SprintCapacity{
+				{AgentType: "backend", CapacityPoints: 5, AllocatedPoints: func() *float64 { v := 4.0; return &v }()},
+			},
+			agentType:     "backend",
+			newEntitySize: 2,
+			expectWarning: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+			var mockCapacityRepo *MockSprintCapacityRepository
+			if tt.sprintCap != nil {
+				mockCapacityRepo = &MockSprintCapacityRepository{
+					GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+						return tt.sprintCap, nil
+					},
+				}
+			}
+
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+					return sprint1, nil
+				},
+				GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+					return 1001, nil
+				},
+				GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+					return nil, nil
+				},
+				AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+					assignment.ID = 1
+					return nil
+				},
+			}
+
+			workflowSvc := workflow.NewService("")
+			// Pass nil (untyped) when no capacity is configured to avoid the
+			// typed-nil-interface pitfall where (*MockSprintCapacityRepository)(nil)
+			// would satisfy the SprintCapacityRepository interface as non-nil.
+			var capRepo SprintCapacityRepository
+			if mockCapacityRepo != nil {
+				capRepo = mockCapacityRepo
+			}
+			svc := NewSprintService(mockRepo, workflowSvc, nil, capRepo, nil)
+
+			assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+				SprintKey:     "S024",
+				EntityKey:     "E07-F01-001",
+				AgentType:     tt.agentType,
+				EstimatedSize: tt.newEntitySize,
+			})
+
+			require.NoError(t, err, "capacity over-run must NOT block the assignment")
+			require.NotNil(t, assignment, "assignment must be created regardless of capacity")
+
+			if tt.expectWarning {
+				require.NotNil(t, warning, "expected CapacityWarning to be non-nil")
+				assert.Equal(t, tt.agentType, warning.AgentType)
+				assert.Greater(t, warning.Allocated, warning.Capacity,
+					"Allocated must exceed Capacity in the warning")
+			} else {
+				assert.Nil(t, warning, "no warning expected for this row")
+			}
+		})
+	}
+}
+
+// TestSprintService_RemoveEntityFromSprint_Succeeds tests TC-R07 (service variant):
+// removing an active assignment calls GetActiveAssignment then RemoveAssignment.
+//
+// Caller-Path Contract (per test-plan TC-R07):
+// - Entrypoint: SprintService.RemoveEntityFromSprint(ctx, "S024", "E07-F01-001")
+// - Lowest mock seam: SprintRepository interface
+// - Forbidden mocks: Do NOT mock the active-assignment lookup — service must call it for real
+// - Counter-factual: a buggy impl that skips the lookup would not error on remove-nonexistent
+func TestSprintService_RemoveEntityFromSprint_Succeeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+	activeAssignment := &models.SprintAssignment{
+		ID: 10, SprintID: 24, EntityType: "task", EntityID: 1001,
+	}
+
+	getActiveAssignmentCalled := false
+	removeAssignmentCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			return 1001, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			getActiveAssignmentCalled = true
+			assert.Equal(t, "task", entityType)
+			assert.Equal(t, int64(1001), entityID)
+			return activeAssignment, nil
+		},
+		RemoveAssignmentFunc: func(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+			removeAssignmentCalled = true
+			assert.Equal(t, int64(24), sprintID)
+			assert.Equal(t, "task", entityType)
+			assert.Equal(t, int64(1001), entityID)
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	err := svc.RemoveEntityFromSprint(ctx, "S024", "E07-F01-001")
+
+	require.NoError(t, err)
+	assert.True(t, getActiveAssignmentCalled, "service must call GetActiveAssignment")
+	assert.True(t, removeAssignmentCalled, "service must call RemoveAssignment")
+}
+
+// TestSprintService_RemoveEntityFromSprint_NotAssigned tests TC-R08 (service variant):
+// when entity is not actively assigned, returns error without calling RemoveAssignment.
+func TestSprintService_RemoveEntityFromSprint_NotAssigned(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	removeAssignmentCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			return 9999, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			// No active assignment for this entity
+			return nil, nil
+		},
+		RemoveAssignmentFunc: func(ctx context.Context, sprintID int64, entityType string, entityID int64) error {
+			removeAssignmentCalled = true
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	err := svc.RemoveEntityFromSprint(ctx, "S024", "E07-F01-001")
+
+	assert.Error(t, err, "should return error when entity not assigned to any sprint")
+	assert.False(t, removeAssignmentCalled, "RemoveAssignment must NOT be called when no active assignment exists")
+}
