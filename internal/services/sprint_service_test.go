@@ -2402,3 +2402,884 @@ func TestSprintService_GetCarryoverBehavior(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TC-014-01..TC-014-08: SetSprintCapacity and GetSprintCapacity
+// ---------------------------------------------------------------------------
+
+// TestSprintService_SetSprintCapacity_CreateNew (TC-014-01) verifies that
+// SetSprintCapacity resolves the sprint key to an ID and calls SetCapacity
+// with the correct SprintCapacity argument.
+func TestSprintService_SetSprintCapacity_CreateNew(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedCapacity *models.SprintCapacity
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			assert.Equal(t, "S024", key)
+			return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		SetCapacityFunc: func(ctx context.Context, c *models.SprintCapacity) error {
+			capturedCapacity = c
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, capRepo, nil)
+
+	result, err := svc.SetSprintCapacity(ctx, SetSprintCapacityInput{
+		SprintKey: "S024",
+		AgentType: "backend",
+		Points:    21,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, capturedCapacity)
+	assert.Equal(t, int64(24), capturedCapacity.SprintID)
+	assert.Equal(t, "backend", capturedCapacity.AgentType)
+	assert.Equal(t, float64(21), capturedCapacity.CapacityPoints)
+	// Returned model should reflect what was set
+	assert.Equal(t, int64(24), result.SprintID)
+	assert.Equal(t, "backend", result.AgentType)
+	assert.Equal(t, float64(21), result.CapacityPoints)
+}
+
+// TestSprintService_SetSprintCapacity_RejectsZeroPoints (TC-014-03) verifies
+// that points <= 0 is rejected before calling SetCapacity.
+func TestSprintService_SetSprintCapacity_RejectsZeroPoints(t *testing.T) {
+	ctx := context.Background()
+
+	setCalled := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		SetCapacityFunc: func(ctx context.Context, c *models.SprintCapacity) error {
+			setCalled = true
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, capRepo, nil)
+
+	tests := []struct {
+		name   string
+		points float64
+	}{
+		{"zero", 0},
+		{"negative", -5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setCalled = false
+			result, err := svc.SetSprintCapacity(ctx, SetSprintCapacityInput{
+				SprintKey: "S024",
+				AgentType: "backend",
+				Points:    tt.points,
+			})
+			assert.Error(t, err)
+			assert.Nil(t, result)
+			assert.False(t, setCalled, "SetCapacity must NOT be called when points <= 0")
+			assert.Contains(t, err.Error(), "points")
+		})
+	}
+}
+
+// TestSprintService_SetSprintCapacity_ValidMinimumPoints verifies that
+// points > 0 (including fractional) is accepted.
+func TestSprintService_SetSprintCapacity_ValidMinimumPoints(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		SetCapacityFunc: func(ctx context.Context, c *models.SprintCapacity) error {
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, capRepo, nil)
+
+	result, err := svc.SetSprintCapacity(ctx, SetSprintCapacityInput{
+		SprintKey: "S024",
+		AgentType: "backend",
+		Points:    0.001,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+// TestSprintService_SetSprintCapacity_NilCapacityRepo verifies graceful error
+// when capacityRepo is nil.
+func TestSprintService_SetSprintCapacity_NilCapacityRepo(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	result, err := svc.SetSprintCapacity(ctx, SetSprintCapacityInput{
+		SprintKey: "S024",
+		AgentType: "backend",
+		Points:    21,
+	})
+	assert.Error(t, err)
+	assert.Nil(t, result)
+}
+
+// TestSprintService_GetSprintCapacity_EmptySliceWhenNoRows (TC-014-04) verifies
+// that GetSprintCapacity returns an empty slice (not error) when no capacity rows exist.
+func TestSprintService_GetSprintCapacity_EmptySliceWhenNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+			return []*models.SprintCapacity{}, nil
+		},
+	}
+	assignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, assignRepo, capRepo, nil)
+
+	rows, err := svc.GetSprintCapacity(ctx, "S024")
+	require.NoError(t, err)
+	assert.NotNil(t, rows)
+	assert.Len(t, rows, 0, "should return empty slice not nil")
+}
+
+// TestSprintService_GetSprintCapacity_ComputesAllocated (TC-014-05) verifies
+// that allocated_points is computed as Σ size of assigned tasks filtered by agent_type.
+func TestSprintService_GetSprintCapacity_ComputesAllocated(t *testing.T) {
+	ctx := context.Background()
+
+	backendAgent := "backend"
+	frontendAgent := "frontend"
+	size5 := 5
+	size8 := 8
+	size3 := 3
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+			assert.Equal(t, int64(24), sprintID)
+			return []*models.SprintCapacity{
+				{SprintID: 24, AgentType: "backend", CapacityPoints: 21},
+				{SprintID: 24, AgentType: "frontend", CapacityPoints: 13},
+			}, nil
+		},
+	}
+	assignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error) {
+			assert.Equal(t, int64(24), sprintID)
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", EntityID: 1, Key: "E07-F01-001", AgentType: &backendAgent, Size: &size5},
+				{EntityType: "task", EntityID: 2, Key: "E07-F01-002", AgentType: &backendAgent, Size: &size8},
+				{EntityType: "task", EntityID: 3, Key: "E07-F01-003", AgentType: &frontendAgent, Size: &size3},
+			}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, assignRepo, capRepo, nil)
+
+	rows, err := svc.GetSprintCapacity(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+
+	// Find backend row
+	var backendRow, frontendRow *CapacityRow
+	for i := range rows {
+		if rows[i].AgentType == "backend" {
+			backendRow = &rows[i]
+		} else if rows[i].AgentType == "frontend" {
+			frontendRow = &rows[i]
+		}
+	}
+	require.NotNil(t, backendRow, "backend capacity row should exist")
+	require.NotNil(t, frontendRow, "frontend capacity row should exist")
+
+	// Backend: capacity=21, allocated=5+8=13, remaining=8
+	assert.Equal(t, float64(21), backendRow.CapacityPoints)
+	assert.Equal(t, float64(13), backendRow.AllocatedPoints)
+	assert.Equal(t, float64(8), backendRow.Remaining)
+	assert.Equal(t, 0, backendRow.UnsizedAssigned)
+
+	// Frontend: capacity=13, allocated=3, remaining=10
+	assert.Equal(t, float64(13), frontendRow.CapacityPoints)
+	assert.Equal(t, float64(3), frontendRow.AllocatedPoints)
+	assert.Equal(t, float64(10), frontendRow.Remaining)
+	assert.Equal(t, 0, frontendRow.UnsizedAssigned)
+}
+
+// TestSprintService_GetSprintCapacity_UnsizedAssigned (TC-014-06) verifies that
+// unsized_assigned counts assignments with size IS NULL for each agent type.
+func TestSprintService_GetSprintCapacity_UnsizedAssigned(t *testing.T) {
+	ctx := context.Background()
+
+	backendAgent := "backend"
+	size5 := 5
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+			return []*models.SprintCapacity{
+				{SprintID: 24, AgentType: "backend", CapacityPoints: 21},
+			}, nil
+		},
+	}
+	assignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "E07-F01-001", AgentType: &backendAgent, Size: nil},    // unsized
+				{EntityType: "task", Key: "E07-F01-002", AgentType: &backendAgent, Size: &size5}, // sized
+			}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, assignRepo, capRepo, nil)
+
+	rows, err := svc.GetSprintCapacity(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	backendRow := rows[0]
+	assert.Equal(t, "backend", backendRow.AgentType)
+	assert.Equal(t, float64(5), backendRow.AllocatedPoints)
+	assert.Equal(t, 1, backendRow.UnsizedAssigned)
+}
+
+// TestSprintService_GetSprintCapacity_NegativeRemaining (TC-014-07) verifies
+// that remaining can be negative (overcommit is not clamped to 0).
+func TestSprintService_GetSprintCapacity_NegativeRemaining(t *testing.T) {
+	ctx := context.Background()
+
+	backendAgent := "backend"
+	size10 := 10
+	size20 := 20
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+			return []*models.SprintCapacity{
+				{SprintID: 24, AgentType: "backend", CapacityPoints: 21},
+			}, nil
+		},
+	}
+	assignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "E07-F01-001", AgentType: &backendAgent, Size: &size10},
+				{EntityType: "task", Key: "E07-F01-002", AgentType: &backendAgent, Size: &size20},
+			}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, assignRepo, capRepo, nil)
+
+	rows, err := svc.GetSprintCapacity(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	backendRow := rows[0]
+	// capacity=21, allocated=30, remaining=-9 (not clamped)
+	assert.Equal(t, float64(21), backendRow.CapacityPoints)
+	assert.Equal(t, float64(30), backendRow.AllocatedPoints)
+	assert.Equal(t, float64(-9), backendRow.Remaining)
+}
+
+// TestSprintService_GetSprintCapacity_UsesOnlyTwoRepoQueries verifies that
+// GetSprintCapacity calls GetAssignmentsWithSize and GetCapacity exactly once each.
+func TestSprintService_GetSprintCapacity_UsesOnlyTwoRepoQueries(t *testing.T) {
+	ctx := context.Background()
+
+	getCapacityCalls := 0
+	getAssignmentsCalls := 0
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 24, Key: "S024"}, nil
+		},
+	}
+	capRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+			getCapacityCalls++
+			return []*models.SprintCapacity{}, nil
+		},
+	}
+	assignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error) {
+			getAssignmentsCalls++
+			return []sprint.AssignmentWithSize{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, assignRepo, capRepo, nil)
+
+	_, err := svc.GetSprintCapacity(ctx, "S024")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, getCapacityCalls, "GetCapacity should be called exactly once")
+	assert.Equal(t, 1, getAssignmentsCalls, "GetAssignmentsWithSize should be called exactly once")
+}
+
+// ---------------------------------------------------------------------------
+// T-E19-F05-005: GetSprintReadiness tests (TC-013-01 through TC-013-14)
+// ---------------------------------------------------------------------------
+
+// sizePtrR returns a pointer to an int — helper for readiness tests.
+func sizePtrR(n int) *int { return &n }
+
+// agentPtrR returns a pointer to a string — helper for readiness tests.
+func agentPtrR(s string) *string { return &s }
+
+// makeReadinessSvc creates a SprintService wired with mock repos for readiness tests.
+func makeReadinessSvc(
+	sprintObj *models.Sprint,
+	assignments []sprint.AssignmentWithSize,
+	capacityRows []*models.SprintCapacity,
+) *SprintService {
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return sprintObj, nil
+		},
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return assignments, nil
+		},
+	}
+	rows := capacityRows
+	if rows == nil {
+		rows = []*models.SprintCapacity{}
+	}
+	mockCapRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(_ context.Context, _ int64) ([]*models.SprintCapacity, error) {
+			return rows, nil
+		},
+	}
+	wf := workflow.NewService("")
+	return NewSprintService(mockRepo, wf, mockAssignRepo, mockCapRepo, nil)
+}
+
+// TestSprintService_GetSprintReadiness_Factor1_ZeroCapacity tests TC-013-01 zone: zero capacity.
+func TestSprintService_GetSprintReadiness_Factor1_ZeroCapacity(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	svc := makeReadinessSvc(sprintObj, []sprint.AssignmentWithSize{}, []*models.SprintCapacity{})
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, result.Factors, 6)
+	assert.Equal(t, 0, result.Factors[0].Score, "zero capacity → Factor1=0")
+	assert.Equal(t, 25, result.Factors[0].MaxScore)
+}
+
+// TestSprintService_GetSprintReadiness_Factor1_FullZones tests TC-013-01: BVA zones.
+func TestSprintService_GetSprintReadiness_Factor1_FullZones(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	tests := []struct {
+		name          string
+		allocSize     int
+		capacity      float64
+		expectedScore int
+	}{
+		// util=0 → score=0
+		{"0pct_util", 0, 21, 0},
+		// util=5/21≈23.8% → int(0.238/0.5*25)=int(11.9)=11
+		{"23pct_util", 5, 21, 11},
+		// util=10/20=50% → score=25
+		{"50pct_util", 10, 20, 25},
+		// util=20/20=100% → score=25
+		{"100pct_util", 20, 20, 25},
+		// util=26/25=104% → max(0,25-int(0.04*50))=max(0,25-2)=23
+		{"104pct_util", 26, 25, 23},
+		// util=30/20=150% → max(0,25-int(0.5*50))=max(0,25-25)=0
+		{"150pct_util", 30, 20, 0},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			var assignments []sprint.AssignmentWithSize
+			if tt.allocSize > 0 {
+				assignments = []sprint.AssignmentWithSize{
+					{EntityType: "task", Key: "T-001", Size: sizePtrR(tt.allocSize)},
+				}
+			} else {
+				// allocSize=0: unsized entity contributes 0 to totalAllocated
+				assignments = []sprint.AssignmentWithSize{
+					{EntityType: "task", Key: "T-001", Size: nil},
+				}
+			}
+			caps := []*models.SprintCapacity{{AgentType: "backend", CapacityPoints: tt.capacity}}
+			svc := makeReadinessSvc(sprintObj, assignments, caps)
+			result, err := svc.GetSprintReadiness(ctx, "S024")
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedScore, result.Factors[0].Score, "Factor1 wrong for %s", tt.name)
+		})
+	}
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_DependencySatisfaction tests TC-013-02.
+func TestSprintService_GetSprintReadiness_Factor2_DependencySatisfaction(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	t.Run("no deps → score 20", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: "[]"},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 20, result.Factors[1].Score, "no unsatisfied deps → Factor2=20")
+		assert.Equal(t, 20, result.Factors[1].MaxScore)
+	})
+
+	t.Run("1 unsatisfied dep → score 19", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: `["T-E07-F99-001"]`},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 19, result.Factors[1].Score, "1 unsatisfied dep → Factor2=19")
+	})
+
+	t.Run("dep satisfied because in sprint → score 20", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: `["T-002"]`},
+			{EntityType: "task", Key: "T-002", Size: sizePtrR(2), DependsOn: "[]"},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 20, result.Factors[1].Score, "dep in sprint → Factor2=20")
+	})
+
+	t.Run("20 unsatisfied → score 0", func(t *testing.T) {
+		// Build a depends_on JSON with 20 external tasks
+		deps := `["T-E07-F99-001","T-E07-F99-002","T-E07-F99-003","T-E07-F99-004","T-E07-F99-005","T-E07-F99-006","T-E07-F99-007","T-E07-F99-008","T-E07-F99-009","T-E07-F99-010","T-E07-F99-011","T-E07-F99-012","T-E07-F99-013","T-E07-F99-014","T-E07-F99-015","T-E07-F99-016","T-E07-F99-017","T-E07-F99-018","T-E07-F99-019","T-E07-F99-020"]`
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: deps},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.Factors[1].Score, "20 unsatisfied → Factor2=0")
+	})
+
+	t.Run("21 unsatisfied → score 0 (floor, not negative)", func(t *testing.T) {
+		deps := `["T-E07-F99-001","T-E07-F99-002","T-E07-F99-003","T-E07-F99-004","T-E07-F99-005","T-E07-F99-006","T-E07-F99-007","T-E07-F99-008","T-E07-F99-009","T-E07-F99-010","T-E07-F99-011","T-E07-F99-012","T-E07-F99-013","T-E07-F99-014","T-E07-F99-015","T-E07-F99-016","T-E07-F99-017","T-E07-F99-018","T-E07-F99-019","T-E07-F99-020","T-E07-F99-021"]`
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: deps},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.Factors[1].Score, "21 unsatisfied → Factor2=0 (floor)")
+		assert.GreaterOrEqual(t, result.Factors[1].Score, 0, "score must not be negative")
+	})
+}
+
+// TestSprintService_GetSprintReadiness_Factor3_TaskCount tests TC-013-03: BVA on entity count.
+func TestSprintService_GetSprintReadiness_Factor3_TaskCount(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	tests := []struct {
+		count    int
+		expected int
+	}{
+		{0, 0},
+		{1, 5},  // int(1/3.0*15) = 5
+		{2, 10}, // int(2/3.0*15) = 10
+		{3, 15},
+		{10, 15}, // capped
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(fmt.Sprintf("count_%d", tt.count), func(t *testing.T) {
+			assignments := make([]sprint.AssignmentWithSize, tt.count)
+			for i := range assignments {
+				assignments[i] = sprint.AssignmentWithSize{
+					EntityType: "task",
+					Key:        fmt.Sprintf("T-%03d", i+1),
+					Size:       sizePtrR(3),
+					DependsOn:  "[]",
+				}
+			}
+			svc := makeReadinessSvc(sprintObj, assignments, nil)
+			result, err := svc.GetSprintReadiness(ctx, "S024")
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result.Factors[2].Score, "Factor3 wrong for count=%d", tt.count)
+			assert.Equal(t, 15, result.Factors[2].MaxScore)
+		})
+	}
+}
+
+// TestSprintService_GetSprintReadiness_Factor4_AgentBalance tests TC-013-04.
+func TestSprintService_GetSprintReadiness_Factor4_AgentBalance(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	t.Run("all null → score 0", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{{EntityType: "task", Key: "T-001", AgentType: nil}}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.Factors[3].Score)
+		assert.Equal(t, 15, result.Factors[3].MaxScore)
+	})
+
+	t.Run("1 agent type → score 0", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", AgentType: agentPtrR("backend")},
+			{EntityType: "task", Key: "T-002", AgentType: agentPtrR("backend")},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.Factors[3].Score)
+	})
+
+	t.Run("2 agent types → score 15", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", AgentType: agentPtrR("backend")},
+			{EntityType: "task", Key: "T-002", AgentType: agentPtrR("frontend")},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 15, result.Factors[3].Score)
+	})
+
+	t.Run("3 agent types → score 15", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", AgentType: agentPtrR("backend")},
+			{EntityType: "task", Key: "T-002", AgentType: agentPtrR("frontend")},
+			{EntityType: "task", Key: "T-003", AgentType: agentPtrR("qa")},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 15, result.Factors[3].Score)
+	})
+}
+
+// TestSprintService_GetSprintReadiness_Factor5_SizingCoverage tests TC-013-05.
+func TestSprintService_GetSprintReadiness_Factor5_SizingCoverage(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	tests := []struct {
+		unsized  int
+		expected int
+	}{
+		{0, 15},
+		{1, 14},
+		{7, 8},
+		{15, 0},
+		{16, 0}, // floor
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(fmt.Sprintf("unsized_%d", tt.unsized), func(t *testing.T) {
+			total := 20
+			assignments := make([]sprint.AssignmentWithSize, total)
+			for i := range assignments {
+				if i < tt.unsized {
+					assignments[i] = sprint.AssignmentWithSize{
+						EntityType: "task",
+						Key:        fmt.Sprintf("T-U%03d", i+1),
+						Title:      fmt.Sprintf("Unsized %d", i+1),
+						Size:       nil,
+					}
+				} else {
+					assignments[i] = sprint.AssignmentWithSize{
+						EntityType: "task",
+						Key:        fmt.Sprintf("T-S%03d", i+1),
+						Size:       sizePtrR(3),
+					}
+				}
+			}
+			svc := makeReadinessSvc(sprintObj, assignments, nil)
+			result, err := svc.GetSprintReadiness(ctx, "S024")
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result.Factors[4].Score, "Factor5 wrong for unsized=%d", tt.unsized)
+			assert.Equal(t, 15, result.Factors[4].MaxScore)
+		})
+	}
+}
+
+// TestSprintService_GetSprintReadiness_Factor6_OversizedFlag tests TC-013-06.
+func TestSprintService_GetSprintReadiness_Factor6_OversizedFlag(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	t.Run("size=7 → score 10 (not oversized)", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{{EntityType: "task", Key: "T-001", Size: sizePtrR(7)}}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 10, result.Factors[5].Score)
+		assert.Equal(t, 10, result.Factors[5].MaxScore)
+	})
+
+	t.Run("size=8 boundary → score 0", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{{EntityType: "task", Key: "T-001", Title: "Big", Size: sizePtrR(8)}}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.Factors[5].Score)
+	})
+
+	t.Run("size=13 → score 0", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{{EntityType: "task", Key: "T-001", Title: "XXL", Size: sizePtrR(13)}}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.Factors[5].Score)
+	})
+}
+
+// TestSprintService_GetSprintReadiness_OverallScore tests TC-013-07:
+// OverallScore = sum of factor scores; value in [0, 100].
+func TestSprintService_GetSprintReadiness_OverallScore(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	// 3 tasks, 2 agent types, all sized, none oversized, no unsat deps, 50% util
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", Key: "T-001", Size: sizePtrR(5), AgentType: agentPtrR("backend"), DependsOn: "[]"},
+		{EntityType: "task", Key: "T-002", Size: sizePtrR(5), AgentType: agentPtrR("frontend"), DependsOn: "[]"},
+		{EntityType: "task", Key: "T-003", Size: sizePtrR(0), AgentType: agentPtrR("backend"), DependsOn: "[]"},
+	}
+	caps := []*models.SprintCapacity{{AgentType: "backend", CapacityPoints: 20}}
+
+	svc := makeReadinessSvc(sprintObj, assignments, caps)
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	total := 0
+	for _, f := range result.Factors {
+		total += f.Score
+	}
+	assert.Equal(t, total, result.OverallScore, "OverallScore must equal sum of factor scores")
+	assert.LessOrEqual(t, result.OverallScore, 100)
+	assert.GreaterOrEqual(t, result.OverallScore, 0)
+}
+
+// TestSprintService_GetSprintReadiness_ZeroEntities tests TC-013-11:
+// Zero entities → score 0, all 6 factors at 0, non-empty Detail.
+func TestSprintService_GetSprintReadiness_ZeroEntities(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	svc := makeReadinessSvc(sprintObj, []sprint.AssignmentWithSize{}, nil)
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 0, result.OverallScore)
+	require.Len(t, result.Factors, 6)
+	for i, f := range result.Factors {
+		assert.Equal(t, 0, f.Score, "Factor[%d].Score must be 0 for empty sprint", i)
+		assert.NotEmpty(t, f.Detail, "Factor[%d].Detail must not be empty", i)
+	}
+	assert.Empty(t, result.UnsizedEntities)
+	assert.Empty(t, result.OversizedEntities)
+}
+
+// TestSprintService_GetSprintReadiness_UnsizedEntitiesPopulated tests TC-013-12.
+func TestSprintService_GetSprintReadiness_UnsizedEntitiesPopulated(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", Key: "T-001", Title: "Sized", Size: sizePtrR(3)},
+		{EntityType: "task", Key: "T-002", Title: "Unsized Alpha", Size: nil},
+		{EntityType: "task", Key: "T-003", Title: "Unsized Beta", Size: nil},
+		{EntityType: "task", Key: "T-004", Title: "Also Sized", Size: sizePtrR(5)},
+	}
+
+	svc := makeReadinessSvc(sprintObj, assignments, nil)
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, result.UnsizedEntities, 2)
+	keys := map[string]bool{}
+	for _, e := range result.UnsizedEntities {
+		keys[e.Key] = true
+	}
+	assert.True(t, keys["T-002"])
+	assert.True(t, keys["T-003"])
+}
+
+// TestSprintService_GetSprintReadiness_OversizedEntitiesPopulated tests TC-013-13.
+func TestSprintService_GetSprintReadiness_OversizedEntitiesPopulated(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", Key: "T-001", Title: "Small", Size: sizePtrR(5)},
+		{EntityType: "task", Key: "T-002", Title: "Large", Size: sizePtrR(8)},  // boundary
+		{EntityType: "task", Key: "T-003", Title: "Huge", Size: sizePtrR(13)},  // oversized
+		{EntityType: "task", Key: "T-004", Title: "Medium", Size: sizePtrR(7)}, // NOT oversized
+	}
+
+	svc := makeReadinessSvc(sprintObj, assignments, nil)
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, result.OversizedEntities, 2)
+	keys := map[string]bool{}
+	for _, e := range result.OversizedEntities {
+		keys[e.Key] = true
+	}
+	assert.True(t, keys["T-002"])
+	assert.True(t, keys["T-003"])
+}
+
+// TestSprintService_GetSprintReadiness_Determinism tests TC-013-10.
+func TestSprintService_GetSprintReadiness_Determinism(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", Key: "T-001", Size: sizePtrR(5), AgentType: agentPtrR("backend"), DependsOn: "[]"},
+		{EntityType: "task", Key: "T-002", Size: sizePtrR(3), AgentType: agentPtrR("frontend"), DependsOn: "[]"},
+		{EntityType: "task", Key: "T-003", Size: nil, DependsOn: "[]"},
+	}
+	caps := []*models.SprintCapacity{{AgentType: "backend", CapacityPoints: 20}}
+
+	svc := makeReadinessSvc(sprintObj, assignments, caps)
+
+	r1, err1 := svc.GetSprintReadiness(ctx, "S024")
+	r2, err2 := svc.GetSprintReadiness(ctx, "S024")
+
+	require.NoError(t, err1)
+	require.NoError(t, err2)
+	assert.Equal(t, r1.OverallScore, r2.OverallScore)
+	for i := range r1.Factors {
+		assert.Equal(t, r1.Factors[i].Score, r2.Factors[i].Score, "Factor[%d] not deterministic", i)
+	}
+}
+
+// TestSprintService_GetSprintReadiness_TwoQueryCallCount tests TC-013-14:
+// GetAssignmentsWithSize and GetCapacity each called exactly once.
+func TestSprintService_GetSprintReadiness_TwoQueryCallCount(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	assignCalls := 0
+	capCalls := 0
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return sprintObj, nil
+		},
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			assignCalls++
+			return []sprint.AssignmentWithSize{{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: "[]"}}, nil
+		},
+	}
+	mockCapRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(_ context.Context, _ int64) ([]*models.SprintCapacity, error) {
+			capCalls++
+			return []*models.SprintCapacity{{AgentType: "backend", CapacityPoints: 10}}, nil
+		},
+	}
+
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, mockCapRepo, nil)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 1, assignCalls, "GetAssignmentsWithSize must be called exactly once")
+	assert.Equal(t, 1, capCalls, "GetCapacity must be called exactly once")
+}
+
+// TestSprintService_GetSprintReadiness_FactorLabels tests TC-013-09:
+// All 6 factors have non-empty Name, Detail, and valid MaxScore.
+func TestSprintService_GetSprintReadiness_FactorLabels(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+
+	svc := makeReadinessSvc(sprintObj, []sprint.AssignmentWithSize{
+		{EntityType: "task", Key: "T-001", Size: sizePtrR(5), DependsOn: "[]"},
+	}, nil)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	require.Len(t, result.Factors, 6)
+	for i, f := range result.Factors {
+		assert.NotEmpty(t, f.Name, "Factor[%d].Name must not be empty", i)
+		assert.NotEmpty(t, f.Detail, "Factor[%d].Detail must not be empty", i)
+		assert.GreaterOrEqual(t, f.MaxScore, 0, "Factor[%d].MaxScore must be >= 0", i)
+	}
+}
+
+// TestSprintService_GetSprintReadiness_NilAssignmentRepoError tests error path.
+func TestSprintService_GetSprintReadiness_NilAssignmentRepoError(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Status: "planning"}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, nil, nil, nil)
+
+	result, err := svc.GetSprintReadiness(ctx, "S001")
+	assert.Error(t, err)
+	assert.Nil(t, result)
+}

@@ -842,12 +842,17 @@ func (r *SprintRepository) DropAssignmentsTx(ctx context.Context, tx *sql.Tx, as
 
 // AssignmentWithSize joins sprint_assignments with entity size data.
 // Used by the service layer to compute capacity allocation and readiness scores.
+// Title is included so the service can populate UnsizedEntities/OversizedEntities
+// lists without an extra query. DependsOn is included for task dependency checking
+// (Factor 2 of the readiness score). Non-task entities always have empty DependsOn.
 type AssignmentWithSize struct {
 	EntityType string
 	EntityID   int64
 	Key        string
+	Title      string
 	AgentType  *string
 	Size       *int
+	DependsOn  string // JSON array string from tasks.depends_on; empty for non-task entities
 }
 
 // GetCapacity returns all sprint_capacity rows for a sprint, ordered by
@@ -1110,33 +1115,41 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 	return items, nil
 }
 
-// GetAssignmentsWithSize returns all active assignments for a sprint with size
-// and agent_type data joined from the appropriate entity table.
+// GetAssignmentsWithSize returns all active assignments for a sprint with size,
+// agent_type, title, and depends_on data joined from the appropriate entity table.
 // Uses a UNION ALL to join each entity type's table.
+// Title and DependsOn are included so the service can build readiness score lists
+// (UnsizedEntities, OversizedEntities) and evaluate Factor 2 (dependency satisfaction)
+// without additional queries — all computation is then purely in-memory.
 func (r *SprintRepository) GetAssignmentsWithSize(ctx context.Context, sprintID int64) ([]AssignmentWithSize, error) {
+	// Columns: entity_type, entity_id, key, title, size, agent_type, depends_on
 	query := `
-		SELECT sa.entity_type, sa.entity_id, t.key, t.size, t.agent_type
+		SELECT sa.entity_type, sa.entity_id, t.key, COALESCE(t.title,''), t.size, t.agent_type,
+		       COALESCE(t.depends_on, '[]')
 		FROM sprint_assignments sa
 		JOIN tasks t ON sa.entity_id = t.id
 		WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = 'task'
 
 		UNION ALL
 
-		SELECT sa.entity_type, sa.entity_id, b.key, b.size, NULL AS agent_type
+		SELECT sa.entity_type, sa.entity_id, b.key, COALESCE(b.title,''), b.size, NULL AS agent_type,
+		       '[]' AS depends_on
 		FROM sprint_assignments sa
 		JOIN bugs b ON sa.entity_id = b.id
 		WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = 'bug'
 
 		UNION ALL
 
-		SELECT sa.entity_type, sa.entity_id, cc.key, cc.size, NULL AS agent_type
+		SELECT sa.entity_type, sa.entity_id, cc.key, COALESCE(cc.title,''), cc.size, NULL AS agent_type,
+		       '[]' AS depends_on
 		FROM sprint_assignments sa
 		JOIN change_cards cc ON sa.entity_id = cc.id
 		WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = 'change_card'
 
 		UNION ALL
 
-		SELECT sa.entity_type, sa.entity_id, td.key, td.size, NULL AS agent_type
+		SELECT sa.entity_type, sa.entity_id, td.key, COALESCE(td.title,''), td.size, NULL AS agent_type,
+		       '[]' AS depends_on
 		FROM sprint_assignments sa
 		JOIN tech_debts td ON sa.entity_id = td.id
 		WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = 'tech_debt'
@@ -1152,7 +1165,7 @@ func (r *SprintRepository) GetAssignmentsWithSize(ctx context.Context, sprintID 
 		var a AssignmentWithSize
 		var agentType sql.NullString
 		var size sql.NullInt64
-		if err := rows.Scan(&a.EntityType, &a.EntityID, &a.Key, &size, &agentType); err != nil {
+		if err := rows.Scan(&a.EntityType, &a.EntityID, &a.Key, &a.Title, &size, &agentType, &a.DependsOn); err != nil {
 			return nil, fmt.Errorf("failed to scan assignment with size: %w", err)
 		}
 		if agentType.Valid {

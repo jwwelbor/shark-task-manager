@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -1429,4 +1430,557 @@ func (s *SprintService) GetSprintCapacity(ctx context.Context, key string) ([]Ca
 	}
 
 	return rows, nil
+}
+
+// ---------------------------------------------------------------------------
+// GetSprintReadiness — T-E19-F05-005
+// ---------------------------------------------------------------------------
+
+// ReadinessFactor is a single factor in the sprint readiness score.
+type ReadinessFactor struct {
+	// Name is the human-readable label (e.g., "Capacity utilization").
+	Name string `json:"name"`
+	// Score is the factor's individual score within [0, MaxScore].
+	Score int `json:"score"`
+	// MaxScore is the maximum possible score for this factor.
+	MaxScore int `json:"max_score"`
+	// Detail is a one-line explanation of this factor's result.
+	Detail string `json:"detail"`
+}
+
+// SprintReadiness is the output of GetSprintReadiness.
+// It contains the overall score (0-100), per-factor breakdown, and entity lists.
+type SprintReadiness struct {
+	// OverallScore is the sum of all factor scores, capped at 100.
+	OverallScore int `json:"overall_score"`
+	// Factors contains exactly 6 ReadinessFactor entries.
+	Factors []ReadinessFactor `json:"factors"`
+	// UnsizedEntities lists assigned entities with size IS NULL.
+	UnsizedEntities []sprint.BacklogItem `json:"unsized_entities"`
+	// OversizedEntities lists assigned entities with size >= 8.
+	OversizedEntities []sprint.BacklogItem `json:"oversized_entities"`
+}
+
+// GetSprintReadiness computes the 0-100 readiness score for a sprint.
+//
+// Fetches data via exactly two repository calls:
+//  1. assignmentRepo.GetAssignmentsWithSize — all active assignments with size, title, depends_on
+//  2. capacityRepo.GetCapacity — all capacity rows for the sprint
+//
+// All six factor scores are then computed in-memory — no additional DB queries per factor.
+// The result is deterministic: identical inputs always produce the same output.
+//
+// Six factors (total max: 100):
+//  1. Capacity utilization     (0-25)
+//  2. Dependency satisfaction  (0-20)
+//  3. Task count               (0-15)
+//  4. Agent balance            (0-15)
+//  5. Sizing coverage          (0-15)
+//  6. Oversized-entity flag    (0-10)
+func (s *SprintService) GetSprintReadiness(ctx context.Context, key string) (*SprintReadiness, error) {
+	// Require assignmentRepo: readiness scoring requires assignment data.
+	if s.assignmentRepo == nil {
+		return nil, fmt.Errorf("GetSprintReadiness requires assignmentRepo; service was constructed without one")
+	}
+
+	// Resolve sprint key → ID (one repo call via SprintRepository).
+	sprintEntity, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sprint %q for readiness: %w", key, err)
+	}
+
+	// ─── Query 1 of 2: assignments with size, title, depends_on ────────────
+	assignments, err := s.assignmentRepo.GetAssignmentsWithSize(ctx, sprintEntity.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assignments for sprint %s readiness: %w", key, err)
+	}
+
+	// ─── Query 2 of 2: capacity rows ───────────────────────────────────────
+	var capacities []*models.SprintCapacity
+	if s.capacityRepo != nil {
+		capacities, err = s.capacityRepo.GetCapacity(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get capacity for sprint %s readiness: %w", key, err)
+		}
+	}
+
+	// ─── In-memory computation only from here ──────────────────────────────
+	totalEntities := len(assignments)
+
+	// Build an index of assigned task keys for Factor 2 dependency check.
+	assignedKeys := make(map[string]bool, totalEntities)
+	for _, a := range assignments {
+		assignedKeys[strings.ToUpper(a.Key)] = true
+	}
+
+	// Aggregate capacity totals for Factor 1.
+	var totalCapacity, totalAllocated float64
+	for _, c := range capacities {
+		totalCapacity += c.CapacityPoints
+	}
+	for _, a := range assignments {
+		if a.Size != nil {
+			totalAllocated += float64(*a.Size)
+		}
+	}
+
+	// Build UnsizedEntities and OversizedEntities lists (for JSON output).
+	var unsized, oversized []sprint.BacklogItem
+	for _, a := range assignments {
+		if a.Size == nil {
+			unsized = append(unsized, sprint.BacklogItem{Key: a.Key, Title: a.Title})
+		} else if *a.Size >= 8 {
+			oversized = append(oversized, sprint.BacklogItem{Key: a.Key, Title: a.Title})
+		}
+	}
+	if unsized == nil {
+		unsized = []sprint.BacklogItem{}
+	}
+	if oversized == nil {
+		oversized = []sprint.BacklogItem{}
+	}
+
+	// ─── Zero-entity degenerate case (spec AC-12) ──────────────────────────
+	// When no entities are assigned, the overall score is 0 and all factor
+	// scores are also 0, regardless of what individual formulae would produce.
+	if totalEntities == 0 {
+		emptyFactors := []ReadinessFactor{
+			{Name: "Capacity utilization", Score: 0, MaxScore: 25, Detail: "Sprint has no assigned entities"},
+			{Name: "Dependency satisfaction", Score: 0, MaxScore: 20, Detail: "Sprint has no assigned entities"},
+			{Name: "Task count", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
+			{Name: "Agent balance", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
+			{Name: "Sizing coverage", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
+			{Name: "Oversized-entity flag", Score: 0, MaxScore: 10, Detail: "Sprint has no assigned entities"},
+		}
+		return &SprintReadiness{
+			OverallScore:      0,
+			Factors:           emptyFactors,
+			UnsizedEntities:   unsized,
+			OversizedEntities: oversized,
+		}, nil
+	}
+
+	// ─── Factor 1: Capacity utilization (0-25) ─────────────────────────────
+	f1 := computeCapacityUtilizationFactor(totalCapacity, totalAllocated)
+
+	// ─── Factor 2: Dependency satisfaction (0-20) ──────────────────────────
+	f2 := computeDependencySatisfactionFactor(assignments, assignedKeys)
+
+	// ─── Factor 3: Task count (0-15) ───────────────────────────────────────
+	f3 := computeTaskCountFactor(totalEntities)
+
+	// ─── Factor 4: Agent balance (0-15) ────────────────────────────────────
+	f4 := computeAgentBalanceFactor(assignments)
+
+	// ─── Factor 5: Sizing coverage (0-15) ──────────────────────────────────
+	f5 := computeSizingCoverageFactor(assignments)
+
+	// ─── Factor 6: Oversized-entity flag (0-10) ────────────────────────────
+	f6 := computeOversizedEntityFactor(assignments)
+
+	factors := []ReadinessFactor{f1, f2, f3, f4, f5, f6}
+
+	overall := 0
+	for _, f := range factors {
+		overall += f.Score
+	}
+	if overall > 100 {
+		overall = 100
+	}
+
+	return &SprintReadiness{
+		OverallScore:      overall,
+		Factors:           factors,
+		UnsizedEntities:   unsized,
+		OversizedEntities: oversized,
+	}, nil
+}
+
+// computeCapacityUtilizationFactor computes Factor 1 (Capacity utilization, 0-25).
+//
+// Algorithm from spec §2.4:
+//
+//	if totalCapacity == 0: score = 0
+//	utilization = totalAllocated / totalCapacity
+//	if 0.5 <= utilization <= 1.0: score = 25
+//	elif utilization > 1.0: score = max(0, 25 - int((utilization-1.0)*50))
+//	else: score = int(utilization / 0.5 * 25)
+func computeCapacityUtilizationFactor(totalCapacity, totalAllocated float64) ReadinessFactor {
+	const maxScore = 25
+	name := "Capacity utilization"
+
+	if totalCapacity == 0 {
+		return ReadinessFactor{
+			Name:     name,
+			Score:    0,
+			MaxScore: maxScore,
+			Detail:   "No capacity configured for this sprint",
+		}
+	}
+
+	utilization := totalAllocated / totalCapacity
+	var score int
+	var detail string
+
+	switch {
+	case utilization >= 0.5 && utilization <= 1.0:
+		score = 25
+		detail = fmt.Sprintf("Utilization %.0f%% is in the optimal range (50-100%%)", utilization*100)
+	case utilization > 1.0:
+		penalty := int((utilization - 1.0) * 50)
+		score = maxScore - penalty
+		if score < 0 {
+			score = 0
+		}
+		detail = fmt.Sprintf("Overcommitted at %.0f%% — penalty applied", utilization*100)
+	default:
+		// utilization < 0.5
+		score = int(utilization / 0.5 * 25)
+		detail = fmt.Sprintf("Utilization %.0f%% is below 50%% — sprint is under-loaded", utilization*100)
+	}
+
+	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
+}
+
+// computeDependencySatisfactionFactor computes Factor 2 (Dependency satisfaction, 0-20).
+//
+// For each task in the sprint, parses depends_on JSON ([]string of task keys).
+// A dependency is "satisfied" if the dependency key is also assigned to the sprint.
+// Unsatisfied = dependencies not in the sprint's assigned key set.
+// score = max(0, 20 - unsatisfied_count)
+//
+// Non-task entities are excluded (bugs/changes/tech-debts have no depends_on).
+func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize, assignedKeys map[string]bool) ReadinessFactor {
+	const maxScore = 20
+	name := "Dependency satisfaction"
+
+	unsatisfied := 0
+	for _, a := range assignments {
+		if a.EntityType != "task" || a.DependsOn == "" || a.DependsOn == "[]" || a.DependsOn == "null" {
+			continue
+		}
+		// Parse depends_on as []string
+		var deps []string
+		if err := json.Unmarshal([]byte(a.DependsOn), &deps); err != nil {
+			// Malformed JSON — treat as no dependencies (graceful degradation)
+			continue
+		}
+		for _, dep := range deps {
+			if !assignedKeys[strings.ToUpper(dep)] {
+				unsatisfied++
+			}
+		}
+	}
+
+	score := maxScore - unsatisfied
+	if score < 0 {
+		score = 0
+	}
+
+	var detail string
+	if unsatisfied == 0 {
+		detail = "All task dependencies are satisfied (assigned or already completed)"
+	} else {
+		detail = fmt.Sprintf("%d unsatisfied external task dependenc%s", unsatisfied,
+			map[bool]string{true: "y", false: "ies"}[unsatisfied == 1])
+	}
+
+	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
+}
+
+// computeTaskCountFactor computes Factor 3 (Task count, 0-15).
+//
+// Algorithm from spec §2.4:
+//
+//	if totalEntities == 0: score = 0
+//	elif totalEntities >= 3: score = 15
+//	else: score = int(totalEntities / 3.0 * 15)
+func computeTaskCountFactor(totalEntities int) ReadinessFactor {
+	const maxScore = 15
+	name := "Task count"
+
+	var score int
+	var detail string
+	switch {
+	case totalEntities == 0:
+		score = 0
+		detail = "Sprint has no assigned entities"
+	case totalEntities >= 3:
+		score = 15
+		detail = fmt.Sprintf("%d entities assigned — at or above the minimum of 3", totalEntities)
+	default:
+		score = int(float64(totalEntities) / 3.0 * 15)
+		detail = fmt.Sprintf("%d %s assigned — below the recommended minimum of 3",
+			totalEntities, map[bool]string{true: "entity", false: "entities"}[totalEntities == 1])
+	}
+
+	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
+}
+
+// computeAgentBalanceFactor computes Factor 4 (Agent balance, 0-15).
+//
+// 15 pts if >=2 distinct non-nil agent_type values are present; 0 pts otherwise.
+func computeAgentBalanceFactor(assignments []sprint.AssignmentWithSize) ReadinessFactor {
+	const maxScore = 15
+	name := "Agent balance"
+
+	distinct := make(map[string]bool)
+	for _, a := range assignments {
+		if a.AgentType != nil && *a.AgentType != "" {
+			distinct[*a.AgentType] = true
+		}
+	}
+
+	var score int
+	var detail string
+	if len(distinct) >= 2 {
+		score = 15
+		detail = fmt.Sprintf("%d distinct agent types present — sprint is well balanced", len(distinct))
+	} else if len(distinct) == 1 {
+		score = 0
+		for at := range distinct {
+			detail = fmt.Sprintf("Only one agent type (%s) — consider adding cross-functional work", at)
+		}
+	} else {
+		score = 0
+		detail = "No agent types assigned — sprint has no attributed work"
+	}
+
+	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
+}
+
+// computeSizingCoverageFactor computes Factor 5 (Sizing coverage, 0-15).
+//
+// 15 pts if all entities have non-nil size; 1 pt deducted per unsized entity, floor 0.
+func computeSizingCoverageFactor(assignments []sprint.AssignmentWithSize) ReadinessFactor {
+	const maxScore = 15
+	name := "Sizing coverage"
+
+	unsizedCount := 0
+	for _, a := range assignments {
+		if a.Size == nil {
+			unsizedCount++
+		}
+	}
+
+	score := maxScore - unsizedCount
+	if score < 0 {
+		score = 0
+	}
+
+	var detail string
+	if unsizedCount == 0 {
+		detail = "All assigned entities have a size estimate"
+	} else {
+		detail = fmt.Sprintf("%d unsized %s — add size estimates to improve planning accuracy",
+			unsizedCount, map[bool]string{true: "entity", false: "entities"}[unsizedCount == 1])
+	}
+
+	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
+}
+
+// computeOversizedEntityFactor computes Factor 6 (Oversized-entity flag, 0-10).
+//
+// 10 pts if no assigned entity has size >= 8; 0 pts if any such entity exists.
+// Per spec §1.1.3 AC-7 and .claude/rules/development-workflows.md: L/XL/XXL = size 8+.
+func computeOversizedEntityFactor(assignments []sprint.AssignmentWithSize) ReadinessFactor {
+	const maxScore = 10
+	name := "Oversized-entity flag"
+
+	oversizedCount := 0
+	for _, a := range assignments {
+		if a.Size != nil && *a.Size >= 8 {
+			oversizedCount++
+		}
+	}
+
+	var score int
+	var detail string
+	if oversizedCount == 0 {
+		score = 10
+		detail = "No oversized entities (size >= 8) — all work items are appropriately sized"
+	} else {
+		score = 0
+		detail = fmt.Sprintf("%d oversized %s (size >= 8) — consider breaking them down before sprint start",
+			oversizedCount, map[bool]string{true: "entity", false: "entities"}[oversizedCount == 1])
+	}
+
+	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
+}
+
+// ---------------------------------------------------------------------------
+// PlanSprint — T-E19-F05-004
+// ---------------------------------------------------------------------------
+
+// SprintPlanView is the composite output of PlanSprint.
+// It aggregates the unassigned backlog, capacity utilization, and readiness score
+// so CLI formatters can render the three planning sections without additional calls.
+type SprintPlanView struct {
+	Sprint    *models.Sprint       `json:"sprint"`
+	Backlog   []sprint.BacklogItem `json:"backlog"`   // unassigned entities eligible for assignment
+	Capacity  []CapacityRow        `json:"capacity"`  // per agent-type capacity vs. allocation
+	Readiness *SprintReadiness     `json:"readiness"` // 0-100 readiness score with factor breakdown
+}
+
+// PlanSprint returns the composite planning view for a sprint.
+//
+// The view contains three sections rendered by the CLI:
+//  1. Backlog: unassigned entities eligible for assignment (all entity types)
+//  2. Capacity: per-agent-type capacity vs. allocated story points
+//  3. Readiness: 0-100 readiness score with 6-factor breakdown
+//
+// Implementation strategy:
+//   - Step 1: Resolve sprint key → entity (one GetByKey call)
+//   - Step 2: List unassigned backlog from assignmentRepo (all types)
+//   - Step 3: GetAssignmentsWithSize for the resolved sprint ID (capacity + readiness)
+//   - Step 4: GetCapacity for the resolved sprint ID (capacity + readiness)
+//   - Steps 5-6: Compute CapacityRow slice and SprintReadiness in-memory
+//
+// When assignmentRepo or capacityRepo is nil, the corresponding sections
+// degrade gracefully to empty slices and a score-0 readiness.
+func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlanView, error) {
+	// Step 1: Resolve sprint key → entity.
+	sprintEntity, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sprint %q for plan: %w", key, err)
+	}
+
+	// Step 2: Fetch unassigned backlog (all entity types).
+	var backlog []sprint.BacklogItem
+	if s.assignmentRepo != nil {
+		allTypes := []string{"task", "bug", "change_card", "tech_debt"}
+		backlog, err = s.assignmentRepo.ListUnassignedBacklog(ctx, allTypes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list unassigned backlog for sprint %s plan: %w", key, err)
+		}
+	}
+	if backlog == nil {
+		backlog = []sprint.BacklogItem{}
+	}
+
+	// Step 3: Fetch assignments with size (shared by capacity computation and readiness).
+	var assignments []sprint.AssignmentWithSize
+	if s.assignmentRepo != nil {
+		assignments, err = s.assignmentRepo.GetAssignmentsWithSize(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get assignments for sprint %s plan: %w", key, err)
+		}
+	}
+
+	// Step 4: Fetch capacity rows (shared by capacity computation and readiness).
+	var capacityModels []*models.SprintCapacity
+	if s.capacityRepo != nil {
+		capacityModels, err = s.capacityRepo.GetCapacity(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get capacity for sprint %s plan: %w", key, err)
+		}
+	}
+
+	// Step 5: Compute CapacityRow slice in-memory.
+	capacity := planComputeCapacityRows(assignments, capacityModels)
+
+	// Step 6: Compute SprintReadiness in-memory (uses the same factor algorithms as GetSprintReadiness).
+	readiness := planComputeReadiness(assignments, capacityModels)
+
+	return &SprintPlanView{
+		Sprint:    sprintEntity,
+		Backlog:   backlog,
+		Capacity:  capacity,
+		Readiness: readiness,
+	}, nil
+}
+
+// planComputeCapacityRows builds CapacityRow slice from in-memory data.
+// Separated from GetSprintCapacity to avoid coupling PlanSprint to the two-query contract
+// of GetSprintCapacity (which always issues two queries even when no capacity rows exist).
+func planComputeCapacityRows(assignments []sprint.AssignmentWithSize, capacityModels []*models.SprintCapacity) []CapacityRow {
+	if len(capacityModels) == 0 {
+		return []CapacityRow{}
+	}
+	allocatedByAgent := make(map[string]float64)
+	unsizedByAgent := make(map[string]int)
+	for _, a := range assignments {
+		if a.AgentType == nil || *a.AgentType == "" {
+			continue
+		}
+		agent := *a.AgentType
+		if a.Size == nil {
+			unsizedByAgent[agent]++
+		} else {
+			allocatedByAgent[agent] += float64(*a.Size)
+		}
+	}
+	rows := make([]CapacityRow, 0, len(capacityModels))
+	for _, c := range capacityModels {
+		alloc := allocatedByAgent[c.AgentType]
+		rows = append(rows, CapacityRow{
+			AgentType:       c.AgentType,
+			CapacityPoints:  c.CapacityPoints,
+			AllocatedPoints: alloc,
+			Remaining:       c.CapacityPoints - alloc,
+			UnsizedAssigned: unsizedByAgent[c.AgentType],
+		})
+	}
+	return rows
+}
+
+// planComputeReadiness computes SprintReadiness from in-memory assignment and capacity data.
+// Delegates to the same factor helper functions used by GetSprintReadiness so both paths
+// produce identical output for identical inputs (determinism guarantee).
+func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
+	// Aggregate capacity and allocated totals for Factor 1.
+	var totalCapacity, totalAllocated float64
+	for _, c := range capacities {
+		totalCapacity += c.CapacityPoints
+	}
+	for _, a := range assignments {
+		if a.Size != nil {
+			totalAllocated += float64(*a.Size)
+		}
+	}
+
+	// Build assigned-keys map for Factor 2 dependency check.
+	assignedKeys := make(map[string]bool, len(assignments))
+	for _, a := range assignments {
+		assignedKeys[strings.ToUpper(a.Key)] = true
+	}
+
+	// Collect unsized and oversized lists.
+	var unsized, oversized []sprint.BacklogItem
+	for _, a := range assignments {
+		if a.Size == nil {
+			unsized = append(unsized, sprint.BacklogItem{Key: a.Key, Title: a.Title})
+		} else if *a.Size >= 8 {
+			oversized = append(oversized, sprint.BacklogItem{Key: a.Key, Title: a.Title})
+		}
+	}
+	if unsized == nil {
+		unsized = []sprint.BacklogItem{}
+	}
+	if oversized == nil {
+		oversized = []sprint.BacklogItem{}
+	}
+
+	f1 := computeCapacityUtilizationFactor(totalCapacity, totalAllocated)
+	f2 := computeDependencySatisfactionFactor(assignments, assignedKeys)
+	f3 := computeTaskCountFactor(len(assignments))
+	f4 := computeAgentBalanceFactor(assignments)
+	f5 := computeSizingCoverageFactor(assignments)
+	f6 := computeOversizedEntityFactor(assignments)
+
+	factors := []ReadinessFactor{f1, f2, f3, f4, f5, f6}
+	overall := 0
+	for _, f := range factors {
+		overall += f.Score
+	}
+	if overall > 100 {
+		overall = 100
+	}
+
+	return &SprintReadiness{
+		OverallScore:      overall,
+		Factors:           factors,
+		UnsizedEntities:   unsized,
+		OversizedEntities: oversized,
+	}
 }
