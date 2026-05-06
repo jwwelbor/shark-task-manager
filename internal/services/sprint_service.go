@@ -10,6 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -26,6 +27,7 @@ type SprintRepository interface {
 	Update(ctx context.Context, s *models.Sprint) error
 	Delete(ctx context.Context, id int64) error
 	UpdateStatus(ctx context.Context, id int64, status models.SprintStatus) error
+	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error
 	GetNextKey(ctx context.Context) (string, error)
 	List(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
 
@@ -90,19 +92,20 @@ type SprintService struct {
 	assignmentRepo SprintAssignmentQueryRepository // optional: nil-safe
 	capacityRepo   SprintCapacityRepository        // optional: nil-safe
 	cfg            *config.Config                  // optional: nil-safe; used for sprint_defaults
+	db             *repository.DB                  // optional: nil-safe; required for CloseSprintWithCarryover
 }
 
 // NewSprintService creates a SprintService with dependency injection.
 // Panics if repo or workflowSvc is nil.
-// assignmentRepo, capacityRepo, and cfg are optional (nil-safe) and degrade gracefully.
-// Existing callers that pass only (repo, workflowSvc) must be updated to the 5-argument form;
-// pass nil for the optional parameters to preserve previous behaviour.
+// assignmentRepo, capacityRepo, cfg, and db are optional (nil-safe) and degrade gracefully.
+// db is required only for CloseSprintWithCarryover (transaction support); pass nil to skip it.
 func NewSprintService(
 	repo SprintRepository,
 	workflowSvc *workflow.Service,
 	assignmentRepo SprintAssignmentQueryRepository,
 	capacityRepo SprintCapacityRepository,
 	cfg *config.Config,
+	db ...*repository.DB,
 ) *SprintService {
 	if repo == nil {
 		panic("SprintRepository cannot be nil")
@@ -111,13 +114,18 @@ func NewSprintService(
 		panic("workflow.Service cannot be nil")
 	}
 
-	return &SprintService{
+	svc := &SprintService{
 		repo:           repo,
 		workflowSvc:    workflowSvc.ForLevel("sprint"),
 		assignmentRepo: assignmentRepo,
 		capacityRepo:   capacityRepo,
 		cfg:            cfg,
 	}
+	// db is optional variadic; take the first value if provided.
+	if len(db) > 0 && db[0] != nil {
+		svc.db = db[0]
+	}
+	return svc
 }
 
 // CreateSprint creates a new sprint with validation.
@@ -668,6 +676,164 @@ func (s *SprintService) RemoveEntityFromSprint(ctx context.Context, sprintKey, e
 	return nil
 }
 
+// ---------------------------------------------------------------------------
+// GetSprintBacklog types and method — T-E19-F03-006
+// ---------------------------------------------------------------------------
+
+// BacklogOptions carries filter parameters for the backlog view.
+// EntityType is "" for all types; "task", "bug", "change_card", "tech_debt" to filter.
+// BlockedOnly limits results to entities in a blocked-equivalent workflow status.
+type BacklogOptions struct {
+	EntityType  string // "" = all types
+	BlockedOnly bool
+}
+
+// SprintBacklog is the return value of GetSprintBacklog.
+type SprintBacklog struct {
+	SprintKey         string
+	SprintName        string
+	TotalCount        int
+	CompletedCount    int
+	CompletionPercent float64
+	Groups            []*BacklogGroup // ordered by status phase
+}
+
+// BacklogGroup is a set of entities sharing the same status category.
+type BacklogGroup struct {
+	StatusCategory string // e.g., "in_progress", "todo", "completed", "blocked"
+	Items          []*BacklogItemView
+}
+
+// BacklogItemView is the CLI-friendly projection of a BacklogItem.
+type BacklogItemView struct {
+	EntityType  string `json:"entity_type"`
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	AgentType   string `json:"agent_type,omitempty"`
+	Priority    int    `json:"priority,omitempty"`
+	Size        *int   `json:"size,omitempty"`
+	DaysBlocked int    `json:"days_blocked,omitempty"` // For --blocked view
+}
+
+// validBacklogEntityTypes is the allowlist of entity types accepted by GetSprintBacklog's
+// EntityType filter. The service validates against this set before passing to the repository
+// to prevent invalid values from reaching the UNION query.
+var validBacklogEntityTypes = map[string]bool{
+	"task":        true,
+	"bug":         true,
+	"change_card": true,
+	"tech_debt":   true,
+}
+
+// GetSprintBacklog returns all entities assigned to a sprint, grouped by status.
+//
+// The method:
+//  1. Resolves the sprint by key.
+//  2. Validates the optional entity-type filter (returns error for invalid types).
+//  3. Asks workflow.Service for the blocked-status set when BlockedOnly=true.
+//  4. Calls repo.ListBacklog to fetch raw items.
+//  5. Groups items by status into BacklogGroup slices.
+//  6. Computes CompletionPercent as float64 (completed / total * 100); returns 0.0 when total=0
+//     (no divide-by-zero).
+//
+// The blocked-status set is delegated to workflow.Service so that custom workflow
+// configurations with non-standard "blocked" status names are handled correctly.
+func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error) {
+	// Step 1: Resolve sprint
+	sprintEntity, err := s.repo.GetByKey(ctx, sprintKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sprint %s for backlog: %w", sprintKey, err)
+	}
+
+	// Step 2: Validate entity type filter
+	var entityTypeFilter *string
+	if opts.EntityType != "" {
+		if !validBacklogEntityTypes[opts.EntityType] {
+			return nil, fmt.Errorf(
+				"invalid entity type %q: must be one of task, bug, change_card, tech_debt",
+				opts.EntityType,
+			)
+		}
+		entityTypeFilter = &opts.EntityType
+	}
+
+	// Step 3: Determine blocked statuses from workflow service (never hardcode "blocked")
+	var blockedStatuses []string
+	if opts.BlockedOnly {
+		blockedStatuses = s.workflowSvc.GetStatusesByPhase("blocked")
+		if len(blockedStatuses) == 0 {
+			// Fallback: use "blocked" as the default if the workflow has no "blocked" phase
+			blockedStatuses = []string{"blocked"}
+		}
+	}
+
+	// Step 4: Fetch raw backlog items from repository
+	items, err := s.repo.ListBacklog(ctx, sprintEntity.ID, entityTypeFilter, opts.BlockedOnly, blockedStatuses...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list backlog for sprint %s: %w", sprintKey, err)
+	}
+
+	// Step 5: Group items by status category
+	// Use ordered insertion to keep groups stable across calls.
+	groupOrder := make([]string, 0)
+	groupMap := make(map[string]*BacklogGroup)
+
+	totalCount := len(items)
+	completedCount := 0
+
+	for _, item := range items {
+		view := &BacklogItemView{
+			EntityType: item.EntityType,
+			Key:        item.Key,
+			Title:      item.Title,
+			Status:     item.Status,
+			Priority:   item.Priority,
+			Size:       item.Size,
+		}
+		if item.AgentType != nil {
+			view.AgentType = *item.AgentType
+		}
+
+		// Count completed items for CompletionPercent
+		if s.workflowSvc.IsTerminalStatus(item.Status) {
+			completedCount++
+		}
+
+		// Group by status
+		category := item.Status
+		if _, exists := groupMap[category]; !exists {
+			groupMap[category] = &BacklogGroup{
+				StatusCategory: category,
+				Items:          []*BacklogItemView{},
+			}
+			groupOrder = append(groupOrder, category)
+		}
+		groupMap[category].Items = append(groupMap[category].Items, view)
+	}
+
+	// Build ordered groups slice
+	groups := make([]*BacklogGroup, 0, len(groupOrder))
+	for _, status := range groupOrder {
+		groups = append(groups, groupMap[status])
+	}
+
+	// Step 6: Compute CompletionPercent using float64 division (never integer)
+	var completionPercent float64
+	if totalCount > 0 {
+		completionPercent = float64(completedCount) / float64(totalCount) * 100.0
+	}
+
+	return &SprintBacklog{
+		SprintKey:         sprintKey,
+		SprintName:        sprintEntity.Name,
+		TotalCount:        totalCount,
+		CompletedCount:    completedCount,
+		CompletionPercent: completionPercent,
+		Groups:            groups,
+	}, nil
+}
+
 // ArchiveSprint transitions a sprint to completed status.
 // This marks the sprint as done and archives it from active consideration.
 //
@@ -705,4 +871,415 @@ func (s *SprintService) ArchiveSprint(ctx context.Context, key string) (*models.
 	}
 
 	return updated, nil
+}
+
+// ---------------------------------------------------------------------------
+// BulkAddToSprint — T-E19-F03-008
+// ---------------------------------------------------------------------------
+
+// BulkAddInput specifies what to bulk-assign to a sprint.
+//
+// Exactly one of FeatureKey or EntityTypes should be provided:
+//   - FeatureKey: bulk-assign tasks from the named feature (e.g., "E07-F34").
+//   - EntityTypes: bulk-assign all open entities of the given types (e.g., ["bug", "tech_debt"]).
+//
+// If both are provided, FeatureKey takes precedence. If neither is provided,
+// all unassigned entities of all types are bulk-assigned.
+type BulkAddInput struct {
+	// SprintKey identifies the target sprint (e.g., "S024"). Required.
+	SprintKey string
+
+	// FeatureKey limits bulk-assignment to tasks from this feature (e.g., "E07-F34").
+	// When set, only tasks whose key has this feature as a prefix are considered.
+	// Mutually exclusive with EntityTypes (FeatureKey wins if both set).
+	FeatureKey string
+
+	// EntityTypes limits bulk-assignment to these entity types (e.g., ["bug", "change_card"]).
+	// Valid values: "task", "bug", "change_card", "tech_debt".
+	// Empty slice means all supported types.
+	EntityTypes []string
+}
+
+// BulkAddResult summarises the outcome of a BulkAddToSprint call.
+type BulkAddResult struct {
+	// AddedByType maps entity_type -> count of entities successfully added.
+	AddedByType map[string]int
+
+	// SkippedByType maps entity_type -> count of entities skipped
+	// (already assigned to an active/planning sprint, or in a non-assignable status).
+	SkippedByType map[string]int
+
+	// CapacityWarnings is non-nil when the bulk assignment pushed one or more
+	// agent types over their configured capacity. Advisory only — never blocks.
+	CapacityWarnings []*CapacityWarning
+}
+
+// BulkAddToSprint assigns multiple eligible entities to a sprint in one operation.
+//
+// "Eligible" means:
+//   - Entity is not already actively assigned to another sprint.
+//   - When FeatureKey is set, task key must match the feature key prefix.
+//
+// The method calls assignmentRepo.ListUnassignedBacklog to discover candidates,
+// then optionally filters by FeatureKey, then calls assignmentRepo.BulkAssign
+// for the eligible subset. Already-assigned entities are silently skipped (not errors).
+//
+// Returns a BulkAddResult with per-type counts. A nil assignmentRepo is
+// a configuration error and returns an error immediately.
+func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput) (*BulkAddResult, error) {
+	// Require assignmentRepo: BulkAddToSprint cannot work without it.
+	if s.assignmentRepo == nil {
+		return nil, fmt.Errorf("BulkAddToSprint requires assignmentRepo; service was constructed without one")
+	}
+
+	// Step 1: Resolve sprint — confirm it exists.
+	sprintEntity, err := s.repo.GetByKey(ctx, input.SprintKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sprint %q for bulk add: %w", input.SprintKey, err)
+	}
+
+	// Step 2: Determine which entity types to consider.
+	entityTypes := input.EntityTypes
+	if input.FeatureKey != "" {
+		// Feature-based bulk: only tasks qualify (features contain tasks, not bugs/etc).
+		entityTypes = []string{"task"}
+	}
+
+	// Step 3: Discover unassigned candidates from the repository.
+	// ListUnassignedBacklog already excludes entities in active/planning sprints.
+	candidates, err := s.assignmentRepo.ListUnassignedBacklog(ctx, entityTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list unassigned backlog for bulk add to sprint %s: %w",
+			input.SprintKey, err)
+	}
+
+	result := &BulkAddResult{
+		AddedByType:   make(map[string]int),
+		SkippedByType: make(map[string]int),
+	}
+
+	// Step 4: Apply FeatureKey filter if set.
+	// A task key belonging to feature "E07-F34" has the form "T-E07-F34-NNN" or "E07-F34-NNN".
+	// We normalise the feature key to uppercase and check that the entity key contains it.
+	var filtered []sprint.BacklogItem
+	if input.FeatureKey != "" {
+		featurePrefix := strings.ToUpper(strings.TrimSpace(input.FeatureKey))
+		for _, c := range candidates {
+			upperKey := strings.ToUpper(c.Key)
+			// Match keys of the form "T-E07-F34-001" or "E07-F34-001".
+			// The feature prefix "E07-F34" matches when the task key contains "-E07-F34-"
+			// or starts with "E07-F34-" (short format).
+			if strings.Contains(upperKey, "-"+featurePrefix+"-") ||
+				strings.HasPrefix(upperKey, featurePrefix+"-") {
+				filtered = append(filtered, c)
+			} else {
+				result.SkippedByType[c.EntityType]++
+			}
+		}
+	} else {
+		filtered = candidates
+	}
+
+	// Step 5: Convert filtered items to SprintAssignment for BulkAssign.
+	if len(filtered) == 0 {
+		return result, nil
+	}
+
+	toAssign := make([]models.SprintAssignment, 0, len(filtered))
+	for _, item := range filtered {
+		toAssign = append(toAssign, models.SprintAssignment{
+			SprintID:   sprintEntity.ID,
+			EntityType: item.EntityType,
+			EntityID:   item.EntityID,
+		})
+	}
+
+	// Step 6: Perform the bulk insert. BulkAssign uses INSERT OR IGNORE to skip
+	// any entity that gained an active assignment between ListUnassignedBacklog and now.
+	inserted, err := s.assignmentRepo.BulkAssign(ctx, sprintEntity.ID, toAssign)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bulk assign to sprint %s: %w", input.SprintKey, err)
+	}
+
+	// Step 7: Compute per-type counts from the inserted vs. filtered totals.
+	// BulkAssign returns a total inserted count; we attribute per-type from the candidate list.
+	filteredByType := make(map[string]int)
+	for _, item := range filtered {
+		filteredByType[item.EntityType]++
+	}
+
+	skippedTotal := len(filtered) - inserted
+	for et, count := range filteredByType {
+		if skippedTotal <= 0 {
+			result.AddedByType[et] += count
+		} else {
+			// Conservative best-effort attribution when concurrent modifications occurred.
+			skip := bulkMin(skippedTotal, count)
+			result.AddedByType[et] += count - skip
+			result.SkippedByType[et] += skip
+			skippedTotal -= skip
+		}
+	}
+
+	// Step 8: Optional capacity warnings (advisory only, never blocks).
+	if s.capacityRepo != nil {
+		// Aggregate new size by agent type across all assigned items.
+		newSizeByAgent := make(map[string]int)
+		for _, item := range filtered {
+			if item.AgentType != nil && *item.AgentType != "" {
+				sz := 0
+				if item.Size != nil {
+					sz = *item.Size
+				}
+				newSizeByAgent[*item.AgentType] += sz
+			}
+		}
+		for agentType, newSize := range newSizeByAgent {
+			if w := s.computeCapacityWarning(ctx, sprintEntity.ID, agentType, newSize); w != nil {
+				result.CapacityWarnings = append(result.CapacityWarnings, w)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// GetCarryoverBehavior returns the configured default carryover behavior from
+// sprint_defaults.carryover_behavior in .sharkconfig.json.
+//
+// Returns the configured value, or "" if not configured (callers should default
+// to "next" per spec §4.5 when the result is "").
+func (s *SprintService) GetCarryoverBehavior() string {
+	if s.cfg == nil || s.cfg.SprintDefaults == nil {
+		return ""
+	}
+	return s.cfg.SprintDefaults.CarryoverBehavior
+}
+
+// bulkMin returns the smaller of two ints. Named to avoid collision with
+// Go 1.21+ built-in min in environments where toolchain version varies.
+func bulkMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// ---------------------------------------------------------------------------
+// CloseSprintWithCarryover — T-E19-F03-007
+// ---------------------------------------------------------------------------
+
+// CarryoverMode controls what happens to incomplete assignments when a sprint is closed.
+type CarryoverMode string
+
+const (
+	// CarryoverNext moves incomplete entities to the next planning sprint.
+	// If no planning sprint exists, a new one is auto-created.
+	CarryoverNext CarryoverMode = "next"
+
+	// CarryoverBacklog soft-deletes incomplete assignments (sets removed_at),
+	// returning entities to the unassigned backlog.
+	CarryoverBacklog CarryoverMode = "backlog"
+)
+
+// SprintCloseResult summarizes what happened during CloseSprintWithCarryover.
+type SprintCloseResult struct {
+	// Sprint is the closed sprint (reloaded after status update).
+	Sprint *models.Sprint
+	// CompletedCount is the number of entities in terminal status at close time.
+	CompletedCount int
+	// CarriedOverCount is the number of incomplete entities moved to the next sprint (carryover=next).
+	CarriedOverCount int
+	// DroppedCount is the number of incomplete entities soft-deleted (carryover=backlog).
+	DroppedCount int
+	// NextSprintKey is the key of the sprint that received carryover entities. Empty when carryover=backlog.
+	NextSprintKey string
+}
+
+// CloseSprintWithCarryover atomically closes a sprint and handles incomplete entity assignments.
+//
+// Steps:
+//  1. Validates sprint is in "in_progress" (active) status (TC-C12).
+//  2. Resolves carryover mode: uses config default when carryoverMode == "" (TC-C09, TC-C10).
+//  3. Fetches ALL active assignments (for total count) and INCOMPLETE assignments (for carryover).
+//  4. Begins a database transaction.
+//  5. Based on carryoverMode:
+//     a. "next": finds or auto-creates the next planning sprint; calls ReassignToSprintTx.
+//     b. "backlog": calls DropAssignmentsTx on incomplete entities.
+//  6. Advances sprint status to "completed" via UpdateStatusTx (inside transaction).
+//  7. Inserts a sprint_completions row via CreateCompletionTx (inside transaction).
+//  8. Commits. Any failure causes a full rollback via defer tx.Rollback() (TC-C11).
+func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey string, carryoverMode CarryoverMode) (*SprintCloseResult, error) {
+	// Step 1: Resolve sprint and validate it is active (in_progress) — TC-C12
+	sprintEntity, err := s.GetSprint(ctx, sprintKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to close sprint %s: %w", sprintKey, err)
+	}
+
+	if string(sprintEntity.Status) != "in_progress" {
+		return nil, fmt.Errorf("cannot close sprint %s: current status is %q, must be %q",
+			sprintKey, sprintEntity.Status, "in_progress")
+	}
+
+	// Step 2: Resolve carryover mode from config when empty (TC-C09, TC-C10)
+	resolvedMode := carryoverMode
+	if resolvedMode == "" {
+		resolvedMode = s.resolveCarryoverMode()
+	}
+
+	// Step 3: Fetch assignments
+	// All active assignments — for total count (TC-C08: PlannedEntityCount)
+	allAssignments, err := s.repo.ListAssignments(ctx, sprintEntity.ID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list assignments for sprint %s: %w", sprintKey, err)
+	}
+	totalCount := len(allAssignments)
+
+	// Incomplete assignments — uses workflow-aware terminal status detection (TC-C07)
+	terminalStatuses := s.workflowSvc.GetTerminalStatuses()
+	incompleteAssignments, err := s.repo.ListAssignmentsForCarryover(ctx, sprintEntity.ID, terminalStatuses...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list incomplete assignments for sprint %s: %w", sprintKey, err)
+	}
+
+	completedCount := totalCount - len(incompleteAssignments)
+	if completedCount < 0 {
+		completedCount = 0
+	}
+
+	// Collect IDs of incomplete assignments for Tx methods
+	incompleteIDs := make([]int64, 0, len(incompleteAssignments))
+	for _, a := range incompleteAssignments {
+		incompleteIDs = append(incompleteIDs, a.ID)
+	}
+
+	// Step 4: Begin transaction (TC-C11: defer tx.Rollback() ensures rollback on any error)
+	if s.db == nil {
+		return nil, fmt.Errorf("cannot close sprint %s: database connection not available for transaction", sprintKey)
+	}
+	tx, err := s.db.BeginTxContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction for sprint close %s: %w", sprintKey, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // intentional: no-op after Commit; rolls back on any error path
+
+	// Step 5a/b: Handle carryover
+	var nextSprintKey string
+	var nextSprintID *int64
+	carriedOverCount := 0
+	droppedCount := 0
+
+	switch resolvedMode {
+	case CarryoverNext:
+		// Find an existing planning sprint (status=todo)
+		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr("todo")}
+		planningSprints, listErr := s.repo.List(ctx, planningFilter)
+		if listErr != nil {
+			return nil, fmt.Errorf("failed to find next planning sprint: %w", listErr)
+		}
+
+		var nextSprint *models.Sprint
+		if len(planningSprints) > 0 {
+			// TC-C01: existing planning sprint found
+			nextSprint = planningSprints[0]
+		} else {
+			// TC-C02, TC-C04: auto-create sprint with start = closed.EndDate + 1 day, same duration
+			duration := sprintEntity.EndDate.Sub(sprintEntity.StartDate)
+			newStart := sprintEntity.EndDate.AddDate(0, 0, 1)
+			newEnd := newStart.Add(duration)
+
+			nextKey, keyErr := s.repo.GetNextKey(ctx)
+			if keyErr != nil {
+				return nil, fmt.Errorf("failed to generate key for auto-created sprint: %w", keyErr)
+			}
+
+			autoSprint := &models.Sprint{
+				Key:       nextKey,
+				Name:      "Sprint " + nextKey,
+				StartDate: newStart,
+				EndDate:   newEnd,
+				Status:    models.SprintStatus("todo"),
+				Slug:      utils.GenerateSlug("Sprint " + nextKey),
+			}
+			if createErr := s.repo.Create(ctx, autoSprint); createErr != nil {
+				return nil, fmt.Errorf("failed to auto-create next sprint: %w", createErr)
+			}
+			nextSprint = autoSprint
+		}
+
+		nextSprintKey = nextSprint.Key
+		id := nextSprint.ID
+		nextSprintID = &id
+
+		// Reassign incomplete assignments to next sprint (TC-C01, TC-C07, TC-C03: no-op when empty)
+		if reassignErr := s.repo.ReassignToSprintTx(ctx, tx, incompleteIDs, nextSprint.ID); reassignErr != nil {
+			return nil, fmt.Errorf("failed to reassign incomplete assignments to sprint %s: %w", nextSprintKey, reassignErr)
+		}
+		carriedOverCount = len(incompleteIDs)
+
+	case CarryoverBacklog:
+		// Soft-delete incomplete assignments (TC-C05, TC-C06, no-op when empty)
+		if dropErr := s.repo.DropAssignmentsTx(ctx, tx, incompleteIDs); dropErr != nil {
+			return nil, fmt.Errorf("failed to drop incomplete assignments for sprint %s: %w", sprintKey, dropErr)
+		}
+		droppedCount = len(incompleteIDs)
+
+	default:
+		return nil, fmt.Errorf("unsupported carryover mode %q: must be %q or %q", resolvedMode, CarryoverNext, CarryoverBacklog)
+	}
+
+	// Step 6: Advance sprint status to completed inside the transaction (TC-C11)
+	if statusErr := s.repo.UpdateStatusTx(ctx, tx, sprintEntity.ID, models.SprintStatus("completed")); statusErr != nil {
+		return nil, fmt.Errorf("failed to update sprint %s status in transaction: %w", sprintKey, statusErr)
+	}
+
+	// Step 7: Insert sprint_completions row (TC-C08)
+	completion := &models.SprintCompletion{
+		SprintID:             sprintEntity.ID,
+		CompletedAt:          time.Now().UTC(),
+		PlannedEntityCount:   totalCount,
+		CompletedEntityCount: completedCount,
+		CarriedOverCount:     carriedOverCount,
+		DroppedCount:         droppedCount,
+		CarryoverMode:        string(resolvedMode),
+		NextSprintID:         nextSprintID,
+	}
+	if completionErr := s.repo.CreateCompletionTx(ctx, tx, completion); completionErr != nil {
+		return nil, fmt.Errorf("failed to create sprint_completions record for %s: %w", sprintKey, completionErr)
+	}
+
+	// Step 8: Commit
+	if commitErr := tx.Commit(); commitErr != nil {
+		return nil, fmt.Errorf("failed to commit sprint close transaction for %s: %w", sprintKey, commitErr)
+	}
+
+	// Reload sprint after commit (status is now "completed")
+	closedSprint, err := s.GetSprint(ctx, sprintKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload sprint %s after close: %w", sprintKey, err)
+	}
+
+	return &SprintCloseResult{
+		Sprint:           closedSprint,
+		CompletedCount:   completedCount,
+		CarriedOverCount: carriedOverCount,
+		DroppedCount:     droppedCount,
+		NextSprintKey:    nextSprintKey,
+	}, nil
+}
+
+// resolveCarryoverMode returns the effective CarryoverMode from config,
+// defaulting to CarryoverNext when the config key is absent (TC-C10).
+func (s *SprintService) resolveCarryoverMode() CarryoverMode {
+	if s.cfg != nil && s.cfg.SprintDefaults != nil && s.cfg.SprintDefaults.CarryoverBehavior != "" {
+		return CarryoverMode(s.cfg.SprintDefaults.CarryoverBehavior)
+	}
+	return CarryoverNext
+}
+
+// closeSprintStatusPtr returns a pointer to a SprintStatus value (filter helper).
+// Named distinctively to avoid collision with any future package-level helper.
+func closeSprintStatusPtr(status string) *models.SprintStatus {
+	v := models.SprintStatus(status)
+	return &v
 }

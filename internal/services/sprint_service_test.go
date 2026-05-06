@@ -18,14 +18,15 @@ import (
 
 // MockSprintRepository is a test double for SprintRepository.
 type MockSprintRepository struct {
-	CreateFunc       func(ctx context.Context, s *models.Sprint) error
-	GetByKeyFunc     func(ctx context.Context, key string) (*models.Sprint, error)
-	GetByIDFunc      func(ctx context.Context, id int64) (*models.Sprint, error)
-	UpdateFunc       func(ctx context.Context, s *models.Sprint) error
-	DeleteFunc       func(ctx context.Context, id int64) error
-	UpdateStatusFunc func(ctx context.Context, id int64, status models.SprintStatus) error
-	GetNextKeyFunc   func(ctx context.Context) (string, error)
-	ListFunc         func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
+	CreateFunc         func(ctx context.Context, s *models.Sprint) error
+	GetByKeyFunc       func(ctx context.Context, key string) (*models.Sprint, error)
+	GetByIDFunc        func(ctx context.Context, id int64) (*models.Sprint, error)
+	UpdateFunc         func(ctx context.Context, s *models.Sprint) error
+	DeleteFunc         func(ctx context.Context, id int64) error
+	UpdateStatusFunc   func(ctx context.Context, id int64, status models.SprintStatus) error
+	UpdateStatusTxFunc func(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error
+	GetNextKeyFunc     func(ctx context.Context) (string, error)
+	ListFunc           func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
 
 	// F03 methods
 	AddAssignmentFunc               func(ctx context.Context, assignment *models.SprintAssignment) error
@@ -81,6 +82,13 @@ func (m *MockSprintRepository) Delete(ctx context.Context, id int64) error {
 func (m *MockSprintRepository) UpdateStatus(ctx context.Context, id int64, status models.SprintStatus) error {
 	if m.UpdateStatusFunc != nil {
 		return m.UpdateStatusFunc(ctx, id, status)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+	if m.UpdateStatusTxFunc != nil {
+		return m.UpdateStatusTxFunc(ctx, tx, id, status)
 	}
 	return nil
 }
@@ -1055,6 +1063,420 @@ func ptrString(s string) *string {
 }
 
 // ---------------------------------------------------------------------------
+// T-E19-F03-006: Service-level tests for GetSprintBacklog
+// ---------------------------------------------------------------------------
+
+// TestSprintService_GetSprintBacklog_CompletionPercentBVA tests TC-B05a..d:
+// BVA on completion percentage calculation (float64 division, not integer).
+//
+// Caller-Path Contract (per test-plan TC-B05..TC-B05c):
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S024", BacklogOptions{})
+//   - Lowest mock seam: SprintRepository.ListBacklog (mock returns fixture items)
+//   - Forbidden mocks: Do NOT mock CompletionPercent calculation — service must compute it
+//   - Counter-factual: integer division bug: 3/5 = 0 in Go integer math; test catches because
+//     expected is 60.0 not 0.0
+func TestSprintService_GetSprintBacklog_CompletionPercentBVA(t *testing.T) {
+	ctx := context.Background()
+
+	makeItem := func(entityType, status string) *sprint.BacklogItem {
+		return &sprint.BacklogItem{
+			EntityType: entityType,
+			EntityKey:  "E07-F01-001",
+			Key:        "E07-F01-001",
+			Title:      "Test Entity",
+			Status:     status,
+		}
+	}
+
+	tests := []struct {
+		name              string
+		items             []*sprint.BacklogItem
+		completedStatus   string
+		expectedPercent   float64
+		expectedTotal     int
+		expectedCompleted int
+	}{
+		{
+			name: "TC-B05a: 3 of 5 completed = 60.0%",
+			items: []*sprint.BacklogItem{
+				makeItem("task", "completed"),
+				makeItem("task", "completed"),
+				makeItem("task", "completed"),
+				makeItem("task", "in_progress"),
+				makeItem("bug", "todo"),
+			},
+			completedStatus:   "completed",
+			expectedPercent:   60.0,
+			expectedTotal:     5,
+			expectedCompleted: 3,
+		},
+		{
+			name:              "TC-B05b: 0 of 0 — must not divide by zero, returns 0.0%",
+			items:             []*sprint.BacklogItem{},
+			completedStatus:   "completed",
+			expectedPercent:   0.0,
+			expectedTotal:     0,
+			expectedCompleted: 0,
+		},
+		{
+			name: "TC-B05c: 4 of 4 completed = 100.0%",
+			items: []*sprint.BacklogItem{
+				makeItem("task", "completed"),
+				makeItem("task", "completed"),
+				makeItem("bug", "completed"),
+				makeItem("change_card", "completed"),
+			},
+			completedStatus:   "completed",
+			expectedPercent:   100.0,
+			expectedTotal:     4,
+			expectedCompleted: 4,
+		},
+		{
+			name: "TC-B05d: 0 of 10 completed = 0.0%",
+			items: func() []*sprint.BacklogItem {
+				items := make([]*sprint.BacklogItem, 10)
+				for i := range items {
+					items[i] = makeItem("task", "in_progress")
+				}
+				return items
+			}(),
+			completedStatus:   "completed",
+			expectedPercent:   0.0,
+			expectedTotal:     10,
+			expectedCompleted: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sprintEntity := &models.Sprint{
+				ID:   24,
+				Key:  "S024",
+				Name: "Sprint 24",
+			}
+
+			var listBacklogCalled bool
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+					return sprintEntity, nil
+				},
+				ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+					listBacklogCalled = true
+					assert.Equal(t, int64(24), sprintID)
+					return tt.items, nil
+				},
+			}
+
+			workflowSvc := workflow.NewService("")
+			svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+			result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{})
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.True(t, listBacklogCalled, "ListBacklog must be called")
+			assert.Equal(t, "S024", result.SprintKey)
+			assert.Equal(t, tt.expectedTotal, result.TotalCount)
+			assert.Equal(t, tt.expectedCompleted, result.CompletedCount)
+			assert.InDelta(t, tt.expectedPercent, result.CompletionPercent, 0.001,
+				"CompletionPercent must use float64 division")
+		})
+	}
+}
+
+// TestSprintService_GetSprintBacklog_TypeFilter tests TC-B06 and TC-B07:
+// valid entity-type filter passes non-nil pointer to repo; invalid type returns error.
+//
+// Caller-Path Contract (per test-plan TC-B06):
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S024", BacklogOptions{EntityType:"task"})
+//   - Lowest mock seam: SprintRepository.ListBacklog — assert called with non-nil entityType pointer
+//   - Forbidden mocks: Do NOT mock the entityType validation — service must validate before passing to repo
+//   - Counter-factual: buggy service passing nil instead of &"task" would return all types
+func TestSprintService_GetSprintBacklog_TypeFilter(t *testing.T) {
+	ctx := context.Background()
+
+	sprintEntity := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24"}
+
+	t.Run("TC-B06: valid --type=task filter passes entityType pointer to repo", func(t *testing.T) {
+		var capturedEntityType *string
+		mockRepo := &MockSprintRepository{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+				return sprintEntity, nil
+			},
+			ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+				capturedEntityType = entityType
+				// Return only task items
+				return []*sprint.BacklogItem{
+					{EntityType: "task", EntityKey: "E07-F01-001", Key: "E07-F01-001", Title: "Task 1", Status: "in_progress"},
+				}, nil
+			},
+		}
+
+		workflowSvc := workflow.NewService("")
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+		result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{EntityType: "task"})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, capturedEntityType, "repo must be called with non-nil entityType pointer")
+		assert.Equal(t, "task", *capturedEntityType, "repo must receive the entity type filter value")
+	})
+
+	t.Run("TC-B07: invalid --type=sprint returns error with valid values listed", func(t *testing.T) {
+		listBacklogCalled := false
+		mockRepo := &MockSprintRepository{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+				return sprintEntity, nil
+			},
+			ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+				listBacklogCalled = true
+				return nil, nil
+			},
+		}
+
+		workflowSvc := workflow.NewService("")
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+		result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{EntityType: "sprint"})
+
+		assert.Error(t, err, "invalid entity type must return error")
+		assert.Nil(t, result)
+		assert.False(t, listBacklogCalled, "repo must NOT be called when entity type is invalid")
+		// Error must list valid values
+		assert.Contains(t, err.Error(), "task", "error must mention valid types")
+		assert.Contains(t, err.Error(), "bug", "error must mention valid types")
+	})
+
+	t.Run("TC-B07b: empty entity type treated as all types (no filter)", func(t *testing.T) {
+		var capturedEntityType *string
+		mockRepo := &MockSprintRepository{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+				return sprintEntity, nil
+			},
+			ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+				capturedEntityType = entityType
+				return []*sprint.BacklogItem{}, nil
+			},
+		}
+
+		workflowSvc := workflow.NewService("")
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+		result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{EntityType: ""})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Nil(t, capturedEntityType, "empty entity type must pass nil to repo (no filter)")
+	})
+}
+
+// TestSprintService_GetSprintBacklog_BlockedFilter tests TC-B08 and TC-B09:
+// decision table for blocked filter; days-blocked BVA.
+//
+// Caller-Path Contract (per test-plan TC-B08):
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S024", BacklogOptions{BlockedOnly: true})
+//   - Lowest mock seam: SprintRepository.ListBacklog — assert called with blockedOnly=true
+//   - Forbidden mocks: Do NOT mock the blocked-status set determination — service must ask workflow
+//   - Counter-factual: buggy service hardcoding "blocked" would miss custom blocked status names
+func TestSprintService_GetSprintBacklog_BlockedFilter(t *testing.T) {
+	ctx := context.Background()
+
+	sprintEntity := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24"}
+
+	t.Run("TC-B08: BlockedOnly=true passes blockedOnly flag and blocked statuses to repo", func(t *testing.T) {
+		var capturedBlockedOnly bool
+		var capturedBlockedStatuses []string
+
+		mockRepo := &MockSprintRepository{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+				return sprintEntity, nil
+			},
+			ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+				capturedBlockedOnly = blockedOnly
+				capturedBlockedStatuses = blockedStatuses
+				return []*sprint.BacklogItem{}, nil
+			},
+		}
+
+		workflowSvc := workflow.NewService("")
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+		result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{BlockedOnly: true})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, capturedBlockedOnly, "blockedOnly must be passed as true to repo")
+		assert.NotEmpty(t, capturedBlockedStatuses, "service must pass blocked status values from workflow to repo")
+	})
+
+	t.Run("TC-B08: BlockedOnly=false passes blockedOnly=false with no blocked statuses", func(t *testing.T) {
+		var capturedBlockedOnly bool
+
+		mockRepo := &MockSprintRepository{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+				return sprintEntity, nil
+			},
+			ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+				capturedBlockedOnly = blockedOnly
+				return []*sprint.BacklogItem{}, nil
+			},
+		}
+
+		workflowSvc := workflow.NewService("")
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+		result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{BlockedOnly: false})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.False(t, capturedBlockedOnly, "blockedOnly must be false when not requested")
+	})
+}
+
+// TestSprintService_GetSprintBacklog_StatusGrouping tests TC-B01..B04 (service variant):
+// backlog items are grouped by status; all entity types appear in groups.
+//
+// Caller-Path Contract (per test-plan TC-B01..TC-B04):
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S024", BacklogOptions{})
+//   - Lowest mock seam: SprintRepository.ListBacklog (mock returns fixture items per entity type)
+//   - Forbidden mocks: Do NOT mock the grouping logic — service must perform grouping for real
+//   - Counter-factual: buggy impl that discards entity_type from BacklogItem would produce
+//     groups with no entity-type label
+func TestSprintService_GetSprintBacklog_StatusGrouping(t *testing.T) {
+	ctx := context.Background()
+
+	sprintEntity := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintEntity, nil
+		},
+		ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			agentType := "backend"
+			return []*sprint.BacklogItem{
+				{EntityType: "task", EntityKey: "E07-F01-001", Key: "E07-F01-001", Title: "Task 1", Status: "in_progress", AgentType: &agentType, Priority: 5},
+				{EntityType: "bug", EntityKey: "B001", Key: "B001", Title: "Bug 1", Status: "in_progress", Priority: 3},
+				{EntityType: "change_card", EntityKey: "CC-001", Key: "CC-001", Title: "Change 1", Status: "todo", Priority: 2},
+				{EntityType: "tech_debt", EntityKey: "TD-001", Key: "TD-001", Title: "Tech Debt 1", Status: "completed", Priority: 1},
+			}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify all 4 items are present
+	assert.Equal(t, 4, result.TotalCount)
+
+	// Verify groups contain items
+	assert.NotEmpty(t, result.Groups, "groups must be non-empty")
+
+	// Collect all items across all groups to verify entity types
+	var allItems []*BacklogItemView
+	for _, g := range result.Groups {
+		allItems = append(allItems, g.Items...)
+	}
+	assert.Len(t, allItems, 4, "all 4 items must appear in groups")
+
+	// Verify entity types are preserved in items (TC-B01..B04)
+	entityTypes := make(map[string]bool)
+	for _, item := range allItems {
+		entityTypes[item.EntityType] = true
+	}
+	assert.True(t, entityTypes["task"], "task entity type must appear in backlog groups")
+	assert.True(t, entityTypes["bug"], "bug entity type must appear in backlog groups")
+	assert.True(t, entityTypes["change_card"], "change_card entity type must appear in backlog groups")
+	assert.True(t, entityTypes["tech_debt"], "tech_debt entity type must appear in backlog groups")
+}
+
+// TestSprintService_GetSprintBacklog_SprintNotFound tests error propagation
+// when the sprint key does not resolve.
+func TestSprintService_GetSprintBacklog_SprintNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return nil, fmt.Errorf("sprint not found: %q", key)
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	result, err := svc.GetSprintBacklog(ctx, "S999", BacklogOptions{})
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "S999")
+}
+
+// TestSprintService_GetSprintBacklog_BacklogItemViewFields tests TC-J03 (service variant):
+// BacklogItemView fields are correctly projected from BacklogItem.
+func TestSprintService_GetSprintBacklog_BacklogItemViewFields(t *testing.T) {
+	ctx := context.Background()
+
+	agentType := "backend"
+	size := 5
+
+	sprintEntity := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintEntity, nil
+		},
+		ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{
+				{
+					EntityType: "task",
+					EntityKey:  "E07-F01-001",
+					Key:        "E07-F01-001",
+					Title:      "Test Task",
+					Status:     "in_progress",
+					AgentType:  &agentType,
+					Priority:   7,
+					Size:       &size,
+				},
+			}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.Groups)
+
+	// Find the item across all groups
+	var foundItem *BacklogItemView
+	for _, g := range result.Groups {
+		for _, item := range g.Items {
+			if item.Key == "E07-F01-001" {
+				foundItem = item
+				break
+			}
+		}
+	}
+
+	require.NotNil(t, foundItem, "item must appear in some group")
+	assert.Equal(t, "task", foundItem.EntityType, "EntityType must be preserved")
+	assert.Equal(t, "E07-F01-001", foundItem.Key, "Key must be preserved")
+	assert.Equal(t, "Test Task", foundItem.Title, "Title must be preserved")
+	assert.Equal(t, "in_progress", foundItem.Status, "Status must be preserved")
+	assert.Equal(t, "backend", foundItem.AgentType, "AgentType must be preserved")
+	assert.Equal(t, 7, foundItem.Priority, "Priority must be preserved")
+	require.NotNil(t, foundItem.Size, "Size must be preserved")
+	assert.Equal(t, 5, *foundItem.Size, "Size value must match")
+}
+
+// ---------------------------------------------------------------------------
 // T-E19-F03-005: Service-level tests for AddEntityToSprint / RemoveEntityFromSprint
 // ---------------------------------------------------------------------------
 
@@ -1536,4 +1958,450 @@ func TestSprintService_RemoveEntityFromSprint_NotAssigned(t *testing.T) {
 
 	assert.Error(t, err, "should return error when entity not assigned to any sprint")
 	assert.False(t, removeAssignmentCalled, "RemoveAssignment must NOT be called when no active assignment exists")
+}
+
+// ---------------------------------------------------------------------------
+// T-E19-F03-008: BulkAddToSprint tests (TC-K01 through TC-K06)
+// ---------------------------------------------------------------------------
+
+// MockSprintAssignmentQueryRepository is a test double for SprintAssignmentQueryRepository.
+type MockSprintAssignmentQueryRepository struct {
+	BulkAssignFunc           func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error)
+	ListUnassignedBacklogFunc func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error)
+	GetAssignmentsWithSizeFunc func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error)
+}
+
+func (m *MockSprintAssignmentQueryRepository) BulkAssign(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+	if m.BulkAssignFunc != nil {
+		return m.BulkAssignFunc(ctx, sprintID, assignments)
+	}
+	return len(assignments), nil
+}
+
+func (m *MockSprintAssignmentQueryRepository) ListUnassignedBacklog(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+	if m.ListUnassignedBacklogFunc != nil {
+		return m.ListUnassignedBacklogFunc(ctx, entityTypes)
+	}
+	return []sprint.BacklogItem{}, nil
+}
+
+func (m *MockSprintAssignmentQueryRepository) GetAssignmentsWithSize(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error) {
+	if m.GetAssignmentsWithSizeFunc != nil {
+		return m.GetAssignmentsWithSizeFunc(ctx, sprintID)
+	}
+	return []sprint.AssignmentWithSize{}, nil
+}
+
+// ptrStr returns a pointer to the given string.
+func ptrStr(s string) *string { return &s }
+
+// ptrInt returns a pointer to the given int.
+func ptrInt(i int) *int { return &i }
+
+// TestBulkAddToSprint_FeatureKey_AddsEligible tests TC-K01 (decision table):
+// BulkAddToSprint with a feature key assigns eligible tasks and skips ineligible ones.
+//
+// Caller-Path Contract (per test-plan TC-K01):
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", FeatureKey:"E07-F34"})
+//   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
+//   - Forbidden mocks: Do NOT mock eligibility logic — service must apply the feature-key filter
+//   - Counter-factual: a buggy impl that ignores FeatureKey would add tasks from other features,
+//     making AddedByType["task"] > 3 (the actual eligible count)
+func TestBulkAddToSprint_FeatureKey_AddsEligible(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	// Feature E07-F34 has 5 tasks: 3 eligible (not assigned, right feature), 1 wrong feature,
+	// 1 from a different feature.
+	backlogItems := []sprint.BacklogItem{
+		// Eligible: task from E07-F34
+		{EntityType: "task", EntityID: 1001, Key: "T-E07-F34-001", Status: "todo"},
+		{EntityType: "task", EntityID: 1002, Key: "E07-F34-002", Status: "todo"},
+		{EntityType: "task", EntityID: 1003, Key: "T-E07-F34-003", Status: "in_progress"},
+		// Ineligible: different feature (will be filtered by service)
+		{EntityType: "task", EntityID: 2001, Key: "T-E07-F35-001", Status: "todo"},
+		{EntityType: "task", EntityID: 2002, Key: "E08-F01-001", Status: "todo"},
+	}
+
+	var capturedAssignments []models.SprintAssignment
+	var capturedEntityTypes []string
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+			capturedEntityTypes = entityTypes
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			capturedAssignments = assignments
+			return len(assignments), nil
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:  "S024",
+		FeatureKey: "E07-F34",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Service must request only "task" type when FeatureKey is set
+	assert.Equal(t, []string{"task"}, capturedEntityTypes, "FeatureKey bulk must request only task type")
+
+	// 3 eligible tasks from E07-F34 should be added
+	assert.Equal(t, 3, result.AddedByType["task"],
+		"exactly 3 tasks from E07-F34 should be added")
+
+	// 2 tasks from other features should be skipped
+	assert.Equal(t, 2, result.SkippedByType["task"],
+		"2 tasks from other features should be skipped")
+
+	// BulkAssign must have been called with 3 tasks (only the eligible ones)
+	require.NotNil(t, capturedAssignments)
+	assert.Equal(t, 3, len(capturedAssignments), "BulkAssign must receive only eligible tasks")
+	for _, a := range capturedAssignments {
+		assert.Equal(t, int64(24), a.SprintID)
+		assert.Equal(t, "task", a.EntityType)
+	}
+}
+
+// TestBulkAddToSprint_CapacityWarning tests TC-K02:
+// bulk add emits a capacity warning when total size exceeds configured capacity.
+//
+// Caller-Path Contract (per test-plan TC-K02):
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["task"]})
+//   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository + SprintCapacityRepository
+//   - Counter-factual: a buggy impl that skips capacity check would return nil CapacityWarnings
+func TestBulkAddToSprint_CapacityWarning(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	agentType := "backend"
+	size1 := 3
+	size2 := 2
+
+	backlogItems := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 1001, Key: "T-E07-F01-001", Status: "todo",
+			AgentType: ptrStr(agentType), Size: &size1},
+		{EntityType: "task", EntityID: 1002, Key: "T-E07-F01-002", Status: "todo",
+			AgentType: ptrStr(agentType), Size: &size2},
+	}
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			return len(assignments), nil
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	allocated := 4.0
+	capRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error) {
+			return []*models.SprintCapacity{
+				{AgentType: agentType, CapacityPoints: 5, AllocatedPoints: &allocated},
+			}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, capRepo, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:   "S024",
+		EntityTypes: []string{"task"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 2, result.AddedByType["task"], "both tasks should be added")
+	require.NotEmpty(t, result.CapacityWarnings, "capacity warning should be emitted")
+	assert.Equal(t, agentType, result.CapacityWarnings[0].AgentType)
+	assert.Greater(t, result.CapacityWarnings[0].Allocated, result.CapacityWarnings[0].Capacity)
+}
+
+// TestBulkAddToSprint_FeatureNotFound tests TC-K03:
+// BulkAddToSprint with a non-existent sprint returns an error and makes zero assignments.
+//
+// Caller-Path Contract (per test-plan TC-K03):
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S999", FeatureKey:"E99-F99"})
+//   - Lowest mock seam: SprintRepository (mock GetByKey to error)
+//   - Counter-factual: a buggy impl that ignores sprint lookup failure would call BulkAssign
+//     with sprint_id=0 and produce corrupt data
+func TestBulkAddToSprint_FeatureNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	bulkAssignCalled := false
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			bulkAssignCalled = true
+			return 0, nil
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return nil, fmt.Errorf("sprint not found: %q", key)
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:  "S999",
+		FeatureKey: "E99-F99",
+	})
+
+	assert.Error(t, err, "should return error when sprint not found")
+	assert.Nil(t, result, "result must be nil when sprint resolution fails")
+	assert.False(t, bulkAssignCalled, "BulkAssign must NOT be called when sprint is not found")
+}
+
+// TestBulkAddToSprint_BugsBulk tests TC-K04:
+// BulkAddToSprint with EntityTypes:["bug"] assigns open unassigned bugs.
+//
+// Caller-Path Contract (per test-plan TC-K04):
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["bug"]})
+//   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
+//   - Counter-factual: a buggy impl that passes the wrong entity type to ListUnassignedBacklog
+//     would return tasks instead of bugs, making AddedByType["bug"] == 0
+func TestBulkAddToSprint_BugsBulk(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	backlogItems := []sprint.BacklogItem{
+		{EntityType: "bug", EntityID: 2001, Key: "B001", Status: "open"},
+		{EntityType: "bug", EntityID: 2002, Key: "B002", Status: "in_progress"},
+	}
+
+	var capturedEntityTypes []string
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+			capturedEntityTypes = entityTypes
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			return len(assignments), nil
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:   "S024",
+		EntityTypes: []string{"bug"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"bug"}, capturedEntityTypes, "service must pass 'bug' type to ListUnassignedBacklog")
+	assert.Equal(t, 2, result.AddedByType["bug"], "both unassigned bugs should be added")
+	assert.Equal(t, 0, len(result.CapacityWarnings), "no capacity configured — no warnings")
+}
+
+// TestBulkAddToSprint_TechDebtBulk tests TC-K05:
+// BulkAddToSprint with EntityTypes:["tech_debt"] assigns open tech-debt items.
+//
+// Caller-Path Contract (per test-plan TC-K05):
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["tech_debt"]})
+//   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
+//   - Counter-factual: a buggy impl that uses entity_type="techdebt" (typo) would fail
+//     ListUnassignedBacklog to return the correct items, making AddedByType["tech_debt"] == 0
+func TestBulkAddToSprint_TechDebtBulk(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	backlogItems := []sprint.BacklogItem{
+		{EntityType: "tech_debt", EntityID: 3001, Key: "TD-001", Status: "open"},
+		{EntityType: "tech_debt", EntityID: 3002, Key: "TD-002", Status: "open"},
+		{EntityType: "tech_debt", EntityID: 3003, Key: "TD-003", Status: "open"},
+	}
+
+	var capturedEntityTypes []string
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+			capturedEntityTypes = entityTypes
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			return len(assignments), nil
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:   "S024",
+		EntityTypes: []string{"tech_debt"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"tech_debt"}, capturedEntityTypes,
+		"service must pass 'tech_debt' type to ListUnassignedBacklog")
+	assert.Equal(t, 3, result.AddedByType["tech_debt"], "all 3 tech-debt items should be added")
+}
+
+// TestBulkAddToSprint_ChangeCardsBulk tests TC-K06:
+// BulkAddToSprint with EntityTypes:["change_card"] assigns open change-cards.
+//
+// Caller-Path Contract (per test-plan TC-K06):
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["change_card"]})
+//   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
+//   - Counter-factual: a buggy impl that uses entity_type="change" (wrong string) would return
+//     wrong items, making AddedByType["change_card"] != 2
+func TestBulkAddToSprint_ChangeCardsBulk(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	backlogItems := []sprint.BacklogItem{
+		{EntityType: "change_card", EntityID: 4001, Key: "C001", Status: "open"},
+		{EntityType: "change_card", EntityID: 4002, Key: "C002", Status: "open"},
+	}
+
+	var capturedEntityTypes []string
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+			capturedEntityTypes = entityTypes
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			return len(assignments), nil
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:   "S024",
+		EntityTypes: []string{"change_card"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"change_card"}, capturedEntityTypes,
+		"service must pass 'change_card' type to ListUnassignedBacklog")
+	assert.Equal(t, 2, result.AddedByType["change_card"], "both change cards should be added")
+}
+
+// TestBulkAddToSprint_NilAssignmentRepo tests error when assignmentRepo is nil.
+func TestBulkAddToSprint_NilAssignmentRepo(t *testing.T) {
+	ctx := context.Background()
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001"}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	// Pass nil assignmentRepo — should return a configuration error.
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{SprintKey: "S001"})
+	assert.Error(t, err, "nil assignmentRepo must produce an error")
+	assert.Nil(t, result)
+}
+
+// TestSprintService_GetCarryoverBehavior tests GetCarryoverBehavior config reading.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.GetCarryoverBehavior() — no DB involvement
+//   - Lowest mock seam: Config struct (inject real Config, do not mock)
+//   - Forbidden mocks: Do NOT mock the config read — inject a real Config struct
+//   - Counter-factual: a buggy impl that always returns "" would fail the
+//     "carryover_behavior=backlog" assertion
+func TestSprintService_GetCarryoverBehavior(t *testing.T) {
+	mockRepo := &MockSprintRepository{}
+	workflowSvc := workflow.NewService("")
+
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		expected string
+	}{
+		{
+			name:     "nil config returns empty string",
+			cfg:      nil,
+			expected: "",
+		},
+		{
+			name:     "nil SprintDefaults returns empty string",
+			cfg:      &config.Config{},
+			expected: "",
+		},
+		{
+			name: "carryover_behavior=next returns next",
+			cfg: &config.Config{
+				SprintDefaults: &config.SprintDefaultsConfig{
+					CarryoverBehavior: "next",
+				},
+			},
+			expected: "next",
+		},
+		{
+			name: "carryover_behavior=backlog returns backlog",
+			cfg: &config.Config{
+				SprintDefaults: &config.SprintDefaultsConfig{
+					CarryoverBehavior: "backlog",
+				},
+			},
+			expected: "backlog",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewSprintService(mockRepo, workflowSvc, nil, nil, tt.cfg)
+			got := svc.GetCarryoverBehavior()
+			assert.Equal(t, tt.expected, got)
+		})
+	}
 }
