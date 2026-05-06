@@ -277,6 +277,82 @@ func (m *Manager) UpdateLastSyncTime(syncTime time.Time) error {
 
 // GetActionService returns the action service for workflow queries
 // Creates service lazily on first call
+// SetSprintCapacityDefault updates (or creates) the sprint_defaults.capacity entry
+// for the given agentType in .sharkconfig.json. New sprints created afterward will
+// inherit the updated value. This does NOT write to the sprint_capacity table.
+//
+// Usage:
+//
+//	mgr := config.NewManager(configPath)
+//	if err := mgr.SetSprintCapacityDefault("backend", 21); err != nil { ... }
+func (m *Manager) SetSprintCapacityDefault(agentType string, points float64) error {
+	// Load current config if not loaded
+	if m.config == nil {
+		if _, err := m.Load(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+	}
+
+	// Get current file permissions if file exists
+	var filePerms os.FileMode = 0644
+	if info, err := os.Stat(m.configPath); err == nil {
+		filePerms = info.Mode().Perm()
+	}
+
+	// Ensure raw data is initialized
+	if m.config.RawData == nil {
+		m.config.RawData = make(map[string]interface{})
+	}
+
+	// Upsert sprint_defaults.capacity.<agentType> in raw data
+	var sdRaw map[string]interface{}
+	if existing, ok := m.config.RawData["sprint_defaults"].(map[string]interface{}); ok {
+		sdRaw = existing
+	} else {
+		sdRaw = make(map[string]interface{})
+	}
+
+	var capRaw map[string]interface{}
+	if existing, ok := sdRaw["capacity"].(map[string]interface{}); ok {
+		capRaw = existing
+	} else {
+		capRaw = make(map[string]interface{})
+	}
+	capRaw[agentType] = points
+	sdRaw["capacity"] = capRaw
+	m.config.RawData["sprint_defaults"] = sdRaw
+
+	// Update in-memory SprintDefaults as well
+	if m.config.SprintDefaults == nil {
+		m.config.SprintDefaults = &SprintDefaultsConfig{}
+	}
+	if m.config.SprintDefaults.Capacity == nil {
+		m.config.SprintDefaults.Capacity = make(map[string]float64)
+	}
+	m.config.SprintDefaults.Capacity[agentType] = points
+
+	// Marshal to JSON with HTML escaping disabled for readability
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(m.config.RawData); err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	data := buf.Bytes()
+
+	// Write to temp file then atomically rename
+	tmpPath := m.configPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, filePerms); err != nil {
+		return fmt.Errorf("failed to write temp config: %w", err)
+	}
+	if err := os.Rename(tmpPath, m.configPath); err != nil {
+		os.Remove(tmpPath) // Cleanup temp file on failure
+		return fmt.Errorf("failed to rename config: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) GetActionService() (ActionService, error) {
 	if m.actionService == nil {
 		service, err := NewActionService(m.configPath)

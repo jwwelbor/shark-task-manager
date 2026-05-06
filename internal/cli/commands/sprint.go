@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
@@ -23,6 +24,13 @@ type sprintServicer interface {
 	CloseSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryover(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
+	// F05: planning view, readiness, capacity, bulk-add
+	PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error)
+	GetSprintReadiness(ctx context.Context, key string) (*services.SprintReadiness, error)
+	SetSprintCapacity(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
+	GetSprintCapacity(ctx context.Context, key string) ([]services.CapacityRow, error)
+	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	AddEntityToSprint(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
 }
 
 // sprintAnalyticsServicer defines the interface for sprint analytics operations used by CLI commands.
@@ -252,6 +260,107 @@ Examples:
 	RunE: runSprintSummary,
 }
 
+// sprintAddCmd assigns one entity (or a bulk set) to a sprint.
+var sprintAddCmd = &cobra.Command{
+	Use:   "add <sprint-key>",
+	Short: "Add an entity (or bulk entities) to a sprint",
+	Long: `Assign one entity or a group of entities to a sprint.
+
+Single-entity add:
+  shark sprint add S001 --entity=E07-F01-001
+
+Bulk-add all eligible tasks from a feature:
+  shark sprint add S001 --bulk=E07-F34
+
+Bulk-add all open bugs/tech-debt/change-cards not yet in a sprint:
+  shark sprint add S001 --bulk-bugs
+  shark sprint add S001 --bulk-tech-debt
+  shark sprint add S001 --bulk-changes
+
+Examples:
+  shark sprint add S001 --entity=B001
+  shark sprint add S001 --bulk=E07-F34
+  shark sprint add S001 --bulk-bugs --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSprintAdd,
+}
+
+// sprintPlanCmd shows the composite planning view for a sprint.
+var sprintPlanCmd = &cobra.Command{
+	Use:   "plan <sprint-key>",
+	Short: "Show sprint planning view",
+	Long: `Display the composite planning view for a sprint.
+
+The planning view shows three sections:
+  Backlog   — unassigned entities eligible for assignment
+  Capacity  — per-agent-type capacity vs. allocated story points
+  Readiness — 0-100 readiness score with 6-factor breakdown
+
+Examples:
+  shark sprint plan S001
+  shark sprint plan S001 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSprintPlan,
+}
+
+// sprintReadinessCmd shows the readiness score for a sprint.
+var sprintReadinessCmd = &cobra.Command{
+	Use:   "readiness <sprint-key>",
+	Short: "Show sprint readiness score",
+	Long: `Display the readiness score (0-100) and 6-factor breakdown for a sprint.
+
+Examples:
+  shark sprint readiness S001
+  shark sprint readiness S001 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSprintReadiness,
+}
+
+// sprintCapacityCmd is the parent for capacity sub-commands.
+var sprintCapacityCmd = &cobra.Command{
+	Use:   "capacity",
+	Short: "Manage sprint capacity",
+	Long: `Set or show per-sprint agent-type capacity configuration.
+
+Examples:
+  shark sprint capacity set S001 --agent=backend --points=21
+  shark sprint capacity show S001
+  shark sprint capacity set --default --agent=backend --points=21`,
+}
+
+// sprintCapacitySetCmd sets or updates agent-type capacity for a sprint (or default).
+var sprintCapacitySetCmd = &cobra.Command{
+	Use:   "set [sprint-key]",
+	Short: "Set capacity for a sprint or update the default",
+	Long: `Create or update capacity for a (sprint, agent-type) pair.
+
+With --default, writes the value to sprint_defaults.capacity in .sharkconfig.json
+and does NOT modify the sprint_capacity table. New sprints will inherit the value.
+
+Without --default, upserts the sprint_capacity row for the given sprint key.
+
+Examples:
+  shark sprint capacity set S001 --agent=backend --points=21
+  shark sprint capacity set --default --agent=backend --points=21`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runSprintCapacitySet,
+}
+
+// sprintCapacityShowCmd displays capacity vs. allocation for a sprint.
+var sprintCapacityShowCmd = &cobra.Command{
+	Use:   "show <sprint-key>",
+	Short: "Show capacity vs. allocation for a sprint",
+	Long: `Display a table of agent-type capacity vs. allocated story points.
+
+Columns: AgentType | Capacity | Allocated | Remaining | Unsized
+
+Examples:
+  shark sprint capacity show S001
+  shark sprint capacity show S001 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSprintCapacityShow,
+}
+
 // Command flag variables
 var (
 	sprintStartDate string
@@ -276,6 +385,13 @@ func init() {
 	sprintCmd.AddCommand(sprintVelocityCmd)
 	sprintCmd.AddCommand(sprintBurndownCmd)
 	sprintCmd.AddCommand(sprintSummaryCmd)
+	// F05 commands
+	sprintCmd.AddCommand(sprintAddCmd)
+	sprintCmd.AddCommand(sprintPlanCmd)
+	sprintCmd.AddCommand(sprintReadinessCmd)
+	sprintCapacityCmd.AddCommand(sprintCapacitySetCmd)
+	sprintCapacityCmd.AddCommand(sprintCapacityShowCmd)
+	sprintCmd.AddCommand(sprintCapacityCmd)
 
 	// Create flags
 	sprintCreateCmd.Flags().StringVar(&sprintStartDate, "start", "", "Sprint start date (YYYY-MM-DD)")
@@ -303,6 +419,20 @@ func init() {
 
 	// Summary flags
 	sprintSummaryCmd.Flags().Bool("detailed", false, "Include detailed cycle-time, size-band distribution, and carryover entities")
+
+	// Add flags (F05 - single entity and bulk)
+	sprintAddCmd.Flags().String("entity", "", "Entity key to assign (e.g., E07-F01-001, B001)")
+	sprintAddCmd.Flags().String("bulk", "", "Feature key: assign all eligible tasks from this feature")
+	sprintAddCmd.Flags().Bool("bulk-bugs", false, "Assign all open bugs not already in a sprint")
+	sprintAddCmd.Flags().Bool("bulk-tech-debt", false, "Assign all open tech-debt items not already in a sprint")
+	sprintAddCmd.Flags().Bool("bulk-changes", false, "Assign all open change-cards not already in a sprint")
+
+	// Capacity set flags
+	sprintCapacitySetCmd.Flags().String("agent", "", "Agent type (e.g., backend, frontend, qa)")
+	sprintCapacitySetCmd.Flags().Float64("points", 0, "Capacity in story points (must be > 0)")
+	sprintCapacitySetCmd.Flags().Bool("default", false, "Write to sprint_defaults in .sharkconfig.json instead of per-sprint DB row")
+	_ = sprintCapacitySetCmd.MarkFlagRequired("agent")
+	_ = sprintCapacitySetCmd.MarkFlagRequired("points")
 }
 
 // runSprintCreate handles the `shark sprint create` command.
@@ -745,6 +875,325 @@ func printSummaryTable(result *services.SprintSummaryResult, detailed bool) erro
 				fmt.Printf("  %s (%s, %s)\n", e.Key, e.EntityType, sizeStr)
 			}
 		}
+	}
+	fmt.Println()
+	return nil
+}
+
+// =============================================================================
+// F05 run functions: add, plan, readiness, capacity set/show
+// =============================================================================
+
+// runSprintAdd handles `shark sprint add <sprint-key>`.
+// Supports single-entity add (--entity) and bulk-add (--bulk, --bulk-bugs,
+// --bulk-tech-debt, --bulk-changes). Bulk flags route to BulkAddToSprint;
+// single-entity flag routes to AddEntityToSprint.
+func runSprintAdd(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+
+	bulkFeature, _ := cmd.Flags().GetString("bulk")
+	bulkBugs, _ := cmd.Flags().GetBool("bulk-bugs")
+	bulkTechDebt, _ := cmd.Flags().GetBool("bulk-tech-debt")
+	bulkChanges, _ := cmd.Flags().GetBool("bulk-changes")
+	entityKey, _ := cmd.Flags().GetString("entity")
+
+	svc := getSprintService()
+
+	// Step 2: Route — bulk paths call BulkAddToSprint; single path calls AddEntityToSprint.
+	if bulkFeature != "" {
+		input := services.BulkAddInput{SprintKey: sprintKey, FeatureKey: bulkFeature}
+		result, err := svc.BulkAddToSprint(cmd.Context(), input)
+		if err != nil {
+			return err
+		}
+		return formatBulkAddResult(result)
+	}
+
+	if bulkBugs || bulkTechDebt || bulkChanges {
+		var entityTypes []string
+		if bulkBugs {
+			entityTypes = append(entityTypes, "bug")
+		}
+		if bulkTechDebt {
+			entityTypes = append(entityTypes, "tech_debt")
+		}
+		if bulkChanges {
+			entityTypes = append(entityTypes, "change_card")
+		}
+		input := services.BulkAddInput{SprintKey: sprintKey, EntityTypes: entityTypes}
+		result, err := svc.BulkAddToSprint(cmd.Context(), input)
+		if err != nil {
+			return err
+		}
+		return formatBulkAddResult(result)
+	}
+
+	// Single-entity add
+	if entityKey == "" {
+		return fmt.Errorf("provide --entity=<key> for a single add, or --bulk/--bulk-bugs/--bulk-tech-debt/--bulk-changes for bulk add")
+	}
+	assignment, warning, err := svc.AddEntityToSprint(cmd.Context(), services.AddEntityInput{
+		SprintKey: sprintKey,
+		EntityKey: entityKey,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(assignment)
+	}
+	cli.Success(fmt.Sprintf("Added %s to sprint %s", entityKey, sprintKey))
+	if warning != nil {
+		cli.Warning(fmt.Sprintf("Capacity warning: %s is over capacity (%.0f/%.0f pts allocated)",
+			warning.AgentType, warning.Allocated, warning.Capacity))
+	}
+	return nil
+}
+
+// formatBulkAddResult formats and outputs a BulkAddResult (JSON or human).
+func formatBulkAddResult(result *services.BulkAddResult) error {
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+	// Human output: summarise per-type counts
+	totalAdded := 0
+	for _, n := range result.AddedByType {
+		totalAdded += n
+	}
+	totalSkipped := 0
+	for _, n := range result.SkippedByType {
+		totalSkipped += n
+	}
+	cli.Success(fmt.Sprintf("Bulk add complete: %d added, %d skipped", totalAdded, totalSkipped))
+	for t, n := range result.AddedByType {
+		if n > 0 {
+			cli.Info(fmt.Sprintf("  %s: %d added", t, n))
+		}
+	}
+	for _, w := range result.CapacityWarnings {
+		cli.Warning(fmt.Sprintf("Capacity warning: %s over capacity (%.0f/%.0f pts)", w.AgentType, w.Allocated, w.Capacity))
+	}
+	return nil
+}
+
+// runSprintPlan handles `shark sprint plan <sprint-key>`.
+func runSprintPlan(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+
+	// Step 2: Call service
+	svc := getSprintService()
+	view, err := svc.PlanSprint(cmd.Context(), sprintKey)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(view)
+	}
+	return printSprintPlanView(view)
+}
+
+// printSprintPlanView prints the three planning sections for human output.
+func printSprintPlanView(view *services.SprintPlanView) error {
+	sprintLabel := ""
+	if view.Sprint != nil {
+		sprintLabel = fmt.Sprintf(" %s (%s)", view.Sprint.Key, view.Sprint.Name)
+	}
+	fmt.Printf("\nSprint Planning View%s\n\n", sprintLabel)
+
+	// Section 1: Backlog
+	fmt.Printf("=== Backlog (%d unassigned entities) ===\n", len(view.Backlog))
+	if len(view.Backlog) == 0 {
+		fmt.Println("  (no unassigned entities)")
+	} else {
+		fmt.Printf("%-15s %-10s %-8s %s\n", "KEY", "TYPE", "SIZE", "TITLE")
+		fmt.Printf("%-15s %-10s %-8s %s\n",
+			strings.Repeat("-", 15), strings.Repeat("-", 10), strings.Repeat("-", 8), strings.Repeat("-", 30))
+		for _, item := range view.Backlog {
+			sizeStr := "-"
+			if item.Size != nil {
+				sizeStr = fmt.Sprintf("%d", *item.Size)
+			}
+			title := item.Title
+			if len(title) > 40 {
+				title = title[:37] + "..."
+			}
+			fmt.Printf("%-15s %-10s %-8s %s\n", item.Key, item.EntityType, sizeStr, title)
+		}
+	}
+
+	// Section 2: Capacity
+	fmt.Printf("\n=== Capacity ===\n")
+	if len(view.Capacity) == 0 {
+		fmt.Println("  (no capacity configured — use `shark sprint capacity set`)")
+	} else {
+		fmt.Printf("%-12s %10s %10s %10s %8s\n", "AGENT", "CAPACITY", "ALLOCATED", "REMAINING", "UNSIZED")
+		fmt.Printf("%-12s %10s %10s %10s %8s\n",
+			strings.Repeat("-", 12), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 8))
+		for _, row := range view.Capacity {
+			fmt.Printf("%-12s %10.0f %10.0f %10.0f %8d\n",
+				row.AgentType, row.CapacityPoints, row.AllocatedPoints, row.Remaining, row.UnsizedAssigned)
+		}
+	}
+
+	// Section 3: Readiness
+	fmt.Printf("\n=== Readiness ===\n")
+	if view.Readiness != nil {
+		fmt.Printf("Overall Score: %d / 100\n", view.Readiness.OverallScore)
+		if len(view.Readiness.Factors) > 0 {
+			fmt.Printf("%-30s %6s %8s  %s\n", "FACTOR", "SCORE", "MAX", "DETAIL")
+			fmt.Printf("%-30s %6s %8s  %s\n",
+				strings.Repeat("-", 30), strings.Repeat("-", 6), strings.Repeat("-", 8), strings.Repeat("-", 30))
+			for _, f := range view.Readiness.Factors {
+				fmt.Printf("%-30s %6d %8d  %s\n", f.Name, f.Score, f.MaxScore, f.Detail)
+			}
+		}
+	}
+	fmt.Println()
+	return nil
+}
+
+// runSprintReadiness handles `shark sprint readiness <sprint-key>`.
+func runSprintReadiness(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+
+	// Step 2: Call service
+	svc := getSprintService()
+	readiness, err := svc.GetSprintReadiness(cmd.Context(), sprintKey)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(readiness)
+	}
+	return printReadiness(sprintKey, readiness)
+}
+
+// printReadiness formats the readiness score and factor table for human output.
+func printReadiness(sprintKey string, r *services.SprintReadiness) error {
+	fmt.Printf("\nSprint Readiness: %s\n", sprintKey)
+	fmt.Printf("Overall Score: %d / 100\n\n", r.OverallScore)
+
+	if len(r.Factors) > 0 {
+		fmt.Printf("%-30s %6s %8s  %s\n", "FACTOR", "SCORE", "MAX", "DETAIL")
+		fmt.Printf("%-30s %6s %8s  %s\n",
+			strings.Repeat("-", 30), strings.Repeat("-", 6), strings.Repeat("-", 8), strings.Repeat("-", 30))
+		for _, f := range r.Factors {
+			fmt.Printf("%-30s %6d %8d  %s\n", f.Name, f.Score, f.MaxScore, f.Detail)
+		}
+	}
+
+	if len(r.UnsizedEntities) > 0 {
+		fmt.Printf("\nUnsized entities (%d):\n", len(r.UnsizedEntities))
+		for _, e := range r.UnsizedEntities {
+			fmt.Printf("  %s  %s\n", e.Key, e.Title)
+		}
+	}
+	if len(r.OversizedEntities) > 0 {
+		fmt.Printf("\nOversized entities (%d):\n", len(r.OversizedEntities))
+		for _, e := range r.OversizedEntities {
+			fmt.Printf("  %s  %s\n", e.Key, e.Title)
+		}
+	}
+	fmt.Println()
+	return nil
+}
+
+// runSprintCapacitySet handles `shark sprint capacity set [sprint-key]`.
+// With --default, writes to .sharkconfig.json and does NOT call the service.
+// Without --default, calls SetSprintCapacity on the service for the sprint.
+func runSprintCapacitySet(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	agentType, _ := cmd.Flags().GetString("agent")
+	points, _ := cmd.Flags().GetFloat64("points")
+	isDefault, _ := cmd.Flags().GetBool("default")
+
+	// Step 2: Route based on --default flag
+	if isDefault {
+		// Write to config file only — do NOT call SetSprintCapacity service
+		configPath, err := cli.GetConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to find config path: %w", err)
+		}
+		mgr := config.NewManager(configPath)
+		if err := mgr.SetSprintCapacityDefault(agentType, points); err != nil {
+			return fmt.Errorf("failed to update sprint defaults: %w", err)
+		}
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(map[string]interface{}{
+				"agent_type": agentType,
+				"points":     points,
+				"updated":    "sprint_defaults.capacity",
+			})
+		}
+		cli.Success(fmt.Sprintf("Updated sprint default capacity: %s = %.0f pts", agentType, points))
+		return nil
+	}
+
+	// Per-sprint set
+	if len(args) == 0 {
+		return fmt.Errorf("sprint key required (or use --default to set config default)")
+	}
+	sprintKey := args[0]
+
+	svc := getSprintService()
+	cap, err := svc.SetSprintCapacity(cmd.Context(), services.SetSprintCapacityInput{
+		SprintKey: sprintKey,
+		AgentType: agentType,
+		Points:    points,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(cap)
+	}
+	cli.Success(fmt.Sprintf("Set capacity for %s in sprint %s: %.0f pts", agentType, sprintKey, points))
+	return nil
+}
+
+// runSprintCapacityShow handles `shark sprint capacity show <sprint-key>`.
+func runSprintCapacityShow(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+
+	// Step 2: Call service
+	svc := getSprintService()
+	rows, err := svc.GetSprintCapacity(cmd.Context(), sprintKey)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(rows)
+	}
+	return printCapacityTable(sprintKey, rows)
+}
+
+// printCapacityTable formats and prints capacity rows for human output.
+func printCapacityTable(sprintKey string, rows []services.CapacityRow) error {
+	fmt.Printf("\nCapacity: %s\n\n", sprintKey)
+	if len(rows) == 0 {
+		cli.Info("No capacity configured. Use `shark sprint capacity set` to configure agent capacity.")
+		return nil
+	}
+	fmt.Printf("%-12s %10s %10s %10s %8s\n", "AGENT", "CAPACITY", "ALLOCATED", "REMAINING", "UNSIZED")
+	fmt.Printf("%-12s %10s %10s %10s %8s\n",
+		strings.Repeat("-", 12), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 8))
+	for _, row := range rows {
+		fmt.Printf("%-12s %10.0f %10.0f %10.0f %8d\n",
+			row.AgentType, row.CapacityPoints, row.AllocatedPoints, row.Remaining, row.UnsizedAssigned)
 	}
 	fmt.Println()
 	return nil

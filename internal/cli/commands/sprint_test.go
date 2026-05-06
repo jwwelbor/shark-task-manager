@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,16 @@ type MockSprintService struct {
 	CloseSprintFunc              func(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryoverFunc func(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
 	ArchiveSprintFunc            func(ctx context.Context, key string) (*models.Sprint, error)
+	// F03 assignment methods
+	AddEntityToSprintFunc      func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
+	RemoveEntityFromSprintFunc func(ctx context.Context, sprintKey, entityKey string) error
+	GetSprintBacklogFunc       func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
+	// F05 planning methods
+	PlanSprintFunc         func(ctx context.Context, key string) (*services.SprintPlanView, error)
+	GetSprintReadinessFunc func(ctx context.Context, key string) (*services.SprintReadiness, error)
+	SetSprintCapacityFunc  func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
+	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]services.CapacityRow, error)
+	BulkAddToSprintFunc    func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
 }
 
 func (m *MockSprintService) CreateSprint(ctx context.Context, input services.CreateSprintInput) (*models.Sprint, error) {
@@ -94,6 +105,62 @@ func (m *MockSprintService) ArchiveSprint(ctx context.Context, key string) (*mod
 		return m.ArchiveSprintFunc(ctx, key)
 	}
 	return nil, nil
+}
+
+func (m *MockSprintService) AddEntityToSprint(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+	if m.AddEntityToSprintFunc != nil {
+		return m.AddEntityToSprintFunc(ctx, input)
+	}
+	return &models.SprintAssignment{}, nil, nil
+}
+
+func (m *MockSprintService) RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error {
+	if m.RemoveEntityFromSprintFunc != nil {
+		return m.RemoveEntityFromSprintFunc(ctx, sprintKey, entityKey)
+	}
+	return nil
+}
+
+func (m *MockSprintService) GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+	if m.GetSprintBacklogFunc != nil {
+		return m.GetSprintBacklogFunc(ctx, sprintKey, opts)
+	}
+	return &services.SprintBacklog{SprintKey: sprintKey, Groups: []*services.BacklogGroup{}}, nil
+}
+
+func (m *MockSprintService) PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error) {
+	if m.PlanSprintFunc != nil {
+		return m.PlanSprintFunc(ctx, key)
+	}
+	return &services.SprintPlanView{Sprint: &models.Sprint{Key: key}}, nil
+}
+
+func (m *MockSprintService) GetSprintReadiness(ctx context.Context, key string) (*services.SprintReadiness, error) {
+	if m.GetSprintReadinessFunc != nil {
+		return m.GetSprintReadinessFunc(ctx, key)
+	}
+	return &services.SprintReadiness{OverallScore: 0, Factors: []services.ReadinessFactor{}}, nil
+}
+
+func (m *MockSprintService) SetSprintCapacity(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error) {
+	if m.SetSprintCapacityFunc != nil {
+		return m.SetSprintCapacityFunc(ctx, input)
+	}
+	return &models.SprintCapacity{AgentType: input.AgentType, CapacityPoints: input.Points}, nil
+}
+
+func (m *MockSprintService) GetSprintCapacity(ctx context.Context, key string) ([]services.CapacityRow, error) {
+	if m.GetSprintCapacityFunc != nil {
+		return m.GetSprintCapacityFunc(ctx, key)
+	}
+	return []services.CapacityRow{}, nil
+}
+
+func (m *MockSprintService) BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error) {
+	if m.BulkAddToSprintFunc != nil {
+		return m.BulkAddToSprintFunc(ctx, input)
+	}
+	return &services.BulkAddResult{AddedByType: map[string]int{}, SkippedByType: map[string]int{}}, nil
 }
 
 // Test helpers
@@ -1071,4 +1138,1008 @@ func TestSprintSummary_PassesDetailedFlag(t *testing.T) {
 
 	err := runSprintSummary(cmd, []string{"S024"})
 	assert.NoError(t, err)
+}
+
+// =============================================================================
+// TC-J01: sprint add JSON output contains SprintAssignment fields
+// =============================================================================
+
+func TestSprintAdd_JSONOutputContainsAssignmentFields(t *testing.T) {
+	// TC-J01: --json output from sprint add must include sprint_id, entity_type, entity_id, assigned_at.
+	assignedAt := time.Date(2026, 3, 18, 10, 0, 0, 0, time.UTC)
+	assignment := &models.SprintAssignment{
+		ID:         42,
+		SprintID:   24,
+		EntityType: "task",
+		EntityID:   1001,
+		AssignedAt: assignedAt,
+	}
+
+	mock := &MockSprintService{
+		AddEntityToSprintFunc: func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			assert.Equal(t, "S024", input.SprintKey)
+			assert.Equal(t, "E07-F01-001", input.EntityKey)
+			return assignment, nil, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+
+	runErr := runSprintAdd(cmd, []string{"S024", "E07-F01-001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result))
+
+	assert.Contains(t, result, "sprint_id", "sprint_id must be present in JSON output")
+	assert.Contains(t, result, "entity_type", "entity_type must be present in JSON output")
+	assert.Contains(t, result, "entity_id", "entity_id must be present in JSON output")
+	assert.Contains(t, result, "assigned_at", "assigned_at must be present in JSON output")
+	assert.Equal(t, "task", result["entity_type"], "entity_type must match the assignment")
+}
+
+// =============================================================================
+// TC-J02: sprint remove JSON output
+// =============================================================================
+
+func TestSprintRemove_JSONOutput(t *testing.T) {
+	// TC-J02: --json output from sprint remove returns a confirmation object.
+	mock := &MockSprintService{
+		RemoveEntityFromSprintFunc: func(ctx context.Context, sprintKey, entityKey string) error {
+			assert.Equal(t, "S024", sprintKey)
+			assert.Equal(t, "E07-F01-001", entityKey)
+			return nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	runErr := runSprintRemove(cmd, []string{"S024", "E07-F01-001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+
+	output := jsonBuf.String()
+	assert.NotEmpty(t, output, "JSON output must not be empty")
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result), "JSON output must be valid JSON")
+}
+
+// =============================================================================
+// TC-J03: sprint backlog JSON output contains entity_type on every item
+// =============================================================================
+
+func TestSprintBacklog_JSONOutputEntityTypeOnEveryItem(t *testing.T) {
+	// TC-J03: Every item in groups[*].items[*] must have entity_type field non-empty.
+	backlog := &services.SprintBacklog{
+		SprintKey:         "S024",
+		SprintName:        "Sprint 24",
+		TotalCount:        2,
+		CompletedCount:    0,
+		CompletionPercent: 0.0,
+		Groups: []*services.BacklogGroup{
+			{
+				StatusCategory: "todo",
+				Items: []*services.BacklogItemView{
+					{EntityType: "task", Key: "E07-F01-001", Title: "Task 1", Status: "todo"},
+					{EntityType: "bug", Key: "B001", Title: "Bug 1", Status: "todo"},
+				},
+			},
+		},
+	}
+
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			assert.Equal(t, "S024", sprintKey)
+			return backlog, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+
+	runErr := runSprintBacklog(cmd, []string{"S024"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result))
+
+	groups, ok := result["groups"].([]interface{})
+	require.True(t, ok, "groups field must be present and an array")
+	require.NotEmpty(t, groups, "groups must have at least one group")
+
+	group0, ok := groups[0].(map[string]interface{})
+	require.True(t, ok)
+	items, ok := group0["items"].([]interface{})
+	require.True(t, ok, "items must be present")
+
+	for i, itemRaw := range items {
+		item, ok := itemRaw.(map[string]interface{})
+		require.True(t, ok)
+		val, present := item["entity_type"]
+		assert.True(t, present, "item[%d] must have entity_type field", i)
+		assert.NotEmpty(t, val, "item[%d] entity_type must not be empty", i)
+	}
+}
+
+// =============================================================================
+// TC-U01: sprint add — double-assignment error propagates conflicting sprint key
+// =============================================================================
+
+func TestSprintAdd_DoubleAssignmentErrorContainsSprintKey(t *testing.T) {
+	// TC-U01: When service returns a conflict error mentioning S024, the error must propagate.
+	mock := &MockSprintService{
+		AddEntityToSprintFunc: func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			return nil, nil, fmt.Errorf("entity E07-F01-001 is already assigned to sprint S024")
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+
+	err := runSprintAdd(cmd, []string{"S025", "E07-F01-001"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "S024", "error must name the conflicting sprint key")
+}
+
+// =============================================================================
+// TC-U02: sprint add — capacity warning is advisory (no error returned)
+// =============================================================================
+
+func TestSprintAdd_CapacityWarningEmittedBeforeSuccess(t *testing.T) {
+	// TC-U02: When service returns a CapacityWarning, command proceeds successfully (advisory only).
+	assignment := &models.SprintAssignment{
+		ID:         1,
+		SprintID:   24,
+		EntityType: "task",
+		EntityID:   1001,
+		AssignedAt: time.Now(),
+	}
+	warning := &services.CapacityWarning{
+		AgentType: "backend",
+		Capacity:  30.0,
+		Allocated: 35.0,
+	}
+
+	mock := &MockSprintService{
+		AddEntityToSprintFunc: func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			return assignment, warning, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+
+	// No error expected — capacity warning is advisory; assignment still succeeds
+	err := runSprintAdd(cmd, []string{"S024", "E07-F01-001"})
+	assert.NoError(t, err, "capacity warning must not cause an error — assignment should succeed")
+}
+
+// =============================================================================
+// TC-U03: sprint backlog -- invalid --type value returns error
+// =============================================================================
+
+func TestSprintBacklog_InvalidTypeFlag_ReturnsError(t *testing.T) {
+	// TC-U03: --type=epic is not a valid entity type; service returns error.
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			return nil, fmt.Errorf("invalid entity type %q: must be one of task, bug, change_card, tech_debt", opts.EntityType)
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().Set("type", "epic")
+
+	err := runSprintBacklog(cmd, []string{"S024"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid entity type")
+}
+
+// =============================================================================
+// TC-U04: sprint close -- carryover=next output shows moved count and next sprint key
+// =============================================================================
+
+func TestSprintClose_CarryoverNextOutputShowsMovedCountAndNextKey(t *testing.T) {
+	// TC-U04: Human output must contain completed count, carried-over count, and next sprint key.
+	closedSprint := &models.Sprint{
+		Key:    "S024",
+		Name:   "Sprint 24",
+		Status: "completed",
+	}
+	closeResult := &services.SprintCloseResult{
+		Sprint:           closedSprint,
+		CompletedCount:   5,
+		CarriedOverCount: 3,
+		DroppedCount:     0,
+		NextSprintKey:    "S025",
+	}
+
+	mock := &MockSprintService{
+		CloseSprintWithCarryoverFunc: func(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error) {
+			assert.Equal(t, "S024", key)
+			assert.Equal(t, services.CarryoverMode("next"), mode)
+			return closeResult, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("carryover", "", "")
+	cmd.Flags().Set("carryover", "next")
+
+	runErr := runSprintClose(cmd, []string{"S024"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	assert.Contains(t, output, "S025", "output must mention the next sprint key")
+	assert.Contains(t, output, "5", "output must show completed count")
+	assert.Contains(t, output, "3", "output must show carried-over count")
+}
+
+// =============================================================================
+// TC-U05: sprint close -- carryover=backlog output shows dropped count
+// =============================================================================
+
+func TestSprintClose_CarryoverBacklogOutputShowsDroppedCount(t *testing.T) {
+	// TC-U05: Human output must contain dropped count when carryover=backlog; no next sprint key.
+	closedSprint := &models.Sprint{
+		Key:    "S024",
+		Name:   "Sprint 24",
+		Status: "completed",
+	}
+	closeResult := &services.SprintCloseResult{
+		Sprint:           closedSprint,
+		CompletedCount:   5,
+		CarriedOverCount: 0,
+		DroppedCount:     3,
+		NextSprintKey:    "",
+	}
+
+	mock := &MockSprintService{
+		CloseSprintWithCarryoverFunc: func(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error) {
+			return closeResult, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("carryover", "", "")
+	cmd.Flags().Set("carryover", "backlog")
+
+	runErr := runSprintClose(cmd, []string{"S024"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	assert.Contains(t, output, "3", "output must show dropped count")
+	assert.NotContains(t, output, "S025", "should not mention a next sprint key when carryover=backlog")
+}
+
+// =============================================================================
+// Extended MockSprintService — adds F05 planning methods
+// =============================================================================
+
+// MockSprintPlanningService embeds MockSprintService and adds PlanSprint,
+// GetSprintReadiness, SetSprintCapacity, GetSprintCapacity, BulkAddToSprint,
+// AddEntityToSprint so it satisfies the extended sprintServicer interface.
+type MockSprintPlanningService struct {
+	MockSprintService
+
+	PlanSprintFunc         func(ctx context.Context, key string) (*services.SprintPlanView, error)
+	GetSprintReadinessFunc func(ctx context.Context, key string) (*services.SprintReadiness, error)
+	SetSprintCapacityFunc  func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
+	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]services.CapacityRow, error)
+	BulkAddToSprintFunc    func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	AddEntityToSprintFunc  func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
+}
+
+func (m *MockSprintPlanningService) PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error) {
+	if m.PlanSprintFunc != nil {
+		return m.PlanSprintFunc(ctx, key)
+	}
+	return &services.SprintPlanView{
+		Sprint:    &models.Sprint{Key: key},
+		Backlog:   nil,
+		Capacity:  nil,
+		Readiness: &services.SprintReadiness{OverallScore: 0},
+	}, nil
+}
+
+func (m *MockSprintPlanningService) GetSprintReadiness(ctx context.Context, key string) (*services.SprintReadiness, error) {
+	if m.GetSprintReadinessFunc != nil {
+		return m.GetSprintReadinessFunc(ctx, key)
+	}
+	return &services.SprintReadiness{OverallScore: 75, Factors: []services.ReadinessFactor{}}, nil
+}
+
+func (m *MockSprintPlanningService) SetSprintCapacity(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error) {
+	if m.SetSprintCapacityFunc != nil {
+		return m.SetSprintCapacityFunc(ctx, input)
+	}
+	return &models.SprintCapacity{AgentType: input.AgentType, CapacityPoints: input.Points}, nil
+}
+
+func (m *MockSprintPlanningService) GetSprintCapacity(ctx context.Context, key string) ([]services.CapacityRow, error) {
+	if m.GetSprintCapacityFunc != nil {
+		return m.GetSprintCapacityFunc(ctx, key)
+	}
+	return []services.CapacityRow{}, nil
+}
+
+func (m *MockSprintPlanningService) BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error) {
+	if m.BulkAddToSprintFunc != nil {
+		return m.BulkAddToSprintFunc(ctx, input)
+	}
+	return &services.BulkAddResult{AddedByType: map[string]int{}, SkippedByType: map[string]int{}}, nil
+}
+
+func (m *MockSprintPlanningService) AddEntityToSprint(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+	if m.AddEntityToSprintFunc != nil {
+		return m.AddEntityToSprintFunc(ctx, input)
+	}
+	return &models.SprintAssignment{}, nil, nil
+}
+
+// setupPlanningTest sets up the sprint service override using the extended mock.
+func setupPlanningTest(t *testing.T, mock *MockSprintPlanningService) func() {
+	t.Helper()
+	oldOverride := sprintSvcOverride
+	sprintSvcOverride = mock
+	return func() {
+		sprintSvcOverride = oldOverride
+	}
+}
+
+// =============================================================================
+// TC-011-06: shark sprint plan --json returns SprintPlanView with three keys
+// =============================================================================
+
+func TestSprintPlan_JSONOutput(t *testing.T) {
+	// TC-011-06: --json output must contain backlog, capacity, readiness keys.
+	agentBackend := "backend"
+	planView := &services.SprintPlanView{
+		Sprint: newTestSprint(),
+		Backlog: []sprint.BacklogItem{
+			{Key: "E07-F01-001", Title: "Task A", Priority: 8, AgentType: &agentBackend},
+		},
+		Capacity: []services.CapacityRow{
+			{AgentType: "backend", CapacityPoints: 21, AllocatedPoints: 8, Remaining: 13},
+		},
+		Readiness: &services.SprintReadiness{
+			OverallScore: 72,
+			Factors:      []services.ReadinessFactor{},
+		},
+	}
+
+	mock := &MockSprintPlanningService{
+		PlanSprintFunc: func(ctx context.Context, key string) (*services.SprintPlanView, error) {
+			assert.Equal(t, "S001", key)
+			return planView, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	runErr := runSprintPlan(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result))
+	assert.Contains(t, result, "backlog", "JSON must contain backlog key")
+	assert.Contains(t, result, "capacity", "JSON must contain capacity key")
+	assert.Contains(t, result, "readiness", "JSON must contain readiness key")
+	assert.Contains(t, result, "sprint", "JSON must contain sprint key")
+}
+
+// =============================================================================
+// TC-011-07: shark sprint plan human output shows three labeled sections
+// =============================================================================
+
+func TestSprintPlan_HumanOutputSections(t *testing.T) {
+	// TC-011-07: Human output must show "Backlog", "Capacity", and "Readiness" sections.
+	planView := &services.SprintPlanView{
+		Sprint:    newTestSprint(),
+		Backlog:   []sprint.BacklogItem{},
+		Capacity:  []services.CapacityRow{},
+		Readiness: &services.SprintReadiness{OverallScore: 55, Factors: []services.ReadinessFactor{}},
+	}
+
+	mock := &MockSprintPlanningService{
+		PlanSprintFunc: func(ctx context.Context, key string) (*services.SprintPlanView, error) {
+			return planView, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	runErr := runSprintPlan(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	assert.Contains(t, output, "Backlog", "human output must show Backlog section")
+	assert.Contains(t, output, "Capacity", "human output must show Capacity section")
+	assert.Contains(t, output, "Readiness", "human output must show Readiness section")
+}
+
+// =============================================================================
+// TC-013-08: shark sprint readiness --json returns SprintReadiness JSON
+// =============================================================================
+
+func TestSprintReadiness_JSONOutput(t *testing.T) {
+	// TC-013-08: --json returns SprintReadiness JSON with overall_score and factors.
+	readiness := &services.SprintReadiness{
+		OverallScore: 72,
+		Factors: []services.ReadinessFactor{
+			{Name: "Capacity utilization", Score: 20, MaxScore: 20, Detail: "within 80-110%"},
+		},
+		UnsizedEntities:   []sprint.BacklogItem{},
+		OversizedEntities: []sprint.BacklogItem{},
+	}
+
+	mock := &MockSprintPlanningService{
+		GetSprintReadinessFunc: func(ctx context.Context, key string) (*services.SprintReadiness, error) {
+			assert.Equal(t, "S001", key)
+			return readiness, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	runErr := runSprintReadiness(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result))
+	assert.Contains(t, result, "overall_score")
+	assert.Contains(t, result, "factors")
+	scoreVal, ok := result["overall_score"].(float64)
+	assert.True(t, ok)
+	assert.Equal(t, float64(72), scoreVal)
+}
+
+// =============================================================================
+// TC-013-09: shark sprint readiness human output shows factor table
+// =============================================================================
+
+func TestSprintReadiness_HumanFactorTable(t *testing.T) {
+	// TC-013-09: Human output must show score and factor breakdown.
+	readiness := &services.SprintReadiness{
+		OverallScore: 85,
+		Factors: []services.ReadinessFactor{
+			{Name: "Capacity utilization", Score: 20, MaxScore: 20, Detail: "within 80-110%"},
+			{Name: "All entities sized", Score: 15, MaxScore: 15, Detail: "all sized"},
+		},
+		UnsizedEntities:   []sprint.BacklogItem{},
+		OversizedEntities: []sprint.BacklogItem{},
+	}
+
+	mock := &MockSprintPlanningService{
+		GetSprintReadinessFunc: func(ctx context.Context, key string) (*services.SprintReadiness, error) {
+			return readiness, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	runErr := runSprintReadiness(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	// Must show overall score
+	assert.Contains(t, output, "85")
+	// Must show factor names
+	assert.Contains(t, output, "Capacity utilization")
+}
+
+// =============================================================================
+// TC-014-07: shark sprint capacity show --json returns []CapacityRow
+// =============================================================================
+
+func TestSprintCapacityShow_JSONOutput(t *testing.T) {
+	// TC-014-07: --json output is an array of CapacityRow objects.
+	rows := []services.CapacityRow{
+		{AgentType: "backend", CapacityPoints: 21, AllocatedPoints: 13, Remaining: 8, UnsizedAssigned: 1},
+	}
+
+	mock := &MockSprintPlanningService{
+		GetSprintCapacityFunc: func(ctx context.Context, key string) ([]services.CapacityRow, error) {
+			assert.Equal(t, "S001", key)
+			return rows, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	runErr := runSprintCapacityShow(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	var result []map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result))
+	require.Len(t, result, 1)
+	assert.Equal(t, "backend", result[0]["agent_type"])
+	assert.Equal(t, float64(21), result[0]["capacity_points"])
+}
+
+// =============================================================================
+// TC-014-08: shark sprint capacity show with negative remaining
+// =============================================================================
+
+func TestSprintCapacityShow_NegativeRemaining(t *testing.T) {
+	// TC-014-08: Negative remaining (overcommit) is shown correctly in human output.
+	rows := []services.CapacityRow{
+		{AgentType: "backend", CapacityPoints: 10, AllocatedPoints: 15, Remaining: -5, UnsizedAssigned: 0},
+	}
+
+	mock := &MockSprintPlanningService{
+		GetSprintCapacityFunc: func(ctx context.Context, key string) ([]services.CapacityRow, error) {
+			return rows, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	runErr := runSprintCapacityShow(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	// -5 should appear in human output
+	assert.Contains(t, output, "-5")
+}
+
+// =============================================================================
+// TC-015-04: --default routes to config.SetSprintCapacityDefault, NOT service
+// =============================================================================
+
+func TestSprintCapacitySet_DefaultFlagRoutesToConfig(t *testing.T) {
+	// TC-015-04: When --default is set, the command must NOT call SetSprintCapacity.
+	// It writes to config only.
+	serviceCallCount := 0
+
+	mock := &MockSprintPlanningService{
+		SetSprintCapacityFunc: func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error) {
+			serviceCallCount++
+			return nil, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	// Use a temp config file to test config mutation
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/.sharkconfig.json"
+	// Write minimal config
+	require.NoError(t, os.WriteFile(configPath, []byte(`{}`), 0644))
+
+	// Override config path for this test
+	origConfigFile := cli.GlobalConfig.ConfigFile
+	cli.GlobalConfig.ConfigFile = configPath
+	defer func() { cli.GlobalConfig.ConfigFile = origConfigFile }()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("agent", "", "agent type")
+	cmd.Flags().Float64("points", 0, "capacity points")
+	cmd.Flags().Bool("default", false, "write to config defaults")
+	cmd.Flags().Set("agent", "backend")
+	cmd.Flags().Set("points", "21")
+	cmd.Flags().Set("default", "true")
+
+	err := runSprintCapacitySet(cmd, []string{})
+	assert.NoError(t, err)
+
+	// Service must NOT have been called
+	assert.Equal(t, 0, serviceCallCount, "--default path must not call SetSprintCapacity service")
+}
+
+// =============================================================================
+// TC-012-04: shark sprint add --bulk-bugs calls BulkAddToSprint with EntityType="bug"
+// =============================================================================
+
+func TestSprintAdd_BulkBugs(t *testing.T) {
+	// TC-012-04 / TC-012-02: --bulk-bugs routes to BulkAddToSprint with EntityType=["bug"].
+	var capturedInput services.BulkAddInput
+
+	mock := &MockSprintPlanningService{
+		BulkAddToSprintFunc: func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error) {
+			capturedInput = input
+			return &services.BulkAddResult{
+				AddedByType:   map[string]int{"bug": 3},
+				SkippedByType: map[string]int{"bug": 1},
+			}, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "entity key")
+	cmd.Flags().String("bulk", "", "feature key for bulk add")
+	cmd.Flags().Bool("bulk-bugs", false, "bulk add bugs")
+	cmd.Flags().Bool("bulk-tech-debt", false, "bulk add tech debt")
+	cmd.Flags().Bool("bulk-changes", false, "bulk add change cards")
+	cmd.Flags().Set("bulk-bugs", "true")
+
+	err := runSprintAdd(cmd, []string{"S001"})
+	assert.NoError(t, err)
+	assert.Equal(t, "S001", capturedInput.SprintKey)
+	assert.Equal(t, []string{"bug"}, capturedInput.EntityTypes)
+	assert.Empty(t, capturedInput.FeatureKey)
+}
+
+// =============================================================================
+// TC-012-01: shark sprint add --bulk <feature> calls BulkAddToSprint with FeatureKey
+// =============================================================================
+
+func TestSprintAdd_BulkByFeature(t *testing.T) {
+	// TC-012-01: --bulk=E07-F34 routes to BulkAddToSprint with FeatureKey populated.
+	var capturedInput services.BulkAddInput
+
+	mock := &MockSprintPlanningService{
+		BulkAddToSprintFunc: func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error) {
+			capturedInput = input
+			return &services.BulkAddResult{
+				AddedByType:   map[string]int{"task": 2},
+				SkippedByType: map[string]int{"task": 0},
+			}, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "entity key")
+	cmd.Flags().String("bulk", "", "feature key for bulk add")
+	cmd.Flags().Bool("bulk-bugs", false, "bulk add bugs")
+	cmd.Flags().Bool("bulk-tech-debt", false, "bulk add tech debt")
+	cmd.Flags().Bool("bulk-changes", false, "bulk add change cards")
+	cmd.Flags().Set("bulk", "E07-F34")
+
+	err := runSprintAdd(cmd, []string{"S001"})
+	assert.NoError(t, err)
+	assert.Equal(t, "S001", capturedInput.SprintKey)
+	assert.Equal(t, "E07-F34", capturedInput.FeatureKey)
+}
+
+// =============================================================================
+// TC-012-04 (JSON): shark sprint add --bulk-bugs --json returns BulkAddResult JSON
+// =============================================================================
+
+func TestSprintAdd_BulkBugs_JSONOutput(t *testing.T) {
+	// TC-012-04: --json returns BulkAddResult as JSON.
+	mock := &MockSprintPlanningService{
+		BulkAddToSprintFunc: func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error) {
+			return &services.BulkAddResult{
+				AddedByType:   map[string]int{"bug": 5},
+				SkippedByType: map[string]int{"bug": 2},
+			}, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "entity key")
+	cmd.Flags().String("bulk", "", "feature key for bulk add")
+	cmd.Flags().Bool("bulk-bugs", false, "bulk add bugs")
+	cmd.Flags().Bool("bulk-tech-debt", false, "bulk add tech debt")
+	cmd.Flags().Bool("bulk-changes", false, "bulk add change cards")
+	cmd.Flags().Set("bulk-bugs", "true")
+
+	runErr := runSprintAdd(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var jsonBuf bytes.Buffer
+	jsonBuf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &result))
+	// BulkAddResult has no json tags so Go uses PascalCase field names
+	assert.Contains(t, result, "AddedByType")
+	assert.Contains(t, result, "SkippedByType")
+}
+
+// =============================================================================
+// Single-entity add (non-bulk path)
+// =============================================================================
+
+func TestSprintAdd_SingleEntity(t *testing.T) {
+	// Non-bulk path: shark sprint add S001 --entity=E07-F01-001
+	mock := &MockSprintPlanningService{
+		AddEntityToSprintFunc: func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			assert.Equal(t, "S001", input.SprintKey)
+			assert.Equal(t, "E07-F01-001", input.EntityKey)
+			return &models.SprintAssignment{ID: 1}, nil, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "entity key")
+	cmd.Flags().String("bulk", "", "feature key for bulk add")
+	cmd.Flags().Bool("bulk-bugs", false, "bulk add bugs")
+	cmd.Flags().Bool("bulk-tech-debt", false, "bulk add tech debt")
+	cmd.Flags().Bool("bulk-changes", false, "bulk add change cards")
+	cmd.Flags().Set("entity", "E07-F01-001")
+
+	err := runSprintAdd(cmd, []string{"S001"})
+	assert.NoError(t, err)
+}
+
+// =============================================================================
+// shark sprint capacity set (per-sprint, no --default flag)
+// =============================================================================
+
+func TestSprintCapacitySet_PerSprint(t *testing.T) {
+	// Per-sprint set calls SetSprintCapacity; does NOT touch config.
+	var capturedInput services.SetSprintCapacityInput
+
+	mock := &MockSprintPlanningService{
+		SetSprintCapacityFunc: func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error) {
+			capturedInput = input
+			return &models.SprintCapacity{
+				AgentType:      input.AgentType,
+				CapacityPoints: input.Points,
+			}, nil
+		},
+	}
+	cleanup := setupPlanningTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("agent", "", "agent type")
+	cmd.Flags().Float64("points", 0, "capacity points")
+	cmd.Flags().Bool("default", false, "write to config defaults")
+	cmd.Flags().Set("agent", "backend")
+	cmd.Flags().Set("points", "21")
+
+	err := runSprintCapacitySet(cmd, []string{"S001"})
+	assert.NoError(t, err)
+	assert.Equal(t, "S001", capturedInput.SprintKey)
+	assert.Equal(t, "backend", capturedInput.AgentType)
+	assert.Equal(t, float64(21), capturedInput.Points)
 }
