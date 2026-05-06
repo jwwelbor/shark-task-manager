@@ -1928,6 +1928,26 @@ func planComputeCapacityRows(assignments []sprint.AssignmentWithSize, capacityMo
 // Delegates to the same factor helper functions used by GetSprintReadiness so both paths
 // produce identical output for identical inputs (determinism guarantee).
 func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
+	// ─── Zero-entity degenerate case (mirrors GetSprintReadiness spec AC-12) ──
+	// When no entities are assigned, the overall score is 0 and all factor
+	// scores are also 0, regardless of what individual formulae would produce.
+	if len(assignments) == 0 {
+		emptyFactors := []ReadinessFactor{
+			{Name: "Capacity utilization", Score: 0, MaxScore: 25, Detail: "Sprint has no assigned entities"},
+			{Name: "Dependency satisfaction", Score: 0, MaxScore: 20, Detail: "Sprint has no assigned entities"},
+			{Name: "Task count", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
+			{Name: "Agent balance", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
+			{Name: "Sizing coverage", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
+			{Name: "Oversized-entity flag", Score: 0, MaxScore: 10, Detail: "Sprint has no assigned entities"},
+		}
+		return &SprintReadiness{
+			OverallScore:      0,
+			Factors:           emptyFactors,
+			UnsizedEntities:   []sprint.BacklogItem{},
+			OversizedEntities: []sprint.BacklogItem{},
+		}
+	}
+
 	// Aggregate capacity and allocated totals for Factor 1.
 	var totalCapacity, totalAllocated float64
 	for _, c := range capacities {
