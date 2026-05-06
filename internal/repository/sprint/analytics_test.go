@@ -532,3 +532,110 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// ============================================================================
+// TC-NF-01: Performance test (REQ-NF-001)
+// Verifies that GetVelocityData, GetCompletionEvents, and GetCycleTimeByPhase
+// each complete within 2 seconds when seeded with 50 sprints and 1000 tasks.
+// Gated with testing.Short() so it only runs in full (non-short) mode.
+// ============================================================================
+
+func TestPerformance_Analytics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping performance test in short mode")
+	}
+
+	ctx := context.Background()
+	rawDB := test.GetTestDB()
+	ensureSprintTables(t, rawDB)
+	db := dbconn.NewDB(rawDB)
+	repo := NewSprintAnalyticsRepository(db)
+
+	now := time.Now().UTC()
+
+	// --- Seed 50 sprints -------------------------------------------------------
+	const numSprints = 50
+	const numTasks = 1000
+
+	sprintIDs := make([]int64, 0, numSprints)
+	sprintKeys := make([]string, 0, numSprints)
+	for i := 0; i < numSprints; i++ {
+		key := fmt.Sprintf("PERFTEST-S%03d", i)
+		start := now.AddDate(0, -(numSprints - i), 0)
+		end := start.AddDate(0, 0, 14)
+		id := seedSprintForAnalytics(t, ctx, key, "completed", start, end)
+		sprintIDs = append(sprintIDs, id)
+		sprintKeys = append(sprintKeys, key)
+	}
+
+	// Defer cleanup of all seeded sprints (cascade deletes assignments).
+	defer func() {
+		for _, key := range sprintKeys {
+			_, _ = rawDB.ExecContext(ctx,
+				`DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key = ?)`, key)
+			_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key = ?`, key)
+		}
+	}()
+
+	// --- Seed 1000 tasks and assign each to a sprint ---------------------------
+	taskNums := make([]int, 0, numTasks)
+	for i := 0; i < numTasks; i++ {
+		taskNum := 5000 + i // offset to avoid collision with other tests
+		taskID := seedTaskForAnalytics(t, ctx, taskNum, nil)
+		sprintID := sprintIDs[i%numSprints]
+		assignedAt := now.AddDate(0, -(numSprints - (i % numSprints)), 0)
+		addAssignment(t, ctx, sprintID, "task", taskID, assignedAt, nil)
+		taskNums = append(taskNums, taskNum)
+	}
+
+	// Defer cleanup of seeded tasks.
+	defer func() {
+		for _, n := range taskNums {
+			taskKey := fmt.Sprintf("ANTEST-E99-F01-%03d", n)
+			_, _ = rawDB.ExecContext(ctx,
+				`DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key = ?)`, taskKey)
+			_, _ = rawDB.ExecContext(ctx, `DELETE FROM tasks WHERE key = ?`, taskKey)
+		}
+	}()
+
+	const maxDuration = 2 * time.Second
+
+	// --- GetVelocityData -------------------------------------------------------
+	t.Run("GetVelocityData", func(t *testing.T) {
+		start := time.Now()
+		_, err := repo.GetVelocityData(ctx, numSprints)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err, "GetVelocityData must not error")
+		assert.Less(t, elapsed, maxDuration,
+			"GetVelocityData must complete in < 2s, took %s", elapsed)
+	})
+
+	// --- GetCompletionEvents (use first sprint) --------------------------------
+	t.Run("GetCompletionEvents", func(t *testing.T) {
+		sprintID := sprintIDs[0]
+		sprintStart := now.AddDate(0, -numSprints, 0)
+		sprintEnd := sprintStart.AddDate(0, 0, 14)
+
+		start := time.Now()
+		_, err := repo.GetCompletionEvents(ctx, sprintID, sprintStart, sprintEnd)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err, "GetCompletionEvents must not error")
+		assert.Less(t, elapsed, maxDuration,
+			"GetCompletionEvents must complete in < 2s, took %s", elapsed)
+	})
+
+	// --- GetCycleTimeByPhase (use first sprint) --------------------------------
+	t.Run("GetCycleTimeByPhase", func(t *testing.T) {
+		sprintID := sprintIDs[0]
+
+		start := time.Now()
+		_, err := repo.GetCycleTimeByPhase(ctx, sprintID)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err, "GetCycleTimeByPhase must not error")
+		assert.Less(t, elapsed, maxDuration,
+			"GetCycleTimeByPhase must complete in < 2s, took %s", elapsed)
+	})
+}
