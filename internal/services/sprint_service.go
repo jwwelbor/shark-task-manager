@@ -1283,3 +1283,150 @@ func closeSprintStatusPtr(status string) *models.SprintStatus {
 	v := models.SprintStatus(status)
 	return &v
 }
+
+// ---------------------------------------------------------------------------
+// SetSprintCapacity and GetSprintCapacity — T-E19-F05-006
+// ---------------------------------------------------------------------------
+
+// CapacityRow is one row in the sprint capacity display, computed at query time.
+// AllocatedPoints is Σ size of assigned entities for this agent type.
+// Remaining = CapacityPoints - AllocatedPoints (can be negative, indicating overcommit).
+// UnsizedAssigned is the count of assigned entities with size IS NULL for this agent type.
+type CapacityRow struct {
+	AgentType       string  `json:"agent_type"`
+	CapacityPoints  float64 `json:"capacity_points"`
+	AllocatedPoints float64 `json:"allocated_points"`
+	Remaining       float64 `json:"remaining"`
+	UnsizedAssigned int     `json:"unsized_assigned"`
+}
+
+// SetSprintCapacityInput contains parameters for setting sprint capacity.
+type SetSprintCapacityInput struct {
+	// SprintKey identifies the sprint (e.g., "S024"). Required.
+	SprintKey string
+	// AgentType is the agent type bucket (e.g., "backend"). Required.
+	AgentType string
+	// Points is the capacity in story points. Must be > 0.
+	Points float64
+}
+
+// SetSprintCapacity creates or updates a capacity row for a (sprint, agent_type) pair.
+//
+// Steps:
+//  1. Validates that Points > 0 (returns error before any repo call).
+//  2. Resolves sprint key to ID via SprintRepository.GetByKey.
+//  3. Calls SprintCapacityRepository.SetCapacity (upsert via ON CONFLICT DO UPDATE).
+//  4. Returns the upserted SprintCapacity model.
+//
+// Returns error if capacityRepo is nil, points <= 0, sprint not found, or repo fails.
+func (s *SprintService) SetSprintCapacity(ctx context.Context, input SetSprintCapacityInput) (*models.SprintCapacity, error) {
+	// Require capacityRepo: SetSprintCapacity cannot work without it.
+	if s.capacityRepo == nil {
+		return nil, fmt.Errorf("SetSprintCapacity requires capacityRepo; service was constructed without one")
+	}
+
+	// Validate points > 0 before any repo call (TC-014-03: SetCapacity must NOT be called).
+	if input.Points <= 0 {
+		return nil, fmt.Errorf("capacity points must be > 0; got %v", input.Points)
+	}
+
+	// Resolve sprint key → ID.
+	sprintEntity, err := s.repo.GetByKey(ctx, input.SprintKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sprint %q for capacity set: %w", input.SprintKey, err)
+	}
+
+	// Upsert capacity row.
+	cap := &models.SprintCapacity{
+		SprintID:       sprintEntity.ID,
+		AgentType:      input.AgentType,
+		CapacityPoints: input.Points,
+	}
+	if err := s.capacityRepo.SetCapacity(ctx, cap); err != nil {
+		return nil, fmt.Errorf("failed to set capacity for sprint %s agent %s: %w",
+			input.SprintKey, input.AgentType, err)
+	}
+
+	return cap, nil
+}
+
+// GetSprintCapacity returns capacity vs. allocation for all agent types in a sprint.
+//
+// Steps:
+//  1. Resolves sprint key to ID.
+//  2. Fetches capacity rows via SprintCapacityRepository.GetCapacity (one query).
+//  3. Fetches active assignments with size via SprintAssignmentQueryRepository.GetAssignmentsWithSize
+//     (one query, issued even when capacity rows are absent to satisfy the two-query contract).
+//  4. Computes AllocatedPoints and UnsizedAssigned per agent type in-memory.
+//  5. Returns a CapacityRow per configured agent type. Remaining may be negative.
+//
+// Returns empty slice (not error) when no capacity rows exist for the sprint (AC-6).
+// Exactly two repository calls are issued regardless of data presence (spec §2.4).
+// Returns error if sprint not found or repository calls fail.
+func (s *SprintService) GetSprintCapacity(ctx context.Context, key string) ([]CapacityRow, error) {
+	// Resolve sprint key → ID.
+	sprintEntity, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sprint %q for capacity show: %w", key, err)
+	}
+
+	// Fetch capacity rows — always issue this query (one of the two guaranteed queries).
+	var capacities []*models.SprintCapacity
+	if s.capacityRepo != nil {
+		capacities, err = s.capacityRepo.GetCapacity(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get capacity for sprint %s: %w", key, err)
+		}
+	}
+
+	// Fetch assignments with size — always issue this query (second of the two guaranteed queries).
+	// Issued even when capacity rows are absent so callers can rely on a fixed two-query pattern.
+	var assignments []sprint.AssignmentWithSize
+	if s.assignmentRepo != nil {
+		assignments, err = s.assignmentRepo.GetAssignmentsWithSize(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get assignments for sprint %s capacity view: %w", key, err)
+		}
+	}
+
+	// No capacity rows configured — return empty slice (not error, per AC-6).
+	// NOTE: both queries above are always issued; the early return here is correct because
+	// there is no capacity configuration to build rows from, but the assignment query
+	// was still executed (two-query contract is satisfied before this check).
+	if len(capacities) == 0 {
+		return []CapacityRow{}, nil
+	}
+
+	// Suppress unused variable warning when assignmentRepo is nil and assignments is not used below.
+	_ = assignments
+
+	// Build per-agent-type allocation maps from assignment data in-memory.
+	allocatedByAgent := make(map[string]float64)
+	unsizedByAgent := make(map[string]int)
+	for _, a := range assignments {
+		if a.AgentType == nil || *a.AgentType == "" {
+			continue // non-attributed entity (bug, change, tech-debt): not counted per spec §1.1.4 AC-3
+		}
+		agentType := *a.AgentType
+		if a.Size == nil {
+			unsizedByAgent[agentType]++
+		} else {
+			allocatedByAgent[agentType] += float64(*a.Size)
+		}
+	}
+
+	// Build CapacityRow slice — one entry per configured agent type.
+	rows := make([]CapacityRow, 0, len(capacities))
+	for _, c := range capacities {
+		allocated := allocatedByAgent[c.AgentType]
+		rows = append(rows, CapacityRow{
+			AgentType:       c.AgentType,
+			CapacityPoints:  c.CapacityPoints,
+			AllocatedPoints: allocated,
+			Remaining:       c.CapacityPoints - allocated, // can be negative, per AC-5
+			UnsizedAssigned: unsizedByAgent[c.AgentType],
+		})
+	}
+
+	return rows, nil
+}
