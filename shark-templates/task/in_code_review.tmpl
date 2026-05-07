@@ -28,7 +28,8 @@ REVIEW:
 - Flag any deviation between feature intent, spec, and actual behavior
 
 ON PASS (all acceptance criteria met, no blockers):
-- Write code review report to code_review/ directory
+- Write code review report to docs/review/{epic}/{feature}/code_review/<timestamp>-{{.task_id}}-review.md
+  (derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders, strip /tasks/filename)
 - Add note: {{template "create_note_task" .}} --type=review "Code review approved - see report"
 - Advance: {{template "advance" .}}
 
