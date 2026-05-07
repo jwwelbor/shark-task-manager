@@ -2,6 +2,8 @@ package sprint
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -152,6 +154,142 @@ func seedTaskHistoryEvents(t *testing.T, ctx context.Context, events []seedTaskH
 		`, e.TaskID, e.OldStatus, e.NewStatus, e.Timestamp)
 		require.NoError(t, err, "seedTaskHistoryEvents: insert history task_id=%d", e.TaskID)
 	}
+}
+
+// ensureSprintTables creates the sprint tables required for analytics tests
+// if they do not already exist.
+func ensureSprintTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprints (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			key         TEXT    NOT NULL UNIQUE,
+			name        TEXT    NOT NULL,
+			goal        TEXT,
+			start_date  DATETIME NOT NULL,
+			end_date    DATETIME NOT NULL,
+			status      TEXT    NOT NULL DEFAULT 'planning',
+			slug        TEXT,
+			file_path   TEXT,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	require.NoError(t, err, "ensureSprintTables: create sprints")
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprint_assignments (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id   INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+			entity_type TEXT    NOT NULL,
+			entity_id   INTEGER NOT NULL,
+			assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			removed_at  DATETIME,
+			UNIQUE(sprint_id, entity_type, entity_id)
+		)
+	`)
+	require.NoError(t, err, "ensureSprintTables: create sprint_assignments")
+
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_sprint_assignments_sprint
+		ON sprint_assignments(sprint_id)
+	`)
+	require.NoError(t, err, "ensureSprintTables: idx_sprint_assignments_sprint")
+
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_sprint_assignments_entity
+		ON sprint_assignments(entity_type, entity_id)
+	`)
+	require.NoError(t, err, "ensureSprintTables: idx_sprint_assignments_entity")
+}
+
+// seedSprintForAnalytics creates a sprint row and returns its ID.
+func seedSprintForAnalytics(
+	t *testing.T,
+	ctx context.Context,
+	key, status string,
+	start, end time.Time,
+) int64 {
+	t.Helper()
+	rawDB := test.GetTestDB()
+	_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key = ?`, key)
+
+	result, err := rawDB.ExecContext(ctx, `
+		INSERT INTO sprints (key, name, goal, start_date, end_date, status, slug)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, key, "Sprint "+key, "Goal", start, end, status, "sprint-"+key)
+	require.NoError(t, err, "seedSprintForAnalytics: insert sprint %s", key)
+
+	id, err := result.LastInsertId()
+	require.NoError(t, err)
+	return id
+}
+
+// seedTaskForAnalytics creates a minimal task with the given size and returns its ID.
+func seedTaskForAnalytics(t *testing.T, ctx context.Context, taskNum int, size *int) int64 {
+	t.Helper()
+	rawDB := test.GetTestDB()
+
+	var epicID, featureID int64
+	err := rawDB.QueryRowContext(ctx, `SELECT id FROM epics WHERE key = 'ANTEST-E99'`).Scan(&epicID)
+	if err != nil {
+		res, err2 := rawDB.ExecContext(ctx, `
+			INSERT INTO epics (key, title, status, priority, file_path)
+			VALUES ('ANTEST-E99', 'Analytics Test Epic', 'active', 'medium', '/tmp/antest-e99.md')
+		`)
+		require.NoError(t, err2, "seedTaskForAnalytics: insert epic")
+		epicID, _ = res.LastInsertId()
+	}
+
+	err = rawDB.QueryRowContext(ctx, `SELECT id FROM features WHERE key = 'ANTEST-E99-F01'`).Scan(&featureID)
+	if err != nil {
+		res, err2 := rawDB.ExecContext(ctx, `
+			INSERT INTO features (key, title, status, epic_id, file_path)
+			VALUES ('ANTEST-E99-F01', 'Analytics Test Feature', 'active', ?, '/tmp/antest-f01.md')
+		`, epicID)
+		require.NoError(t, err2, "seedTaskForAnalytics: insert feature")
+		featureID, _ = res.LastInsertId()
+	}
+
+	taskKey := fmt.Sprintf("ANTEST-E99-F01-%03d", taskNum)
+	_, _ = rawDB.ExecContext(ctx, `DELETE FROM tasks WHERE key = ?`, taskKey)
+
+	var insertErr error
+	var res interface{ LastInsertId() (int64, error) }
+	if size != nil {
+		res, insertErr = rawDB.ExecContext(ctx, `
+			INSERT INTO tasks (key, title, status, feature_id, file_path, size)
+			VALUES (?, ?, 'completed', ?, '/tmp/antest-task.md', ?)
+		`, taskKey, "Task "+taskKey, featureID, *size)
+	} else {
+		res, insertErr = rawDB.ExecContext(ctx, `
+			INSERT INTO tasks (key, title, status, feature_id, file_path, size)
+			VALUES (?, ?, 'completed', ?, '/tmp/antest-task.md', NULL)
+		`, taskKey, "Task "+taskKey, featureID)
+	}
+	require.NoError(t, insertErr, "seedTaskForAnalytics: insert task %s", taskKey)
+	id, err := res.LastInsertId()
+	require.NoError(t, err)
+	return id
+}
+
+// addAssignment inserts a sprint_assignments row.
+func addAssignment(
+	t *testing.T,
+	ctx context.Context,
+	sprintID int64,
+	entityType string,
+	entityID int64,
+	assignedAt time.Time,
+	removedAt *time.Time,
+) {
+	t.Helper()
+	rawDB := test.GetTestDB()
+	_, err := rawDB.ExecContext(ctx, `
+		INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, removed_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, sprintID, entityType, entityID, assignedAt, removedAt)
+	require.NoError(t, err, "addAssignment: sprint_id=%d entity_type=%s entity_id=%d", sprintID, entityType, entityID)
 }
 
 // ============================================================================
@@ -692,6 +830,115 @@ func TestExplainQueryPlan_AssignedEntities(t *testing.T) {
 
 	assert.True(t, foundIndexedLookup,
 		"EXPLAIN QUERY PLAN for GetSprintAssignedEntities must show indexed lookup on sprint_assignments")
+}
+
+// ============================================================================
+// TC-NF-01: Performance test (REQ-NF-001)
+// Verifies that GetVelocityData, GetCompletionEvents, and GetCycleTimeByPhase
+// each complete within 2 seconds when seeded with 50 sprints and 1000 tasks.
+// Gated with testing.Short() so it only runs in full (non-short) mode.
+// ============================================================================
+
+func TestPerformance_Analytics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping performance test in short mode")
+	}
+
+	ctx := context.Background()
+	rawDB := test.GetTestDB()
+	ensureSprintTables(t, rawDB)
+	db := dbconn.NewDB(rawDB)
+	repo := NewSprintAnalyticsRepository(db)
+
+	now := time.Now().UTC()
+
+	const numSprints = 50
+	const numTasks = 1000
+
+	sprintIDs := make([]int64, 0, numSprints)
+	sprintKeys := make([]string, 0, numSprints)
+	for i := 0; i < numSprints; i++ {
+		key := fmt.Sprintf("PERFTEST-S%03d", i)
+		start := now.AddDate(0, -(numSprints-i), 0)
+		end := start.AddDate(0, 0, 14)
+		id := seedSprintForAnalytics(t, ctx, key, "completed", start, end)
+		sprintIDs = append(sprintIDs, id)
+		sprintKeys = append(sprintKeys, key)
+	}
+
+	defer func() {
+		for _, key := range sprintKeys {
+			_, _ = rawDB.ExecContext(ctx,
+				`DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key = ?)`, key)
+			_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key = ?`, key)
+		}
+	}()
+
+	taskNums := make([]int, 0, numTasks)
+	for i := 0; i < numTasks; i++ {
+		taskNum := 5000 + i
+		taskID := seedTaskForAnalytics(t, ctx, taskNum, nil)
+		sprintID := sprintIDs[i%numSprints]
+		assignedAt := now.AddDate(0, -(numSprints-(i%numSprints)), 0)
+		addAssignment(t, ctx, sprintID, "task", taskID, assignedAt, nil)
+		taskNums = append(taskNums, taskNum)
+	}
+
+	defer func() {
+		for _, n := range taskNums {
+			taskKey := fmt.Sprintf("ANTEST-E99-F01-%03d", n)
+			_, _ = rawDB.ExecContext(ctx,
+				`DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key = ?)`, taskKey)
+			_, _ = rawDB.ExecContext(ctx, `DELETE FROM tasks WHERE key = ?`, taskKey)
+		}
+	}()
+
+	const maxDuration = 2 * time.Second
+
+	t.Run("GetVelocityData", func(t *testing.T) {
+		start := time.Now()
+		_, err := repo.GetVelocityData(ctx, numSprints)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err, "GetVelocityData must not error")
+		assert.Less(t, elapsed, maxDuration,
+			"GetVelocityData must complete in < 2s, took %s", elapsed)
+	})
+
+	t.Run("GetCompletionEvents", func(t *testing.T) {
+		sprintID := sprintIDs[0]
+		sprintStart := now.AddDate(0, -numSprints, 0)
+		sprintEnd := sprintStart.AddDate(0, 0, 14)
+
+		start := time.Now()
+		_, err := repo.GetCompletionEvents(ctx, sprintID, sprintStart, sprintEnd)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err, "GetCompletionEvents must not error")
+		assert.Less(t, elapsed, maxDuration,
+			"GetCompletionEvents must complete in < 2s, took %s", elapsed)
+	})
+
+	t.Run("GetCycleTimeByPhase", func(t *testing.T) {
+		sprintID := sprintIDs[0]
+		taskID := seedTaskForAnalytics(t, ctx, 9999, nil)
+		t1 := now.AddDate(0, -2, 0)
+		t2 := t1.AddDate(0, 0, 3)
+		seedTaskHistoryEvents(t, ctx, []seedTaskHistoryEvent{
+			{TaskID: taskID, OldStatus: "todo", NewStatus: "in_progress", Timestamp: t1},
+			{TaskID: taskID, OldStatus: "in_progress", NewStatus: "completed", Timestamp: t2},
+		})
+
+		addAssignment(t, ctx, sprintID, "task", taskID, t1, nil)
+
+		start := time.Now()
+		_, err := repo.GetCycleTimeByPhase(ctx, sprintID)
+		elapsed := time.Since(start)
+
+		require.NoError(t, err, "GetCycleTimeByPhase must not error")
+		assert.Less(t, elapsed, maxDuration,
+			"GetCycleTimeByPhase must complete in < 2s, took %s", elapsed)
+	})
 }
 
 // containsStr is a helper since strings.Contains requires importing strings.
