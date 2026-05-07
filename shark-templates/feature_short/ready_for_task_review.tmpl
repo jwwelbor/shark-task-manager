@@ -1,6 +1,8 @@
 Review tasks for feature {{.id}}: "{{.title}}".
 
-Check for existing task review report in task_reviews/ directory. If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_task_generation.
+Check for existing task review report at docs/review/{epic-folder}/{feature-folder}/task_review/{{.id}}-task-review.md.
+(Derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_task_generation.
 
 ---
 
@@ -46,7 +48,8 @@ VERIFY:
 - [ ] No unnecessary tasks that don't map to spec requirements
 - [ ] Task granularity is appropriate (each is a focused unit of work)
 
-PRODUCE task review report at task_reviews/{{.id}}-task-review.md:
+PRODUCE task review report at docs/review/{epic-folder}/{feature-folder}/task_review/{{.id}}-task-review.md:
+(Derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
 - Verdict: PASS or FAIL
 - Requirements coverage matrix (spec requirement -> task mapping)
 - Gaps identified (if any)
