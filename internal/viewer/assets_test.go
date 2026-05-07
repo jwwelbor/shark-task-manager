@@ -24,8 +24,12 @@ func TestViewerHTMLEmbedded(t *testing.T) {
 		"STATUS_COLORS",
 		"getStatusColor",
 		"renderDashboard",
+		"renderSprintMode",
+		"renderSprintOverview",
+		"renderSprintTree",
 		"renderEntityView",
 		"renderPickFolder",
+		"fetchSprintOverview",
 		"api/v1/viewer",
 	}
 	for _, marker := range required {
@@ -125,6 +129,59 @@ func TestViewerHTMLLoadHelpers(t *testing.T) {
 	for _, fn := range helpers {
 		if !strings.Contains(content, fn) {
 			t.Errorf("viewer.html missing helper function: %q", fn)
+		}
+	}
+}
+
+// TestViewerHTMLSprintModeMarkers verifies that the Sprint mode shell,
+// subview controls, and drawer/jump-back hooks are present in the embedded file.
+func TestViewerHTMLSprintModeMarkers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		`id="header-sprint-btn"`,
+		"case 'sprint'",
+		"sprintViewTab",
+		"renderSprintModeControls",
+		"renderSprintDetailDrawer",
+		"selectSprintItem",
+		"Back to Sprint",
+		"Open Entity View",
+		"Upcoming Sprint",
+		"Archived Sprints",
+		"sprint-plan-status-filter",
+		"sprint-plan-stage-btn",
+		"applySprintPlanFilters",
+		"sprintPlanSelection",
+		"fetchSprintPlan",
+		"fetchSprintReport",
+		"apiGetRelatedDocs",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing Sprint mode marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLSprintTreeAndReportMarkers verifies that the sprint tree,
+// report surface, and guardrail-oriented hooks stay embedded in the single file.
+func TestViewerHTMLSprintTreeAndReportMarkers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"toggleSprintTreeNode",
+		"renderSprintReport",
+		"fetchSprintReport",
+		"Stage selected",
+		"Remove selected",
+		"Mark ready",
+		"popstate",
+		"Escape",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing sprint tree/report marker: %q", marker)
 		}
 	}
 }

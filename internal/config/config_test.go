@@ -1265,6 +1265,88 @@ func TestConfig_TagRequiredFor_DefensiveCopy(t *testing.T) {
 	}
 }
 
+// TestConfig_SizeRequiredFor_RoundTrip mirrors TestConfig_TagRequiredFor_RoundTrip
+// for the size_required_for field. Verifies marshal/unmarshal preserves the
+// slice exactly and re-marshal is idempotent.
+func TestConfig_SizeRequiredFor_RoundTrip(t *testing.T) {
+	original := Config{SizeRequiredForTypes: []string{"task", "feature"}}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	jsonStr := string(data)
+	if !containsString(jsonStr, `"size_required_for"`) {
+		t.Errorf("marshaled JSON missing 'size_required_for' key: %s", jsonStr)
+	}
+	if !containsString(jsonStr, `"task"`) || !containsString(jsonStr, `"feature"`) {
+		t.Errorf("marshaled JSON missing expected values: %s", jsonStr)
+	}
+
+	var got Config
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(got.SizeRequiredForTypes) != 2 ||
+		got.SizeRequiredForTypes[0] != "task" ||
+		got.SizeRequiredForTypes[1] != "feature" {
+		t.Errorf("SizeRequiredForTypes = %v, want [task feature]", got.SizeRequiredForTypes)
+	}
+
+	data2, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("re-marshal error = %v", err)
+	}
+	if string(data2) != string(data) {
+		t.Errorf("re-marshal produced different JSON:\n got: %s\nwant: %s", data2, data)
+	}
+}
+
+// TestConfig_SizeRequiredFor_AbsentFieldIsNilSlice verifies omitempty + nil
+// accessor behavior — mirrors the equivalent tag test.
+func TestConfig_SizeRequiredFor_AbsentFieldIsNilSlice(t *testing.T) {
+	var cfg Config
+	if err := json.Unmarshal([]byte(`{}`), &cfg); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if cfg.SizeRequiredForTypes != nil {
+		t.Errorf("SizeRequiredForTypes = %v, want nil", cfg.SizeRequiredForTypes)
+	}
+	if got := cfg.SizeRequiredFor(); got != nil {
+		t.Errorf("cfg.SizeRequiredFor() = %v, want nil", got)
+	}
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if containsString(string(out), `"size_required_for"`) {
+		t.Errorf("marshaled JSON unexpectedly contains 'size_required_for' for nil slice: %s", out)
+	}
+}
+
+// TestConfig_SizeRequiredFor_NilReceiver verifies nil-safe accessor behavior.
+func TestConfig_SizeRequiredFor_NilReceiver(t *testing.T) {
+	var c *Config
+	if got := c.SizeRequiredFor(); got != nil {
+		t.Errorf("(*Config)(nil).SizeRequiredFor() = %v, want nil", got)
+	}
+}
+
+// TestConfig_SizeRequiredFor_DefensiveCopy verifies returned slice is a copy.
+func TestConfig_SizeRequiredFor_DefensiveCopy(t *testing.T) {
+	cfg := &Config{SizeRequiredForTypes: []string{"task", "feature"}}
+	first := cfg.SizeRequiredFor()
+	first[0] = "mutated"
+	second := cfg.SizeRequiredFor()
+	if second[0] != "task" {
+		t.Errorf("second call = %v, want [task feature]; caller mutation leaked", second)
+	}
+	if cfg.SizeRequiredForTypes[0] != "task" {
+		t.Errorf("backing field mutated: SizeRequiredForTypes[0] = %q", cfg.SizeRequiredForTypes[0])
+	}
+}
+
 // --- E07-F17-001: RecentConfig and GetRecentDefaultLimit ---
 
 // TestGetRecentDefaultLimit_NilConfig verifies that calling GetRecentDefaultLimit
@@ -1358,6 +1440,80 @@ func TestGetRecentDefaultLimit_FieldPositive(t *testing.T) {
 	}
 }
 
+// --- E19-F05-001: SprintDefaultsConfig struct and sprint_defaults parsing ---
+
+// TC-015-05: carryover_behavior and auto_create parsed from config.
+// Verifies that when sprint_defaults section is present, all fields are parsed
+// correctly. Production entrypoint: config.Manager.Load() reads real file.
+func TestSprintDefaults_ParsedFromConfig(t *testing.T) {
+	configJSON := `{
+		"sprint_defaults": {
+			"carryover_behavior": "next",
+			"auto_create": false,
+			"capacity": {}
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.SprintDefaults, "SprintDefaults must not be nil when section present")
+	assert.Equal(t, "next", cfg.SprintDefaults.CarryoverBehavior)
+	assert.False(t, cfg.SprintDefaults.AutoCreate)
+}
+
+// TC-015-05 (capacity map): capacity values in sprint_defaults.capacity parsed correctly.
+func TestSprintDefaults_CapacityParsed(t *testing.T) {
+	configJSON := `{
+		"sprint_defaults": {
+			"capacity": {"backend": 21, "frontend": 13},
+			"carryover_behavior": "backlog",
+			"auto_create": true
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.SprintDefaults)
+	assert.Equal(t, float64(21), cfg.SprintDefaults.Capacity["backend"])
+	assert.Equal(t, float64(13), cfg.SprintDefaults.Capacity["frontend"])
+	assert.Equal(t, "backlog", cfg.SprintDefaults.CarryoverBehavior)
+	assert.True(t, cfg.SprintDefaults.AutoCreate)
+}
+
+// TC-015-06: sprint_defaults absent — graceful defaults (nil pointer, no panic).
+// Production entrypoint: config.Manager.Load() reads real file.
+func TestSprintDefaults_AbsentSectionIsNil(t *testing.T) {
+	configJSON := `{"color_enabled": true}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	// SprintDefaults must be nil (not present in config)
+	assert.Nil(t, cfg.SprintDefaults, "SprintDefaults must be nil when section absent")
+}
+
+// TC-015-06: nil SprintDefaults causes no panic when accessed.
+func TestSprintDefaults_NilSafe(t *testing.T) {
+	cfg := &Config{} // SprintDefaults is nil
+	// Accessing SprintDefaults.Capacity on nil pointer must not panic
+	assert.Nil(t, cfg.SprintDefaults)
+}
+
 // TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK verifies that an existing
 // .sharkconfig.json without a "recent" key loads without error (AC-T5 / REQ-F-011).
 func TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK(t *testing.T) {
@@ -1393,4 +1549,145 @@ func TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK(t *testing.T) {
 	assert.True(t, *cfg.ColorEnabled)
 	require.NotNil(t, cfg.TemplateDirectory)
 	assert.Equal(t, "shark-templates", *cfg.TemplateDirectory)
+}
+
+// TestSprintDefaultsConfig_CarryoverBehaviorRoundTrip tests TC round-trip for
+// sprint_defaults.carryover_behavior (T-E19-F03-008 requirement).
+//
+// Validates that the SprintDefaultsConfig.CarryoverBehavior field marshals to
+// the "carryover_behavior" JSON key and round-trips without loss.
+func TestSprintDefaultsConfig_CarryoverBehaviorRoundTrip(t *testing.T) {
+	tests := []struct {
+		name              string
+		carryoverBehavior string
+		expectedJSON      string
+	}{
+		{
+			name:              "carryover_behavior=next round-trips correctly",
+			carryoverBehavior: "next",
+			expectedJSON:      `{"sprint_defaults":{"carryover_behavior":"next"}}`,
+		},
+		{
+			name:              "carryover_behavior=backlog round-trips correctly",
+			carryoverBehavior: "backlog",
+			expectedJSON:      `{"sprint_defaults":{"carryover_behavior":"backlog"}}`,
+		},
+		{
+			name:              "absent carryover_behavior omitted from JSON",
+			carryoverBehavior: "",
+			expectedJSON:      `{}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg Config
+			if tt.carryoverBehavior != "" {
+				cfg.SprintDefaults = &SprintDefaultsConfig{
+					CarryoverBehavior: tt.carryoverBehavior,
+				}
+			}
+
+			// Marshal to JSON
+			data, err := json.Marshal(cfg)
+			require.NoError(t, err, "marshal should not fail")
+			assert.Equal(t, tt.expectedJSON, string(data),
+				"JSON representation must match expected")
+
+			// Unmarshal back (round-trip)
+			var unmarshaled Config
+			require.NoError(t, json.Unmarshal(data, &unmarshaled))
+
+			if tt.carryoverBehavior != "" {
+				require.NotNil(t, unmarshaled.SprintDefaults,
+					"SprintDefaults must survive round-trip")
+				assert.Equal(t, tt.carryoverBehavior, unmarshaled.SprintDefaults.CarryoverBehavior,
+					"CarryoverBehavior must survive round-trip")
+			} else {
+				assert.Nil(t, unmarshaled.SprintDefaults,
+					"SprintDefaults must be nil when carryover_behavior is absent")
+			}
+		})
+	}
+}
+
+// TestSprintDefaultsConfig_AbsentCarryoverDefaultsToEmpty verifies that when
+// sprint_defaults.carryover_behavior is absent from the JSON, the Go struct
+// returns "" (callers default to "next").
+func TestSprintDefaultsConfig_AbsentCarryoverDefaultsToEmpty(t *testing.T) {
+	jsonInput := `{"sprint_defaults":{"capacity":{"backend":21}}}`
+
+	var cfg Config
+	require.NoError(t, json.Unmarshal([]byte(jsonInput), &cfg))
+	require.NotNil(t, cfg.SprintDefaults)
+	assert.Equal(t, "", cfg.SprintDefaults.CarryoverBehavior,
+		"absent carryover_behavior must default to empty string")
+}
+
+// TestManagerLoad_SprintDefaults_CarryoverBehavior verifies that Manager.Load()
+// (the production config path) correctly populates Config.SprintDefaults.CarryoverBehavior
+// from the sprint_defaults.carryover_behavior key in .sharkconfig.json.
+//
+// AC-12 wiring test: REQ-F-006 requires that the default carryover behavior is
+// read from .sharkconfig.json. This test uses Manager.Load() rather than
+// json.Unmarshal to exercise the actual production code path.
+func TestManagerLoad_SprintDefaults_CarryoverBehavior(t *testing.T) {
+	tests := []struct {
+		name            string
+		configJSON      string
+		wantNilDefaults bool
+		wantCarryover   string
+		wantCapacity    map[string]float64
+	}{
+		{
+			name:          "carryover_behavior=backlog is loaded",
+			configJSON:    `{"sprint_defaults":{"carryover_behavior":"backlog"}}`,
+			wantCarryover: "backlog",
+		},
+		{
+			name:          "carryover_behavior=next is loaded",
+			configJSON:    `{"sprint_defaults":{"carryover_behavior":"next"}}`,
+			wantCarryover: "next",
+		},
+		{
+			name:          "capacity map is loaded alongside carryover_behavior",
+			configJSON:    `{"sprint_defaults":{"carryover_behavior":"backlog","capacity":{"backend":21,"frontend":13}}}`,
+			wantCarryover: "backlog",
+			wantCapacity:  map[string]float64{"backend": 21, "frontend": 13},
+		},
+		{
+			name:            "absent sprint_defaults section leaves SprintDefaults nil",
+			configJSON:      `{"color_enabled":true}`,
+			wantNilDefaults: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+			err := os.WriteFile(configPath, []byte(tt.configJSON), 0644)
+			require.NoError(t, err)
+
+			mgr := NewManager(configPath)
+			cfg, err := mgr.Load()
+			require.NoError(t, err)
+
+			if tt.wantNilDefaults {
+				assert.Nil(t, cfg.SprintDefaults,
+					"SprintDefaults must be nil when sprint_defaults section is absent")
+				return
+			}
+
+			require.NotNil(t, cfg.SprintDefaults,
+				"SprintDefaults must not be nil when sprint_defaults section is present")
+			assert.Equal(t, tt.wantCarryover, cfg.SprintDefaults.CarryoverBehavior,
+				"CarryoverBehavior must match what was written to .sharkconfig.json")
+
+			if tt.wantCapacity != nil {
+				assert.Equal(t, tt.wantCapacity, cfg.SprintDefaults.Capacity,
+					"Capacity map must match what was written to .sharkconfig.json")
+			}
+		})
+	}
 }

@@ -171,6 +171,25 @@
       color: var(--fg);
     }
 
+    #header-sprint-btn {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg-muted);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition), color var(--transition);
+    }
+
+    #header-sprint-btn:hover {
+      background: var(--bg-3);
+      color: var(--fg);
+    }
+
+    #header-sprint-btn.is-active {
+      background: var(--accent-dim);
+      color: var(--fg);
+    }
+
     .header-pill {
       font-size: 11px;
       background: var(--bg-3);
@@ -225,6 +244,187 @@
     }
     .content-back-link:hover {
       color: var(--fg);
+    }
+
+    .sprint-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .sprint-main-column,
+    .sprint-detail-column {
+      min-width: 0;
+    }
+
+    .sprint-detail-column {
+      position: sticky;
+      top: 20px;
+      align-self: start;
+    }
+
+    .sprint-mode-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 0 14px;
+    }
+
+    .sprint-mode-tab {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-3);
+      color: var(--fg-muted);
+      transition: background var(--transition), color var(--transition), border-color var(--transition);
+    }
+
+    .sprint-mode-tab:hover {
+      background: var(--bg-4);
+      color: var(--fg);
+    }
+
+    .sprint-mode-tab.active {
+      background: var(--accent-dim);
+      color: var(--fg);
+      border-color: var(--accent-dim);
+    }
+
+    .sprint-overview-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sprint-hero {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      background: linear-gradient(180deg, rgba(53, 75, 120, 0.18), rgba(22, 25, 32, 0.95));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+
+    .sprint-hero-title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+    }
+
+    .sprint-hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      color: var(--fg-muted);
+      font-size: 12px;
+    }
+
+    .sprint-metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .sprint-metric-card {
+      padding: 12px;
+      border-radius: var(--radius);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+    }
+
+    .sprint-metric-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      margin-bottom: 6px;
+    }
+
+    .sprint-metric-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--fg);
+    }
+
+    .sprint-metric-note {
+      font-size: 12px;
+      color: var(--fg-muted);
+      margin-top: 4px;
+    }
+
+    .sprint-item-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .sprint-item-row {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+
+    .sprint-item-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+
+    .sprint-item-row.selected {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent-dim);
+    }
+
+    .sprint-item-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: var(--fg);
+    }
+
+    .sprint-item-key {
+      font-family: var(--font-mono, monospace);
+      font-size: 11px;
+      color: var(--accent);
+    }
+
+    .sprint-drawer-panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-2);
+      padding: 14px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+    }
+
+    .sprint-drawer-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 4px;
+    }
+
+    .sprint-drawer-subtitle {
+      font-size: 12px;
+      color: var(--fg-muted);
+      margin-bottom: 12px;
+    }
+
+    .sprint-drawer-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 12px 0 0;
     }
 
     /* ============================================================
@@ -1550,6 +1750,7 @@
   <header id="header">
     <div id="header-left">
       <button id="header-dashboard-btn">Dashboard</button>
+      <button id="header-sprint-btn">Sprint</button>
       <div id="header-pills"></div>
     </div>
     <div id="header-right">
@@ -1993,6 +2194,72 @@ async function apiGetRecentActivity(limit = 25) {
 }
 
 /**
+ * Fetches the current sprint overview bundle for Sprint mode.
+ * @param {string} [key]
+ * @returns {Promise<Object|null>}
+ */
+async function fetchSprintOverview(key) {
+  try {
+    const url = new URL('/api/v1/viewer/sprint/overview', window.location.origin);
+    if (key) url.searchParams.set('key', key);
+    const resp = await fetch(url.pathname + url.search);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the sprint plan bundle.
+ * @param {string} [key]
+ * @returns {Promise<Object|null>}
+ */
+async function fetchSprintPlan(key) {
+  try {
+    const url = new URL('/api/v1/viewer/sprint/plan', window.location.origin);
+    if (key) url.searchParams.set('key', key);
+    const resp = await fetch(url.pathname + url.search);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the sprint report bundle.
+ * @param {string} [key]
+ * @returns {Promise<Object|null>}
+ */
+async function fetchSprintReport(key) {
+  try {
+    const url = new URL('/api/v1/viewer/sprint/report', window.location.origin);
+    if (key) url.searchParams.set('key', key);
+    const resp = await fetch(url.pathname + url.search);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the related documents for an entity or sprint item.
+ * @param {string} key
+ * @returns {Promise<Object|null>}
+ */
+async function apiGetRelatedDocs(key) {
+  try {
+    const resp = await fetch(`/api/v1/viewer/related-docs/${encodeURIComponent(key)}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetches the markdown file content for an entity.
  * @param {string} key - entity key (e.g. "E07-F01-001")
  * @returns {Promise<Object|null>} parsed JSON or null on error
@@ -2277,6 +2544,23 @@ async function loadProjectData() {
   treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
   projectName = hierarchy?.project_name || '';
   updateHeaderProjectName();
+  sprintOverviewData = null;
+  sprintOverviewLoading = false;
+  sprintOverviewLoaded = false;
+  sprintOverviewError = null;
+  sprintPlanData = null;
+  sprintPlanLoading = false;
+  sprintPlanLoaded = false;
+  sprintPlanError = null;
+  sprintReportData = null;
+  sprintReportLoading = false;
+  sprintReportLoaded = false;
+  sprintReportError = null;
+  sprintTreeExpandedScopes = new Set(['active']);
+  sprintPlanFilters = { status: '', agent: '', assignment: '' };
+  sprintPlanSelection = new Set();
+  sprintSelectedKey = null;
+  cameFromSprint = false;
   folderFilesCache.clear();
   if (appState === 'pick_folder') {
     // First load: start fully collapsed — epics expand on first user interaction
@@ -2299,7 +2583,7 @@ async function loadProjectData() {
 
   // Transition to dashboard (default state before URL-param restore)
   appState = 'dashboard';
-  history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
+  history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview', sprintViewTab, sprintSelectedKey: null, cameFromSprint: false }, '');
   render();
 
   // Restore entity + tab from URL query params on initial load so bookmarks
@@ -2317,7 +2601,7 @@ async function loadProjectData() {
     const url = new URL(window.location.href);
     url.searchParams.set('entity', urlEntity);
     url.searchParams.set('tab', entityViewTab || 'overview');
-    history.replaceState({ appState, selectedKey, entityViewTab }, '', url);
+    history.replaceState({ appState, selectedKey, entityViewTab, sprintViewTab, sprintSelectedKey, cameFromSprint }, '', url);
     render();
   }
 }
@@ -2332,12 +2616,41 @@ function updateHeaderProjectName() {
   }
 }
 
+function updateHeaderModeButtons() {
+  const sprintBtn = document.getElementById('header-sprint-btn');
+  if (sprintBtn) {
+    sprintBtn.classList.toggle('is-active', appState === 'sprint');
+  }
+}
+
+function isValidSprintViewTab(tab) {
+  return tab === 'overview' || tab === 'plan' || tab === 'report';
+}
+
 // ============================================================
 // SECTION: State Machine — Variables
 // ============================================================
 
-let appState       = 'pick_folder';  // 'pick_folder' | 'dashboard' | 'entity_view' | 'doc_view'
+let appState       = 'pick_folder';  // 'pick_folder' | 'dashboard' | 'sprint' | 'entity_view' | 'doc_view'
 let selectedKey    = null;           // currently selected entity/doc key
+let sprintViewTab  = 'overview';     // current Sprint subview
+let sprintSelectedKey = null;        // selected Sprint detail drawer item
+let sprintOverviewData = null;       // cached Sprint overview response
+let sprintOverviewLoading = false;   // prevents duplicate fetches
+let sprintOverviewLoaded = false;    // avoids retry loops on failure
+let sprintOverviewError = null;      // last Sprint overview error, if any
+let sprintPlanData = null;           // cached Sprint plan response
+let sprintPlanLoading = false;       // prevents duplicate fetches
+let sprintPlanLoaded = false;        // avoids retry loops on failure
+let sprintPlanError = null;          // last Sprint plan error, if any
+let sprintReportData = null;         // cached Sprint report response
+let sprintReportLoading = false;     // prevents duplicate fetches
+let sprintReportLoaded = false;      // avoids retry loops on failure
+let sprintReportError = null;        // last Sprint report error, if any
+let sprintTreeExpandedScopes = new Set(['active']); // expanded sprint tree groups
+let sprintPlanFilters = { status: '', agent: '', assignment: '' };
+let sprintPlanSelection = new Set();
+let cameFromSprint = false;          // jump-back path from Sprint drawer → entity view
 let treeData       = [];             // cached hierarchy epics array (hierarchy.epics)
 let hierarchyData  = null;           // full cached /hierarchy response (includes bugs, change_cards, ideas)
 let summaryData    = null;           // cached /summary response
@@ -2377,6 +2690,7 @@ function render() {
   body.className = body.className.replace(/\bstate-\S+/g, '').trim();
   // Add current state class
   body.classList.add('state-' + appState);
+  updateHeaderModeButtons();
 
   switch (appState) {
     case 'pick_folder':
@@ -2385,6 +2699,10 @@ function render() {
     case 'dashboard':
       renderSidebar();
       renderDashboard();
+      break;
+    case 'sprint':
+      renderSidebar();
+      renderSprintMode();
       break;
     case 'entity_view':
       renderSidebar();
@@ -2406,7 +2724,7 @@ function render() {
  * page refreshes restore the correct view (T-E27-F09-012).
  */
 function pushNavState() {
-  const state = { appState, selectedKey, entityViewTab };
+  const state = { appState, selectedKey, entityViewTab, sprintViewTab, sprintSelectedKey, cameFromSprint };
   const url = new URL(window.location.href);
   if (appState === 'entity_view' && selectedKey) {
     url.searchParams.set('entity', selectedKey);
@@ -2424,7 +2742,7 @@ function pushNavState() {
  * but the back button is not polluted with per-tab clicks.
  */
 function replaceNavState() {
-  const state = { appState, selectedKey, entityViewTab };
+  const state = { appState, selectedKey, entityViewTab, sprintViewTab, sprintSelectedKey, cameFromSprint };
   const url = new URL(window.location.href);
   if (appState === 'entity_view' && selectedKey) {
     url.searchParams.set('entity', selectedKey);
@@ -2444,7 +2762,43 @@ function restoreNavState(state) {
   appState      = state.appState      || 'dashboard';
   selectedKey   = state.selectedKey   || null;
   entityViewTab = state.entityViewTab || 'overview';
+  sprintViewTab = isValidSprintViewTab(state.sprintViewTab) ? state.sprintViewTab : 'overview';
+  sprintSelectedKey = state.sprintSelectedKey || null;
+  cameFromSprint = !!state.cameFromSprint;
   render();
+}
+
+function switchTopLevelMode(mode, options) {
+  const opts = options || {};
+  if (mode === 'sprint') {
+    sprintViewTab = isValidSprintViewTab(sprintViewTab) ? sprintViewTab : 'overview';
+    appState = 'sprint';
+    cameFromSprint = false;
+    if (!opts.keepSelection) {
+      selectedKey = sprintSelectedKey || null;
+    }
+    if (opts.pushState === false) {
+      replaceNavState();
+    } else {
+      pushNavState();
+    }
+    render();
+    return;
+  }
+
+  if (mode === 'dashboard') {
+    appState = 'dashboard';
+    selectedKey = null;
+    sprintSelectedKey = sprintSelectedKey || null;
+    cameFromSprint = false;
+    if (opts.pushState === false) {
+      replaceNavState();
+    } else {
+      pushNavState();
+    }
+    render();
+    return;
+  }
 }
 
 // ============================================================
@@ -2484,8 +2838,9 @@ function renderPickFolder() {
  * No-op if key is not found in treeData (logs warning).
  * @param {string} key - entity key (e.g. "E07", "E07-F01", "E07-F01-001")
  */
-function navigateToEntity(key) {
+function navigateToEntity(key, fromSprint) {
   if (!key) return;
+  cameFromSprint = !!fromSprint;
 
   // Determine entity type and expand ancestors
   // Epic: E## — just expand the epic itself
@@ -4559,6 +4914,873 @@ function renderOverviewPane(entity, paneEl) {
   loadRelatedDocsInto(paneEl.querySelector(`[data-docs-for="${entity.key}"]`), entity.key);
 }
 
+// ============================================================
+// === SPRINT MODE ===
+// ============================================================
+
+const SPRINT_TAB_DISPLAY_NAMES = {
+  overview: 'Overview',
+  plan: 'Plan',
+  report: 'Report',
+};
+
+function sprintBacklogGroups(payload) {
+  return Array.isArray(payload?.backlog?.groups) ? payload.backlog.groups : [];
+}
+
+function sprintBacklogItems(payload) {
+  const items = [];
+  for (const group of sprintBacklogGroups(payload)) {
+    const statusCategory = group?.status_category || '';
+    for (const item of (Array.isArray(group?.items) ? group.items : [])) {
+      items.push(Object.assign({ status_category: statusCategory }, item));
+    }
+  }
+  return items;
+}
+
+function sprintFindBacklogItem(payload, key) {
+  if (!key) return null;
+  return sprintBacklogItems(payload).find(item => item.key === key) || null;
+}
+
+function sprintItemLabel(item) {
+  if (!item) return '';
+  return item.title || item.key || '';
+}
+
+function sprintItemStatus(item) {
+  if (!item) return 'unknown';
+  return item.status || item.status_category || 'unknown';
+}
+
+function sprintKeyListToEntities(keys) {
+  if (!Array.isArray(keys) || keys.length === 0) return [];
+  return keys.map(k => findEntityByKey(k) || { key: k, type: 'unknown' });
+}
+
+function sprintSummaryCard(label, value, note) {
+  return `<div class="sprint-metric-card">
+    <div class="sprint-metric-label">${escapeHtml(label)}</div>
+    <div class="sprint-metric-value">${value}</div>
+    ${note ? `<div class="sprint-metric-note">${note}</div>` : ''}
+  </div>`;
+}
+
+function sprintFormatRange(sprint) {
+  if (!sprint) return 'No sprint selected';
+  const start = formatDate(sprint.start_date || sprint.startDate || sprint.start || '');
+  const end = formatDate(sprint.end_date || sprint.endDate || sprint.end || '');
+  if (!start && !end) return 'Date range unavailable';
+  return `${escapeHtml(start || '—')} → ${escapeHtml(end || '—')}`;
+}
+
+function sprintCapacityStats(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const totals = list.reduce((acc, row) => {
+    acc.capacity += Number(row?.capacity_points || 0);
+    acc.allocated += Number(row?.allocated_points || 0);
+    acc.remaining += Number(row?.remaining || 0);
+    acc.unsized += Number(row?.unsized_assigned || 0);
+    return acc;
+  }, { capacity: 0, allocated: 0, remaining: 0, unsized: 0 });
+  const pressure = totals.capacity > 0 ? Math.round((totals.allocated / totals.capacity) * 100) : 0;
+  return Object.assign({}, totals, { pressure });
+}
+
+function sprintRecentChanges(payload) {
+  const itemKeys = new Set(sprintBacklogItems(payload).map(item => item.key));
+  return recentActivity.filter(entry => {
+    const entryKey = entry?.entity_key || entry?.key || '';
+    return itemKeys.has(entryKey);
+  }).slice(0, 8);
+}
+
+const SPRINT_BUCKET_LABELS = {
+  ready: 'Ready',
+  in_progress: 'In Progress',
+  blocked: 'Blocked',
+  done: 'Done',
+};
+
+function sprintBucketGroups(payload) {
+  const map = new Map();
+  for (const group of sprintBacklogGroups(payload)) {
+    if (group?.status_category) {
+      map.set(group.status_category, group);
+    }
+  }
+  return Object.keys(SPRINT_BUCKET_LABELS).map(key => ({
+    key,
+    label: SPRINT_BUCKET_LABELS[key],
+    items: Array.isArray(map.get(key)?.items) ? map.get(key).items : [],
+  }));
+}
+
+function sprintTreeItemCount(payload) {
+  return sprintBacklogItems(payload).length;
+}
+
+function renderSprintTree(payload) {
+  const sprint = payload?.sprint || {};
+  const activeExpanded = sprintTreeExpandedScopes.has('active');
+  const upcomingExpanded = sprintTreeExpandedScopes.has('upcoming');
+  const archiveExpanded = sprintTreeExpandedScopes.has('archive');
+  const activeBuckets = sprintBucketGroups(payload);
+  const sprintKey = escapeHtml(sprint.key || 'Active Sprint');
+  const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
+  const sprintRange = sprintFormatRange(sprint);
+
+  const bucketHtml = activeBuckets.map(bucket => {
+    const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
+    return `<div class="sprint-tree-bucket">
+      <div class="tree-node tree-node-flat" style="padding-left:28px">
+        <span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(bucket.key))};color:${escapeHtml(getContrastColor(getStatusColor(bucket.key)))}">${escapeHtml(bucket.label)}</span>
+        <span style="margin-left:8px;color:var(--fg-dim)">${bucket.items.length}</span>
+      </div>
+      ${rows ? `<div class="sprint-item-list" style="padding-left:16px">${rows}</div>` : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No items in this bucket.</div>'}
+    </div>`;
+  }).join('');
+
+  const activeBody = activeExpanded
+    ? `<div class="sprint-tree-active-body">
+         <div class="sprint-item-row" style="cursor:default">
+           <span class="sprint-item-key">${sprintKey}</span>
+           <span class="sprint-item-title" title="${sprintName}">${sprintName}</span>
+         </div>
+         <div style="font-size:11px;color:var(--fg-dim);padding:0 4px 6px">${escapeHtml(sprintRange)}</div>
+         ${bucketHtml}
+       </div>`
+    : `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Active sprint collapsed.</div>`;
+
+  const upcomingBody = upcomingExpanded
+    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Upcoming sprint queue will appear here.</div>`
+    : '';
+  const archiveBody = archiveExpanded
+    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Archived sprint history will appear here.</div>`
+    : '';
+
+  return `
+    <div class="sidebar-section-header">Sprint</div>
+    <div class="sprint-tree">
+      <div class="tree-node tree-node-flat tree-node-sprint" data-sprint-toggle-scope="active" role="button" tabindex="0">
+        <span class="tree-arrow">${activeExpanded ? '▼' : '▶'}</span>
+        <span class="sprint-item-key">Active Sprint</span>
+        <span style="margin-left:auto;color:var(--fg-dim)">${sprintTreeItemCount(payload)}</span>
+      </div>
+      ${activeBody}
+      <div class="tree-node tree-node-flat tree-node-sprint" data-sprint-toggle-scope="upcoming" role="button" tabindex="0">
+        <span class="tree-arrow">${upcomingExpanded ? '▼' : '▶'}</span>
+        <span class="sprint-item-key">Upcoming Sprint</span>
+      </div>
+      ${upcomingBody}
+      <div class="tree-node tree-node-flat tree-node-sprint" data-sprint-toggle-scope="archive" role="button" tabindex="0">
+        <span class="tree-arrow">${archiveExpanded ? '▼' : '▶'}</span>
+        <span class="sprint-item-key">Archived Sprints</span>
+      </div>
+      ${archiveBody}
+    </div>`;
+}
+
+function sprintPlanItems(payload) {
+  const backlog = payload?.backlog;
+  if (Array.isArray(backlog)) return backlog;
+  if (Array.isArray(backlog?.items)) return backlog.items;
+  return [];
+}
+
+function sprintPlanMatchesFilters(item, filters) {
+  const status = filters?.status || '';
+  const agent = filters?.agent || '';
+  const assignment = filters?.assignment || '';
+  if (status && (item.status || '') !== status) return false;
+  if (agent && (item.agent_type || item.agent || '') !== agent) return false;
+  if (assignment) {
+    const itemAssignment = item.sprint_key || item.assignment_sprint_key || item.assignment || 'unassigned';
+    if (assignment === 'unassigned' && itemAssignment !== 'unassigned') return false;
+    if (assignment !== 'unassigned' && itemAssignment !== assignment) return false;
+  }
+  return true;
+}
+
+function applySprintPlanFilters(filters) {
+  sprintPlanFilters = Object.assign({ status: '', agent: '', assignment: '' }, filters || {});
+  if (sprintViewTab === 'plan') {
+    renderSprintModePanels();
+  }
+}
+
+function toggleSprintPlanSelection(key) {
+  if (!key) return;
+  if (sprintPlanSelection.has(key)) {
+    sprintPlanSelection.delete(key);
+  } else {
+    sprintPlanSelection.add(key);
+  }
+  if (sprintViewTab === 'plan') {
+    renderSprintModePanels();
+  }
+}
+
+function sprintPlanSelectableCount(items) {
+  return items.length;
+}
+
+function renderSprintPlan(payload, filters) {
+  const sprint = payload?.sprint || {};
+  const items = sprintPlanItems(payload);
+  const activeFilters = Object.assign({ status: '', agent: '', assignment: '' }, filters || sprintPlanFilters);
+  const filtered = items.filter(item => sprintPlanMatchesFilters(item, activeFilters));
+  const capacity = sprintCapacityStats(payload?.capacity || []);
+  const readiness = payload?.readiness || {};
+  const statusOptions = ['', ...new Set(items.map(item => item.status || '').filter(Boolean))];
+  const agentOptions = ['', ...new Set(items.map(item => item.agent_type || item.agent || '').filter(Boolean))];
+  const assignmentOptions = ['', 'unassigned', ...new Set(items.map(item => item.sprint_key || item.assignment_sprint_key || item.assignment || '').filter(Boolean))];
+  const itemRows = filtered.map(item => {
+    const key = escapeHtml(item.key || '');
+    const title = escapeHtml(item.title || item.key || '');
+    const statusBadge = ovStatusBadge(item.status || 'unknown');
+    const checked = sprintPlanSelection.has(item.key) ? ' checked' : '';
+    const agent = escapeHtml(item.agent_type || item.agent || '');
+    const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
+    return `<div class="sprint-item-row" data-sprint-plan-key="${key}">
+      <input type="checkbox" class="sprint-plan-checkbox" data-sprint-plan-select-key="${key}"${checked}>
+      ${statusBadge}
+      <span class="sprint-item-key">${key}</span>
+      <span class="sprint-item-title" title="${title}">${title}</span>
+      <span style="font-size:11px;color:var(--fg-dim)">${agent || 'unassigned'} · ${size}</span>
+    </div>`;
+  }).join('');
+
+  const filtersHtml = `
+    <div class="sprint-plan-filters">
+      <label class="sidebar-filter-inline">Status
+        <select id="sprint-plan-status-filter">
+          ${statusOptions.map(option => `<option value="${escapeHtml(option)}"${option === activeFilters.status ? ' selected' : ''}>${option ? escapeHtml(option.replace(/_/g, ' ')) : 'All'}</option>`).join('')}
+        </select>
+      </label>
+      <label class="sidebar-filter-inline">Agent
+        <select id="sprint-plan-agent-filter">
+          ${agentOptions.map(option => `<option value="${escapeHtml(option)}"${option === activeFilters.agent ? ' selected' : ''}>${option ? escapeHtml(option) : 'All'}</option>`).join('')}
+        </select>
+      </label>
+      <label class="sidebar-filter-inline">Assignment
+        <select id="sprint-plan-assignment-filter">
+          ${assignmentOptions.map(option => `<option value="${escapeHtml(option)}"${option === activeFilters.assignment ? ' selected' : ''}>${option ? escapeHtml(option) : 'All'}</option>`).join('')}
+        </select>
+      </label>
+      <button class="header-btn" id="sprint-plan-clear-filters">Clear</button>
+    </div>`;
+
+  const actionCount = sprintPlanSelection.size;
+  const actionButtons = `
+    <div class="sprint-drawer-actions" style="margin-top:0">
+      <button class="header-btn header-btn-accent" id="sprint-plan-stage-btn">Stage selected</button>
+      <button class="header-btn" id="sprint-plan-remove-btn">Remove selected</button>
+      <button class="header-btn" id="sprint-plan-ready-btn">Mark ready</button>
+      <span style="align-self:center;color:var(--fg-dim);font-size:12px">${actionCount} selected</span>
+    </div>`;
+
+  const itemsHtml = filtered.length
+    ? `<div class="sprint-item-list">${itemRows}</div>`
+    : '<div class="content-placeholder">No candidate items match the current filters.</div>';
+
+  return `
+    <div class="sprint-overview-grid">
+      <section class="sprint-hero">
+        <div class="sprint-hero-title">Plan</div>
+        <div class="sprint-hero-meta">
+          <span>${escapeHtml(sprint.key || 'Current Sprint')}</span>
+          <span>Capacity ${escapeHtml(String(capacity.pressure || 0))}%</span>
+          <span>Readiness ${escapeHtml(String(readiness.overall_score ?? 0))}</span>
+        </div>
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Filters</div>
+        ${filtersHtml}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Candidate Backlog</div>
+        ${actionButtons}
+        ${itemsHtml}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Capacity by Agent Type</div>
+        ${capacityRowsHtml(capacity)}
+      </section>
+    </div>`;
+}
+
+function renderSprintReport(payload) {
+  const sprint = payload?.sprint || {};
+  const burndown = payload?.burndown || null;
+  const velocity = payload?.velocity || null;
+  const summary = payload?.summary || null;
+  const burndownRows = burndown?.data_points ? burndown.data_points.slice(0, 8).map(point => {
+    const date = escapeHtml(formatDate(point.date));
+    const actual = point.actual_remaining == null ? '—' : escapeHtml(String(point.actual_remaining));
+    return `<div class="sprint-item-row" style="cursor:default">
+      <span class="sprint-item-key">${date}</span>
+      <span class="sprint-item-title">ideal ${escapeHtml(String(point.ideal_remaining))} / actual ${actual}</span>
+      <span style="font-size:11px;color:var(--fg-dim)">unsized ${escapeHtml(String(point.unsized_remaining || 0))}</span>
+    </div>`;
+  }).join('') : '';
+  const velocityRows = velocity?.sprints ? velocity.sprints.slice(0, 5).map(item => {
+    return `<div class="sprint-item-row" style="cursor:default">
+      <span class="sprint-item-key">${escapeHtml(item.key || '')}</span>
+      <span class="sprint-item-title" title="${escapeHtml(item.name || '')}">${escapeHtml(item.name || '')}</span>
+      <span style="font-size:11px;color:var(--fg-dim)">${escapeHtml(String(item.completed_size || 0))} pts</span>
+    </div>`;
+  }).join('') : '';
+  const trend = summary
+    ? `<div class="content-placeholder" style="text-align:left">
+        Velocity delta: ${escapeHtml(String(summary.velocity_delta ?? 0))}<br>
+        Velocity delta pct: ${escapeHtml(String(summary.velocity_delta_pct ?? 0))}<br>
+        Carryover entities: ${escapeHtml(String((summary.carryover_entities || []).length))}
+      </div>`
+    : '<div class="content-placeholder">Trend summary will appear here.</div>';
+
+  return `
+    <div class="sprint-overview-grid">
+      <section class="sprint-hero">
+        <div class="sprint-hero-title">Report</div>
+        <div class="sprint-hero-meta">
+          <span>${escapeHtml(sprint.key || 'Sprint report')}</span>
+          <span>Burndown · Velocity · Trend</span>
+        </div>
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Burndown</div>
+        ${burndownRows || '<div class="content-placeholder">Burndown data will appear here.</div>'}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Velocity</div>
+        ${velocityRows || '<div class="content-placeholder">Velocity data will appear here.</div>'}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Trend Summary</div>
+        ${trend}
+      </section>
+    </div>`;
+}
+
+function capacityRowsHtml(capacity) {
+  const rows = Array.isArray(capacity) ? capacity : [];
+  if (!rows.length) {
+    return '<div class="content-placeholder">No capacity data available.</div>';
+  }
+  return `<div class="sprint-item-list">${rows.map(row => {
+    const remaining = Number(row.remaining || 0);
+    const remainingColor = remaining < 0 ? 'var(--accent)' : 'var(--fg-muted)';
+    return `<div class="sprint-item-row" style="cursor:default">
+      <span class="sprint-item-key">${escapeHtml(row.agent_type || '')}</span>
+      <span class="sprint-item-title">${escapeHtml(String(row.allocated_points || 0))} / ${escapeHtml(String(row.capacity_points || 0))}</span>
+      <span style="font-size:11px;color:${remainingColor}">remaining ${escapeHtml(String(remaining))}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function sprintPlanItemClass(item) {
+  return sprintPlanSelection.has(item.key) ? ' selected' : '';
+}
+
+function ensureSprintPlanLoaded() {
+  if (sprintPlanLoading || sprintPlanLoaded) return;
+  sprintPlanLoading = true;
+  sprintPlanError = null;
+  const key = sprintOverviewData?.sprint?.key || '';
+  fetchSprintPlan(key).then(result => {
+    sprintPlanLoading = false;
+    sprintPlanLoaded = true;
+    sprintPlanData = result;
+    if (!result) sprintPlanError = 'failed to load sprint plan';
+    renderSprintMode();
+  }).catch(() => {
+    sprintPlanLoading = false;
+    sprintPlanLoaded = true;
+    sprintPlanError = 'failed to load sprint plan';
+    renderSprintMode();
+  });
+}
+
+function ensureSprintReportLoaded() {
+  if (sprintReportLoading || sprintReportLoaded) return;
+  sprintReportLoading = true;
+  sprintReportError = null;
+  const key = sprintOverviewData?.sprint?.key || '';
+  fetchSprintReport(key).then(result => {
+    sprintReportLoading = false;
+    sprintReportLoaded = true;
+    sprintReportData = result;
+    if (!result) sprintReportError = 'failed to load sprint report';
+    renderSprintMode();
+  }).catch(() => {
+    sprintReportLoading = false;
+    sprintReportLoaded = true;
+    sprintReportError = 'failed to load sprint report';
+    renderSprintMode();
+  });
+}
+
+function toggleSprintTreeNode(scope) {
+  if (!scope) return;
+  if (sprintTreeExpandedScopes.has(scope)) {
+    sprintTreeExpandedScopes.delete(scope);
+  } else {
+    sprintTreeExpandedScopes.add(scope);
+  }
+  renderSidebar();
+}
+
+function renderSprintItemRow(item, selectedKey) {
+  const key = escapeHtml(item?.key || '');
+  const title = escapeHtml(sprintItemLabel(item) || item?.key || '');
+  const badge = ovStatusBadge(sprintItemStatus(item));
+  const selectedClass = item?.key && item.key === selectedKey ? ' selected' : '';
+  return `<div class="sprint-item-row${selectedClass}" role="button" tabindex="0" data-sprint-item-key="${key}">
+    ${badge}
+    <span class="sprint-item-key">${key}</span>
+    <span class="sprint-item-title" title="${title}">${title}</span>
+  </div>`;
+}
+
+function renderSprintBacklogSection(payload, selectedKey) {
+  const groups = sprintBacklogGroups(payload);
+  if (!groups.length) {
+    return sectionShell('Sprint Items', '<span style="color:var(--fg-dim);font-size:12px">No sprint items available.</span>');
+  }
+
+  const groupsHtml = groups.map(group => {
+    const items = Array.isArray(group.items) ? group.items : [];
+    const rows = items.map(item => renderSprintItemRow(item, selectedKey)).join('');
+    const countLabel = items.length ? ` <span style="color:var(--fg-dim)">${items.length}</span>` : '';
+    return `<div class="ov-section" style="margin-top:0">
+      <div class="ov-section-header">${escapeHtml((group.status_category || 'items').replace(/_/g, ' '))}${countLabel}</div>
+      <div class="sprint-item-list">${rows || '<div class="content-placeholder">No items in this bucket.</div>'}</div>
+    </div>`;
+  }).join('');
+
+  return `<div>${groupsHtml}</div>`;
+}
+
+function renderSprintOverview(payload) {
+  const sprint = payload?.sprint || {};
+  const readiness = payload?.readiness || {};
+  const capacity = sprintCapacityStats(payload?.capacity || []);
+  const backlogItems = sprintBacklogItems(payload);
+  const blockedCount = sprintBacklogGroups(payload)
+    .filter(group => (group?.status_category || '') === 'blocked')
+    .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
+  const wipCount = sprintBacklogGroups(payload)
+    .filter(group => ['in_progress', 'in_review', 'in_qa'].includes(group?.status_category || ''))
+    .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
+  const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
+  const keyLabel = escapeHtml(sprint.key || '');
+  const dateLabel = sprintFormatRange(sprint);
+  const summaryLabel = payload?.summary
+    ? `Velocity ${escapeHtml(String(payload.summary.velocity_this_sprint ?? '—'))} · Completed ${escapeHtml(String(payload.summary.completed_count ?? '—'))}`
+    : 'Read-first operational view';
+
+  const metrics = `
+    <div class="sprint-metric-grid">
+      ${sprintSummaryCard('Readiness', `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))};color:${getContrastColor(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))}">${escapeHtml(String(readiness.overall_score ?? 0))}</span>`, 'Overall readiness score')}
+      ${sprintSummaryCard('Capacity', `${escapeHtml(String(capacity.pressure || 0))}%`, `${escapeHtml(String(capacity.allocated.toFixed ? capacity.allocated.toFixed(1) : capacity.allocated))} allocated / ${escapeHtml(String(capacity.capacity.toFixed ? capacity.capacity.toFixed(1) : capacity.capacity))} capacity`)}
+      ${sprintSummaryCard('Blocked', escapeHtml(String(blockedCount)), 'Items blocked in the current sprint')}
+      ${sprintSummaryCard('WIP', escapeHtml(String(wipCount)), 'Items currently in progress')}
+    </div>`;
+
+  const changes = sprintRecentChanges(payload);
+  const changesHtml = changes.length
+    ? changes.map(entry => {
+        const ts = formatDateTime(entry.changed_at || entry.created_at || entry.timestamp || '');
+        const key = escapeHtml(entry.entity_key || entry.key || '');
+        const from = escapeHtml((entry.from_status || entry.from || '').replace(/_/g, ' '));
+        const to = escapeHtml((entry.to_status || entry.to || '').replace(/_/g, ' '));
+        return `<div class="sprint-item-row" role="button" tabindex="0" data-sprint-item-key="${key}">
+          <span class="sprint-item-key">${escapeHtml(ts)}</span>
+          <span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(entry.to_status || entry.to || ''))};color:${escapeHtml(getContrastColor(getStatusColor(entry.to_status || entry.to || '')))}">${to || 'changed'}</span>
+          <span class="sprint-item-title" title="${key}">${key} ${from ? `· ${from}` : ''}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No recent sprint changes yet.</div>';
+
+  return `
+    <div class="sprint-overview-grid">
+      <section class="sprint-hero">
+        <div class="sprint-hero-title">${sprintName}</div>
+        <div class="sprint-hero-meta">
+          ${keyLabel ? `<span class="header-pill">${keyLabel}</span>` : ''}
+          <span>${dateLabel}</span>
+          <span>${escapeHtml(summaryLabel)}</span>
+        </div>
+      </section>
+      <section>${metrics}</section>
+      <section class="ov-section">
+        <div class="ov-section-header">Sprint Backlog</div>
+        ${renderSprintBacklogSection(payload, sprintSelectedKey)}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Recent Changes</div>
+        <div class="sprint-item-list">${changesHtml}</div>
+      </section>
+      ${payload?.summary ? `<section class="ov-section">
+        <div class="ov-section-header">Sprint Summary</div>
+        <div class="sprint-item-list">
+          <div class="sprint-item-row" style="cursor:default">
+            <span class="sprint-item-key">Planned</span>
+            <span class="sprint-item-title">${escapeHtml(String(payload.summary.planned_count ?? 0))} items · ${escapeHtml(String(payload.summary.planned_size ?? 0))} size</span>
+          </div>
+          <div class="sprint-item-row" style="cursor:default">
+            <span class="sprint-item-key">Completed</span>
+            <span class="sprint-item-title">${escapeHtml(String(payload.summary.completed_count ?? 0))} items · ${escapeHtml(String(payload.summary.completed_size ?? 0))} size</span>
+          </div>
+          <div class="sprint-item-row" style="cursor:default">
+            <span class="sprint-item-key">Velocity</span>
+            <span class="sprint-item-title">${escapeHtml(String(payload.summary.velocity_this_sprint ?? 0))} this sprint · ${escapeHtml(String(payload.summary.trailing_avg_velocity ?? 0))} trailing avg</span>
+          </div>
+        </div>
+      </section>` : ''}
+    </div>`;
+}
+
+function renderSprintDetailDrawer(key, payload) {
+  if (!key) {
+    return `<div class="content-placeholder">Select a sprint item to inspect status, history, related work, and the entity view jump-back path.</div>`;
+  }
+
+  const entity = findEntityByKey(key);
+  const item = sprintFindBacklogItem(payload, key);
+  const status = sprintItemStatus(item || entity);
+  const statusColor = getStatusColor(status);
+  const drawerTitle = entity ? escapeHtml(entity.title || entity.key || key) : escapeHtml(key);
+  const drawerKey = escapeHtml(key);
+  const assignmentLines = [];
+  if (item?.status_category) assignmentLines.push(`<div class="props-label">Bucket</div><div class="props-value">${escapeHtml(item.status_category.replace(/_/g, ' '))}</div>`);
+  if (item?.agent_type) assignmentLines.push(`<div class="props-label">Agent</div><div class="props-value">${escapeHtml(item.agent_type)}</div>`);
+  if (item?.priority != null) assignmentLines.push(`<div class="props-label">Priority</div><div class="props-value">${escapeHtml(String(item.priority))}</div>`);
+  if (item?.size != null) assignmentLines.push(`<div class="props-label">Size</div><div class="props-value">${escapeHtml(formatSizeLabel(item.size))} (${escapeHtml(String(item.size))})</div>`);
+  if (item?.days_blocked != null) assignmentLines.push(`<div class="props-label">Days Blocked</div><div class="props-value">${escapeHtml(String(item.days_blocked))}</div>`);
+  if (assignmentLines.length === 0) assignmentLines.push('<div class="props-value">No sprint assignment details available.</div>');
+
+  return `
+    <div class="sprint-drawer-panel history-drawer" data-sprint-drawer-for="${drawerKey}">
+      <div class="sprint-drawer-title">${drawerTitle}</div>
+      <div class="sprint-drawer-subtitle">
+        <span class="status-badge status-badge-sm" style="background:${escapeHtml(statusColor)};color:${escapeHtml(getContrastColor(statusColor))}">${escapeHtml(status.replace(/_/g, ' '))}</span>
+        <span style="margin-left:8px">${drawerKey}</span>
+      </div>
+      ${entity ? renderPropertiesPanel(entity) : '<div class="content-placeholder">Entity details unavailable.</div>'}
+      <div class="ov-section">
+        <div class="ov-section-header">Assignment History</div>
+        <div class="props-grid">${assignmentLines.join('')}</div>
+      </div>
+      <div class="ov-section" id="sprint-history-section">
+        <div class="ov-section-header">Status History</div>
+        <div class="content-placeholder">Loading history…</div>
+      </div>
+      <div class="ov-section" id="sprint-related-section">
+        <div class="ov-section-header">Related Work</div>
+        <div class="content-placeholder">Loading related work…</div>
+      </div>
+      <div class="sprint-drawer-actions">
+        <button class="header-btn header-btn-accent" id="sprint-open-entity-btn">Open Entity View</button>
+      </div>
+    </div>`;
+}
+
+async function loadSprintDetailDrawer(key) {
+  if (!key) return;
+  const historyEl = document.getElementById('sprint-history-section');
+  const relatedEl = document.getElementById('sprint-related-section');
+
+  if (historyEl) {
+    historyEl.innerHTML = `<div class="ov-section-header">Status History</div><div class="content-placeholder">Loading history…</div>`;
+  }
+  if (relatedEl) {
+    relatedEl.innerHTML = `<div class="ov-section-header">Related Work</div><div class="content-placeholder">Loading related work…</div>`;
+  }
+
+  const [historyResp, relatedResp] = await Promise.all([
+    apiGetHistory(key),
+    apiGetRelatedDocs(key),
+  ]);
+
+  if (historyEl) {
+    const history = Array.isArray(historyResp?.records) ? historyResp.records : [];
+    if (!history.length) {
+      historyEl.innerHTML = `<div class="ov-section-header">Status History</div><div class="content-placeholder">No transition history found.</div>`;
+    } else {
+      const rows = [...history].sort((a, b) => {
+        const ta = a.changed_at || a.created_at || a.timestamp || '';
+        const tb = b.changed_at || b.created_at || b.timestamp || '';
+        return tb.localeCompare(ta);
+      }).map(entry => {
+        const from = entry.from_status || entry.from || '';
+        const to = entry.to_status || entry.to || '';
+        const ts = escapeHtml(formatDateTime(entry.changed_at || entry.created_at || entry.timestamp || ''));
+        const fromColor = getStatusColor(from);
+        const toColor = getStatusColor(to);
+        return `<div class="history-row">
+          <span class="history-ts">${ts}</span>
+          <span class="status-badge status-badge-sm" style="background:${escapeHtml(fromColor)};color:${escapeHtml(getContrastColor(fromColor))}">${escapeHtml(from.replace(/_/g, ' '))}</span>
+          <span class="status-badge status-badge-sm" style="background:${escapeHtml(toColor)};color:${escapeHtml(getContrastColor(toColor))}">${escapeHtml(to.replace(/_/g, ' '))}</span>
+          <span class="history-note">${escapeHtml(entry.note || entry.reason || '')}</span>
+        </div>`;
+      }).join('');
+      historyEl.innerHTML = `<div class="ov-section-header">Status History</div>${rows}`;
+    }
+  }
+
+  if (relatedEl) {
+    const docs = Array.isArray(relatedResp?.docs) ? relatedResp.docs : [];
+    if (!docs.length) {
+      relatedEl.innerHTML = `<div class="ov-section-header">Related Work</div><div class="content-placeholder">No related work found.</div>`;
+    } else {
+      const rows = docs.map(doc => {
+        const path = escapeHtml(doc.file_path || '');
+        return `<div class="reldoc-row">
+          <span class="reldoc-path" title="${path}">${path}</span>
+          <button class="reldoc-open" data-doc-path="${path}">open</button>
+        </div>`;
+      }).join('');
+      relatedEl.innerHTML = `<div class="ov-section-header">Related Work</div>${rows}`;
+      relatedEl.querySelectorAll('.reldoc-open').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const p = btn.getAttribute('data-doc-path');
+          if (p) openDocumentByPath(p);
+        });
+      });
+    }
+  }
+}
+
+function ensureSprintOverviewLoaded() {
+  if (sprintOverviewLoading || sprintOverviewLoaded) {
+    return;
+  }
+  sprintOverviewLoading = true;
+  sprintOverviewError = null;
+  const key = sprintOverviewData?.sprint?.key || '';
+  fetchSprintOverview(key).then(result => {
+    sprintOverviewLoading = false;
+    sprintOverviewLoaded = true;
+    sprintOverviewData = result;
+    if (!result) {
+      sprintOverviewError = 'failed to load sprint overview';
+    } else if (!sprintSelectedKey) {
+      const firstItem = sprintBacklogItems(result)[0];
+      sprintSelectedKey = firstItem?.key || null;
+      if (!selectedKey && sprintSelectedKey) {
+        selectedKey = sprintSelectedKey;
+      }
+    }
+    renderSprintMode();
+  }).catch(() => {
+    sprintOverviewLoading = false;
+    sprintOverviewLoaded = true;
+    sprintOverviewError = 'failed to load sprint overview';
+    renderSprintMode();
+  });
+}
+
+function renderSprintModeControls() {
+  const overviewActive = sprintViewTab === 'overview' ? ' active' : '';
+  const planActive = sprintViewTab === 'plan' ? ' active' : '';
+  const reportActive = sprintViewTab === 'report' ? ' active' : '';
+  return `
+    <div class="sprint-mode-tabs">
+      <button class="sprint-mode-tab${overviewActive}" id="sprint-tab-overview">Overview</button>
+      <button class="sprint-mode-tab${planActive}" id="sprint-tab-plan">Plan</button>
+      <button class="sprint-mode-tab${reportActive}" id="sprint-tab-report">Report</button>
+    </div>`;
+}
+
+function renderSprintModePanels() {
+  const mainPanel = document.getElementById('sprint-main-panel');
+  const drawerPanel = document.getElementById('sprint-detail-panel');
+  if (!mainPanel || !drawerPanel) return;
+
+  const overviewPayload = sprintOverviewData || null;
+  const planPayload = sprintPlanData || null;
+  const reportPayload = sprintReportData || null;
+  const activePayload = sprintViewTab === 'plan' ? planPayload : sprintViewTab === 'report' ? reportPayload : overviewPayload;
+  if (sprintViewTab === 'overview') {
+    if (overviewPayload) {
+      mainPanel.innerHTML = renderSprintOverview(overviewPayload);
+    } else {
+      mainPanel.innerHTML = `<div class="content-placeholder">${sprintOverviewError ? escapeHtml(sprintOverviewError) : 'Loading sprint overview…'}</div>`;
+    }
+  } else if (sprintViewTab === 'plan') {
+    if (planPayload) {
+      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters);
+    } else {
+      mainPanel.innerHTML = `<div class="content-placeholder">${sprintPlanError ? escapeHtml(sprintPlanError) : 'Loading sprint plan…'}</div>`;
+    }
+  } else {
+    if (reportPayload) {
+      mainPanel.innerHTML = renderSprintReport(reportPayload);
+    } else {
+      mainPanel.innerHTML = `<div class="content-placeholder">${sprintReportError ? escapeHtml(sprintReportError) : 'Loading sprint report…'}</div>`;
+    }
+  }
+
+  drawerPanel.innerHTML = renderSprintDetailDrawer(sprintSelectedKey, activePayload || overviewPayload);
+
+  mainPanel.querySelectorAll('[data-sprint-item-key]').forEach(el => {
+    const key = el.getAttribute('data-sprint-item-key');
+    el.addEventListener('click', () => selectSprintItem(key));
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        selectSprintItem(key);
+      }
+    });
+  });
+
+  if (sprintViewTab === 'plan') {
+    const statusFilter = document.getElementById('sprint-plan-status-filter');
+    const agentFilter = document.getElementById('sprint-plan-agent-filter');
+    const assignmentFilter = document.getElementById('sprint-plan-assignment-filter');
+    const clearFiltersBtn = document.getElementById('sprint-plan-clear-filters');
+    if (statusFilter) {
+      statusFilter.addEventListener('change', () => applySprintPlanFilters({
+        status: statusFilter.value,
+        agent: agentFilter ? agentFilter.value : sprintPlanFilters.agent,
+        assignment: assignmentFilter ? assignmentFilter.value : sprintPlanFilters.assignment,
+      }));
+    }
+    if (agentFilter) {
+      agentFilter.addEventListener('change', () => applySprintPlanFilters({
+        status: statusFilter ? statusFilter.value : sprintPlanFilters.status,
+        agent: agentFilter.value,
+        assignment: assignmentFilter ? assignmentFilter.value : sprintPlanFilters.assignment,
+      }));
+    }
+    if (assignmentFilter) {
+      assignmentFilter.addEventListener('change', () => applySprintPlanFilters({
+        status: statusFilter ? statusFilter.value : sprintPlanFilters.status,
+        agent: agentFilter ? agentFilter.value : sprintPlanFilters.agent,
+        assignment: assignmentFilter.value,
+      }));
+    }
+    if (clearFiltersBtn) {
+      clearFiltersBtn.addEventListener('click', () => applySprintPlanFilters({ status: '', agent: '', assignment: '' }));
+    }
+
+    mainPanel.querySelectorAll('[data-sprint-plan-select-key]').forEach(input => {
+      input.addEventListener('change', () => toggleSprintPlanSelection(input.getAttribute('data-sprint-plan-select-key')));
+    });
+
+    mainPanel.querySelectorAll('[data-sprint-plan-key]').forEach(row => {
+      row.addEventListener('click', () => {
+        const key = row.getAttribute('data-sprint-plan-key');
+        if (key) selectSprintItem(key);
+      });
+    });
+
+    const stageBtn = document.getElementById('sprint-plan-stage-btn');
+    const removeBtn = document.getElementById('sprint-plan-remove-btn');
+    const readyBtn = document.getElementById('sprint-plan-ready-btn');
+    const explicitAction = (label) => showToast(`${label} is explicit in Sprint Plan but not wired to a mutation path yet.`);
+    if (stageBtn) stageBtn.addEventListener('click', () => explicitAction('Stage selected'));
+    if (removeBtn) removeBtn.addEventListener('click', () => explicitAction('Remove selected'));
+    if (readyBtn) readyBtn.addEventListener('click', () => explicitAction('Mark ready'));
+  }
+
+  const openEntityBtn = document.getElementById('sprint-open-entity-btn');
+  if (openEntityBtn && sprintSelectedKey) {
+    openEntityBtn.addEventListener('click', () => {
+      cameFromSprint = true;
+      navigateToEntity(sprintSelectedKey, true);
+    });
+  }
+
+  if (sprintSelectedKey) {
+    loadSprintDetailDrawer(sprintSelectedKey);
+  }
+}
+
+function renderSprintMode() {
+  const content = document.getElementById('content');
+  if (!content) return;
+
+  const currentMainPlaceholder = sprintViewTab === 'plan'
+    ? (sprintPlanLoading && !sprintPlanData ? 'Loading sprint plan…' : sprintPlanError || '')
+    : sprintViewTab === 'report'
+      ? (sprintReportLoading && !sprintReportData ? 'Loading sprint report…' : sprintReportError || '')
+      : (sprintOverviewLoading && !sprintOverviewData ? 'Loading sprint overview…' : sprintOverviewError || '');
+
+  content.innerHTML = `
+    <div class="sprint-mode-shell">
+      ${renderSprintModeControls()}
+      <div class="sprint-shell">
+        <div class="sprint-main-column">
+          <div id="sprint-main-panel">
+            ${currentMainPlaceholder ? `<div class="content-placeholder">${escapeHtml(currentMainPlaceholder)}</div>` : ''}
+          </div>
+        </div>
+        <div class="sprint-detail-column">
+          <div id="sprint-detail-panel">
+            ${renderSprintDetailDrawer(sprintSelectedKey, sprintViewTab === 'plan' ? sprintPlanData || sprintOverviewData : sprintViewTab === 'report' ? sprintReportData || sprintOverviewData : sprintOverviewData)}
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const overviewTabBtn = document.getElementById('sprint-tab-overview');
+  const planTabBtn = document.getElementById('sprint-tab-plan');
+  const reportTabBtn = document.getElementById('sprint-tab-report');
+  if (overviewTabBtn) overviewTabBtn.addEventListener('click', () => {
+    if (sprintViewTab !== 'overview') {
+      sprintViewTab = 'overview';
+      pushNavState();
+      renderSprintMode();
+    }
+  });
+  if (planTabBtn) planTabBtn.addEventListener('click', () => {
+    if (sprintViewTab !== 'plan') {
+      sprintViewTab = 'plan';
+      pushNavState();
+      renderSprintMode();
+    }
+  });
+  if (reportTabBtn) reportTabBtn.addEventListener('click', () => {
+    if (sprintViewTab !== 'report') {
+      sprintViewTab = 'report';
+      pushNavState();
+      renderSprintMode();
+    }
+  });
+
+  renderSprintModePanels();
+
+  if (sprintViewTab === 'overview') {
+    if (!sprintOverviewLoaded && !sprintOverviewLoading) {
+      ensureSprintOverviewLoaded();
+    }
+  } else if (sprintViewTab === 'plan') {
+    if (!sprintPlanLoaded && !sprintPlanLoading) {
+      ensureSprintPlanLoaded();
+    }
+  } else if (sprintViewTab === 'report') {
+    if (!sprintReportLoaded && !sprintReportLoading) {
+      ensureSprintReportLoaded();
+    }
+  }
+}
+
+function selectSprintItem(key) {
+  if (!key) return;
+  sprintSelectedKey = key;
+  selectedKey = key;
+  cameFromSprint = false;
+  if (appState !== 'sprint') {
+    appState = 'sprint';
+  }
+  replaceNavState();
+  renderSprintModePanels();
+}
+
 /**
  * Renders the Entity View (State 3).
  * Shows entity properties panel, Info/Transitions toggle, and content pane.
@@ -4615,6 +5837,7 @@ function renderEntityView() {
         <div class="entity-view-key">${keyLabel}</div>
         ${entity ? `<button class="copy-btn copy-key-btn" data-copy-value="${escapeHtml(entity.key || keyLabel)}" title="Copy key">⎘</button>` : ''}
       </div>
+      ${cameFromSprint ? `<button class="content-back-link" id="ev-back-to-sprint">Back to Sprint</button>` : ''}
       ${tagChipsHtml}
     </div>
     ${entity ? renderPropertiesPanel(entity) : ''}
@@ -4665,6 +5888,13 @@ function renderEntityView() {
   if (filesTabBtn) {
     filesTabBtn.addEventListener('click', () => {
       if (entityViewTab !== 'files') { entityViewTab = 'files'; pushNavState(); renderEntityView(); }
+    });
+  }
+  const backToSprintBtn = document.getElementById('ev-back-to-sprint');
+  if (backToSprintBtn) {
+    backToSprintBtn.addEventListener('click', () => {
+      cameFromSprint = false;
+      switchTopLevelMode('sprint', { pushState: false });
     });
   }
 
@@ -5073,6 +6303,11 @@ function renderSidebar() {
   // ── Tag filter control (E28-F06 REQ-F-017, AC-12) ──
   html += buildTagFilterControlHtml();
 
+  // ── Sprint section (Sprint mode only) ──
+  if (appState === 'sprint') {
+    html += renderSprintTree(sprintOverviewData || sprintPlanData || sprintReportData || null);
+  }
+
   // ── Hierarchy section ──
   const collapseSymbol = expandedEpics.size > 0 ? '−' : '+';
   html += `<div class="sidebar-section-header">Hierarchy<button id="collapse-all-btn" class="sidebar-collapse-btn" type="button" title="${expandedEpics.size > 0 ? 'Collapse all' : 'Expand all'}">${collapseSymbol}</button></div>`;
@@ -5176,6 +6411,20 @@ function renderSidebar() {
     // Copy buttons are handled by the global delegation handler — skip here
     if (e.target.closest('.copy-btn')) return;
 
+    const sprintToggle = e.target.closest('[data-sprint-toggle-scope]');
+    if (sprintToggle) {
+      const scope = sprintToggle.getAttribute('data-sprint-toggle-scope');
+      toggleSprintTreeNode(scope);
+      return;
+    }
+
+    const sprintItem = e.target.closest('[data-sprint-item-key]');
+    if (sprintItem) {
+      const key = sprintItem.getAttribute('data-sprint-item-key');
+      if (key) selectSprintItem(key);
+      return;
+    }
+
     const arrowEl = e.target.closest('[data-arrow-key]');
     if (arrowEl) {
       // Expand/collapse — do NOT select
@@ -5218,6 +6467,7 @@ function renderSidebar() {
           const clickedEntity = findEntityByKey(key);
           entityViewTab = 'overview';
           appState = 'entity_view';
+          cameFromSprint = false;
         }
         pushNavState();
         render();
@@ -5247,12 +6497,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Header: Dashboard title → return to dashboard
   document.getElementById('header-dashboard-btn').addEventListener('click', () => {
-    if (appState === 'entity_view' || appState === 'doc_view') {
-      selectedKey = null;
-      appState = 'dashboard';
-      history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
-      render();
+    if (appState === 'entity_view' || appState === 'doc_view' || appState === 'sprint') {
+      cameFromSprint = false;
+      switchTopLevelMode('dashboard', { pushState: false });
     }
+  });
+
+  // Header: Sprint mode entry → switch to sprint overview shell
+  document.getElementById('header-sprint-btn').addEventListener('click', () => {
+    switchTopLevelMode('sprint');
   });
 
   // Header: Refresh button → reload all cached data

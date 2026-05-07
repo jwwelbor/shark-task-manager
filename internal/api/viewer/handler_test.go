@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
@@ -38,6 +39,9 @@ type MockViewerServicer struct {
 	NotesFunc          func(ctx context.Context, key string) (*services.NotesResponse, error)
 	RelatedDocsFunc    func(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
 	TagsFunc           func(ctx context.Context) (*services.TagsResponse, error) // NEW F06
+	SprintOverviewFunc func(ctx context.Context, key string) (*services.SprintOverviewResponse, error)
+	SprintPlanFunc     func(ctx context.Context, key string) (*services.SprintPlanView, error)
+	SprintReportFunc   func(ctx context.Context, key string) (*services.SprintReportResponse, error)
 
 	// TagsCallCount counts invocations of Tags() so security regression tests can
 	// assert that non-GET methods on /api/v1/viewer/tags never reach the service
@@ -128,6 +132,27 @@ func (m *MockViewerServicer) Tags(ctx context.Context) (*services.TagsResponse, 
 		return m.TagsFunc(ctx)
 	}
 	return nil, errors.New("TagsFunc not set in mock")
+}
+
+func (m *MockViewerServicer) SprintOverview(ctx context.Context, key string) (*services.SprintOverviewResponse, error) {
+	if m.SprintOverviewFunc != nil {
+		return m.SprintOverviewFunc(ctx, key)
+	}
+	return nil, errors.New("SprintOverviewFunc not set in mock")
+}
+
+func (m *MockViewerServicer) SprintPlan(ctx context.Context, key string) (*services.SprintPlanView, error) {
+	if m.SprintPlanFunc != nil {
+		return m.SprintPlanFunc(ctx, key)
+	}
+	return nil, errors.New("SprintPlanFunc not set in mock")
+}
+
+func (m *MockViewerServicer) SprintReport(ctx context.Context, key string) (*services.SprintReportResponse, error) {
+	if m.SprintReportFunc != nil {
+		return m.SprintReportFunc(ctx, key)
+	}
+	return nil, errors.New("SprintReportFunc not set in mock")
 }
 
 // ----- helpers -----
@@ -2049,5 +2074,106 @@ func TestHandler_Tags_PathParam_NonGetMethods(t *testing.T) {
 	if mock.TagsCallCount != 0 {
 		t.Errorf("path-param: TagsFunc call counter expected 0 after %d requests, got %d",
 			len(methods), mock.TagsCallCount)
+	}
+}
+
+func TestHandler_SprintOverview(t *testing.T) {
+	var gotKey string
+	mock := &MockViewerServicer{
+		SprintOverviewFunc: func(_ context.Context, key string) (*services.SprintOverviewResponse, error) {
+			gotKey = key
+			return &services.SprintOverviewResponse{
+				Sprint: &models.Sprint{Key: key},
+				Backlog: &services.SprintBacklog{
+					SprintKey:  key,
+					SprintName: "Current Sprint",
+				},
+				Readiness: &services.SprintReadiness{OverallScore: 77},
+				Capacity:  []services.CapacityRow{{AgentType: "frontend"}},
+				Summary:   &services.SprintSummaryResult{SprintKey: key},
+			}, nil
+		},
+	}
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/sprint/overview?key=s024", newTestMux(mock))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	assertContentTypeJSON(t, rec)
+
+	var body map[string]json.RawMessage
+	assertJSON(t, rec, &body)
+	for _, key := range []string{"sprint", "backlog", "readiness", "capacity"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing %q in sprint overview response", key)
+		}
+	}
+	if gotKey != "S024" {
+		t.Fatalf("expected normalized sprint key S024, got %q", gotKey)
+	}
+}
+
+func TestHandler_SprintPlan(t *testing.T) {
+	var gotKey string
+	mock := &MockViewerServicer{
+		SprintPlanFunc: func(_ context.Context, key string) (*services.SprintPlanView, error) {
+			gotKey = key
+			return &services.SprintPlanView{
+				Sprint:    &models.Sprint{Key: key},
+				Backlog:   []sprint.BacklogItem{},
+				Capacity:  []services.CapacityRow{},
+				Readiness: &services.SprintReadiness{OverallScore: 62},
+			}, nil
+		},
+	}
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/sprint/plan?key=S024", newTestMux(mock))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	assertContentTypeJSON(t, rec)
+
+	var body map[string]json.RawMessage
+	assertJSON(t, rec, &body)
+	if _, ok := body["sprint"]; !ok {
+		t.Fatal("missing sprint in sprint plan response")
+	}
+	if _, ok := body["readiness"]; !ok {
+		t.Fatal("missing readiness in sprint plan response")
+	}
+	if gotKey != "S024" {
+		t.Fatalf("expected normalized sprint key S024, got %q", gotKey)
+	}
+}
+
+func TestHandler_SprintReport(t *testing.T) {
+	var gotKey string
+	mock := &MockViewerServicer{
+		SprintReportFunc: func(_ context.Context, key string) (*services.SprintReportResponse, error) {
+			gotKey = key
+			return &services.SprintReportResponse{
+				Sprint:   &models.Sprint{Key: key},
+				Burndown: &services.BurndownResult{SprintKey: key},
+				Velocity: &services.VelocityResult{SprintCount: 6},
+				Summary:  &services.SprintSummaryResult{SprintKey: key},
+			}, nil
+		},
+	}
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/sprint/report?key=s024", newTestMux(mock))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	assertContentTypeJSON(t, rec)
+
+	var body map[string]json.RawMessage
+	assertJSON(t, rec, &body)
+	for _, key := range []string{"sprint", "burndown", "velocity", "summary"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing %q in sprint report response", key)
+		}
+	}
+	if gotKey != "S024" {
+		t.Fatalf("expected normalized sprint key S024, got %q", gotKey)
 	}
 }

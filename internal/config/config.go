@@ -22,6 +22,23 @@ const DefaultConsoleWidth = 120
 // titles and dashes do not fit in any reasonable list view, so we clamp.
 const MinConsoleWidth = 40
 
+// SprintDefaultsConfig holds team-level defaults for sprint creation.
+// It is parsed from the "sprint_defaults" key in .sharkconfig.json.
+type SprintDefaultsConfig struct {
+	// Capacity is a map of agent_type -> default capacity_points.
+	// Applied to new sprints at creation time when sprint_capacity rows are absent.
+	Capacity map[string]float64 `json:"capacity,omitempty"`
+
+	// CarryoverBehavior is the default --carryover flag value for shark sprint close.
+	// Valid values: "next" (move to next planning sprint) or "backlog" (unassign).
+	// Default: "next" when absent (resolveCarryoverMode() returns CarryoverNext).
+	CarryoverBehavior string `json:"carryover_behavior,omitempty"`
+
+	// AutoCreate, when true, causes shark sprint close to create a new sprint
+	// automatically if no planning sprint exists. REQ-F-016 (Could Have).
+	AutoCreate bool `json:"auto_create,omitempty"`
+}
+
 // Config represents the .sharkconfig.json structure
 type Config struct {
 	// LastSyncTime is the timestamp of the last successful sync
@@ -42,6 +59,12 @@ type Config struct {
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
+
+	// SprintDefaults holds team-level default configuration for sprint creation.
+	// When sprint_defaults.capacity is non-empty, capacity rows are automatically
+	// inserted into sprint_capacity at sprint creation time.
+	// A nil or absent SprintDefaults means "no defaults configured."
+	SprintDefaults *SprintDefaultsConfig `json:"sprint_defaults,omitempty"`
 
 	// Maintainer holds the optional maintainer authorization gate configuration.
 	// A nil or absent Maintainer is equivalent to "no password configured."
@@ -65,6 +88,12 @@ type Config struct {
 	// from the JSON tag so the exported accessor TagRequiredFor() can share
 	// the same name as the JSON field.
 	TagRequiredForTypes []string `json:"tag_required_for,omitempty"`
+
+	// SizeRequiredForTypes lists entity types that MUST carry a non-nil --size
+	// at creation time. Values match models.EntityType.String() ("task",
+	// "feature", "epic", "bug", "change", "idea", "tech-debt"). Absent or
+	// empty = no enforcement. Mirrors TagRequiredForTypes; see SizeRequiredFor.
+	SizeRequiredForTypes []string `json:"size_required_for,omitempty"`
 
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
@@ -216,6 +245,22 @@ func (c *Config) TagRequiredFor() []string {
 	}
 	out := make([]string, len(c.TagRequiredForTypes))
 	copy(out, c.TagRequiredForTypes)
+	return out
+}
+
+// SizeRequiredFor returns the configured list of entity types that require a
+// non-nil --size on create. Returns nil when the config is nil or the field is
+// absent/empty. Defensive copy — callers cannot mutate the underlying config.
+// Satisfies services.SizeEnforcementConfig.
+func (c *Config) SizeRequiredFor() []string {
+	if c == nil {
+		return nil
+	}
+	if len(c.SizeRequiredForTypes) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.SizeRequiredForTypes))
+	copy(out, c.SizeRequiredForTypes)
 	return out
 }
 

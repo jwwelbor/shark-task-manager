@@ -85,6 +85,9 @@ type EpicService struct {
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
+
+	// sizeCfg is optional — nil disables size enforcement on create.
+	sizeCfg SizeEnforcementConfig
 }
 
 // NewEpicService creates a new EpicService.
@@ -170,6 +173,13 @@ func (s *EpicService) SetAnalyticsService(svc *EpicAnalyticsService) {
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 func (s *EpicService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "epic" in SizeRequiredFor, CreateEpic accepts
+// nil Size silently.
+func (s *EpicService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // getAnalyticsService returns the analytics sub-service, creating one lazily if nil.
@@ -464,6 +474,9 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 		return nil, fmt.Errorf("epic title cannot be empty")
 	}
 
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeEpic, input.Size); err != nil {
+		return nil, err
+	}
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeEpic, input.Tags); err != nil {
 		return nil, err
 	}

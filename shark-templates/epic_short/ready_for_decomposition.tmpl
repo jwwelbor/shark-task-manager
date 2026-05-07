@@ -17,8 +17,10 @@ READ:
 PRODUCE features via shark CLI:
 
 For each feature:
-(1) {{template "create_feature" .}} "<title>" --execution-order=N
+(1) {{template "create_feature" .}} "<title>" --execution-order=N --size=<1|2|3|5|8|13>
 (2) Write a 1-paragraph description to the feature file (NOT a full PRD — that happens at feature level)
+
+{{template "_sizing_feature" .}}
 
 Feature decomposition rules:
 - Each feature maps to a cohesive capability boundary
@@ -33,3 +35,4 @@ EXIT GATE:
 - Features have execution order and dependency annotations
 - No overlapping scope between features
 - Descriptions are specific enough for assessment
+- Every feature carries a non-empty --size; features sized 13/XXL are split before exit

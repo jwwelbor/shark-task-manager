@@ -14,11 +14,18 @@
 {{define "get_json_epic"}}shark get {{.epic_id}} --json{{end}}
 {{define "get_json_task"}}shark get {{.task_id}} --json{{end}}
 
-{{/* ===== Create Commands ===== */}}
+{{/* ===== Create Commands =====
+     The base forms emit the prefix; callers append `"<title>" --size=<S> [other flags]`.
+     Size scale: 1|2|3|5|8|13 (or XS|S|M|L|XL|XXL). See partials/_sizing.tmpl.
+*/}}
 {{define "create_feature"}}shark create feature {{.id}}{{end}}
 {{define "create_feature_epic"}}shark create feature {{.epic_id}}{{end}}
 {{define "create_task"}}shark create task {{.id}}{{end}}
 {{define "create_task_epic"}}shark create task {{.epic_id}}{{end}}
+
+{{/* Size-annotated example forms — use in instructions to remind agents to pass --size. */}}
+{{define "create_feature_sized"}}{{template "create_feature" .}} "<title>" --size=<1|2|3|5|8|13>{{end}}
+{{define "create_task_sized"}}{{template "create_task" .}} "<title>" --size=<1|2|3|5|8|13>{{end}}
 
 {{/* ===== Context Commands (auto-detects entity type from key) ===== */}}
 {{define "context_json"}}shark context {{.id}} --json{{end}}

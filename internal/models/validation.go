@@ -10,9 +10,12 @@ import (
 
 // Validation errors
 var (
-	ErrInvalidEpicKey       = errors.New("invalid epic key format: must match ^E\\d{2}$")
-	ErrInvalidFeatureKey    = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
-	ErrInvalidTaskKey       = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
+	ErrInvalidEpicKey                    = errors.New("invalid epic key format: must match ^E\\d{2}$")
+	ErrInvalidFeatureKey                 = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
+	ErrInvalidTaskKey                    = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
+	ErrInvalidSprintKey                  = errors.New("invalid sprint key format: must match ^S\\d{3}$ (e.g., S001, S024, S999)")
+	ErrInvalidSprintAssignmentEntityType = errors.New(
+		"invalid sprint assignment entity_type: must be task, bug, change_card, or tech_debt")
 	ErrInvalidEpicStatus    = errors.New("invalid epic status")
 	ErrInvalidFeatureStatus = errors.New("invalid feature status")
 	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
@@ -45,6 +48,7 @@ var (
 	epicKeyPattern    = regexp.MustCompile(`^E\d{2}$`)
 	featureKeyPattern = regexp.MustCompile(`^E\d{2}-F\d{2}$`)
 	taskKeyPattern    = regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}$`)
+	sprintKeyPattern  = regexp.MustCompile(`^S\d{3}$`)
 )
 
 // ValidateEpicKey validates the epic key format
@@ -67,6 +71,42 @@ func ValidateFeatureKey(key string) error {
 func ValidateTaskKey(key string) error {
 	if !taskKeyPattern.MatchString(key) {
 		return fmt.Errorf("%w: got %q", ErrInvalidTaskKey, key)
+	}
+	return nil
+}
+
+// ValidateSprintKey validates the sprint key format (S### where ### is 3 digits).
+//
+// The validator receives an already-normalised (uppercase) key — callers are
+// responsible for normalising via keys.Normalize() upstream. A lowercase key
+// such as "s024" therefore fails here even though it would pass the
+// case-insensitive keys.IsSprintKey helper.
+func ValidateSprintKey(key string) error {
+	if !sprintKeyPattern.MatchString(key) {
+		return fmt.Errorf("%w: got %q", ErrInvalidSprintKey, key)
+	}
+	return nil
+}
+
+// ValidateSprintAssignmentEntityType validates the polymorphic entity_type
+// column on sprint_assignments. The allowed values are {task, bug,
+// change_card, tech_debt} — sprints group execution-level work items only,
+// so epic/feature/idea are intentionally NOT allowlisted.
+//
+// Per the post-B018 convention (see internal/db/db.go:436-444 and the
+// `feedback_entity_type_check_constraints` user-feedback memory), there is
+// NO matching CHECK constraint on the underlying sprint_assignments table.
+// Adding a fifth assignable entity type later requires updating only this
+// function — no DB migration is needed.
+func ValidateSprintAssignmentEntityType(entityType string) error {
+	valid := map[string]bool{
+		"task":        true,
+		"bug":         true,
+		"change_card": true,
+		"tech_debt":   true,
+	}
+	if !valid[entityType] {
+		return fmt.Errorf("%w: got %q", ErrInvalidSprintAssignmentEntityType, entityType)
 	}
 	return nil
 }

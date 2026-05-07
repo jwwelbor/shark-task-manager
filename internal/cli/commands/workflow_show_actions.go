@@ -21,12 +21,7 @@ var workflowShowActionsCmd = &cobra.Command{
 
 Shows actions grouped by workflow phase with agent types and skills.
 Provides a complete overview of which agents handle which statuses.
-Displays all three entity levels (epic, feature, task) by default.
-
-Flags:
-  --status <status>      Show action for specific status only
-  --action-type <type>   Filter by action type (spawn_agent, pause, wait_for_triage, archive)
-  --level <level>        Filter by entity level (epic, feature, task)
+Displays all entity levels (epic, feature, task) by default.
 
 Exit codes:
   0 - Success
@@ -34,11 +29,11 @@ Exit codes:
   2 - Configuration error
 
 Examples:
-  shark workflow show-actions                        Show all levels
-  shark workflow show-actions --level=epic           Show only epic actions
-  shark workflow show-actions --level=task --json    Task actions in JSON (backward compatible)
-  shark workflow show-actions --status=ready_for_development
-  shark workflow show-actions --action-type=spawn_agent --json`,
+  shark admin workflow show-actions                                  Show all levels
+  shark admin workflow show-actions --level=epic                     Show only epic actions
+  shark admin workflow show-actions --level=task --json              Task actions in JSON
+  shark admin workflow show-actions --status=ready_for_development   Show one status
+  shark admin workflow show-actions --action-type=spawn_agent --json Filter by action type`,
 	RunE: runWorkflowShowActions,
 }
 

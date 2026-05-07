@@ -306,6 +306,41 @@ func TestIsTechDebtKey(t *testing.T) {
 	}
 }
 
+func TestIsSprintKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Valid sprint keys (strict 3-digit)
+		{"valid uppercase S001", "S001", true},
+		{"valid lowercase s001", "s001", true},
+		{"valid S024", "S024", true},
+		{"valid S999", "S999", true},
+		{"valid mixed case lowercase same as uppercase", "s999", true},
+		// Invalid sprint keys
+		{"invalid 1 digit S1", "S1", false},
+		{"invalid 2 digits S42", "S42", false},
+		{"invalid 4 digits S0001", "S0001", false},
+		{"invalid 4 digits high S1000", "S1000", false},
+		{"invalid no digits S", "S", false},
+		{"invalid letters S-abc", "Sabc", false},
+		{"invalid SPRINT lookalike", "SPRINT-1", false},
+		{"invalid wrong prefix B001", "B001", false},
+		{"invalid task key", "T-E01-F01-001", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsSprintKey(tt.input)
+			if got != tt.want {
+				t.Errorf("IsSprintKey(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseTaskNumber(t *testing.T) {
 	tests := []struct {
 		name    string

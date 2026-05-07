@@ -11,6 +11,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -270,6 +271,10 @@ func GetTaskService() *services.TaskService {
 	// `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
 
+	// Wire size enforcement (mirrors tag enforcement). When `size_required_for`
+	// in .sharkconfig.json contains "task", CreateTask rejects calls without --size.
+	svc.SetSizeEnforcement(getSizeEnforcement())
+
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
@@ -351,6 +356,7 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	// E28-F05 T-010: wire TagService so GetTaskWithTags renders the Tags row
 	// in rich-display (REQ-F-014 / AC-28c). Must match the wiring in GetTaskService().
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
@@ -453,6 +459,7 @@ func GetChangeCardService() *services.ChangeCardService {
 	// E28-F04 T-009: wire the shared *TagService so ChangeCardService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
+	svc.SetSizeEnforcement(getSizeEnforcement())
 
 	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
@@ -488,6 +495,7 @@ func GetBugService() *services.BugService {
 	// `tag_required_for` on create and honour --tag on create/update.
 	tagSvc := GetTagService()
 	svc := services.NewBugService(bugRepo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, projectRoot, tagSvc)
+	svc.SetSizeEnforcement(getSizeEnforcement())
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
@@ -522,6 +530,7 @@ func GetTechDebtService() *services.TechDebtService {
 	// `tag_required_for` on create and honour --tag on create/update.
 	tagSvc := GetTagService()
 	svc := services.NewTechDebtService(tdRepo, entitySvc, entityRepo, projectRoot, tagSvc)
+	svc.SetSizeEnforcement(getSizeEnforcement())
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
@@ -581,6 +590,51 @@ func GetEntityRelationshipService() *services.EntityRelationshipService {
 	repo := repository.NewEntityRelationshipRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	return services.NewEntityRelationshipService(repo, taskRepo)
+}
+
+// GetSprintService returns a SprintService instance.
+// Creates a new instance each call with the global DB and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// The single *sprint.SprintRepository satisfies SprintRepository,
+// SprintAssignmentQueryRepository, and SprintCapacityRepository — no
+// additional repository type is needed.
+//
+// Usage:
+//
+//	svc := cli.GetSprintService()
+//	sprint, err := svc.CreateSprint(ctx, input)
+func GetSprintService() *services.SprintService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	cfg, _ := GetConfig() // nil-safe; sprint_defaults read from .sharkconfig.json
+	sprintRepo := repository.NewSprintRepository(db)
+	workflowSvc := GetWorkflowService()
+	// Pass db for CloseSprintWithCarryover transaction support (T-E19-F03-007)
+	return services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, cfg, db)
+}
+
+// GetSprintAnalyticsService returns a SprintAnalyticsService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// SprintAnalyticsService is read-only and has no workflow validation dependencies.
+// It is kept separate from SprintService to maintain single responsibility.
+//
+// Usage:
+//
+//	svc := cli.GetSprintAnalyticsService()
+//	result, err := svc.GetVelocity(ctx, 5)
+func GetSprintAnalyticsService() *services.SprintAnalyticsService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	analyticsRepo := &sprintAnalyticsAdapter{repo: sprintrepo.NewSprintAnalyticsRepository(db)}
+	sprintRepo := repository.NewSprintRepository(db)
+	return services.NewSprintAnalyticsService(analyticsRepo, sprintRepo)
 }
 
 // resetEntityService resets only the entity service singleton within the current container.
