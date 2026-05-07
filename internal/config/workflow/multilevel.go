@@ -6,6 +6,7 @@ type MultiLevelWorkflow struct {
 	Epic     *WorkflowConfig
 	Feature  *WorkflowConfig
 	Task     *WorkflowConfig
+	Sprint   *WorkflowConfig
 	Bug      *WorkflowConfig
 	Change   *WorkflowConfig
 	TechDebt *WorkflowConfig
@@ -15,7 +16,7 @@ type MultiLevelWorkflow struct {
 	TemplateDirectory *string
 
 	// Sources tracks where each entity workflow was loaded from.
-	// Keys: "epic", "feature", "task", "bug", "change", "tech_debt"
+	// Keys: "epic", "feature", "task", "sprint", "bug", "change", "tech_debt"
 	// Values: file path (e.g., ".sharkworkflow.json", ".sharkconfig.json") or "default"
 	Sources map[string]string
 
@@ -28,7 +29,7 @@ type MultiLevelWorkflow struct {
 // Falls back to the appropriate default if nil.
 //
 // Parameters:
-//   - level: one of "epic", "feature", "task", "bug", "change"
+//   - level: one of "epic", "feature", "task", "sprint", "bug", "change"
 //
 // Returns:
 //   - *WorkflowConfig: never nil (falls back to defaults)
@@ -49,6 +50,11 @@ func (m *MultiLevelWorkflow) GetWorkflowForLevel(level string) *WorkflowConfig {
 			return m.Task
 		}
 		return DefaultWorkflow()
+	case "sprint":
+		if m.Sprint != nil {
+			return m.Sprint
+		}
+		return DefaultSprintWorkflow()
 	case "bug":
 		if m.Bug != nil {
 			return m.Bug

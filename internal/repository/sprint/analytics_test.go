@@ -859,7 +859,7 @@ func TestPerformance_Analytics(t *testing.T) {
 	sprintKeys := make([]string, 0, numSprints)
 	for i := 0; i < numSprints; i++ {
 		key := fmt.Sprintf("PERFTEST-S%03d", i)
-		start := now.AddDate(0, -(numSprints-i), 0)
+		start := now.AddDate(0, -(numSprints - i), 0)
 		end := start.AddDate(0, 0, 14)
 		id := seedSprintForAnalytics(t, ctx, key, "completed", start, end)
 		sprintIDs = append(sprintIDs, id)
@@ -879,7 +879,7 @@ func TestPerformance_Analytics(t *testing.T) {
 		taskNum := 5000 + i
 		taskID := seedTaskForAnalytics(t, ctx, taskNum, nil)
 		sprintID := sprintIDs[i%numSprints]
-		assignedAt := now.AddDate(0, -(numSprints-(i%numSprints)), 0)
+		assignedAt := now.AddDate(0, -(numSprints - (i % numSprints)), 0)
 		addAssignment(t, ctx, sprintID, "task", taskID, assignedAt, nil)
 		taskNums = append(taskNums, taskNum)
 	}

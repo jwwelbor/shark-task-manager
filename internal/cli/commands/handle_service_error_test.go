@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
 // TestHandleServiceError_Nil verifies that nil errors are handled gracefully (no exit called).
@@ -19,7 +21,7 @@ func TestHandleServiceError_Nil(t *testing.T) {
 func TestHandleServiceError_NotFound_ExitsWithCode1(t *testing.T) {
 	if os.Getenv("TEST_SUBPROCESS") == "1" {
 		// This runs in the child process - call the function under test directly.
-		handleServiceError(fmt.Errorf("epic not found: E07"), "epic", "E07")
+		handleServiceError(fmt.Errorf("epic not found: E07: %w", repository.ErrNotFound), "epic", "E07")
 		return
 	}
 

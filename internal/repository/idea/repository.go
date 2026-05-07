@@ -8,6 +8,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // IdeaRepository handles CRUD operations for ideas
@@ -132,7 +133,7 @@ func (r *IdeaRepository) GetByID(ctx context.Context, id int64) (*models.Idea, e
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("idea not found with id %d", id)
+		return nil, fmt.Errorf("idea not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get idea: %w", err)
@@ -173,7 +174,7 @@ func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("idea not found with key %q", key)
+		return nil, fmt.Errorf("idea not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get idea: %w", err)
@@ -304,7 +305,7 @@ func (r *IdeaRepository) Update(ctx context.Context, idea *models.Idea) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("idea not found with id %d", idea.ID)
+		return fmt.Errorf("idea not found with id %d: %w", idea.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -325,7 +326,7 @@ func (r *IdeaRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("idea not found with id %d", id)
+		return fmt.Errorf("idea not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -353,7 +354,7 @@ func (r *IdeaRepository) MarkAsConverted(ctx context.Context, ideaID int64, conv
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("idea not found with id %d", ideaID)
+		return fmt.Errorf("idea not found with id %d: %w", ideaID, repoerr.ErrNotFound)
 	}
 
 	return nil

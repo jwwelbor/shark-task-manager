@@ -13,8 +13,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// sprintServicer defines the interface for sprint service operations used by CLI commands.
-type sprintServicer interface {
+// sprintLifecycleServicer defines the lifecycle-focused sprint operations used
+// by create/get/list/update/start/close/archive commands.
+type sprintLifecycleServicer interface {
 	CreateSprint(ctx context.Context, input services.CreateSprintInput) (*models.Sprint, error)
 	GetSprint(ctx context.Context, key string) (*models.Sprint, error)
 	ListSprints(ctx context.Context, filters *services.SprintListFilters) ([]*models.Sprint, error)
@@ -24,16 +25,28 @@ type sprintServicer interface {
 	CloseSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryover(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
+}
+
+// sprintAssignmentServicer defines the assignment/backlog operations used by
+// add/remove/backlog commands and bulk-add flows.
+type sprintAssignmentServicer interface {
 	// F03: entity assignment and backlog
 	AddEntityToSprint(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
 	RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error
 	GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
-	// F05: planning view, readiness, capacity, bulk-add
+	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+}
+
+// sprintPlanningServicer defines the planning/readiness view commands.
+type sprintPlanningServicer interface {
 	PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error)
 	GetSprintReadiness(ctx context.Context, key string) (*services.SprintReadiness, error)
+}
+
+// sprintCapacityServicer defines the sprint capacity commands.
+type sprintCapacityServicer interface {
 	SetSprintCapacity(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
 	GetSprintCapacity(ctx context.Context, key string) ([]services.CapacityRow, error)
-	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
 }
 
 // sprintAnalyticsServicer defines the interface for sprint analytics operations used by CLI commands.
@@ -43,16 +56,49 @@ type sprintAnalyticsServicer interface {
 	GetSummary(ctx context.Context, sprintKey string, detailed bool) (*services.SprintSummaryResult, error)
 }
 
-// sprintSvcOverride is non-nil only during tests.
-var sprintSvcOverride sprintServicer
+// sprintLifecycleSvcOverride is non-nil only during tests.
+var sprintLifecycleSvcOverride sprintLifecycleServicer
+
+// sprintAssignmentSvcOverride is non-nil only during tests.
+var sprintAssignmentSvcOverride sprintAssignmentServicer
+
+// sprintPlanningSvcOverride is non-nil only during tests.
+var sprintPlanningSvcOverride sprintPlanningServicer
+
+// sprintCapacitySvcOverride is non-nil only during tests.
+var sprintCapacitySvcOverride sprintCapacityServicer
 
 // sprintAnalyticsSvcOverride is non-nil only during tests.
 var sprintAnalyticsSvcOverride sprintAnalyticsServicer
 
-// getSprintService returns the service to use, preferring the test override.
-func getSprintService() sprintServicer {
-	if sprintSvcOverride != nil {
-		return sprintSvcOverride
+// getSprintLifecycleService returns the lifecycle service to use, preferring the test override.
+func getSprintLifecycleService() sprintLifecycleServicer {
+	if sprintLifecycleSvcOverride != nil {
+		return sprintLifecycleSvcOverride
+	}
+	return cli.GetSprintService()
+}
+
+// getSprintAssignmentService returns the assignment service to use, preferring the test override.
+func getSprintAssignmentService() sprintAssignmentServicer {
+	if sprintAssignmentSvcOverride != nil {
+		return sprintAssignmentSvcOverride
+	}
+	return cli.GetSprintService()
+}
+
+// getSprintPlanningService returns the planning service to use, preferring the test override.
+func getSprintPlanningService() sprintPlanningServicer {
+	if sprintPlanningSvcOverride != nil {
+		return sprintPlanningSvcOverride
+	}
+	return cli.GetSprintService()
+}
+
+// getSprintCapacityService returns the capacity service to use, preferring the test override.
+func getSprintCapacityService() sprintCapacityServicer {
+	if sprintCapacitySvcOverride != nil {
+		return sprintCapacitySvcOverride
 	}
 	return cli.GetSprintService()
 }
@@ -506,7 +552,7 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	input := services.CreateSprintInput{
 		Name:      name,
 		Goal:      goal,
@@ -535,7 +581,7 @@ func runSprintGet(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	sprint, err := svc.GetSprint(ctx, key)
 	if err != nil {
 		return err
@@ -584,7 +630,7 @@ func runSprintList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	sprints, err := svc.ListSprints(cmd.Context(), filters)
 	if err != nil {
 		return err
@@ -634,7 +680,7 @@ func runSprintUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	sprint, err := svc.UpdateSprint(cmd.Context(), key, updates)
 	if err != nil {
 		return err
@@ -655,7 +701,7 @@ func runSprintDelete(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 
 	// Confirm deletion unless --force
 	if !force {
@@ -689,7 +735,7 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	sprint, err := svc.StartSprint(cmd.Context(), key)
 	if err != nil {
 		return err
@@ -712,7 +758,7 @@ func runSprintClose(cmd *cobra.Command, args []string) error {
 	carryoverFlag, _ := cmd.Flags().GetString("carryover")
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	result, err := svc.CloseSprintWithCarryover(cmd.Context(), key, services.CarryoverMode(carryoverFlag))
 	if err != nil {
 		return err
@@ -738,7 +784,7 @@ func runSprintArchive(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintLifecycleService()
 	sprint, err := svc.ArchiveSprint(cmd.Context(), key)
 	if err != nil {
 		return err
@@ -893,48 +939,87 @@ func printSummaryTable(result *services.SprintSummaryResult, detailed bool) erro
 	fmt.Printf("  Delta:            %+.1f  (%+.1f%%)\n", result.VelocityDelta, result.VelocityDeltaPct)
 
 	if detailed {
-		fmt.Printf("\nDetailed\n")
-		if result.AddedMidSprintCount != nil {
-			fmt.Printf("  Added mid-sprint: %d (size: %d)\n", *result.AddedMidSprintCount, *result.AddedMidSprintSize)
+		printSummaryDetailed(result)
+		if err := printCycleTime(result.CycleTimeByPhase); err != nil {
+			return err
 		}
-		if result.RemovedMidSprintCount != nil {
-			fmt.Printf("  Removed mid-sprint:%d (size: %d)\n", *result.RemovedMidSprintCount, *result.RemovedMidSprintSize)
+		if err := printSizeDistribution(result.SizeBandDistribution); err != nil {
+			return err
 		}
-
-		if len(result.CycleTimeByPhase) > 0 {
-			fmt.Printf("\nCycle Time by Phase\n")
-			cycleHeaders := []string{"PHASE", "AVG DAYS"}
-			cycleRows := make([][]string, 0, len(result.CycleTimeByPhase))
-			for _, p := range result.CycleTimeByPhase {
-				cycleRows = append(cycleRows, []string{p.Phase, fmt.Sprintf("%.1f", p.AverageDays)})
-			}
-			cli.OutputTable(cycleHeaders, cycleRows)
-		} else {
-			fmt.Printf("\n  No session data available (install E13 for cycle-time tracking)\n")
-		}
-
-		if len(result.SizeBandDistribution) > 0 {
-			fmt.Printf("\nSize Distribution\n")
-			sizeHeaders := []string{"SIZE", "COUNT"}
-			sizeRows := make([][]string, 0, len(result.SizeBandDistribution))
-			for _, b := range result.SizeBandDistribution {
-				sizeRows = append(sizeRows, []string{b.Label, fmt.Sprintf("%d", b.Count)})
-			}
-			cli.OutputTable(sizeHeaders, sizeRows)
-		}
-
-		if len(result.CarryoverEntities) > 0 {
-			fmt.Printf("\nCarryover Entities (%d)\n", len(result.CarryoverEntities))
-			for _, e := range result.CarryoverEntities {
-				sizeStr := "unsized"
-				if e.Size != nil {
-					sizeStr = fmt.Sprintf("size=%d", *e.Size)
-				}
-				fmt.Printf("  %s (%s, %s)\n", e.Key, e.EntityType, sizeStr)
-			}
+		if err := printCarryover(result.CarryoverEntities); err != nil {
+			return err
 		}
 	}
 	fmt.Println()
+	return nil
+}
+
+// printSummaryDetailed prints the mid-sprint add/remove summary block.
+func printSummaryDetailed(result *services.SprintSummaryResult) {
+	fmt.Printf("\nDetailed\n")
+	if result.AddedMidSprintCount != nil {
+		addedSize := 0
+		if result.AddedMidSprintSize != nil {
+			addedSize = *result.AddedMidSprintSize
+		}
+		fmt.Printf("  Added mid-sprint: %d (size: %d)\n", *result.AddedMidSprintCount, addedSize)
+	}
+	if result.RemovedMidSprintCount != nil {
+		removedSize := 0
+		if result.RemovedMidSprintSize != nil {
+			removedSize = *result.RemovedMidSprintSize
+		}
+		fmt.Printf("  Removed mid-sprint:%d (size: %d)\n", *result.RemovedMidSprintCount, removedSize)
+	}
+}
+
+// printCycleTime prints the cycle-time table or the fallback no-data message.
+func printCycleTime(phases []services.PhaseTime) error {
+	if len(phases) == 0 {
+		fmt.Printf("\n  No session data available (install E13 for cycle-time tracking)\n")
+		return nil
+	}
+
+	fmt.Printf("\nCycle Time by Phase\n")
+	cycleHeaders := []string{"PHASE", "AVG DAYS"}
+	cycleRows := make([][]string, 0, len(phases))
+	for _, p := range phases {
+		cycleRows = append(cycleRows, []string{p.Phase, fmt.Sprintf("%.1f", p.AverageDays)})
+	}
+	cli.OutputTable(cycleHeaders, cycleRows)
+	return nil
+}
+
+// printSizeDistribution prints the sprint size distribution table if present.
+func printSizeDistribution(bands []services.SizeBand) error {
+	if len(bands) == 0 {
+		return nil
+	}
+
+	fmt.Printf("\nSize Distribution\n")
+	sizeHeaders := []string{"SIZE", "COUNT"}
+	sizeRows := make([][]string, 0, len(bands))
+	for _, b := range bands {
+		sizeRows = append(sizeRows, []string{b.Label, fmt.Sprintf("%d", b.Count)})
+	}
+	cli.OutputTable(sizeHeaders, sizeRows)
+	return nil
+}
+
+// printCarryover prints the carryover entity list if present.
+func printCarryover(entities []services.CarryoverEntity) error {
+	if len(entities) == 0 {
+		return nil
+	}
+
+	fmt.Printf("\nCarryover Entities (%d)\n", len(entities))
+	for _, e := range entities {
+		sizeStr := "unsized"
+		if e.Size != nil {
+			sizeStr = fmt.Sprintf("size=%d", *e.Size)
+		}
+		fmt.Printf("  %s (%s, %s)\n", e.Key, e.EntityType, sizeStr)
+	}
 	return nil
 }
 
@@ -962,7 +1047,7 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 		entityKey = args[1]
 	}
 
-	svc := getSprintService()
+	svc := getSprintAssignmentService()
 
 	// Step 2: Route — bulk paths call BulkAddToSprint; single path calls AddEntityToSprint.
 	if bulkFeature != "" {
@@ -1024,7 +1109,7 @@ func runSprintRemove(cmd *cobra.Command, args []string) error {
 	entityKey := args[1]
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintAssignmentService()
 	if err := svc.RemoveEntityFromSprint(cmd.Context(), sprintKey, entityKey); err != nil {
 		return err
 	}
@@ -1049,7 +1134,7 @@ func runSprintBacklog(cmd *cobra.Command, args []string) error {
 	blockedOnly, _ := cmd.Flags().GetBool("blocked")
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintAssignmentService()
 	backlog, err := svc.GetSprintBacklog(cmd.Context(), sprintKey, services.BacklogOptions{
 		EntityType:  entityType,
 		BlockedOnly: blockedOnly,
@@ -1130,7 +1215,7 @@ func runSprintPlan(cmd *cobra.Command, args []string) error {
 	sprintKey := args[0]
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintPlanningService()
 	view, err := svc.PlanSprint(cmd.Context(), sprintKey)
 	if err != nil {
 		return err
@@ -1209,7 +1294,7 @@ func runSprintReadiness(cmd *cobra.Command, args []string) error {
 	sprintKey := args[0]
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintPlanningService()
 	readiness, err := svc.GetSprintReadiness(cmd.Context(), sprintKey)
 	if err != nil {
 		return err
@@ -1289,7 +1374,7 @@ func runSprintCapacitySet(cmd *cobra.Command, args []string) error {
 	}
 	sprintKey := args[0]
 
-	svc := getSprintService()
+	svc := getSprintCapacityService()
 	cap, err := svc.SetSprintCapacity(cmd.Context(), services.SetSprintCapacityInput{
 		SprintKey: sprintKey,
 		AgentType: agentType,
@@ -1313,7 +1398,7 @@ func runSprintCapacityShow(cmd *cobra.Command, args []string) error {
 	sprintKey := args[0]
 
 	// Step 2: Call service
-	svc := getSprintService()
+	svc := getSprintCapacityService()
 	rows, err := svc.GetSprintCapacity(cmd.Context(), sprintKey)
 	if err != nil {
 		return err

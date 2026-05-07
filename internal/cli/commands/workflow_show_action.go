@@ -18,10 +18,16 @@ var workflowShowActionCmd = &cobra.Command{
 	Long: `Preview the fully populated orchestrator action for a specific entity at a given status.
 
 Looks up the entity from the database, loads the workflow configuration for the
-entity's level, and populates the action template with real entity data.
+entity's level, and populates the action template with real entity data (key, title,
+description, etc.). Use this to verify exactly what instruction an agent will receive
+before it runs.
 
-This replaces the old 'config get-status-action' command with proper multi-level
-workflow support and entity auto-detection.
+Entity type is auto-detected from the key format:
+  E##          → epic
+  E##-F##      → feature
+  E##-F##-###  → task
+  B###         → bug
+  CC-###       → change-card
 
 Examples:
   shark admin workflow show-action E07-F01-001 ready_for_development

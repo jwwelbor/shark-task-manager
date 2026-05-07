@@ -215,3 +215,66 @@ func DefaultFeatureWorkflow() *WorkflowConfig {
 		},
 	}
 }
+
+// DefaultSprintWorkflow returns the fixed sprint lifecycle workflow.
+//
+// Sprint lifecycle is intentionally simpler than task/feature workflow and is
+// not agent-routed. It models the REQ-F-004 progression:
+// planning -> active -> closing -> completed -> archived, with cancelled as a
+// terminal side path from the non-terminal states.
+func DefaultSprintWorkflow() *WorkflowConfig {
+	return &WorkflowConfig{
+		Version: DefaultWorkflowVersion,
+		StatusFlow: map[string][]string{
+			"planning":  {"active", "cancelled"},
+			"active":    {"closing", "cancelled"},
+			"closing":   {"completed", "cancelled"},
+			"completed": {"archived"},
+			"cancelled": {},
+			"archived":  {},
+		},
+		StatusMetadata: map[string]StatusMetadata{
+			"planning": {
+				Color:          "gray",
+				Description:    "Sprint planned but not yet started",
+				Phase:          "planning",
+				IsPlanning:     true,
+				ProgressWeight: 0.0,
+			},
+			"active": {
+				Color:          "blue",
+				Description:    "Sprint is currently active",
+				Phase:          "execution",
+				ProgressWeight: 0.5,
+			},
+			"closing": {
+				Color:          "cyan",
+				Description:    "Sprint is closing and carryover is being processed",
+				Phase:          "review",
+				ProgressWeight: 0.75,
+			},
+			"completed": {
+				Color:          "green",
+				Description:    "Sprint work is complete",
+				Phase:          "done",
+				ProgressWeight: 1.0,
+			},
+			"cancelled": {
+				Color:          "gray",
+				Description:    "Sprint cancelled",
+				Phase:          "done",
+				ProgressWeight: 1.0,
+			},
+			"archived": {
+				Color:          "gray",
+				Description:    "Sprint archived",
+				Phase:          "done",
+				ProgressWeight: 1.0,
+			},
+		},
+		SpecialStatuses: map[string][]string{
+			StartStatusKey:    {"planning"},
+			CompleteStatusKey: {"completed", "archived", "cancelled"},
+		},
+	}
+}

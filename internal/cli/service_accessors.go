@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
@@ -119,6 +121,82 @@ func (a *resumeSessionAdapter) GetSessionStatsByTaskID(ctx context.Context, task
 
 func (a *resumeSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error) {
 	return a.repo.GetActiveSessionByTaskID(ctx, taskID)
+}
+
+// sprintAnalyticsAdapter adapts *sprintrepo.SprintAnalyticsRepository to the
+// services.SprintAnalyticsRepository interface. The concrete repository returns
+// repository-layer DTO types (sprint.VelocityRow, etc.) but the service
+// interface uses service-owned types (services.AnalyticsVelocityRow, etc.) so
+// that the services package does not import the repository package.
+type sprintAnalyticsAdapter struct {
+	repo *sprintrepo.SprintAnalyticsRepository
+}
+
+func (a *sprintAnalyticsAdapter) GetVelocityData(ctx context.Context, limit int) ([]services.AnalyticsVelocityRow, error) {
+	rows, err := a.repo.GetVelocityData(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]services.AnalyticsVelocityRow, len(rows))
+	for i, r := range rows {
+		out[i] = services.AnalyticsVelocityRow{
+			SprintKey:        r.SprintKey,
+			SprintName:       r.SprintName,
+			CompletedSize:    r.CompletedSize,
+			UnsizedCompleted: r.UnsizedCompleted,
+		}
+	}
+	return out, nil
+}
+
+func (a *sprintAnalyticsAdapter) GetSprintAssignedEntities(ctx context.Context, sprintID int64) ([]services.AnalyticsAssignedEntity, error) {
+	entities, err := a.repo.GetSprintAssignedEntities(ctx, sprintID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]services.AnalyticsAssignedEntity, len(entities))
+	for i, e := range entities {
+		out[i] = services.AnalyticsAssignedEntity{
+			EntityType: e.EntityType,
+			EntityID:   e.EntityID,
+			AssignedAt: e.AssignedAt,
+			RemovedAt:  e.RemovedAt,
+			Size:       e.Size,
+		}
+	}
+	return out, nil
+}
+
+func (a *sprintAnalyticsAdapter) GetCompletionEvents(ctx context.Context, sprintID int64, start, end time.Time) ([]services.AnalyticsCompletionEvent, error) {
+	events, err := a.repo.GetCompletionEvents(ctx, sprintID, start, end)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]services.AnalyticsCompletionEvent, len(events))
+	for i, ev := range events {
+		out[i] = services.AnalyticsCompletionEvent{
+			EntityID:   ev.EntityID,
+			EntityType: ev.EntityType,
+			NewStatus:  ev.NewStatus,
+			Timestamp:  ev.Timestamp,
+		}
+	}
+	return out, nil
+}
+
+func (a *sprintAnalyticsAdapter) GetCycleTimeByPhase(ctx context.Context, sprintID int64) ([]services.AnalyticsPhaseTimeRow, error) {
+	rows, err := a.repo.GetCycleTimeByPhase(ctx, sprintID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]services.AnalyticsPhaseTimeRow, len(rows))
+	for i, r := range rows {
+		out[i] = services.AnalyticsPhaseTimeRow{
+			Phase:       r.Phase,
+			AverageDays: r.AverageDays,
+		}
+	}
+	return out, nil
 }
 
 // GetEpicService returns an EpicService instance.

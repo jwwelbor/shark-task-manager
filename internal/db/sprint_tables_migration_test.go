@@ -136,6 +136,41 @@ func TestMigrateSprintTables_CreatesSprintAssignmentsIndexes(t *testing.T) {
 	}
 }
 
+// TestMigrateSprintTables_SingleActiveSprintIndex verifies the sprint table
+// enforces exactly one active sprint at the database layer.
+func TestMigrateSprintTables_SingleActiveSprintIndex(t *testing.T) {
+	db, cleanup := setupSprintTestDB(t, "test_sprint_single_active.db")
+	defer cleanup()
+
+	// First active sprint succeeds.
+	if _, err := db.Exec(`
+		INSERT INTO sprints (key, name, start_date, end_date, status)
+		VALUES (?, ?, ?, ?, ?)
+	`, "S100", "Sprint 100", "2026-04-01", "2026-04-15", "active"); err != nil {
+		t.Fatalf("first active sprint insert should succeed, got: %v", err)
+	}
+
+	// Second active sprint must fail because of the partial unique index.
+	_, err := db.Exec(`
+		INSERT INTO sprints (key, name, start_date, end_date, status)
+		VALUES (?, ?, ?, ?, ?)
+	`, "S101", "Sprint 101", "2026-04-16", "2026-04-30", "active")
+	if err == nil {
+		t.Fatal("expected unique constraint failure on second active sprint, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "unique") {
+		t.Errorf("expected UNIQUE constraint error, got: %v", err)
+	}
+
+	// Non-active sprint remains allowed.
+	if _, err := db.Exec(`
+		INSERT INTO sprints (key, name, start_date, end_date, status)
+		VALUES (?, ?, ?, ?, ?)
+	`, "S102", "Sprint 102", "2026-05-01", "2026-05-15", "planning"); err != nil {
+		t.Errorf("planning sprint insert should succeed, got: %v", err)
+	}
+}
+
 // TestMigrateSprintTables_PartialUniqueIndex verifies the one-active-sprint-per-entity
 // integrity guarantee — the most critical assertion for downstream features.
 //
@@ -889,10 +924,11 @@ func TestMigrateSprintTables_CreatesAllThreeTables(t *testing.T) {
 }
 
 // TestMigrateSprintTables_CreatesAllIndexes is the consolidated AC check for
-// spec §6.1 — verifies all seven indexes created by migrateSprintTables exist
+// spec §6.1 — verifies all eight indexes created by migrateSprintTables exist
 // by their exact names. The `idx_sprints_key` index is UNIQUE; the others are
-// non-unique except `idx_sprint_assignments_active_one`, which is a partial
-// UNIQUE index validated separately by _PartialUniqueIndex.
+// non-unique except `idx_sprints_active_one` and
+// `idx_sprint_assignments_active_one`, which are partial UNIQUE indexes
+// validated separately by dedicated tests.
 func TestMigrateSprintTables_CreatesAllIndexes(t *testing.T) {
 	db, cleanup := setupSprintTestDB(t, "test_sprint_all_indexes.db")
 	defer cleanup()
@@ -901,6 +937,7 @@ func TestMigrateSprintTables_CreatesAllIndexes(t *testing.T) {
 		"idx_sprints_key",
 		"idx_sprints_status",
 		"idx_sprints_slug",
+		"idx_sprints_active_one",
 		"idx_sprint_assignments_sprint",
 		"idx_sprint_assignments_entity",
 		"idx_sprint_assignments_active_one",

@@ -1,6 +1,63 @@
 package services
 
-import "time"
+import (
+	"context"
+	"time"
+)
+
+// ---------------------------------------------------------------------------
+// Service-owned query-result types (E19-F04 tech-debt fix T-E19-F04-011)
+//
+// These mirror the analogous types in internal/repository/sprint but are
+// defined here so the services package does NOT import the repository package.
+// The concrete repository implementation adapts its results to these types via
+// the sprintAnalyticsAdapter in internal/cli/service_accessors.go.
+// ---------------------------------------------------------------------------
+
+// AnalyticsVelocityRow holds one sprint's velocity data as seen by the service layer.
+// Mirrors sprint.VelocityRow without creating a repository dependency.
+type AnalyticsVelocityRow struct {
+	SprintKey        string
+	SprintName       string
+	CompletedSize    int
+	UnsizedCompleted int
+}
+
+// AnalyticsAssignedEntity represents one sprint-assignment row as seen by the service.
+// Mirrors sprint.AssignedEntity without creating a repository dependency.
+type AnalyticsAssignedEntity struct {
+	EntityType string
+	EntityID   int64
+	AssignedAt time.Time
+	RemovedAt  *time.Time
+	Size       *int
+}
+
+// AnalyticsCompletionEvent is a status-transition event used during burndown
+// reconstruction. Mirrors sprint.TaskCompletionEvent without a repository import.
+type AnalyticsCompletionEvent struct {
+	EntityID   int64
+	EntityType string
+	NewStatus  string
+	Timestamp  time.Time
+}
+
+// AnalyticsPhaseTimeRow holds the average cycle time for one workflow phase.
+// Mirrors sprint.PhaseTimeRow without a repository import.
+type AnalyticsPhaseTimeRow struct {
+	Phase       string
+	AverageDays float64
+}
+
+// SprintAnalyticsRepository is the data-access interface consumed by the sprint
+// analytics service (E19-F04). It is defined here (consumer side) so that
+// callers can inject mocks without importing the concrete repository package.
+type SprintAnalyticsRepository interface {
+	GetVelocityData(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error)
+	GetSprintAssignedEntities(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error)
+	GetCompletionEvents(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error)
+	GetCycleTimeByPhase(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error)
+}
 
 // SprintSummaryResult is the return value of GetSprintSummary (E19-F04).
 // It contains velocity metrics, carryover details, and optionally detailed

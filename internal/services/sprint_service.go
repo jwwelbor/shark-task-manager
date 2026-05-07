@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,7 +18,18 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// pluralize returns singular if n == 1, otherwise plural.
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
 
 // SprintRepository defines the repository interface for sprint operations.
 // Extended in T-E19-F03-005 to include assignment CRUD, backlog query, and
@@ -117,7 +131,7 @@ func NewSprintService(
 
 	svc := &SprintService{
 		repo:           repo,
-		workflowSvc:    workflowSvc.ForLevel("sprint"),
+		workflowSvc:    workflowSvc.ForLevel(workflow.LevelSprint),
 		assignmentRepo: assignmentRepo,
 		capacityRepo:   capacityRepo,
 		cfg:            cfg,
@@ -127,6 +141,10 @@ func NewSprintService(
 		svc.db = db[0]
 	}
 	return svc
+}
+
+func (s *SprintService) getTracer() trace.Tracer {
+	return otel.Tracer("shark/services/sprint")
 }
 
 // CreateSprint creates a new sprint with validation.
@@ -143,24 +161,32 @@ func NewSprintService(
 //   - Name must be non-empty after trimming whitespace
 //   - StartDate must be before EndDate
 func (s *SprintService) CreateSprint(ctx context.Context, input CreateSprintInput) (*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.CreateSprint",
+		trace.WithAttributes(
+			attribute.String("sprint.name", input.Name),
+		),
+	)
+	defer span.End()
+
 	// Validate name is non-empty
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, fmt.Errorf("sprint name cannot be empty")
+		return nil, recordSpanError(span, fmt.Errorf("sprint name cannot be empty"))
 	}
 
 	// Validate date ordering
 	if !input.EndDate.After(input.StartDate) {
-		return nil, fmt.Errorf("sprint end_date must be after start_date")
+		return nil, recordSpanError(span, fmt.Errorf("sprint end_date must be after start_date"))
 	}
 
 	// Generate key
 	key, err := s.repo.GetNextKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate sprint key: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to generate sprint key: %w", err))
 	}
 
 	// Generate slug from name
 	slug := utils.GenerateSlug(input.Name)
+	filePath := filepath.Join("docs", "plan", "sprints", key+".md")
 
 	// Get default status from workflow
 	initialStatus := s.workflowSvc.GetInitialStatusString()
@@ -174,16 +200,17 @@ func (s *SprintService) CreateSprint(ctx context.Context, input CreateSprintInpu
 		EndDate:   input.EndDate,
 		Status:    models.SprintStatus(initialStatus),
 		Slug:      slug,
+		FilePath:  filePath,
 	}
 
 	// Validate model
 	if err := newSprint.Validate(); err != nil {
-		return nil, fmt.Errorf("sprint validation failed: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("sprint validation failed: %w", err))
 	}
 
 	// Create in repository
 	if err := s.repo.Create(ctx, newSprint); err != nil {
-		return nil, fmt.Errorf("failed to create sprint: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to create sprint: %w", err))
 	}
 
 	// Apply sprint_defaults.capacity if configured and capacityRepo is available.
@@ -199,6 +226,7 @@ func (s *SprintService) CreateSprint(ctx context.Context, input CreateSprintInpu
 		}
 	}
 
+	slog.Info("sprint created", "key", newSprint.Key, "name", newSprint.Name, "status", newSprint.Status)
 	return newSprint, nil
 }
 
@@ -212,10 +240,20 @@ func (s *SprintService) CreateSprint(ctx context.Context, input CreateSprintInpu
 //   - *models.Sprint: the sprint, or error if not found
 //   - error: NotFoundError or repository errors
 func (s *SprintService) GetSprint(ctx context.Context, key string) (*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.GetSprint",
+		trace.WithAttributes(attribute.String("sprint.key", key)),
+	)
+	defer span.End()
+
 	sprint, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sprint %s: %w", key, err)
+		var notFound *models.NotFoundError
+		if errors.Is(err, repository.ErrNotFound) || errors.As(err, &notFound) {
+			return nil, recordSpanError(span, &models.NotFoundError{Entity: fmt.Sprintf("sprint %s", key)})
+		}
+		return nil, recordSpanError(span, fmt.Errorf("failed to get sprint %s: %w", key, err))
 	}
+	slog.Debug("sprint retrieved", "key", key, "found", true)
 	return sprint, nil
 }
 
@@ -229,6 +267,9 @@ func (s *SprintService) GetSprint(ctx context.Context, key string) (*models.Spri
 //   - []*models.Sprint: list of sprints (empty slice if none found)
 //   - error: repository errors
 func (s *SprintService) ListSprints(ctx context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.ListSprints")
+	defer span.End()
+
 	// Convert service-level filter to repository filter
 	var repoFilters *sprint.SprintListFilters
 	if filters != nil && filters.Status != "" {
@@ -240,7 +281,7 @@ func (s *SprintService) ListSprints(ctx context.Context, filters *SprintListFilt
 
 	sprints, err := s.repo.List(ctx, repoFilters)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list sprints: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to list sprints: %w", err))
 	}
 
 	// Return empty slice instead of nil for consistency
@@ -248,6 +289,12 @@ func (s *SprintService) ListSprints(ctx context.Context, filters *SprintListFilt
 		return []*models.Sprint{}, nil
 	}
 
+	slog.Info("sprint list", "status", func() string {
+		if filters == nil {
+			return ""
+		}
+		return filters.Status
+	}(), "count", len(sprints))
 	return sprints, nil
 }
 
@@ -266,17 +313,22 @@ func (s *SprintService) ListSprints(ctx context.Context, filters *SprintListFilt
 //   - Name (if provided) must be non-empty
 //   - EndDate (if provided) must be after StartDate
 func (s *SprintService) UpdateSprint(ctx context.Context, key string, updates UpdateSprintInput) (*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.UpdateSprint",
+		trace.WithAttributes(attribute.String("sprint.key", key)),
+	)
+	defer span.End()
+
 	// Get current sprint
 	current, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update sprint %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to update sprint %s: %w", key, err))
 	}
 
 	// Apply updates
 	if updates.Name != nil {
 		name := strings.TrimSpace(*updates.Name)
 		if name == "" {
-			return nil, fmt.Errorf("sprint name cannot be empty")
+			return nil, recordSpanError(span, fmt.Errorf("sprint name cannot be empty"))
 		}
 		current.Name = name
 		current.Slug = utils.GenerateSlug(name)
@@ -289,26 +341,27 @@ func (s *SprintService) UpdateSprint(ctx context.Context, key string, updates Up
 	if updates.EndDate != nil {
 		// Validate date ordering
 		if !updates.EndDate.After(current.StartDate) {
-			return nil, fmt.Errorf("sprint end_date must be after start_date")
+			return nil, recordSpanError(span, fmt.Errorf("sprint end_date must be after start_date"))
 		}
 		current.EndDate = *updates.EndDate
 	}
 
 	// Validate updated model
 	if err := current.Validate(); err != nil {
-		return nil, fmt.Errorf("sprint validation failed: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("sprint validation failed: %w", err))
 	}
 
 	// Update in repository
 	if err := s.repo.Update(ctx, current); err != nil {
-		return nil, fmt.Errorf("failed to update sprint %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to update sprint %s: %w", key, err))
 	}
 
+	slog.Info("sprint updated", "key", key)
 	return current, nil
 }
 
 // DeleteSprint deletes a sprint by key.
-// Sprints can only be deleted when in "todo" status.
+// Sprints can only be deleted when in "planning" status.
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
@@ -318,27 +371,33 @@ func (s *SprintService) UpdateSprint(ctx context.Context, key string, updates Up
 //   - error: validation errors or repository errors
 //
 // Validation:
-//   - Sprint status must be "todo"
+//   - Sprint status must be "planning"
 func (s *SprintService) DeleteSprint(ctx context.Context, key string) error {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.DeleteSprint",
+		trace.WithAttributes(attribute.String("sprint.key", key)),
+	)
+	defer span.End()
+
 	sprint, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return fmt.Errorf("failed to delete sprint %s: %w", key, err)
+		return recordSpanError(span, fmt.Errorf("failed to delete sprint %s: %w", key, err))
 	}
 
-	// Only allow deletion of sprints in todo status
-	if string(sprint.Status) != "todo" {
-		return fmt.Errorf("cannot delete sprint %s in status %s: only sprints in todo status can be deleted", key, sprint.Status)
+	// Only allow deletion of sprints in planning status.
+	if string(sprint.Status) != "planning" {
+		return recordSpanError(span, fmt.Errorf("cannot delete sprint %s in status %s: only sprints in planning status can be deleted", key, sprint.Status))
 	}
 
 	if err := s.repo.Delete(ctx, sprint.ID); err != nil {
-		return fmt.Errorf("failed to delete sprint %s: %w", key, err)
+		return recordSpanError(span, fmt.Errorf("failed to delete sprint %s: %w", key, err))
 	}
 
+	slog.Info("sprint deleted", "key", key, "status_was", sprint.Status)
 	return nil
 }
 
-// StartSprint transitions a sprint to in_progress status.
-// Enforces single-active-sprint constraint: only one sprint can be in_progress at a time.
+// StartSprint transitions a sprint to active status.
+// Enforces single-active-sprint constraint: only one sprint can be active at a time.
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
@@ -349,46 +408,55 @@ func (s *SprintService) DeleteSprint(ctx context.Context, key string) error {
 //   - error: validation errors or repository errors
 //
 // Validation:
-//   - Current sprint status must allow transition to "in_progress"
-//   - No other sprint can be in "in_progress" status
+//   - Current sprint status must allow transition to "active"
+//   - No other sprint can be in "active" status
 func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.StartSprint",
+		trace.WithAttributes(attribute.String("sprint.key", key)),
+	)
+	defer span.End()
+
 	// Get sprint
 	sprint, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start sprint %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to start sprint %s: %w", key, err))
 	}
 
 	// Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "in_progress"); err != nil {
-		return nil, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err)
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "active"); err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 
-	// Check single-active constraint: no other sprint should be in_progress
-	activeSprints, err := s.ListSprints(ctx, &SprintListFilters{Status: "in_progress"})
+	// Check single-active constraint: no other sprint should be active.
+	activeSprints, err := s.ListSprints(ctx, &SprintListFilters{Status: "active"})
 	if err != nil {
-		return nil, fmt.Errorf("failed to check active sprints for %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to check active sprints for %s: %w", key, err))
 	}
 
 	if len(activeSprints) > 0 {
 		// There's already an active sprint
-		return nil, fmt.Errorf("cannot activate sprint %s: sprint %s is already active", key, activeSprints[0].Key)
+		if activeSprints[0].Key == key {
+			return nil, recordSpanError(span, fmt.Errorf("sprint %s is already active", key))
+		}
+		return nil, recordSpanError(span, fmt.Errorf("cannot activate sprint %s: sprint %s is already active", key, activeSprints[0].Key))
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("in_progress")); err != nil {
-		return nil, fmt.Errorf("failed to start sprint %s: %w", key, err)
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("active")); err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("failed to start sprint %s: %w", key, err))
 	}
 
 	// Reload and return updated sprint
 	updated, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reload sprint %s after starting: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to reload sprint %s after starting: %w", key, err))
 	}
 
+	slog.Info("sprint transitioned", "key", key, "from", sprint.Status, "to", updated.Status)
 	return updated, nil
 }
 
-// CloseSprint transitions a sprint to ready_for_review status.
+// CloseSprint transitions a sprint to closing status.
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
@@ -399,32 +467,38 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 //   - error: validation errors or repository errors
 //
 // Validation:
-//   - Current sprint status must allow transition to "ready_for_review"
+//   - Current sprint status must allow transition to "closing"
 //
 // Note: Carryover logic is deferred to a future feature.
 func (s *SprintService) CloseSprint(ctx context.Context, key string) (*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.CloseSprint",
+		trace.WithAttributes(attribute.String("sprint.key", key)),
+	)
+	defer span.End()
+
 	// Get sprint
 	sprint, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to close sprint %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to close sprint %s: %w", key, err))
 	}
 
 	// Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "ready_for_review"); err != nil {
-		return nil, fmt.Errorf("cannot close sprint %s in status %s: %w", key, sprint.Status, err)
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "closing"); err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("cannot close sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("ready_for_review")); err != nil {
-		return nil, fmt.Errorf("failed to close sprint %s: %w", key, err)
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("closing")); err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("failed to close sprint %s: %w", key, err))
 	}
 
 	// Reload and return updated sprint
 	updated, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reload sprint %s after closing: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to reload sprint %s after closing: %w", key, err))
 	}
 
+	slog.Info("sprint transitioned", "key", key, "from", sprint.Status, "to", updated.Status)
 	return updated, nil
 }
 
@@ -549,14 +623,14 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 // A non-nil CapacityWarning does NOT indicate failure; the assignment was created.
 func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityInput) (*models.SprintAssignment, *CapacityWarning, error) {
 	// Step 1: Resolve sprint and validate its status.
-	// Per spec §4.2.1 step 1, only planning ("todo") and active ("in_progress")
-	// sprints may accept new entity assignments.
+	// Per spec §4.2.1 step 1, only planning and active sprints may accept new
+	// entity assignments.
 	sprintEntity, err := s.repo.GetByKey(ctx, input.SprintKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve sprint %q: %w", input.SprintKey, err)
 	}
 	switch sprintEntity.Status {
-	case "todo", "in_progress":
+	case "planning", "active":
 		// planning or active — allowed
 	default:
 		return nil, nil, fmt.Errorf(
@@ -872,28 +946,34 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 // Validation:
 //   - Current sprint status must allow transition to "completed"
 func (s *SprintService) ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error) {
+	ctx, span := s.getTracer().Start(ctx, "SprintService.ArchiveSprint",
+		trace.WithAttributes(attribute.String("sprint.key", key)),
+	)
+	defer span.End()
+
 	// Get sprint
 	sprint, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to archive sprint %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to archive sprint %s: %w", key, err))
 	}
 
 	// Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "completed"); err != nil {
-		return nil, fmt.Errorf("cannot archive sprint %s in status %s: %w", key, sprint.Status, err)
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "archived"); err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("cannot archive sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("completed")); err != nil {
-		return nil, fmt.Errorf("failed to archive sprint %s: %w", key, err)
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("archived")); err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("failed to archive sprint %s: %w", key, err))
 	}
 
 	// Reload and return updated sprint
 	updated, err := s.GetSprint(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reload sprint %s after archiving: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to reload sprint %s after archiving: %w", key, err))
 	}
 
+	slog.Info("sprint transitioned", "key", key, "from", sprint.Status, "to", updated.Status)
 	return updated, nil
 }
 
@@ -1123,7 +1203,7 @@ type SprintCloseResult struct {
 // CloseSprintWithCarryover atomically closes a sprint and handles incomplete entity assignments.
 //
 // Steps:
-//  1. Validates sprint is in "in_progress" (active) status (TC-C12).
+//  1. Validates sprint is in "active" status (TC-C12).
 //  2. Resolves carryover mode: uses config default when carryoverMode == "" (TC-C09, TC-C10).
 //  3. Fetches ALL active assignments (for total count) and INCOMPLETE assignments (for carryover).
 //  4. Begins a database transaction.
@@ -1134,15 +1214,15 @@ type SprintCloseResult struct {
 //  7. Inserts a sprint_completions row via CreateCompletionTx (inside transaction).
 //  8. Commits. Any failure causes a full rollback via defer tx.Rollback() (TC-C11).
 func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey string, carryoverMode CarryoverMode) (*SprintCloseResult, error) {
-	// Step 1: Resolve sprint and validate it is active (in_progress) — TC-C12
+	// Step 1: Resolve sprint and validate it is active — TC-C12
 	sprintEntity, err := s.GetSprint(ctx, sprintKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to close sprint %s: %w", sprintKey, err)
 	}
 
-	if string(sprintEntity.Status) != "in_progress" {
+	if string(sprintEntity.Status) != "active" {
 		return nil, fmt.Errorf("cannot close sprint %s: current status is %q, must be %q",
-			sprintKey, sprintEntity.Status, "in_progress")
+			sprintKey, sprintEntity.Status, "active")
 	}
 
 	// Step 2: Resolve carryover mode from config when empty (TC-C09, TC-C10)
@@ -1195,8 +1275,8 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 
 	switch resolvedMode {
 	case CarryoverNext:
-		// Find an existing planning sprint (status=todo)
-		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr("todo")}
+		// Find an existing planning sprint.
+		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr("planning")}
 		planningSprints, listErr := s.repo.List(ctx, planningFilter)
 		if listErr != nil {
 			return nil, fmt.Errorf("failed to find next planning sprint: %w", listErr)
@@ -1222,7 +1302,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 				Name:      "Sprint " + nextKey,
 				StartDate: newStart,
 				EndDate:   newEnd,
-				Status:    models.SprintStatus("todo"),
+				Status:    models.SprintStatus("planning"),
 				Slug:      utils.GenerateSlug("Sprint " + nextKey),
 			}
 			if createErr := s.repo.Create(ctx, autoSprint); createErr != nil {
@@ -1421,38 +1501,7 @@ func (s *SprintService) GetSprintCapacity(ctx context.Context, key string) ([]Ca
 		return []CapacityRow{}, nil
 	}
 
-	// Suppress unused variable warning when assignmentRepo is nil and assignments is not used below.
-	_ = assignments
-
-	// Build per-agent-type allocation maps from assignment data in-memory.
-	allocatedByAgent := make(map[string]float64)
-	unsizedByAgent := make(map[string]int)
-	for _, a := range assignments {
-		if a.AgentType == nil || *a.AgentType == "" {
-			continue // non-attributed entity (bug, change, tech-debt): not counted per spec §1.1.4 AC-3
-		}
-		agentType := *a.AgentType
-		if a.Size == nil {
-			unsizedByAgent[agentType]++
-		} else {
-			allocatedByAgent[agentType] += float64(*a.Size)
-		}
-	}
-
-	// Build CapacityRow slice — one entry per configured agent type.
-	rows := make([]CapacityRow, 0, len(capacities))
-	for _, c := range capacities {
-		allocated := allocatedByAgent[c.AgentType]
-		rows = append(rows, CapacityRow{
-			AgentType:       c.AgentType,
-			CapacityPoints:  c.CapacityPoints,
-			AllocatedPoints: allocated,
-			Remaining:       c.CapacityPoints - allocated, // can be negative, per AC-5
-			UnsizedAssigned: unsizedByAgent[c.AgentType],
-		})
-	}
-
-	return rows, nil
+	return buildCapacityRows(assignments, capacities), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1528,95 +1577,7 @@ func (s *SprintService) GetSprintReadiness(ctx context.Context, key string) (*Sp
 	}
 
 	// ─── In-memory computation only from here ──────────────────────────────
-	totalEntities := len(assignments)
-
-	// Build an index of assigned task keys for Factor 2 dependency check.
-	assignedKeys := make(map[string]bool, totalEntities)
-	for _, a := range assignments {
-		assignedKeys[strings.ToUpper(a.Key)] = true
-	}
-
-	// Aggregate capacity totals for Factor 1.
-	var totalCapacity, totalAllocated float64
-	for _, c := range capacities {
-		totalCapacity += c.CapacityPoints
-	}
-	for _, a := range assignments {
-		if a.Size != nil {
-			totalAllocated += float64(*a.Size)
-		}
-	}
-
-	// Build UnsizedEntities and OversizedEntities lists (for JSON output).
-	var unsized, oversized []sprint.BacklogItem
-	for _, a := range assignments {
-		if a.Size == nil {
-			unsized = append(unsized, sprint.BacklogItem{Key: a.Key, Title: a.Title})
-		} else if *a.Size >= 8 {
-			oversized = append(oversized, sprint.BacklogItem{Key: a.Key, Title: a.Title})
-		}
-	}
-	if unsized == nil {
-		unsized = []sprint.BacklogItem{}
-	}
-	if oversized == nil {
-		oversized = []sprint.BacklogItem{}
-	}
-
-	// ─── Zero-entity degenerate case (spec AC-12) ──────────────────────────
-	// When no entities are assigned, the overall score is 0 and all factor
-	// scores are also 0, regardless of what individual formulae would produce.
-	if totalEntities == 0 {
-		emptyFactors := []ReadinessFactor{
-			{Name: "Capacity utilization", Score: 0, MaxScore: 25, Detail: "Sprint has no assigned entities"},
-			{Name: "Dependency satisfaction", Score: 0, MaxScore: 20, Detail: "Sprint has no assigned entities"},
-			{Name: "Task count", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
-			{Name: "Agent balance", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
-			{Name: "Sizing coverage", Score: 0, MaxScore: 15, Detail: "Sprint has no assigned entities"},
-			{Name: "Oversized-entity flag", Score: 0, MaxScore: 10, Detail: "Sprint has no assigned entities"},
-		}
-		return &SprintReadiness{
-			OverallScore:      0,
-			Factors:           emptyFactors,
-			UnsizedEntities:   unsized,
-			OversizedEntities: oversized,
-		}, nil
-	}
-
-	// ─── Factor 1: Capacity utilization (0-25) ─────────────────────────────
-	f1 := computeCapacityUtilizationFactor(totalCapacity, totalAllocated)
-
-	// ─── Factor 2: Dependency satisfaction (0-20) ──────────────────────────
-	f2 := computeDependencySatisfactionFactor(assignments, assignedKeys)
-
-	// ─── Factor 3: Task count (0-15) ───────────────────────────────────────
-	f3 := computeTaskCountFactor(totalEntities)
-
-	// ─── Factor 4: Agent balance (0-15) ────────────────────────────────────
-	f4 := computeAgentBalanceFactor(assignments)
-
-	// ─── Factor 5: Sizing coverage (0-15) ──────────────────────────────────
-	f5 := computeSizingCoverageFactor(assignments)
-
-	// ─── Factor 6: Oversized-entity flag (0-10) ────────────────────────────
-	f6 := computeOversizedEntityFactor(assignments)
-
-	factors := []ReadinessFactor{f1, f2, f3, f4, f5, f6}
-
-	overall := 0
-	for _, f := range factors {
-		overall += f.Score
-	}
-	if overall > 100 {
-		overall = 100
-	}
-
-	return &SprintReadiness{
-		OverallScore:      overall,
-		Factors:           factors,
-		UnsizedEntities:   unsized,
-		OversizedEntities: oversized,
-	}, nil
+	return computeReadinessFromData(assignments, capacities), nil
 }
 
 // computeCapacityUtilizationFactor computes Factor 1 (Capacity utilization, 0-25).
@@ -1678,6 +1639,7 @@ func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize
 	name := "Dependency satisfaction"
 
 	unsatisfied := 0
+	malformed := 0
 	for _, a := range assignments {
 		if a.EntityType != "task" || a.DependsOn == "" || a.DependsOn == "[]" || a.DependsOn == "null" {
 			continue
@@ -1685,7 +1647,8 @@ func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize
 		// Parse depends_on as []string
 		var deps []string
 		if err := json.Unmarshal([]byte(a.DependsOn), &deps); err != nil {
-			// Malformed JSON — treat as no dependencies (graceful degradation)
+			// Malformed JSON — treat as no dependencies (graceful degradation) but track count
+			malformed++
 			continue
 		}
 		for _, dep := range deps {
@@ -1705,7 +1668,11 @@ func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize
 		detail = "All task dependencies are satisfied (assigned or already completed)"
 	} else {
 		detail = fmt.Sprintf("%d unsatisfied external task dependenc%s", unsatisfied,
-			map[bool]string{true: "y", false: "ies"}[unsatisfied == 1])
+			pluralize(unsatisfied, "y", "ies"))
+	}
+	if malformed > 0 {
+		detail += fmt.Sprintf(" (%d %s had malformed depends_on)",
+			malformed, pluralize(malformed, "entity", "entities"))
 	}
 
 	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
@@ -1734,7 +1701,7 @@ func computeTaskCountFactor(totalEntities int) ReadinessFactor {
 	default:
 		score = int(float64(totalEntities) / 3.0 * 15)
 		detail = fmt.Sprintf("%d %s assigned — below the recommended minimum of 3",
-			totalEntities, map[bool]string{true: "entity", false: "entities"}[totalEntities == 1])
+			totalEntities, pluralize(totalEntities, "entity", "entities"))
 	}
 
 	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
@@ -1796,7 +1763,7 @@ func computeSizingCoverageFactor(assignments []sprint.AssignmentWithSize) Readin
 		detail = "All assigned entities have a size estimate"
 	} else {
 		detail = fmt.Sprintf("%d unsized %s — add size estimates to improve planning accuracy",
-			unsizedCount, map[bool]string{true: "entity", false: "entities"}[unsizedCount == 1])
+			unsizedCount, pluralize(unsizedCount, "entity", "entities"))
 	}
 
 	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
@@ -1825,7 +1792,7 @@ func computeOversizedEntityFactor(assignments []sprint.AssignmentWithSize) Readi
 	} else {
 		score = 0
 		detail = fmt.Sprintf("%d oversized %s (size >= 8) — consider breaking them down before sprint start",
-			oversizedCount, map[bool]string{true: "entity", false: "entities"}[oversizedCount == 1])
+			oversizedCount, pluralize(oversizedCount, "entity", "entities"))
 	}
 
 	return ReadinessFactor{Name: name, Score: score, MaxScore: maxScore, Detail: detail}
@@ -1900,7 +1867,7 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	}
 
 	// Step 5: Compute CapacityRow slice in-memory.
-	capacity := planComputeCapacityRows(assignments, capacityModels)
+	capacity := buildCapacityRows(assignments, capacityModels)
 
 	// Step 6: Compute SprintReadiness in-memory (uses the same factor algorithms as GetSprintReadiness).
 	readiness := planComputeReadiness(assignments, capacityModels)
@@ -1913,10 +1880,10 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	}, nil
 }
 
-// planComputeCapacityRows builds CapacityRow slice from in-memory data.
-// Separated from GetSprintCapacity to avoid coupling PlanSprint to the two-query contract
-// of GetSprintCapacity (which always issues two queries even when no capacity rows exist).
-func planComputeCapacityRows(assignments []sprint.AssignmentWithSize, capacityModels []*models.SprintCapacity) []CapacityRow {
+// buildCapacityRows builds a CapacityRow slice from in-memory assignment and capacity data.
+// Shared by GetSprintCapacity (after its two guaranteed queries) and PlanSprint (which
+// fetches the same data as part of its broader composite query set).
+func buildCapacityRows(assignments []sprint.AssignmentWithSize, capacityModels []*models.SprintCapacity) []CapacityRow {
 	if len(capacityModels) == 0 {
 		return []CapacityRow{}
 	}
@@ -1948,10 +1915,20 @@ func planComputeCapacityRows(assignments []sprint.AssignmentWithSize, capacityMo
 }
 
 // planComputeReadiness computes SprintReadiness from in-memory assignment and capacity data.
-// Delegates to the same factor helper functions used by GetSprintReadiness so both paths
-// produce identical output for identical inputs (determinism guarantee).
+// Delegates to computeReadinessFromData so both paths produce identical output for
+// identical inputs (determinism guarantee).
 func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
-	// ─── Zero-entity degenerate case (mirrors GetSprintReadiness spec AC-12) ──
+	return computeReadinessFromData(assignments, capacities)
+}
+
+// computeReadinessFromData is the shared in-memory computation kernel used by both
+// GetSprintReadiness (post-query) and planComputeReadiness (plan path).
+//
+// It aggregates capacity/allocation totals, builds the dependency-check index,
+// collects unsized/oversized lists, and then calls each of the six factor helpers.
+// Identical inputs always produce identical output (deterministic).
+func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
+	// ─── Zero-entity degenerate case (spec AC-12) ──────────────────────────
 	// When no entities are assigned, the overall score is 0 and all factor
 	// scores are also 0, regardless of what individual formulae would produce.
 	if len(assignments) == 0 {
@@ -1971,7 +1948,15 @@ func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []
 		}
 	}
 
-	// Aggregate capacity and allocated totals for Factor 1.
+	totalEntities := len(assignments)
+
+	// Build an index of assigned task keys for Factor 2 dependency check.
+	assignedKeys := make(map[string]bool, totalEntities)
+	for _, a := range assignments {
+		assignedKeys[strings.ToUpper(a.Key)] = true
+	}
+
+	// Aggregate capacity totals for Factor 1.
 	var totalCapacity, totalAllocated float64
 	for _, c := range capacities {
 		totalCapacity += c.CapacityPoints
@@ -1982,13 +1967,7 @@ func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []
 		}
 	}
 
-	// Build assigned-keys map for Factor 2 dependency check.
-	assignedKeys := make(map[string]bool, len(assignments))
-	for _, a := range assignments {
-		assignedKeys[strings.ToUpper(a.Key)] = true
-	}
-
-	// Collect unsized and oversized lists.
+	// Build UnsizedEntities and OversizedEntities lists (for JSON output).
 	var unsized, oversized []sprint.BacklogItem
 	for _, a := range assignments {
 		if a.Size == nil {
@@ -2004,14 +1983,26 @@ func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []
 		oversized = []sprint.BacklogItem{}
 	}
 
+	// ─── Factor 1: Capacity utilization (0-25) ─────────────────────────────
 	f1 := computeCapacityUtilizationFactor(totalCapacity, totalAllocated)
+
+	// ─── Factor 2: Dependency satisfaction (0-20) ──────────────────────────
 	f2 := computeDependencySatisfactionFactor(assignments, assignedKeys)
-	f3 := computeTaskCountFactor(len(assignments))
+
+	// ─── Factor 3: Task count (0-15) ───────────────────────────────────────
+	f3 := computeTaskCountFactor(totalEntities)
+
+	// ─── Factor 4: Agent balance (0-15) ────────────────────────────────────
 	f4 := computeAgentBalanceFactor(assignments)
+
+	// ─── Factor 5: Sizing coverage (0-15) ──────────────────────────────────
 	f5 := computeSizingCoverageFactor(assignments)
+
+	// ─── Factor 6: Oversized-entity flag (0-10) ────────────────────────────
 	f6 := computeOversizedEntityFactor(assignments)
 
 	factors := []ReadinessFactor{f1, f2, f3, f4, f5, f6}
+
 	overall := 0
 	for _, f := range factors {
 		overall += f.Score

@@ -8,42 +8,44 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // MockSprintAnalyticsRepository is a test double for SprintAnalyticsRepository.
 // Uses function-field pattern per project mock conventions.
+// Uses service-owned types (AnalyticsVelocityRow, etc.) so that tests do not
+// import the repository package (T-E19-F04-011 tech-debt fix).
 type MockSprintAnalyticsRepository struct {
-	GetVelocityDataFunc           func(ctx context.Context, limit int) ([]sprint.VelocityRow, error)
-	GetSprintAssignedEntitiesFunc func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error)
-	GetCompletionEventsFunc       func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error)
-	GetCycleTimeByPhaseFunc       func(ctx context.Context, sprintID int64) ([]sprint.PhaseTimeRow, error)
+	GetVelocityDataFunc           func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error)
+	GetSprintAssignedEntitiesFunc func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error)
+	GetCompletionEventsFunc       func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error)
+	GetCycleTimeByPhaseFunc       func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error)
 }
 
-func (m *MockSprintAnalyticsRepository) GetVelocityData(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+func (m *MockSprintAnalyticsRepository) GetVelocityData(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 	if m.GetVelocityDataFunc != nil {
 		return m.GetVelocityDataFunc(ctx, limit)
 	}
 	return nil, fmt.Errorf("GetVelocityData not implemented in mock")
 }
 
-func (m *MockSprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+func (m *MockSprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 	if m.GetSprintAssignedEntitiesFunc != nil {
 		return m.GetSprintAssignedEntitiesFunc(ctx, sprintID)
 	}
 	return nil, fmt.Errorf("GetSprintAssignedEntities not implemented in mock")
 }
 
-func (m *MockSprintAnalyticsRepository) GetCompletionEvents(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
+func (m *MockSprintAnalyticsRepository) GetCompletionEvents(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 	if m.GetCompletionEventsFunc != nil {
 		return m.GetCompletionEventsFunc(ctx, sprintID, start, end)
 	}
 	return nil, fmt.Errorf("GetCompletionEvents not implemented in mock")
 }
 
-func (m *MockSprintAnalyticsRepository) GetCycleTimeByPhase(ctx context.Context, sprintID int64) ([]sprint.PhaseTimeRow, error) {
+func (m *MockSprintAnalyticsRepository) GetCycleTimeByPhase(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
 	if m.GetCycleTimeByPhaseFunc != nil {
 		return m.GetCycleTimeByPhaseFunc(ctx, sprintID)
 	}
@@ -54,7 +56,7 @@ func (m *MockSprintAnalyticsRepository) GetCycleTimeByPhase(ctx context.Context,
 
 func TestGetVelocity_Happy(t *testing.T) {
 	// Arrange: 5 sprints in order S001..S005, known sizes.
-	rows := []sprint.VelocityRow{
+	rows := []AnalyticsVelocityRow{
 		{SprintKey: "S001", SprintName: "Sprint 1", CompletedSize: 10, UnsizedCompleted: 0},
 		{SprintKey: "S002", SprintName: "Sprint 2", CompletedSize: 15, UnsizedCompleted: 0},
 		{SprintKey: "S003", SprintName: "Sprint 3", CompletedSize: 20, UnsizedCompleted: 0},
@@ -64,7 +66,7 @@ func TestGetVelocity_Happy(t *testing.T) {
 
 	var capturedLimit int
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			capturedLimit = limit
 			return rows, nil
 		},
@@ -96,10 +98,10 @@ func TestGetVelocity_PassesLimitToRepo(t *testing.T) {
 	// Arrange: verify the n argument is forwarded to GetVelocityData
 	var capturedLimit int
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			capturedLimit = limit
 			// Return 5 rows regardless of limit to exercise counting
-			return []sprint.VelocityRow{
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S003", CompletedSize: 5},
 				{SprintKey: "S004", CompletedSize: 10},
 				{SprintKey: "S005", CompletedSize: 15},
@@ -122,9 +124,9 @@ func TestGetVelocity_PassesLimitToRepo(t *testing.T) {
 func TestGetVelocity_MinimumLimit(t *testing.T) {
 	// Arrange: N=1 is valid; repo returns 1 row
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			assert.Equal(t, 1, limit)
-			return []sprint.VelocityRow{
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", SprintName: "Sprint 1", CompletedSize: 8},
 			}, nil
 		},
@@ -143,9 +145,9 @@ func TestGetVelocity_MinimumLimit(t *testing.T) {
 func TestGetVelocity_MaximumLimit(t *testing.T) {
 	var capturedLimit int
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			capturedLimit = limit
-			return []sprint.VelocityRow{}, nil
+			return []AnalyticsVelocityRow{}, nil
 		},
 	}
 	svc := NewSprintAnalyticsService(analyticsRepo, nil)
@@ -162,7 +164,7 @@ func TestGetVelocity_LimitZeroReturnsError(t *testing.T) {
 	// Arrange: repo must NOT be called when validation fails
 	callCount := 0
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			callCount++
 			return nil, nil
 		},
@@ -182,7 +184,7 @@ func TestGetVelocity_LimitZeroReturnsError(t *testing.T) {
 func TestGetVelocity_LimitTooLargeReturnsError(t *testing.T) {
 	callCount := 0
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			callCount++
 			return nil, nil
 		},
@@ -203,8 +205,8 @@ func TestGetVelocity_UnsizedEntitiesPassThrough(t *testing.T) {
 	// The repo handles COALESCE and NULL tracking; service must faithfully
 	// populate UnsizedCompleted from the VelocityRow without modification.
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", SprintName: "Sprint 1", CompletedSize: 10, UnsizedCompleted: 3},
 			}, nil
 		},
@@ -227,8 +229,8 @@ func TestGetVelocity_UnsizedEntitiesPassThrough(t *testing.T) {
 func TestGetVelocity_ZeroVelocitySprintInDenominator(t *testing.T) {
 	// Arrange: 3 sprints where first has CompletedSize=0
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", SprintName: "Sprint 1", CompletedSize: 0},
 				{SprintKey: "S002", SprintName: "Sprint 2", CompletedSize: 10},
 				{SprintKey: "S003", SprintName: "Sprint 3", CompletedSize: 20},
@@ -249,8 +251,8 @@ func TestGetVelocity_ZeroVelocitySprintInDenominator(t *testing.T) {
 
 func TestGetVelocity_AllZeroVelocity(t *testing.T) {
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", CompletedSize: 0},
 				{SprintKey: "S002", CompletedSize: 0},
 				{SprintKey: "S003", CompletedSize: 0},
@@ -272,8 +274,8 @@ func TestGetVelocity_AllZeroVelocity(t *testing.T) {
 
 func TestGetVelocity_InsufficientData_ZeroRows(t *testing.T) {
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil // 0 completed sprints
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil // 0 completed sprints
 		},
 	}
 	svc := NewSprintAnalyticsService(analyticsRepo, nil)
@@ -289,8 +291,8 @@ func TestGetVelocity_InsufficientData_ZeroRows(t *testing.T) {
 
 func TestGetVelocity_InsufficientData_OneRow(t *testing.T) {
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", CompletedSize: 8},
 			}, nil
 		},
@@ -306,8 +308,8 @@ func TestGetVelocity_InsufficientData_OneRow(t *testing.T) {
 
 func TestGetVelocity_InsufficientData_TwoRows(t *testing.T) {
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", CompletedSize: 8},
 				{SprintKey: "S002", CompletedSize: 12},
 			}, nil
@@ -325,8 +327,8 @@ func TestGetVelocity_InsufficientData_TwoRows(t *testing.T) {
 func TestGetVelocity_SufficientData_ThreeRows(t *testing.T) {
 	// Exactly 3 rows → InsufficientData must be false (boundary)
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{
 				{SprintKey: "S001", CompletedSize: 5},
 				{SprintKey: "S002", CompletedSize: 10},
 				{SprintKey: "S003", CompletedSize: 15},
@@ -346,7 +348,7 @@ func TestGetVelocity_SufficientData_ThreeRows(t *testing.T) {
 
 func TestGetVelocity_RepoError(t *testing.T) {
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			return nil, errors.New("database connection failed")
 		},
 	}
@@ -401,15 +403,15 @@ func TestGetBurndown_ActiveSprint_UsedWhenKeyEmpty(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			assert.Equal(t, int64(42), sprintID)
 			sz := 10
-			return []sprint.AssignedEntity{
+			return []AnalyticsAssignedEntity{
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
 	}
 
@@ -458,13 +460,13 @@ func TestGetBurndown_KeyProvided_UsesGetByKey(t *testing.T) {
 	}
 	sz := 5
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
 	}
 
@@ -531,13 +533,13 @@ func TestGetBurndown_IdealLine_Linear14Days(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
 	}
 
@@ -589,16 +591,16 @@ func TestGetBurndown_IdealLine_PiecewiseResetOnEntityAdd(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
 				// Original entity assigned at start
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz35},
 				// New entity added on day 3
 				{EntityType: "task", EntityID: 2, AssignedAt: day3, RemovedAt: nil, Size: &sz7},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
 	}
 
@@ -646,15 +648,15 @@ func TestGetBurndown_ActualRemaining_FromCompletionEvents(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz10},
 				{EntityType: "task", EntityID: 2, AssignedAt: startDate, RemovedAt: nil, Size: &sz15},
 				{EntityType: "task", EntityID: 3, AssignedAt: startDate, RemovedAt: nil, Size: &sz17},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{
 				{EntityID: 1, EntityType: "task", NewStatus: "completed", Timestamp: completedAt},
 			}, nil
 		},
@@ -702,8 +704,8 @@ func TestGetBurndown_UnsizedRemaining_InEveryDataPoint(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
 				// Sized entity
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz5},
 				// 2 unsized entities (Size == nil)
@@ -711,8 +713,8 @@ func TestGetBurndown_UnsizedRemaining_InEveryDataPoint(t *testing.T) {
 				{EntityType: "task", EntityID: 3, AssignedAt: startDate, RemovedAt: nil, Size: nil},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
 	}
 
@@ -755,13 +757,13 @@ func TestGetBurndown_FutureDays_NilActualRemaining(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
 				{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz10},
 			}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
 	}
 
@@ -807,13 +809,13 @@ func TestGetBurndown_ValidStatuses_ReturnData(t *testing.T) {
 				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
 			}
 			analyticsRepo := &MockSprintAnalyticsRepository{
-				GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-					return []sprint.AssignedEntity{
+				GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+					return []AnalyticsAssignedEntity{
 						{EntityType: "task", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz5},
 					}, nil
 				},
-				GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-					return []sprint.TaskCompletionEvent{}, nil
+				GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+					return []AnalyticsCompletionEvent{}, nil
 				},
 			}
 			today := endDate.Add(24 * time.Hour)
@@ -858,15 +860,15 @@ func TestGetSummary_CompletedSprint(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			assert.Equal(t, int64(42), sprintID)
-			return []sprint.AssignedEntity{}, nil
+			return []AnalyticsAssignedEntity{}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
 	}
 
@@ -891,14 +893,14 @@ func TestGetSummary_ArchivedSprintAccepted(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{}, nil
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
 	}
 
@@ -926,11 +928,11 @@ func TestGetSummary_InvalidStatus_ReturnsError(t *testing.T) {
 				},
 			}
 			analyticsRepo := &MockSprintAnalyticsRepository{
-				GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+				GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 					callCount++
 					return nil, nil
 				},
-				GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
+				GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 					callCount++
 					return nil, nil
 				},
@@ -957,25 +959,25 @@ func TestGetSummary_BaseFieldsComplete(t *testing.T) {
 	assignedBefore := startDate.Add(-1 * time.Hour) // before start
 
 	// 8 planned entities (size 5 each), 8 completed.
-	entities := make([]sprint.AssignedEntity, 8)
+	entities := make([]AnalyticsAssignedEntity, 8)
 	for i := range entities {
-		entities[i] = sprint.AssignedEntity{
+		entities[i] = AnalyticsAssignedEntity{
 			EntityType: "task",
 			EntityID:   int64(i + 1),
 			AssignedAt: assignedBefore,
 			Size:       &size5,
 		}
 	}
-	completionEvents := make([]sprint.TaskCompletionEvent, 8)
+	completionEvents := make([]AnalyticsCompletionEvent, 8)
 	for i := range completionEvents {
-		completionEvents[i] = sprint.TaskCompletionEvent{
+		completionEvents[i] = AnalyticsCompletionEvent{
 			EntityID: int64(i + 1), EntityType: "task", NewStatus: "completed",
 			Timestamp: endDate.Add(-2 * 24 * time.Hour),
 		}
 	}
 
 	// Previous 5 sprints trailing average = 38.0
-	prevRows := []sprint.VelocityRow{
+	prevRows := []AnalyticsVelocityRow{
 		{SprintKey: "S019", CompletedSize: 36},
 		{SprintKey: "S020", CompletedSize: 38},
 		{SprintKey: "S021", CompletedSize: 40},
@@ -989,13 +991,13 @@ func TestGetSummary_BaseFieldsComplete(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			return entities, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 			return completionEvents, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
 			return prevRows, nil
 		},
 	}
@@ -1034,14 +1036,14 @@ func TestGetSummary_ZeroPlannedSize_NoPanic(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{}, nil // empty sprint
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{}, nil // empty sprint
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
 	}
 
@@ -1065,16 +1067,16 @@ func TestGetSummary_DetailedWithCycleTimeData(t *testing.T) {
 	assignedBefore := startDate.Add(-1 * time.Hour)
 	midSprint := startDate.Add(3 * 24 * time.Hour) // day 3
 
-	entities := []sprint.AssignedEntity{
+	entities := []AnalyticsAssignedEntity{
 		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size5},
 		{EntityType: "task", EntityID: 2, AssignedAt: assignedBefore, Size: &size5},
 		{EntityType: "task", EntityID: 3, AssignedAt: midSprint, Size: &size5}, // mid-sprint add
 	}
-	completionEvents := []sprint.TaskCompletionEvent{
+	completionEvents := []AnalyticsCompletionEvent{
 		{EntityID: 1, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
 		{EntityID: 2, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
 	}
-	phaseRows := []sprint.PhaseTimeRow{
+	phaseRows := []AnalyticsPhaseTimeRow{
 		{Phase: "in_progress", AverageDays: 3.5},
 		{Phase: "ready_for_review", AverageDays: 1.2},
 	}
@@ -1085,16 +1087,16 @@ func TestGetSummary_DetailedWithCycleTimeData(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			return entities, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 			return completionEvents, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
-		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]sprint.PhaseTimeRow, error) {
+		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
 			assert.Equal(t, int64(42), sprintID)
 			return phaseRows, nil
 		},
@@ -1138,18 +1140,18 @@ func TestGetSummary_DetailedNoCycleTimeData_CycleTimeNil(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{}, nil
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
-		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]sprint.PhaseTimeRow, error) {
+		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
 			// Empty slice (not error) — simulates work_sessions unavailable
-			return []sprint.PhaseTimeRow{}, nil
+			return []AnalyticsPhaseTimeRow{}, nil
 		},
 	}
 
@@ -1181,16 +1183,16 @@ func TestGetSummary_DetailedFalse_DetailedFieldsNil(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
-			return []sprint.AssignedEntity{}, nil
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{}, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
-			return []sprint.TaskCompletionEvent{}, nil
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
-		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]sprint.PhaseTimeRow, error) {
+		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
 			cycleTimeCalled = true
 			return nil, nil
 		},
@@ -1223,13 +1225,13 @@ func TestGetSummary_UnsizedCounting(t *testing.T) {
 	assignedBefore := startDate.Add(-1 * time.Hour)
 
 	// 3 planned: 2 sized, 1 unsized
-	entities := []sprint.AssignedEntity{
+	entities := []AnalyticsAssignedEntity{
 		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size5},
 		{EntityType: "task", EntityID: 2, AssignedAt: assignedBefore, Size: nil}, // unsized
 		{EntityType: "task", EntityID: 3, AssignedAt: assignedBefore, Size: &size5},
 	}
 	// 2 completed: entity 1 (sized) and entity 2 (unsized)
-	completionEvents := []sprint.TaskCompletionEvent{
+	completionEvents := []AnalyticsCompletionEvent{
 		{EntityID: 1, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
 		{EntityID: 2, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
 	}
@@ -1240,14 +1242,14 @@ func TestGetSummary_UnsizedCounting(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			return entities, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 			return completionEvents, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
 	}
 
@@ -1291,12 +1293,12 @@ func TestGetSummary_SizeBandDistribution(t *testing.T) {
 	size5 := 5 // L
 	assignedBefore := startDate.Add(-1 * time.Hour)
 
-	entities := []sprint.AssignedEntity{
+	entities := []AnalyticsAssignedEntity{
 		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size1}, // XS
 		{EntityType: "task", EntityID: 2, AssignedAt: assignedBefore, Size: &size3}, // M
 		{EntityType: "task", EntityID: 3, AssignedAt: assignedBefore, Size: &size5}, // L
 	}
-	completionEvents := []sprint.TaskCompletionEvent{
+	completionEvents := []AnalyticsCompletionEvent{
 		{EntityID: 1, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
 		{EntityID: 2, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
 		{EntityID: 3, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
@@ -1308,17 +1310,17 @@ func TestGetSummary_SizeBandDistribution(t *testing.T) {
 		},
 	}
 	analyticsRepo := &MockSprintAnalyticsRepository{
-		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]sprint.AssignedEntity, error) {
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			return entities, nil
 		},
-		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]sprint.TaskCompletionEvent, error) {
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 			return completionEvents, nil
 		},
-		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]sprint.VelocityRow, error) {
-			return []sprint.VelocityRow{}, nil
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
 		},
-		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]sprint.PhaseTimeRow, error) {
-			return []sprint.PhaseTimeRow{}, nil
+		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
+			return []AnalyticsPhaseTimeRow{}, nil
 		},
 	}
 
@@ -1338,4 +1340,131 @@ func TestGetSummary_SizeBandDistribution(t *testing.T) {
 	assert.Equal(t, 1, bandMap["M"], "1 M entity (size=3)")
 	assert.Equal(t, 1, bandMap["L"], "1 L entity (size=5)")
 	assert.Equal(t, 0, bandMap["S"], "no S entity")
+}
+
+// --- BUG-001 regression: trailing average must EXCLUDE the current sprint.
+//
+// When the repo returns 6 rows and the 6th row is the sprint being summarised
+// (S024), the trailing average must be computed over only the 5 prior rows.
+// Counter-factual: buggy impl passes velocityResult.TrailingAverage (avg of
+// all 6 rows) instead of manually averaging the 5 prior rows.
+func TestGetSummary_TrailingAvgExcludesCurrentSprint(t *testing.T) {
+	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	size5 := 5
+	assignedBefore := startDate.Add(-1 * time.Hour)
+
+	// Sprint S024 completed 40 points (8 tasks × 5).
+	entities := make([]AnalyticsAssignedEntity, 8)
+	for i := range entities {
+		entities[i] = AnalyticsAssignedEntity{
+			EntityType: "task",
+			EntityID:   int64(i + 1),
+			AssignedAt: assignedBefore,
+			Size:       &size5,
+		}
+	}
+	completionEvents := make([]AnalyticsCompletionEvent, 8)
+	for i := range completionEvents {
+		completionEvents[i] = AnalyticsCompletionEvent{
+			EntityID:   int64(i + 1),
+			EntityType: "task",
+			NewStatus:  "completed",
+			Timestamp:  endDate.Add(-2 * 24 * time.Hour),
+		}
+	}
+
+	// The repo returns 6 rows: 5 prior sprints + the current sprint S024.
+	// Prior 5: (36+38+40+38+38) = 190 → average = 38.0
+	// Including S024 (40): (190+40)/6 = 38.33… → wrong if used
+	sixRows := []AnalyticsVelocityRow{
+		{SprintKey: "S019", CompletedSize: 36},
+		{SprintKey: "S020", CompletedSize: 38},
+		{SprintKey: "S021", CompletedSize: 40},
+		{SprintKey: "S022", CompletedSize: 38},
+		{SprintKey: "S023", CompletedSize: 38},
+		{SprintKey: "S024", CompletedSize: 40}, // current sprint — must be excluded
+	}
+
+	sprintRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintHelper("S024", "completed", startDate, endDate), nil
+		},
+	}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return entities, nil
+		},
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return completionEvents, nil
+		},
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return sixRows, nil
+		},
+	}
+
+	svc := NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	result, err := svc.GetSummary(context.Background(), "S024", false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Trailing average must be 38.0 (5 prior sprints only), NOT 38.33 (all 6).
+	assert.InDelta(t, 38.0, result.TrailingAvgVelocity, 0.01,
+		"trailing average must exclude the current sprint S024")
+	// Velocity delta = 40 - 38 = 2
+	assert.InDelta(t, 2.0, result.VelocityDelta, 0.01)
+}
+
+// --- BUG-002 regression: SizeBandDistribution is nil (not empty slice) when
+// no recognized sizes are present.
+//
+// Counter-factual: buggy impl returns []SizeBand{} which serialises as JSON
+// array [] instead of null.
+func TestGetSummary_SizeBandDistribution_NilWhenEmpty(t *testing.T) {
+	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	// Entity with unrecognised size (99 is not in sizeLabelMap).
+	size99 := 99
+	assignedBefore := startDate.Add(-1 * time.Hour)
+
+	entities := []AnalyticsAssignedEntity{
+		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size99},
+	}
+	completionEvents := []AnalyticsCompletionEvent{
+		{EntityID: 1, EntityType: "task", NewStatus: "completed",
+			Timestamp: endDate.Add(-1 * time.Hour)},
+	}
+
+	sprintRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintHelper("S024", "completed", startDate, endDate), nil
+		},
+	}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return entities, nil
+		},
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return completionEvents, nil
+		},
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
+		},
+		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
+			return []AnalyticsPhaseTimeRow{}, nil
+		},
+	}
+
+	svc := NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	result, err := svc.GetSummary(context.Background(), "S024", true)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// SizeBandDistribution must be nil, not an empty slice, when no bands exist.
+	assert.Nil(t, result.SizeBandDistribution,
+		"SizeBandDistribution must be nil (not []) when no recognized sizes are present")
 }

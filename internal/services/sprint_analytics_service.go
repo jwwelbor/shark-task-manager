@@ -363,13 +363,25 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 	}
 
 	// Step 5: Compute trailing average velocity.
-	// Call GetVelocity(ctx, 6) and use the trailing average (first 5 sprints
-	// before this one, per spec §4.4 step 5). The repo returns the last N
-	// completed sprints; we use n=6 to get context beyond this sprint.
-	velocityResult, _ := s.GetVelocity(ctx, 6)
+	// Spec §4.4 step 5: call GetVelocityData(ctx, 6) to fetch up to 6 completed
+	// sprints, then exclude the current sprint from the rows and compute the
+	// average over the remaining ≤5 prior sprints. We do NOT use
+	// velocityResult.TrailingAverage because it includes the current sprint in
+	// its denominator.
 	var trailingAvgVelocity float64
-	if velocityResult != nil {
-		trailingAvgVelocity = velocityResult.TrailingAverage
+	if priorRows, velErr := s.analyticsRepo.GetVelocityData(ctx, 6); velErr == nil {
+		var priorTotal int
+		var priorCount int
+		for _, row := range priorRows {
+			if row.SprintKey == sp.Key {
+				continue // exclude the sprint being summarised
+			}
+			priorTotal += row.CompletedSize
+			priorCount++
+		}
+		if priorCount > 0 {
+			trailingAvgVelocity = float64(priorTotal) / float64(priorCount)
+		}
 	}
 
 	velocityThisSprint := completedSize
@@ -416,7 +428,7 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 		if ctErr == nil && len(phaseRows) > 0 {
 			phases := make([]PhaseTime, len(phaseRows))
 			for i, row := range phaseRows {
-				phases[i] = PhaseTime{Phase: row.Phase, AverageDays: row.AverageDays}
+				phases[i] = PhaseTime(row)
 			}
 			result.CycleTimeByPhase = phases
 		}
@@ -444,14 +456,18 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 		}
 
 		// Emit size bands with non-zero counts in canonical order.
+		// Result stays nil when no recognized size labels are present so that
+		// JSON serialises as null rather than [] (BUG-002 fix).
 		bandOrder := []string{"XS", "S", "M", "L", "XL", "XXL"}
-		bands := make([]SizeBand, 0, len(bandOrder))
+		var bands []SizeBand
 		for _, label := range bandOrder {
 			if count := sizeBands[label]; count > 0 {
 				bands = append(bands, SizeBand{Label: label, Count: count})
 			}
 		}
-		result.SizeBandDistribution = bands
+		if len(bands) > 0 {
+			result.SizeBandDistribution = bands
+		}
 
 		// Carryover entities: assigned (not removed) and not completed.
 		var carryover []CarryoverEntity
@@ -524,7 +540,7 @@ func isTerminalStatus(status string) bool {
 // before the day (removed_at IS NULL or removed_at > day end-of-day).
 //
 // Unsized entities (Size == nil) contribute 0 to the sum (per Decision 5 in spec).
-func computeSizeAtDay(entities []sprint.AssignedEntity, day time.Time) int {
+func computeSizeAtDay(entities []AnalyticsAssignedEntity, day time.Time) int {
 	dayEnd := day.Add(24*time.Hour - time.Nanosecond)
 	total := 0
 	for _, e := range entities {
@@ -539,7 +555,7 @@ func computeSizeAtDay(entities []sprint.AssignedEntity, day time.Time) int {
 }
 
 // countUnsizedAtDay counts entities active on the given day that have no size.
-func countUnsizedAtDay(entities []sprint.AssignedEntity, day time.Time) int {
+func countUnsizedAtDay(entities []AnalyticsAssignedEntity, day time.Time) int {
 	dayEnd := day.Add(24*time.Hour - time.Nanosecond)
 	count := 0
 	for _, e := range entities {
@@ -552,7 +568,7 @@ func countUnsizedAtDay(entities []sprint.AssignedEntity, day time.Time) int {
 
 // isActiveOnDay returns true when an entity is active (assigned but not removed)
 // within the given day window.
-func isActiveOnDay(e sprint.AssignedEntity, dayStart, dayEnd time.Time) bool {
+func isActiveOnDay(e AnalyticsAssignedEntity, dayStart, dayEnd time.Time) bool {
 	// Entity must be assigned on or before the end of the day.
 	if e.AssignedAt.After(dayEnd) {
 		return false
@@ -572,7 +588,7 @@ func isActiveOnDay(e sprint.AssignedEntity, dayStart, dayEnd time.Time) bool {
 // are treated as "completed on all days" if they appear in the completedAt map
 // (service layer applies point-in-time current status for non-task types).
 func computeActualRemainingAtDay(
-	entities []sprint.AssignedEntity,
+	entities []AnalyticsAssignedEntity,
 	completedAt map[burndownEntityKey]time.Time,
 	day time.Time,
 ) int {
@@ -595,6 +611,3 @@ func computeActualRemainingAtDay(
 	}
 	return total
 }
-
-// Ensure the sprint.VelocityRow type is used (prevents import cycle issues).
-var _ = sprint.VelocityRow{}

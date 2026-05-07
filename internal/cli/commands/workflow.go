@@ -51,13 +51,16 @@ var workflowCmd = &cobra.Command{
 	Use:   "workflow",
 	Short: "Manage workflow configuration",
 
-	Long: `Workflow configuration operations including listing, validation, and migration.
+	Long: `Workflow configuration operations including listing, validation, and inspection.
 
 The workflow system allows customizing task status transitions via .sharkconfig.json.
 
 Examples:
-  shark workflow list      Display configured workflow
-  shark workflow validate  Validate workflow configuration`,
+  shark admin workflow list              Display configured workflow
+  shark admin workflow validate          Validate workflow configuration
+  shark admin workflow show-actions      Show all orchestrator actions
+  shark admin workflow validate-actions  Validate orchestrator actions
+  shark admin workflow show-action E07-F01-001 ready_for_development`,
 }
 
 // workflowListCmd displays the configured workflow

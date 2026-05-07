@@ -22,7 +22,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // buildCloseMockRepo builds a MockSprintRepository for close-sprint tests.
-// sprint S024 (id=24) is in "in_progress" status.
+// sprint S024 (id=24) is in "active" status.
 func buildCloseMockRepo(
 	t *testing.T,
 	allAssignments []*models.SprintAssignment,
@@ -41,7 +41,7 @@ func buildCloseMockRepo(
 		ID:        24,
 		Key:       "S024",
 		Name:      "Sprint 24",
-		Status:    models.SprintStatus("in_progress"),
+		Status:    models.SprintStatus("active"),
 		StartDate: closedSprintStart,
 		EndDate:   closedSprintEnd,
 	}
@@ -135,7 +135,7 @@ func TestSprintService_CloseSprintWithCarryover_CompletionRecord(t *testing.T) {
 	}
 	// Existing planning sprint (TC-C01 path)
 	planningSprints := []*models.Sprint{
-		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "todo"},
+		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"},
 	}
 
 	var capturedCompletion *models.SprintCompletion
@@ -292,7 +292,7 @@ func TestSprintService_CloseSprintWithCarryover_ConfigDefault_Next(t *testing.T)
 	allAssignments := []*models.SprintAssignment{{ID: 201}}
 	incompleteAssignments := []*models.SprintAssignment{{ID: 201}}
 	planningSprints := []*models.Sprint{
-		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "todo"},
+		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"},
 	}
 
 	var reassignCalled bool
@@ -341,7 +341,7 @@ func TestSprintService_CloseSprintWithCarryover_ConfigDefault_AbsentDefaultsToNe
 	allAssignments := []*models.SprintAssignment{{ID: 201}}
 	incompleteAssignments := []*models.SprintAssignment{{ID: 201}}
 	planningSprints := []*models.Sprint{
-		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "todo"},
+		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"},
 	}
 
 	var reassignCalled bool
@@ -421,10 +421,10 @@ func TestSprintService_CloseSprintWithCarryover_RollbackOnError(t *testing.T) {
 }
 
 // TestSprintService_CloseSprintWithCarryover_WrongStatus tests TC-C12:
-// sprint not in "in_progress" status is rejected before any DB writes.
+// sprint not in "active" status is rejected before any DB writes.
 //
 // Caller-Path Contract (TC-C12):
-//   - Entrypoint: SprintService.CloseSprintWithCarryover(ctx, "S024", CarryoverNext) with sprint in "todo"
+//   - Entrypoint: SprintService.CloseSprintWithCarryover(ctx, "S024", CarryoverNext) with sprint in "planning"
 //   - Counter-factual: a buggy impl that skips the status check would begin a transaction
 //     and call repo methods on a non-active sprint
 func TestSprintService_CloseSprintWithCarryover_WrongStatus(t *testing.T) {
@@ -466,7 +466,7 @@ func TestSprintService_CloseSprintWithCarryover_WrongStatus(t *testing.T) {
 
 			result, err := svc.CloseSprintWithCarryover(ctx, "S024", CarryoverNext)
 
-			require.Error(t, err, "CloseSprintWithCarryover must return error when sprint is not in_progress")
+			require.Error(t, err, "CloseSprintWithCarryover must return error when sprint is not active")
 			assert.Nil(t, result)
 			assert.Contains(t, err.Error(), string(tt.currentStatus),
 				"error message must include current status")
@@ -500,7 +500,7 @@ func TestSprintService_CloseSprintWithCarryover_AutoCreateNextSprint(t *testing.
 		ID:        24,
 		Key:       "S024",
 		Name:      "Sprint 24",
-		Status:    models.SprintStatus("in_progress"),
+		Status:    models.SprintStatus("active"),
 		StartDate: closedSprintStart,
 		EndDate:   closedSprintEnd,
 	}
@@ -588,7 +588,7 @@ func TestSprintService_CloseSprintWithCarryover_AllCompleted(t *testing.T) {
 	}
 	var incompleteAssignments []*models.SprintAssignment // empty
 	planningSprints := []*models.Sprint{
-		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "todo"},
+		{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"},
 	}
 
 	var capturedCompletion *models.SprintCompletion

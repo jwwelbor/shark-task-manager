@@ -10,6 +10,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // SprintRepository handles CRUD operations for sprints.
@@ -91,7 +92,7 @@ func (r *SprintRepository) GetByKey(ctx context.Context, key string) (*models.Sp
 
 	sprint, err := scanSprint(r.db.QueryRowContext(ctx, query, key))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("sprint not found with key %q", key)
+		return nil, fmt.Errorf("sprint not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sprint: %w", err)
@@ -106,7 +107,7 @@ func (r *SprintRepository) GetByID(ctx context.Context, id int64) (*models.Sprin
 
 	sprint, err := scanSprint(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("sprint not found with id %d", id)
+		return nil, fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sprint: %w", err)
@@ -148,7 +149,7 @@ func (r *SprintRepository) Update(ctx context.Context, sprint *models.Sprint) er
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", sprint.ID)
+		return fmt.Errorf("sprint not found with id %d: %w", sprint.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -169,7 +170,7 @@ func (r *SprintRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", id)
+		return fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -190,7 +191,7 @@ func (r *SprintRepository) UpdateStatus(ctx context.Context, id int64, status mo
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", id)
+		return fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -212,7 +213,7 @@ func (r *SprintRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id in
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", id)
+		return fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -709,7 +710,7 @@ func (r *SprintRepository) GetTaskIDByKey(ctx context.Context, key string) (int6
 		`SELECT id FROM tasks WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("task not found with key %q", key)
+		return 0, fmt.Errorf("task not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get task id by key: %w", err)
@@ -725,7 +726,7 @@ func (r *SprintRepository) GetBugIDByKey(ctx context.Context, key string) (int64
 		`SELECT id FROM bugs WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("bug not found with key %q", key)
+		return 0, fmt.Errorf("bug not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get bug id by key: %w", err)
@@ -741,7 +742,7 @@ func (r *SprintRepository) GetChangeCardIDByKey(ctx context.Context, key string)
 		`SELECT id FROM change_cards WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("change_card not found with key %q", key)
+		return 0, fmt.Errorf("change_card not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get change_card id by key: %w", err)
@@ -757,7 +758,7 @@ func (r *SprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (
 		`SELECT id FROM tech_debts WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("tech_debt not found with key %q", key)
+		return 0, fmt.Errorf("tech_debt not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get tech_debt id by key: %w", err)

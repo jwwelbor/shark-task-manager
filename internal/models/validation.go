@@ -93,9 +93,11 @@ func ValidateSprintKey(key string) error {
 // change_card, tech_debt} — sprints group execution-level work items only,
 // so epic/feature/idea are intentionally NOT allowlisted.
 //
-// Per the post-B018 convention, there is NO matching CHECK constraint on the
-// underlying sprint_assignments table. Adding a fifth assignable entity type
-// later requires updating only this function — no DB migration is needed.
+// Per the post-B018 convention (see internal/db/db.go:436-444 and the
+// `feedback_entity_type_check_constraints` user-feedback memory), there is
+// NO matching CHECK constraint on the underlying sprint_assignments table.
+// Adding a fifth assignable entity type later requires updating only this
+// function — no DB migration is needed.
 func ValidateSprintAssignmentEntityType(entityType string) error {
 	valid := map[string]bool{
 		"task":        true,

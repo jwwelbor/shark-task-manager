@@ -8,6 +8,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // WorkSessionRepository handles CRUD operations for work sessions
@@ -86,7 +87,7 @@ func (r *WorkSessionRepository) GetByID(ctx context.Context, id int64) (*models.
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("work session not found with id %d", id)
+		return nil, fmt.Errorf("work session not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work session: %w", err)
@@ -192,7 +193,7 @@ func (r *WorkSessionRepository) EndSession(ctx context.Context, sessionID int64,
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("work session %d not found or already ended", sessionID)
+		return fmt.Errorf("work session %d not found or already ended: %w", sessionID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -230,7 +231,7 @@ func (r *WorkSessionRepository) Update(ctx context.Context, session *models.Work
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("work session not found with id %d", session.ID)
+		return fmt.Errorf("work session not found with id %d: %w", session.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -251,7 +252,7 @@ func (r *WorkSessionRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("work session not found with id %d", id)
+		return fmt.Errorf("work session not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
