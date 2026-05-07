@@ -38,6 +38,16 @@ type IdeaService struct {
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
+
+	// sizeCfg is optional — nil disables size enforcement on create.
+	sizeCfg SizeEnforcementConfig
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "idea" in SizeRequiredFor, CreateIdea accepts
+// nil Size silently.
+func (s *IdeaService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // NewIdeaService creates a new IdeaService with the required dependencies.
@@ -80,6 +90,9 @@ func (s *IdeaService) CreateIdea(ctx context.Context, input CreateIdeaInput) (*m
 		return nil, fmt.Errorf("idea title is required")
 	}
 
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeIdea, input.Size); err != nil {
+		return nil, err
+	}
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeIdea, input.Tags); err != nil {
 		return nil, err
 	}
