@@ -121,7 +121,9 @@ func (s *FeatureProgressService) calculateProgressForFeature(ctx context.Context
 
 // RecalculateAndSetProgress recalculates the cached progress_pct for a feature
 // and persists it. Automatically sets feature status to "completed" when weighted
-// progress reaches 100% (all tasks completed).
+// progress reaches 100% (unless the feature is already in a different terminal
+// status), and reopens completed features back to the aggregation status when
+// progress drops below 100%.
 func (s *FeatureProgressService) RecalculateAndSetProgress(ctx context.Context, featureID int64) error {
 	feature, err := s.repo.GetByID(ctx, featureID)
 	if err != nil {
@@ -137,11 +139,7 @@ func (s *FeatureProgressService) RecalculateAndSetProgress(ctx context.Context, 
 	}
 
 	feature.ProgressPct = progressInfo.WeightedProgress
-
-	// Auto-complete feature when all tasks are completed (weighted progress >= 100%)
-	if progressInfo.WeightedProgress >= 100.0 {
-		feature.Status = models.FeatureStatusCompleted
-	}
+	feature.Status = s.deriveFeatureProgressStatus(feature, progressInfo)
 
 	if err := s.repo.Update(ctx, feature); err != nil {
 		return fmt.Errorf("failed to update feature progress: %w", err)
@@ -161,6 +159,41 @@ func (s *FeatureProgressService) RecalculateAndSetProgressByKey(ctx context.Cont
 	}
 
 	return s.RecalculateAndSetProgress(ctx, feature.ID)
+}
+
+// deriveFeatureProgressStatus returns the status that should be persisted after
+// a progress recalculation.
+//
+// Rules:
+//   - status_override=true: never touch the status
+//   - no tasks: leave the status unchanged
+//   - weighted progress >= 100%: complete non-terminal features
+//   - weighted progress < 100%: reopen completed features to the aggregation status
+//   - other terminal statuses (e.g. archived) are preserved
+func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Feature, progressInfo *FeatureProgressInfo) models.FeatureStatus {
+	if feature.StatusOverride || progressInfo == nil || progressInfo.TotalTasks == 0 {
+		return feature.Status
+	}
+
+	featureWorkflow := s.workflowSvc.ForLevel(workflow.LevelFeature)
+	aggregationStatuses := featureWorkflow.GetAggregationStatuses()
+	aggregationStatus := models.FeatureStatus(featureWorkflow.GetInitialStatusString())
+	if len(aggregationStatuses) > 0 {
+		aggregationStatus = models.FeatureStatus(aggregationStatuses[0])
+	}
+
+	if progressInfo.WeightedProgress >= 100.0 {
+		if featureWorkflow.IsTerminalStatus(string(feature.Status)) && feature.Status != models.FeatureStatusCompleted {
+			return feature.Status
+		}
+		return models.FeatureStatusCompleted
+	}
+
+	if feature.Status == models.FeatureStatusCompleted {
+		return aggregationStatus
+	}
+
+	return feature.Status
 }
 
 // GetTaskCounts returns the total task count for each of the given feature IDs in a

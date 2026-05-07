@@ -41,6 +41,16 @@ type TechDebtService struct {
 	// tagSvc is optional — nil disables tag integration on create/update.
 	// Mirrors the bug/change-card pattern (E28-F04).
 	tagSvc TagQuerier
+
+	// sizeCfg is optional — nil disables size enforcement on create.
+	sizeCfg SizeEnforcementConfig
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "tech-debt" in SizeRequiredFor, CreateTechDebt
+// accepts nil Size silently.
+func (s *TechDebtService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // NewTechDebtService creates a new TechDebtService with injected dependencies.
@@ -88,6 +98,9 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 	}
 
 	// Enforce tag_required_for before key allocation or persistence.
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeTechDebt, input.Size); err != nil {
+		return nil, false, err
+	}
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeTechDebt, input.Tags); err != nil {
 		return nil, false, err
 	}

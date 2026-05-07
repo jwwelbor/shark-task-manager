@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 )
 
@@ -147,7 +148,7 @@ func (r *TechDebtRepository) GetByKey(ctx context.Context, key string) (*models.
 		}
 	}
 
-	return nil, fmt.Errorf("tech-debt not found with key %q", key)
+	return nil, fmt.Errorf("tech-debt not found with key %q: %w", key, repoerr.ErrNotFound)
 }
 
 // GetByID retrieves a tech-debt item by its database ID.
@@ -156,7 +157,7 @@ func (r *TechDebtRepository) GetByID(ctx context.Context, id int64) (*models.Tec
 
 	td, err := scanTechDebt(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("tech-debt not found with id %d", id)
+		return nil, fmt.Errorf("tech-debt not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tech-debt: %w", err)
@@ -201,7 +202,7 @@ func (r *TechDebtRepository) Update(ctx context.Context, td *models.TechDebt) er
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("tech-debt not found with id %d", td.ID)
+		return fmt.Errorf("tech-debt not found with id %d: %w", td.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -222,7 +223,7 @@ func (r *TechDebtRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("tech-debt not found with id %d", id)
+		return fmt.Errorf("tech-debt not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -247,7 +248,7 @@ func (r *TechDebtRepository) UpdateStatus(ctx context.Context, id int64, status 
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("tech-debt not found with id %d", id)
+		return fmt.Errorf("tech-debt not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -458,7 +459,7 @@ func (r *TechDebtRepository) GetContextData(ctx context.Context, id int64) (*str
 	var contextData *string
 	err := r.db.QueryRowContext(ctx, query, id).Scan(&contextData)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("tech-debt not found with id %d", id)
+		return nil, fmt.Errorf("tech-debt not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tech-debt context data: %w", err)
@@ -478,7 +479,7 @@ func (r *TechDebtRepository) UpdateContextData(ctx context.Context, id int64, co
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("tech-debt not found with id %d", id)
+		return fmt.Errorf("tech-debt not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	return nil
 }

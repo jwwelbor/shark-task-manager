@@ -459,6 +459,9 @@ func TestMigration_SizeColumn_Idempotent(t *testing.T) {
 // TC-F009-B: CurrentSchemaVersion is at the expected value after migration.
 // Originally pinned to 15 by E07-F42 (Add Size field to all entities). Bumped
 // to 16 when migrateAddSizeColumns was extended to also cover tech_debts.
+// Bumped to 17 by B018 (drop entity_type CHECKs from polymorphic-association
+// tables). Bumped to 18 by E19-F01 (sprints, sprint_assignments,
+// sprint_capacity tables).
 // ---------------------------------------------------------------------------
 
 // TestMigration_SchemaVersion verifies that InitDB stores CurrentSchemaVersion
@@ -476,13 +479,81 @@ func TestMigration_SchemaVersion(t *testing.T) {
 	// reads the maximum stored value.
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.GreaterOrEqual(t, version, 17,
-		"schema version should be at least 17 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
+	assert.GreaterOrEqual(t, version, 19,
+		"schema version should be at least 19 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 17, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 17 (B018 — drop entity_type CHECK "+
-			"constraints from polymorphic-association tables)")
+	assert.Equal(t, 19, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 19 (E19-F03 — sprint_completions table)")
+}
+
+// ---------------------------------------------------------------------------
+// TC-S01: Schema version bumped to 19; migration is idempotent.
+// Part of T-E19-F03-001 (sprint_completions schema migration and SprintCompletion model).
+// ---------------------------------------------------------------------------
+
+// TestMigration_SprintCompletions_SchemaVersion verifies that after InitDB:
+//  1. The schema_version equals 19 (CurrentSchemaVersion).
+//  2. The sprint_completions table exists.
+//  3. The idx_sprint_completions_sprint index exists.
+//  4. Running migrateSprintCompletionsTable a second time (idempotency) causes no error.
+//
+// Caller-Path Contract:
+//   - Entrypoint: internal/db.ApplySchemaIfNeeded (the production migration path)
+//   - Lowest allowed mock seam: Real test database (no mocking)
+//   - Counter-factual: If migrateSprintCompletionsTable is not called from runMigrations,
+//     getSchemaVersion returns 18 and the table existence check fails.
+func TestMigration_SprintCompletions_SchemaVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	// Step 1: Run migration via InitDB (production path).
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "InitDB should succeed")
+	defer db.Close()
+
+	// Step 2: Assert schema version == 19 (BVA: must be exactly 19, not 18, not 20).
+	version, err := getSchemaVersion(db)
+	require.NoError(t, err, "getSchemaVersion should succeed")
+	assert.Equal(t, 19, version,
+		"schema version must be exactly 19 after E19-F03 migration (got %d)", version)
+
+	// Step 3: Assert sprint_completions table exists.
+	var tableCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sprint_completions'
+	`).Scan(&tableCount)
+	require.NoError(t, err, "PRAGMA table existence query should succeed")
+	assert.Equal(t, 1, tableCount,
+		"sprint_completions table should exist after migration")
+
+	// Step 4: Assert PRAGMA table_info returns columns (table is not empty schema).
+	var columnCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('sprint_completions')
+	`).Scan(&columnCount)
+	require.NoError(t, err, "pragma_table_info should succeed for sprint_completions")
+	assert.Greater(t, columnCount, 0,
+		"sprint_completions table should have columns")
+
+	// Step 5: Assert the index exists.
+	var indexCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_sprint_completions_sprint'
+	`).Scan(&indexCount)
+	require.NoError(t, err, "index existence query should succeed")
+	assert.Equal(t, 1, indexCount,
+		"idx_sprint_completions_sprint index should exist after migration")
+
+	// Step 6: Idempotency — running migrateSprintCompletionsTable again must not error.
+	err = migrateSprintCompletionsTable(db)
+	require.NoError(t, err, "migrateSprintCompletionsTable should be idempotent (no error on second run)")
+
+	// Step 7: Confirm version is still 19 (no regression from idempotent run).
+	versionAfter, err := getSchemaVersion(db)
+	require.NoError(t, err)
+	assert.Equal(t, 19, versionAfter,
+		"schema version should remain 19 after idempotent re-run of migrateSprintCompletionsTable")
 }
 
 // ---------------------------------------------------------------------------

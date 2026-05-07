@@ -7,6 +7,7 @@ const (
 	LevelEpic     = "epic"
 	LevelFeature  = "feature"
 	LevelTask     = "task"
+	LevelSprint   = "sprint"
 	LevelBug      = "bug"
 	LevelChange   = "change"
 	LevelTechDebt = "tech_debt"

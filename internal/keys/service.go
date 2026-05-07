@@ -25,6 +25,11 @@ const (
 	// EntityTypeChange identifies a change key (e.g., C001, C15, C1)
 	EntityTypeChange EntityType = "change"
 
+	// EntityTypeSprint identifies a sprint key (e.g., S001, S024, S999).
+	// Sprint keys are strict 3-digit zero-padded — S1 / S0001 / SPRINT-1 are
+	// not sprint keys.
+	EntityTypeSprint EntityType = "sprint"
+
 	// EntityTypeUnknown indicates the key format could not be recognized
 	EntityTypeUnknown EntityType = "unknown"
 )
@@ -62,6 +67,10 @@ type ParsedKey struct {
 	// Empty for non-change keys.
 	ChangeNum string
 
+	// SprintNum is the numeric part of the sprint key (e.g., "024" from S024).
+	// Always 3 digits when populated. Empty for non-sprint keys.
+	SprintNum string
+
 	// Slug is the optional human-readable suffix (e.g., "user-management" from E07-user-management).
 	// Empty if no slug is present. Stored in lowercase.
 	Slug string
@@ -90,6 +99,11 @@ var (
 
 	// changeVariablePattern matches C followed by 1+ digits (variable): C1, C15, C001
 	changeVariablePattern = regexp.MustCompile(`^C(\d+)$`)
+
+	// sprintKeyPattern matches S followed by exactly 3 digits (strict): S001, S024, S999.
+	// Unlike bug/change patterns, sprint keys are intentionally fixed-width to keep
+	// `S###` visually distinct from sprint-related text (e.g., "S1" stays unknown).
+	sprintKeyPattern = regexp.MustCompile(`^S(\d{3})$`)
 )
 
 // KeyService provides centralized entity key parsing and normalization.
@@ -195,6 +209,14 @@ func (ks *KeyService) Parse(key string) ParsedKey {
 		return result
 	}
 
+	// Sprint key: S followed by exactly 3 digits (strict): S001, S024, S999
+	if m := sprintKeyPattern.FindStringSubmatch(upper); m != nil {
+		result.EntityType = EntityTypeSprint
+		result.SprintNum = m[1]
+		result.Normalized = fmt.Sprintf("S%s", m[1])
+		return result
+	}
+
 	return result
 }
 
@@ -267,6 +289,9 @@ func (ks *KeyService) Format(parsed ParsedKey) string {
 
 	case EntityTypeChange:
 		return fmt.Sprintf("C%s", parsed.ChangeNum)
+
+	case EntityTypeSprint:
+		return fmt.Sprintf("S%s", parsed.SprintNum)
 
 	default:
 		return ""

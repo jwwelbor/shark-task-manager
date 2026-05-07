@@ -170,6 +170,11 @@ type TaskService struct {
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
 
+	// sizeCfg is optional — nil disables size enforcement on create.
+	// When set, CreateTask requires input.Size when EntityTypeTask is listed
+	// in cfg.SizeRequiredFor(). Mirrors tag enforcement.
+	sizeCfg SizeEnforcementConfig
+
 	// Cascade reopen dependencies (all optional; cascade fires only when all are non-nil).
 	cascadeDB          txBeginner
 	cascadeFeatureRepo CascadeFeatureRepo
@@ -309,6 +314,9 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 	}
 
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeTask, input.Tags); err != nil {
+		return nil, false, recordSpanError(span, err)
+	}
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeTask, input.Size); err != nil {
 		return nil, false, recordSpanError(span, err)
 	}
 
@@ -1197,6 +1205,13 @@ func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 func (s *TaskService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "task" in SizeRequiredFor, CreateTask accepts
+// nil Size silently. Mirrors SetTagService.
+func (s *TaskService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // SetFeatureService sets the feature service for write-through progress recalculation.

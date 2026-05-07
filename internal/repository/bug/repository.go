@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // BugRepository handles CRUD operations for bugs.
@@ -99,7 +100,7 @@ func (r *BugRepository) GetByKey(ctx context.Context, key string) (*models.Bug, 
 
 	bug, err := scanBug(r.db.QueryRowContext(ctx, query, key))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("bug not found with key %q", key)
+		return nil, fmt.Errorf("bug not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bug: %w", err)
@@ -114,7 +115,7 @@ func (r *BugRepository) GetByID(ctx context.Context, id int64) (*models.Bug, err
 
 	bug, err := scanBug(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("bug not found with id %d", id)
+		return nil, fmt.Errorf("bug not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bug: %w", err)
@@ -160,7 +161,7 @@ func (r *BugRepository) Update(ctx context.Context, bug *models.Bug) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("bug not found with id %d", bug.ID)
+		return fmt.Errorf("bug not found with id %d: %w", bug.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -181,7 +182,7 @@ func (r *BugRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("bug not found with id %d", id)
+		return fmt.Errorf("bug not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -202,7 +203,7 @@ func (r *BugRepository) UpdateStatus(ctx context.Context, id int64, status model
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("bug not found with id %d", id)
+		return fmt.Errorf("bug not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -361,7 +362,7 @@ func (r *BugRepository) GetContextData(ctx context.Context, id int64) (*string, 
 	var contextData *string
 	err := r.db.QueryRowContext(ctx, query, id).Scan(&contextData)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("bug not found with id %d", id)
+		return nil, fmt.Errorf("bug not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bug context data: %w", err)
@@ -381,7 +382,7 @@ func (r *BugRepository) UpdateContextData(ctx context.Context, id int64, context
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("bug not found with id %d", id)
+		return fmt.Errorf("bug not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	return nil
 }

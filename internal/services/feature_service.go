@@ -95,6 +95,9 @@ type FeatureService struct {
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
 
+	// sizeCfg is optional — nil disables size enforcement on create.
+	sizeCfg SizeEnforcementConfig
+
 	// Cascade reopen dependencies (all optional; cascade fires only when all are non-nil).
 	cascadeDB          txBeginner
 	cascadeEpicRepo    CascadeEpicRepo
@@ -169,6 +172,13 @@ func (s *FeatureService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 func (s *FeatureService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "feature" in SizeRequiredFor, CreateFeature
+// accepts nil Size silently.
+func (s *FeatureService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // SetCascadeDeps wires the optional cascade reopen dependencies for FeatureService.
@@ -862,6 +872,9 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 	}
 
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeFeature, input.Tags); err != nil {
+		return nil, err
+	}
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeFeature, input.Size); err != nil {
 		return nil, err
 	}
 

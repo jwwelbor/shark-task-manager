@@ -64,11 +64,15 @@ func (s *Service) GetWorkflow() *config.WorkflowConfig {
 // Returns:
 //   - *Service: configured for the specified level
 func (s *Service) ForLevel(level string) *Service {
+	multi := s.multiLevel
+	if multi == nil {
+		multi = &config.MultiLevelWorkflow{}
+	}
 	return &Service{
-		workflow:    s.multiLevel.GetWorkflowForLevel(level),
+		workflow:    multi.GetWorkflowForLevel(level),
 		projectRoot: s.projectRoot,
 		level:       level,
-		multiLevel:  s.multiLevel,
+		multiLevel:  multi,
 	}
 }
 
@@ -87,6 +91,8 @@ func (s *Service) GetInitialStatusString() string {
 		switch s.level {
 		case LevelEpic, LevelFeature:
 			return "draft"
+		case LevelSprint:
+			return "planning"
 		default:
 			return "todo"
 		}

@@ -112,6 +112,7 @@ Full entity-specific subcommands, analytics, and administrative tools.
 | `shark idea` | Manage ideas (create, list, get, update, delete, promote) |
 | `shark analytics [key]` | Project or entity analytics |
 | `shark progress <key>` | Detailed progress breakdown |
+| `shark sprint` | Sprint lifecycle, planning, capacity, and analytics. See [Sprint Commands](sprint-commands.md). |
 
 #### Entity Commands
 
@@ -181,6 +182,7 @@ Available on all commands:
 | [Interactive Mode](interactive-mode.md) | Interactive prompt configuration |
 | [File Paths](file-paths.md) | Custom file path organization |
 | [Rejection Reasons](rejection-reasons.md) | Task rejection workflow |
+| [Sprint Commands](sprint-commands.md) | Sprint lifecycle, planning, capacity, and reporting |
 
 ---
 

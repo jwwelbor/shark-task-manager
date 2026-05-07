@@ -163,6 +163,45 @@ func (m *Manager) Load() (*Config, error) {
 		config.TagRequiredForTypes = types
 	}
 
+	// Parse size_required_for list if present. Mirrors tag_required_for above.
+	// Without this block Manager.Load() would never populate
+	// Config.SizeRequiredForTypes even when the user had set
+	// "size_required_for" in .sharkconfig.json, silently disabling
+	// services.enforceSizeRequired.
+	if raw, ok := rawData["size_required_for"].([]interface{}); ok {
+		types := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				types = append(types, s)
+			}
+		}
+		config.SizeRequiredForTypes = types
+	}
+
+	// Parse sprint_defaults config if present (T-E19-F03-008, E19-F05, REQ-F-006,
+	// REQ-F-012, REQ-F-015). A nil SprintDefaults pointer means "not configured"
+	// — callers must nil-check before accessing fields (SprintDefaults.Capacity,
+	// etc.). Absence of the key is not an error; new sprints simply get no
+	// default capacity rows.
+	if sprintDefaultsRaw, ok := rawData["sprint_defaults"].(map[string]interface{}); ok {
+		sd := &SprintDefaultsConfig{}
+		if carryover, ok := sprintDefaultsRaw["carryover_behavior"].(string); ok {
+			sd.CarryoverBehavior = carryover
+		}
+		if autoCreate, ok := sprintDefaultsRaw["auto_create"].(bool); ok {
+			sd.AutoCreate = autoCreate
+		}
+		if capacityRaw, ok := sprintDefaultsRaw["capacity"].(map[string]interface{}); ok {
+			sd.Capacity = make(map[string]float64, len(capacityRaw))
+			for agentType, points := range capacityRaw {
+				if p, ok := points.(float64); ok {
+					sd.Capacity[agentType] = p
+				}
+			}
+		}
+		config.SprintDefaults = sd
+	}
+
 	// Parse recent config if present (E07-F17).
 	// A nil Recent pointer means "not configured — use built-in defaults."
 	// See spec.md §5.2 and REQ-F-010, REQ-F-011.
@@ -237,8 +276,85 @@ func (m *Manager) UpdateLastSyncTime(syncTime time.Time) error {
 	return nil
 }
 
-// GetActionService returns the action service for workflow queries
-// Creates service lazily on first call
+// SetSprintCapacityDefault updates sprint_defaults.capacity.<agentType> in
+// .sharkconfig.json. Creates the sprint_defaults section (and the capacity map
+// within it) if absent. Follows the same atomic write-to-temp-then-rename pattern
+// used by UpdateLastSyncTime so the config file is never left in a partial state.
+//
+// This method is the production entrypoint for `shark sprint capacity set --default`.
+// It mutates only the config file — it does NOT write to the database. Callers that
+// need to update a specific sprint's capacity row should use SprintService.SetSprintCapacity.
+func (m *Manager) SetSprintCapacityDefault(agentType string, points float64) error {
+	// Load current config if not yet loaded
+	if m.config == nil {
+		if _, err := m.Load(); err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+	}
+
+	// Get current file permissions (preserve on rewrite)
+	var filePerms os.FileMode = 0644
+	if info, err := os.Stat(m.configPath); err == nil {
+		filePerms = info.Mode().Perm()
+	}
+
+	// Ensure RawData map is initialized
+	if m.config.RawData == nil {
+		m.config.RawData = make(map[string]interface{})
+	}
+
+	// Navigate or create the sprint_defaults.capacity path in the raw map
+	sprintDefaultsRaw, _ := m.config.RawData["sprint_defaults"].(map[string]interface{})
+	if sprintDefaultsRaw == nil {
+		sprintDefaultsRaw = make(map[string]interface{})
+		m.config.RawData["sprint_defaults"] = sprintDefaultsRaw
+	}
+
+	capacityRaw, _ := sprintDefaultsRaw["capacity"].(map[string]interface{})
+	if capacityRaw == nil {
+		capacityRaw = make(map[string]interface{})
+		sprintDefaultsRaw["capacity"] = capacityRaw
+	}
+
+	// Set the value
+	capacityRaw[agentType] = points
+
+	// Mirror update into the in-memory SprintDefaultsConfig struct so subsequent
+	// reads via m.config.SprintDefaults see the new value without a reload.
+	if m.config.SprintDefaults == nil {
+		m.config.SprintDefaults = &SprintDefaultsConfig{}
+	}
+	if m.config.SprintDefaults.Capacity == nil {
+		m.config.SprintDefaults.Capacity = make(map[string]float64)
+	}
+	m.config.SprintDefaults.Capacity[agentType] = points
+
+	// Marshal raw data to JSON (preserves all unknown fields)
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(m.config.RawData); err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Atomic write: write to temp file then rename
+	tmpPath := m.configPath + ".tmp"
+	if err := os.WriteFile(tmpPath, buf.Bytes(), filePerms); err != nil {
+		return fmt.Errorf("failed to write temp config: %w", err)
+	}
+	if err := os.Rename(tmpPath, m.configPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to rename config: %w", err)
+	}
+
+	slog.Info("config.sprint_defaults_updated",
+		"agent_type", agentType,
+		"points", points,
+	)
+	return nil
+}
+
 func (m *Manager) GetActionService() (ActionService, error) {
 	if m.actionService == nil {
 		service, err := NewActionService(m.configPath)
