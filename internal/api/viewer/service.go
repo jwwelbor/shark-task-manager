@@ -16,6 +16,9 @@ type ViewerServicer interface {
 	Summary(ctx context.Context) (*services.SummaryResponse, error)
 	// Hierarchy signature changed in F06: opts carries the optional tag filter (ADR-F06-5).
 	Hierarchy(ctx context.Context, opts services.HierarchyOptions) (*services.HierarchyResponse, error)
+	SprintOverview(ctx context.Context, key string) (*services.SprintOverviewResponse, error)
+	SprintPlan(ctx context.Context, key string) (*services.SprintPlanView, error)
+	SprintReport(ctx context.Context, key string) (*services.SprintReportResponse, error)
 	History(ctx context.Context, key string) (*services.HistoryResponse, error)
 	File(ctx context.Context, key string) (*services.FileResponse, error)
 	FileByPath(ctx context.Context, filePath string) (*services.FileResponse, error)

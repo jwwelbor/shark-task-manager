@@ -47,6 +47,9 @@ func NewViewerHandler(svc ViewerServicer) *ViewerHandler {
 //	GET /api/v1/viewer/notes/{key}
 //	GET /api/v1/viewer/related-docs/{key}
 //	GET /api/v1/viewer/tags
+//	GET /api/v1/viewer/sprint/overview
+//	GET /api/v1/viewer/sprint/plan
+//	GET /api/v1/viewer/sprint/report
 func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// Normalize prefix: trim trailing slash.
 	prefix = strings.TrimRight(prefix, "/")
@@ -68,6 +71,10 @@ func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// Tag vocabulary endpoint (REQ-F-001, REQ-F-002): GET only — no mutations.
 	mux.Handle("GET "+prefix+"/tags", wrap(http.HandlerFunc(h.Tags)))
 
+	mux.Handle("GET "+prefix+"/sprint/overview", wrap(http.HandlerFunc(h.SprintOverview)))
+	mux.Handle("GET "+prefix+"/sprint/plan", wrap(http.HandlerFunc(h.SprintPlan)))
+	mux.Handle("GET "+prefix+"/sprint/report", wrap(http.HandlerFunc(h.SprintReport)))
+
 	// Allow OPTIONS preflight for all viewer routes by catching the prefix.
 	mux.Handle("OPTIONS "+prefix+"/", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// WithLocalCORS handles OPTIONS by returning 204 before reaching here.
@@ -83,6 +90,75 @@ func (h *ViewerHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("viewer summary failed", "endpoint", "summary", "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to load summary")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// SprintOverview returns the current sprint's operational bundle for the Overview subview.
+// GET /api/v1/viewer/sprint/overview?key=S024 (key is optional; empty means active sprint)
+func (h *ViewerHandler) SprintOverview(w http.ResponseWriter, r *http.Request) {
+	rawKey := r.URL.Query().Get("key")
+	key := strings.ToUpper(strings.TrimSpace(rawKey))
+	if key != "" && !keys.IsSprintKey(key) {
+		respondError(w, http.StatusBadRequest, "invalid sprint key: "+rawKey)
+		return
+	}
+
+	result, err := h.svc.SprintOverview(r.Context(), key)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "sprint not found: "+key)
+			return
+		}
+		slog.Error("viewer sprint overview failed", "endpoint", "sprint_overview", "sprint_key", key, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load sprint overview")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// SprintPlan returns the planning bundle for the Plan subview.
+// GET /api/v1/viewer/sprint/plan?key=S024 (key is optional; empty means active sprint)
+func (h *ViewerHandler) SprintPlan(w http.ResponseWriter, r *http.Request) {
+	rawKey := r.URL.Query().Get("key")
+	key := strings.ToUpper(strings.TrimSpace(rawKey))
+	if key != "" && !keys.IsSprintKey(key) {
+		respondError(w, http.StatusBadRequest, "invalid sprint key: "+rawKey)
+		return
+	}
+
+	result, err := h.svc.SprintPlan(r.Context(), key)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "sprint not found: "+key)
+			return
+		}
+		slog.Error("viewer sprint plan failed", "endpoint", "sprint_plan", "sprint_key", key, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load sprint plan")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// SprintReport returns the reporting bundle for the Report subview.
+// GET /api/v1/viewer/sprint/report?key=S024 (key is optional; empty means active sprint)
+func (h *ViewerHandler) SprintReport(w http.ResponseWriter, r *http.Request) {
+	rawKey := r.URL.Query().Get("key")
+	key := strings.ToUpper(strings.TrimSpace(rawKey))
+	if key != "" && !keys.IsSprintKey(key) {
+		respondError(w, http.StatusBadRequest, "invalid sprint key: "+rawKey)
+		return
+	}
+
+	result, err := h.svc.SprintReport(r.Context(), key)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "sprint not found: "+key)
+			return
+		}
+		slog.Error("viewer sprint report failed", "endpoint", "sprint_report", "sprint_key", key, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load sprint report")
 		return
 	}
 	respondJSON(w, http.StatusOK, result)
