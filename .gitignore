@@ -62,3 +62,5 @@ bin/shark
 code_review/
 task_reviews/
 qa_reports/
+feature_reviews/
+docs/review/
