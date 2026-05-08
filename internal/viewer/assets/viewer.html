@@ -1662,6 +1662,112 @@
     .orch-action .props-grid   { margin-top: 8px; }
     .orch-instruction          { font-family: var(--font-mono,monospace); font-size: 12px; background: var(--bg-3); padding: 8px; border-radius: var(--radius); }
 
+    /* Mutation controls for the viewer entity pane */
+    .mutation-panel {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      background: var(--bg-2);
+    }
+    .mutation-panel > summary {
+      cursor: pointer;
+      color: var(--fg-dim);
+      font-size: 12px;
+      user-select: none;
+      padding: 2px 0;
+    }
+    .mutation-panel[open] > summary { color: var(--fg); }
+    .mutation-panel-body {
+      display: grid;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .mutation-section {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      padding: 10px;
+    }
+    .mutation-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      margin-bottom: 8px;
+    }
+    .mutation-form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .mutation-field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .mutation-field-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+    }
+    .mutation-input,
+    .mutation-select,
+    .mutation-textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      color: var(--fg);
+      padding: 8px 10px;
+      font: inherit;
+    }
+    .mutation-textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+    .mutation-size-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .mutation-size-row .mutation-field {
+      flex: 1 1 160px;
+    }
+    .mutation-check {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--fg-muted);
+      user-select: none;
+    }
+    .mutation-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .mutation-transition-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .mutation-transition-buttons .open-btn {
+      border: 1px solid var(--border);
+      background: var(--bg-3);
+      color: var(--fg-muted);
+    }
+    .mutation-transition-buttons .open-btn:hover {
+      background: var(--bg-4);
+      color: var(--fg);
+    }
+
     /* ============================================================
        TAG CHIPS (E28-F06 REQ-F-016, AC-T1)
        Uses existing theming tokens — no hardcoded colors.
@@ -2162,6 +2268,172 @@ async function apiGetTags() {
   } catch {
     return [];
   }
+}
+
+async function apiPatchViewerEntity(entityType, key, payload) {
+  let url = '';
+  switch (entityType) {
+    case 'epic':
+      url = `/api/v1/viewer/epics/${encodeURIComponent(key)}`;
+      break;
+    case 'feature':
+      url = `/api/v1/viewer/features/${encodeURIComponent(key)}`;
+      break;
+    case 'task':
+      url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}`;
+      break;
+    default:
+      throw new Error('unsupported entity type');
+  }
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    let message = `PATCH failed with HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.error === 'string' && body.error) message = body.error;
+      if (body && typeof body.message === 'string' && body.message) message = body.message;
+    } catch {
+      // fall through with the status-based error
+    }
+    throw new Error(message);
+  }
+  return resp.json();
+}
+
+async function apiTransitionViewerEntity(entityType, key, payload) {
+  let url = '';
+  switch (entityType) {
+    case 'epic':
+      url = `/api/v1/viewer/epics/${encodeURIComponent(key)}/transition`;
+      break;
+    case 'feature':
+      url = `/api/v1/viewer/features/${encodeURIComponent(key)}/transition`;
+      break;
+    case 'task':
+      url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}/transition`;
+      break;
+    default:
+      throw new Error('unsupported entity type');
+  }
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    let message = `transition failed with HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.error === 'string' && body.error) message = body.error;
+      if (body && typeof body.message === 'string' && body.message) message = body.message;
+    } catch {
+      // fall through with the status-based error
+    }
+    throw new Error(message);
+  }
+  return resp.json();
+}
+
+async function apiCreateViewerNote(entityType, key, payload) {
+  let url = '';
+  switch (entityType) {
+    case 'epic':
+      url = `/api/v1/viewer/epics/${encodeURIComponent(key)}/notes`;
+      break;
+    case 'feature':
+      url = `/api/v1/viewer/features/${encodeURIComponent(key)}/notes`;
+      break;
+    case 'task':
+      url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}/notes`;
+      break;
+    default:
+      throw new Error('unsupported entity type');
+  }
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    let message = `note create failed with HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.error === 'string' && body.error) message = body.error;
+      if (body && typeof body.message === 'string' && body.message) message = body.message;
+    } catch {
+      // fall through with the status-based error
+    }
+    throw new Error(message);
+  }
+  return resp.json();
+}
+
+async function apiCreateViewerRelationship(entityType, key, payload) {
+  let url = '';
+  switch (entityType) {
+    case 'epic':
+      url = `/api/v1/viewer/epics/${encodeURIComponent(key)}/relationships`;
+      break;
+    case 'feature':
+      url = `/api/v1/viewer/features/${encodeURIComponent(key)}/relationships`;
+      break;
+    case 'task':
+      url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}/relationships`;
+      break;
+    default:
+      throw new Error('unsupported entity type');
+  }
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    let message = `relationship create failed with HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.error === 'string' && body.error) message = body.error;
+      if (body && typeof body.message === 'string' && body.message) message = body.message;
+    } catch {
+      // fall through with the status-based error
+    }
+    throw new Error(message);
+  }
+  return resp.json();
+}
+
+async function apiDeleteViewerRelationship(entityType, key, relType, toKey) {
+  let url = '';
+  switch (entityType) {
+    case 'epic':
+      url = `/api/v1/viewer/epics/${encodeURIComponent(key)}/relationships/${encodeURIComponent(relType)}/${encodeURIComponent(toKey)}`;
+      break;
+    case 'feature':
+      url = `/api/v1/viewer/features/${encodeURIComponent(key)}/relationships/${encodeURIComponent(relType)}/${encodeURIComponent(toKey)}`;
+      break;
+    case 'task':
+      url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}/relationships/${encodeURIComponent(relType)}/${encodeURIComponent(toKey)}`;
+      break;
+    default:
+      throw new Error('unsupported entity type');
+  }
+  const resp = await fetch(url, { method: 'DELETE' });
+  if (!resp.ok) {
+    let message = `relationship delete failed with HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.error === 'string' && body.error) message = body.error;
+      if (body && typeof body.message === 'string' && body.message) message = body.message;
+    } catch {
+      // fall through with the status-based error
+    }
+    throw new Error(message);
+  }
+  return resp.status;
 }
 
 /**
@@ -3939,6 +4211,485 @@ function renderPropertiesPanel(entity) {
     ? `<div class="props-grid"${accentStyle}>${rows.join('')}</div>`
     : '';
   return grid + orchHtml;
+}
+
+function mutationRouteSegment(entityType) {
+  switch (entityType) {
+    case 'epic':
+      return 'epics';
+    case 'feature':
+      return 'features';
+    case 'task':
+      return 'tasks';
+    default:
+      return '';
+  }
+}
+
+function mutationLevelMeta(entityType) {
+  return workflowMeta && workflowMeta.levels ? workflowMeta.levels[entityType] || null : null;
+}
+
+function mutationTargetsForEntity(entity) {
+  const meta = mutationLevelMeta(entity?.type || '');
+  if (!meta || !Array.isArray(meta.transitions)) return [];
+  const currentStatus = entity?.status || '';
+  const seen = new Set();
+  const targets = [];
+  for (const transition of meta.transitions) {
+    if (transition.from !== currentStatus || !transition.to || seen.has(transition.to)) continue;
+    seen.add(transition.to);
+    targets.push(transition.to);
+  }
+  return targets;
+}
+
+function mutationField(label, controlHtml) {
+  return `
+    <label class="mutation-field">
+      <span class="mutation-field-label">${escapeHtml(label)}</span>
+      ${controlHtml}
+    </label>`;
+}
+
+function mutationTextInput(name, value, attrs = '') {
+  return `<input class="mutation-input" name="${escapeHtml(name)}" value="${escapeHtml(value == null ? '' : String(value))}" ${attrs}>`;
+}
+
+function mutationNumberInput(name, value, attrs = '') {
+  return `<input class="mutation-input" type="number" name="${escapeHtml(name)}" value="${escapeHtml(value == null || value === '' ? '' : String(value))}" ${attrs}>`;
+}
+
+function mutationTextArea(name, value, attrs = '') {
+  return `<textarea class="mutation-textarea" name="${escapeHtml(name)}" ${attrs}>${escapeHtml(value == null ? '' : String(value))}</textarea>`;
+}
+
+function mutationSelect(name, value, options) {
+  const opts = (Array.isArray(options) ? options : []).map(opt => {
+    const optionValue = typeof opt === 'object' ? opt.value : opt;
+    const optionLabel = typeof opt === 'object' ? (opt.label ?? opt.value) : opt;
+    const selected = String(optionValue) === String(value) ? ' selected' : '';
+    return `<option value="${escapeHtml(String(optionValue))}"${selected}>${escapeHtml(String(optionLabel))}</option>`;
+  }).join('');
+  return `<select class="mutation-select" name="${escapeHtml(name)}">${opts}</select>`;
+}
+
+function noteTypeOptions(value) {
+  return mutationSelect('note_type', value || 'comment', [
+    { value: 'comment', label: 'Comment' },
+    { value: 'decision', label: 'Decision' },
+    { value: 'blocker', label: 'Blocker' },
+    { value: 'solution', label: 'Solution' },
+    { value: 'reference', label: 'Reference' },
+    { value: 'implementation', label: 'Implementation' },
+    { value: 'testing', label: 'Testing' },
+    { value: 'future', label: 'Future' },
+    { value: 'question', label: 'Question' },
+    { value: 'rejection', label: 'Rejection' },
+    { value: 'requirement', label: 'Requirement' },
+  ]);
+}
+
+function relationshipTypeOptions(value) {
+  return mutationSelect('relationship_type', value || 'related_to', [
+    { value: 'depends_on', label: 'Depends On' },
+    { value: 'blocks', label: 'Blocks' },
+    { value: 'related_to', label: 'Related To' },
+    { value: 'follows', label: 'Follows' },
+    { value: 'spawned_from', label: 'Spawned From' },
+    { value: 'duplicates', label: 'Duplicates' },
+    { value: 'references', label: 'References' },
+    { value: 'linked_to', label: 'Linked To' },
+  ]);
+}
+
+function renderNoteControls(entity) {
+  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return '';
+  const key = escapeHtml(entity.key || '');
+  const kind = escapeHtml(entity.type);
+  return `
+    <section class="mutation-section" id="entity-note-panel" data-entity-key="${key}" data-entity-type="${kind}">
+      <div class="mutation-section-title">Notes</div>
+      <form class="mutation-form" id="entity-note-form" data-entity-key="${key}" data-entity-type="${kind}">
+        <div class="mutation-form-grid">
+          ${mutationField('Note Type', noteTypeOptions('comment'))}
+          ${mutationField('Created By', mutationTextInput('created_by', 'viewer', 'placeholder="Optional"'))}
+          ${mutationField('Content', mutationTextArea('content', '', 'rows="4" placeholder="Write a note…" required'))}
+        </div>
+        <div class="mutation-actions">
+          <button type="submit" class="open-btn">Add note</button>
+        </div>
+      </form>
+    </section>`;
+}
+
+function renderRelationshipControls(entity) {
+  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return '';
+  const key = escapeHtml(entity.key || '');
+  const kind = escapeHtml(entity.type);
+  return `
+    <section class="mutation-section" id="entity-relationship-panel" data-entity-key="${key}" data-entity-type="${kind}">
+      <div class="mutation-section-title">Relationships</div>
+      <form class="mutation-form" id="entity-relationship-create-form" data-entity-key="${key}" data-entity-type="${kind}">
+        <div class="mutation-form-grid">
+          ${mutationField('Relationship Type', relationshipTypeOptions('related_to'))}
+          ${mutationField('Target Key', mutationTextInput('to_key', '', 'placeholder="E07-F01 or T-E07-F01-001" required'))}
+        </div>
+        <div class="mutation-actions">
+          <button type="submit" class="open-btn">Add relationship</button>
+        </div>
+      </form>
+      <form class="mutation-form" id="entity-relationship-delete-form" data-entity-key="${key}" data-entity-type="${kind}" style="margin-top:10px">
+        <div class="mutation-form-grid">
+          ${mutationField('Relationship Type', relationshipTypeOptions('depends_on'))}
+          ${mutationField('Target Key', mutationTextInput('to_key', '', 'placeholder="E07-F01 or T-E07-F01-001" required'))}
+        </div>
+        <div class="mutation-actions">
+          <button type="submit" class="open-btn">Remove relationship</button>
+        </div>
+      </form>
+    </section>`;
+}
+
+function mutationSizeControls(entity) {
+  return `
+    <div class="mutation-size-row">
+      ${mutationField('Size', mutationNumberInput('size', entity.size ?? '', 'min="1" step="1" placeholder="Optional"'))}
+      <label class="mutation-field">
+        <span class="mutation-field-label">Clear Size</span>
+        <span class="mutation-check"><input type="checkbox" name="clear_size">Set size to empty</span>
+      </label>
+    </div>`;
+}
+
+function renderMutationPatchFields(entity) {
+  const rows = [
+    mutationField('Title', mutationTextInput('title', entity.title || '', 'required')),
+    mutationField('Description', mutationTextArea('description', entity.description || '', 'rows="4" placeholder="Optional"')),
+  ];
+
+  switch (entity.type) {
+    case 'epic':
+      rows.push(mutationField('Priority', mutationSelect('priority', entity.priority || '', [
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low', label: 'Low' },
+      ])));
+      rows.push(mutationField('Business Value', mutationSelect('business_value', entity.business_value || '', [
+        { value: '', label: 'No change' },
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low', label: 'Low' },
+      ])));
+      break;
+    case 'feature':
+      rows.push(mutationField('Execution Order', mutationNumberInput('execution_order', entity.execution_order ?? '', 'min="1" step="1" placeholder="Optional"')));
+      break;
+    case 'task':
+      rows.push(mutationField('Priority', mutationNumberInput('priority', entity.priority ?? '', 'min="1" max="10" step="1" required')));
+      rows.push(mutationField('Agent Type', mutationTextInput('agent_type', entity.agent_type || '', 'placeholder="Optional"')));
+      rows.push(mutationField('Execution Order', mutationNumberInput('execution_order', entity.execution_order ?? '', 'min="1" step="1" placeholder="Optional"')));
+      break;
+  }
+
+  rows.push(mutationSizeControls(entity));
+  return rows.join('');
+}
+
+function renderMutationTransitionControls(entity) {
+  const targets = mutationTargetsForEntity(entity);
+  const buttons = targets.length
+    ? targets.map(target => `<button type="button" class="open-btn" data-target-status="${escapeHtml(target)}">${escapeHtml(target.replace(/_/g, ' '))}</button>`).join('')
+    : '<div class="content-placeholder">No valid transitions available for the current status.</div>';
+
+  return `
+    <div class="mutation-transition-buttons">${buttons}</div>
+    <div class="mutation-form-grid">
+      ${mutationField('Reason', mutationTextArea('reason', '', 'rows="3" placeholder="Optional"'))}
+      ${mutationField('Agent', mutationTextInput('agent', 'viewer', 'placeholder="viewer"'))}
+      <label class="mutation-field">
+        <span class="mutation-field-label">Force</span>
+        <span class="mutation-check"><input type="checkbox" name="force">Bypass workflow validation</span>
+      </label>
+    </div>`;
+}
+
+function renderMutationControls(entity) {
+  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return '';
+
+  const key = escapeHtml(entity.key || '');
+  const kind = escapeHtml(entity.type);
+
+  return `
+    <details class="mutation-panel" id="entity-mutation-panel" data-entity-key="${key}" data-entity-type="${kind}">
+      <summary>Edit and transition</summary>
+      <div class="mutation-panel-body">
+        ${renderNoteControls(entity)}
+        ${renderRelationshipControls(entity)}
+        <section class="mutation-section">
+          <div class="mutation-section-title">Edit Fields</div>
+          <form class="mutation-form" id="entity-mutation-patch-form" data-mutation-kind="patch" data-entity-type="${kind}" data-entity-key="${key}">
+            <div class="mutation-form-grid">
+              ${renderMutationPatchFields(entity)}
+            </div>
+            <div class="mutation-actions">
+              <button type="submit" class="open-btn">Save changes</button>
+            </div>
+          </form>
+        </section>
+        <section class="mutation-section">
+          <div class="mutation-section-title">Status Transition</div>
+          <div class="mutation-form" id="entity-mutation-transition-form" data-mutation-kind="transition" data-entity-type="${kind}" data-entity-key="${key}">
+            ${renderMutationTransitionControls(entity)}
+          </div>
+        </section>
+      </div>
+    </details>`;
+}
+
+async function refreshEntityDataAfterMutation() {
+  const tagsArg = activeTagFilter.size > 0 ? Array.from(activeTagFilter) : undefined;
+  try {
+    if (selectedKey) {
+      notesCache.delete(selectedKey);
+    }
+    const hierarchy = await apiGetHierarchy(tagsArg, showCompleted);
+    hierarchyData = hierarchy;
+    treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
+  } catch (err) {
+    showToast('Mutation saved, but the viewer could not refresh.', 'error');
+    return;
+  }
+
+  renderSidebar();
+  if (appState === 'entity_view') {
+    renderEntityView();
+  }
+}
+
+async function patchViewerEntity(entity, form) {
+  const route = mutationRouteSegment(entity.type);
+  if (!route) {
+    throw new Error('unsupported entity type');
+  }
+
+  const payload = {};
+  const title = form.elements.title?.value?.trim() || '';
+  if (!title) {
+    throw new Error('Title is required');
+  }
+  payload.title = title;
+
+  const description = form.elements.description?.value ?? '';
+  payload.description = description;
+
+  switch (entity.type) {
+    case 'epic': {
+      const priority = form.elements.priority?.value || '';
+      if (!priority) throw new Error('Priority is required');
+      payload.priority = priority;
+      const businessValue = form.elements.business_value?.value || '';
+      if (businessValue) payload.business_value = businessValue;
+      break;
+    }
+    case 'feature': {
+      const executionOrder = form.elements.execution_order?.value?.trim() || '';
+      if (executionOrder) {
+        const parsed = Number(executionOrder);
+        if (!Number.isInteger(parsed)) throw new Error('Execution order must be a whole number');
+        payload.execution_order = parsed;
+      }
+      break;
+    }
+    case 'task': {
+      const priority = form.elements.priority?.value?.trim() || '';
+      if (!priority) throw new Error('Priority is required');
+      const parsedPriority = Number(priority);
+      if (!Number.isInteger(parsedPriority)) throw new Error('Priority must be a whole number');
+      payload.priority = parsedPriority;
+
+      const agentType = form.elements.agent_type?.value?.trim() || '';
+      if (agentType) payload.agent_type = agentType;
+
+      const executionOrder = form.elements.execution_order?.value?.trim() || '';
+      if (executionOrder) {
+        const parsed = Number(executionOrder);
+        if (!Number.isInteger(parsed)) throw new Error('Execution order must be a whole number');
+        payload.execution_order = parsed;
+      }
+      break;
+    }
+  }
+
+  const clearSize = !!form.elements.clear_size?.checked;
+  if (clearSize) {
+    payload.clear_size = true;
+  } else {
+    const sizeValue = form.elements.size?.value?.trim() || '';
+    if (sizeValue) {
+      const parsedSize = Number(sizeValue);
+      if (!Number.isInteger(parsedSize)) throw new Error('Size must be a whole number');
+      payload.size = parsedSize;
+    }
+  }
+
+  const updated = await apiPatchViewerEntity(entity.type, entity.key, payload);
+  showToast(`${updated.key || entity.key} updated`);
+  await refreshEntityDataAfterMutation();
+}
+
+async function transitionViewerEntity(entity, form, targetStatus) {
+  const route = mutationRouteSegment(entity.type);
+  if (!route) {
+    throw new Error('unsupported entity type');
+  }
+  if (!targetStatus) {
+    throw new Error('target status is required');
+  }
+
+  const payload = { target_status: targetStatus };
+  const reason = form.querySelector('[name="reason"]')?.value?.trim() || '';
+  const agent = form.querySelector('[name="agent"]')?.value?.trim() || 'viewer';
+  const force = !!form.querySelector('[name="force"]')?.checked;
+  if (reason) payload.reason = reason;
+  if (agent) payload.agent = agent;
+  if (force) payload.force = true;
+
+  const result = await apiTransitionViewerEntity(entity.type, entity.key, payload);
+  showToast(`${result.entity_key || entity.key} transitioned to ${result.to_status || targetStatus}`);
+  await refreshEntityDataAfterMutation();
+}
+
+async function createViewerNote(entity, form) {
+  const noteType = form.elements.note_type?.value?.trim() || '';
+  const content = form.elements.content?.value?.trim() || '';
+  const createdBy = form.elements.created_by?.value?.trim() || '';
+  if (!noteType) {
+    throw new Error('note type is required');
+  }
+  if (!content) {
+    throw new Error('note content is required');
+  }
+
+  const payload = { note_type: noteType, content };
+  if (createdBy) {
+    payload.created_by = createdBy;
+  }
+
+  const note = await apiCreateViewerNote(entity.type, entity.key, payload);
+  notesCache.delete(entity.key);
+  showToast(`${note.note_type || noteType} added`);
+  await refreshEntityDataAfterMutation();
+}
+
+async function createViewerRelationship(entity, form) {
+  const relationshipType = form.elements.relationship_type?.value?.trim() || '';
+  const toKey = form.elements.to_key?.value?.trim() || '';
+  if (!relationshipType) {
+    throw new Error('relationship type is required');
+  }
+  if (!toKey) {
+    throw new Error('target key is required');
+  }
+
+  const relationship = await apiCreateViewerRelationship(entity.type, entity.key, {
+    relationship_type: relationshipType,
+    to_key: toKey,
+  });
+  showToast(`${relationship.relationship_type || relationshipType} added`);
+  await refreshEntityDataAfterMutation();
+}
+
+async function deleteViewerRelationship(entity, form) {
+  const relationshipType = form.elements.relationship_type?.value?.trim() || '';
+  const toKey = form.elements.to_key?.value?.trim() || '';
+  if (!relationshipType) {
+    throw new Error('relationship type is required');
+  }
+  if (!toKey) {
+    throw new Error('target key is required');
+  }
+
+  await apiDeleteViewerRelationship(entity.type, entity.key, relationshipType, toKey);
+  showToast(`${relationshipType} removed`);
+  await refreshEntityDataAfterMutation();
+}
+
+function wireMutationControls(entity) {
+  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return;
+
+  const panel = document.getElementById('entity-mutation-panel');
+  if (!panel) return;
+
+  const patchForm = panel.querySelector('#entity-mutation-patch-form');
+  if (patchForm) {
+    const clearSize = patchForm.querySelector('[name="clear_size"]');
+    const sizeInput = patchForm.querySelector('[name="size"]');
+    const syncSizeDisabledState = () => {
+      if (sizeInput) sizeInput.disabled = !!clearSize?.checked;
+    };
+    if (clearSize && sizeInput) {
+      clearSize.addEventListener('change', syncSizeDisabledState);
+      syncSizeDisabledState();
+    }
+    patchForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        await patchViewerEntity(entity, patchForm);
+      } catch (err) {
+        showToast(err?.message || 'Failed to update entity', 'error');
+      }
+    });
+  }
+
+  const noteForm = panel.querySelector('#entity-note-form');
+  if (noteForm) {
+    noteForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        await createViewerNote(entity, noteForm);
+      } catch (err) {
+        showToast(err?.message || 'Failed to add note', 'error');
+      }
+    });
+  }
+
+  const relationshipCreateForm = panel.querySelector('#entity-relationship-create-form');
+  if (relationshipCreateForm) {
+    relationshipCreateForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        await createViewerRelationship(entity, relationshipCreateForm);
+      } catch (err) {
+        showToast(err?.message || 'Failed to add relationship', 'error');
+      }
+    });
+  }
+
+  const relationshipDeleteForm = panel.querySelector('#entity-relationship-delete-form');
+  if (relationshipDeleteForm) {
+    relationshipDeleteForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        await deleteViewerRelationship(entity, relationshipDeleteForm);
+      } catch (err) {
+        showToast(err?.message || 'Failed to remove relationship', 'error');
+      }
+    });
+  }
+
+  panel.querySelectorAll('[data-target-status]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetStatus = btn.getAttribute('data-target-status') || '';
+      const transitionForm = panel.querySelector('#entity-mutation-transition-form');
+      if (!transitionForm) return;
+      try {
+        await transitionViewerEntity(entity, transitionForm, targetStatus);
+      } catch (err) {
+        showToast(err?.message || 'Failed to transition entity', 'error');
+      }
+    });
+  });
 }
 
 /**
@@ -5841,6 +6592,7 @@ function renderEntityView() {
       ${tagChipsHtml}
     </div>
     ${entity ? renderPropertiesPanel(entity) : ''}
+    ${entity ? renderMutationControls(entity) : ''}
     <div class="toggle-bar">
       ${overviewBtnHtml}
       <button class="toggle-btn${infoActive}"  id="ev-tab-info">Spec</button>
@@ -5852,6 +6604,8 @@ function renderEntityView() {
   `;
 
   content.innerHTML = html;
+
+  wireMutationControls(entity);
 
   // Wire breadcrumb segment clicks → navigateToEntity
   content.querySelectorAll('.breadcrumb-seg[data-navigate-key]').forEach(el => {

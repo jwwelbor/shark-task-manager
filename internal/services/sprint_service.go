@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -882,12 +883,14 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 
 	for _, item := range items {
 		view := &BacklogItemView{
-			EntityType: item.EntityType,
-			Key:        item.Key,
-			Title:      item.Title,
-			Status:     item.Status,
-			Priority:   item.Priority,
-			Size:       item.Size,
+			EntityType:     item.EntityType,
+			Key:            item.Key,
+			Title:          item.Title,
+			Status:         item.Status,
+			Priority:       item.Priority,
+			ExecutionOrder: item.ExecutionOrder,
+			Size:           item.Size,
+			AssignedAt:     item.AssignedAt,
 		}
 		if item.AgentType != nil {
 			view.AgentType = *item.AgentType
@@ -930,6 +933,89 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		CompletionPercent: completionPercent,
 		Groups:            groups,
 	}, nil
+}
+
+// GetNextTask returns the single next eligible item to work on from the active sprint.
+// Selection logic (matches task_helpers.selectNextTasks):
+// 1. Items with ExecutionOrder (lowest group first)
+// 2. Priority (highest first, 1=highest)
+// 3. AssignedAt (oldest first)
+//
+// Filters for items in the "todo" phase of their respective workflows.
+// If agentType is non-empty, only items for that agent are considered.
+func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
+	// 1. Find the active sprint (must be exactly one for unambiguous selection)
+	filters := &SprintListFilters{Status: "active"}
+	activeSprints, err := s.ListSprints(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active sprints: %w", err)
+	}
+	if len(activeSprints) == 0 {
+		return nil, fmt.Errorf("no active sprint found (start a sprint first)")
+	}
+	sprint := activeSprints[0]
+
+	// 2. Fetch the backlog for the active sprint
+	backlog, err := s.GetSprintBacklog(ctx, sprint.Key, BacklogOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Collect candidates that are in the "todo" phase
+	// Status category logic is already handled by GetSprintBacklog which
+	// groups by item.Status. We need to check if those statuses belong to "todo".
+	todoStatuses := s.workflowSvc.GetStatusesByPhase("todo")
+	isTodo := make(map[string]bool)
+	for _, st := range todoStatuses {
+		isTodo[st] = true
+	}
+
+	var candidates []*BacklogItemView
+	for _, group := range backlog.Groups {
+		if !isTodo[group.StatusCategory] {
+			continue
+		}
+		for _, item := range group.Items {
+			// Apply agent filter if requested
+			if agentType != "" && item.AgentType != agentType {
+				continue
+			}
+			candidates = append(candidates, item)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	// 4. Sort candidates
+	sort.Slice(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+
+		// Factor 1: ExecutionOrder (ordered before unordered)
+		if a.ExecutionOrder != nil && b.ExecutionOrder == nil {
+			return true
+		}
+		if a.ExecutionOrder == nil && b.ExecutionOrder != nil {
+			return false
+		}
+		if a.ExecutionOrder != nil && b.ExecutionOrder != nil {
+			if *a.ExecutionOrder != *b.ExecutionOrder {
+				return *a.ExecutionOrder < *b.ExecutionOrder
+			}
+		}
+
+		// Factor 2: Priority (lower number is higher priority)
+		// Use default 5 if not set (though GetSprintBacklog ensures it's set)
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+
+		// Factor 3: AssignedAt (tie-breaker: oldest first)
+		return a.AssignedAt.Before(b.AssignedAt)
+	})
+
+	return candidates[0], nil
 }
 
 // ArchiveSprint transitions a sprint to completed status.
@@ -2015,6 +2101,10 @@ func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacitie
 		OverallScore:      overall,
 		Factors:           factors,
 		UnsizedEntities:   unsized,
+		OversizedEntities: oversized,
+	}
+}
+	UnsizedEntities:   unsized,
 		OversizedEntities: oversized,
 	}
 }

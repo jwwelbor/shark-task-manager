@@ -12,7 +12,7 @@ Sprints are first-class planning containers in Shark. The sprint command family 
 - manage per-sprint capacity and team defaults
 - review sprint velocity, burndown, and summary reports
 
-All sprint subcommands support the global `--json` flag and `--field` for extracting a single JSON field.
+See the [Sizing Guide](sizing.md) for detailed benchmarks on estimating work for AI agents vs. humans.
 
 ## Quick Reference
 
@@ -499,3 +499,4 @@ shark sprint summary S024 --json
 - [Workflow Configuration](workflow-configuration.md)
 - [Configuration](configuration.md)
 - [Progress and Analytics Commands](progress-analytics.md)
+mmands](progress-analytics.md)

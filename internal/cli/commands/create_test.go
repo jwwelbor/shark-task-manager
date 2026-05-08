@@ -174,6 +174,44 @@ func TestCreateTaskHasExpectedFlags(t *testing.T) {
 	}
 }
 
+// TestCreateUnifiedSubcommands_SizeFlagRegistered verifies --size is registered on all unified create subcommands.
+func TestCreateUnifiedSubcommands_SizeFlagRegistered(t *testing.T) {
+	createCmd, _, err := cli.RootCmd.Find([]string{"create"})
+	if err != nil {
+		t.Fatalf("create command not found: %v", err)
+	}
+	if createCmd == nil {
+		t.Fatal("create command not found")
+	}
+
+	subcommandNames := []string{"epic", "feature", "task", "bug", "change"}
+	for _, name := range subcommandNames {
+		t.Run(name, func(t *testing.T) {
+			var sub *cobra.Command
+			for _, c := range createCmd.Commands() {
+				if c.Name() == name {
+					sub = c
+					break
+				}
+			}
+			if sub == nil {
+				t.Fatalf("create %s subcommand not found", name)
+			}
+			flag := sub.Flags().Lookup("size")
+			if flag == nil {
+				t.Errorf("--size flag not registered on 'shark create %s' (B019)", name)
+				return
+			}
+			if flag.DefValue != "" {
+				t.Errorf("'shark create %s' --size: expected default \"\", got %q", name, flag.DefValue)
+			}
+			if flag.Value.Type() != "string" {
+				t.Errorf("'shark create %s' --size: expected string type, got %s", name, flag.Value.Type())
+			}
+		})
+	}
+}
+
 // TestCreateSubcommandsHaveCorrectArgsValidation verifies argument requirements
 func TestCreateSubcommandsHaveCorrectArgsValidation(t *testing.T) {
 	createCmd, _, err := cli.RootCmd.Find([]string{"create"})

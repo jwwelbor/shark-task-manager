@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	viewerapi "github.com/jwwelbor/shark-task-manager/internal/api/viewer"
 	"github.com/jwwelbor/shark-task-manager/internal/auth/maintainer"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -309,6 +310,7 @@ type ServiceContainer struct {
 	ContextService    *services.ContextService
 	ResumeService     *services.ResumeService
 	ViewerService     *services.ViewerService
+	MutationService   *viewerapi.MutationService
 	EditSvc           *services.EditService
 	// TagService is constructed once and injected into every entity service
 	// for tag attach/detach and tag_required_for enforcement.
@@ -476,6 +478,16 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	// REQ-F-014: MaintainerGate is NOT passed to ViewerService (defense-in-depth).
 	viewerService.WithTagService(tagSvc)
 
+	// Step 5c: Construct MutationService for the viewer mutation API.
+	mutationService := viewerapi.NewMutationService(
+		epicService,
+		featureService,
+		taskService,
+		noteService,
+		entityRelSvc,
+		viewerapi.NewRegistryEntityResolver(registry),
+	)
+
 	// Step 6: Construct EditService for the file-write endpoint.
 	editService := services.NewEditService(projectRoot)
 
@@ -495,6 +507,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		ContextService:    contextService,
 		ResumeService:     resumeService,
 		ViewerService:     viewerService,
+		MutationService:   mutationService,
 		EditSvc:           editService,
 		TagService:        tagSvc,
 		SearchService:     searchService,
