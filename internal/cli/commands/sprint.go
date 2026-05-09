@@ -322,6 +322,9 @@ var sprintAddCmd = &cobra.Command{
 	Short: "Add an entity (or bulk entities) to a sprint",
 	Long: `Assign one entity or a group of entities to a sprint.
 
+Supported entity types: task, bug, change-card (C### or CC-###), tech-debt (TD-###).
+Features cannot be added directly — add their child tasks individually or use --bulk=<feature-key>.
+
 Single-entity add (positional):
   shark sprint add S001 E07-F01-001
 
@@ -940,7 +943,8 @@ func runSprintSummary(cmd *cobra.Command, args []string) error {
 	svc := getSprintAnalyticsService()
 	result, err := svc.GetSummary(cmd.Context(), sprintKey, detailed)
 	if err != nil {
-		return err
+		cli.Error(err.Error())
+		return nil
 	}
 
 	// Step 3: Format output
