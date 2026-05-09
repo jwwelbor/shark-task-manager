@@ -805,14 +805,16 @@ type BacklogGroup struct {
 
 // BacklogItemView is the CLI-friendly projection of a BacklogItem.
 type BacklogItemView struct {
-	EntityType  string `json:"entity_type"`
-	Key         string `json:"key"`
-	Title       string `json:"title"`
-	Status      string `json:"status"`
-	AgentType   string `json:"agent_type,omitempty"`
-	Priority    int    `json:"priority,omitempty"`
-	Size        *int   `json:"size,omitempty"`
-	DaysBlocked int    `json:"days_blocked,omitempty"` // For --blocked view
+	EntityType     string    `json:"entity_type"`
+	Key            string    `json:"key"`
+	Title          string    `json:"title"`
+	Status         string    `json:"status"`
+	AgentType      string    `json:"agent_type,omitempty"`
+	Priority       int       `json:"priority,omitempty"`
+	ExecutionOrder *int      `json:"execution_order,omitempty"`
+	Size           *int      `json:"size,omitempty"`
+	AssignedAt     time.Time `json:"assigned_at,omitempty"`
+	DaysBlocked    int       `json:"days_blocked,omitempty"` // For --blocked view
 }
 
 // validBacklogEntityTypes is the allowlist of entity types accepted by GetSprintBacklog's
@@ -961,18 +963,14 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 		return nil, err
 	}
 
-	// 3. Collect candidates that are in the "todo" phase
-	// Status category logic is already handled by GetSprintBacklog which
-	// groups by item.Status. We need to check if those statuses belong to "todo".
-	todoStatuses := s.workflowSvc.GetStatusesByPhase("todo")
-	isTodo := make(map[string]bool)
-	for _, st := range todoStatuses {
-		isTodo[st] = true
-	}
+	// 3. Collect candidates in the initial (queued) task status.
+	// ForLevel(LevelTask) reads the starting status from the task workflow config
+	// so custom workflows work without any hardcoding here.
+	queuedStatus := s.workflowSvc.ForLevel(workflow.LevelTask).GetInitialStatusString()
 
 	var candidates []*BacklogItemView
 	for _, group := range backlog.Groups {
-		if !isTodo[group.StatusCategory] {
+		if group.StatusCategory != queuedStatus {
 			continue
 		}
 		for _, item := range group.Items {
@@ -1005,13 +1003,12 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 			}
 		}
 
-		// Factor 2: Priority (lower number is higher priority)
-		// Use default 5 if not set (though GetSprintBacklog ensures it's set)
+		// Factor 2: Priority
 		if a.Priority != b.Priority {
 			return a.Priority < b.Priority
 		}
 
-		// Factor 3: AssignedAt (tie-breaker: oldest first)
+		// Factor 3: AssignedAt (oldest first)
 		return a.AssignedAt.Before(b.AssignedAt)
 	})
 
@@ -2101,10 +2098,6 @@ func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacitie
 		OverallScore:      overall,
 		Factors:           factors,
 		UnsizedEntities:   unsized,
-		OversizedEntities: oversized,
-	}
-}
-	UnsizedEntities:   unsized,
 		OversizedEntities: oversized,
 	}
 }

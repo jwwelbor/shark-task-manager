@@ -300,18 +300,19 @@ func (r *SprintRepository) List(ctx context.Context, filters *SprintListFilters)
 // backward compatibility (EntityKey was introduced in T-E19-F03; Key was added
 // in T-E19-F05 to match the service-layer interface spec).
 type BacklogItem struct {
-	AssignmentID int64     `json:"assignment_id,omitempty"`
-	SprintID     int64     `json:"sprint_id,omitempty"`
-	EntityType   string    `json:"entity_type"`
-	EntityID     int64     `json:"entity_id"`
-	EntityKey    string    `json:"entity_key"`
-	Key          string    `json:"key"` // alias for EntityKey; populated from the same DB column
-	Title        string    `json:"title"`
-	Status       string    `json:"status,omitempty"`
-	AgentType    *string   `json:"agent_type,omitempty"`
-	Priority     int       `json:"priority,omitempty"`
-	Size         *int      `json:"size,omitempty"`
-	AssignedAt   time.Time `json:"assigned_at,omitempty"`
+	AssignmentID   int64     `json:"assignment_id,omitempty"`
+	SprintID       int64     `json:"sprint_id,omitempty"`
+	EntityType     string    `json:"entity_type"`
+	EntityID       int64     `json:"entity_id"`
+	EntityKey      string    `json:"entity_key"`
+	Key            string    `json:"key"` // alias for EntityKey; populated from the same DB column
+	Title          string    `json:"title"`
+	Status         string    `json:"status,omitempty"`
+	AgentType      *string   `json:"agent_type,omitempty"`
+	Priority       int       `json:"priority,omitempty"`
+	ExecutionOrder *int      `json:"execution_order,omitempty"`
+	Size           *int      `json:"size,omitempty"`
+	AssignedAt     time.Time `json:"assigned_at,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

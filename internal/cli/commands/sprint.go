@@ -41,6 +41,7 @@ type sprintAssignmentServicer interface {
 	RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error
 	GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
 	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error)
 }
 
 // sprintPlanningServicer defines the planning/readiness view commands.
@@ -453,6 +454,26 @@ Examples:
 	RunE: runSprintCapacityShow,
 }
 
+// sprintNextCmd retrieves the next task to work on from the active sprint.
+var sprintNextCmd = &cobra.Command{
+	Use:   "next",
+	Short: "Get the next task from the active sprint",
+	Long: `Identify and display the next highest-priority task in the active sprint.
+Optionally filter by agent type.
+
+Selection logic:
+1. Explicit Execution Order (lowest first)
+2. Priority (highest first, 1=highest)
+3. Date Assigned (oldest first)
+
+Examples:
+  shark sprint next
+  shark sprint next --agent=backend
+  shark sprint next --json`,
+	Args: cobra.NoArgs,
+	RunE: runSprintNext,
+}
+
 // Command flag variables
 var (
 	sprintStartDate string
@@ -481,6 +502,7 @@ func init() {
 	sprintCmd.AddCommand(sprintAddCmd)
 	sprintCmd.AddCommand(sprintRemoveCmd)
 	sprintCmd.AddCommand(sprintBacklogCmd)
+	sprintCmd.AddCommand(sprintNextCmd)
 	// F05 commands
 	sprintCmd.AddCommand(sprintPlanCmd)
 	sprintCmd.AddCommand(sprintReadinessCmd)
@@ -532,6 +554,9 @@ func init() {
 	sprintCapacitySetCmd.Flags().Bool("default", false, "Write to sprint_defaults in .sharkconfig.json instead of per-sprint DB row")
 	_ = sprintCapacitySetCmd.MarkFlagRequired("agent")
 	_ = sprintCapacitySetCmd.MarkFlagRequired("points")
+
+	// Next flags
+	sprintNextCmd.Flags().String("agent", "", "Filter by agent type (e.g., backend, frontend)")
 }
 
 // runSprintCreate handles the `shark sprint create` command.
