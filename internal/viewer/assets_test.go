@@ -62,6 +62,62 @@ func TestViewerHTMLContainsRequiredClasses(t *testing.T) {
 	}
 }
 
+// TestViewerHTMLMutationControls verifies that the embedded viewer renders the
+// entity mutation disclosure and references the viewer-only mutation routes.
+// TC-F01-007.
+func TestViewerHTMLMutationControls(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"renderMutationControls(entity)",
+		"renderNoteControls(entity)",
+		"renderRelationshipControls(entity)",
+		"entity-mutation-panel",
+		"entity-note-panel",
+		"entity-relationship-panel",
+		"entity-mutation-patch-form",
+		"entity-mutation-transition-form",
+		"mutation-transition-buttons",
+		"apiCreateViewerNote",
+		"apiCreateViewerRelationship",
+		"apiDeleteViewerRelationship",
+		"api/v1/viewer/epics/",
+		"api/v1/viewer/features/",
+		"api/v1/viewer/tasks/",
+		"target_status",
+		"business_value",
+		"execution_order",
+		"agent_type",
+		"clear_size",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing mutation control marker: %q", marker)
+		}
+	}
+
+	funcStart := strings.Index(content, "function renderMutationControls(entity)")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing renderMutationControls(entity) function")
+	}
+	funcBody := content[funcStart:]
+	funcEnd := strings.Index(funcBody[1:], "\nfunction ")
+	if funcEnd > 0 {
+		funcBody = funcBody[:funcEnd+1]
+	}
+
+	for _, marker := range []string{"case 'epic'", "case 'feature'", "case 'task'"} {
+		if !strings.Contains(funcBody, marker) {
+			t.Errorf("viewer.html renderMutationControls missing scoped case marker: %q", marker)
+		}
+	}
+	for _, marker := range []string{"case 'bug'", "case 'change_card'", "case 'idea'"} {
+		if strings.Contains(funcBody, marker) {
+			t.Errorf("viewer.html renderMutationControls must not expose flat entity type marker: %q", marker)
+		}
+	}
+}
+
 // TestViewerHTMLIsComplete verifies that viewer.html is valid UTF-8, contains
 // required closing tags, and meets the minimum size threshold (~30KB).
 // TC-SMOKE-03.

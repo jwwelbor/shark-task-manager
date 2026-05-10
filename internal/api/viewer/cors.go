@@ -30,7 +30,7 @@ func WithLocalCORS(next http.Handler) http.Handler {
 				// Handle preflight request from a local origin.
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Add("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, POST, PUT, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
@@ -53,7 +53,7 @@ func WithLocalCORS(next http.Handler) http.Handler {
 			// local-origin requests, not just OPTIONS preflights.
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Add("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
 

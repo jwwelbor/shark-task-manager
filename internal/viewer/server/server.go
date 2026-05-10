@@ -131,6 +131,10 @@ func StartServer(ctx context.Context, opts Options) error {
 	// Read-only viewer dashboard routes under /api/v1/viewer/ (with CORS).
 	viewer.NewViewerHandler(svcs.ViewerService).RegisterRoutes(mux, "/api/v1/viewer")
 
+	// Viewer mutation routes under /api/v1/viewer/ (with CORS).
+	mutationHandler := viewer.NewMutationHandler(svcs.MutationService)
+	mutationHandler.RegisterRoutes(mux, "/api/v1/viewer")
+
 	// Edit routes (file write) under /api/v1/edit/ (with CORS).
 	editHandler := viewer.NewEditHandler(svcs.EditSvc)
 	mux.Handle("PUT /api/v1/edit/file", viewer.WithLocalCORS(http.HandlerFunc(editHandler.PutFile)))

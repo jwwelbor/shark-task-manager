@@ -186,8 +186,8 @@ func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Contex
 		if err := rows.Scan(
 			&e.EntityType,
 			&e.EntityID,
-			&e.AssignedAt,
-			&e.RemovedAt,
+			flexTime{&e.AssignedAt},
+			flexNullTime{&e.RemovedAt},
 			&e.Size,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan assigned entity: %w", err)

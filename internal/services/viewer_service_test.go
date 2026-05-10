@@ -4688,15 +4688,11 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 		},
 	}
 
+	// Summary is NOT expected for active sprints; GetSummary only applies to completed/archived.
 	analyticsSvc := &mockViewerSprintAnalyticsService{
 		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
-			if sprintKey != active.Key {
-				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
-			}
-			if detailed {
-				t.Fatal("expected overview summary to request non-detailed summary")
-			}
-			return &SprintSummaryResult{SprintKey: sprintKey, SprintName: active.Name, VelocityThisSprint: 34}, nil
+			t.Fatal("GetSummary must not be called for an active sprint")
+			return nil, nil
 		},
 	}
 
@@ -4722,8 +4718,58 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 	if len(resp.Capacity) != 1 {
 		t.Fatalf("expected 1 capacity row, got %d", len(resp.Capacity))
 	}
+	if resp.Summary != nil {
+		t.Fatalf("expected no summary for active sprint, got %#v", resp.Summary)
+	}
+}
+
+func TestViewerService_SprintOverview_CompletedSprintIncludesSummary(t *testing.T) {
+	completed := &models.Sprint{
+		ID:     23,
+		Key:    "S023",
+		Name:   "Previous Sprint",
+		Status: "completed",
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	sprintSvc := &mockViewerSprintService{
+		GetSprintFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return completed, nil
+		},
+		GetSprintBacklogFunc: func(_ context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error) {
+			return &SprintBacklog{SprintKey: sprintKey, SprintName: completed.Name}, nil
+		},
+		GetSprintReadinessFunc: func(_ context.Context, sprintKey string) (*SprintReadiness, error) {
+			return &SprintReadiness{OverallScore: 100}, nil
+		},
+		GetSprintCapacityFunc: func(_ context.Context, sprintKey string) ([]CapacityRow, error) {
+			return nil, nil
+		},
+	}
+
+	analyticsSvc := &mockViewerSprintAnalyticsService{
+		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+			return &SprintSummaryResult{SprintKey: sprintKey, SprintName: completed.Name, VelocityThisSprint: 34}, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+	svc.WithSprintAnalyticsService(analyticsSvc)
+
+	resp, err := svc.SprintOverview(context.Background(), completed.Key)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if resp.Summary == nil || resp.Summary.VelocityThisSprint != 34 {
-		t.Fatalf("expected overview summary, got %#v", resp.Summary)
+		t.Fatalf("expected summary for completed sprint, got %#v", resp.Summary)
 	}
 }
 

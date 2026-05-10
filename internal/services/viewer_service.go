@@ -658,14 +658,17 @@ func (s *ViewerService) resolveSprint(ctx context.Context, key string) (*models.
 		return sprintEntity, nil
 	}
 
-	sprints, err := s.sprintSvc.ListSprints(ctx, &SprintListFilters{Status: "active"})
-	if err != nil {
-		return nil, fmt.Errorf("viewer sprint: failed to list active sprint: %w", err)
+	// Prefer an active sprint; fall back to planning if none exists.
+	for _, status := range []string{"active", "planning"} {
+		sprints, err := s.sprintSvc.ListSprints(ctx, &SprintListFilters{Status: status})
+		if err != nil {
+			return nil, fmt.Errorf("viewer sprint: failed to list %s sprint: %w", status, err)
+		}
+		if len(sprints) > 0 {
+			return sprints[0], nil
+		}
 	}
-	if len(sprints) == 0 {
-		return nil, fmt.Errorf("sprint not found: no active sprint found")
-	}
-	return sprints[0], nil
+	return nil, fmt.Errorf("sprint not found: no active or planning sprint found")
 }
 
 // SprintOverview returns the current sprint's operational bundle for the Overview subview.
@@ -692,11 +695,15 @@ func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*Sprint
 		return nil, fmt.Errorf("viewer sprint overview: failed to load capacity: %w", err)
 	}
 
+	// Summary is only available for completed/archived sprints; skip it for others.
 	var summary *SprintSummaryResult
 	if s.sprintAnalyticsSvc != nil {
-		summary, err = s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
-		if err != nil {
-			return nil, fmt.Errorf("viewer sprint overview: failed to load summary: %w", err)
+		st := string(sprintEntity.Status)
+		if st == "completed" || st == "archived" {
+			summary, err = s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
+			if err != nil {
+				return nil, fmt.Errorf("viewer sprint overview: failed to load summary: %w", err)
+			}
 		}
 	}
 

@@ -170,6 +170,7 @@ shark create epic <title> [flags]
 | `--priority <level>` | Priority: `low`, `medium`, `high` (default: `medium`) |
 | `--status <status>` | Status: `draft`, `active`, `completed`, `archived` (default: `draft`) |
 | `--business-value <level>` | Business value: `low`, `medium`, `high` |
+| `--size <size>` | Size estimate: `XS` to `XXL` or `1` to `13`. See [Sizing Guide](sizing.md). |
 | `--file <path>` | Custom file path (e.g., `docs/custom/epic.md`) |
 | `--force` | Force reassignment if file already claimed by another entity |
 
@@ -190,6 +191,7 @@ shark create feature <title> --epic=EPIC [flags]
 | `--key <key>` | Custom key for the feature (e.g., `auth`, `F00`). Auto-generates next `F##` if not provided |
 | `--description <text>` | Feature description |
 | `--status <status>` | Status: `draft`, `active`, `completed`, `archived` (default: `draft`) |
+| `--size <size>` | Size estimate: `XS` to `XXL` or `1` to `13`. See [Sizing Guide](sizing.md). |
 | `--order <int>` | Execution order (lower runs first) |
 | `--file <path>` | Custom file path (e.g., `docs/custom/feature.md`) |
 | `--force` | Force reassignment if file already claimed by another entity |
@@ -213,6 +215,7 @@ shark create task <title> --epic=EPIC --feature=FEATURE [flags]
 | `--agent <type>` | `-a` | Agent type (e.g., `backend`, `frontend`, `qa`) |
 | `--priority <int>` | `-p` | Priority, 1=highest, 10=lowest (default: `5`) |
 | `--description <text>` | `-d` | Detailed description |
+| `--size <size>` | | Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or `1`, `2`, `3`, `5`, `8`, `13` |
 | `--order <int>` | | Execution order (lower runs first) |
 | `--depends-on <keys>` | | Comma-separated dependency task keys |
 | `--key <key>` | | Custom key for the task |
@@ -225,15 +228,15 @@ shark create task <title> --epic=EPIC --feature=FEATURE [flags]
 ```bash
 # Create an epic
 shark create epic "Q1 2025 Roadmap"
-shark create epic "Bug Fixes" --key=bugs --priority=high
+shark create epic "Bug Fixes" --key=bugs --priority=high --size=L
 
 # Create a feature (positional and flag syntax)
-shark create feature E07 "User Authentication"
+shark create feature E07 "User Authentication" --size=M
 shark create feature "User Authentication" --epic=E07
 shark create feature E07 "Custom Feature" --file="docs/custom/feature.md"
 
 # Create a task (3-arg, 2-arg, and flag syntax)
-shark create task E07 F01 "Implement login" --agent=backend --priority=5
+shark create task E07 F01 "Implement login" --agent=backend --priority=5 --size=S
 shark create task E07-F01 "Implement login"
 shark create task "Implement login" --epic=E07 --feature=F01
 
@@ -363,7 +366,9 @@ All core commands support the following global flags:
 
 - [Key Formats](key-formats.md) - Detailed key format reference and dual key support
 - [Global Flags](global-flags.md) - Complete global flags reference
+- [Sizing Guide](sizing.md) - Guidelines for AI and human development effort estimation
 - [JSON Output](json-output.md) - JSON response structures
+
 - [Task Commands](task-commands.md) - Task lifecycle commands (start, complete, approve, block)
 - [Epic Commands](epic-commands.md) - Noun-first epic commands
 - [Feature Commands](feature-commands.md) - Noun-first feature commands
