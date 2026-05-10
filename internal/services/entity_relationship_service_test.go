@@ -174,9 +174,9 @@ func TestCreateRelationship_NoCycleCheckForNonCyclicType(t *testing.T) {
 			rel.ID = 1
 			return nil
 		},
-		// GetOutgoing should NOT be called for non-cyclic type
+		// GetOutgoing is always called for duplicate detection, but non-cyclic
+		// types still skip the DFS cycle walk.
 		GetOutgoingFunc: func(ctx context.Context, entityType models.EntityType, entityID int64, relTypes []models.EntityRelationshipType) ([]*models.EntityRelationship, error) {
-			t.Error("GetOutgoing should not be called for non-cyclic relationship type")
 			return nil, nil
 		},
 	}

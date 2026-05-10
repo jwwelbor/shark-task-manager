@@ -632,7 +632,7 @@ func GetSprintAnalyticsService() *services.SprintAnalyticsService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	analyticsRepo := sprintrepo.NewSprintAnalyticsRepository(db)
+	analyticsRepo := &sprintAnalyticsAdapter{repo: sprintrepo.NewSprintAnalyticsRepository(db)}
 	sprintRepo := repository.NewSprintRepository(db)
 	return services.NewSprintAnalyticsService(analyticsRepo, sprintRepo)
 }

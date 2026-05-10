@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // defaultChangeCardTerminalStatuses is the fallback terminal-status list used when
@@ -109,7 +110,7 @@ func (r *ChangeCardRepository) GetByKey(ctx context.Context, key string) (*model
 		}
 	}
 
-	return nil, fmt.Errorf("change-card not found: %s", key)
+	return nil, fmt.Errorf("change-card not found: %s: %w", key, repoerr.ErrNotFound)
 }
 
 // getByExactKey retrieves a change-card by exact key match.
@@ -118,7 +119,7 @@ func (r *ChangeCardRepository) getByExactKey(ctx context.Context, key string) (*
 
 	card, err := scanCard(r.db.QueryRowContext(ctx, query, key))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("change-card not found: %s", key)
+		return nil, fmt.Errorf("change-card not found: %s: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get change-card: %w", err)
@@ -133,7 +134,7 @@ func (r *ChangeCardRepository) GetByID(ctx context.Context, id int64) (*models.C
 
 	card, err := scanCard(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("change-card not found with id %d", id)
+		return nil, fmt.Errorf("change-card not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get change-card: %w", err)
@@ -172,7 +173,7 @@ func (r *ChangeCardRepository) Update(ctx context.Context, card *models.ChangeCa
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("change-card not found with id %d", card.ID)
+		return fmt.Errorf("change-card not found with id %d: %w", card.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -193,7 +194,7 @@ func (r *ChangeCardRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("change-card not found with id %d", id)
+		return fmt.Errorf("change-card not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -214,7 +215,7 @@ func (r *ChangeCardRepository) UpdateStatus(ctx context.Context, id int64, statu
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("change-card not found with id %d", id)
+		return fmt.Errorf("change-card not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -235,7 +236,7 @@ func (r *ChangeCardRepository) UpdateContextData(ctx context.Context, id int64, 
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("change-card not found with id %d", id)
+		return fmt.Errorf("change-card not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -419,7 +420,7 @@ func (r *ChangeCardRepository) GetContextData(ctx context.Context, id int64) (*s
 	var contextData *string
 	err := r.db.QueryRowContext(ctx, query, id).Scan(&contextData)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("change-card not found with id %d", id)
+		return nil, fmt.Errorf("change-card not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get change-card context data: %w", err)

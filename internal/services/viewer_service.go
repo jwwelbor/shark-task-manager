@@ -435,6 +435,50 @@ type WorkflowMetaResponse struct {
 	Levels map[string]*WorkflowLevelMeta `json:"levels"`
 }
 
+// SprintOverviewResponse is the viewer-facing bundle for the Sprint Overview subview.
+// It composes the current sprint identity, backlog state, readiness, capacity, and
+// optional analytics summary into one read-only payload.
+type SprintOverviewResponse struct {
+	Sprint    *models.Sprint       `json:"sprint"`
+	Backlog   *SprintBacklog       `json:"backlog"`
+	Readiness *SprintReadiness     `json:"readiness"`
+	Capacity  []CapacityRow        `json:"capacity"`
+	Summary   *SprintSummaryResult `json:"summary,omitempty"`
+}
+
+// SprintReportResponse is the viewer-facing bundle for the Sprint Report subview.
+// It composes burndown, velocity, and summary analytics for the current sprint.
+type SprintReportResponse struct {
+	Sprint   *models.Sprint       `json:"sprint"`
+	Burndown *BurndownResult      `json:"burndown"`
+	Velocity *VelocityResult      `json:"velocity"`
+	Summary  *SprintSummaryResult `json:"summary"`
+}
+
+// ViewerSprintService is the narrow viewer-facing contract needed to compose sprint
+// overview and planning data without importing the full CLI/service stack into tests.
+type ViewerSprintService interface {
+	ListSprints(ctx context.Context, filters *SprintListFilters) ([]*models.Sprint, error)
+	GetSprint(ctx context.Context, key string) (*models.Sprint, error)
+	GetSprintBacklog(ctx context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error)
+	GetSprintReadiness(ctx context.Context, key string) (*SprintReadiness, error)
+	GetSprintCapacity(ctx context.Context, key string) ([]CapacityRow, error)
+	PlanSprint(ctx context.Context, key string) (*SprintPlanView, error)
+}
+
+// ViewerSprintAnalyticsService is the narrow viewer-facing contract needed to compose
+// sprint reporting data without importing the full CLI/service stack into tests.
+type ViewerSprintAnalyticsService interface {
+	GetBurndown(ctx context.Context, sprintKey string) (*BurndownResult, error)
+	GetVelocity(ctx context.Context, n int) (*VelocityResult, error)
+	GetSummary(ctx context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error)
+}
+
+var (
+	_ ViewerSprintService          = (*SprintService)(nil)
+	_ ViewerSprintAnalyticsService = (*SprintAnalyticsService)(nil)
+)
+
 // ----- ViewerService -----
 
 // ViewerService provides read-only dashboard aggregation for the viewer API.
@@ -456,6 +500,8 @@ type ViewerService struct {
 	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
 	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
 	tagSvc             TagReader                         // optional; used by Tags, Hierarchy, FeatureTasks (REQ-F-015)
+	sprintSvc          ViewerSprintService               // optional; used by Sprint Overview and Plan
+	sprintAnalyticsSvc ViewerSprintAnalyticsService      // optional; used by Sprint Report
 	entityRelSvc       *EntityRelationshipService        // optional; retained for History/RelatedDocs lookups
 	entityRegistry     *EntityRegistry                   // optional; retained for History/RelatedDocs lookups
 	workflowSvc        *workflow.Service
@@ -550,6 +596,20 @@ func (s *ViewerService) WithTagService(r TagReader) *ViewerService {
 	return s
 }
 
+// WithSprintService wires the optional sprint service used by Sprint Overview and Plan.
+// Call after NewViewerService; safe to skip if Sprint mode is not exposed.
+func (s *ViewerService) WithSprintService(r ViewerSprintService) *ViewerService {
+	s.sprintSvc = r
+	return s
+}
+
+// WithSprintAnalyticsService wires the optional sprint analytics service used by Sprint Report.
+// Call after NewViewerService; safe to skip if Sprint mode is not exposed.
+func (s *ViewerService) WithSprintAnalyticsService(r ViewerSprintAnalyticsService) *ViewerService {
+	s.sprintAnalyticsSvc = r
+	return s
+}
+
 // Tags returns the full tag vocabulary for the viewer filter UI.
 // The method delegates to TagReader.ListTags and reshapes each *models.Tag into a
 // narrow TagDTO. Results are sorted alphabetically by name ascending.
@@ -582,6 +642,127 @@ func (s *ViewerService) Tags(ctx context.Context) (*TagsResponse, error) {
 	})
 	span.SetAttributes(attribute.Int("tag.count", len(out)))
 	return &TagsResponse{Tags: out}, nil
+}
+
+func (s *ViewerService) resolveSprint(ctx context.Context, key string) (*models.Sprint, error) {
+	if s.sprintSvc == nil {
+		return nil, fmt.Errorf("viewer sprint: sprint service not wired")
+	}
+
+	normalized := strings.ToUpper(strings.TrimSpace(key))
+	if normalized != "" {
+		sprintEntity, err := s.sprintSvc.GetSprint(ctx, normalized)
+		if err != nil {
+			return nil, fmt.Errorf("viewer sprint: failed to load sprint %q: %w", normalized, err)
+		}
+		return sprintEntity, nil
+	}
+
+	// Prefer an active sprint; fall back to planning if none exists.
+	for _, status := range []string{"active", "planning"} {
+		sprints, err := s.sprintSvc.ListSprints(ctx, &SprintListFilters{Status: status})
+		if err != nil {
+			return nil, fmt.Errorf("viewer sprint: failed to list %s sprint: %w", status, err)
+		}
+		if len(sprints) > 0 {
+			return sprints[0], nil
+		}
+	}
+	return nil, fmt.Errorf("sprint not found: no active or planning sprint found")
+}
+
+// SprintOverview returns the current sprint's operational bundle for the Overview subview.
+// It composes the sprint identity, backlog/status buckets, readiness, capacity, and optional
+// analytics summary from the existing sprint services.
+func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*SprintOverviewResponse, error) {
+	sprintEntity, err := s.resolveSprint(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	backlog, err := s.sprintSvc.GetSprintBacklog(ctx, sprintEntity.Key, BacklogOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint overview: failed to load backlog: %w", err)
+	}
+
+	readiness, err := s.sprintSvc.GetSprintReadiness(ctx, sprintEntity.Key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint overview: failed to load readiness: %w", err)
+	}
+
+	capacity, err := s.sprintSvc.GetSprintCapacity(ctx, sprintEntity.Key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint overview: failed to load capacity: %w", err)
+	}
+
+	// Summary is only available for completed/archived sprints; skip it for others.
+	var summary *SprintSummaryResult
+	if s.sprintAnalyticsSvc != nil {
+		st := string(sprintEntity.Status)
+		if st == "completed" || st == "archived" {
+			summary, err = s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
+			if err != nil {
+				return nil, fmt.Errorf("viewer sprint overview: failed to load summary: %w", err)
+			}
+		}
+	}
+
+	return &SprintOverviewResponse{
+		Sprint:    sprintEntity,
+		Backlog:   backlog,
+		Readiness: readiness,
+		Capacity:  capacity,
+		Summary:   summary,
+	}, nil
+}
+
+// SprintPlan returns the planning bundle for the Plan subview.
+// It delegates to the existing SprintService.PlanSprint composition.
+func (s *ViewerService) SprintPlan(ctx context.Context, key string) (*SprintPlanView, error) {
+	sprintEntity, err := s.resolveSprint(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	view, err := s.sprintSvc.PlanSprint(ctx, sprintEntity.Key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint plan: failed to load plan: %w", err)
+	}
+	return view, nil
+}
+
+// SprintReport returns the reporting bundle for the Report subview.
+// It composes burndown, velocity, and summary analytics from the sprint analytics service.
+func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintReportResponse, error) {
+	sprintEntity, err := s.resolveSprint(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if s.sprintAnalyticsSvc == nil {
+		return nil, fmt.Errorf("viewer sprint report: sprint analytics service not wired")
+	}
+
+	burndown, err := s.sprintAnalyticsSvc.GetBurndown(ctx, sprintEntity.Key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint report: failed to load burndown: %w", err)
+	}
+
+	velocity, err := s.sprintAnalyticsSvc.GetVelocity(ctx, 6)
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint report: failed to load velocity: %w", err)
+	}
+
+	summary, err := s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
+	if err != nil {
+		return nil, fmt.Errorf("viewer sprint report: failed to load summary: %w", err)
+	}
+
+	return &SprintReportResponse{
+		Sprint:   sprintEntity,
+		Burndown: burndown,
+		Velocity: velocity,
+		Summary:  summary,
+	}, nil
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata

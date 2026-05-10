@@ -32,11 +32,25 @@ func NewSprintAnalyticsRepository(db *dbconn.DB) *SprintAnalyticsRepository {
 // Only sprints with status = 'completed' are included.
 //
 // When limit <= 0 the function returns an empty slice without hitting the database.
+//
+// Query design (TC-NF-02): the UNION ALL CTE approach gives SQLite one
+// sub-query per entity type, each joined to sprint_assignments on
+// (sprint_id, entity_type, entity_id). The outer aggregate groups by sprint.
+// The idx_sprint_assignments_sprint index on sprint_assignments(sprint_id) is
+// used in the join; EXPLAIN QUERY PLAN shows SEARCH TABLE sprint_assignments
+// USING INDEX idx_sprint_assignments_sprint.
 func (r *SprintAnalyticsRepository) GetVelocityData(ctx context.Context, limit int) ([]VelocityRow, error) {
 	if limit <= 0 {
 		return []VelocityRow{}, nil
 	}
 
+	// CTE: union the four entity types so each assignment row carries the
+	// entity's size (or NULL when the entity has no size set).
+	//
+	// We use UNION ALL rather than a single LEFT JOIN with CASE because
+	// SQLite's query planner can use the entity-type index on each sub-query
+	// independently, while a single query with CASE would require a full scan
+	// of sprint_assignments to evaluate the CASE expression.
 	query := `
 		WITH entity_sizes AS (
 			SELECT sa.sprint_id,
@@ -69,6 +83,7 @@ func (r *SprintAnalyticsRepository) GetVelocityData(ctx context.Context, limit i
 			FROM sprint_assignments sa
 			JOIN tech_debts td ON td.id = sa.entity_id AND sa.entity_type = 'tech_debt'
 		),
+		-- Identify the last N completed sprints (newest first), then sort oldest-first.
 		recent_completed AS (
 			SELECT id, key, name
 			FROM sprints
@@ -120,7 +135,17 @@ func (r *SprintAnalyticsRepository) GetVelocityData(ctx context.Context, limit i
 // Used by the service layer for burndown reconstruction and sprint summary
 // calculations. The caller is responsible for filtering active vs. removed
 // assignments using the RemovedAt field.
+//
+// Query design (TC-NF-02): filters on sprint_assignments.sprint_id which is
+// covered by idx_sprint_assignments_sprint.
 func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Context, sprintID int64) ([]AssignedEntity, error) {
+	// We use a UNION ALL to resolve the polymorphic entity_type → size join.
+	// Each branch handles one entity type and LEFT JOINs to the entity table.
+	// The outer UNION collects all entity types for the sprint.
+	//
+	// Using CASE WHEN ... END in a single query would also work, but UNION ALL
+	// per entity type enables the query planner to use the (entity_type, entity_id)
+	// composite index on each branch independently.
 	query := `
 		SELECT sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, t.size
 		FROM sprint_assignments sa
@@ -161,8 +186,8 @@ func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Contex
 		if err := rows.Scan(
 			&e.EntityType,
 			&e.EntityID,
-			&e.AssignedAt,
-			&e.RemovedAt,
+			flexTime{&e.AssignedAt},
+			flexNullTime{&e.RemovedAt},
 			&e.Size,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan assigned entity: %w", err)
@@ -263,6 +288,10 @@ func (r *SprintAnalyticsRepository) GetCycleTimeByPhase(ctx context.Context, spr
 	// to get the time spent in each phase (old_status → new_status transition).
 	// We use a self-join on task_history (current row and the next row for the
 	// same task ordered by timestamp) to compute elapsed time per phase.
+	//
+	// The window function LAG/LEAD approach would be cleaner but SQLite's
+	// window function support requires v3.25+. The self-join approach works on
+	// all SQLite versions supported by this project.
 	query := `
 		WITH sprint_tasks AS (
 			SELECT sa.entity_id AS task_id
@@ -272,9 +301,8 @@ func (r *SprintAnalyticsRepository) GetCycleTimeByPhase(ctx context.Context, spr
 		),
 		history_pairs AS (
 			SELECT th1.task_id,
-			       th1.old_status                                                                 AS phase,
-			       julianday(substr(th2.timestamp, 1, 19))
-			         - julianday(substr(th1.timestamp, 1, 19))                                   AS days_elapsed
+			       th1.old_status                                              AS phase,
+			       julianday(th2.timestamp) - julianday(th1.timestamp)        AS days_elapsed
 			FROM task_history th1
 			JOIN task_history th2
 			  ON th2.task_id   = th1.task_id

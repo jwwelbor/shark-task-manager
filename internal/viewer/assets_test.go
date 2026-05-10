@@ -24,8 +24,12 @@ func TestViewerHTMLEmbedded(t *testing.T) {
 		"STATUS_COLORS",
 		"getStatusColor",
 		"renderDashboard",
+		"renderSprintMode",
+		"renderSprintOverview",
+		"renderSprintTree",
 		"renderEntityView",
 		"renderPickFolder",
+		"fetchSprintOverview",
 		"api/v1/viewer",
 	}
 	for _, marker := range required {
@@ -54,6 +58,62 @@ func TestViewerHTMLContainsRequiredClasses(t *testing.T) {
 	for _, marker := range required {
 		if !strings.Contains(content, marker) {
 			t.Errorf("viewer.html missing required CSS class or ID: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLMutationControls verifies that the embedded viewer renders the
+// entity mutation disclosure and references the viewer-only mutation routes.
+// TC-F01-007.
+func TestViewerHTMLMutationControls(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"renderMutationControls(entity)",
+		"renderNoteControls(entity)",
+		"renderRelationshipControls(entity)",
+		"entity-mutation-panel",
+		"entity-note-panel",
+		"entity-relationship-panel",
+		"entity-mutation-patch-form",
+		"entity-mutation-transition-form",
+		"mutation-transition-buttons",
+		"apiCreateViewerNote",
+		"apiCreateViewerRelationship",
+		"apiDeleteViewerRelationship",
+		"api/v1/viewer/epics/",
+		"api/v1/viewer/features/",
+		"api/v1/viewer/tasks/",
+		"target_status",
+		"business_value",
+		"execution_order",
+		"agent_type",
+		"clear_size",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing mutation control marker: %q", marker)
+		}
+	}
+
+	funcStart := strings.Index(content, "function renderMutationControls(entity)")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing renderMutationControls(entity) function")
+	}
+	funcBody := content[funcStart:]
+	funcEnd := strings.Index(funcBody[1:], "\nfunction ")
+	if funcEnd > 0 {
+		funcBody = funcBody[:funcEnd+1]
+	}
+
+	for _, marker := range []string{"case 'epic'", "case 'feature'", "case 'task'"} {
+		if !strings.Contains(funcBody, marker) {
+			t.Errorf("viewer.html renderMutationControls missing scoped case marker: %q", marker)
+		}
+	}
+	for _, marker := range []string{"case 'bug'", "case 'change_card'", "case 'idea'"} {
+		if strings.Contains(funcBody, marker) {
+			t.Errorf("viewer.html renderMutationControls must not expose flat entity type marker: %q", marker)
 		}
 	}
 }
@@ -125,6 +185,59 @@ func TestViewerHTMLLoadHelpers(t *testing.T) {
 	for _, fn := range helpers {
 		if !strings.Contains(content, fn) {
 			t.Errorf("viewer.html missing helper function: %q", fn)
+		}
+	}
+}
+
+// TestViewerHTMLSprintModeMarkers verifies that the Sprint mode shell,
+// subview controls, and drawer/jump-back hooks are present in the embedded file.
+func TestViewerHTMLSprintModeMarkers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		`id="header-sprint-btn"`,
+		"case 'sprint'",
+		"sprintViewTab",
+		"renderSprintModeControls",
+		"renderSprintDetailDrawer",
+		"selectSprintItem",
+		"Back to Sprint",
+		"Open Entity View",
+		"Upcoming Sprint",
+		"Archived Sprints",
+		"sprint-plan-status-filter",
+		"sprint-plan-stage-btn",
+		"applySprintPlanFilters",
+		"sprintPlanSelection",
+		"fetchSprintPlan",
+		"fetchSprintReport",
+		"apiGetRelatedDocs",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing Sprint mode marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLSprintTreeAndReportMarkers verifies that the sprint tree,
+// report surface, and guardrail-oriented hooks stay embedded in the single file.
+func TestViewerHTMLSprintTreeAndReportMarkers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"toggleSprintTreeNode",
+		"renderSprintReport",
+		"fetchSprintReport",
+		"Stage selected",
+		"Remove selected",
+		"Mark ready",
+		"popstate",
+		"Escape",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing sprint tree/report marker: %q", marker)
 		}
 	}
 }

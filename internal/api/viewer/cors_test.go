@@ -36,8 +36,11 @@ func TestWithLocalCORS_LocalhostOrigin(t *testing.T) {
 	if got := rec.Header().Get("Vary"); got != "Origin" {
 		t.Errorf("expected Vary = %q, got %q", "Origin", got)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, PUT, OPTIONS" {
-		t.Errorf("expected Access-Control-Allow-Methods = %q, got %q", "GET, PUT, OPTIONS", got)
+	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
+	for _, method := range []string{"GET", "PATCH", "POST", "PUT", "DELETE", "OPTIONS"} {
+		if !strings.Contains(allowMethods, method) {
+			t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", method, allowMethods)
+		}
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type" {
 		t.Errorf("expected Access-Control-Allow-Headers = %q, got %q", "Content-Type", got)
@@ -65,8 +68,11 @@ func TestWithLocalCORS_127001Origin(t *testing.T) {
 	if got := rec.Header().Get("Vary"); got != "Origin" {
 		t.Errorf("expected Vary = %q, got %q", "Origin", got)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, PUT, OPTIONS" {
-		t.Errorf("expected Access-Control-Allow-Methods = %q, got %q", "GET, PUT, OPTIONS", got)
+	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
+	for _, method := range []string{"GET", "PATCH", "POST", "PUT", "DELETE", "OPTIONS"} {
+		if !strings.Contains(allowMethods, method) {
+			t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", method, allowMethods)
+		}
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type" {
 		t.Errorf("expected Access-Control-Allow-Headers = %q, got %q", "Content-Type", got)
@@ -173,8 +179,11 @@ func TestWithLocalCORS_PreflightLocalhost(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
 		t.Errorf("expected ACAO = %q, got %q", "http://localhost:3000", got)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Methods"); got == "" {
-		t.Error("expected Access-Control-Allow-Methods header to be set")
+	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
+	for _, method := range []string{"GET", "PATCH", "POST", "PUT", "DELETE", "OPTIONS"} {
+		if !strings.Contains(allowMethods, method) {
+			t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", method, allowMethods)
+		}
 	}
 }
 
@@ -193,8 +202,8 @@ func TestWithLocalCORS_PUTLocalhost(t *testing.T) {
 		t.Error("expected inner handler to be called for PUT request")
 	}
 	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
-	if !strings.Contains(allowMethods, "PUT") {
-		t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", "PUT", allowMethods)
+	if !strings.Contains(allowMethods, "PUT") || !strings.Contains(allowMethods, "POST") || !strings.Contains(allowMethods, "DELETE") {
+		t.Errorf("expected Access-Control-Allow-Methods to contain PUT, POST, and DELETE, got %q", allowMethods)
 	}
 }
 
@@ -217,8 +226,8 @@ func TestWithLocalCORS_PreflightPUT(t *testing.T) {
 		t.Errorf("expected 204, got %d", rec.Code)
 	}
 	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
-	if !strings.Contains(allowMethods, "PUT") {
-		t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", "PUT", allowMethods)
+	if !strings.Contains(allowMethods, "PUT") || !strings.Contains(allowMethods, "POST") || !strings.Contains(allowMethods, "DELETE") {
+		t.Errorf("expected Access-Control-Allow-Methods to contain PUT, POST, and DELETE, got %q", allowMethods)
 	}
 }
 

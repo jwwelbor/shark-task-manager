@@ -1088,3 +1088,132 @@ func TestLoadConfig_ConsoleWidth_Absent(t *testing.T) {
 		t.Errorf("ConsoleWidth = %d, want 0 (unset → auto-detect)", cfg.ConsoleWidth)
 	}
 }
+
+// --- E19-F05-001: SetSprintCapacityDefault ---
+
+// TC-015-07: SetSprintCapacityDefault persists to .sharkconfig.json correctly.
+// Production entrypoint: config.Manager.SetSprintCapacityDefault("backend", 21).
+// Lowest allowed mock seam: File I/O (use temp directory with real file writes).
+// Counter-factual: an impl that only mutates in-memory returns nil but the file
+// is unchanged; a subsequent Load() would still see the old value (nil capacity).
+func TestSetSprintCapacityDefault_PersistsToFile(t *testing.T) {
+	// Arrange: write initial config to temp file
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	initialData := map[string]interface{}{
+		"color_enabled": true,
+	}
+	data, err := json.MarshalIndent(initialData, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal initial config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	mgr := NewManager(configPath)
+	if _, err := mgr.Load(); err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Act: call SetSprintCapacityDefault
+	if err := mgr.SetSprintCapacityDefault("backend", 21); err != nil {
+		t.Fatalf("SetSprintCapacityDefault() error = %v", err)
+	}
+
+	// Assert: read config file from disk (not in-memory) and verify persisted value
+	reloadedData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read config after SetSprintCapacityDefault: %v", err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(reloadedData, &raw); err != nil {
+		t.Fatalf("failed to unmarshal config after update: %v", err)
+	}
+
+	sprintDefaults, ok := raw["sprint_defaults"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("sprint_defaults not found or not a map in config file; raw = %v", raw)
+	}
+	capacity, ok := sprintDefaults["capacity"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("sprint_defaults.capacity not found or not a map; sprint_defaults = %v", sprintDefaults)
+	}
+	if capacity["backend"] != float64(21) {
+		t.Errorf("sprint_defaults.capacity.backend = %v, want 21", capacity["backend"])
+	}
+}
+
+// TestSetSprintCapacityDefault_CreatesSprintDefaultsSection verifies that the
+// sprint_defaults section is created if absent (not just the capacity entry).
+func TestSetSprintCapacityDefault_CreatesSprintDefaultsSection(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	initialData := `{}`
+	if err := os.WriteFile(configPath, []byte(initialData), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	mgr := NewManager(configPath)
+	if _, err := mgr.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := mgr.SetSprintCapacityDefault("frontend", 13); err != nil {
+		t.Fatalf("SetSprintCapacityDefault() error = %v", err)
+	}
+
+	// Load again from disk using a fresh manager
+	mgr2 := NewManager(configPath)
+	cfg2, err := mgr2.Load()
+	if err != nil {
+		t.Fatalf("second Load() error = %v", err)
+	}
+	if cfg2.SprintDefaults == nil {
+		t.Fatal("SprintDefaults must not be nil after SetSprintCapacityDefault")
+	}
+	if cfg2.SprintDefaults.Capacity["frontend"] != 13 {
+		t.Errorf("Capacity[frontend] = %v, want 13", cfg2.SprintDefaults.Capacity["frontend"])
+	}
+}
+
+// TestSetSprintCapacityDefault_UpdatesExistingEntry verifies that calling
+// SetSprintCapacityDefault on an already-set agent type updates the value (no duplicates).
+func TestSetSprintCapacityDefault_UpdatesExistingEntry(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	initialData := `{
+		"sprint_defaults": {
+			"capacity": {"backend": 10}
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(initialData), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	mgr := NewManager(configPath)
+	if _, err := mgr.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// Update existing entry
+	if err := mgr.SetSprintCapacityDefault("backend", 21); err != nil {
+		t.Fatalf("SetSprintCapacityDefault() error = %v", err)
+	}
+
+	// Read from disk
+	rawBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config error = %v", err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(rawBytes, &raw); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	sprintDefaults := raw["sprint_defaults"].(map[string]interface{})
+	capacity := sprintDefaults["capacity"].(map[string]interface{})
+	if capacity["backend"] != float64(21) {
+		t.Errorf("capacity.backend = %v, want 21 after update", capacity["backend"])
+	}
+}

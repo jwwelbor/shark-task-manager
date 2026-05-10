@@ -3341,8 +3341,9 @@ func migrateTechDebtTable(db *sql.DB) error {
 }
 
 // migrateSprintTables creates the schema objects backing Epic E19's sprint
-// management feature: the sprints table, its three indexes
-// (idx_sprints_key UNIQUE, idx_sprints_status, idx_sprints_slug), the
+// management feature: the sprints table, its indexes
+// (idx_sprints_key UNIQUE, idx_sprints_status, idx_sprints_slug,
+// idx_sprints_active_one), the
 // sprints_updated_at trigger, the sprint_assignments and sprint_capacity
 // tables along with their cascade-delete and updated_at triggers. T-007
 // (this commit) wires this function into runMigrations() and bumps
@@ -3397,10 +3398,13 @@ func migrateSprintTables(db *sql.DB) error {
 
 		// Create indexes for sprints. The key index is UNIQUE to mirror
 		// the table-level UNIQUE constraint and provide O(log n) key lookups.
+		// idx_sprints_active_one enforces the one-active-sprint constraint at
+		// the database layer by allowing only one row where status = 'active'.
 		sprintIndexes := []string{
 			`CREATE UNIQUE INDEX IF NOT EXISTS idx_sprints_key    ON sprints(key);`,
 			`CREATE INDEX        IF NOT EXISTS idx_sprints_status ON sprints(status);`,
 			`CREATE INDEX        IF NOT EXISTS idx_sprints_slug   ON sprints(slug);`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_sprints_active_one ON sprints(status) WHERE status = 'active';`,
 		}
 		for _, idx := range sprintIndexes {
 			if _, err := db.Exec(idx); err != nil {

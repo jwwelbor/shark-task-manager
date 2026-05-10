@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
@@ -117,7 +118,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (_ *models.Fe
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("feature not found with id %d", id)
+		return nil, fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature: %w", err)
@@ -610,7 +611,7 @@ func (r *FeatureRepository) updateWithTx(ctx context.Context, tx *sql.Tx, featur
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		}
 		if rows == 0 {
-			return fmt.Errorf("feature not found with id %d", feature.ID)
+			return fmt.Errorf("feature not found with id %d: %w", feature.ID, repoerr.ErrNotFound)
 		}
 	} else {
 		// No cascade needed, just update the feature normally
@@ -639,7 +640,7 @@ func (r *FeatureRepository) updateWithTx(ctx context.Context, tx *sql.Tx, featur
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		}
 		if rows == 0 {
-			return fmt.Errorf("feature not found with id %d", feature.ID)
+			return fmt.Errorf("feature not found with id %d: %w", feature.ID, repoerr.ErrNotFound)
 		}
 	}
 
@@ -717,7 +718,7 @@ func (r *FeatureRepository) Delete(ctx context.Context, id int64) (retErr error)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found with id %d", id)
+		return fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -741,7 +742,7 @@ func (r *FeatureRepository) UpdateFilePath(ctx context.Context, featureKey strin
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found: %s", featureKey)
+		return fmt.Errorf("feature not found: %s: %w", featureKey, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -954,7 +955,7 @@ func (r *FeatureRepository) UpdateKey(ctx context.Context, oldKey string, newKey
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found: %s", oldKey)
+		return fmt.Errorf("feature not found: %s: %w", oldKey, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -1021,7 +1022,7 @@ func (r *FeatureRepository) SetStatusOverride(ctx context.Context, featureID int
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found with id %d", featureID)
+		return fmt.Errorf("feature not found with id %d: %w", featureID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -1055,7 +1056,7 @@ func (r *FeatureRepository) GetContextData(ctx context.Context, featureID int64)
 	var contextData *string
 	err := r.db.QueryRowContext(ctx, query, featureID).Scan(&contextData)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("feature not found with id %d", featureID)
+		return nil, fmt.Errorf("feature not found with id %d: %w", featureID, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature context data: %w", err)
@@ -1075,7 +1076,7 @@ func (r *FeatureRepository) UpdateContextData(ctx context.Context, featureID int
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found with id %d", featureID)
+		return fmt.Errorf("feature not found with id %d: %w", featureID, repoerr.ErrNotFound)
 	}
 	return nil
 }
@@ -1102,7 +1103,7 @@ func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, s
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found with id %d", featureID)
+		return fmt.Errorf("feature not found with id %d: %w", featureID, repoerr.ErrNotFound)
 	}
 	return nil
 }
@@ -1139,7 +1140,7 @@ func (r *FeatureRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64)
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("feature not found with id %d", id)
+		return nil, fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature by id in transaction: %w", err)
@@ -1172,7 +1173,7 @@ func (r *FeatureRepository) UpdateStatusTx(
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("feature not found with id %d", id)
+		return fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	return nil
 }

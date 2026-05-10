@@ -13,6 +13,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
+	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -200,6 +201,84 @@ func (m *mockViewerHistoryRepo) ListByEntity(ctx context.Context, entityType mod
 func (m *mockViewerHistoryRepo) ListRecentAcrossEntities(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
 	if m.ListRecentAcrossEntitiesFunc != nil {
 		return m.ListRecentAcrossEntitiesFunc(ctx, opts)
+	}
+	return nil, nil
+}
+
+type mockViewerSprintService struct {
+	ListSprintsFunc        func(ctx context.Context, filters *SprintListFilters) ([]*models.Sprint, error)
+	GetSprintFunc          func(ctx context.Context, key string) (*models.Sprint, error)
+	GetSprintBacklogFunc   func(ctx context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error)
+	GetSprintReadinessFunc func(ctx context.Context, key string) (*SprintReadiness, error)
+	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]CapacityRow, error)
+	PlanSprintFunc         func(ctx context.Context, key string) (*SprintPlanView, error)
+}
+
+func (m *mockViewerSprintService) ListSprints(ctx context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+	if m.ListSprintsFunc != nil {
+		return m.ListSprintsFunc(ctx, filters)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintService) GetSprint(ctx context.Context, key string) (*models.Sprint, error) {
+	if m.GetSprintFunc != nil {
+		return m.GetSprintFunc(ctx, key)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintService) GetSprintBacklog(ctx context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error) {
+	if m.GetSprintBacklogFunc != nil {
+		return m.GetSprintBacklogFunc(ctx, sprintKey, opts)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintService) GetSprintReadiness(ctx context.Context, key string) (*SprintReadiness, error) {
+	if m.GetSprintReadinessFunc != nil {
+		return m.GetSprintReadinessFunc(ctx, key)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintService) GetSprintCapacity(ctx context.Context, key string) ([]CapacityRow, error) {
+	if m.GetSprintCapacityFunc != nil {
+		return m.GetSprintCapacityFunc(ctx, key)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintService) PlanSprint(ctx context.Context, key string) (*SprintPlanView, error) {
+	if m.PlanSprintFunc != nil {
+		return m.PlanSprintFunc(ctx, key)
+	}
+	return nil, nil
+}
+
+type mockViewerSprintAnalyticsService struct {
+	GetBurndownFunc func(ctx context.Context, sprintKey string) (*BurndownResult, error)
+	GetVelocityFunc func(ctx context.Context, n int) (*VelocityResult, error)
+	GetSummaryFunc  func(ctx context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error)
+}
+
+func (m *mockViewerSprintAnalyticsService) GetBurndown(ctx context.Context, sprintKey string) (*BurndownResult, error) {
+	if m.GetBurndownFunc != nil {
+		return m.GetBurndownFunc(ctx, sprintKey)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintAnalyticsService) GetVelocity(ctx context.Context, n int) (*VelocityResult, error) {
+	if m.GetVelocityFunc != nil {
+		return m.GetVelocityFunc(ctx, n)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerSprintAnalyticsService) GetSummary(ctx context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+	if m.GetSummaryFunc != nil {
+		return m.GetSummaryFunc(ctx, sprintKey, detailed)
 	}
 	return nil, nil
 }
@@ -4544,5 +4623,269 @@ func TestViewerService_FeatureTasks_TagDecoration_EmptyTagsNonNil(t *testing.T) 
 	}
 	if len(resp.Tasks[0].Tags) != 0 {
 		t.Errorf("expected empty Tags on untagged task, got %v", resp.Tasks[0].Tags)
+	}
+}
+
+func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
+	active := &models.Sprint{
+		ID:        24,
+		Key:       "S024",
+		Name:      "Current Sprint",
+		Goal:      "Stabilize the viewer",
+		StartDate: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 5, 14, 0, 0, 0, 0, time.UTC),
+		Status:    "active",
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	var listCalls int
+	sprintSvc := &mockViewerSprintService{
+		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+			listCalls++
+			if filters == nil || filters.Status != "active" {
+				t.Fatalf("expected active sprint filter, got %#v", filters)
+			}
+			return []*models.Sprint{active}, nil
+		},
+		GetSprintBacklogFunc: func(_ context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error) {
+			if sprintKey != active.Key {
+				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
+			}
+			if opts.EntityType != "" || opts.BlockedOnly {
+				t.Fatalf("expected zero backlog filters, got %#v", opts)
+			}
+			return &SprintBacklog{
+				SprintKey:         sprintKey,
+				SprintName:        active.Name,
+				TotalCount:        4,
+				CompletedCount:    1,
+				CompletionPercent: 25,
+				Groups: []*BacklogGroup{
+					{StatusCategory: "blocked", Items: []*BacklogItemView{}},
+					{StatusCategory: "in_progress", Items: []*BacklogItemView{}},
+				},
+			}, nil
+		},
+		GetSprintReadinessFunc: func(_ context.Context, sprintKey string) (*SprintReadiness, error) {
+			if sprintKey != active.Key {
+				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
+			}
+			return &SprintReadiness{OverallScore: 78, Factors: []ReadinessFactor{{Name: "Capacity utilization", Score: 25, MaxScore: 25}}}, nil
+		},
+		GetSprintCapacityFunc: func(_ context.Context, sprintKey string) ([]CapacityRow, error) {
+			if sprintKey != active.Key {
+				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
+			}
+			return []CapacityRow{{AgentType: "frontend"}}, nil
+		},
+	}
+
+	// Summary is NOT expected for active sprints; GetSummary only applies to completed/archived.
+	analyticsSvc := &mockViewerSprintAnalyticsService{
+		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+			t.Fatal("GetSummary must not be called for an active sprint")
+			return nil, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+	svc.WithSprintAnalyticsService(analyticsSvc)
+
+	resp, err := svc.SprintOverview(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if listCalls != 1 {
+		t.Fatalf("expected one active sprint lookup, got %d", listCalls)
+	}
+	if resp.Sprint == nil || resp.Sprint.Key != active.Key {
+		t.Fatalf("expected sprint %q in overview, got %#v", active.Key, resp.Sprint)
+	}
+	if resp.Backlog == nil || resp.Backlog.SprintKey != active.Key {
+		t.Fatalf("expected backlog for %q, got %#v", active.Key, resp.Backlog)
+	}
+	if resp.Readiness == nil || resp.Readiness.OverallScore != 78 {
+		t.Fatalf("expected readiness 78, got %#v", resp.Readiness)
+	}
+	if len(resp.Capacity) != 1 {
+		t.Fatalf("expected 1 capacity row, got %d", len(resp.Capacity))
+	}
+	if resp.Summary != nil {
+		t.Fatalf("expected no summary for active sprint, got %#v", resp.Summary)
+	}
+}
+
+func TestViewerService_SprintOverview_CompletedSprintIncludesSummary(t *testing.T) {
+	completed := &models.Sprint{
+		ID:     23,
+		Key:    "S023",
+		Name:   "Previous Sprint",
+		Status: "completed",
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	sprintSvc := &mockViewerSprintService{
+		GetSprintFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return completed, nil
+		},
+		GetSprintBacklogFunc: func(_ context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error) {
+			return &SprintBacklog{SprintKey: sprintKey, SprintName: completed.Name}, nil
+		},
+		GetSprintReadinessFunc: func(_ context.Context, sprintKey string) (*SprintReadiness, error) {
+			return &SprintReadiness{OverallScore: 100}, nil
+		},
+		GetSprintCapacityFunc: func(_ context.Context, sprintKey string) ([]CapacityRow, error) {
+			return nil, nil
+		},
+	}
+
+	analyticsSvc := &mockViewerSprintAnalyticsService{
+		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+			return &SprintSummaryResult{SprintKey: sprintKey, SprintName: completed.Name, VelocityThisSprint: 34}, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+	svc.WithSprintAnalyticsService(analyticsSvc)
+
+	resp, err := svc.SprintOverview(context.Background(), completed.Key)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Summary == nil || resp.Summary.VelocityThisSprint != 34 {
+		t.Fatalf("expected summary for completed sprint, got %#v", resp.Summary)
+	}
+}
+
+func TestViewerService_SprintPlan_UsesResolvedSprint(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	var gotKey string
+	sprintSvc := &mockViewerSprintService{
+		GetSprintFunc: func(_ context.Context, sprintKey string) (*models.Sprint, error) {
+			if sprintKey != "S024" {
+				t.Fatalf("expected normalized sprint key S024, got %q", sprintKey)
+			}
+			return &models.Sprint{Key: sprintKey}, nil
+		},
+		PlanSprintFunc: func(_ context.Context, sprintKey string) (*SprintPlanView, error) {
+			gotKey = sprintKey
+			return &SprintPlanView{
+				Sprint:    &models.Sprint{Key: sprintKey},
+				Backlog:   []sprint.BacklogItem{},
+				Capacity:  []CapacityRow{},
+				Readiness: &SprintReadiness{OverallScore: 64},
+			}, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+
+	resp, err := svc.SprintPlan(context.Background(), "s024")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotKey != "S024" {
+		t.Fatalf("expected normalized sprint key S024, got %q", gotKey)
+	}
+	if resp.Sprint == nil || resp.Sprint.Key != "S024" {
+		t.Fatalf("expected plan sprint S024, got %#v", resp.Sprint)
+	}
+	if resp.Readiness == nil || resp.Readiness.OverallScore != 64 {
+		t.Fatalf("expected plan readiness 64, got %#v", resp.Readiness)
+	}
+}
+
+func TestViewerService_SprintReport_ComposesAnalytics(t *testing.T) {
+	active := &models.Sprint{
+		ID:   24,
+		Key:  "S024",
+		Name: "Current Sprint",
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	var velocityLimit int
+	analyticsSvc := &mockViewerSprintAnalyticsService{
+		GetBurndownFunc: func(_ context.Context, sprintKey string) (*BurndownResult, error) {
+			if sprintKey != active.Key {
+				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
+			}
+			return &BurndownResult{SprintKey: sprintKey, SprintName: active.Name}, nil
+		},
+		GetVelocityFunc: func(_ context.Context, n int) (*VelocityResult, error) {
+			velocityLimit = n
+			return &VelocityResult{SprintCount: n}, nil
+		},
+		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+			if sprintKey != active.Key {
+				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
+			}
+			if detailed {
+				t.Fatal("expected report summary to request non-detailed summary")
+			}
+			return &SprintSummaryResult{SprintKey: sprintKey, SprintName: active.Name, VelocityThisSprint: 32}, nil
+		},
+	}
+	sprintSvc := &mockViewerSprintService{
+		GetSprintFunc: func(_ context.Context, sprintKey string) (*models.Sprint, error) {
+			if sprintKey != active.Key {
+				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
+			}
+			return active, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+	svc.WithSprintAnalyticsService(analyticsSvc)
+
+	resp, err := svc.SprintReport(context.Background(), active.Key)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Sprint == nil || resp.Sprint.Key != active.Key {
+		t.Fatalf("expected sprint %q in report, got %#v", active.Key, resp.Sprint)
+	}
+	if resp.Burndown == nil || resp.Burndown.SprintKey != active.Key {
+		t.Fatalf("expected burndown for %q, got %#v", active.Key, resp.Burndown)
+	}
+	if resp.Velocity == nil || resp.Velocity.SprintCount != 6 {
+		t.Fatalf("expected velocity payload with count 6, got %#v", resp.Velocity)
+	}
+	if resp.Summary == nil || resp.Summary.VelocityThisSprint != 32 {
+		t.Fatalf("expected report summary, got %#v", resp.Summary)
+	}
+	if velocityLimit != 6 {
+		t.Fatalf("expected report velocity limit 6, got %d", velocityLimit)
 	}
 }

@@ -71,29 +71,37 @@ Velocity, burndown, capacity allocation, readiness scoring, and sprint summary a
   - [ ] `shark get S024` auto-detects sprint entity type from the `S###` key format
 - **Related Journey**: [Sprint Creation](./user-journeys.md#journey-1-sprint-creation--configuration), Steps 1-4
 
-#### Task-to-Sprint Assignment
+#### Entity-to-Sprint Assignment
 
-**REQ-F-004**: Individual Task Assignment
-- **Description**: Tasks can be assigned to and removed from sprints
-- **User Story**: As a PM, I want to assign specific tasks to a sprint so that the sprint scope is defined
+**REQ-F-004**: Individual Entity Assignment
+- **Description**: Any active work entity — tasks (E##-F##-###), bugs (B###), change-cards (CC-###), and tech-debt items (TD-###) — can be assigned to and removed from sprints
+- **User Story**: As a PM, I want to assign any work item to a sprint so that all in-flight work is captured in one place
 - **Acceptance Criteria**:
-  - [ ] `shark sprint add S024 E07-F01-001` assigns task to sprint
-  - [ ] `shark sprint remove S024 E07-F01-001` removes task from sprint
-  - [ ] A task can belong to at most one sprint in `planning` or `active` status
-  - [ ] Attempting to assign a task already in another active/planning sprint returns an error with the conflicting sprint key
-  - [ ] Assigning a task that would exceed agent capacity displays a warning but proceeds (advisory)
+  - [ ] `shark sprint add S024 E07-F01-001` assigns a task to the sprint
+  - [ ] `shark sprint add S024 B001` assigns a bug to the sprint
+  - [ ] `shark sprint add S024 CC-001` assigns a change-card to the sprint
+  - [ ] `shark sprint add S024 TD-001` assigns a tech-debt item to the sprint
+  - [ ] `shark sprint remove S024 E07-F01-001` removes a task from the sprint
+  - [ ] `shark sprint remove S024 B001` removes a bug from the sprint
+  - [ ] `shark sprint remove S024 CC-001` removes a change-card from the sprint
+  - [ ] `shark sprint remove S024 TD-001` removes a tech-debt item from the sprint
+  - [ ] An entity can belong to at most one sprint in `planning` or `active` status
+  - [ ] Attempting to assign an entity already in another active/planning sprint returns an error with the conflicting sprint key
+  - [ ] Assigning an entity that would exceed agent capacity displays a warning but proceeds (advisory)
   - [ ] `--json` output for both operations
 - **Related Journey**: [Sprint Planning](./user-journeys.md#journey-2-sprint-planning), Steps 2, 5
 
 **REQ-F-005**: Sprint Backlog View
-- **Description**: View all tasks assigned to a sprint, grouped by status
-- **User Story**: As a PM, I want to see all tasks in a sprint grouped by their status so that I can track progress
+- **Description**: View ALL entities assigned to a sprint — tasks, bugs, change-cards, and tech-debt — grouped by status category so PMs can see everything in one place
+- **User Story**: As a PM, I want to see all work items in a sprint grouped by status so that I can track all in-flight work without getting lost about what needs to happen now vs. later
 - **Acceptance Criteria**:
-  - [ ] `shark sprint backlog S024` displays tasks grouped by status category (todo/planning, in-progress, review, qa, completed, blocked)
-  - [ ] Shows completion percentage (completed tasks / total tasks)
-  - [ ] `--blocked` filter shows only blocked tasks with blocking reason and days blocked
-  - [ ] `--json` output for programmatic consumption
-  - [ ] Output includes task key, title, status, agent type, and priority for each task
+  - [ ] `shark sprint backlog S024` displays ALL entity types grouped by status category (todo/planning, in-progress, review, qa, completed, blocked)
+  - [ ] Each status group shows entity type alongside key/title (e.g., `[task]`, `[bug]`, `[change-card]`, `[tech-debt]`) so PMs can distinguish entity types at a glance
+  - [ ] Shows completion percentage (completed entities / total entities)
+  - [ ] `--type=task` filter limits display to a specific entity type (task, bug, change_card, tech_debt)
+  - [ ] `--blocked` filter shows only blocked entities with blocking reason and days blocked across all entity types
+  - [ ] `--json` output for programmatic consumption; includes `entity_type` field for each item
+  - [ ] Output includes entity key, entity type, title, status, agent type, and priority for each item
 - **Related Journey**: [Sprint Monitoring](./user-journeys.md#journey-3-sprint-monitoring), Steps 1, 3
 
 **REQ-F-006**: Sprint Close with Carryover
@@ -151,14 +159,16 @@ Velocity, burndown, capacity allocation, readiness scoring, and sprint summary a
 #### Database Schema
 
 **REQ-F-010**: Sprint Database Tables
-- **Description**: Database schema to store sprint data, task assignments, and capacity
+- **Description**: Database schema to store sprint data, polymorphic entity assignments (tasks, bugs, change-cards, tech-debt), and capacity
 - **User Story**: As the system, I need persistent storage for sprint entities and relationships so that sprint data survives across sessions
 - **Acceptance Criteria**:
   - [ ] `sprints` table with columns: id, key, name, goal, start_date, end_date, status, slug, file_path, created_at, updated_at
-  - [ ] `sprint_assignments` table with columns: id, sprint_id (FK), task_id (FK), assigned_at, removed_at (nullable for soft-delete)
+  - [ ] `sprint_assignments` table with columns: id, sprint_id (FK), entity_type (TEXT, one of: task/bug/change_card/tech_debt), entity_id (INTEGER), assigned_at, removed_at (nullable for soft-delete)
+  - [ ] `sprint_assignments` does NOT use a `task_id` FK column — the polymorphic (entity_type, entity_id) pattern mirrors the `entity_notes` table and handles all four entity types without per-type foreign keys
+  - [ ] Partial unique index on `(entity_type, entity_id) WHERE removed_at IS NULL` to enforce one-active-sprint-per-entity at the database level
   - [ ] `sprint_capacity` table with columns: id, sprint_id (FK), agent_type, capacity_points, allocated_points
-  - [ ] Foreign key constraints enforce referential integrity
-  - [ ] Indexes on sprint status, task_id, and sprint_id for query performance
+  - [ ] Foreign key on sprint_assignments.sprint_id references sprints.id; entity_type + entity_id are app-validated (no FK to individual entity tables — consistent with entity_notes pattern)
+  - [ ] Indexes on sprint status, (entity_type, entity_id), and sprint_id for query performance
   - [ ] Migration is idempotent and follows existing migration patterns in `internal/db/db.go`
   - [ ] `CurrentSchemaVersion` is bumped when migration is added
 
@@ -177,12 +187,15 @@ Velocity, burndown, capacity allocation, readiness scoring, and sprint summary a
   - [ ] `--json` output for orchestrator consumption
 - **Related Journey**: [Sprint Planning](./user-journeys.md#journey-2-sprint-planning), Step 1
 
-**REQ-F-012**: Bulk Task Assignment
-- **Description**: Assign all eligible tasks from a feature to a sprint in one command
-- **User Story**: As a PM, I want to bulk-assign tasks from a feature so that sprint planning is faster
+**REQ-F-012**: Bulk Entity Assignment
+- **Description**: Assign all eligible entities from a feature (or grouped by entity type) to a sprint in one command
+- **User Story**: As a PM, I want to bulk-assign work items by feature or entity type so that sprint planning is faster
 - **Acceptance Criteria**:
-  - [ ] `shark sprint add S024 --bulk E07-F34` assigns all tasks from E07-F34 that are in assignable statuses and not already in a sprint
-  - [ ] Displays count of tasks added and updated capacity utilization
+  - [ ] `shark sprint add S024 --bulk E07-F34` assigns all tasks from feature E07-F34 that are in assignable statuses and not already in a sprint
+  - [ ] `shark sprint add S024 --bulk-bugs` assigns all open bugs (B###) not already in an active/planning sprint
+  - [ ] `shark sprint add S024 --bulk-tech-debt` assigns all open tech-debt items (TD-###) not already in an active/planning sprint
+  - [ ] `shark sprint add S024 --bulk-changes` assigns all open change-cards (CC-###) not already in an active/planning sprint
+  - [ ] Displays count of entities added per entity type and updated capacity utilization
   - [ ] Warns if bulk assignment exceeds any agent type's capacity
 - **Related Journey**: [Sprint Planning](./user-journeys.md#journey-2-sprint-planning), Step 3
 
@@ -268,9 +281,9 @@ Velocity, burndown, capacity allocation, readiness scoring, and sprint summary a
 ### Data Integrity
 
 **REQ-NF-003**: Sprint Assignment Consistency
-- **Description**: Task-to-sprint assignments must maintain referential integrity and prevent invalid states
+- **Description**: Entity-to-sprint assignments must maintain referential integrity and prevent invalid states across all four entity types (tasks, bugs, change-cards, tech-debt)
 - **Measurement**: Database constraints prevent orphaned assignments and double-active-sprint scenarios
-- **Target**: Foreign key constraints on sprint_assignments; unique constraint on (task_id) WHERE removed_at IS NULL to prevent duplicate active assignments; CHECK constraint on sprint status values
+- **Target**: Foreign key on sprint_assignments.sprint_id; partial unique index on (entity_type, entity_id) WHERE removed_at IS NULL to prevent duplicate active assignments for any entity type; CHECK constraint on sprint status values; CHECK constraint on entity_type values (task, bug, change_card, tech_debt)
 - **Justification**: Corrupted sprint data would produce incorrect velocity calculations and misleading analytics
 
 ### Compatibility

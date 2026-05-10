@@ -16,6 +16,9 @@ func TestLevelConstants(t *testing.T) {
 	if LevelTask != "task" {
 		t.Errorf("expected LevelTask = 'task', got %q", LevelTask)
 	}
+	if LevelSprint != "sprint" {
+		t.Errorf("expected LevelSprint = 'sprint', got %q", LevelSprint)
+	}
 }
 
 // newTestService creates a Service with default workflows for testing.
@@ -81,6 +84,25 @@ func TestForLevel_Task(t *testing.T) {
 	}
 	if !taskSvc.IsValidStatus("in_progress") {
 		t.Error("expected 'in_progress' to be a valid task status")
+	}
+}
+
+func TestForLevel_Sprint(t *testing.T) {
+	svc := newTestService()
+	sprintSvc := svc.ForLevel(LevelSprint)
+
+	if sprintSvc.GetLevel() != LevelSprint {
+		t.Errorf("expected level %q, got %q", LevelSprint, sprintSvc.GetLevel())
+	}
+
+	if !sprintSvc.IsValidStatus("planning") {
+		t.Error("expected 'planning' to be a valid sprint status")
+	}
+	if !sprintSvc.IsValidStatus("active") {
+		t.Error("expected 'active' to be a valid sprint status")
+	}
+	if sprintSvc.IsValidStatus("todo") {
+		t.Error("expected 'todo' to NOT be a valid sprint status")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,8 @@ func TestSprintRepository_Create(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up existing test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S901', 'S902', 'S903')")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S901', 'S902', 'S903')")
+	require.NoError(t, cleanupErr)
 
 	tests := []struct {
 		name    string
@@ -71,7 +73,8 @@ func TestSprintRepository_Create(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean before test
-			_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = ?", tt.sprint.Key)
+			_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = ?", tt.sprint.Key)
+			require.NoError(t, cleanupErr)
 
 			err := repo.Create(ctx, tt.sprint)
 			if tt.wantErr {
@@ -88,7 +91,8 @@ func TestSprintRepository_Create(t *testing.T) {
 			}
 
 			// Cleanup
-			_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = ?", tt.sprint.Key)
+			_, cleanupErr = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = ?", tt.sprint.Key)
+			require.NoError(t, cleanupErr)
 		})
 	}
 }
@@ -100,7 +104,8 @@ func TestSprintRepository_GetByKey_CaseInsensitive(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	require.NoError(t, cleanupErr)
 
 	// Create sprint
 	sprint := &models.Sprint{
@@ -137,6 +142,7 @@ func TestSprintRepository_GetByKey_CaseInsensitive(t *testing.T) {
 			} else {
 				assert.Error(t, err)
 				assert.Nil(t, retrieved)
+				assert.ErrorIs(t, err, repoerr.ErrNotFound)
 			}
 		})
 	}
@@ -149,7 +155,8 @@ func TestSprintRepository_GetByID(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	require.NoError(t, cleanupErr)
 
 	// Create sprint
 	sprint := &models.Sprint{
@@ -174,6 +181,7 @@ func TestSprintRepository_GetByID(t *testing.T) {
 	// Not found
 	_, err = repo.GetByID(ctx, 99999)
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrNotFound)
 }
 
 func TestSprintRepository_Update(t *testing.T) {
@@ -183,7 +191,8 @@ func TestSprintRepository_Update(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	require.NoError(t, cleanupErr)
 
 	// Create sprint
 	sprint := &models.Sprint{
@@ -220,7 +229,8 @@ func TestSprintRepository_Delete(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	require.NoError(t, cleanupErr)
 
 	// Create sprint
 	sprint := &models.Sprint{
@@ -245,6 +255,7 @@ func TestSprintRepository_Delete(t *testing.T) {
 	// Delete non-existent
 	err = repo.Delete(ctx, 99999)
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrNotFound)
 }
 
 func TestSprintRepository_UpdateStatus(t *testing.T) {
@@ -254,7 +265,8 @@ func TestSprintRepository_UpdateStatus(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	require.NoError(t, cleanupErr)
 
 	// Create sprint
 	sprint := &models.Sprint{
@@ -289,6 +301,7 @@ func TestSprintRepository_UpdateStatus(t *testing.T) {
 	// Update non-existent
 	err = repo.UpdateStatus(ctx, 99999, "active")
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrNotFound)
 }
 
 func TestSprintRepository_GetNextKey_Monotonic(t *testing.T) {
@@ -297,8 +310,14 @@ func TestSprintRepository_GetNextKey_Monotonic(t *testing.T) {
 	db := dbconn.NewDB(database)
 	repo := NewSprintRepository(db)
 
-	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S500', 'S501', 'S502', 'S503', 'S504')")
+	// Keep this test isolated from any existing sprint rows because GetNextKey()
+	// uses the table-wide maximum key.
+	cleanup := func() {
+		_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints")
+		require.NoError(t, cleanupErr)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
 
 	tests := []struct {
 		name     string
@@ -324,8 +343,7 @@ func TestSprintRepository_GetNextKey_Monotonic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clean before test - preserve other sprints, clean only our test range
-			_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S500', 'S501', 'S502', 'S503', 'S504')")
+			cleanup()
 
 			// Create existing sprints
 			for _, key := range tt.existing {
@@ -337,7 +355,7 @@ func TestSprintRepository_GetNextKey_Monotonic(t *testing.T) {
 					EndDate:   time.Date(2025, 1, 14, 0, 0, 0, 0, time.UTC),
 					Status:    "planning",
 				}
-				_ = repo.Create(ctx, sprint)
+				require.NoError(t, repo.Create(ctx, sprint))
 			}
 
 			// Get next key
@@ -355,7 +373,8 @@ func TestSprintRepository_List(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S701', 'S702', 'S703')")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S701', 'S702', 'S703')")
+	require.NoError(t, cleanupErr)
 
 	// Create test sprints
 	sprints := []*models.Sprint{
@@ -386,7 +405,7 @@ func TestSprintRepository_List(t *testing.T) {
 	}
 
 	for _, sprint := range sprints {
-		_ = repo.Create(ctx, sprint)
+		require.NoError(t, repo.Create(ctx, sprint))
 	}
 	defer database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S701', 'S702', 'S703')")
 
@@ -411,6 +430,10 @@ func TestSprintRepository_List(t *testing.T) {
 				}(),
 			},
 			wantCount: 1,
+			wantStatus: func() *models.SprintStatus {
+				s := models.SprintStatus("planning")
+				return &s
+			}(),
 		},
 		{
 			name: "filter by status active",
@@ -421,6 +444,10 @@ func TestSprintRepository_List(t *testing.T) {
 				}(),
 			},
 			wantCount: 1,
+			wantStatus: func() *models.SprintStatus {
+				s := models.SprintStatus("active")
+				return &s
+			}(),
 		},
 		{
 			name: "filter by status closed",
@@ -431,6 +458,10 @@ func TestSprintRepository_List(t *testing.T) {
 				}(),
 			},
 			wantCount: 1,
+			wantStatus: func() *models.SprintStatus {
+				s := models.SprintStatus("closed")
+				return &s
+			}(),
 		},
 		{
 			name: "filter by non-existent status",
@@ -441,6 +472,10 @@ func TestSprintRepository_List(t *testing.T) {
 				}(),
 			},
 			wantCount: 0,
+			wantStatus: func() *models.SprintStatus {
+				s := models.SprintStatus("archived")
+				return &s
+			}(),
 		},
 	}
 
@@ -457,7 +492,7 @@ func TestSprintRepository_List(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantCount, testCount)
 
-			if tt.wantStatus != nil && len(result) > 0 {
+			if tt.wantStatus != nil {
 				for _, s := range result {
 					if s.Key == "S701" || s.Key == "S702" || s.Key == "S703" {
 						assert.Equal(t, *tt.wantStatus, s.Status)
@@ -476,7 +511,8 @@ func TestSprintRepository_Create_Parameterized(t *testing.T) {
 	repo := NewSprintRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S901'")
+	require.NoError(t, cleanupErr)
 
 	// Try to create a sprint with malicious SQL in the name
 	sprint := &models.Sprint{
@@ -498,9 +534,25 @@ func TestSprintRepository_Create_Parameterized(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Sprint'; DROP TABLE sprints; --", retrieved.Name)
 
+	// Verify Update also keeps user input parameterized across all string fields.
+	retrieved.Goal = "Goal'; DROP TABLE sprints; --"
+	retrieved.Name = "Updated'; UPDATE sprints SET status='closed'; --"
+	retrieved.Slug = "slug'; DROP TABLE sprints; --"
+	retrieved.FilePath = "/tmp/sprint'; DROP TABLE sprints; --.md"
+
+	err = repo.Update(ctx, retrieved)
+	assert.NoError(t, err)
+
+	updated, err := repo.GetByKey(ctx, sprint.Key)
+	assert.NoError(t, err)
+	assert.Equal(t, "Updated'; UPDATE sprints SET status='closed'; --", updated.Name)
+	assert.Equal(t, "Goal'; DROP TABLE sprints; --", updated.Goal)
+	assert.Equal(t, "slug'; DROP TABLE sprints; --", updated.Slug)
+	assert.Equal(t, "/tmp/sprint'; DROP TABLE sprints; --.md", updated.FilePath)
+
 	// Verify the sprints table still exists
 	var count int
-	_ = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sprints").Scan(&count)
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sprints").Scan(&count))
 	assert.Greater(t, count, 0)
 }
 

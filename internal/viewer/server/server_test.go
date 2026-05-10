@@ -205,6 +205,100 @@ func TestStartServer_TC018_ReadyWithin500ms(t *testing.T) {
 	<-srvDone
 }
 
+// TC-F01-006 / TC-F01-008: StartServer mounts the viewer mutation route on the
+// local viewer surface and applies the localhost-only CORS wrapper.
+func TestStartServer_MutationRoute_ReachableWithLocalCORS(t *testing.T) {
+	repoDB := newTestDB(t)
+	ln := listenRandom(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ready := make(chan struct{})
+	srvDone := make(chan error, 1)
+	go func() {
+		srvDone <- viewerserver.StartServer(ctx, viewerserver.Options{
+			Listener: ln,
+			DB:       repoDB,
+			Ready:    ready,
+		})
+	}()
+
+	select {
+	case <-ready:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("mutation route test: server not ready within 500ms")
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, "http://"+ln.Addr().String()+"/api/v1/viewer/epics/E07", nil)
+	if err != nil {
+		t.Fatalf("mutation route test: failed to create request: %v", err)
+	}
+	origin := "http://localhost:3000"
+	req.Header.Set("Origin", origin)
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("mutation route test: PATCH request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusInternalServerError {
+		t.Fatalf("mutation route test: expected non-5xx response, got %d", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("mutation route test: expected 400 for empty PATCH body, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != origin {
+		t.Fatalf("mutation route test: expected Access-Control-Allow-Origin %q, got %q", origin, got)
+	}
+
+	noteReq, err := http.NewRequest(http.MethodPost, "http://"+ln.Addr().String()+"/api/v1/viewer/epics/E07/notes", nil)
+	if err != nil {
+		t.Fatalf("mutation route test: failed to create POST note request: %v", err)
+	}
+	noteReq.Header.Set("Origin", origin)
+	noteResp, err := client.Do(noteReq)
+	if err != nil {
+		t.Fatalf("mutation route test: POST note request failed: %v", err)
+	}
+	defer noteResp.Body.Close()
+	if noteResp.StatusCode == http.StatusInternalServerError {
+		t.Fatalf("mutation route test: expected non-5xx response for note route, got %d", noteResp.StatusCode)
+	}
+	if got := noteResp.Header.Get("Access-Control-Allow-Origin"); got != origin {
+		t.Fatalf("mutation route test: expected note ACAO %q, got %q", origin, got)
+	}
+
+	deleteReq, err := http.NewRequest(http.MethodDelete, "http://"+ln.Addr().String()+"/api/v1/viewer/tasks/T-E07-F01-001/relationships/depends_on/E07-F01", nil)
+	if err != nil {
+		t.Fatalf("mutation route test: failed to create DELETE request: %v", err)
+	}
+	deleteReq.Header.Set("Origin", origin)
+	deleteResp, err := client.Do(deleteReq)
+	if err != nil {
+		t.Fatalf("mutation route test: DELETE request failed: %v", err)
+	}
+	defer deleteResp.Body.Close()
+	if deleteResp.StatusCode == http.StatusInternalServerError {
+		t.Fatalf("mutation route test: expected non-5xx response for delete route, got %d", deleteResp.StatusCode)
+	}
+	if got := deleteResp.Header.Get("Access-Control-Allow-Origin"); got != origin {
+		t.Fatalf("mutation route test: expected delete ACAO %q, got %q", origin, got)
+	}
+
+	cancel()
+	select {
+	case err := <-srvDone:
+		if err != nil {
+			t.Fatalf("mutation route test: StartServer returned unexpected error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("mutation route test: server did not stop within 5s")
+	}
+}
+
 // TestStartServer_DefaultAddr verifies that when no Listener and no Addr is
 // provided, StartServer binds to ":8080" by default.
 // NOTE: This test is skipped if port 8080 is already in use to avoid flakiness

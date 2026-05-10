@@ -42,6 +42,7 @@ type MockSprintService struct {
 	SetSprintCapacityFunc  func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
 	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]services.CapacityRow, error)
 	BulkAddToSprintFunc    func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	GetNextTaskFunc        func(ctx context.Context, agentType string) (*services.BacklogItemView, error)
 }
 
 func (m *MockSprintService) CreateSprint(ctx context.Context, input services.CreateSprintInput) (*models.Sprint, error) {
@@ -165,12 +166,33 @@ func (m *MockSprintService) BulkAddToSprint(ctx context.Context, input services.
 	return &services.BulkAddResult{AddedByType: map[string]int{}, SkippedByType: map[string]int{}}, nil
 }
 
+func (m *MockSprintService) GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error) {
+	if m.GetNextTaskFunc != nil {
+		return m.GetNextTaskFunc(ctx, agentType)
+	}
+	return nil, nil
+}
+
+// Compile-time interface checks for the narrowed sprint CLI service contracts.
+var _ sprintLifecycleServicer = (*MockSprintService)(nil)
+var _ sprintAssignmentServicer = (*MockSprintService)(nil)
+var _ sprintCapacityServicer = (*MockSprintService)(nil)
+
 // Test helpers
 func setupSprintTest(t *testing.T, mock *MockSprintService) func() {
-	oldOverride := sprintSvcOverride
-	sprintSvcOverride = mock
+	oldLifecycleOverride := sprintLifecycleSvcOverride
+	oldAssignmentOverride := sprintAssignmentSvcOverride
+	oldPlanningOverride := sprintPlanningSvcOverride
+	oldCapacityOverride := sprintCapacitySvcOverride
+	sprintLifecycleSvcOverride = mock
+	sprintAssignmentSvcOverride = mock
+	sprintPlanningSvcOverride = mock
+	sprintCapacitySvcOverride = mock
 	return func() {
-		sprintSvcOverride = oldOverride
+		sprintLifecycleSvcOverride = oldLifecycleOverride
+		sprintAssignmentSvcOverride = oldAssignmentOverride
+		sprintPlanningSvcOverride = oldPlanningOverride
+		sprintCapacitySvcOverride = oldCapacityOverride
 	}
 }
 
@@ -913,6 +935,106 @@ func TestSprintBurndown_FutureDaysDash(t *testing.T) {
 // TC-S-07: --json with detailed=false: base fields present, detailed fields null
 // =============================================================================
 
+// =============================================================================
+// T-E19-F04-010: Independent nil guards for AddedMidSprintSize/RemovedMidSprintSize
+// =============================================================================
+
+// TestPrintSummaryTable_NilSizeWithNonNilCount verifies that printSummaryTable
+// does NOT panic when AddedMidSprintCount/RemovedMidSprintCount are non-nil but
+// their corresponding Size fields are nil.
+//
+// Counter-factual: the buggy impl dereferences *result.AddedMidSprintSize after
+// only guarding AddedMidSprintCount != nil, causing a nil-pointer panic when
+// the type system allows them to be set independently.
+func TestPrintSummaryTable_NilSizeWithNonNilCount(t *testing.T) {
+	addedCount := 2
+	removedCount := 1
+
+	result := &services.SprintSummaryResult{
+		SprintKey:             "S042",
+		SprintName:            "Sprint 42",
+		AddedMidSprintCount:   &addedCount, // non-nil Count
+		AddedMidSprintSize:    nil,         // independently nil Size — must NOT panic
+		RemovedMidSprintCount: &removedCount,
+		RemovedMidSprintSize:  nil, // independently nil Size — must NOT panic
+	}
+
+	// Redirect stdout so Printf output does not pollute test output.
+	origOut := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	assert.NotPanics(t, func() {
+		_ = printSummaryTable(result, true)
+	})
+
+	w.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	out := buf.String()
+
+	// The formatter must still print a line for added/removed with size=0.
+	assert.Contains(t, out, "Added mid-sprint: 2 (size: 0)")
+	assert.Contains(t, out, "Removed mid-sprint:1 (size: 0)")
+}
+
+func TestPrintSummaryDetailed_WritesBothSections(t *testing.T) {
+	addedCount := 2
+	addedSize := 7
+	removedCount := 1
+	removedSize := 3
+	result := &services.SprintSummaryResult{
+		AddedMidSprintCount:   &addedCount,
+		AddedMidSprintSize:    &addedSize,
+		RemovedMidSprintCount: &removedCount,
+		RemovedMidSprintSize:  &removedSize,
+	}
+
+	origOut := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	assert.NotPanics(t, func() {
+		printSummaryDetailed(result)
+	})
+
+	w.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	out := buf.String()
+
+	assert.Contains(t, out, "Added mid-sprint: 2 (size: 7)")
+	assert.Contains(t, out, "Removed mid-sprint:1 (size: 3)")
+}
+
+func TestPrintSummarySections(t *testing.T) {
+	origOut := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	assert.NoError(t, printCycleTime([]services.PhaseTime{{Phase: "done", AverageDays: 2.5}}))
+	assert.NoError(t, printSizeDistribution([]services.SizeBand{{Label: "M", Count: 3}}))
+	assert.NoError(t, printCarryover([]services.CarryoverEntity{{Key: "T-1", EntityType: "task"}}))
+
+	w.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	out := buf.String()
+
+	assert.Contains(t, out, "Cycle Time by Phase")
+	assert.Contains(t, out, "Size Distribution")
+	assert.Contains(t, out, "Carryover Entities (1)")
+}
+
 func TestSprintSummary_JSONSchemaDetailedFalse(t *testing.T) {
 	// TC-S-07: Detailed pointer fields must be null, not omitted.
 	mock := &MockSprintAnalyticsService{
@@ -1569,19 +1691,22 @@ func TestSprintClose_CarryoverBacklogOutputShowsDroppedCount(t *testing.T) {
 // Extended MockSprintService — adds F05 planning methods
 // =============================================================================
 
-// MockSprintPlanningService embeds MockSprintService and adds PlanSprint,
-// GetSprintReadiness, SetSprintCapacity, GetSprintCapacity, BulkAddToSprint,
-// AddEntityToSprint so it satisfies the extended sprintServicer interface.
+// MockSprintPlanningService only implements the planning-focused interface so
+// plan/readiness/capacity tests do not need the full sprint service contract.
 type MockSprintPlanningService struct {
-	MockSprintService
-
-	PlanSprintFunc         func(ctx context.Context, key string) (*services.SprintPlanView, error)
-	GetSprintReadinessFunc func(ctx context.Context, key string) (*services.SprintReadiness, error)
-	SetSprintCapacityFunc  func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
-	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]services.CapacityRow, error)
-	BulkAddToSprintFunc    func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
-	AddEntityToSprintFunc  func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
+	PlanSprintFunc             func(ctx context.Context, key string) (*services.SprintPlanView, error)
+	GetSprintReadinessFunc     func(ctx context.Context, key string) (*services.SprintReadiness, error)
+	SetSprintCapacityFunc      func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
+	GetSprintCapacityFunc      func(ctx context.Context, key string) ([]services.CapacityRow, error)
+	BulkAddToSprintFunc        func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	AddEntityToSprintFunc      func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
+	RemoveEntityFromSprintFunc func(ctx context.Context, sprintKey, entityKey string) error
+	GetSprintBacklogFunc       func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
+	GetNextTaskFunc            func(ctx context.Context, agentType string) (*services.BacklogItemView, error)
 }
+
+var _ sprintPlanningServicer = (*MockSprintPlanningService)(nil)
+var _ sprintAssignmentServicer = (*MockSprintPlanningService)(nil)
 
 func (m *MockSprintPlanningService) PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error) {
 	if m.PlanSprintFunc != nil {
@@ -1630,13 +1755,40 @@ func (m *MockSprintPlanningService) AddEntityToSprint(ctx context.Context, input
 	return &models.SprintAssignment{}, nil, nil
 }
 
+func (m *MockSprintPlanningService) RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error {
+	if m.RemoveEntityFromSprintFunc != nil {
+		return m.RemoveEntityFromSprintFunc(ctx, sprintKey, entityKey)
+	}
+	return nil
+}
+
+func (m *MockSprintPlanningService) GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+	if m.GetSprintBacklogFunc != nil {
+		return m.GetSprintBacklogFunc(ctx, sprintKey, opts)
+	}
+	return &services.SprintBacklog{SprintKey: sprintKey, Groups: []*services.BacklogGroup{}}, nil
+}
+
+func (m *MockSprintPlanningService) GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error) {
+	if m.GetNextTaskFunc != nil {
+		return m.GetNextTaskFunc(ctx, agentType)
+	}
+	return nil, nil
+}
+
 // setupPlanningTest sets up the sprint service override using the extended mock.
 func setupPlanningTest(t *testing.T, mock *MockSprintPlanningService) func() {
 	t.Helper()
-	oldOverride := sprintSvcOverride
-	sprintSvcOverride = mock
+	oldPlanningOverride := sprintPlanningSvcOverride
+	oldAssignmentOverride := sprintAssignmentSvcOverride
+	oldCapacityOverride := sprintCapacitySvcOverride
+	sprintPlanningSvcOverride = mock
+	sprintAssignmentSvcOverride = mock
+	sprintCapacitySvcOverride = mock
 	return func() {
-		sprintSvcOverride = oldOverride
+		sprintPlanningSvcOverride = oldPlanningOverride
+		sprintAssignmentSvcOverride = oldAssignmentOverride
+		sprintCapacitySvcOverride = oldCapacityOverride
 	}
 }
 

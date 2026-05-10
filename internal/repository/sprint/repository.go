@@ -10,6 +10,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // SprintRepository handles CRUD operations for sprints.
@@ -35,13 +36,13 @@ func scanSprint(scanner interface {
 		&sprint.Key,
 		&sprint.Name,
 		&sprint.Goal,
-		&sprint.StartDate,
-		&sprint.EndDate,
+		flexTime{&sprint.StartDate},
+		flexTime{&sprint.EndDate},
 		&sprint.Status,
 		&sprint.Slug,
 		&sprint.FilePath,
-		&sprint.CreatedAt,
-		&sprint.UpdatedAt,
+		flexTime{&sprint.CreatedAt},
+		flexTime{&sprint.UpdatedAt},
 	)
 	if err != nil {
 		return nil, err
@@ -91,7 +92,7 @@ func (r *SprintRepository) GetByKey(ctx context.Context, key string) (*models.Sp
 
 	sprint, err := scanSprint(r.db.QueryRowContext(ctx, query, key))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("sprint not found with key %q", key)
+		return nil, fmt.Errorf("sprint not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sprint: %w", err)
@@ -106,7 +107,7 @@ func (r *SprintRepository) GetByID(ctx context.Context, id int64) (*models.Sprin
 
 	sprint, err := scanSprint(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("sprint not found with id %d", id)
+		return nil, fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sprint: %w", err)
@@ -148,7 +149,7 @@ func (r *SprintRepository) Update(ctx context.Context, sprint *models.Sprint) er
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", sprint.ID)
+		return fmt.Errorf("sprint not found with id %d: %w", sprint.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -169,7 +170,7 @@ func (r *SprintRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", id)
+		return fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -190,7 +191,7 @@ func (r *SprintRepository) UpdateStatus(ctx context.Context, id int64, status mo
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", id)
+		return fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -212,7 +213,7 @@ func (r *SprintRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id in
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("sprint not found with id %d", id)
+		return fmt.Errorf("sprint not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
 	return nil
@@ -299,18 +300,19 @@ func (r *SprintRepository) List(ctx context.Context, filters *SprintListFilters)
 // backward compatibility (EntityKey was introduced in T-E19-F03; Key was added
 // in T-E19-F05 to match the service-layer interface spec).
 type BacklogItem struct {
-	AssignmentID int64     `json:"assignment_id,omitempty"`
-	SprintID     int64     `json:"sprint_id,omitempty"`
-	EntityType   string    `json:"entity_type"`
-	EntityID     int64     `json:"entity_id"`
-	EntityKey    string    `json:"entity_key"`
-	Key          string    `json:"key"` // alias for EntityKey; populated from the same DB column
-	Title        string    `json:"title"`
-	Status       string    `json:"status,omitempty"`
-	AgentType    *string   `json:"agent_type,omitempty"`
-	Priority     int       `json:"priority,omitempty"`
-	Size         *int      `json:"size,omitempty"`
-	AssignedAt   time.Time `json:"assigned_at,omitempty"`
+	AssignmentID   int64     `json:"assignment_id,omitempty"`
+	SprintID       int64     `json:"sprint_id,omitempty"`
+	EntityType     string    `json:"entity_type"`
+	EntityID       int64     `json:"entity_id"`
+	EntityKey      string    `json:"entity_key"`
+	Key            string    `json:"key"` // alias for EntityKey; populated from the same DB column
+	Title          string    `json:"title"`
+	Status         string    `json:"status,omitempty"`
+	AgentType      *string   `json:"agent_type,omitempty"`
+	Priority       int       `json:"priority,omitempty"`
+	ExecutionOrder *int      `json:"execution_order,omitempty"`
+	Size           *int      `json:"size,omitempty"`
+	AssignedAt     time.Time `json:"assigned_at,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +385,7 @@ func (r *SprintRepository) GetActiveAssignment(ctx context.Context, entityType s
 	`
 	row := r.db.QueryRowContext(ctx, query, entityType, entityID)
 	a := &models.SprintAssignment{}
-	err := row.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, &a.AssignedAt, &a.RemovedAt)
+	err := row.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -417,7 +419,7 @@ func (r *SprintRepository) ListAssignments(ctx context.Context, sprintID int64, 
 	var assignments []*models.SprintAssignment
 	for rows.Next() {
 		a := &models.SprintAssignment{}
-		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, &a.AssignedAt, &a.RemovedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt}); err != nil {
 			return nil, fmt.Errorf("failed to scan assignment: %w", err)
 		}
 		assignments = append(assignments, a)
@@ -468,14 +470,15 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		tableName     string
 		agentTypeExpr string // SQL expression for agent_type column
 		priorityExpr  string // SQL expression for priority column
+		execOrderExpr string // SQL expression for execution_order column
 	}
 
 	// Defined in lexicographic order per spec recommendation.
 	subSelects := []subSelect{
-		{"bug", "bugs", "NULL", "NULL"},
-		{"change_card", "change_cards", "NULL", "cc.priority"},
-		{"task", "tasks", "t.agent_type", "t.priority"},
-		{"tech_debt", "tech_debts", "NULL", "NULL"},
+		{"bug", "bugs", "NULL", "NULL", "NULL"},
+		{"change_card", "change_cards", "NULL", "cc.priority", "NULL"},
+		{"task", "tasks", "t.agent_type", "t.priority", "t.execution_order"},
+		{"tech_debt", "tech_debts", "NULL", "NULL", "NULL"},
 	}
 
 	// Table aliases used in the sub-selects above
@@ -517,13 +520,13 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		part := fmt.Sprintf(`
 			SELECT sa.id, sa.sprint_id, '%s' AS entity_type, sa.entity_id,
 			       %s.key, %s.title, %s.status,
-			       %s AS agent_type, %s AS priority, %s.size, sa.assigned_at
+			       %s AS agent_type, %s AS priority, %s AS execution_order, %s.size, sa.assigned_at
 			FROM sprint_assignments sa
 			JOIN %s %s ON %s.id = sa.entity_id
 			WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = '%s'%s`,
 			ss.typeLabel,
 			alias, alias, alias,
-			ss.agentTypeExpr, ss.priorityExpr, alias,
+			ss.agentTypeExpr, ss.priorityExpr, ss.execOrderExpr, alias,
 			ss.tableName, alias, alias,
 			ss.typeLabel,
 			statusFilter,
@@ -558,6 +561,7 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		item := &BacklogItem{}
 		var agentType sql.NullString
 		var priority sql.NullInt64
+		var execOrder sql.NullInt64
 		var size sql.NullInt64
 		if err := rows.Scan(
 			&item.AssignmentID,
@@ -569,6 +573,7 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 			&item.Status,
 			&agentType,
 			&priority,
+			&execOrder,
 			&size,
 			&item.AssignedAt,
 		); err != nil {
@@ -581,6 +586,10 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		}
 		if priority.Valid {
 			item.Priority = int(priority.Int64)
+		}
+		if execOrder.Valid {
+			val := int(execOrder.Int64)
+			item.ExecutionOrder = &val
 		}
 		if size.Valid {
 			s := int(size.Int64)
@@ -680,7 +689,7 @@ func (r *SprintRepository) ListAssignmentsForCarryover(ctx context.Context, spri
 	var assignments []*models.SprintAssignment
 	for rows.Next() {
 		a := &models.SprintAssignment{}
-		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, &a.AssignedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}); err != nil {
 			return nil, fmt.Errorf("failed to scan carryover assignment: %w", err)
 		}
 		assignments = append(assignments, a)
@@ -709,7 +718,7 @@ func (r *SprintRepository) GetTaskIDByKey(ctx context.Context, key string) (int6
 		`SELECT id FROM tasks WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("task not found with key %q", key)
+		return 0, fmt.Errorf("task not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get task id by key: %w", err)
@@ -725,7 +734,7 @@ func (r *SprintRepository) GetBugIDByKey(ctx context.Context, key string) (int64
 		`SELECT id FROM bugs WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("bug not found with key %q", key)
+		return 0, fmt.Errorf("bug not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get bug id by key: %w", err)
@@ -741,7 +750,7 @@ func (r *SprintRepository) GetChangeCardIDByKey(ctx context.Context, key string)
 		`SELECT id FROM change_cards WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("change_card not found with key %q", key)
+		return 0, fmt.Errorf("change_card not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get change_card id by key: %w", err)
@@ -757,7 +766,7 @@ func (r *SprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (
 		`SELECT id FROM tech_debts WHERE UPPER(key) = UPPER(?)`, key,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("tech_debt not found with key %q", key)
+		return 0, fmt.Errorf("tech_debt not found with key %q: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to get tech_debt id by key: %w", err)
@@ -873,7 +882,7 @@ func (r *SprintRepository) GetCapacity(ctx context.Context, sprintID int64) ([]*
 	result := make([]*models.SprintCapacity, 0)
 	for rows.Next() {
 		c := &models.SprintCapacity{}
-		if err := rows.Scan(&c.ID, &c.SprintID, &c.AgentType, &c.CapacityPoints, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.SprintID, &c.AgentType, &c.CapacityPoints, flexTime{&c.CreatedAt}, flexTime{&c.UpdatedAt}); err != nil {
 			return nil, fmt.Errorf("failed to scan sprint capacity: %w", err)
 		}
 		result = append(result, c)

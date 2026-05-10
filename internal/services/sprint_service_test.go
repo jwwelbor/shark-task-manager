@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -339,6 +340,9 @@ func TestSprintService_CreateSprint(t *testing.T) {
 				assert.NotNil(t, result)
 				assert.Equal(t, tt.input.Name, result.Name)
 				assert.Equal(t, tt.input.Goal, result.Goal)
+				assert.Equal(t, "planning", string(result.Status))
+				assert.Equal(t, "sprint-1", result.Slug)
+				assert.Equal(t, filepath.Join("docs", "plan", "sprints", "S001.md"), result.FilePath)
 				assert.Greater(t, result.ID, int64(0))
 			}
 		})
@@ -363,7 +367,7 @@ func TestSprintService_GetSprint(t *testing.T) {
 				ID:     1,
 				Key:    "S001",
 				Name:   "Sprint 1",
-				Status: models.SprintStatus("todo"),
+				Status: models.SprintStatus("planning"),
 			},
 			mockError: nil,
 			expectErr: false,
@@ -372,7 +376,7 @@ func TestSprintService_GetSprint(t *testing.T) {
 			name:       "non-existent sprint returns error",
 			key:        "S999",
 			mockResult: nil,
-			mockError:  errors.New("sprint not found"),
+			mockError:  &models.NotFoundError{Entity: "sprint S999"},
 			expectErr:  true,
 		},
 	}
@@ -393,6 +397,8 @@ func TestSprintService_GetSprint(t *testing.T) {
 			if tt.expectErr {
 				assert.Error(t, err)
 				assert.Nil(t, result)
+				var notFound *models.NotFoundError
+				assert.True(t, errors.As(err, &notFound))
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
@@ -417,16 +423,16 @@ func TestSprintService_ListSprints(t *testing.T) {
 			name:    "list all sprints",
 			filters: nil,
 			mockResult: []*models.Sprint{
-				{ID: 1, Key: "S001", Name: "Sprint 1", Status: "todo"},
-				{ID: 2, Key: "S002", Name: "Sprint 2", Status: "in_progress"},
+				{ID: 1, Key: "S001", Name: "Sprint 1", Status: "planning"},
+				{ID: 2, Key: "S002", Name: "Sprint 2", Status: "active"},
 			},
 			expectCount: 2,
 		},
 		{
 			name:    "filter by status",
-			filters: &SprintListFilters{Status: "in_progress"},
+			filters: &SprintListFilters{Status: "active"},
 			mockResult: []*models.Sprint{
-				{ID: 2, Key: "S002", Name: "Sprint 2", Status: "in_progress"},
+				{ID: 2, Key: "S002", Name: "Sprint 2", Status: "active"},
 			},
 			expectFilter: true,
 			expectCount:  1,
@@ -529,7 +535,7 @@ func TestSprintService_UpdateSprint(t *testing.T) {
 						Name:      "Sprint 1",
 						StartDate: tt.startDate,
 						EndDate:   endDate,
-						Status:    "todo",
+						Status:    "planning",
 					}, nil
 				},
 				UpdateFunc: func(ctx context.Context, s *models.Sprint) error {
@@ -570,29 +576,29 @@ func TestSprintService_DeleteSprint(t *testing.T) {
 		{
 			name:      "delete planning sprint succeeds",
 			sprintKey: "S001",
-			status:    "todo",
+			status:    "planning",
 			expectErr: false,
 		},
 		{
 			name:      "delete active sprint fails",
 			sprintKey: "S001",
-			status:    "in_progress",
+			status:    "active",
 			expectErr: true,
-			errMsg:    "only sprints in todo status can be deleted",
+			errMsg:    "only sprints in planning status can be deleted",
 		},
 		{
 			name:      "delete closing sprint fails",
 			sprintKey: "S001",
-			status:    "ready_for_review",
+			status:    "closing",
 			expectErr: true,
-			errMsg:    "only sprints in todo status can be deleted",
+			errMsg:    "only sprints in planning status can be deleted",
 		},
 		{
 			name:      "delete completed sprint fails",
 			sprintKey: "S001",
 			status:    "completed",
 			expectErr: true,
-			errMsg:    "only sprints in todo status can be deleted",
+			errMsg:    "only sprints in planning status can be deleted",
 		},
 	}
 
@@ -642,14 +648,14 @@ func TestSprintService_StartSprint(t *testing.T) {
 	}{
 		{
 			name:          "start planning sprint succeeds",
-			currentStatus: "todo",
+			currentStatus: "planning",
 			expectErr:     false,
 		},
 		{
 			name:          "start when another is active fails",
-			currentStatus: "todo",
+			currentStatus: "planning",
 			existingActiveSprints: []*models.Sprint{
-				{ID: 2, Key: "S002", Name: "Active Sprint", Status: "in_progress"},
+				{ID: 2, Key: "S002", Name: "Active Sprint", Status: "active"},
 			},
 			expectErr: true,
 			errMsg:    "cannot activate",
@@ -682,7 +688,7 @@ func TestSprintService_StartSprint(t *testing.T) {
 						ID:     1,
 						Key:    "S001",
 						Name:   "Sprint 1",
-						Status: "in_progress",
+						Status: "active",
 					}, nil
 				},
 				ListFunc: func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
@@ -707,7 +713,7 @@ func TestSprintService_StartSprint(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
-				assert.Equal(t, "in_progress", string(result.Status))
+				assert.Equal(t, "active", string(result.Status))
 			}
 		})
 	}
@@ -724,12 +730,12 @@ func TestSprintService_CloseSprint(t *testing.T) {
 	}{
 		{
 			name:          "close active sprint succeeds",
-			currentStatus: "in_progress",
+			currentStatus: "active",
 			expectErr:     false,
 		},
 		{
 			name:          "close planning sprint fails",
-			currentStatus: "todo",
+			currentStatus: "planning",
 			expectErr:     true,
 		},
 	}
@@ -753,7 +759,7 @@ func TestSprintService_CloseSprint(t *testing.T) {
 						ID:     1,
 						Key:    "S001",
 						Name:   "Sprint 1",
-						Status: "ready_for_review",
+						Status: "closing",
 					}, nil
 				},
 				UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
@@ -772,7 +778,7 @@ func TestSprintService_CloseSprint(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
-				assert.Equal(t, "ready_for_review", string(result.Status))
+				assert.Equal(t, "closing", string(result.Status))
 			}
 		})
 	}
@@ -788,13 +794,13 @@ func TestSprintService_ArchiveSprint(t *testing.T) {
 		expectErr     bool
 	}{
 		{
-			name:          "archive_ready_for_review_sprint_succeeds",
-			currentStatus: "ready_for_review",
+			name:          "archive_completed_sprint_succeeds",
+			currentStatus: "completed",
 			expectErr:     false,
 		},
 		{
 			name:          "archive active sprint fails",
-			currentStatus: "in_progress",
+			currentStatus: "active",
 			expectErr:     true,
 		},
 	}
@@ -818,7 +824,7 @@ func TestSprintService_ArchiveSprint(t *testing.T) {
 						ID:     1,
 						Key:    "S001",
 						Name:   "Sprint 1",
-						Status: "completed",
+						Status: "archived",
 					}, nil
 				},
 				UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
@@ -837,7 +843,7 @@ func TestSprintService_ArchiveSprint(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
-				assert.Equal(t, "completed", string(result.Status))
+				assert.Equal(t, "archived", string(result.Status))
 			}
 		})
 	}
@@ -1402,7 +1408,7 @@ func TestSprintService_GetSprintBacklog_SprintNotFound(t *testing.T) {
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
-			return nil, fmt.Errorf("sprint not found: %q", key)
+			return nil, &models.NotFoundError{Entity: "sprint " + key}
 		},
 	}
 
@@ -1493,7 +1499,7 @@ func TestSprintService_GetSprintBacklog_BacklogItemViewFields(t *testing.T) {
 func TestSprintService_AddEntityToSprint_TaskSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 	now := time.Now()
 	var capturedAssignment *models.SprintAssignment
 
@@ -1502,7 +1508,7 @@ func TestSprintService_AddEntityToSprint_TaskSucceeds(t *testing.T) {
 			if key == "S024" {
 				return sprint1, nil
 			}
-			return nil, fmt.Errorf("sprint not found: %q", key)
+			return nil, &models.NotFoundError{Entity: "sprint " + key}
 		},
 		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
 			require.Equal(t, "T-E07-F01-001", key, "task key must be normalized before lookup")
@@ -1547,7 +1553,7 @@ func TestSprintService_AddEntityToSprint_TaskSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_BugSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1590,7 +1596,7 @@ func TestSprintService_AddEntityToSprint_BugSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_ChangeCardSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1632,7 +1638,7 @@ func TestSprintService_AddEntityToSprint_ChangeCardSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_TechDebtSucceeds(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1675,7 +1681,7 @@ func TestSprintService_AddEntityToSprint_TechDebtSucceeds(t *testing.T) {
 func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
@@ -1709,7 +1715,7 @@ func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
 func TestSprintService_AddEntityToSprint_ConflictError(t *testing.T) {
 	ctx := context.Background()
 
-	sprint25 := &models.Sprint{ID: 25, Key: "S025", Name: "Sprint 25", Status: "todo"}
+	sprint25 := &models.Sprint{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"}
 	// Entity task 1001 is already actively assigned to sprint S024
 	existingAssignment := &models.SprintAssignment{
 		ID: 100, SprintID: 24, EntityType: "task", EntityID: 1001,
@@ -1723,13 +1729,13 @@ func TestSprintService_AddEntityToSprint_ConflictError(t *testing.T) {
 			if key == "S025" {
 				return sprint25, nil
 			}
-			return nil, fmt.Errorf("sprint not found: %q", key)
+			return nil, &models.NotFoundError{Entity: "sprint " + key}
 		},
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Sprint, error) {
 			if id == 24 {
-				return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}, nil
+				return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}, nil
 			}
-			return nil, fmt.Errorf("sprint not found with id %d", id)
+			return nil, &models.NotFoundError{Entity: fmt.Sprintf("sprint %d", id)}
 		},
 		GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
 			return 1001, nil
@@ -1815,7 +1821,7 @@ func TestSprintService_AddEntityToSprint_CapacityWarning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}
+			sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
 			var mockCapacityRepo *MockSprintCapacityRepository
 			if tt.sprintCap != nil {
@@ -1875,8 +1881,8 @@ func TestSprintService_AddEntityToSprint_CapacityWarning(t *testing.T) {
 }
 
 // TestAddEntityToSprint_RejectsCompletedSprint verifies BUG-001 fix:
-// AddEntityToSprint must reject sprints that are not in planning ("todo") or
-// active ("in_progress") status. This covers spec §4.2.1 step 1.
+// AddEntityToSprint must reject sprints that are not in planning or active
+// status. This covers spec §4.2.1 step 1.
 //
 // Caller-Path Contract:
 //   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{SprintKey:"S_DONE", EntityKey:"E07-F01-001"})
@@ -1892,7 +1898,7 @@ func TestAddEntityToSprint_RejectsCompletedSprint(t *testing.T) {
 		status string
 	}{
 		{"completed sprint rejected", "completed"},
-		{"ready_for_review sprint rejected", "ready_for_review"},
+		{"closing sprint rejected", "closing"},
 		{"archived sprint rejected", "archived"},
 	}
 
@@ -1932,8 +1938,8 @@ func TestAddEntityToSprint_RejectsCompletedSprint(t *testing.T) {
 	}
 }
 
-// TestAddEntityToSprint_AllowsPlanningAndActiveSprints verifies that planning ("todo")
-// and active ("in_progress") sprints still accept entity assignments after the BUG-001 fix.
+// TestAddEntityToSprint_AllowsPlanningAndActiveSprints verifies that planning
+// and active sprints still accept entity assignments after the BUG-001 fix.
 func TestAddEntityToSprint_AllowsPlanningAndActiveSprints(t *testing.T) {
 	ctx := context.Background()
 
@@ -1941,8 +1947,8 @@ func TestAddEntityToSprint_AllowsPlanningAndActiveSprints(t *testing.T) {
 		name   string
 		status string
 	}{
-		{"planning sprint accepted", "todo"},
-		{"active sprint accepted", "in_progress"},
+		{"planning sprint accepted", "planning"},
+		{"active sprint accepted", "active"},
 	}
 
 	for _, tt := range tests {
@@ -1993,7 +1999,7 @@ func TestAddEntityToSprint_AllowsPlanningAndActiveSprints(t *testing.T) {
 func TestAddEntityToSprint_ChangeCardKeyFormat(t *testing.T) {
 	ctx := context.Background()
 
-	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "in_progress"}
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "active"}
 
 	var capturedKey string
 
@@ -2314,7 +2320,7 @@ func TestBulkAddToSprint_FeatureNotFound(t *testing.T) {
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
-			return nil, fmt.Errorf("sprint not found: %q", key)
+			return nil, &models.NotFoundError{Entity: "sprint " + key}
 		},
 	}
 
@@ -2331,22 +2337,78 @@ func TestBulkAddToSprint_FeatureNotFound(t *testing.T) {
 	assert.False(t, bulkAssignCalled, "BulkAssign must NOT be called when sprint is not found")
 }
 
+// TestBulkAddToSprint_BulkAssignError tests the BulkAssign error propagation path
+// (spec §3.1 requirement: "On repo error, no entities are added").
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["task"]})
+//   - Lowest mock seam: SprintRepository (returns valid sprint) + SprintAssignmentQueryRepository
+//     (BulkAssign returns error)
+//   - Forbidden mocks: Do NOT mock the sprint lookup — it must succeed so BulkAssign is reached
+//   - Counter-factual: a buggy impl that swallows the BulkAssign error would return a non-nil
+//     result with AddedByType entries instead of propagating the error, causing the
+//     assert.Error assertion to fail
+func TestBulkAddToSprint_BulkAssignError(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	backlogItems := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 1001, Key: "E07-F01-001", Status: "todo"},
+		{EntityType: "task", EntityID: 1002, Key: "E07-F01-002", Status: "todo"},
+	}
+
+	bulkAssignErr := fmt.Errorf("database write failed: connection timeout")
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			return 0, bulkAssignErr
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:   "S024",
+		EntityTypes: []string{"task"},
+	})
+
+	assert.Error(t, err, "BulkAssign error must be propagated to the caller")
+	assert.Nil(t, result, "result must be nil when BulkAssign fails — no partial results")
+}
+
 // TestBulkAddToSprint_BugsBulk tests TC-K04:
 // BulkAddToSprint with EntityTypes:["bug"] assigns open unassigned bugs.
 //
 // Caller-Path Contract (per test-plan TC-K04):
 //   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["bug"]})
 //   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
-//   - Counter-factual: a buggy impl that passes the wrong entity type to ListUnassignedBacklog
-//     would return tasks instead of bugs, making AddedByType["bug"] == 0
+//   - Counter-factual: a buggy impl that ignores the entityTypes filter would return all 4 items
+//     (2 bugs + 1 task + 1 tech_debt), causing AddedByType["bug"] == 4 instead of 2, failing the
+//     assertion. The mixed-type fixture proves the type filter is actually applied.
 func TestBulkAddToSprint_BugsBulk(t *testing.T) {
 	ctx := context.Background()
 
 	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
-	backlogItems := []sprint.BacklogItem{
+	// Mixed-type fixture: 2 bugs + 1 task + 1 tech_debt item.
+	// A buggy impl that ignores entityTypes would return all 4 items, making
+	// AddedByType["bug"] == 4 and failing the assertion below.
+	allBacklogItems := []sprint.BacklogItem{
 		{EntityType: "bug", EntityID: 2001, Key: "B001", Status: "open"},
 		{EntityType: "bug", EntityID: 2002, Key: "B002", Status: "in_progress"},
+		{EntityType: "task", EntityID: 1001, Key: "E07-F01-001", Status: "todo"},
+		{EntityType: "tech_debt", EntityID: 3001, Key: "TD-001", Status: "open"},
 	}
 
 	var capturedEntityTypes []string
@@ -2354,7 +2416,18 @@ func TestBulkAddToSprint_BugsBulk(t *testing.T) {
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
 		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
-			return backlogItems, nil
+			// Simulate real filtering: return only items whose type is in entityTypes.
+			var filtered []sprint.BacklogItem
+			typeSet := make(map[string]bool, len(entityTypes))
+			for _, et := range entityTypes {
+				typeSet[et] = true
+			}
+			for _, item := range allBacklogItems {
+				if typeSet[item.EntityType] {
+					filtered = append(filtered, item)
+				}
+			}
+			return filtered, nil
 		},
 		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
 			return len(assignments), nil
@@ -2378,7 +2451,9 @@ func TestBulkAddToSprint_BugsBulk(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, []string{"bug"}, capturedEntityTypes, "service must pass 'bug' type to ListUnassignedBacklog")
-	assert.Equal(t, 2, result.AddedByType["bug"], "both unassigned bugs should be added")
+	assert.Equal(t, 2, result.AddedByType["bug"], "only the 2 bugs should be added, not the task or tech_debt item")
+	assert.Equal(t, 0, result.AddedByType["task"], "task items must not appear in bug-only bulk add")
+	assert.Equal(t, 0, result.AddedByType["tech_debt"], "tech_debt items must not appear in bug-only bulk add")
 	assert.Equal(t, 0, len(result.CapacityWarnings), "no capacity configured — no warnings")
 }
 
@@ -2388,17 +2463,23 @@ func TestBulkAddToSprint_BugsBulk(t *testing.T) {
 // Caller-Path Contract (per test-plan TC-K05):
 //   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["tech_debt"]})
 //   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
-//   - Counter-factual: a buggy impl that uses entity_type="techdebt" (typo) would fail
-//     ListUnassignedBacklog to return the correct items, making AddedByType["tech_debt"] == 0
+//   - Counter-factual: a buggy impl that ignores entityTypes would return all 5 items
+//     (3 tech_debt + 1 bug + 1 change_card), making AddedByType["tech_debt"] == 5 instead of 3.
+//     The mixed-type fixture proves the type filter is applied and the "tech_debt" string is exact.
 func TestBulkAddToSprint_TechDebtBulk(t *testing.T) {
 	ctx := context.Background()
 
 	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
-	backlogItems := []sprint.BacklogItem{
+	// Mixed-type fixture: 3 tech_debt items + 1 bug + 1 change_card.
+	// A buggy impl that ignores entityTypes (or uses the wrong string like "techdebt")
+	// would return wrong counts, failing the assertions below.
+	allBacklogItems := []sprint.BacklogItem{
 		{EntityType: "tech_debt", EntityID: 3001, Key: "TD-001", Status: "open"},
 		{EntityType: "tech_debt", EntityID: 3002, Key: "TD-002", Status: "open"},
 		{EntityType: "tech_debt", EntityID: 3003, Key: "TD-003", Status: "open"},
+		{EntityType: "bug", EntityID: 2001, Key: "B001", Status: "open"},
+		{EntityType: "change_card", EntityID: 4001, Key: "C001", Status: "open"},
 	}
 
 	var capturedEntityTypes []string
@@ -2406,7 +2487,18 @@ func TestBulkAddToSprint_TechDebtBulk(t *testing.T) {
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
 		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
-			return backlogItems, nil
+			// Simulate real filtering: return only items whose type is in entityTypes.
+			var filtered []sprint.BacklogItem
+			typeSet := make(map[string]bool, len(entityTypes))
+			for _, et := range entityTypes {
+				typeSet[et] = true
+			}
+			for _, item := range allBacklogItems {
+				if typeSet[item.EntityType] {
+					filtered = append(filtered, item)
+				}
+			}
+			return filtered, nil
 		},
 		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
 			return len(assignments), nil
@@ -2431,7 +2523,9 @@ func TestBulkAddToSprint_TechDebtBulk(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, []string{"tech_debt"}, capturedEntityTypes,
 		"service must pass 'tech_debt' type to ListUnassignedBacklog")
-	assert.Equal(t, 3, result.AddedByType["tech_debt"], "all 3 tech-debt items should be added")
+	assert.Equal(t, 3, result.AddedByType["tech_debt"], "only the 3 tech-debt items should be added")
+	assert.Equal(t, 0, result.AddedByType["bug"], "bug items must not appear in tech_debt-only bulk add")
+	assert.Equal(t, 0, result.AddedByType["change_card"], "change_card items must not appear in tech_debt-only bulk add")
 }
 
 // TestBulkAddToSprint_ChangeCardsBulk tests TC-K06:
@@ -2440,16 +2534,23 @@ func TestBulkAddToSprint_TechDebtBulk(t *testing.T) {
 // Caller-Path Contract (per test-plan TC-K06):
 //   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S024", EntityTypes:["change_card"]})
 //   - Lowest mock seam: SprintRepository + SprintAssignmentQueryRepository interfaces
-//   - Counter-factual: a buggy impl that uses entity_type="change" (wrong string) would return
-//     wrong items, making AddedByType["change_card"] != 2
+//   - Counter-factual: a buggy impl that ignores entityTypes (or uses "change" instead of
+//     "change_card") would return all 4 items (2 change_cards + 1 task + 1 bug),
+//     making AddedByType["change_card"] == 4 instead of 2. The mixed-type fixture proves
+//     the type filter is applied and the exact string "change_card" is used.
 func TestBulkAddToSprint_ChangeCardsBulk(t *testing.T) {
 	ctx := context.Background()
 
 	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
 
-	backlogItems := []sprint.BacklogItem{
+	// Mixed-type fixture: 2 change_cards + 1 task + 1 bug.
+	// A buggy impl that ignores entityTypes or uses "change" (wrong string) would
+	// return wrong counts, failing the assertions below.
+	allBacklogItems := []sprint.BacklogItem{
 		{EntityType: "change_card", EntityID: 4001, Key: "C001", Status: "open"},
 		{EntityType: "change_card", EntityID: 4002, Key: "C002", Status: "open"},
+		{EntityType: "task", EntityID: 1001, Key: "E07-F01-002", Status: "todo"},
+		{EntityType: "bug", EntityID: 2001, Key: "B002", Status: "open"},
 	}
 
 	var capturedEntityTypes []string
@@ -2457,7 +2558,18 @@ func TestBulkAddToSprint_ChangeCardsBulk(t *testing.T) {
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
 		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
-			return backlogItems, nil
+			// Simulate real filtering: return only items whose type is in entityTypes.
+			var filtered []sprint.BacklogItem
+			typeSet := make(map[string]bool, len(entityTypes))
+			for _, et := range entityTypes {
+				typeSet[et] = true
+			}
+			for _, item := range allBacklogItems {
+				if typeSet[item.EntityType] {
+					filtered = append(filtered, item)
+				}
+			}
+			return filtered, nil
 		},
 		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
 			return len(assignments), nil
@@ -2482,7 +2594,9 @@ func TestBulkAddToSprint_ChangeCardsBulk(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, []string{"change_card"}, capturedEntityTypes,
 		"service must pass 'change_card' type to ListUnassignedBacklog")
-	assert.Equal(t, 2, result.AddedByType["change_card"], "both change cards should be added")
+	assert.Equal(t, 2, result.AddedByType["change_card"], "only the 2 change_cards should be added")
+	assert.Equal(t, 0, result.AddedByType["task"], "task items must not appear in change_card-only bulk add")
+	assert.Equal(t, 0, result.AddedByType["bug"], "bug items must not appear in change_card-only bulk add")
 }
 
 // TestBulkAddToSprint_NilAssignmentRepo tests error when assignmentRepo is nil.
@@ -2574,7 +2688,7 @@ func TestSprintService_SetSprintCapacity_CreateNew(t *testing.T) {
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
 			assert.Equal(t, "S024", key)
-			return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "todo"}, nil
+			return &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}, nil
 		},
 	}
 	capRepo := &MockSprintCapacityRepository{
@@ -3079,6 +3193,43 @@ func TestSprintService_GetSprintReadiness_Factor2_DependencySatisfaction(t *test
 		require.NoError(t, err)
 		assert.Equal(t, 0, result.Factors[1].Score, "21 unsatisfied → Factor2=0 (floor)")
 		assert.GreaterOrEqual(t, result.Factors[1].Score, 0, "score must not be negative")
+	})
+
+	t.Run("malformed depends_on → score unchanged, Detail surfaces ambiguity", func(t *testing.T) {
+		// T-E19-F05-011: malformed JSON must not silently inflate Factor 2 score.
+		// Score stays at 20 (treated as zero deps for graceful degradation) but the
+		// Detail string must mention the malformed entity count so callers are not
+		// misled into believing all dependency data is healthy.
+		assignments := []sprint.AssignmentWithSize{
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: "{invalid}"},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		f2 := result.Factors[1]
+		// Score: graceful degradation → treated as zero deps → max 20
+		assert.Equal(t, 20, f2.Score, "malformed depends_on → graceful degradation, score stays 20")
+		// Detail must mention the malformed entity
+		assert.Contains(t, f2.Detail, "malformed depends_on",
+			"Detail must surface malformed JSON count")
+		assert.Contains(t, f2.Detail, "1",
+			"Detail must include the count of malformed entities")
+	})
+
+	t.Run("malformed + unsatisfied → score reflects unsatisfied, Detail surfaces both", func(t *testing.T) {
+		assignments := []sprint.AssignmentWithSize{
+			// valid task with 1 external dep
+			{EntityType: "task", Key: "T-001", Size: sizePtrR(3), DependsOn: `["T-EXTERNAL-001"]`},
+			// task with malformed JSON
+			{EntityType: "task", Key: "T-002", Size: sizePtrR(2), DependsOn: "{bad json}"},
+		}
+		svc := makeReadinessSvc(sprintObj, assignments, nil)
+		result, err := svc.GetSprintReadiness(ctx, "S024")
+		require.NoError(t, err)
+		f2 := result.Factors[1]
+		assert.Equal(t, 19, f2.Score, "1 unsatisfied dep → score 19")
+		assert.Contains(t, f2.Detail, "malformed depends_on",
+			"Detail must surface malformed JSON count even when other deps are unsatisfied")
 	})
 }
 

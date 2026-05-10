@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
 // NormalizeKey converts a key to canonical uppercase format.
@@ -875,6 +877,13 @@ func derefString(s *string) string {
 func handleServiceError(err error, entityType, key string) {
 	if err == nil {
 		return
+	}
+
+	if errors.Is(err, repository.ErrNotFound) {
+		displayType := strings.ToUpper(entityType[:1]) + entityType[1:]
+		cli.Error(fmt.Sprintf("%s not found: %s", displayType, key))
+		cli.Info(fmt.Sprintf("Use 'shark %s list' to see available %ss", entityType, entityType))
+		os.Exit(1)
 	}
 
 	// Check if error message contains "not found" patterns (no specific NotFoundError type in repo)

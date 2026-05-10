@@ -14,11 +14,13 @@ READ:
 (2) Feature test-plan.md for test cases
 (3) Parent epic context for dependency awareness
 
-PRODUCE tasks via shark CLI. Each task:
+PRODUCE tasks via shark CLI. Each task call MUST pass --size:
 
 ```
-{{template "create_task" .}} "<title>" --order=N
+{{template "create_task" .}} "<title>" --order=N --size=<1|2|3|5|8|13>
 ```
+
+{{template "_sizing_task" .}}
 
 Then write task spec file (50 LINES MAX, not counting frontmatter):
 
@@ -31,6 +33,7 @@ feature: {{.id}}
 agent: developer
 priority: N
 execution_order: N
+size: <1|2|3|5|8|13>   # mirror of --size; required
 dependencies: [<prior task keys>]
 ---
 
@@ -80,3 +83,5 @@ EXIT GATE:
 - Every task references spec.md and test-plan.md sections
 - Every implementation task's Scope includes its own test file(s); no
   standalone "write tests for X" task follows an "implement X" task
+- Every task carries a non-empty size; no task is sized 8/XL or 13/XXL
+  (decompose first — `shark list --json | jq` to verify sizes)

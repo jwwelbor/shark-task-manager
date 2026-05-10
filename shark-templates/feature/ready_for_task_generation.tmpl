@@ -20,9 +20,14 @@ ADAPT TO TIER:
 - STANDARD (PRD + focused arch + test plan — create tasks per write-task.md, typically 3-8 tasks)
 - COMPLEX (full doc suite — comprehensive task breakdown per write-task.md, typically 8+ tasks with dependency graph)
 
-PRODUCE: Tasks via shark task create. Each task: goal, success criteria, design doc references if available, test cases if test plan exists, validation gates, agent assignment, dependencies. For SIMPLE tier, embed test cases directly in task spec.
+PRODUCE: Tasks via shark create. Each call MUST pass --size:
+  {{template "create_task_sized" .}} [--order=N] [--agent=<agent>] [--priority=N]
+Each task: goal, success criteria, design doc references if available, test cases if test plan exists, validation gates, agent assignment, dependencies, **size**. For SIMPLE tier, embed test cases directly in task spec.
+
+{{template "_sizing_task" .}}
 
 EXIT GATE varies by tier:
+- ALL TIERS: Every task carries a non-empty size; no task is sized 8/XL or 13/XXL (decompose first).
 - SIMPLE (feature requirements covered by 1-3 tasks, AC clear)
 - STANDARD (PRD requirements map to tasks, test cases mapped)
 - COMPLEX (full write-task.md checklist, contract validation task if applicable)

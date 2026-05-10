@@ -2,6 +2,10 @@
 epic_key: {{.EpicSlug}}
 title: {{.Title}}
 description: {{.Description}}
+# size: optional but recommended. Fibonacci 1|2|3|5|8|13 or t-shirt XS|S|M|L|XL|XXL.
+# Pass via the CLI: `shark create epic "<title>" --size=<S>`.
+# Epics typically score 8/XL or 13/XXL — they describe multi-sprint work and exist to be decomposed.
+size:
 ---
 
 # {{.Title}}

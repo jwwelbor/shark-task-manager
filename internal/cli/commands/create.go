@@ -315,6 +315,8 @@ func init() {
 	createEpicCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
 	createEpicCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
 	createEpicCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
+	// --size must be registered on each unified subcommand; Cobra flags are per-command, not shared via RunE.
+	createEpicCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// ======================================================================
 	// Feature Create Flags
@@ -336,6 +338,7 @@ func init() {
 	createFeatureCmd.Flags().String("path", "", "Alias for --file")
 	_ = createFeatureCmd.Flags().MarkHidden("filename")
 	_ = createFeatureCmd.Flags().MarkHidden("path")
+	createFeatureCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// ======================================================================
 	// Task Create Flags
@@ -360,6 +363,7 @@ func init() {
 	createTaskCmd.Flags().String("path", "", "Alias for --file")
 	_ = createTaskCmd.Flags().MarkHidden("filename")
 	_ = createTaskCmd.Flags().MarkHidden("path")
+	createTaskCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// ======================================================================
 	// Bug Create Flags
@@ -368,6 +372,7 @@ func init() {
 	createBugCmd.Flags().String("description", "", "Bug description (optional)")
 	createBugCmd.Flags().String("linked-type", "", "Linked entity type: epic, feature, or task (optional)")
 	createBugCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
+	createBugCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// ======================================================================
 	// Idea Create Flags
@@ -389,5 +394,6 @@ func init() {
 		cmd.Flags().String("requested-by", "", "Name or team requesting the change (optional)")
 		cmd.Flags().String("epic", "", "Link to epic key (e.g., E07) (optional)")
 		cmd.Flags().String("feature", "", "Link to feature key (e.g., E07-F01) (optional)")
+		cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 	}
 }

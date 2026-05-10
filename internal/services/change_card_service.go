@@ -50,12 +50,22 @@ type ChangeCardService struct {
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
+
+	// sizeCfg is optional — nil disables size enforcement on create.
+	sizeCfg SizeEnforcementConfig
 }
 
 // SetTagService wires the optional TagQuerier dependency. When nil, tag
 // hooks in CreateChangeCard and UpdateChangeCard are skipped silently.
 func (s *ChangeCardService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
+// when the config does not list "change" in SizeRequiredFor, CreateChangeCard
+// accepts nil Size silently.
+func (s *ChangeCardService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
+	s.sizeCfg = cfg
 }
 
 // NewChangeCardService creates a new ChangeCardService.
@@ -115,6 +125,9 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 		featureID = &feature.ID
 	}
 
+	if err := enforceSizeRequired(s.sizeCfg, models.EntityTypeChange, input.Size); err != nil {
+		return nil, false, err
+	}
 	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeChange, input.Tags); err != nil {
 		return nil, false, err
 	}
