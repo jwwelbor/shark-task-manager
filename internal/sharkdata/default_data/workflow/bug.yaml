@@ -1,0 +1,110 @@
+version: '1.0'
+status_flow:
+  reported:
+  - triaged
+  - wont_fix
+  - duplicate
+  triaged:
+  - in_fix
+  - wont_fix
+  - duplicate
+  in_fix:
+  - in_verification
+  - triaged
+  in_verification:
+  - resolved
+  - in_fix
+  resolved: []
+  wont_fix:
+  - triaged
+  duplicate: []
+status_metadata:
+  reported:
+    color: red
+    description: Bug reported, awaiting triage
+    phase: planning
+    progress_weight: 0.05
+    responsibility: agent
+    agent_types:
+    - business-analyst
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      skills:
+      - research
+      - shark
+      instruction_template: bug/reported.tmpl
+  triaged:
+    color: yellow
+    description: Triaged, ready for fix
+    phase: development
+    progress_weight: 0.2
+    responsibility: agent
+    agent_types:
+    - developer
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: developer
+      skills:
+      - implementation
+      - debugging
+      - shark
+      instruction_template: bug/triaged.tmpl
+  in_fix:
+    color: blue
+    description: Fix in progress
+    phase: development
+    progress_weight: 0.5
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: developer
+      skills:
+      - implementation
+      - debugging
+      - shark
+      instruction_template: bug/in_fix.tmpl
+  in_verification:
+    color: cyan
+    description: Fix applied, awaiting verification
+    phase: review
+    progress_weight: 0.8
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: qa
+      skills:
+      - quality
+      - shark
+      instruction_template: bug/in_verification.tmpl
+  resolved:
+    color: green
+    description: Bug verified as fixed
+    phase: done
+    progress_weight: 1.0
+    orchestrator_action:
+      action: archive
+      instruction_template: bug/resolved.tmpl
+  wont_fix:
+    color: gray
+    description: Will not be fixed
+    phase: done
+    progress_weight: 1.0
+    orchestrator_action:
+      action: archive
+      instruction_template: bug/wont_fix.tmpl
+  duplicate:
+    color: gray
+    description: Duplicate of another bug
+    phase: done
+    progress_weight: 1.0
+    orchestrator_action:
+      action: archive
+      instruction_template: bug/duplicate.tmpl
+special_statuses:
+  _start_:
+  - reported
+  _complete_:
+  - resolved
+  - wont_fix
+  - duplicate

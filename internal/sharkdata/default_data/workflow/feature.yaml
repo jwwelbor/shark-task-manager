@@ -1,0 +1,491 @@
+version: '1.1'
+status_flow:
+  draft:
+  - ready_for_scope_validation
+  - ready_for_research
+  - ready_for_refinement_ba
+  - active
+  - cancelled
+  ready_for_scope_validation:
+  - in_scope_validation
+  - cancelled
+  - on_hold
+  in_scope_validation:
+  - ready_for_triage
+  - cancelled
+  ready_for_triage:
+  - in_triage
+  - blocked
+  - on_hold
+  in_triage:
+  - ready_for_research
+  - ready_for_refinement_ba
+  - ready_for_task_generation
+  - blocked
+  - on_hold
+  ready_for_research:
+  - in_research
+  - cancelled
+  - on_hold
+  in_research:
+  - ready_for_refinement_tech
+  - draft
+  - blocked
+  - on_hold
+  ready_for_refinement_ba:
+  - in_refinement_ba
+  - cancelled
+  - on_hold
+  in_refinement_ba:
+  - ready_for_ba_check
+  - ready_for_research
+  - ready_for_refinement_tech
+  - draft
+  - blocked
+  - on_hold
+  ready_for_refinement_tech:
+  - in_refinement_tech
+  - blocked
+  - on_hold
+  in_refinement_tech:
+  - ready_for_tech_check
+  - ready_for_test_planning
+  - ready_for_refinement_ba
+  - blocked
+  - on_hold
+  ready_for_test_planning:
+  - in_test_planning
+  - blocked
+  - on_hold
+  in_test_planning:
+  - ready_for_task_generation
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - blocked
+  - on_hold
+  ready_for_task_generation:
+  - in_task_generation
+  - blocked
+  - on_hold
+  in_task_generation:
+  - ready_to_build
+  - blocked
+  - on_hold
+  ready_to_build:
+  - active
+  - blocked
+  - on_hold
+  active:
+  - completed
+  - on_hold
+  completed: []
+  cancelled: []
+  on_hold:
+  - ready_for_scope_validation
+  - ready_for_triage
+  - ready_for_research
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - ready_for_test_planning
+  - ready_for_task_generation
+  - ready_to_build
+  - active
+  - cancelled
+  - ready_for_ba_check
+  - ready_for_tech_check
+  blocked:
+  - ready_for_scope_validation
+  - ready_for_triage
+  - ready_for_research
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - ready_for_test_planning
+  - ready_for_task_generation
+  - ready_to_build
+  - draft
+  - ready_for_ba_check
+  - ready_for_tech_check
+  ready_for_ba_check:
+  - in_ba_check
+  - blocked
+  - on_hold
+  in_ba_check:
+  - ready_for_refinement_tech
+  - in_refinement_ba
+  - blocked
+  - on_hold
+  ready_for_tech_check:
+  - in_tech_check
+  - blocked
+  - on_hold
+  in_tech_check:
+  - ready_for_test_planning
+  - in_refinement_tech
+  - blocked
+  - on_hold
+status_metadata:
+  draft:
+    description: Feature identified, not yet refined
+    phase: planning
+    color: gray
+    progress_weight: 0
+    is_planning: true
+    responsibility: none
+    orchestrator_action:
+      action: advance_status
+      instruction_template: feature_short/draft.tmpl
+  ready_for_scope_validation:
+    description: Ready for scope validation - ensure this is a feature not a task
+    phase: validation
+    color: orange
+    progress_weight: 0.01
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - business-analyst
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/ready_for_scope_validation.tmpl
+  in_scope_validation:
+    description: Scope validation in progress
+    phase: validation
+    color: orange
+    progress_weight: 0.02
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/in_scope_validation.tmpl
+  ready_for_triage:
+    description: Scope validated, ready for complexity assessment
+    phase: triage
+    color: purple
+    progress_weight: 0.03
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - researcher
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: researcher
+      skills:
+      - research
+      - shark
+      instruction_template: feature_short/ready_for_triage.tmpl
+  in_triage:
+    description: Complexity assessment in progress
+    phase: triage
+    color: purple
+    progress_weight: 0.05
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: researcher
+      skills:
+      - research
+      - shark
+      instruction_template: feature_short/in_triage.tmpl
+  ready_for_research:
+    description: Ready for tactical codebase and integration research
+    phase: research
+    color: purple
+    progress_weight: 0.16
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - researcher
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: researcher
+      skills:
+      - research
+      - shark
+      instruction_template: feature_short/ready_for_research.tmpl
+  in_research:
+    description: Research in progress
+    phase: research
+    color: purple
+    progress_weight: 0.2
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: researcher
+      skills:
+      - research
+      - shark
+      instruction_template: feature_short/in_research.tmpl
+  ready_for_refinement_ba:
+    description: Ready for business analysis and requirements specification
+    phase: refinement
+    color: cyan
+    progress_weight: 0.08
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - business-analyst
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/ready_for_refinement_ba.tmpl
+  in_refinement_ba:
+    description: BA actively refining requirements
+    phase: refinement
+    color: blue
+    progress_weight: 0.12
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/in_refinement_ba.tmpl
+  ready_for_refinement_tech:
+    description: Requirements complete, ready for technical architecture
+    phase: refinement
+    color: cyan
+    progress_weight: 0.25
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - architect
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: architect
+      skills:
+      - architecture
+      - specification-writing
+      - shark
+      instruction_template: feature_short/ready_for_refinement_tech.tmpl
+  in_refinement_tech:
+    description: Architect designing technical solution
+    phase: refinement
+    color: blue
+    progress_weight: 0.4
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: architect
+      skills:
+      - architecture
+      - specification-writing
+      - shark
+      instruction_template: feature_short/in_refinement_tech.tmpl
+  ready_for_test_planning:
+    description: Architecture complete, ready for feature test strategy
+    phase: test_planning
+    color: lime
+    progress_weight: 0.45
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - qa
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: qa
+      skills:
+      - quality
+      - shark
+      instruction_template: feature_short/ready_for_test_planning.tmpl
+  in_test_planning:
+    description: QA creating feature test strategy from epic UAT plan
+    phase: test_planning
+    color: lime
+    progress_weight: 0.5
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: qa
+      skills:
+      - quality
+      - shark
+      instruction_template: feature_short/in_test_planning.tmpl
+  ready_for_task_generation:
+    description: Ready to generate implementation tasks (may have limited or full
+      design docs)
+    phase: decomposition
+    color: yellow
+    progress_weight: 0.55
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - product-manager
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: product-manager
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/ready_for_task_generation.tmpl
+  in_task_generation:
+    description: Tasks being generated from design documents
+    phase: decomposition
+    color: yellow
+    progress_weight: 0.7
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: product-manager
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/in_task_generation.tmpl
+  ready_to_build:
+    description: All tasks generated and specified, ready for autonomous build
+    phase: execution
+    color: green
+    progress_weight: 0.85
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - product-manager
+    aggregates_from: tasks
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: product-manager
+      skills:
+      - shark
+      instruction_template: feature_short/ready_to_build.tmpl
+  active:
+    description: Build in progress, progress aggregated from tasks
+    phase: execution
+    color: blue
+    progress_weight: 1.0
+    is_planning: false
+    responsibility: none
+    aggregates_from: tasks
+    orchestrator_action:
+      action: cascade
+      agent_type: product-manager
+      skills:
+      - orchestration
+      - shark
+      instruction_template: feature_short/active.tmpl
+  completed:
+    description: All tasks complete, feature delivered
+    phase: done
+    color: green
+    progress_weight: 1.0
+    is_planning: false
+    responsibility: none
+    orchestrator_action:
+      action: archive
+      instruction_template: feature_short/completed.tmpl
+  cancelled:
+    description: Feature abandoned
+    phase: done
+    color: gray
+    progress_weight: 0
+    is_planning: false
+    responsibility: none
+    orchestrator_action:
+      action: archive
+      instruction_template: feature_short/cancelled.tmpl
+  on_hold:
+    description: Feature intentionally paused
+    phase: paused
+    color: orange
+    progress_weight: 0
+    is_planning: true
+    responsibility: none
+    orchestrator_action:
+      action: pause
+      instruction_template: feature_short/on_hold.tmpl
+  blocked:
+    description: Feature blocked by external dependency
+    phase: blocked
+    color: red
+    progress_weight: 0
+    is_planning: true
+    responsibility: none
+    orchestrator_action:
+      action: pause
+      instruction_template: feature_short/blocked.tmpl
+  ready_for_ba_check:
+    description: Feature BA docs complete, ready for BA quality check
+    phase: refinement
+    color: yellow
+    progress_weight: 0.15
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - business-analyst
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/ready_for_ba_check.tmpl
+  in_ba_check:
+    description: BA validator checking feature docs for completeness and depth
+    phase: refinement
+    color: yellow
+    progress_weight: 0.18
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: feature_short/in_ba_check.tmpl
+  ready_for_tech_check:
+    description: Feature tech docs complete, ready for tech quality check
+    phase: refinement
+    color: lime
+    progress_weight: 0.43
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - architect
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: architect
+      skills:
+      - architecture
+      - specification-writing
+      - shark
+      instruction_template: feature_short/ready_for_tech_check.tmpl
+  in_tech_check:
+    description: Architect validator checking feature tech docs for completeness and
+      depth
+    phase: refinement
+    color: lime
+    progress_weight: 0.45
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: architect
+      skills:
+      - architecture
+      - specification-writing
+      - shark
+      instruction_template: feature_short/in_tech_check.tmpl
+special_statuses:
+  _start_:
+  - draft
+  _complete_:
+  - completed
+  - cancelled
+  _aggregation_:
+  - active

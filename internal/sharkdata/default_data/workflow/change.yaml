@@ -1,0 +1,80 @@
+version: '1.0'
+status_flow:
+  proposed:
+  - approved
+  - declined
+  approved:
+  - in_progress
+  - declined
+  in_progress:
+  - completed
+  - approved
+  completed: []
+  declined:
+  - proposed
+status_metadata:
+  proposed:
+    color: yellow
+    description: Awaiting scope assessment and approval
+    phase: planning
+    progress_weight: 0.1
+    responsibility: agent
+    agent_types:
+    - business-analyst
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      skills:
+      - assessment
+      - shark
+      instruction_template: change/proposed.tmpl
+  approved:
+    color: cyan
+    description: Approved, ready to implement
+    phase: development
+    progress_weight: 0.2
+    responsibility: agent
+    agent_types:
+    - developer
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: developer
+      skills:
+      - implementation
+      - shark
+      instruction_template: change/approved.tmpl
+  in_progress:
+    color: blue
+    description: Implementation in progress
+    phase: development
+    progress_weight: 0.6
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: developer
+      skills:
+      - implementation
+      - shark
+      instruction_template: change/in_progress.tmpl
+  completed:
+    color: green
+    description: Completed and verified
+    phase: done
+    progress_weight: 1.0
+    orchestrator_action:
+      action: archive
+      instruction_template: change/completed.tmpl
+  declined:
+    color: red
+    description: Change declined
+    phase: done
+    progress_weight: 1.0
+    orchestrator_action:
+      action: archive
+      instruction_template: change/declined.tmpl
+special_statuses:
+  _start_:
+  - proposed
+  _complete_:
+  - completed
+  - declined

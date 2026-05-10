@@ -1,0 +1,459 @@
+version: '1.0'
+status_flow:
+  draft:
+  - ready_for_assessment
+  - active
+  - cancelled
+  ready_for_assessment:
+  - in_assessment
+  - on_hold
+  in_assessment:
+  - ready_for_research
+  - ready_for_specification
+  - ready_for_task_generation
+  - cancelled
+  - on_hold
+  ready_for_research:
+  - in_research
+  - blocked
+  - on_hold
+  in_research:
+  - ready_for_specification
+  - ready_for_assessment
+  - blocked
+  - on_hold
+  ready_for_specification:
+  - in_specification
+  - blocked
+  - on_hold
+  in_specification:
+  - ready_for_test_planning
+  - ready_for_research
+  - blocked
+  - on_hold
+  ready_for_test_planning:
+  - in_test_planning
+  - blocked
+  - on_hold
+  in_test_planning:
+  - ready_for_task_generation
+  - ready_for_specification
+  - blocked
+  - on_hold
+  ready_for_task_generation:
+  - in_task_generation
+  - blocked
+  - on_hold
+  in_task_generation:
+  - ready_for_task_review
+  - blocked
+  - on_hold
+  ready_for_task_review:
+  - in_task_review
+  - blocked
+  - on_hold
+  in_task_review:
+  - active
+  - ready_for_task_generation
+  - blocked
+  - on_hold
+  active:
+  - ready_for_code_review
+  - on_hold
+  completed: []
+  cancelled: []
+  blocked:
+  - ready_for_assessment
+  - ready_for_research
+  - ready_for_specification
+  - ready_for_test_planning
+  - ready_for_task_generation
+  - ready_for_task_review
+  - draft
+  - ready_for_code_review
+  on_hold:
+  - ready_for_assessment
+  - ready_for_research
+  - ready_for_specification
+  - ready_for_test_planning
+  - ready_for_task_generation
+  - ready_for_task_review
+  - active
+  - cancelled
+  - ready_for_code_review
+  ready_for_code_review:
+  - in_code_review
+  - on_hold
+  in_code_review:
+  - ready_for_qa
+  - active
+  - on_hold
+  ready_for_qa:
+  - in_qa
+  - on_hold
+  in_qa:
+  - ready_for_approval
+  - active
+  - on_hold
+  ready_for_approval:
+  - in_approval
+  - on_hold
+  in_approval:
+  - completed
+  - active
+  - on_hold
+status_metadata:
+  draft:
+    description: Feature created from epic decomposition
+    phase: planning
+    color: gray
+    progress_weight: 0
+    is_planning: true
+    responsibility: none
+    orchestrator_action:
+      action: advance_status
+      instruction_template: feature_short/draft.tmpl
+  ready_for_assessment:
+    description: Ready for scope validation and complexity triage
+    phase: triage
+    color: orange
+    progress_weight: 0.02
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - researcher
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: researcher
+      model: haiku
+      skills:
+      - assessment
+      - research
+      instruction_template: feature_short/ready_for_assessment.tmpl
+  in_assessment:
+    description: Scope validation and complexity triage in progress
+    phase: triage
+    color: orange
+    progress_weight: 0.05
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: researcher
+      model: haiku
+      skills:
+      - assessment
+      - research
+      instruction_template: feature_short/in_assessment.tmpl
+  ready_for_research:
+    description: 'COMPLEX features: ready for tactical codebase research'
+    phase: research
+    color: purple
+    progress_weight: 0.1
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - researcher
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: researcher
+      model: sonnet
+      skills:
+      - research
+      - brownfield-analysis
+      instruction_template: feature_short/ready_for_research.tmpl
+  in_research:
+    description: Tactical codebase research in progress
+    phase: research
+    color: purple
+    progress_weight: 0.15
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: researcher
+      model: sonnet
+      skills:
+      - research
+      - brownfield-analysis
+      instruction_template: feature_short/in_research.tmpl
+  ready_for_specification:
+    description: Ready for combined requirements + architecture spec
+    phase: specification
+    color: cyan
+    progress_weight: 0.2
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - architect
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: architect
+      model: opus
+      skills:
+      - architecture
+      - specification-writing
+      instruction_template: feature_short/ready_for_specification.tmpl
+  in_specification:
+    description: Writing combined requirements + architecture spec
+    phase: specification
+    color: cyan
+    progress_weight: 0.3
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: architect
+      model: opus
+      skills:
+      - architecture
+      - specification-writing
+      instruction_template: feature_short/in_specification.tmpl
+  ready_for_test_planning:
+    description: Ready for feature test strategy
+    phase: test_planning
+    color: blue
+    progress_weight: 0.35
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - qa
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: qa
+      model: sonnet
+      skills:
+      - quality
+      - test-driven-development
+      instruction_template: feature_short/ready_for_test_planning.tmpl
+  in_test_planning:
+    description: Writing feature test strategy
+    phase: test_planning
+    color: blue
+    progress_weight: 0.4
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: qa
+      model: sonnet
+      skills:
+      - quality
+      - test-driven-development
+      instruction_template: feature_short/in_test_planning.tmpl
+  ready_for_task_generation:
+    description: Ready to generate thin task specs
+    phase: decomposition
+    color: blue
+    progress_weight: 0.45
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - product-manager
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: product-manager
+      model: sonnet
+      skills:
+      - specification-writing
+      - task
+      instruction_template: feature_short/ready_for_task_generation.tmpl
+  in_task_generation:
+    description: Generating thin task specs
+    phase: decomposition
+    color: blue
+    progress_weight: 0.5
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: product-manager
+      model: sonnet
+      skills:
+      - specification-writing
+      - task
+      instruction_template: feature_short/in_task_generation.tmpl
+  ready_for_task_review:
+    description: Ready for codex review of tasks against feature spec
+    phase: review
+    color: magenta
+    progress_weight: 0.55
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - uat-agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: uat-agent
+      model: codex
+      skills:
+      - quality
+      - specification-writing
+      instruction_template: feature_short/ready_for_task_review.tmpl
+  in_task_review:
+    description: Codex reviewing tasks against feature spec
+    phase: review
+    color: magenta
+    progress_weight: 0.6
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: uat-agent
+      model: codex
+      skills:
+      - quality
+      - specification-writing
+      instruction_template: feature_short/in_task_review.tmpl
+  active:
+    description: Tasks in progress, progress aggregated from children
+    phase: execution
+    color: yellow
+    progress_weight: 0.65
+    is_planning: false
+    responsibility: agent
+    aggregates_from: tasks
+    orchestrator_action:
+      action: cascade
+      instruction_template: feature_short/active.tmpl
+  completed:
+    description: All tasks done, feature delivered
+    phase: done
+    color: green
+    progress_weight: 1.0
+    is_planning: false
+    responsibility: none
+    orchestrator_action:
+      action: archive
+      instruction_template: feature_short/completed.tmpl
+  cancelled:
+    description: Feature abandoned or converted to task
+    phase: done
+    color: red
+    progress_weight: 0
+    is_planning: false
+    responsibility: none
+    exclude_from_progress: true
+    orchestrator_action:
+      action: archive
+      instruction_template: feature_short/cancelled.tmpl
+  blocked:
+    description: External blocker preventing progress
+    phase: blocked
+    color: red
+    progress_weight: 0
+    is_planning: false
+    responsibility: human
+    orchestrator_action:
+      action: pause
+      instruction_template: feature_short/blocked.tmpl
+  on_hold:
+    description: Intentionally paused, awaiting product decision
+    phase: paused
+    color: gray
+    progress_weight: 0
+    is_planning: false
+    responsibility: human
+    orchestrator_action:
+      action: pause
+      instruction_template: feature_short/on_hold.tmpl
+  ready_for_code_review:
+    description: All tasks developed — ready for feature-level code review
+    phase: code_review
+    color: magenta
+    progress_weight: 0.7
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - tech-lead
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: tech-lead
+      model: opus
+      skills:
+      - quality
+      instruction_template: feature_short/ready_for_code_review.tmpl
+  in_code_review:
+    description: Feature-level code review in progress
+    phase: code_review
+    color: magenta
+    progress_weight: 0.75
+    is_planning: false
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: tech-lead
+      model: opus
+      skills:
+      - quality
+      instruction_template: feature_short/in_code_review.tmpl
+  ready_for_qa:
+    description: Code review passed — ready for feature-level QA
+    phase: qa
+    color: blue
+    progress_weight: 0.8
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - qa
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: qa
+      model: sonnet
+      skills:
+      - quality
+      - test-driven-development
+      instruction_template: feature_short/ready_for_qa.tmpl
+  in_qa:
+    description: Feature-level QA testing in progress
+    phase: qa
+    color: blue
+    progress_weight: 0.85
+    is_planning: false
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: qa
+      model: sonnet
+      skills:
+      - quality
+      - test-driven-development
+      instruction_template: feature_short/in_qa.tmpl
+  ready_for_approval:
+    description: QA passed — ready for UAT red-team review
+    phase: approval
+    color: cyan
+    progress_weight: 0.9
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - uat-agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: uat-agent
+      model: codex
+      skills:
+      - quality
+      - uat
+      instruction_template: feature_short/ready_for_approval.tmpl
+  in_approval:
+    description: Feature-level UAT red-team review in progress
+    phase: approval
+    color: cyan
+    progress_weight: 0.95
+    is_planning: false
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: uat-agent
+      model: codex
+      skills:
+      - quality
+      - uat
+      instruction_template: feature_short/in_approval.tmpl
+special_statuses:
+  _start_:
+  - draft
+  _complete_:
+  - completed
+  - cancelled

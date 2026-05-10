@@ -1,0 +1,301 @@
+version: '1.0'
+status_flow:
+  draft:
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - cancelled
+  - on_hold
+  todo:
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - cancelled
+  - on_hold
+  ready_for_refinement_ba:
+  - in_refinement_ba
+  - cancelled
+  - on_hold
+  in_refinement_ba:
+  - ready_for_refinement_tech
+  - ready_for_development
+  - draft
+  - blocked
+  - on_hold
+  ready_for_refinement_tech:
+  - in_refinement_tech
+  - cancelled
+  - on_hold
+  in_refinement_tech:
+  - ready_for_development
+  - ready_for_refinement_ba
+  - draft
+  - blocked
+  - on_hold
+  ready_for_development:
+  - in_development
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - cancelled
+  - on_hold
+  in_development:
+  - ready_for_code_review
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - blocked
+  - on_hold
+  ready_for_code_review:
+  - in_code_review
+  - in_development
+  - on_hold
+  in_code_review:
+  - ready_for_qa
+  - ready_for_development
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - on_hold
+  ready_for_qa:
+  - in_qa
+  - on_hold
+  in_qa:
+  - ready_for_approval
+  - ready_for_development
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - blocked
+  - on_hold
+  ready_for_approval:
+  - in_approval
+  - on_hold
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - ready_for_development
+  in_approval:
+  - completed
+  - ready_for_qa
+  - ready_for_development
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - on_hold
+  completed: []
+  cancelled:
+  - draft
+  blocked:
+  - ready_for_development
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - cancelled
+  on_hold:
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - ready_for_development
+  - cancelled
+status_metadata:
+  draft:
+    blocks_feature: false
+    color: gray
+    description: Task created but not yet refined
+    phase: planning
+    progress_weight: 0
+    responsibility: none
+    orchestrator_action:
+      action: advance_status
+      instruction_template: task/draft.tmpl
+  todo:
+    blocks_feature: false
+    color: gray
+    description: Task created but not yet refined
+    phase: planning
+    progress_weight: 0
+    responsibility: none
+    orchestrator_action:
+      action: wait_for_triage
+      instruction_template: task/todo.tmpl
+  ready_for_refinement_ba:
+    agent_types:
+    - business-analyst
+    blocks_feature: false
+    color: cyan
+    description: Awaiting business specification and analysis
+    phase: planning
+    progress_weight: 0.05
+    responsibility: agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      skills:
+      - specification-writing
+      - shark
+      instruction_template: task/ready_for_refinement_ba.tmpl
+  in_refinement_ba:
+    blocks_feature: false
+    color: blue
+    description: Being analyzed and specified
+    phase: planning
+    progress_weight: 0.12
+    responsibility: agent
+  ready_for_refinement_tech:
+    agent_types:
+    - architect
+    blocks_feature: false
+    color: cyan
+    description: Awaiting technical specification and analysis
+    phase: planning
+    progress_weight: 0.1
+    responsibility: agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: architect
+      skills:
+      - architecture
+      - specification-writing
+      - shark
+      instruction_template: task/ready_for_refinement_tech.tmpl
+  in_refinement_tech:
+    blocks_feature: false
+    color: blue
+    description: Being analyzed and specified
+    phase: planning
+    progress_weight: 0.2
+    responsibility: agent
+  ready_for_development:
+    agent_types:
+    - developer
+    blocks_feature: false
+    color: yellow
+    description: Spec complete, ready for implementation
+    phase: development
+    progress_weight: 0.32
+    responsibility: none
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: developer
+      skills:
+      - test-driven-development
+      - implementation
+      instruction_template: task/ready_for_development.tmpl
+  in_development:
+    blocks_feature: false
+    color: yellow
+    description: Code implementation in progress
+    phase: development
+    progress_weight: 0.5
+    responsibility: agent
+  ready_for_code_review:
+    agent_types:
+    - tech-lead
+    - code-reviewer
+    blocks_feature: false
+    color: magenta
+    description: Code complete, awaiting review
+    phase: review
+    progress_weight: 0.75
+    responsibility: agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: tech-lead
+      skills:
+      - quality
+      instruction_template: task/ready_for_code_review.tmpl
+  in_code_review:
+    blocks_feature: false
+    color: magenta
+    description: Under code review
+    phase: review
+    progress_weight: 0.8
+    responsibility: agent
+  ready_for_qa:
+    agent_types:
+    - qa
+    blocks_feature: false
+    color: green
+    description: Ready for quality assurance testing
+    phase: qa
+    progress_weight: 0.8
+    responsibility: qa_team
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: qa
+      skills:
+      - quality
+      - shark
+      instruction_template: task/ready_for_qa.tmpl
+  in_qa:
+    blocks_feature: false
+    color: green
+    description: Being tested
+    phase: qa
+    progress_weight: 0.85
+    responsibility: qa_team
+  ready_for_approval:
+    agent_types:
+    - product-manager
+    - client
+    blocks_feature: false
+    color: purple
+    description: Awaiting final approval
+    phase: approval
+    progress_weight: 0.9
+    responsibility: human
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: uat
+      skills:
+      - shark
+      - uat
+      instruction_template: task/ready_for_approval.tmpl
+  in_approval:
+    blocks_feature: false
+    color: purple
+    description: Under final review
+    phase: approval
+    progress_weight: 0.95
+    responsibility: human
+  completed:
+    blocks_feature: false
+    color: white
+    description: Task finished and approved
+    phase: done
+    progress_weight: 1
+    responsibility: none
+    orchestrator_action:
+      action: archive
+      instruction_template: task/completed.tmpl
+  cancelled:
+    blocks_feature: false
+    color: gray
+    description: Task abandoned or deprecated
+    phase: done
+    progress_weight: 0
+    responsibility: none
+    orchestrator_action:
+      action: archive
+      instruction_template: task/cancelled.tmpl
+  blocked:
+    blocks_feature: true
+    color: red
+    description: Temporarily blocked by external dependency
+    phase: any
+    progress_weight: 0
+    responsibility: none
+    orchestrator_action:
+      action: pause
+      instruction_template: task/blocked.tmpl
+  on_hold:
+    blocks_feature: false
+    color: orange
+    description: Intentionally paused
+    phase: any
+    progress_weight: 0
+    responsibility: none
+    orchestrator_action:
+      action: pause
+      instruction_template: task/on_hold.tmpl
+special_statuses:
+  _start_:
+  - draft
+  - ready_for_refinement_ba
+  - ready_for_refinement_tech
+  - ready_for_development
+  - todo
+  _complete_:
+  - completed
+  - cancelled
