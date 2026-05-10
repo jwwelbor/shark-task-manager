@@ -26,8 +26,9 @@ var promptFileExtensions = []string{".tmpl", ".md"}
 
 // OrchestratorRenderer handles template rendering for orchestrator instructions
 type OrchestratorRenderer struct {
-	templates   *template.Template // Precompiled template set
-	templateDir string             // Base directory for templates
+	templates    *template.Template // Precompiled template set
+	templateDir  string             // Base directory for templates
+	includeRoot  string             // Data root for {{include:}} resolution (empty in legacy mode)
 }
 
 // Singleton pattern for global template engine
@@ -175,7 +176,16 @@ func splitLines(s string) []string {
 // It precompiles all prompt files (.tmpl or .md) in the templateDir and its
 // subdirectories. .md files may carry a YAML frontmatter block which is
 // stripped before parsing the body as a Go template.
+//
+// If templateDir is the Shark 2.0 layout (under shark-data/prompts/),
+// {{include:}} directives in any prompt are resolved at parse time against
+// the parent shark-data/ directory, with shark-data/overrides/<path> taking
+// precedence over shark-data/<path>. In the legacy shark-templates/ layout,
+// no data root is detected and {{include:}} directives pass through verbatim.
 func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
+	includeRoot := detectIncludeRoot(templateDir)
+	resolver := NewIncludeResolver(includeRoot)
+
 	// Create a new template with custom functions
 	tmpl := template.New("orchestrator").Funcs(orchestratorFuncs())
 
@@ -195,6 +205,7 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 		return &OrchestratorRenderer{
 			templates:   tmpl,
 			templateDir: templateDir,
+			includeRoot: includeRoot,
 		}, nil
 	}
 
@@ -215,6 +226,13 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 			body = stripFrontmatter(body)
 		}
 
+		// Resolve {{include:}} directives before Go-template parsing. In legacy
+		// mode (no data root), the resolver is a no-op.
+		body, err = resolver.Resolve(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve includes in %s: %w", filePath, err)
+		}
+
 		// Calculate the relative path from templateDir for the template name
 		relPath, err := filepath.Rel(templateDir, filePath)
 		if err != nil {
@@ -232,7 +250,29 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 	return &OrchestratorRenderer{
 		templates:   tmpl,
 		templateDir: templateDir,
+		includeRoot: includeRoot,
 	}, nil
+}
+
+// detectIncludeRoot returns the Shark 2.0 data root for include resolution
+// when templateDir is the prompts/ subdirectory of a shark-data/ tree, or an
+// empty string when the legacy shark-templates/ layout is in use.
+//
+// templateDir is considered Shark 2.0-shaped when its base directory name is
+// "prompts" and its parent directory exists.
+func detectIncludeRoot(templateDir string) string {
+	abs, err := filepath.Abs(templateDir)
+	if err != nil {
+		return ""
+	}
+	if filepath.Base(abs) != "prompts" {
+		return ""
+	}
+	parent := filepath.Dir(abs)
+	if info, err := os.Stat(parent); err == nil && info.IsDir() {
+		return parent
+	}
+	return ""
 }
 
 // GetOrchestratorEngine returns the singleton orchestrator template engine
