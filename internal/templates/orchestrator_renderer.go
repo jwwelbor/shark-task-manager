@@ -10,8 +10,19 @@ import (
 	"text/template"
 )
 
-// defaultTemplateDir is the default template directory name, matching config.DefaultTemplateDir.
+// defaultTemplateDir is the default template directory name (legacy layout).
+// Shark 2.0 prefers shark-data/prompts/ — see findTemplateDir for resolution order.
 const defaultTemplateDir = "shark-templates"
+
+// sharkDataPromptsSubdir is the prompts subdirectory inside the shark-data layout.
+// Resolution prefers <project>/shark-data/prompts/ over <project>/shark-templates/.
+const sharkDataPromptsSubdir = "shark-data/prompts"
+
+// promptFileExtensions are the file extensions the engine recognizes as prompt
+// files. Shark 2.0 introduces .md alongside the legacy .tmpl. The engine reads
+// either; .md files may carry optional YAML frontmatter that is stripped before
+// the body is parsed as a Go template.
+var promptFileExtensions = []string{".tmpl", ".md"}
 
 // OrchestratorRenderer handles template rendering for orchestrator instructions
 type OrchestratorRenderer struct {
@@ -57,11 +68,16 @@ func GetTemplateDirName() string {
 
 // findTemplateDir locates the template directory by walking up from the
 // working directory. Returns the first directory containing a matching
-// subdirectory with .tmpl files, or falls back to the configured directory name.
+// subdirectory with prompt files (.tmpl or .md), or falls back to the
+// configured directory name.
 //
-// If the configured template directory is an absolute path, it is used directly
-// without walking up the directory tree. This allows pointing at a shared
-// template repository outside the project (e.g. ~/projects/shark-templates).
+// Resolution order (Shark 2.0):
+//  1. If GetTemplateDirName() returns an absolute path, use it directly.
+//  2. Walk up looking for a `shark-data/prompts/` subdirectory containing .md
+//     prompt files — this is the canonical Shark 2.0 layout.
+//  3. Walk up looking for the configured (or default) directory containing
+//     .tmpl prompt files — legacy `shark-templates/` fallback for one release.
+//  4. Fall back to the configured directory name as a relative path.
 func findTemplateDir() string {
 	dirName := GetTemplateDirName()
 
@@ -75,15 +91,27 @@ func findTemplateDir() string {
 		return dirName
 	}
 
+	// Pass 1: prefer shark-data/prompts/ (Shark 2.0).
 	currentDir := wd
 	for {
-		candidate := filepath.Join(currentDir, dirName)
-		// Check if this directory has template files
-		matches, _ := filepath.Glob(filepath.Join(candidate, "*", "*.tmpl"))
-		if len(matches) > 0 {
+		candidate := filepath.Join(currentDir, sharkDataPromptsSubdir)
+		if hasPromptFiles(candidate) {
 			return candidate
 		}
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			break
+		}
+		currentDir = parentDir
+	}
 
+	// Pass 2: fall back to legacy shark-templates/.
+	currentDir = wd
+	for {
+		candidate := filepath.Join(currentDir, dirName)
+		if hasPromptFiles(candidate) {
+			return candidate
+		}
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
 			break
@@ -94,22 +122,75 @@ func findTemplateDir() string {
 	return dirName
 }
 
-// NewOrchestratorRenderer creates a new orchestrator template renderer
-// It precompiles all .tmpl files in the templateDir and its subdirectories
-func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
-	// Parse all .tmpl files in templateDir/**/*.tmpl
-	pattern := filepath.Join(templateDir, "*", "*.tmpl")
+// hasPromptFiles reports whether dir/<entity>/<status>.<ext> matches any prompt
+// file recognized by the engine (.tmpl or .md).
+func hasPromptFiles(dir string) bool {
+	for _, ext := range promptFileExtensions {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*", "*"+ext))
+		if len(matches) > 0 {
+			return true
+		}
+	}
+	return false
+}
 
+// stripFrontmatter removes a leading YAML frontmatter block from prompt content
+// if present. The frontmatter must be delimited by `---` on its own line at the
+// very top of the file and a closing `---` on its own line. The returned content
+// is the body without the frontmatter; if no frontmatter is present, content is
+// returned unchanged.
+//
+// This is applied to .md prompt files in Shark 2.0; .tmpl files are returned
+// unchanged so legacy templates render exactly as before.
+func stripFrontmatter(content string) string {
+	// Frontmatter must start with --- on the first line.
+	if !strings.HasPrefix(content, "---\n") && !strings.HasPrefix(content, "---\r\n") {
+		return content
+	}
+
+	// Find the closing --- on its own line.
+	rest := content[strings.Index(content, "\n")+1:]
+	for i, line := range splitLines(rest) {
+		if line == "---" {
+			// Skip past the closing delimiter line.
+			lines := splitLines(rest)
+			body := strings.Join(lines[i+1:], "\n")
+			return body
+		}
+	}
+
+	// No closing delimiter — treat as if there were no frontmatter.
+	return content
+}
+
+// splitLines splits s into lines, preserving line ordering and trimming the
+// trailing newline of each line. Handles both LF and CRLF endings.
+func splitLines(s string) []string {
+	// Normalize CRLF -> LF then split on LF.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.Split(s, "\n")
+}
+
+// NewOrchestratorRenderer creates a new orchestrator template renderer.
+// It precompiles all prompt files (.tmpl or .md) in the templateDir and its
+// subdirectories. .md files may carry a YAML frontmatter block which is
+// stripped before parsing the body as a Go template.
+func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
 	// Create a new template with custom functions
 	tmpl := template.New("orchestrator").Funcs(orchestratorFuncs())
 
-	// Try to parse templates - empty dir is ok
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("failed to glob templates: %w", err)
+	// Glob all recognized prompt extensions across the entity subdirectories.
+	var matches []string
+	for _, ext := range promptFileExtensions {
+		pattern := filepath.Join(templateDir, "*", "*"+ext)
+		extMatches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("failed to glob templates (%s): %w", ext, err)
+		}
+		matches = append(matches, extMatches...)
 	}
 
-	// If no templates found, return empty renderer (valid for empty directory)
+	// If no prompt files found, return empty renderer (valid for empty directory).
 	if len(matches) == 0 {
 		return &OrchestratorRenderer{
 			templates:   tmpl,
@@ -117,13 +198,21 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 		}, nil
 	}
 
-	// Parse all templates manually to preserve subdirectory paths in template names
-	// This allows us to distinguish between epic/ready_for_research.tmpl and feature/ready_for_research.tmpl
+	// Parse all templates manually to preserve subdirectory paths in template names.
+	// This allows us to distinguish between epic/ready_for_research.tmpl and
+	// feature/ready_for_research.tmpl.
 	for _, filePath := range matches {
 		// Read the file content
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read template file %s: %w", filePath, err)
+		}
+
+		// Strip optional YAML frontmatter from .md prompts before parsing.
+		// .tmpl files pass through unchanged for backward compatibility.
+		body := string(content)
+		if filepath.Ext(filePath) == ".md" {
+			body = stripFrontmatter(body)
 		}
 
 		// Calculate the relative path from templateDir for the template name
@@ -132,8 +221,9 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 			return nil, fmt.Errorf("failed to calculate relative path for %s: %w", filePath, err)
 		}
 
-		// Parse the template with the relative path as its name (e.g., "epic/ready_for_research.tmpl")
-		_, err = tmpl.New(relPath).Parse(string(content))
+		// Parse the template with the relative path as its name (e.g.,
+		// "epic/ready_for_research.tmpl" or "task/in_qa.md")
+		_, err = tmpl.New(relPath).Parse(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse template %s: %w", relPath, err)
 		}
