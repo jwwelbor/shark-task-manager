@@ -311,22 +311,27 @@ func TestEmbedded_AllExpectedDirectoriesPresent(t *testing.T) {
 	paths, err := CopyEmbeddedTreeForTest()
 	require.NoError(t, err)
 
-	required := []string{
-		"README.md",
-		"prompts/.gitkeep",
-		"skills/.gitkeep",
-		"agents/.gitkeep",
-		"workflow/.gitkeep",
-		"overrides/.gitkeep",
-	}
-	for _, want := range required {
+	// Every top-level directory must be represented either by real content
+	// or by a .gitkeep placeholder. Real content is preferred (means F4
+	// populated the directory); .gitkeep is fallback during the F3 skeleton
+	// phase.
+	requiredDirs := []string{"README.md", "prompts/", "skills/", "agents/", "workflow/", "overrides/"}
+	for _, want := range requiredDirs {
 		var found bool
 		for _, got := range paths {
-			if got == want {
+			if got == want || strings.HasPrefix(got, want) {
 				found = true
 				break
 			}
 		}
-		assert.True(t, found, "embedded tree should include %s; got: %v", want, paths)
+		assert.True(t, found, "embedded tree should include something at %s; got top: %s", want, firstN(paths, 5))
 	}
+}
+
+// firstN returns the first n elements of paths as a slice for error messages.
+func firstN(paths []string, n int) []string {
+	if len(paths) < n {
+		return paths
+	}
+	return paths[:n]
 }

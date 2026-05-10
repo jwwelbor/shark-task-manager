@@ -326,7 +326,12 @@ func (r *OrchestratorRenderer) Render(templateName string, vars map[string]strin
 	return buf.String(), nil
 }
 
-// orchestratorFuncs returns custom template functions for orchestrator templates
+// orchestratorFuncs returns custom template functions for orchestrator templates.
+//
+// The function set is deliberately small: comparison + string predicates +
+// complexity-tier shortcuts + the Sprig-style data-structure helpers `dict`
+// and `list` (used by Shark 2.0 partials for keyword-argument-style template
+// invocation), plus `default` (Sprig parity for nil/empty fallbacks).
 func orchestratorFuncs() template.FuncMap {
 	return template.FuncMap{
 		// Comparison functions
@@ -351,6 +356,42 @@ func orchestratorFuncs() template.FuncMap {
 		},
 		"isComplex": func(tier string) bool {
 			return tier == "COMPLEX"
+		},
+
+		// Sprig-parity helpers for partial composition.
+		//
+		// `dict` builds a map[string]interface{} from alternating key/value
+		// pairs. Used as: {{template "_advance" (dict "note_type" "review" "summary" "QA PASS")}}.
+		//
+		// `list` builds a []interface{}. Used as: {{template "_resolve_spec_paths" (dict "domains" (list "QA_REPORTS"))}}.
+		//
+		// `default` returns the first non-empty value: {{.x | default "fallback"}}.
+		"dict": func(pairs ...interface{}) (map[string]interface{}, error) {
+			if len(pairs)%2 != 0 {
+				return nil, fmt.Errorf("dict requires an even number of arguments, got %d", len(pairs))
+			}
+			out := make(map[string]interface{}, len(pairs)/2)
+			for i := 0; i < len(pairs); i += 2 {
+				key, ok := pairs[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict key at position %d must be a string, got %T", i, pairs[i])
+				}
+				out[key] = pairs[i+1]
+			}
+			return out, nil
+		},
+		"list": func(items ...interface{}) []interface{} {
+			return items
+		},
+		"default": func(fallback interface{}, value interface{}) interface{} {
+			// Treat nil and empty string as "use fallback".
+			if value == nil {
+				return fallback
+			}
+			if s, ok := value.(string); ok && s == "" {
+				return fallback
+			}
+			return value
 		},
 	}
 }

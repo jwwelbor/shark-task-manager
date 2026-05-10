@@ -450,7 +450,13 @@ func validateSkillFrontmatter(skillsDir string, report *ValidationReport) {
 		}
 		var raw map[string]interface{}
 		if err := yaml.Unmarshal([]byte(body[:closeIdx]), &raw); err != nil {
-			report.AddIssue(IssueLevelError, relTo(filepath.Dir(skillsDir), path), fmt.Sprintf("frontmatter is not valid YAML: %v", err))
+			// Frontmatter on skill files is informational — the engine strips
+			// it from .md files before rendering and doesn't depend on it being
+			// machine-parseable. Author conventions (e.g., pipes in description
+			// values to enumerate options) can produce YAML that strict parsers
+			// reject. Surface as a warning so authors see it, but don't fail
+			// validation.
+			report.AddIssue(IssueLevelWarning, relTo(filepath.Dir(skillsDir), path), fmt.Sprintf("frontmatter is not strict YAML: %v (informational only; engine strips frontmatter at render time)", err))
 		}
 		return nil
 	})

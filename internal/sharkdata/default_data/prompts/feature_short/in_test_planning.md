@@ -1,0 +1,8 @@
+{{template "_resume_preamble" .}}
+{{template "advance_preamble" .}}
+
+RESUME test planning for feature {{.id}}: "{{.title}}".
+
+Check for existing test-plan.md in feature directory. If test plan exists with AC test matrix and integration scenarios, advance immediately.
+
+Otherwise, continue with full test planning per ready_for_test_planning instructions.
