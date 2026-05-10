@@ -617,6 +617,8 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 		} else {
 			cli.Warning(fmt.Sprintf("sprint created but template failed: %v", tmplErr))
 		}
+	} else {
+		cli.Warning(fmt.Sprintf("sprint created but markdown file skipped: could not find project root: %v", rootErr))
 	}
 
 	// Step 3: Format output
