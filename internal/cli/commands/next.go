@@ -20,11 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is
@@ -186,7 +188,57 @@ func runNext(cmd *cobra.Command, args []string) error {
 	resp.Model = populated.Model
 	resp.Prompt = populated.Instruction
 
+	// Auto-inline the agent body. Per the 2026-05-10 rendering-model decision,
+	// the rendered response from `shark next` should contain the agent persona /
+	// config inline rather than requiring the harness to resolve agent files
+	// from its own filesystem. We prepend the agent body (with frontmatter
+	// stripped) above the action prompt, separated by a horizontal rule.
+	//
+	// If the data root is unknown (legacy shark-templates/ mode) or the agent
+	// file doesn't exist, we proceed without inlining — the harness can still
+	// spawn the agent by type if it has a local copy. This is graceful
+	// degradation, not a hard requirement.
+	if resp.AgentType != "" {
+		root := templates.GetOrchestratorEngine().IncludeRoot()
+		if body, ok := LoadAgentBodyForInline(root, resp.AgentType); ok {
+			resp.Prompt = body + "\n\n---\n\n" + resp.Prompt
+		}
+	}
+
 	return outputNextJSON(resp)
+}
+
+// LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/
+// preference) via the engine's IncludeResolver and returns its content with
+// any YAML frontmatter stripped. Returns (content, true) on success;
+// ("", false) when root is empty (legacy mode), the file is missing, or any
+// resolution error occurs.
+//
+// Exported for testability — callers in non-test code use the
+// GetOrchestratorEngine().IncludeRoot() value as the root.
+func LoadAgentBodyForInline(root, agentType string) (string, bool) {
+	if root == "" || agentType == "" {
+		return "", false
+	}
+	resolver := templates.NewIncludeResolver(root)
+	// Construct a synthetic include directive and let the resolver do the
+	// path / override / frontmatter-strip work. Reusing the resolver keeps
+	// behavior identical to {{include: agents/<type>.md}} when an author
+	// writes it explicitly in a prompt template.
+	directive := fmt.Sprintf("{{include: agents/%s.md}}", agentType)
+	resolved, err := resolver.Resolve(directive)
+	if err != nil {
+		// Non-fatal: agent file may legitimately not exist (e.g., legacy
+		// projects mid-migration). Log to stderr for diagnostics but do
+		// not fail the dispatch step.
+		fmt.Fprintf(os.Stderr, "[shark next] agent body inline skipped for %q: %v\n", agentType, err)
+		return "", false
+	}
+	resolved = strings.TrimSpace(resolved)
+	if resolved == "" {
+		return "", false
+	}
+	return resolved, true
 }
 
 // outputNextJSON marshals the response. `shark next` always emits JSON to

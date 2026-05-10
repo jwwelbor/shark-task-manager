@@ -254,6 +254,15 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 	}, nil
 }
 
+// IncludeRoot returns the Shark 2.0 data root this renderer resolves
+// {{include:}} directives against, or an empty string when the renderer is
+// operating in legacy shark-templates/ mode. Callers outside this package
+// use this to drive auxiliary include-style resolution (e.g., `shark next`
+// prepending the agent body to the rendered prompt).
+func (r *OrchestratorRenderer) IncludeRoot() string {
+	return r.includeRoot
+}
+
 // detectIncludeRoot returns the Shark 2.0 data root for include resolution
 // when templateDir is the prompts/ subdirectory of a shark-data/ tree, or an
 // empty string when the legacy shark-templates/ layout is in use.
