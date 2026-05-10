@@ -42,6 +42,7 @@ type MockSprintService struct {
 	SetSprintCapacityFunc  func(ctx context.Context, input services.SetSprintCapacityInput) (*models.SprintCapacity, error)
 	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]services.CapacityRow, error)
 	BulkAddToSprintFunc    func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	GetNextTaskFunc        func(ctx context.Context, agentType string) (*services.BacklogItemView, error)
 }
 
 func (m *MockSprintService) CreateSprint(ctx context.Context, input services.CreateSprintInput) (*models.Sprint, error) {
@@ -163,6 +164,13 @@ func (m *MockSprintService) BulkAddToSprint(ctx context.Context, input services.
 		return m.BulkAddToSprintFunc(ctx, input)
 	}
 	return &services.BulkAddResult{AddedByType: map[string]int{}, SkippedByType: map[string]int{}}, nil
+}
+
+func (m *MockSprintService) GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error) {
+	if m.GetNextTaskFunc != nil {
+		return m.GetNextTaskFunc(ctx, agentType)
+	}
+	return nil, nil
 }
 
 // Compile-time interface checks for the narrowed sprint CLI service contracts.
@@ -1694,9 +1702,11 @@ type MockSprintPlanningService struct {
 	AddEntityToSprintFunc      func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error)
 	RemoveEntityFromSprintFunc func(ctx context.Context, sprintKey, entityKey string) error
 	GetSprintBacklogFunc       func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
+	GetNextTaskFunc            func(ctx context.Context, agentType string) (*services.BacklogItemView, error)
 }
 
 var _ sprintPlanningServicer = (*MockSprintPlanningService)(nil)
+var _ sprintAssignmentServicer = (*MockSprintPlanningService)(nil)
 
 func (m *MockSprintPlanningService) PlanSprint(ctx context.Context, key string) (*services.SprintPlanView, error) {
 	if m.PlanSprintFunc != nil {
@@ -1757,6 +1767,13 @@ func (m *MockSprintPlanningService) GetSprintBacklog(ctx context.Context, sprint
 		return m.GetSprintBacklogFunc(ctx, sprintKey, opts)
 	}
 	return &services.SprintBacklog{SprintKey: sprintKey, Groups: []*services.BacklogGroup{}}, nil
+}
+
+func (m *MockSprintPlanningService) GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error) {
+	if m.GetNextTaskFunc != nil {
+		return m.GetNextTaskFunc(ctx, agentType)
+	}
+	return nil, nil
 }
 
 // setupPlanningTest sets up the sprint service override using the extended mock.

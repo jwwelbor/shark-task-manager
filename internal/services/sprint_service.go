@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -804,14 +805,16 @@ type BacklogGroup struct {
 
 // BacklogItemView is the CLI-friendly projection of a BacklogItem.
 type BacklogItemView struct {
-	EntityType  string `json:"entity_type"`
-	Key         string `json:"key"`
-	Title       string `json:"title"`
-	Status      string `json:"status"`
-	AgentType   string `json:"agent_type,omitempty"`
-	Priority    int    `json:"priority,omitempty"`
-	Size        *int   `json:"size,omitempty"`
-	DaysBlocked int    `json:"days_blocked,omitempty"` // For --blocked view
+	EntityType     string    `json:"entity_type"`
+	Key            string    `json:"key"`
+	Title          string    `json:"title"`
+	Status         string    `json:"status"`
+	AgentType      string    `json:"agent_type,omitempty"`
+	Priority       int       `json:"priority,omitempty"`
+	ExecutionOrder *int      `json:"execution_order,omitempty"`
+	Size           *int      `json:"size,omitempty"`
+	AssignedAt     time.Time `json:"assigned_at,omitempty"`
+	DaysBlocked    int       `json:"days_blocked,omitempty"` // For --blocked view
 }
 
 // validBacklogEntityTypes is the allowlist of entity types accepted by GetSprintBacklog's
@@ -882,12 +885,14 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 
 	for _, item := range items {
 		view := &BacklogItemView{
-			EntityType: item.EntityType,
-			Key:        item.Key,
-			Title:      item.Title,
-			Status:     item.Status,
-			Priority:   item.Priority,
-			Size:       item.Size,
+			EntityType:     item.EntityType,
+			Key:            item.Key,
+			Title:          item.Title,
+			Status:         item.Status,
+			Priority:       item.Priority,
+			ExecutionOrder: item.ExecutionOrder,
+			Size:           item.Size,
+			AssignedAt:     item.AssignedAt,
 		}
 		if item.AgentType != nil {
 			view.AgentType = *item.AgentType
@@ -930,6 +935,84 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		CompletionPercent: completionPercent,
 		Groups:            groups,
 	}, nil
+}
+
+// GetNextTask returns the single next eligible item to work on from the active sprint.
+// Selection logic (matches task_helpers.selectNextTasks):
+// 1. Items with ExecutionOrder (lowest group first)
+// 2. Priority (highest first, 1=highest)
+// 3. AssignedAt (oldest first)
+//
+// Filters for items in the "todo" phase of their respective workflows.
+// If agentType is non-empty, only items for that agent are considered.
+func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
+	// 1. Find the active sprint (must be exactly one for unambiguous selection)
+	filters := &SprintListFilters{Status: "active"}
+	activeSprints, err := s.ListSprints(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active sprints: %w", err)
+	}
+	if len(activeSprints) == 0 {
+		return nil, fmt.Errorf("no active sprint found (start a sprint first)")
+	}
+	sprint := activeSprints[0]
+
+	// 2. Fetch the backlog for the active sprint
+	backlog, err := s.GetSprintBacklog(ctx, sprint.Key, BacklogOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Collect candidates in the initial (queued) task status.
+	// ForLevel(LevelTask) reads the starting status from the task workflow config
+	// so custom workflows work without any hardcoding here.
+	queuedStatus := s.workflowSvc.ForLevel(workflow.LevelTask).GetInitialStatusString()
+
+	var candidates []*BacklogItemView
+	for _, group := range backlog.Groups {
+		if group.StatusCategory != queuedStatus {
+			continue
+		}
+		for _, item := range group.Items {
+			// Apply agent filter if requested
+			if agentType != "" && item.AgentType != agentType {
+				continue
+			}
+			candidates = append(candidates, item)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	// 4. Sort candidates
+	sort.Slice(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+
+		// Factor 1: ExecutionOrder (ordered before unordered)
+		if a.ExecutionOrder != nil && b.ExecutionOrder == nil {
+			return true
+		}
+		if a.ExecutionOrder == nil && b.ExecutionOrder != nil {
+			return false
+		}
+		if a.ExecutionOrder != nil && b.ExecutionOrder != nil {
+			if *a.ExecutionOrder != *b.ExecutionOrder {
+				return *a.ExecutionOrder < *b.ExecutionOrder
+			}
+		}
+
+		// Factor 2: Priority
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+
+		// Factor 3: AssignedAt (oldest first)
+		return a.AssignedAt.Before(b.AssignedAt)
+	})
+
+	return candidates[0], nil
 }
 
 // ArchiveSprint transitions a sprint to completed status.

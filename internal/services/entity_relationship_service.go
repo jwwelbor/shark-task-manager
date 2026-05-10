@@ -98,6 +98,21 @@ func (s *EntityRelationshipService) CreateRelationship(
 		return nil, fmt.Errorf("invalid relationship: %w", err)
 	}
 
+	// Prevent duplicate directed edges before attempting the insert.
+	existing, err := s.repo.GetOutgoing(ctx, fromType, fromID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("duplicate check failed: %w", err)
+	}
+	for _, existingRel := range existing {
+		if existingRel != nil &&
+			existingRel.ToEntityType == toType &&
+			existingRel.ToEntityID == toID &&
+			existingRel.RelationshipType == relType {
+			return nil, fmt.Errorf("duplicate relationship: %s(%d) -[%s]-> %s(%d)",
+				fromType, fromID, relType, toType, toID)
+		}
+	}
+
 	// Cycle detection for cyclic relationship types (applies across entity types)
 	if models.CyclicRelationshipTypes[rel.RelationshipType] {
 		hasCycle, err := s.DetectCycle(ctx, fromType, fromID, toType, toID, relType)

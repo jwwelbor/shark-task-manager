@@ -1,15 +1,21 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/spf13/cobra"
 )
 
@@ -35,6 +41,7 @@ type sprintAssignmentServicer interface {
 	RemoveEntityFromSprint(ctx context.Context, sprintKey, entityKey string) error
 	GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
 	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
+	GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error)
 }
 
 // sprintPlanningServicer defines the planning/readiness view commands.
@@ -315,6 +322,9 @@ var sprintAddCmd = &cobra.Command{
 	Short: "Add an entity (or bulk entities) to a sprint",
 	Long: `Assign one entity or a group of entities to a sprint.
 
+Supported entity types: task, bug, change-card (C### or CC-###), tech-debt (TD-###).
+Features cannot be added directly — add their child tasks individually or use --bulk=<feature-key>.
+
 Single-entity add (positional):
   shark sprint add S001 E07-F01-001
 
@@ -447,6 +457,26 @@ Examples:
 	RunE: runSprintCapacityShow,
 }
 
+// sprintNextCmd retrieves the next task to work on from the active sprint.
+var sprintNextCmd = &cobra.Command{
+	Use:   "next",
+	Short: "Get the next task from the active sprint",
+	Long: `Identify and display the next highest-priority task in the active sprint.
+Optionally filter by agent type.
+
+Selection logic:
+1. Explicit Execution Order (lowest first)
+2. Priority (highest first, 1=highest)
+3. Date Assigned (oldest first)
+
+Examples:
+  shark sprint next
+  shark sprint next --agent=backend
+  shark sprint next --json`,
+	Args: cobra.NoArgs,
+	RunE: runSprintNext,
+}
+
 // Command flag variables
 var (
 	sprintStartDate string
@@ -475,6 +505,7 @@ func init() {
 	sprintCmd.AddCommand(sprintAddCmd)
 	sprintCmd.AddCommand(sprintRemoveCmd)
 	sprintCmd.AddCommand(sprintBacklogCmd)
+	sprintCmd.AddCommand(sprintNextCmd)
 	// F05 commands
 	sprintCmd.AddCommand(sprintPlanCmd)
 	sprintCmd.AddCommand(sprintReadinessCmd)
@@ -526,6 +557,9 @@ func init() {
 	sprintCapacitySetCmd.Flags().Bool("default", false, "Write to sprint_defaults in .sharkconfig.json instead of per-sprint DB row")
 	_ = sprintCapacitySetCmd.MarkFlagRequired("agent")
 	_ = sprintCapacitySetCmd.MarkFlagRequired("points")
+
+	// Next flags
+	sprintNextCmd.Flags().String("agent", "", "Filter by agent type (e.g., backend, frontend)")
 }
 
 // runSprintCreate handles the `shark sprint create` command.
@@ -565,6 +599,28 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Write sprint markdown file (non-fatal: log on failure, don't block creation)
+	if projectRoot, rootErr := cli.FindProjectRoot(); rootErr == nil {
+		if content, tmplErr := renderSprintTemplate(sprint); tmplErr == nil {
+			writer := fileops.NewEntityFileWriter()
+			if _, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
+				Content:        content,
+				ProjectRoot:    projectRoot,
+				FilePath:       sprint.FilePath,
+				Verbose:        cli.GlobalConfig.Verbose,
+				EntityType:     "sprint",
+				UseAtomicWrite: false,
+				Logger:         func(msg string) { cli.Info(msg) },
+			}); writeErr != nil {
+				cli.Warning(fmt.Sprintf("sprint created but file not written: %v", writeErr))
+			}
+		} else {
+			cli.Warning(fmt.Sprintf("sprint created but template failed: %v", tmplErr))
+		}
+	} else {
+		cli.Warning(fmt.Sprintf("sprint created but markdown file skipped: could not find project root: %v", rootErr))
+	}
+
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(sprint)
@@ -572,6 +628,43 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 
 	cli.Success(fmt.Sprintf("Created sprint %s: %s", sprint.Key, sprint.Name))
 	return nil
+}
+
+type sprintTemplateData struct {
+	SprintKey string
+	Name      string
+	Goal      string
+	StartDate string
+	EndDate   string
+	Status    string
+	Date      string
+}
+
+func renderSprintTemplate(sprint *models.Sprint) ([]byte, error) {
+	templateDir := templates.GetTemplateDirName()
+	templatePath := filepath.Join(templateDir, "entity", "sprint.md")
+	raw, err := os.ReadFile(templatePath)
+	if err != nil {
+		return nil, fmt.Errorf("sprint template not found: %w (run 'shark admin init' to refresh templates)", err)
+	}
+	data := sprintTemplateData{
+		SprintKey: sprint.Key,
+		Name:      sprint.Name,
+		Goal:      sprint.Goal,
+		StartDate: sprint.StartDate.Format("2006-01-02"),
+		EndDate:   sprint.EndDate.Format("2006-01-02"),
+		Status:    string(sprint.Status),
+		Date:      time.Now().Format("2006-01-02"),
+	}
+	tmpl, err := template.New("sprint").Parse(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse sprint template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("failed to render sprint template: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // runSprintGet handles the `shark sprint get` command.
@@ -852,7 +945,8 @@ func runSprintSummary(cmd *cobra.Command, args []string) error {
 	svc := getSprintAnalyticsService()
 	result, err := svc.GetSummary(cmd.Context(), sprintKey, detailed)
 	if err != nil {
-		return err
+		cli.Error(err.Error())
+		return nil
 	}
 
 	// Step 3: Format output
@@ -1455,5 +1549,46 @@ func printSprintTable(sprints []*models.Sprint) error {
 	}
 
 	cli.OutputTable(headers, rows)
+	return nil
+}
+
+// runSprintNext handles `shark sprint next [--agent=type]`.
+func runSprintNext(cmd *cobra.Command, args []string) error {
+	agentType, _ := cmd.Flags().GetString("agent")
+
+	svc := getSprintAssignmentService()
+	item, err := svc.GetNextTask(cmd.Context(), agentType)
+	if err != nil {
+		return err
+	}
+
+	if item == nil {
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(nil)
+		}
+		if agentType != "" {
+			cli.Info(fmt.Sprintf("No more tasks found for agent type %q in the active sprint.", agentType))
+		} else {
+			cli.Info("No more tasks found in the active sprint.")
+		}
+		return nil
+	}
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(item)
+	}
+
+	fmt.Printf("\nNext Task: %s\n", item.Key)
+	fmt.Printf("  Type:    %s\n", item.EntityType)
+	fmt.Printf("  Title:   %s\n", item.Title)
+	if item.AgentType != "" {
+		fmt.Printf("  Agent:   %s\n", item.AgentType)
+	}
+	fmt.Printf("  Status:  %s\n", item.Status)
+	fmt.Printf("  Priority: %d\n", item.Priority)
+	if item.Size != nil {
+		fmt.Printf("  Size:     %d\n", *item.Size)
+	}
+	fmt.Println()
 	return nil
 }
