@@ -88,6 +88,11 @@ func init() {
 	updateCmd.Flags().String("size", "",
 		"New size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)")
 
+	// Sprint-specific flags
+	updateCmd.Flags().String("name", "", "New sprint name (sprint only)")
+	updateCmd.Flags().String("goal", "", "New sprint goal (sprint only)")
+	updateCmd.Flags().String("end", "", "New sprint end date YYYY-MM-DD (sprint only)")
+
 	// Deprecated aliases
 	updateCmd.Flags().Int("execution-order", -1, "New execution order (-1=no change)")
 	_ = updateCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
@@ -112,7 +117,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return runTdUpdate(cmd, args)
 	case "idea":
 		return runIdeaUpdate(cmd, args)
+	case "sprint":
+		return runSprintUpdate(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 	}
 }

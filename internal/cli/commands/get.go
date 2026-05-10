@@ -8,7 +8,7 @@ import (
 // getCmd represents the unified get command
 var getCmd = &cobra.Command{
 	Use:     "get <KEY>",
-	Short:   "Get epic, feature, task, bug, change, or idea details",
+	Short:   "Get epic, feature, task, bug, change, idea, or sprint details",
 	GroupID: "inspect",
 	Long: `Smart get command that dispatches to the appropriate subcommand based on arguments.
 
@@ -20,6 +20,7 @@ Positional Arguments:
   BUG_KEY               Get bug details (e.g., B001)
   CHANGE_CARD_KEY       Get change-card details (e.g., CC-001)
   IDEA_KEY              Get idea details (e.g., I-2026-01-01-01)
+  SPRINT_KEY            Get sprint details (e.g., S001)
 
 Examples:
   shark get E10                    Get epic E10 details
@@ -31,6 +32,7 @@ Examples:
   shark get B001                   Get bug B001 details
   shark get CC-001                 Get change-card CC-001 details
   shark get I-2026-01-01-01        Get idea details
+  shark get S001                   Get sprint S001 details
   shark get E10 --json             Output as JSON`,
 	RunE: runGet,
 }
@@ -75,6 +77,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	case "idea":
 		return runIdeaGet(cmd, []string{key})
+
+	case "sprint":
+		return runSprintGet(cmd, []string{key})
 
 	default:
 		// Should never happen

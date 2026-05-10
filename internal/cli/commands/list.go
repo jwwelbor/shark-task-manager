@@ -116,6 +116,17 @@ func runList(cmd *cobra.Command, args []string) error {
 		_ = tdListCmd.Flags().Set("all", formatBool(showAllFlag))
 		return runTdList(tdListCmd, []string{})
 
+	case "sprint":
+		sprintListCmd.SetContext(cmd.Context())
+		if statusFlag != "" {
+			_ = sprintListCmd.Flags().Set("status", statusFlag)
+		}
+		if epicKey != nil {
+			// epicKey holds the sprint key when `shark list S001` was used
+			return runSprintBacklog(cmd, []string{*epicKey})
+		}
+		return runSprintList(sprintListCmd, []string{})
+
 	default:
 		// Should never happen
 		return nil

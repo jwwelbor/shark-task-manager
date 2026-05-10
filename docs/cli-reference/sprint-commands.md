@@ -2,6 +2,159 @@
 
 Complete reference for sprint lifecycle, planning, capacity, and reporting commands in Shark Task Manager.
 
+---
+
+## Agent Sprint Workflow
+
+This section covers how an agent plans and executes a sprint end-to-end using the Claude-side slash commands. For the raw `shark sprint` CLI reference, see [below](#quick-reference).
+
+### The Four Sprint Slash Commands
+
+| Command | When to use |
+|---|---|
+| `/plan-sprint S###` | Fill the sprint backlog before starting — proposes assignments, confirms with user, never starts the sprint |
+| `/run-sprint S###` | Drive an active sprint solo — pulls one entity at a time via `shark sprint next`, dispatches each via `/run` |
+| `/run-sprint-team S###` | Drive an active sprint with a parallel agent team — groups tasks by feature, dispatches each feature group via `/run-agent-team`, standalones via `/run` |
+| `/retro-sprint S###` | Post-close retrospective — reads `shark sprint summary --detailed` and velocity data, produces a five-section markdown report |
+
+### Full Lifecycle Walkthrough
+
+The typical agent sprint cycle is: **create → plan → start → execute → close → retro**.
+
+#### 1. Create the sprint
+
+```bash
+shark sprint create "Sprint 5" --start=2026-05-12 --end=2026-05-26 --json
+# → {"key": "S005", "status": "planning", ...}
+```
+
+Set capacity so the planner knows how much to assign per agent type:
+
+```bash
+shark sprint capacity set S005 --agent=backend --points=21
+shark sprint capacity set S005 --agent=frontend --points=13
+```
+
+#### 2. Plan — fill the sprint backlog
+
+Run `/plan-sprint` to see what's eligible and assign work:
+
+```bash
+/plan-sprint S005
+```
+
+The skill reads `shark sprint plan S005 --json` (backlog + capacity + readiness) and offers two modes:
+
+- **Interactive** (default): presents entities group-by-feature, asks yes/no/pick per group
+- **Auto** (`--mode=auto`): greedy-fills capacity by agent type, shows proposed plan, one confirmation
+
+```bash
+/plan-sprint S005 --mode=auto          # fill to capacity automatically
+/plan-sprint S005 --mode=auto --max-add=10  # cap at 10 new assignments
+```
+
+The skill reports a readiness-score delta when it exits and never calls `shark sprint start`. Starting is always an explicit user step.
+
+#### 3. Start the sprint
+
+```bash
+shark sprint start S005
+```
+
+Or let `/run-sprint` offer to start it if the sprint is still in `planning` status.
+
+#### 4a. Execute — solo (one entity at a time)
+
+```bash
+/run-sprint S005
+```
+
+The pull-loop:
+1. Calls `shark sprint next S005 --json` to get the next unstarted entity
+2. Delegates the entity to `/run {KEY}` — which drives it all the way to terminal status via the standard orchestrator loop
+3. Loops until `shark sprint next` returns null (backlog drained) or `--max-iterations` is hit
+4. Prints a burndown + summary report
+5. **Asks before closing** — never auto-closes
+
+Useful flags:
+```bash
+/run-sprint S005 --agent=backend       # only pull backend-type entities
+/run-sprint S005 --max-iterations=5    # stop after 5 entities, leave sprint open
+/run-sprint S005 --carryover=next      # pre-set carryover mode for the close prompt
+```
+
+#### 4b. Execute — team (parallel agents per feature)
+
+```bash
+/run-sprint-team S005
+```
+
+The team dispatch loop:
+1. Reads `shark sprint backlog S005 --json`
+2. Groups tasks by feature key (`E##-F##`); bugs/CCs/TDs go to a standalone list
+3. For each feature group: dispatches `/run-agent-team {FEATURE_KEY}` and **waits** before moving on — only one agent team active at a time
+4. Dispatches standalones sequentially via `/run`
+5. Prints a burndown between each feature group
+6. **Asks before closing**
+
+```bash
+/run-sprint-team S005 --size=4                        # team of 4 per feature
+/run-sprint-team S005 --features=E07-F01,E07-F02      # only those two features
+/run-sprint-team S005 --carryover=backlog             # pre-set carryover for close
+```
+
+> **Prerequisites for `/run-sprint-team`**: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set in `~/.claude/settings.json`, Claude Code ≥ 2.1.32, and a clean git branch. The skill checks all preconditions before dispatching anything.
+
+#### 5. Close the sprint
+
+Both `/run-sprint` and `/run-sprint-team` prompt you to close at the end. You can also close manually:
+
+```bash
+shark sprint close S005 --carryover=next     # move incomplete work to next sprint
+shark sprint close S005 --carryover=backlog  # drop assignments back to the backlog
+```
+
+#### 6. Retrospective
+
+```bash
+/retro-sprint S005
+```
+
+The skill reads `shark sprint summary S005 --detailed --json` and `shark sprint velocity --json`, then produces a five-section markdown retro at `docs/sprints/S005-retro.md`:
+
+- **Outcome** — planned vs. completed entity count and size points
+- **Velocity Context** — this sprint vs. trailing average with trend
+- **Carryover Analysis** — per-entity notes for everything that carried or was rejected
+- **Cycle-Time Highlights** — phase-by-phase breakdown (requires `--detailed`)
+- **Recommendations** — 3–5 items, each citing a quantitative threshold from the data (velocity variance, XL task count, carryover rate, phase imbalance, agent overallocation)
+
+Flags:
+```bash
+/retro-sprint S005 --no-write    # print to stdout instead of writing a file
+```
+
+After the report, the skill optionally offers to archive the sprint. You must confirm — it never auto-archives.
+
+### Choosing `/run-sprint` vs. `/run-sprint-team`
+
+| Situation | Use |
+|---|---|
+| Solo developer, sequential work | `/run-sprint` |
+| Multiple features with parallel task work | `/run-sprint-team` |
+| Only bugs/CCs/TDs in the sprint (no features) | `/run-sprint` — team skill routes standalones the same way |
+| You want a capacity cap or agent-type filter | `/run-sprint --agent=backend` |
+| Agent-teams env var not set | `/run-sprint` (team skill requires it) |
+
+### Safety Guarantees
+
+- **`/plan-sprint` never starts a sprint.** Only `shark sprint start` or user confirmation inside `/run-sprint` starts one.
+- **No auto-close.** Both execution skills prompt before calling `shark sprint close`.
+- **No auto-archive.** `/retro-sprint` prompts before calling `shark sprint archive`.
+- **All shark mutation calls confirm first.** `sprint add`, `sprint start`, `sprint close`, `sprint archive` are all gated on explicit user confirmation.
+- **All shark calls use `--json`** for machine-readable output and stable parsing.
+
+---
+
 ## Overview
 
 Sprints are first-class planning containers in Shark. The sprint command family uses `S###` keys and covers the full workflow:
@@ -499,4 +652,3 @@ shark sprint summary S024 --json
 - [Workflow Configuration](workflow-configuration.md)
 - [Configuration](configuration.md)
 - [Progress and Analytics Commands](progress-analytics.md)
-mmands](progress-analytics.md)
