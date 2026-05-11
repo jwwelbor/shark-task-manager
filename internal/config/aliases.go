@@ -7,11 +7,21 @@ package config
 // Pattern follows internal/repository/aliases.go (established in E07-F36).
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	cfgtemplate "github.com/jwwelbor/shark-task-manager/internal/config/template"
 	"github.com/jwwelbor/shark-task-manager/internal/config/validation"
 	"github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 )
+
+// jsonUnmarshal is a tiny indirection so the workflow_config raw decode in
+// resolveWorkflowDir can be replaced in tests without dragging encoding/json
+// imports into hot paths elsewhere. It mirrors json.Unmarshal exactly.
+var jsonUnmarshal = json.Unmarshal
 
 // --- workflow/ types ---
 
@@ -227,14 +237,223 @@ func NewActionService(configPath string) (*DefaultActionService, error) {
 	return action.NewActionService(configPath, defaultWorkflowDataLoader)
 }
 
-// defaultWorkflowDataLoader loads workflow data using GetWorkflowOrDefault.
-func defaultWorkflowDataLoader(configPath string) map[string]action.StatusActionData {
-	wf := GetWorkflowOrDefault(configPath)
-	if wf == nil {
-		return nil
+// entityFallback maps each entity type to its hardcoded default workflow.
+// Used when no per-entity YAML is loaded for that entity.
+var entityFallback = map[string]func() *workflow.WorkflowConfig{
+	"task":      workflow.DefaultWorkflow,
+	"epic":      workflow.DefaultEpicWorkflow,
+	"feature":   workflow.DefaultFeatureWorkflow,
+	"bug":       workflow.DefaultBugWorkflow,
+	"change":    workflow.DefaultChangeCardWorkflow,
+	"tech_debt": workflow.DefaultTechDebtWorkflow,
+	"sprint":    workflow.DefaultSprintWorkflow,
+}
+
+// defaultWorkflowDataLoader loads per-entity workflow action data.
+//
+// Resolution order:
+//  1. The `workflow_config` field in `.sharkconfig.json` (default
+//     `shark-data/workflow/`) is read as the workflow *directory* and
+//     per-entity YAMLs are loaded from it. Override files at
+//     `<workflowDir>/../overrides/workflow/<entity>.yaml` (when the workflow
+//     dir lives under a `shark-data/`-shaped tree) fully replace the default
+//     YAML for that entity.
+//  2. Inline workflows in `.sharkconfig.json` (multi-level
+//     `bug_workflow`/`feature_workflow`/etc. blocks, plus the legacy
+//     top-level `status_flow` for the task slot) backstop any entity the
+//     YAML directory did not cover. This is what fresh checkouts and the
+//     legacy test fixtures rely on.
+//  3. Hardcoded defaults fill any entity slot left empty (e.g. tech_debt,
+//     sprint — Shark 2.0 may not have shipped YAMLs for every entity).
+//
+// projectRoot is derived from configPath (the directory containing
+// .sharkconfig.json).
+//
+// Hard error: when `workflow_config` explicitly points at a Shark 1.x JSON
+// workflow file (e.g. `shark-templates/.sharkworkflow.json`), this loader
+// fails with a directive to run `shark init`. The two-path fallback that
+// used to silently load the JSON file's task slot was removed because it
+// silently dropped every other entity's workflow on the floor and caused
+// status lookups to misroute (see B020).
+func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.StatusActionData, error) {
+	projectRoot := filepath.Dir(configPath)
+
+	workflowDir, overridesDir, isLegacyFile := resolveWorkflowDir(projectRoot, configPath)
+
+	// Reject explicitly-configured legacy JSON workflow files. resolveWorkflowDir
+	// signals this case with isLegacyFile=true AND workflowDir=="". The
+	// alternate isLegacyFile=true case (no workflow_config set, default dir
+	// missing) leaves workflowDir non-empty and falls through to Pass 1/2/3
+	// so fresh projects and inline-config tests keep working.
+	if isLegacyFile && workflowDir == "" {
+		configured := readLegacyWorkflowConfigValue(configPath)
+		return nil, fmt.Errorf(
+			".sharkconfig.json field \"workflow_config\" = %q is a Shark 1.x "+
+				"JSON workflow file; Shark 2.0 uses per-entity YAML in "+
+				"shark-data/workflow/. Run `shark init` to materialize the "+
+				"shark-data/ tree and migrate the field.",
+			configured,
+		)
 	}
 
-	data := make(map[string]action.StatusActionData)
+	out := map[string]map[string]action.StatusActionData{}
+
+	// Pass 1: per-entity YAML at the configured workflow_config directory.
+	if workflowDir != "" {
+		if mlw, err := workflow.LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir); err == nil && mlw != nil {
+			for entityType := range entityFallback {
+				if wf := slotWorkflow(mlw, entityType); wf != nil {
+					out[entityType] = workflowToStatusActionData(wf)
+				}
+			}
+		}
+	}
+
+	// Pass 2: inline multi-level workflows from .sharkconfig.json itself.
+	// Covers fresh checkouts that haven't run `shark init` yet and the
+	// legacy top-level `status_flow` shape still used by many tests.
+	if mlw := workflow.LoadMultiLevelWorkflowOrDefault(configPath); mlw != nil {
+		for entityType := range entityFallback {
+			if _, already := out[entityType]; already {
+				continue
+			}
+			if wf := slotWorkflow(mlw, entityType); wf != nil {
+				out[entityType] = workflowToStatusActionData(wf)
+			}
+		}
+	}
+
+	// Pass 3: hardcoded defaults for any entity still missing.
+	for entityType, defaultFn := range entityFallback {
+		if _, ok := out[entityType]; ok {
+			continue
+		}
+		if wf := defaultFn(); wf != nil {
+			out[entityType] = workflowToStatusActionData(wf)
+		}
+	}
+
+	return out, nil
+}
+
+// readLegacyWorkflowConfigValue reads .sharkconfig.json's workflow_config
+// field for use in the legacy-file error message. Best-effort: returns ""
+// if the file or field is unreadable, which still produces a usable error
+// message (the user can `cat .sharkconfig.json` themselves).
+func readLegacyWorkflowConfigValue(configPath string) string {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	return readWorkflowConfigField(raw)
+}
+
+// resolveWorkflowDir picks the directory of per-entity workflow YAMLs to load.
+//
+// Resolution:
+//  1. Read `workflow_config` from .sharkconfig.json (raw decode to avoid
+//     pulling in the entire Manager). Empty/missing → use the default
+//     `<projectRoot>/shark-data/workflow/`.
+//  2. Stat the resolved path:
+//     - Directory → return (workflowDir, derived overridesDir, false).
+//     - File → treat as legacy JSON config; return ("", "", true) so the
+//     caller skips Pass 1 and falls back to JSON loading.
+//     - Missing → return the default path anyway so the loader can stat it
+//     and silently produce zero YAMLs, leaving Pass 3 (hardcoded defaults)
+//     to provide working workflows. This keeps fresh projects working
+//     without an init.
+//
+// overridesDir defaults to `<dataDir>/overrides/workflow/` where dataDir is
+// the parent of workflowDir. When workflow_config is set to a custom path
+// outside a shark-data/-shaped tree, the overrides dir is computed the same
+// way and may simply not exist — in which case override lookup silently
+// no-ops.
+func resolveWorkflowDir(projectRoot, configPath string) (workflowDir, overridesDir string, isLegacyFile bool) {
+	const defaultRel = "shark-data/workflow"
+
+	raw, _ := os.ReadFile(configPath)
+	configured := readWorkflowConfigField(raw)
+
+	if configured == "" {
+		workflowDir = filepath.Join(projectRoot, defaultRel)
+	} else {
+		// Honor absolute paths verbatim; resolve relative paths against the
+		// project root (the directory holding .sharkconfig.json).
+		if filepath.IsAbs(configured) {
+			workflowDir = configured
+		} else {
+			workflowDir = filepath.Join(projectRoot, configured)
+		}
+	}
+
+	info, err := os.Stat(workflowDir)
+	switch {
+	case err == nil && info.IsDir():
+		// Directory: derive an overrides path next to it.
+		overridesDir = filepath.Join(filepath.Dir(workflowDir), "overrides", "workflow")
+		return workflowDir, overridesDir, false
+	case err == nil && !info.IsDir():
+		// File: legacy .sharkworkflow.json case. Signal caller to fall back.
+		return "", "", true
+	default:
+		// Doesn't exist (or stat error). If the user explicitly pointed
+		// workflow_config at this path, we still try Pass 1 (the YAML
+		// loader is silent on missing dirs) — but if they didn't, the
+		// default shark-data/workflow/ may simply not exist yet because
+		// the project never ran `shark init`. In that case fall back to
+		// the legacy JSON loader so inline `.sharkconfig.json` workflows
+		// keep working (tests, fresh checkouts, etc.).
+		overridesDir = filepath.Join(filepath.Dir(workflowDir), "overrides", "workflow")
+		if configured == "" {
+			return workflowDir, overridesDir, true
+		}
+		return workflowDir, overridesDir, false
+	}
+}
+
+// readWorkflowConfigField extracts the `workflow_config` field from raw
+// .sharkconfig.json bytes without going through the full Manager. Returns
+// "" when the file is missing, malformed, or the field is absent.
+func readWorkflowConfigField(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var probe struct {
+		WorkflowConfig string `json:"workflow_config"`
+	}
+	if err := jsonUnmarshal(raw, &probe); err != nil {
+		return ""
+	}
+	return probe.WorkflowConfig
+}
+
+// slotWorkflow returns the per-entity workflow that was actually loaded from
+// YAML, or nil if no YAML covered that slot. Unlike MultiLevelWorkflow.GetWorkflowForLevel
+// it does NOT fall back to defaults — that's the caller's job.
+func slotWorkflow(mlw *workflow.MultiLevelWorkflow, entityType string) *workflow.WorkflowConfig {
+	switch entityType {
+	case "task":
+		return mlw.Task
+	case "feature":
+		return mlw.Feature
+	case "epic":
+		return mlw.Epic
+	case "bug":
+		return mlw.Bug
+	case "change":
+		return mlw.Change
+	case "tech_debt":
+		return mlw.TechDebt
+	case "sprint":
+		return mlw.Sprint
+	}
+	return nil
+}
+
+// workflowToStatusActionData flattens a WorkflowConfig's StatusMetadata into the
+// status -> StatusActionData shape the action service consumes.
+func workflowToStatusActionData(wf *workflow.WorkflowConfig) map[string]action.StatusActionData {
+	data := make(map[string]action.StatusActionData, len(wf.StatusMetadata))
 	for status, metadata := range wf.StatusMetadata {
 		data[status] = action.StatusActionData{
 			OrchestratorAction: metadata.OrchestratorAction,

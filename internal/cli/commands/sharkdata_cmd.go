@@ -8,14 +8,25 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
+
+// defaultWorkflowConfigDir is the directory `shark init` writes into
+// `.sharkconfig.json`'s `workflow_config` field on fresh setups. Once the
+// project ships per-entity YAMLs in `shark-data/workflow/`, the runtime
+// resolves them through this field (see resolveWorkflowDir in
+// internal/config/aliases.go).
+const defaultWorkflowConfigDir = "shark-data/workflow/"
 
 var (
 	upgradeDryRun bool
@@ -98,29 +109,157 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("shark init: failed to locate project root: %w", err)
 	}
 
-	dest, err := sharkdata.Init(root)
+	dest, sharkdataErr := sharkdata.Init(root)
+	alreadyInitialized := errors.Is(sharkdataErr, sharkdata.ErrAlreadyInitialized)
+	if sharkdataErr != nil && !alreadyInitialized {
+		return sharkdataErr
+	}
+
+	// Ensure .sharkconfig.json's `workflow_config` points at the
+	// `shark-data/workflow/` directory. We run this even when shark-data/
+	// was already present so a partial setup (shark-data exists but config
+	// lacks the field, or still points at the legacy JSON file) gets healed
+	// by a re-run of `shark init`.
+	//
+	// When the existing field already points at a custom directory the user
+	// configured, we leave it alone.
+	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, defaultWorkflowConfigDir)
 	if err != nil {
-		if errors.Is(err, sharkdata.ErrAlreadyInitialized) {
-			if cli.GlobalConfig.JSON {
-				return cli.OutputJSON(map[string]interface{}{
-					"status": "already_initialized",
-					"path":   dest,
-				})
-			}
-			fmt.Printf("shark-data/ already exists at %s. Run 'shark upgrade' to refresh.\n", dest)
-			return nil
+		// Non-fatal: shark-data/ is fine, we just couldn't update
+		// .sharkconfig.json. Report and continue.
+		fmt.Fprintf(os.Stderr, "warning: failed to update workflow_config in .sharkconfig.json: %v\n", err)
+	}
+
+	if alreadyInitialized {
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(map[string]interface{}{
+				"status":         "already_initialized",
+				"path":           dest,
+				"config_updated": configUpdated,
+				"migrated_from":  migratedFrom,
+			})
 		}
-		return err
+		fmt.Printf("shark-data/ already exists at %s. Run 'shark upgrade' to refresh.\n", dest)
+		printConfigUpdateMessage(configUpdated, migratedFrom)
+		return nil
 	}
 
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status": "initialized",
-			"path":   dest,
+			"status":         "initialized",
+			"path":           dest,
+			"config_updated": configUpdated,
+			"migrated_from":  migratedFrom,
 		})
 	}
 	fmt.Printf("Initialized shark-data/ at %s\n", dest)
+	printConfigUpdateMessage(configUpdated, migratedFrom)
 	return nil
+}
+
+// printConfigUpdateMessage emits the human-readable summary of what
+// `ensureWorkflowConfigField` did to `.sharkconfig.json`. Stays a separate
+// helper so both the fresh-init and already-initialized code paths share
+// identical wording.
+func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
+	if !configUpdated {
+		return
+	}
+	if migratedFrom != "" {
+		fmt.Printf("Migrated workflow_config: %q -> %q in .sharkconfig.json\n", migratedFrom, defaultWorkflowConfigDir)
+		return
+	}
+	fmt.Printf("Set workflow_config: %q in .sharkconfig.json\n", defaultWorkflowConfigDir)
+}
+
+// ensureWorkflowConfigField writes "workflow_config": defaultPath into
+// <projectRoot>/.sharkconfig.json. Behavior matrix:
+//
+//   - Config missing: create a minimal {"workflow_config": "..."} file.
+//   - Config exists, field absent or empty: add the field, preserving
+//     other top-level keys verbatim (JSON-level merge, no schema dependency).
+//   - Config exists, field set to a legacy JSON file path
+//     (`.sharkworkflow*.json` or any path ending in `.json`): auto-migrate
+//     to the directory default. This heals projects whose `shark admin init`
+//     wrote the old `shark-templates/.sharkworkflow-short.json` value.
+//   - Config exists, field set to anything else (a custom path): leave
+//     alone — the user picked it intentionally.
+//
+// Returns (updated, migratedFrom, err) where `updated` is true iff the file
+// was rewritten and `migratedFrom` is the old legacy value when an
+// auto-migration kicked in (empty string otherwise).
+func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, migratedFrom string, err error) {
+	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+
+	data, statErr := os.ReadFile(configPath)
+	if statErr != nil {
+		if !os.IsNotExist(statErr) {
+			return false, "", fmt.Errorf("read %s: %w", configPath, statErr)
+		}
+		// File missing — write a minimal config with just the field set.
+		minimal := map[string]interface{}{"workflow_config": defaultPath}
+		bytes, marshalErr := json.MarshalIndent(minimal, "", "  ")
+		if marshalErr != nil {
+			return false, "", fmt.Errorf("marshal minimal config: %w", marshalErr)
+		}
+		if writeErr := os.WriteFile(configPath, append(bytes, '\n'), 0644); writeErr != nil {
+			return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
+		}
+		return true, "", nil
+	}
+
+	// File exists — decode into a generic map so we don't impose a schema
+	// (callers may have extra keys we don't know about).
+	var generic map[string]interface{}
+	if unmarshalErr := json.Unmarshal(data, &generic); unmarshalErr != nil {
+		return false, "", fmt.Errorf("parse %s: %w", configPath, unmarshalErr)
+	}
+	if generic == nil {
+		generic = map[string]interface{}{}
+	}
+
+	existing, _ := generic["workflow_config"].(string)
+	switch {
+	case existing == "":
+		// Add the field.
+	case isLegacyWorkflowConfigValue(existing):
+		// Heal it: auto-migrate the legacy path.
+		migratedFrom = existing
+	default:
+		// Custom path — respect it.
+		return false, "", nil
+	}
+
+	generic["workflow_config"] = defaultPath
+	out, marshalErr := json.MarshalIndent(generic, "", "  ")
+	if marshalErr != nil {
+		return false, "", fmt.Errorf("marshal updated config: %w", marshalErr)
+	}
+	if writeErr := os.WriteFile(configPath, append(out, '\n'), 0644); writeErr != nil {
+		return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
+	}
+	return true, migratedFrom, nil
+}
+
+// isLegacyWorkflowConfigValue reports whether v looks like a workflow_config
+// value left over from the Shark 1.x JSON-file model — the value `shark
+// admin init` historically wrote, or any path ending in `.json`. `shark
+// init` rewrites these to the canonical `shark-data/workflow/` directory.
+//
+// We are deliberately permissive: a custom directory the user picked won't
+// match this, so it's safe to auto-migrate. Anyone with a strong custom
+// preference can re-set the field after init and we'll respect it next time.
+func isLegacyWorkflowConfigValue(v string) bool {
+	if v == "" {
+		return false
+	}
+	if strings.HasSuffix(v, ".json") {
+		return true
+	}
+	// Catch the legacy template-bundled path even when users renamed the
+	// suffix.
+	base := filepath.Base(v)
+	return strings.HasPrefix(base, ".sharkworkflow")
 }
 
 func runSharkUpgrade(cmd *cobra.Command, _ []string) error {

@@ -224,6 +224,11 @@ func ValidateNoteType(noteType string) error {
 		"question":       true,
 		"rejection":      true,
 		"requirement":    true,
+		// "review" records a code-review outcome (PASS/FAIL). The
+		// canonical code-review workflow emits --type=review for every
+		// entity type that goes through review (tasks, features, bugs,
+		// change-cards, …); see B027.
+		"review": true,
 	}
 	if !validTypes[noteType] {
 		return fmt.Errorf("%w: got %q", ErrInvalidNoteType, noteType)

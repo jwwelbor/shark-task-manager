@@ -113,11 +113,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	placeholderGen := buildPlaceholderGenerator(ctx, entityType)
 
-	// Step 3: Get shared services.
-	actionSvc, err := cli.GetActionService(ctx)
+	// Step 3: Get shared services. Narrow the action service to this entity
+	// type so status lookups in the run loop resolve against the right
+	// per-entity workflow (cross-entity status name collisions like
+	// "completed" become unambiguous).
+	actionSvcRoot, err := cli.GetActionService(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
+	actionSvc := actionSvcRoot.ForEntity(entityType)
 
 	workflowSvc := cli.GetWorkflowService()
 

@@ -228,6 +228,45 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		return nil, err
 	}
 
+	// If workflow_config points at a directory, treat it as the Shark 2.0
+	// per-entity YAML layout. Load each entity workflow from its YAML file
+	// and overlay overrides from <parent>/overrides/workflow/. YAML-dir
+	// entries take precedence over inline definitions, matching JSON-file
+	// precedence below.
+	if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
+		overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
+		if mlw, yamlErr := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); yamlErr == nil && mlw != nil {
+			if mlw.Epic != nil {
+				result.Epic = mlw.Epic
+				result.Sources["epic"] = workflowFilePath
+			}
+			if mlw.Feature != nil {
+				result.Feature = mlw.Feature
+				result.Sources["feature"] = workflowFilePath
+			}
+			if mlw.Task != nil {
+				result.Task = mlw.Task
+				result.Sources["task"] = workflowFilePath
+			}
+			if mlw.Bug != nil {
+				result.Bug = mlw.Bug
+				result.Sources["bug"] = workflowFilePath
+			}
+			if mlw.Change != nil {
+				result.Change = mlw.Change
+				result.Sources["change"] = workflowFilePath
+			}
+			if mlw.TechDebt != nil {
+				result.TechDebt = mlw.TechDebt
+				result.Sources["tech_debt"] = workflowFilePath
+			}
+			if mlw.Sprint != nil {
+				result.Sprint = mlw.Sprint
+				result.Sources["sprint"] = workflowFilePath
+			}
+		}
+	}
+
 	// Map workflow keys to entity level names for source tracking
 	workflowKeyToLevel := map[string]string{
 		"epic_workflow":      "epic",
@@ -562,10 +601,19 @@ func expandHome(path string) string {
 
 // loadWorkflowFile reads and parses the workflow file at the given path.
 // Returns (nil, nil) if the file does not exist (silent fallback).
+// Returns (nil, nil) if the path resolves to a directory — this is the
+// Shark 2.0 case where `workflow_config` points at a per-entity YAML folder
+// rather than a single JSON file. The legacy JSON loader silently no-ops so
+// the new YAML-loading path can take over without spamming warnings.
 // Returns (nil, error) if the file exists but cannot be parsed.
 // Returns (data, nil) if the file is successfully parsed.
 // An empty file (0 bytes) is treated as {} (empty JSON object, all entities nil).
 func loadWorkflowFile(path string) (map[string]json.RawMessage, error) {
+	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+		// Shark 2.0 layout — let the YAML loader handle it.
+		return nil, nil
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

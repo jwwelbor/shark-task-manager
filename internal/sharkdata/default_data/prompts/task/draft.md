@@ -1,3 +1,3 @@
 {{template "advance_preamble" .}}
 
-Task {{.id}} is in draft status.
+Task {{.id}} is in draft.

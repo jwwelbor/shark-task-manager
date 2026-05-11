@@ -149,6 +149,10 @@ func TestValidateNoteType_EnumAllowlist(t *testing.T) {
 		"comment", "decision", "blocker", "solution",
 		"reference", "implementation", "testing", "future",
 		"question", "rejection", "requirement",
+		// B027: "review" must be accepted so the canonical code-review
+		// workflow (which emits --type=review at PASS verdicts) works
+		// across all entity types — including bugs.
+		"review",
 	}
 
 	for _, validType := range validTypes {

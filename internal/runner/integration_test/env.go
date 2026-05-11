@@ -64,7 +64,7 @@ const minimalSharkConfig = `{
 }
 `
 
-// minimalWorkflowConfig is the JSON written to .sharkworkflow.json.
+// minimalTaskWorkflowYAML is written to shark-data/workflow/task.yaml.
 // It defines a tiny linear task workflow:
 //
 //	todo → in_progress → completed
@@ -72,49 +72,37 @@ const minimalSharkConfig = `{
 // "in_progress" uses spawn_agent so the mock dispatcher is exercised.
 // "completed" is a terminal status with no further transitions.
 //
-// The file must contain a "task_workflow" top-level key because
-// config.LoadMultiLevelWorkflow parses per-entity-level workflow blocks.
-// The orchestrator_action must be nested inside each status_metadata entry
-// (not as a separate top-level orchestrator_actions map).
-const minimalWorkflowConfig = `{
-  "task_workflow": {
-    "status_flow": {
-      "todo":        ["in_progress"],
-      "in_progress": ["completed"],
-      "completed":   []
-    },
-    "status_metadata": {
-      "todo": {
-        "color": "gray",
-        "phase": "planning",
-        "progress_weight": 0.0,
-        "orchestrator_action": {
-          "action":               "advance_status",
-          "instruction_template": "advance entity {{entity_key}} from todo"
-        }
-      },
-      "in_progress": {
-        "color": "blue",
-        "phase": "development",
-        "progress_weight": 0.5,
-        "orchestrator_action": {
-          "action":               "spawn_agent",
-          "agent_type":           "developer",
-          "instruction_template": "implement task {{entity_key}}"
-        }
-      },
-      "completed": {
-        "color": "green",
-        "phase": "done",
-        "progress_weight": 1.0
-      }
-    },
-    "special_statuses": {
-      "_start_":    ["todo"],
-      "_complete_": ["completed"]
-    }
-  }
-}
+// Shark 2.0 loads per-entity workflows from YAML files under the directory
+// pointed to by .sharkconfig.json's `workflow_config` field. Each file is the
+// workflow itself — no per-entity wrapper key.
+const minimalTaskWorkflowYAML = `version: "1.0"
+status_flow:
+  todo: ["in_progress"]
+  in_progress: ["completed"]
+  completed: []
+status_metadata:
+  todo:
+    color: gray
+    phase: planning
+    progress_weight: 0.0
+    orchestrator_action:
+      action: advance_status
+      instruction_template: "advance entity {{entity_key}} from todo"
+  in_progress:
+    color: blue
+    phase: development
+    progress_weight: 0.5
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: developer
+      instruction_template: "implement task {{entity_key}}"
+  completed:
+    color: green
+    phase: done
+    progress_weight: 1.0
+special_statuses:
+  _start_: ["todo"]
+  _complete_: ["completed"]
 `
 
 // NewEnv creates a new isolated test environment under t.TempDir().
@@ -129,24 +117,28 @@ func NewEnv(t *testing.T) *Env {
 	dir := t.TempDir()
 
 	configPath := filepath.Join(dir, ".sharkconfig.json")
-	workflowPath := filepath.Join(dir, ".sharkworkflow.json")
+	workflowDir := filepath.Join(dir, "shark-data", "workflow")
+	taskWorkflowPath := filepath.Join(workflowDir, "task.yaml")
 	dbPath := filepath.Join(dir, "shark-tasks.db")
 
 	// Write minimal config files.
 	if err := os.WriteFile(configPath, []byte(minimalSharkConfig), 0644); err != nil {
 		t.Fatalf("NewEnv: write .sharkconfig.json: %v", err)
 	}
-	if err := os.WriteFile(workflowPath, []byte(minimalWorkflowConfig), 0644); err != nil {
-		t.Fatalf("NewEnv: write .sharkworkflow.json: %v", err)
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
+		t.Fatalf("NewEnv: mkdir shark-data/workflow: %v", err)
+	}
+	if err := os.WriteFile(taskWorkflowPath, []byte(minimalTaskWorkflowYAML), 0644); err != nil {
+		t.Fatalf("NewEnv: write task.yaml: %v", err)
 	}
 
-	// Point config at the workflow file.
-	if err := patchConfigWorkflowRef(configPath, ".sharkworkflow.json"); err != nil {
+	// Point config at the workflow directory (Shark 2.0 layout).
+	if err := patchConfigWorkflowRef(configPath, "shark-data/workflow/"); err != nil {
 		t.Fatalf("NewEnv: patch workflow_config: %v", err)
 	}
 
 	// Clear the global workflow cache so each test environment loads its own
-	// isolated .sharkworkflow.json rather than a cached version from a previous test.
+	// isolated workflow rather than a cached version from a previous test.
 	config.ClearWorkflowCache()
 
 	// Initialise isolated SQLite database.

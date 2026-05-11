@@ -102,6 +102,13 @@ func (m *MockActionService) Reload(ctx context.Context) error {
 	return nil
 }
 
+// ForEntity returns the mock itself; tests that don't care about per-entity
+// scoping see identical behavior, while tests that do can wrap a new mock
+// per entity and inject it via the parent's GetStatusActionPopulatedFunc.
+func (m *MockActionService) ForEntity(entityType string) config.ActionService {
+	return m
+}
+
 // MockDispatcher implements AgentDispatcher for testing.
 type MockDispatcher struct {
 	DispatchFunc     func(ctx context.Context, input DispatchInput) (*DispatchResult, error)

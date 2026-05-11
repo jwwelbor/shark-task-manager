@@ -9,60 +9,44 @@ status_flow:
   - blocked
   - on_hold
   in_refinement:
-  - ready_for_ba_check
   - ready_for_research
   - blocked
   - on_hold
   ready_for_research:
   - in_research
-  - cancelled
+  - blocked
   - on_hold
   in_research:
-  - ready_for_feasibility_review_ba
-  - blocked
-  - on_hold
-  ready_for_feasibility_review_ba:
-  - in_feasibility_review_ba
-  - blocked
-  - on_hold
-  in_feasibility_review_ba:
-  - ready_for_feasibility_review_tech
-  - intervention_required
-  - blocked
-  - on_hold
-  ready_for_feasibility_review_tech:
-  - in_feasibility_review_tech
-  - blocked
-  - on_hold
-  in_feasibility_review_tech:
-  - ready_for_tech_check
-  - ready_for_test_planning
-  - intervention_required
-  - blocked
-  - on_hold
-  intervention_required:
+  - ready_for_design
   - ready_for_refinement
-  - ready_for_research
-  - ready_for_feasibility_review_ba
-  - ready_for_feasibility_review_tech
-  - ready_for_test_planning
-  - cancelled
-  - on_hold
-  ready_for_test_planning:
-  - in_test_planning
   - blocked
   - on_hold
-  in_test_planning:
+  ready_for_design:
+  - in_design
+  - blocked
+  - on_hold
+  in_design:
   - ready_for_decomposition
+  - ready_for_research
   - ready_for_refinement
   - blocked
   - on_hold
+  - cancelled
   ready_for_decomposition:
   - in_decomposition
   - blocked
   - on_hold
   in_decomposition:
+  - ready_for_feature_review
+  - blocked
+  - on_hold
+  ready_for_feature_review:
+  - in_feature_review
+  - blocked
+  - on_hold
+  in_feature_review:
   - active
+  - ready_for_decomposition
   - blocked
   - on_hold
   active:
@@ -70,44 +54,20 @@ status_flow:
   - on_hold
   completed: []
   cancelled: []
-  on_hold:
-  - ready_for_research
+  blocked:
   - ready_for_refinement
-  - ready_for_feasibility_review_ba
-  - ready_for_feasibility_review_tech
-  - ready_for_test_planning
+  - ready_for_research
+  - ready_for_design
   - ready_for_decomposition
+  - ready_for_feature_review
+  on_hold:
+  - ready_for_refinement
+  - ready_for_research
+  - ready_for_design
+  - ready_for_decomposition
+  - ready_for_feature_review
   - active
   - cancelled
-  - ready_for_ba_check
-  - ready_for_tech_check
-  blocked:
-  - ready_for_research
-  - ready_for_refinement
-  - ready_for_feasibility_review_ba
-  - ready_for_feasibility_review_tech
-  - ready_for_test_planning
-  - ready_for_decomposition
-  - ready_for_ba_check
-  - ready_for_tech_check
-  ready_for_ba_check:
-  - in_ba_check
-  - blocked
-  - on_hold
-  in_ba_check:
-  - in_research
-  - in_refinement
-  - blocked
-  - on_hold
-  ready_for_tech_check:
-  - in_tech_check
-  - blocked
-  - on_hold
-  in_tech_check:
-  - in_test_planning
-  - in_feasibility_review_tech
-  - blocked
-  - on_hold
 status_metadata:
   draft:
     description: Epic captured, not yet refined
@@ -118,12 +78,44 @@ status_metadata:
     responsibility: none
     orchestrator_action:
       action: advance_status
-      instruction_template: epic/draft.tmpl
+      instruction_template: epic/draft.md
+  ready_for_refinement:
+    description: Ready for BA to write epic PRD
+    phase: refinement
+    color: orange
+    progress_weight: 0.05
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - business-analyst
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: business-analyst
+      model: opus
+      skills:
+      - specification-writing
+      - epic
+      instruction_template: epic/ready_for_refinement.md
+  in_refinement:
+    description: 'BA writing epic PRD: goals, scope, success criteria, constraints'
+    phase: refinement
+    color: orange
+    progress_weight: 0.1
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: business-analyst
+      model: opus
+      skills:
+      - specification-writing
+      - epic
+      instruction_template: epic/in_refinement.md
   ready_for_research:
-    description: Epic PRD complete, ready for targeted research against defined scope
+    description: Ready for brownfield codebase analysis
     phase: research
     color: purple
-    progress_weight: 0.2
+    progress_weight: 0.15
     is_planning: true
     responsibility: agent
     agent_types:
@@ -131,59 +123,31 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: researcher
+      model: sonnet
       skills:
       - research
-      - research
-      instruction_template: epic/ready_for_research.tmpl
+      - brownfield-analysis
+      instruction_template: epic/ready_for_research.md
   in_research:
-    description: Research in progress
+    description: Brownfield codebase analysis in progress
     phase: research
     color: purple
-    progress_weight: 0.3
+    progress_weight: 0.25
     is_planning: true
     responsibility: agent
     orchestrator_action:
       action: check_or_resume
       agent_type: researcher
+      model: sonnet
       skills:
       - research
-      - research
-      instruction_template: epic/in_research.tmpl
-  ready_for_feasibility_review_ba:
-    description: Research complete, ready for BA feasibility review
-    phase: feasibility
-    color: teal
-    progress_weight: 0.35
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - business-analyst
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: business-analyst
-      skills:
-      - specification-writing
-      - research
-      instruction_template: epic/ready_for_feasibility_review_ba.tmpl
-  in_feasibility_review_ba:
-    description: BA reviewing business feasibility
-    phase: feasibility
-    color: teal
-    progress_weight: 0.38
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: business-analyst
-      skills:
-      - specification-writing
-      - research
-      instruction_template: epic/in_feasibility_review_ba.tmpl
-  ready_for_feasibility_review_tech:
-    description: BA feasibility approved, ready for technical feasibility review
-    phase: feasibility
-    color: teal
-    progress_weight: 0.4
+      - brownfield-analysis
+      instruction_template: epic/in_research.md
+  ready_for_design:
+    description: Ready for architecture decisions and UAT plan
+    phase: design
+    color: cyan
+    progress_weight: 0.3
     is_planning: true
     responsibility: agent
     agent_types:
@@ -191,98 +155,31 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: architect
+      model: opus
       skills:
       - architecture
-      - research
-      instruction_template: epic/ready_for_feasibility_review_tech.tmpl
-  in_feasibility_review_tech:
-    description: Architect reviewing technical feasibility
-    phase: feasibility
-    color: teal
-    progress_weight: 0.43
+      - quality
+      instruction_template: epic/ready_for_design.md
+  in_design:
+    description: Architecture and UAT plan in progress
+    phase: design
+    color: cyan
+    progress_weight: 0.4
     is_planning: true
     responsibility: agent
     orchestrator_action:
       action: check_or_resume
       agent_type: architect
+      model: opus
       skills:
       - architecture
-      - research
-      instruction_template: epic/in_feasibility_review_tech.tmpl
-  intervention_required:
-    description: Feasibility review raised concerns requiring human decision
-    phase: intervention
-    color: red
-    progress_weight: 0
-    is_planning: true
-    responsibility: human
-    orchestrator_action:
-      action: pause
-      instruction_template: epic/intervention_required.tmpl
-  ready_for_refinement:
-    description: Draft captured, ready for BA to write epic PRD
-    phase: refinement
-    color: orange
-    progress_weight: 0.1
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - business-analyst
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: business-analyst
-      skills:
-      - specification-writing
-      instruction_template: epic/ready_for_refinement.tmpl
-  in_refinement:
-    description: BA refining epic requirements
-    phase: refinement
-    color: orange
-    progress_weight: 0.15
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: business-analyst
-      skills:
-      - specification-writing
-      instruction_template: epic/in_refinement.tmpl
-  ready_for_test_planning:
-    description: Feasibility approved, ready for UAT acceptance plan
-    phase: test_planning
-    color: lime
-    progress_weight: 0.5
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - qa
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: qa
-      skills:
       - quality
-      - shark
-      instruction_template: epic/ready_for_test_planning.tmpl
-  in_test_planning:
-    description: QA creating epic UAT acceptance plan
-    phase: test_planning
-    color: lime
-    progress_weight: 0.55
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: qa
-      skills:
-      - quality
-      - shark
-      instruction_template: epic/in_test_planning.tmpl
+      instruction_template: epic/in_design.md
   ready_for_decomposition:
-    description: Epic PRD, feasibility reviews, and UAT plan complete, ready to decompose
-      into features
+    description: Ready to break epic into features
     phase: decomposition
-    color: yellow
-    progress_weight: 0.6
+    color: blue
+    progress_weight: 0.45
     is_planning: true
     responsibility: agent
     agent_types:
@@ -290,39 +187,71 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: product-manager
+      model: sonnet
       skills:
       - specification-writing
-      instruction_template: epic/ready_for_decomposition.tmpl
+      - feature
+      instruction_template: epic/ready_for_decomposition.md
   in_decomposition:
-    description: Features being generated from epic
+    description: Breaking epic into features with ordering and dependencies
     phase: decomposition
-    color: yellow
-    progress_weight: 0.7
+    color: blue
+    progress_weight: 0.5
     is_planning: true
     responsibility: agent
     orchestrator_action:
       action: check_or_resume
       agent_type: product-manager
+      model: sonnet
       skills:
       - specification-writing
-      instruction_template: epic/in_decomposition.tmpl
+      - feature
+      instruction_template: epic/in_decomposition.md
+  ready_for_feature_review:
+    description: Ready for codex review of features against epic requirements
+    phase: review
+    color: magenta
+    progress_weight: 0.55
+    is_planning: true
+    responsibility: agent
+    agent_types:
+    - uat-agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: uat-agent
+      model: codex
+      skills:
+      - quality
+      - specification-writing
+      instruction_template: epic/ready_for_feature_review.md
+  in_feature_review:
+    description: Codex reviewing features against epic requirements
+    phase: review
+    color: magenta
+    progress_weight: 0.6
+    is_planning: true
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: uat-agent
+      model: codex
+      skills:
+      - quality
+      - specification-writing
+      instruction_template: epic/in_feature_review.md
   active:
-    description: Features exist, progress aggregated from children
+    description: Features in progress, progress aggregated from children
     phase: execution
-    color: blue
-    progress_weight: 1.0
+    color: yellow
+    progress_weight: 0.75
     is_planning: false
-    responsibility: none
+    responsibility: agent
     aggregates_from: features
     orchestrator_action:
       action: cascade
-      agent_type: tech-director
-      skills:
-      - orchestration
-      - shark
-      instruction_template: epic/active.tmpl
+      instruction_template: epic/active.md
   completed:
-    description: All features complete
+    description: All features done, epic delivered
     phase: done
     color: green
     progress_weight: 1.0
@@ -330,105 +259,41 @@ status_metadata:
     responsibility: none
     orchestrator_action:
       action: archive
-      instruction_template: epic/completed.tmpl
+      instruction_template: epic/completed.md
   cancelled:
     description: Epic abandoned
     phase: done
-    color: gray
+    color: red
     progress_weight: 0
     is_planning: false
     responsibility: none
+    exclude_from_progress: true
     orchestrator_action:
       action: archive
-      instruction_template: epic/cancelled.tmpl
-  on_hold:
-    description: Epic intentionally paused
-    phase: paused
-    color: orange
-    progress_weight: 0
-    is_planning: true
-    responsibility: none
-    orchestrator_action:
-      action: pause
-      instruction_template: epic/on_hold.tmpl
+      instruction_template: epic/cancelled.md
   blocked:
-    description: Epic blocked by external dependency
+    description: External blocker preventing progress
     phase: blocked
     color: red
     progress_weight: 0
-    is_planning: true
-    responsibility: none
+    is_planning: false
+    responsibility: human
     orchestrator_action:
       action: pause
-      instruction_template: epic/blocked.tmpl
-  ready_for_ba_check:
-    description: Epic BA docs complete, ready for BA quality check
-    phase: refinement
-    color: yellow
-    progress_weight: 0.17
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - business-analyst
+      instruction_template: epic/blocked.md
+  on_hold:
+    description: Intentionally paused, awaiting product decision
+    phase: paused
+    color: gray
+    progress_weight: 0
+    is_planning: false
+    responsibility: human
     orchestrator_action:
-      action: spawn_agent
-      agent_type: business-analyst
-      skills:
-      - specification-writing
-      - shark
-      instruction_template: epic/ready_for_ba_check.tmpl
-  in_ba_check:
-    description: BA validator checking epic docs for completeness and depth
-    phase: refinement
-    color: yellow
-    progress_weight: 0.19
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: business-analyst
-      skills:
-      - specification-writing
-      - shark
-      instruction_template: epic/in_ba_check.tmpl
-  ready_for_tech_check:
-    description: Epic tech docs complete, ready for tech quality check
-    phase: feasibility
-    color: lime
-    progress_weight: 0.46
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - architect
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: architect
-      skills:
-      - architecture
-      - specification-writing
-      - shark
-      instruction_template: epic/ready_for_tech_check.tmpl
-  in_tech_check:
-    description: Architect validator checking epic tech docs for completeness and
-      depth
-    phase: feasibility
-    color: lime
-    progress_weight: 0.48
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: architect
-      skills:
-      - architecture
-      - specification-writing
-      - shark
-      instruction_template: epic/in_tech_check.tmpl
+      action: pause
+      instruction_template: epic/on_hold.md
 special_statuses:
   _start_:
   - draft
   _complete_:
   - completed
   - cancelled
-  _aggregation_:
-  - active

@@ -13,17 +13,6 @@ import (
 // Shark 2.0 (.md prompts + frontmatter + shark-data/ resolution) tests
 // ============================================================================
 
-// setupSharkDataFixtures lays down a shark-data/prompts/ tree under a temp
-// directory and returns the prompts directory.
-func setupSharkDataFixtures(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	promptsDir := filepath.Join(root, sharkDataPromptsSubdir)
-	require.NoError(t, os.MkdirAll(filepath.Join(promptsDir, "task"), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Join(promptsDir, "feature"), 0755))
-	return promptsDir
-}
-
 func TestStripFrontmatter_NoFrontmatter(t *testing.T) {
 	body := "# Just a heading\n\nNo frontmatter here.\n"
 	got := stripFrontmatter(body)

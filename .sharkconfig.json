@@ -1,26 +1,26 @@
 {
   "color_enabled": true,
+  "console_width": 100,
   "database": {
-    "backend": "$SHARK_DB_BACKEND",
-    "url": "$SHARK_DB_URL",
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
-    "skip_migrations": true
-  },
-  "observability": {
-    "enabled": true,
-    "log_level": "debug",
-    "log_format": "text",
-    "log_file": "./shark.log",
-    "tracing_enabled": false,
-    "metrics_enabled": false,
-    "exporter": "otlp",
-    "otlp_endpoint": "",
-    "service_name": "shark"
+    "backend": "$SHARK_DB_BACKEND",
+    "skip_migrations": true,
+    "url": "$SHARK_DB_URL"
   },
   "interactive_mode": false,
   "json_output": false,
   "last_sync_time": "2026-01-16T23:22:45-06:00",
+  "observability": {
+    "enabled": true,
+    "exporter": "otlp",
+    "log_file": "./shark.log",
+    "log_format": "text",
+    "log_level": "debug",
+    "metrics_enabled": false,
+    "otlp_endpoint": "",
+    "service_name": "shark",
+    "tracing_enabled": false
+  },
   "require_rejection_reason": true,
-  "workflow_config": "shark-templates/.sharkworkflow-short.json",
-  "console_width": 100
+  "workflow_config": "shark-data/workflow/"
 }

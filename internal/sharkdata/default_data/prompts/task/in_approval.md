@@ -1,16 +1,12 @@
-{{template "_resume_preamble" .}}RESUME approval for task {{.task_id}}: "{{.title}}".
+RESUME CONTEXT: UAT approval is in progress for task {{.id}}: "{{.title}}".
 
-Check for existing UAT report at docs/review/{epic-folder}/{feature-folder}/uat/*-{{.task_id}}-uat.md.
-(Derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders, strip /tasks/filename.)
+{{if eq .entity_type "Bug"}}Check for existing UAT report at docs/review/bugs/{{.id}}/uat/*-{{.id}}-uat.md{{else}}Check for existing UAT report at docs/review/changes/{{.id}}/uat/*-{{.id}}-uat.md{{end}}
 - If UAT report exists with APPROVED verdict → {{template "advance" .}}
-- If UAT report exists with REJECTED verdict → route back to appropriate status with rejection reason
-- If NO UAT report exists → re-launch the UAT reviewer:
-{{template "uat_spawn_hint" .}}
+- If UAT report exists with REJECTED verdict → shark status set {{.id}} ready_for_development --reason "<findings from report>"
+- If NO UAT report exists → you MUST perform the full red-team review below. Do NOT advance without a written report.
 
-READ:
-(1) Task spec at {{.file_path}}
-(2) Implementation code and test results
-(3) Code review report from docs/review/{epic-folder}/{feature-folder}/code_review/
-(4) QA test results
+---
 
-This task requires the red-team UAT review to complete before advancing.
+UAT approval for task {{.id}}: "{{.title}}".
+
+{{template "_uat_redteam_review" .}}

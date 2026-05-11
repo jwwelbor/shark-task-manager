@@ -167,13 +167,13 @@ func (oa *OrchestratorAction) ToPopulatedAction(placeholders map[string]string) 
 // Unknown placeholders are left unchanged in the template.
 //
 // Detection Logic:
-// - If InstructionTemplate ends with ".tmpl", uses OrchestratorRenderer.Render() (template engine)
-// - Otherwise uses legacy string replacement (inline templates)
-// - Template rendering errors log a warning and return empty string (graceful degradation)
+//   - If InstructionTemplate ends with ".tmpl" or ".md", uses OrchestratorRenderer.Render() (template engine)
+//   - Otherwise uses legacy string replacement (inline templates)
+//   - Template rendering errors log a warning and return empty string (graceful degradation)
 func (oa *OrchestratorAction) PopulateTemplate(vars map[string]string) string {
-	// NEW: Detect if instruction_template is a .tmpl file reference
-	if strings.HasSuffix(oa.InstructionTemplate, ".tmpl") {
-		// Route to template engine
+	// Detect file-reference instruction templates. Shark 2.0 uses .md;
+	// legacy workflows used .tmpl. Either extension is routed to the engine.
+	if strings.HasSuffix(oa.InstructionTemplate, ".tmpl") || strings.HasSuffix(oa.InstructionTemplate, ".md") {
 		engine := templates.GetOrchestratorEngine()
 		rendered, err := engine.Render(oa.InstructionTemplate, vars)
 		if err != nil {

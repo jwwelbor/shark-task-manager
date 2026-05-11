@@ -48,17 +48,38 @@ var yamlEntityFiles = []struct {
 // has no workflow/ subdirectory; in that case the caller should fall back to
 // JSON loading via the existing LoadWorkflowConfig path.
 func LoadMultiLevelWorkflowFromYAML(dataDir string) (*MultiLevelWorkflow, error) {
+	if dataDir == "" {
+		return &MultiLevelWorkflow{Sources: map[string]string{}}, nil
+	}
+	workflowDir := filepath.Join(dataDir, YAMLWorkflowDir)
+	overridesDir := filepath.Join(dataDir, "overrides", YAMLWorkflowDir)
+	return LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir)
+}
+
+// LoadMultiLevelWorkflowFromYAMLDir is the lower-level variant used when the
+// caller already knows the workflow directory directly — e.g., when the
+// project's `.sharkconfig.json` `workflow_config` field points at a custom
+// directory rather than the default `shark-data/workflow/`.
+//
+// workflowDir is the directory containing the per-entity YAML files
+// (<entity>.yaml). overridesDir is the directory containing per-entity
+// overrides (typically `<dataDir>/overrides/workflow/`); pass "" to skip
+// override resolution.
+//
+// Like LoadMultiLevelWorkflowFromYAML, missing files leave the slot nil and
+// missing overrides are silently skipped. A missing workflowDir returns an
+// empty MultiLevelWorkflow with nil slots (caller falls back to defaults).
+func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*MultiLevelWorkflow, error) {
 	mlw := &MultiLevelWorkflow{
 		Sources: map[string]string{},
 	}
 
-	if dataDir == "" {
+	if workflowDir == "" {
 		return mlw, nil
 	}
 
-	workflowDir := filepath.Join(dataDir, YAMLWorkflowDir)
 	if _, err := os.Stat(workflowDir); err != nil {
-		// No workflow/ subdirectory — caller should fall back to JSON loading.
+		// No workflow directory — caller should fall back to defaults.
 		if os.IsNotExist(err) {
 			return mlw, nil
 		}
@@ -67,26 +88,35 @@ func LoadMultiLevelWorkflowFromYAML(dataDir string) (*MultiLevelWorkflow, error)
 
 	for _, entry := range yamlEntityFiles {
 		// Override path takes precedence.
-		overridePath := filepath.Join(dataDir, "overrides", YAMLWorkflowDir, entry.Filename)
+		var overridePath string
+		if overridesDir != "" {
+			overridePath = filepath.Join(overridesDir, entry.Filename)
+		}
 		defaultPath := filepath.Join(workflowDir, entry.Filename)
 
 		var loadedFrom string
 		var data []byte
 		var err error
 
-		if info, statErr := os.Stat(overridePath); statErr == nil && !info.IsDir() {
-			data, err = os.ReadFile(overridePath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read override workflow %s: %w", overridePath, err)
+		if overridePath != "" {
+			if info, statErr := os.Stat(overridePath); statErr == nil && !info.IsDir() {
+				data, err = os.ReadFile(overridePath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read override workflow %s: %w", overridePath, err)
+				}
+				loadedFrom = overridePath
 			}
-			loadedFrom = overridePath
-		} else if info, statErr := os.Stat(defaultPath); statErr == nil && !info.IsDir() {
-			data, err = os.ReadFile(defaultPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read workflow %s: %w", defaultPath, err)
+		}
+		if loadedFrom == "" {
+			if info, statErr := os.Stat(defaultPath); statErr == nil && !info.IsDir() {
+				data, err = os.ReadFile(defaultPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read workflow %s: %w", defaultPath, err)
+				}
+				loadedFrom = defaultPath
 			}
-			loadedFrom = defaultPath
-		} else {
+		}
+		if loadedFrom == "" {
 			// File absent — leave slot nil so GetWorkflowForLevel uses the default.
 			continue
 		}

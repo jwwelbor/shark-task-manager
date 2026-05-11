@@ -26,9 +26,9 @@ var promptFileExtensions = []string{".tmpl", ".md"}
 
 // OrchestratorRenderer handles template rendering for orchestrator instructions
 type OrchestratorRenderer struct {
-	templates    *template.Template // Precompiled template set
-	templateDir  string             // Base directory for templates
-	includeRoot  string             // Data root for {{include:}} resolution (empty in legacy mode)
+	templates   *template.Template // Precompiled template set
+	templateDir string             // Base directory for templates
+	includeRoot string             // Data root for {{include:}} resolution (empty in legacy mode)
 }
 
 // Singleton pattern for global template engine

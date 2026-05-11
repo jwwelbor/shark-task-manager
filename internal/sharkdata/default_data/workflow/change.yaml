@@ -1,80 +1,184 @@
 version: '1.0'
 status_flow:
-  proposed:
-  - approved
-  - declined
-  approved:
-  - in_progress
-  - declined
-  in_progress:
+  draft:
+  - ready_for_development
+  - cancelled
+  - on_hold
+  ready_for_development:
+  - in_development
+  - blocked
+  - on_hold
+  in_development:
+  - ready_for_code_review
+  - blocked
+  - on_hold
+  ready_for_code_review:
+  - in_code_review
+  - on_hold
+  in_code_review:
+  - ready_for_qa
+  - ready_for_development
+  - on_hold
+  ready_for_qa:
+  - in_qa
+  - on_hold
+  in_qa:
   - completed
-  - approved
+  - ready_for_development
+  - on_hold
   completed: []
-  declined:
-  - proposed
+  cancelled: []
+  blocked:
+  - ready_for_development
+  - cancelled
+  on_hold:
+  - ready_for_development
+  - cancelled
 status_metadata:
-  proposed:
-    color: yellow
-    description: Awaiting scope assessment and approval
+  draft:
+    description: Change card created, not yet started
     phase: planning
-    progress_weight: 0.1
-    responsibility: agent
-    agent_types:
-    - business-analyst
+    color: gray
+    progress_weight: 0
+    is_planning: true
+    responsibility: none
     orchestrator_action:
-      action: spawn_agent
-      agent_type: business-analyst
-      skills:
-      - assessment
-      - shark
-      instruction_template: change/proposed.tmpl
-  approved:
-    color: cyan
-    description: Approved, ready to implement
+      action: advance_status
+      instruction_template: change/draft.md
+  ready_for_development:
+    description: Ready for implementation
     phase: development
-    progress_weight: 0.2
+    color: yellow
+    progress_weight: 0.1
+    is_planning: false
     responsibility: agent
     agent_types:
     - developer
     orchestrator_action:
       action: spawn_agent
       agent_type: developer
+      model: sonnet
       skills:
       - implementation
-      - shark
-      instruction_template: change/approved.tmpl
-  in_progress:
-    color: blue
+      instruction_template: change/ready_for_development.md
+  in_development:
     description: Implementation in progress
     phase: development
-    progress_weight: 0.6
+    color: yellow
+    progress_weight: 0.4
+    is_planning: false
     responsibility: agent
     orchestrator_action:
       action: check_or_resume
       agent_type: developer
+      model: sonnet
       skills:
       - implementation
-      - shark
-      instruction_template: change/in_progress.tmpl
+      instruction_template: change/in_development.md
+  ready_for_code_review:
+    description: Ready for code review
+    phase: code_review
+    color: magenta
+    progress_weight: 0.55
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - tech-lead
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: tech-lead
+      model: opus
+      skills:
+      - quality
+      instruction_template: task/ready_for_code_review.md
+  in_code_review:
+    description: Code review in progress
+    phase: code_review
+    color: magenta
+    progress_weight: 0.65
+    is_planning: false
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: tech-lead
+      model: opus
+      skills:
+      - quality
+      instruction_template: task/in_code_review.md
+  ready_for_qa:
+    description: Ready for QA verification
+    phase: qa
+    color: blue
+    progress_weight: 0.8
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - qa
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: qa
+      model: sonnet
+      skills:
+      - quality
+      instruction_template: task/ready_for_qa.md
+  in_qa:
+    description: QA verification in progress
+    phase: qa
+    color: blue
+    progress_weight: 0.9
+    is_planning: false
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: qa
+      model: sonnet
+      skills:
+      - quality
+      instruction_template: task/in_qa.md
   completed:
+    description: Change implemented and verified
+    phase: done
     color: green
-    description: Completed and verified
-    phase: done
     progress_weight: 1.0
+    is_planning: false
+    responsibility: none
     orchestrator_action:
       action: archive
-      instruction_template: change/completed.tmpl
-  declined:
+      instruction_template: change/completed.md
+  cancelled:
+    description: Change no longer needed
+    phase: done
     color: red
-    description: Change declined
-    phase: done
-    progress_weight: 1.0
+    progress_weight: 0
+    is_planning: false
+    responsibility: none
+    exclude_from_progress: true
     orchestrator_action:
       action: archive
-      instruction_template: change/declined.tmpl
+      instruction_template: change/cancelled.md
+  blocked:
+    description: Cannot proceed, awaiting external resolution
+    phase: blocked
+    color: red
+    progress_weight: 0
+    is_planning: false
+    responsibility: human
+    orchestrator_action:
+      action: pause
+      instruction_template: bug/blocked.md
+  on_hold:
+    description: Intentionally deferred
+    phase: paused
+    color: gray
+    progress_weight: 0
+    is_planning: false
+    responsibility: human
+    orchestrator_action:
+      action: pause
+      instruction_template: bug/on_hold.md
 special_statuses:
   _start_:
-  - proposed
+  - draft
   _complete_:
   - completed
-  - declined
+  - cancelled
