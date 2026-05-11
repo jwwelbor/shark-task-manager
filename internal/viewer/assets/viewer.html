@@ -6,6 +6,7 @@
   <title>Shark Status Viewer</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
   <style>
     /* ============================================================
        CSS CUSTOM PROPERTIES — Dark Slate Palette
@@ -1291,6 +1292,41 @@
     .mermaid-render-container svg {
       max-width: 100%;
       height: auto;
+    }
+
+    /* Pan/zoom mode — container becomes a fixed-size viewport;
+       wheel-zoom is gated on hover-activation to avoid hijacking page scroll. */
+    .mermaid-render-container.pan-zoom-enabled {
+      position: relative;
+      height: 520px;
+      max-height: 70vh;
+      overflow: hidden;
+      padding: 0;
+      text-align: left;
+      cursor: grab;
+    }
+    .mermaid-render-container.pan-zoom-enabled:active {
+      cursor: grabbing;
+    }
+    .mermaid-render-container.pan-zoom-enabled svg {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+    }
+    .mermaid-render-container.pan-zoom-enabled .mermaid-zoom-hint {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      font-size: 11px;
+      color: var(--fg-dim, #8a8f9e);
+      background: rgba(13, 15, 18, 0.7);
+      padding: 2px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .mermaid-render-container.pan-zoom-enabled.zoom-active .mermaid-zoom-hint {
+      opacity: 0;
     }
 
     .mermaid-error-banner {
@@ -4888,6 +4924,7 @@ async function renderMermaidIn(rootEl) {
       const id = 'mmd-' + Math.random().toString(36).slice(2, 10);
       const { svg } = await mermaid.render(id, source);
       wrapper.innerHTML = svg;
+      enableMermaidPanZoom(wrapper);
     } catch (err) {
       // REQ-F-003: per-block fallback — show escaped raw source + error banner
       wrapper.innerHTML =
@@ -4897,6 +4934,61 @@ async function renderMermaidIn(rootEl) {
         '<pre style="white-space:pre-wrap">' + escapeHtml(source) + '</pre>';
     }
   }
+}
+
+/**
+ * Attach svg-pan-zoom to a freshly-rendered mermaid SVG inside `wrapper`.
+ * Wheel-zoom is disabled until the user clicks the diagram, so scrolling
+ * the page doesn't get hijacked while passing over a diagram.
+ * Silent no-op if svg-pan-zoom CDN failed to load.
+ */
+function enableMermaidPanZoom(wrapper) {
+  if (typeof svgPanZoom === 'undefined') return;
+  const svg = wrapper.querySelector('svg');
+  if (!svg) return;
+
+  // Mermaid sets inline style="max-width:..." and a viewBox; strip the cap
+  // and let the SVG fill the fixed-height viewport so pan/zoom math is sane.
+  svg.style.maxWidth = 'none';
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+
+  wrapper.classList.add('pan-zoom-enabled');
+
+  const hint = document.createElement('div');
+  hint.className = 'mermaid-zoom-hint';
+  hint.textContent = 'click to zoom · drag to pan';
+  wrapper.appendChild(hint);
+
+  let pz;
+  try {
+    pz = svgPanZoom(svg, {
+      zoomEnabled: true,
+      controlIconsEnabled: true,
+      fit: true,
+      center: true,
+      minZoom: 0.2,
+      maxZoom: 20,
+      mouseWheelZoomEnabled: false, // gated; activated on click
+    });
+  } catch (err) {
+    // If svg-pan-zoom can't initialize, leave the static SVG in place.
+    wrapper.classList.remove('pan-zoom-enabled');
+    hint.remove();
+    return;
+  }
+
+  // Activate wheel-zoom on first click; deactivate when focus leaves.
+  wrapper.addEventListener('click', () => {
+    if (wrapper.classList.contains('zoom-active')) return;
+    wrapper.classList.add('zoom-active');
+    pz.enableMouseWheelZoom();
+  });
+  wrapper.addEventListener('mouseleave', () => {
+    if (!wrapper.classList.contains('zoom-active')) return;
+    wrapper.classList.remove('zoom-active');
+    pz.disableMouseWheelZoom();
+  });
 }
 
 function renderMarkdownFromString(rawContent, paneEl) {
