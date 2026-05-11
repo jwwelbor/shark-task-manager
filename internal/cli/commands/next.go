@@ -19,6 +19,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
@@ -212,8 +214,25 @@ func resolveNext(ctx context.Context, entityType, normalizedKey string, depth in
 
 	// Step 6: Get the populated action (template rendered + skills inlined
 	// in Shark 2.0 layouts via the orchestrator renderer's {{include:}} pass).
+	//
+	// Graceful degradation (B022): when the entity's current status is not
+	// defined in the workflow YAML (e.g. a legacy status like "in_approval"
+	// or "ready_for_approval" that was removed from the workflow config), we
+	// treat it as a terminal pause rather than crashing. This keeps the
+	// harness from exiting non-zero on databases that contain any legacy
+	// status values — the unknown status is surfaced as a warning on stderr
+	// and the harness receives action="pause" so it can surface the situation
+	// to the user rather than failing opaquely.
 	populated, err := actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
 	if err != nil {
+		if isStatusNotFoundError(err) {
+			// Unknown/legacy status — degrade to pause so the harness can
+			// report it without a non-zero exit.
+			fmt.Fprintf(os.Stderr, "[shark next] warning: status %q is not defined in the workflow configuration for entity type %q — treating as pause (B022)\n", currentStatus, entityType)
+			resp.Action = "pause"
+			resp.Error = fmt.Sprintf("status %q is not defined in the workflow configuration; this may be a legacy status that has been removed", currentStatus)
+			return resp, nil
+		}
 		return NextResponse{}, fmt.Errorf("failed to populate action for status %q: %w", currentStatus, err)
 	}
 
@@ -441,6 +460,20 @@ func normalizeWireAction(internalAction, agentType string, nextInfo *services.Ne
 	// Anything not in the mapping is an authoring bug — surface as error
 	// so the post-render layer can shape a useful response.
 	return "error", ""
+}
+
+// isStatusNotFoundError reports whether err (or any error in its chain) is an
+// *action.StatusNotFoundError, indicating the entity's current status is not
+// defined in the workflow YAML. Used by resolveNext to apply graceful
+// degradation (pause) instead of propagating an error.
+//
+// See B022: "shark next exits 1 on legacy task statuses instead of degrading".
+func isStatusNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var snfe *action.StatusNotFoundError
+	return errors.As(err, &snfe)
 }
 
 // pickAutoAdvanceTarget returns the natural forward transition for an

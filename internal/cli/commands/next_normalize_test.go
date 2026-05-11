@@ -1,8 +1,11 @@
 package commands
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -82,5 +85,48 @@ func TestPickAutoAdvanceTarget_PrefersFirstProductive(t *testing.T) {
 func TestPickAutoAdvanceTarget_NilSafe(t *testing.T) {
 	if got := pickAutoAdvanceTarget(nil); got != "" {
 		t.Errorf("nil nextInfo should return empty, got %q", got)
+	}
+}
+
+// ─── B022 regression: legacy status graceful degradation ─────────────────────
+
+// TestIsStatusNotFoundError_DetectsStatusNotFoundError verifies that the helper
+// correctly identifies action.StatusNotFoundError so resolveNext can apply
+// graceful degradation (pause) instead of propagating the error.
+//
+// Bug: B022 — "shark next exits 1 on legacy task statuses (in_approval,
+// ready_for_approval) instead of degrading". When a task's current status is
+// not defined in the workflow YAML, GetStatusActionPopulated returns a
+// StatusNotFoundError; the fix converts that to a pause action.
+func TestIsStatusNotFoundError_DetectsStatusNotFoundError(t *testing.T) {
+	snfe := &action.StatusNotFoundError{Status: "in_approval"}
+
+	if !isStatusNotFoundError(snfe) {
+		t.Error("isStatusNotFoundError should return true for *action.StatusNotFoundError")
+	}
+}
+
+func TestIsStatusNotFoundError_IgnoresOtherErrors(t *testing.T) {
+	otherErr := errors.New("some other error")
+
+	if isStatusNotFoundError(otherErr) {
+		t.Error("isStatusNotFoundError should return false for a non-StatusNotFoundError")
+	}
+}
+
+func TestIsStatusNotFoundError_NilReturnsFalse(t *testing.T) {
+	if isStatusNotFoundError(nil) {
+		t.Error("isStatusNotFoundError should return false for nil")
+	}
+}
+
+func TestIsStatusNotFoundError_WrappedErrorDetected(t *testing.T) {
+	// Wrapped StatusNotFoundError (e.g., from fmt.Errorf("...: %w", snfe))
+	// should also be detected, since errors.As unwraps.
+	snfe := &action.StatusNotFoundError{Status: "ready_for_approval"}
+	wrapped := fmt.Errorf("failed to populate action for status %q: %w", "ready_for_approval", snfe)
+
+	if !isStatusNotFoundError(wrapped) {
+		t.Error("isStatusNotFoundError should return true for a wrapped *action.StatusNotFoundError")
 	}
 }
