@@ -87,11 +87,11 @@ Merge feature branches to release branch and run full test suite post-merge.
 
 ### Dev Package Review
 When reviewing the developer-ready package:
-1. Read the feature spec at `docs/plan/<epic>/<feature>/feature.md` (or `spec.md` for COMPLEX features) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`. Use the `validate-task-readiness` skill for the full readiness check.
+1. Read the feature spec at `<feature-dir>/feature.md` (or `spec.md` for COMPLEX features) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`. Use the `validate-task-readiness` skill for the full readiness check.
 2. Verify completeness:
    - [ ] Acceptance criteria are testable (each AC has at least one ISTQB technique application — see `quality/workflows/test-planning.md` Step 5.5)
    - [ ] API contracts, data models, and system flows are present in the feature spec or task spec (these are no longer separate files)
-   - [ ] Test plan exists at `docs/plan/<epic>/<feature>/test_plans/` for the task
+   - [ ] Test plan exists at `<feature-dir>/test_plans/` for the task
    - [ ] Design references (wireframes/mockups) are linked from the feature spec if frontend work is involved
    - [ ] Observability requirements specified per `test-planning.md` Step 5.7
 3. Check for ambiguities:
@@ -107,7 +107,7 @@ When reviewing the developer-ready package:
 ### Test Review
 When reviewing tests:
 1. Read tests in the project's test directories (typically `tests/unit/`, `tests/integration/`, `backend/tests/unit/`, `backend/tests/integration/` — adapt to the project's layout). Use `git diff` to find the new/changed test files for this task.
-2. Cross-reference against the test plan at `docs/plan/<epic>/<feature>/test_plans/<latest-timestamp>-<task>-test-plan.md` — every TC-NNN in the plan must have a corresponding test.
+2. Cross-reference against the test plan at `<feature-dir>/test_plans/<latest-timestamp>-<task>-test-plan.md` — every TC-NNN in the plan must have a corresponding test.
 3. Check that tests are meaningful:
    - **Test real functionality**, not mock behavior
    - Cover acceptance criteria from stories
@@ -157,8 +157,8 @@ If you find yourself re-running tests or re-verifying ACs against the PRD, **sto
 
 ### Verification Gate
 When consolidating reviews:
-1. Review the latest QA report at `docs/plan/<epic>/<feature>/qa_reports/<latest-timestamp>-<task>-qa-results.md`
-2. Review the latest code review at `docs/plan/<epic>/<feature>/code_review/<latest-timestamp>-<task>-code-review.md` (includes architecture compliance findings)
+1. Review the latest QA report at `<feature-dir>/qa_reports/<latest-timestamp>-<task>-qa-results.md`
+2. Review the latest code review at `<feature-dir>/code_review/<latest-timestamp>-<task>-code-review.md` (includes architecture compliance findings)
 3. Determine overall status:
    - **PASS**: All reviews passed, proceed to next step
    - **FAIL - Implementation**: Issues in code, route back to development (`shark status set <task-id> ready_for_development --reason="..."`)
@@ -168,8 +168,8 @@ When consolidating reviews:
 
 ### Artifact Review
 When reviewing all artifacts before stakeholder validation:
-1. Review the test plan at `docs/plan/<epic>/<feature>/test_plans/` (latest timestamp per task)
-2. Review the feature spec at `docs/plan/<epic>/<feature>/feature.md` (or `spec.md` for COMPLEX features) and per-task specs at `docs/plan/<epic>/<feature>/tasks/T-*.md`
+1. Review the test plan at `<feature-dir>/test_plans/` (latest timestamp per task)
+2. Review the feature spec at `<feature-dir>/feature.md` (or `spec.md` for COMPLEX features) and per-task specs at `<feature-dir>/tasks/T-*.md`
 3. Verify completeness:
    - All required content present (acceptance criteria, technique application, ISO 25010 coverage, observability design)
    - Specifications are clear and unambiguous
@@ -181,11 +181,11 @@ When reviewing all artifacts before stakeholder validation:
    - Are there blockers or unknowns?
    - Is the scope clear?
 5. Document readiness review via `shark feature note add <feature-key> --type review` (or use the `validate-task-readiness` skill which produces a structured report)
-6. No separate stakeholder packaging step — artifacts live in `docs/plan/<epic>/<feature>/` and are addressable by anyone with repo access
+6. No separate stakeholder packaging step — artifacts live in `<feature-dir>/` and are addressable by anyone with repo access
 
 ### Spec Internal Review
 When reviewing technical specifications:
-1. Read the feature spec at `docs/plan/<epic>/<feature>/feature.md` (or `spec.md` for COMPLEX features) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`. API contracts, data models, and system flows are sections within these files (not separate documents in the current workflow).
+1. Read the feature spec at `<feature-dir>/feature.md` (or `spec.md` for COMPLEX features) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`. API contracts, data models, and system flows are sections within these files (not separate documents in the current workflow).
 2. Cross-reference any architecture documents at `docs/architecture/system-design*.md` if they exist for the project.
 3. Check for completeness:
    - All endpoints defined (in the API section of the spec)
@@ -205,8 +205,8 @@ When reviewing technical specifications:
 
 ### Tech Spec Kickoff
 When initiating technical specification:
-1. Review the feature PRD at `docs/plan/<epic>/<feature>/feature.md` and any alignment notes via `shark get <feature-key> --json` notes
-2. Review prototypes/wireframes — look in `docs/plan/<epic>/<feature>/prototypes/` if it exists, or follow design references linked from the feature PRD (e.g., Figma URLs, design comp paths)
+1. Review the feature PRD at `<feature-dir>/feature.md` and any alignment notes via `shark get <feature-key> --json` notes
+2. Review prototypes/wireframes — look in `<feature-dir>/prototypes/` if it exists, or follow design references linked from the feature PRD (e.g., Figma URLs, design comp paths)
 3. Add a kickoff note via `shark task note add <task-id> --type decision` capturing:
    - Architect assignment (if a separate architect agent is being engaged)
    - UI context from prototypes
@@ -217,7 +217,7 @@ When initiating technical specification:
 ### Merge Features
 When merging for release:
 1. Review the release scope (output of the `release` skill, if used) or list completed features via `shark list --status=completed --recent=30d`
-2. Review feature branches via git (`git branch -a | grep <feature-pattern>`) and the corresponding `docs/plan/<epic>/<feature>/` directories
+2. Review feature branches via git (`git branch -a | grep <feature-pattern>`) and the corresponding `<feature-dir>/` directories
 3. Create or checkout release branch
 4. Merge each feature branch:
    - Resolve conflicts carefully
@@ -232,17 +232,17 @@ When merging for release:
 The current workflow uses a flatter, shark-aware artifact layout. Most decisions/findings live as shark notes (`shark task note add ...`) rather than separate files. The few file-based artifacts:
 
 ### Code reviews
-**Location:** `docs/plan/<epic-id>/<feature-id>/code_review/`
+**Location:** `<feature-dir>/code_review/`
 **Filename:** `YYYYMMDD-HHMMSS-<task-id>-code-review.md`
 Multiple reviews per task create history. The canonical workflow (`quality/workflows/review-code.md`) writes the report; the tech-lead agent invokes that workflow.
 
 ### QA reports (referenced for verification gate)
-**Location:** `docs/plan/<epic-id>/<feature-id>/qa_reports/`
+**Location:** `<feature-dir>/qa_reports/`
 **Filename:** `YYYYMMDD-HHMMSS-<task-id>-qa-results.md`
 Written by the QA agent via `quality/workflows/qa-testing.md`.
 
 ### Test plans (referenced for test review)
-**Location:** `docs/plan/<epic-id>/<feature-id>/test_plans/`
+**Location:** `<feature-dir>/test_plans/`
 **Filename:** `YYYYMMDD-HHMMSS-<task-id>-test-plan.md`
 Written by the QA agent via `quality/workflows/test-planning.md` (now includes ISTQB technique application, ISO 25010 coverage, observability design, and codex red-team review).
 
@@ -256,12 +256,12 @@ The `release` skill (if used) produces release-cycle artifacts at `docs/release/
 
 ### Determine Feature Path
 Get task details using the `/shark` skill to find epic and feature IDs. Extract `epic_id` and `feature_id` from task metadata to construct path:
-`docs/plan/<epic_id>/<feature_id>/`
+`<feature-dir>/`
 
 ### Create Code Review Directory
 Before writing code review reports, create the code_review directory if it doesn't exist:
 ```bash
-mkdir -p docs/plan/<epic_id>/<feature_id>/code_review
+mkdir -p <feature-dir>/code_review
 ```
 
 ### Create Timestamped Code Review Report with Task ID

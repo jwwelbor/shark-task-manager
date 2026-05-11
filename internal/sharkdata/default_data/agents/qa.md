@@ -82,7 +82,7 @@ Execute full regression test suite and validate acceptance criteria against stag
 
 ### Test Criteria Definition
 When defining test criteria:
-1. Review the feature PRD's user stories at `docs/plan/<epic>/<feature>/feature.md` and the task spec at the path returned by `shark get <task-id> --json --field=file_path`. API contracts, data models, and system flows are sections within these specs.
+1. Review the feature PRD's user stories at `<feature-dir>/feature.md` and the task spec at the path returned by `shark get <task-id> --json --field=file_path`. API contracts, data models, and system flows are sections within these specs.
 2. **Use the canonical workflow `quality/workflows/test-planning.md`** — it sequences ISTQB technique application (Step 5.5), ISO 25010 coverage (Step 5.6), observability design (Step 5.7), test-case writing (Step 6), and codex red-team review (Step 7.5).
 3. For each acceptance criterion, define:
    - **Test Case**: Specific steps to validate the criterion
@@ -97,7 +97,7 @@ When defining test criteria:
    - Accessibility standards (WCAG)
    - Security scan requirements
    - Code quality thresholds
-6. Write the consolidated test plan to `docs/plan/<epic>/<feature>/test_plans/<timestamp>-<task-id>-test-plan.md` (this single document replaces the older F20/F21/F22 split).
+6. Write the consolidated test plan to `<feature-dir>/test_plans/<timestamp>-<task-id>-test-plan.md` (this single document replaces the older F20/F21/F22 split).
 
 ### Test Case Template
 ```markdown
@@ -140,7 +140,7 @@ Not Run / Pass / Fail
 ### QA Testing
 When testing implementation:
 1. **Use the canonical workflow `quality/workflows/qa-testing.md`** — it sequences task-context loading, test-plan loading, automated test execution, frontend visual verification, E2E reachability, codex red-team verification, and AC verification.
-2. Review the implementation diff (`git diff` against the task's base commit) and the feature PRD at `docs/plan/<epic>/<feature>/feature.md`.
+2. Review the implementation diff (`git diff` against the task's base commit) and the feature PRD at `<feature-dir>/feature.md`.
 3. **Run Automated Tests:**
    - Run full unit test suite
    - Run full integration test suite
@@ -148,7 +148,7 @@ When testing implementation:
    - Check test coverage meets quality gates
    - Review test results for warnings
 4. **Execute Manual Test Cases:**
-   - Follow the test plan at `docs/plan/<epic>/<feature>/test_plans/<latest-timestamp>-<task-id>-test-plan.md`
+   - Follow the test plan at `<feature-dir>/test_plans/<latest-timestamp>-<task-id>-test-plan.md`
    - Test each acceptance criterion (every TC-NNN in the plan must be exercised)
    - Use specified test data
    - Document actual results
@@ -171,8 +171,8 @@ When testing implementation:
    - [ ] Security considerations addressed
    - [ ] Observability instrumentation is present (matches the test plan's observability design — metrics emitted, log lines present, trace spans created)
    - [ ] Codex red-team verification ran (qa-testing.md Step 5.7)
-7. Write the QA results report to `docs/plan/<epic>/<feature>/qa_reports/<timestamp>-<task-id>-qa-results.md` (PASS/FAIL with evidence).
-8. Write exploratory findings to `docs/plan/<epic>/<feature>/qa_reports/<timestamp>-<task-id>-exploratory-findings.md` (or note "no exploratory findings" in the main report if none).
+7. Write the QA results report to `<feature-dir>/qa_reports/<timestamp>-<task-id>-qa-results.md` (PASS/FAIL with evidence).
+8. Write exploratory findings to `<feature-dir>/qa_reports/<timestamp>-<task-id>-exploratory-findings.md` (or note "no exploratory findings" in the main report if none).
 
 ### Exploratory Testing Approach
 
@@ -201,7 +201,7 @@ When testing implementation:
 ### Staging Validation
 When validating staging deployment:
 1. Review the staging deployment status (output of the `release` skill if used; otherwise check the deployment via the project's monitoring/CI dashboards)
-2. Review feature PRDs for the features included in this release (`docs/plan/<epic>/<feature>/feature.md` for each)
+2. Review feature PRDs for the features included in this release (`<feature-dir>/feature.md` for each)
 3. **Full Regression Testing:**
    - Run complete test suite against staging
    - Test all features (new and existing)
@@ -233,7 +233,7 @@ When validating staging deployment:
 ### From Test_Criteria_Definition:
 Test plans are stored in the feature folder under `test_plans/` with timestamps and task IDs:
 
-**Location:** `docs/plan/<epic-id>/<feature-id>/test_plans/`
+**Location:** `<feature-dir>/test_plans/`
 
 **File naming format:**
 - `YYYYMMDD-HHMMSS-<task-id>-test-plan.md` - Single consolidated test plan (replaces older F20/F21/F22 split)
@@ -245,7 +245,7 @@ The test plan includes drift analysis, traceability matrix, ISTQB technique appl
 ### From QA_Testing:
 QA reports are stored in the feature folder under `qa_reports/` with timestamps and task IDs:
 
-**Location:** `docs/plan/<epic-id>/<feature-id>/qa_reports/`
+**Location:** `<feature-dir>/qa_reports/`
 
 **File naming format:**
 - `YYYYMMDD-HHMMSS-<task-id>-qa-results.md` - Test execution results with pass/fail status
@@ -264,12 +264,12 @@ Staging-validation outputs go through the `release` skill (if used) or via shark
 
 ### Determine Feature Path
 Get task details using the `/shark` skill to find epic and feature IDs. Extract `epic_id` and `feature_id` from task metadata to construct path:
-`docs/plan/<epic_id>/<feature_id>/`
+`<feature-dir>/`
 
 ### Create QA Reports Directory
 Before writing QA reports, create the qa_reports directory if it doesn't exist:
 ```bash
-mkdir -p docs/plan/<epic_id>/<feature_id>/qa_reports
+mkdir -p <feature-dir>/qa_reports
 ```
 
 ### Create Timestamped Reports with Task ID

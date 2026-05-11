@@ -163,8 +163,8 @@ You MUST proactively invoke these skills using the Skill tool:
 ### Create Feature Branch
 When starting work:
 1. Resume task context via `shark get <task-id> --json` — task description, acceptance criteria, dependencies, notes (including any clarifications added during refinement) are all there.
-2. Read the feature spec at `docs/plan/<epic>/<feature>/feature.md` (or `spec.md` for COMPLEX features) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`.
-3. Read the test plan at `docs/plan/<epic>/<feature>/test_plans/<latest-timestamp>-<task>-test-plan.md` — this is your source of truth for what tests to write (TC-NNN cases were enumerated using ISTQB techniques).
+2. Read the feature spec at `<feature-dir>/feature.md` (or `spec.md` for COMPLEX features) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`.
+3. Read the test plan at `<feature-dir>/test_plans/<latest-timestamp>-<task>-test-plan.md` — this is your source of truth for what tests to write (TC-NNN cases were enumerated using ISTQB techniques).
 4. Validate branch (see Branch Validation rule above):
    ```bash
    git branch --show-current
@@ -173,14 +173,14 @@ When starting work:
 5. If a feature branch needs to be created, do it from main:
    ```bash
    git checkout main && git pull origin main
-   git checkout -b <epic>-<feature>   # e.g., E01-F35
+   git checkout -b <feature>   # e.g., E01-F35
    ```
    Match the project's existing branch convention (some projects use `feature/E01-F35`).
 6. No separate branch-creation or tracking-setup artifacts — git itself records branches; the orchestrator and shark track task progress.
 
 ### Write Unit Tests
 When writing unit tests:
-1. Review the feature PRD's user stories at `docs/plan/<epic>/<feature>/feature.md` and the test plan TC-NNN cases at `docs/plan/<epic>/<feature>/09-test-plan.md` (or `test_plans/<latest-timestamp>-<task>-test-plan.md` if produced per-task). The task spec's ACs reference TC-IDs from the test plan — that's the authoritative source.
+1. Review the feature PRD's user stories at `<feature-dir>/feature.md` and the test plan TC-NNN cases at `<feature-dir>/09-test-plan.md` (or `test_plans/<latest-timestamp>-<task>-test-plan.md` if produced per-task). The task spec's ACs reference TC-IDs from the test plan — that's the authoritative source.
 2. **Read each TC's Caller-Path Contract block (Step 5.8 of test-planning.md). It specifies:**
    - **Production entrypoint** — the exact function/method and argument shape your test MUST drive (kwargs, defaults, omissions matching production callers)
    - **Lowest allowed mock seam** — the deepest layer where mocking is permitted; do NOT mock above this
@@ -357,7 +357,7 @@ When committing tests:
 ### Implement Feature
 When implementing:
 1. Read tests you wrote (they're failing now)
-2. Review specifications — API contracts, data models, and system flows are sections within the feature spec (`docs/plan/<epic>/<feature>/feature.md` or `spec.md`) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`.
+2. Review specifications — API contracts, data models, and system flows are sections within the feature spec (`<feature-dir>/feature.md` or `spec.md`) and the task spec at the path returned by `shark get <task-id> --json --field=file_path`.
 3. Implement the minimal code to make tests pass
 4. Follow the specifications exactly:
    - Use exact endpoint paths from API contracts
@@ -430,7 +430,7 @@ When committing implementation:
 
 ### Commit Final Fixes
 When committing fixes from verification:
-1. Review the latest QA/code-review reports at `docs/plan/<epic>/<feature>/qa_reports/<latest-timestamp>-<task>-qa-results.md` and `docs/plan/<epic>/<feature>/code_review/<latest-timestamp>-<task>-code-review.md`. Cross-check against `shark get <task-id> --json` notes (type=blocker) for the rejection summary.
+1. Review the latest QA/code-review reports at `<feature-dir>/qa_reports/<latest-timestamp>-<task>-qa-results.md` and `<feature-dir>/code_review/<latest-timestamp>-<task>-code-review.md`. Cross-check against `shark get <task-id> --json` notes (type=blocker) for the rejection summary.
 2. Make required fixes
 3. Run full test suite
 4. Commit fixes:
@@ -471,7 +471,7 @@ When creating pull request:
    - Code review completed (see code_review/)
 
    ## Related
-   - Feature: <epic-key>-<feature-key> — link to feature spec at docs/plan/<epic>/<feature>/feature.md
+   - Feature: <feature-key> — link to feature spec at <feature-dir>/feature.md
    - Tasks: <list of task keys>
 
    ## Screenshots

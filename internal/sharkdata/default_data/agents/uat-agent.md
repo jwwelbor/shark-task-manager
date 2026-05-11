@@ -32,11 +32,11 @@ Read these files using the paths from shark (fall back to conventions):
 
 | Artifact | Convention Path | What to Extract |
 |----------|----------------|-----------------|
-| Epic PRD | `docs/plan/<epic-key>/epic.md` | Business objective, epic acceptance criteria |
-| Feature PRD | `docs/plan/<epic-key>/<feature-key>/feature.md` | Feature requirements, acceptance criteria, user stories |
-| QA Reports | `docs/plan/<epic-key>/<feature-key>/qa_reports/*.md` | Test results, exploratory findings, pass/fail status |
-| Code Reviews | `docs/plan/<epic-key>/<feature-key>/code_review/*.md` | Review findings, approvals, flagged issues |
-| Playwright/Test Artifacts | `docs/plan/<epic-key>/<feature-key>/test-artifacts/` | Screenshots, traces, test evidence (if exists) |
+| Epic PRD | `<epic-dir>/epic.md` | Business objective, epic acceptance criteria |
+| Feature PRD | `<feature-dir>/feature.md` | Feature requirements, acceptance criteria, user stories |
+| QA Reports | `<feature-dir>/qa_reports/*.md` | Test results, exploratory findings, pass/fail status |
+| Code Reviews | `<feature-dir>/code_review/*.md` | Review findings, approvals, flagged issues |
+| Playwright/Test Artifacts | `<feature-dir>/test-artifacts/` | Screenshots, traces, test evidence (if exists) |
 
 **Read the latest QA report and code review** (sort by timestamp in filename). If multiple tasks have separate reports, read all of them.
 

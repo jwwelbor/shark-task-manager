@@ -130,6 +130,79 @@ func deriveReviewBase(filePath string) string {
 	return p
 }
 
+// deriveEpicDir computes the epic-level directory from a `file_path` value.
+// It preserves whatever convention the path uses (slug-suffixed or key-only)
+// because file_path is the authoritative on-disk location — this helper
+// exists so templates can reference the actual parent directory rather than
+// concatenating bare entity keys, which is the bug B021 fixed.
+//
+// Layout assumption: `docs/plan/<epic-dir>/[<feature-dir>/[tasks/]<file>]`.
+// We return the epic directory portion (always two segments below the root):
+//
+//	docs/plan/E07-enhancements/E07-F40-file-logging/feature.md
+//	  → docs/plan/E07-enhancements
+//	docs/plan/E07-enhancements/epic.md
+//	  → docs/plan/E07-enhancements
+//	docs/plan/E07-enhancements/E07-F40-file-logging/tasks/T-E07-F40-001.md
+//	  → docs/plan/E07-enhancements
+//	docs/plan/bugs/B021.md
+//	  → docs/plan/bugs       (for standalone entities — same shape)
+//
+// Returns the empty string if filePath is empty or doesn't have at least three
+// path segments (`<root>/<plan>/<epic-dir>/...`), so callers can decide whether
+// to omit the placeholder. Result has no trailing slash so partials can append
+// `/foo` predictably.
+func deriveEpicDir(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	p := strings.TrimPrefix(filePath, "./")
+	parts := strings.Split(p, "/")
+	// Need at least: <root>/<plan>/<epic-dir>/<file>
+	if len(parts) < 3 {
+		return ""
+	}
+	// First three segments are the docs root + plan dir + epic dir. Anything
+	// deeper is either feature/tasks/file, which we drop here.
+	return parts[0] + "/" + parts[1] + "/" + parts[2]
+}
+
+// deriveFeatureDir computes the feature-level directory from a `file_path`
+// value. Like deriveEpicDir, it preserves the on-disk convention and returns
+// the empty string when the path doesn't have a feature segment (epic specs,
+// standalone entities). Bug B021 fix.
+//
+// Layout assumption: `docs/plan/<epic-dir>/<feature-dir>/[tasks/]<file>`.
+// The feature directory is the third segment when present:
+//
+//	docs/plan/E07-enhancements/E07-F40-file-logging/feature.md
+//	  → docs/plan/E07-enhancements/E07-F40-file-logging
+//	docs/plan/E07-enhancements/E07-F40-file-logging/tasks/T-E07-F40-001.md
+//	  → docs/plan/E07-enhancements/E07-F40-file-logging
+//	docs/plan/E07-enhancements/epic.md
+//	  → ""    (no feature segment — only epic + filename)
+//	docs/plan/bugs/B021.md
+//	  → ""    (standalone bug — no feature segment)
+//
+// Returns the empty string if filePath has fewer than five segments (which
+// means there is no feature directory between the epic and the filename) so
+// callers can detect "no feature parent" cleanly.
+func deriveFeatureDir(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	p := strings.TrimPrefix(filePath, "./")
+	parts := strings.Split(p, "/")
+	// Need at least: <root>/<plan>/<epic>/<feature>/<file>
+	if len(parts) < 5 {
+		return ""
+	}
+	// First four segments form the feature directory. We deliberately do
+	// NOT special-case "tasks/" here — the fourth segment is always the
+	// feature dir whether the fifth is the file (feature.md) or "tasks".
+	return parts[0] + "/" + parts[1] + "/" + parts[2] + "/" + parts[3]
+}
+
 // applySizePlaceholders populates the "size" and "size_label" keys in the
 // placeholder map from the entity's Size field.
 //
@@ -195,6 +268,16 @@ func EntityPlaceholders(entity models.Entity) map[string]string {
 		m["file_path"] = fp
 		if rb := deriveReviewBase(fp); rb != "" {
 			m["review_base"] = rb
+		}
+		// epic_dir / feature_dir feed the _resolve_spec_paths partial so it
+		// can reference the actual on-disk parent directories (slug-suffixed
+		// or otherwise) rather than concatenating bare entity keys, which
+		// produced the wrong path in B021.
+		if ed := deriveEpicDir(fp); ed != "" {
+			m["epic_dir"] = ed
+		}
+		if fd := deriveFeatureDir(fp); fd != "" {
+			m["feature_dir"] = fd
 		}
 	}
 

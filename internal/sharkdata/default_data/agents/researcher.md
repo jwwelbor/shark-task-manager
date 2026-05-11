@@ -93,7 +93,7 @@ When gathering feature context:
 
 ### From Feature_Context_Research:
 
-> ⚠️ **F-number collision warning**: These output names (`F01-feature-context.md`, `F02-related-decisions.md`, `F03-standards-reference.md`) collide with `specification-writing`'s canonical F01 (feature-prd) and F02 (user-stories). When working in a project that uses the canonical pipeline, write these research artifacts under `docs/plan/<epic>/<feature>/research/` (e.g., `research/feature-context.md`) without an F-number, or use a non-numeric prefix like `R-feature-context.md`. The names below are kept for backward compatibility only.
+> ⚠️ **F-number collision warning**: These output names (`F01-feature-context.md`, `F02-related-decisions.md`, `F03-standards-reference.md`) collide with `specification-writing`'s canonical F01 (feature-prd) and F02 (user-stories). When working in a project that uses the canonical pipeline, write these research artifacts under `<feature-dir>/research/` (e.g., `research/feature-context.md`) without an F-number, or use a non-numeric prefix like `R-feature-context.md`. The names below are kept for backward compatibility only.
 
 - `F01-feature-context.md` - Related features, patterns, and architecture context (rename to `research/feature-context.md` in canonical projects)
 - `F02-related-decisions.md` - Prior decisions and ADRs relevant to this work (rename to `research/related-decisions.md`)
