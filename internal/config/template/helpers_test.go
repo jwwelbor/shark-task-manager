@@ -277,6 +277,101 @@ func TestEpicPlaceholders_AllFields(t *testing.T) {
 	}
 }
 
+// TestDeriveReviewBase covers the file_path → review_base derivation that
+// feeds the <review-base> placeholder consumed by the code-review / QA / UAT
+// partials. Regression for B025: shark next was exiting 3 on
+// ready_for_code_review because no key populated <review-base>.
+func TestDeriveReviewBase(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{
+			"task under feature",
+			"docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md",
+			"docs/review/E19-sprint/E19-F04-analytics/",
+		},
+		{
+			"feature spec",
+			"docs/plan/E19-sprint/E19-F04-analytics/feature.md",
+			"docs/review/E19-sprint/E19-F04-analytics/",
+		},
+		{
+			"bug under docs/plan/bugs",
+			"docs/plan/bugs/B025.md",
+			"docs/review/bugs/",
+		},
+		{
+			"epic top-level file",
+			"docs/plan/E19-sprint/epic.md",
+			"docs/review/E19-sprint/",
+		},
+		{
+			"non-plan path passes through with trailing slash",
+			"custom/E07-F01/tasks/T-E07-F01-001.md",
+			"custom/E07-F01/",
+		},
+		{
+			"leading ./ stripped",
+			"./docs/plan/bugs/B025.md",
+			"docs/review/bugs/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveReviewBase(tt.in); got != tt.want {
+				t.Errorf("deriveReviewBase(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEntityPlaceholders_PopulatesReviewBase ensures the EntityPlaceholders
+// shared builder injects review_base whenever file_path is present, so the
+// agent-body renderer can substitute <review-base> via the dash-to-underscore
+// alias path. Regression for B025.
+func TestEntityPlaceholders_PopulatesReviewBase(t *testing.T) {
+	filePath := "docs/plan/E07-feat/E07-F01-impl/tasks/T-E07-F01-001.md"
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-001",
+			Title:     "Test task",
+			FilePath:  &filePath,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "ready_for_code_review",
+		Priority: 5,
+	}
+	m := EntityPlaceholders(task)
+	if m["review_base"] != "docs/review/E07-feat/E07-F01-impl/" {
+		t.Errorf("review_base = %q, want docs/review/E07-feat/E07-F01-impl/", m["review_base"])
+	}
+}
+
+// TestEntityPlaceholders_NoReviewBaseWithoutFilePath confirms review_base is
+// omitted (not set to empty) when file_path is absent, so callers can detect
+// "unknown" cleanly rather than rendering a stray bare slash.
+func TestEntityPlaceholders_NoReviewBaseWithoutFilePath(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-001",
+			Title:     "Test task",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "draft",
+		Priority: 5,
+	}
+	m := EntityPlaceholders(task)
+	if _, ok := m["review_base"]; ok {
+		t.Errorf("review_base should not be set when file_path is empty, got %q", m["review_base"])
+	}
+}
+
 // TestFormatDocPathsAsCSV_NilSlice tests formatting nil document slice (TC-FMT-01)
 func TestFormatDocPathsAsCSV_NilSlice(t *testing.T) {
 	result := formatDocPathsAsCSV(nil)

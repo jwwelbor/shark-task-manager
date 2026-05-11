@@ -17,10 +17,7 @@ REVIEW:
 - [ ] Acceptance criteria from task spec verified against implementation
 - [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
 
-REVIEW BASE PATH: Derive from {{.file_path}} — replace "docs/plan/" with "docs/review/", keep epic-folder/feature-folder segments (strip /tasks/filename if present).
-Example: docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md → docs/review/E19-sprint/E19-F04-analytics/
-
-PRODUCE code review report at <review-base>/code_review/<timestamp>-{{.id}}-review.md:
+PRODUCE code review report at {{.review_base}}code_review/`<timestamp>`-{{.id}}-review.md:
 - Verdict: PASS or FAIL
 - Findings (if any)
 - AC verification status
@@ -28,5 +25,5 @@ PRODUCE code review report at <review-base>/code_review/<timestamp>-{{.id}}-revi
 DECISION:
 - ALL PASS → {{template "advance" .}}
 - ANY FAIL → shark status set {{.id}} ready_for_development --reason "<specific findings to fix>"
-  (Check report at <review-base>/code_review/ on resume)
+  (Check report at {{.review_base}}code_review/ on resume)
 {{end}}

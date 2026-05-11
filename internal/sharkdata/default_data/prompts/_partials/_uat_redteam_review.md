@@ -2,8 +2,8 @@
 
 READ:
 (1) Task spec at {{.file_path}} for acceptance criteria
-(2) Code review report from <review-base>/code_review/ (see path derivation below)
-(3) QA report from <review-base>/qa/ (see path derivation below)
+(2) Code review report from {{.review_base}}code_review/
+(3) QA report from {{.review_base}}qa/
 (4) Feature spec.md and test-plan.md for feature-level requirements
 (5) Implementation code — read the actual changed files
 
@@ -15,10 +15,7 @@ RED-TEAM REVIEW:
 - Check for security issues (injection, auth bypass, data leaks)
 - Verify the implementation integrates correctly with the broader feature
 
-REVIEW BASE PATH: Derive from {{.file_path}} — replace "docs/plan/" with "docs/review/", keep epic-folder/feature-folder segments (strip /tasks/filename if present).
-Example: docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md → docs/review/E19-sprint/E19-F04-analytics/
-
-PRODUCE UAT report at <review-base>/uat/<timestamp>-{{.id}}-uat.md:
+PRODUCE UAT report at {{.review_base}}uat/`<timestamp>`-{{.id}}-uat.md:
 - Verdict: APPROVED or REJECTED
 - Independent findings (not just echoing prior reports)
 - Evidence for each acceptance criterion (cite specific code lines)

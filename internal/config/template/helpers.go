@@ -82,6 +82,54 @@ func parseFeatureKeyFromTaskKey(taskKey string) string {
 	return ""
 }
 
+// deriveReviewBase computes the review-base directory for an entity from its
+// file_path, matching the convention documented in the code-review / QA /
+// UAT process partials: replace the leading "docs/plan/" with "docs/review/",
+// drop the entity's filename, and strip a trailing "tasks/" segment if
+// present (so a task's review base lives alongside its feature's, not under
+// a per-task tasks/ subdirectory).
+//
+// Examples:
+//
+//	docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md
+//	  → docs/review/E19-sprint/E19-F04-analytics/
+//	docs/plan/E19-sprint/E19-F04-analytics/feature.md
+//	  → docs/review/E19-sprint/E19-F04-analytics/
+//	docs/plan/bugs/B025.md
+//	  → docs/review/bugs/
+//
+// Returns the empty string if filePath is empty so callers can decide
+// whether to omit the placeholder entirely. The result always ends with a
+// trailing slash when non-empty, matching the partials' usage as a
+// path prefix (e.g. <review-base>/code_review/...).
+func deriveReviewBase(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+
+	p := strings.TrimPrefix(filePath, "./")
+	// Rewrite the plan-tree root to the review-tree root. We only rewrite the
+	// leading occurrence — paths that don't live under docs/plan/ pass through
+	// unchanged so callers see the original prefix in the result (useful for
+	// custom layouts and for surfacing misconfiguration).
+	if strings.HasPrefix(p, "docs/plan/") {
+		p = "docs/review/" + strings.TrimPrefix(p, "docs/plan/")
+	}
+
+	// Drop the filename.
+	if idx := strings.LastIndex(p, "/"); idx >= 0 {
+		p = p[:idx+1]
+	}
+
+	// Collapse a trailing "tasks/" segment so task reviews live in the
+	// feature's review directory (the partials' convention).
+	if strings.HasSuffix(p, "/tasks/") {
+		p = strings.TrimSuffix(p, "tasks/")
+	}
+
+	return p
+}
+
 // applySizePlaceholders populates the "size" and "size_label" keys in the
 // placeholder map from the entity's Size field.
 //
@@ -145,6 +193,9 @@ func EntityPlaceholders(entity models.Entity) map[string]string {
 	}
 	if fp := entity.GetFilePath(); fp != "" {
 		m["file_path"] = fp
+		if rb := deriveReviewBase(fp); rb != "" {
+			m["review_base"] = rb
+		}
 	}
 
 	return m
