@@ -1664,6 +1664,16 @@ func TestParseEpicKeyFromEntityKey(t *testing.T) {
 		{"empty string", "", ""},
 		{"malformed no epic", "F01-001", ""},
 		{"malformed gibberish", "xyz", ""},
+		// TD-021: locks in slugged-key + case-variant behavior via KeyService.Parse.
+		{"slugged epic", "E07-user-management", "E07"},
+		{"slugged feature", "E07-F01-auth-module", "E07"},
+		{"slugged task", "T-E07-F01-001-impl-jwt", "E07"},
+		{"slugged short task", "E07-F01-001-impl-jwt", "E07"},
+		{"mixed-case slugged task", "t-E07-f01-001-Impl-JWT", "E07"},
+		{"feature suffix only (no epic)", "F01", ""},
+		{"slugged feature suffix only (no epic)", "F01-some-feature", ""},
+		{"bug key (no epic component)", "B001", ""},
+		{"change-card key (no epic component)", "C001", ""},
 	}
 
 	for _, tt := range tests {
@@ -1691,6 +1701,14 @@ func TestParseFeatureKeyFromTaskKey(t *testing.T) {
 		{"epic only", "E07", ""},
 		{"malformed", "xyz-abc", ""},
 		{"single segment", "E07", ""},
+		// TD-021: locks in slugged-key + case-variant behavior via KeyService.Parse.
+		{"slugged task with T- prefix", "T-E07-F01-001-impl-jwt", "E07-F01"},
+		{"slugged short task", "E07-F01-001-impl-jwt", "E07-F01"},
+		{"slugged feature", "E07-F01-auth-module", "E07-F01"},
+		{"mixed-case slugged task", "t-E07-f01-001-Impl-JWT", "E07-F01"},
+		{"slugged epic (no feature)", "E07-user-management", ""},
+		{"feature suffix only (no epic)", "F01", ""},
+		{"bug key (no feature component)", "B001", ""},
 	}
 
 	for _, tt := range tests {

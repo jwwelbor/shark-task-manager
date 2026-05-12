@@ -5,81 +5,67 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// epicKeyPattern matches an epic key segment like E07 or E12.
-var epicKeyPattern = regexp.MustCompile(`^E\d+$`)
+// keyParser is the package-level KeyService used by parseEpicKeyFromEntityKey
+// and parseFeatureKeyFromTaskKey. KeyService is stateless and the centralized
+// source of truth for shark key parsing (slug-stripping, T- prefix handling,
+// case-insensitivity). TD-021 replaced the local regex-based parsers in this
+// file with calls into it to eliminate parser drift.
+var keyParser = keys.NewKeyService()
 
-// featureKeyPattern matches a feature key segment like E07-F01 or E12-F03.
-var featureKeyPattern = regexp.MustCompile(`^E\d+-F\d+$`)
-
-// ParseEpicKeyFromEntityKey extracts the epic key (E##) from a task or feature key.
-// E.g., "T-E07-F01-001" -> "E07", "E07-F01" -> "E07", "E07" -> "E07"
-// Returns empty string if no epic key can be extracted.
-func ParseEpicKeyFromEntityKey(entityKey string) string {
-	return parseEpicKeyFromEntityKey(entityKey)
-}
-
+// parseEpicKeyFromEntityKey extracts the canonical epic key (E##) from any
+// entity key supported by keys.KeyService: epic, feature, or task keys with
+// or without slugs, in any case, with or without the T- prefix.
+//
+// Examples:
+//
+//	"T-E07-F01-001"            -> "E07"
+//	"E07-F01-001"              -> "E07"
+//	"e07-f01-001-some-slug"    -> "E07"
+//	"E07-F01"                  -> "E07"
+//	"E07-user-management"      -> "E07"
+//	"E07"                      -> "E07"
+//	"F01"                      -> ""    (no epic component)
+//	"B001"                     -> ""    (bug — no epic component)
+//	""                         -> ""
 func parseEpicKeyFromEntityKey(entityKey string) string {
-	if entityKey == "" {
+	parsed := keyParser.Parse(entityKey)
+	if parsed.EpicNum == "" {
 		return ""
 	}
-
-	// Strip "T-" prefix if present
-	key := entityKey
-	if strings.HasPrefix(strings.ToUpper(key), "T-") {
-		key = key[2:]
-	}
-
-	// Split on "-" and find the first segment matching E\d+
-	parts := strings.Split(key, "-")
-	for _, part := range parts {
-		upper := strings.ToUpper(part)
-		if epicKeyPattern.MatchString(upper) {
-			return upper
-		}
-	}
-
-	return ""
+	return "E" + parsed.EpicNum
 }
 
-// ParseFeatureKeyFromTaskKey extracts the feature key (E##-F##) from a task key.
-// E.g., "T-E07-F01-001" -> "E07-F01", "E07-F01-001" -> "E07-F01"
-// Returns empty string if no feature key can be extracted.
-func ParseFeatureKeyFromTaskKey(taskKey string) string {
-	return parseFeatureKeyFromTaskKey(taskKey)
-}
-
+// parseFeatureKeyFromTaskKey extracts the canonical feature key (E##-F##)
+// from any entity key whose ParsedKey carries both an epic and a feature
+// number — i.e. full feature keys (E##-F##) and any task key, including
+// slugged and mixed-case variants. The feature-suffix-only form (F##) is
+// intentionally not promoted because it lacks an epic component and the
+// helper's name implies a fully-qualified feature key.
+//
+// Examples:
+//
+//	"T-E07-F01-001"            -> "E07-F01"
+//	"E07-F01-001"              -> "E07-F01"
+//	"e07-f01-001-some-slug"    -> "E07-F01"
+//	"E07-F01"                  -> "E07-F01"
+//	"E07-F01-user-management"  -> "E07-F01"
+//	"E07"                      -> ""    (epic only — no feature component)
+//	"F01"                      -> ""    (no epic component)
+//	""                         -> ""
 func parseFeatureKeyFromTaskKey(taskKey string) string {
-	if taskKey == "" {
+	parsed := keyParser.Parse(taskKey)
+	if parsed.EpicNum == "" || parsed.FeatureNum == "" {
 		return ""
 	}
-
-	// Strip "T-" prefix if present
-	key := taskKey
-	if strings.HasPrefix(strings.ToUpper(key), "T-") {
-		key = key[2:]
-	}
-
-	// Split on "-" and look for E##-F## pattern in the first segments
-	parts := strings.Split(key, "-")
-	if len(parts) < 2 {
-		return ""
-	}
-
-	// Try combining first two parts to form E##-F##
-	candidate := strings.ToUpper(parts[0]) + "-" + strings.ToUpper(parts[1])
-	if featureKeyPattern.MatchString(candidate) {
-		return candidate
-	}
-
-	return ""
+	return "E" + parsed.EpicNum + "-F" + parsed.FeatureNum
 }
 
 // deriveReviewBase computes the review-base directory for an entity from its

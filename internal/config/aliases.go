@@ -169,12 +169,6 @@ var EpicPlaceholdersWithRelated = cfgtemplate.EpicPlaceholdersWithRelated
 // ApplyEnrichmentData merges enrichment data into the placeholder map.
 var ApplyEnrichmentData = cfgtemplate.ApplyEnrichmentData
 
-// ParseEpicKeyFromEntityKey extracts the epic key (E##) from a task or feature key.
-var ParseEpicKeyFromEntityKey = cfgtemplate.ParseEpicKeyFromEntityKey
-
-// ParseFeatureKeyFromTaskKey extracts the feature key (E##-F##) from a task key.
-var ParseFeatureKeyFromTaskKey = cfgtemplate.ParseFeatureKeyFromTaskKey
-
 // --- action/ types ---
 
 // OrchestratorAction defines the action to take when a task enters a status.
