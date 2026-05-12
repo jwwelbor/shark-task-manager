@@ -202,7 +202,7 @@ func init() {
 	bugCmd.AddCommand(makeEntityTagCmd(models.EntityTypeBug, resolveBugID, nil))
 
 	// Create flags
-	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low)")
+	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low; default: medium)")
 	bugCreateCmd.Flags().StringVar(&bugLink, "link", "", "Entity key to link (E07, E07-F01, E07-F01-001)")
 	bugCreateCmd.Flags().StringVar(&bugFilePath, "file", "", "Custom file path for bug markdown file")
 	bugCreateCmd.Flags().BoolVar(&bugForce, "force", false, "Overwrite existing file at target path")

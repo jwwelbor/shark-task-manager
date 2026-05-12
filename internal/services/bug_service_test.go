@@ -404,6 +404,46 @@ func TestBugService_CreateBug_InvalidSeverity(t *testing.T) {
 	}
 }
 
+// TestBugService_CreateBug_DefaultSeverity_WhenOmitted is the B008 regression
+// test: when the caller omits Severity, CreateBug must default it to "medium"
+// and succeed (rather than returning `invalid severity ""`). This matches the
+// bug-report-then-triage workflow — `bug triage --severity=<S>` exists to set
+// severity later once the bug has been investigated.
+func TestBugService_CreateBug_DefaultSeverity_WhenOmitted(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedSeverity models.BugSeverity
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) {
+			return "B001", nil
+		},
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedSeverity = bug.Severity
+			bug.ID = 1
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, _, err := svc.CreateBug(ctx, CreateBugInput{
+		Title: "Unspecified-severity bug",
+		// Severity intentionally omitted.
+	})
+	if err != nil {
+		t.Fatalf("CreateBug() with omitted severity error = %v; want nil (B008 regression)", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if bug.Severity != models.BugSeverityMedium {
+		t.Errorf("expected default severity %q, got %q", models.BugSeverityMedium, bug.Severity)
+	}
+	if capturedSeverity != models.BugSeverityMedium {
+		t.Errorf("expected repo to receive severity %q, got %q", models.BugSeverityMedium, capturedSeverity)
+	}
+}
+
 func TestBugService_CreateBug_WithDescription(t *testing.T) {
 	ctx := context.Background()
 
