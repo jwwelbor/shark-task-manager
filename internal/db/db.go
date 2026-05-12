@@ -3948,38 +3948,20 @@ func migrateDropPolymorphicEntityTypeChecks(db *sql.DB) error {
 }
 
 // migrateEntityNotesExpandNoteTypes expands the entity_notes.note_type CHECK
-// constraint to include 'review' and 'requirement' (B027 round 2).
+// constraint to include 'review' and 'requirement'.
 //
-// Background:
-//
-//   - Round 1 of B027 added 'review' (and noted 'requirement' was already
-//     present) to the Go validator at models.ValidateNoteType but left the
-//     SQLite CHECK constraint enumerating only the original 10 types
-//     ('comment', 'decision', 'blocker', 'solution', 'reference',
-//     'implementation', 'testing', 'future', 'question', 'rejection').
-//   - QA confirmed the end-to-end CLI smoke
-//     `shark create note <bug-key> "..." --type=review` still fails with
-//     a SQLite CHECK constraint error because the DB layer rejects 'review'
-//     and 'requirement' even though the Go validator accepts them.
-//
-// The fix expands the CHECK to include the two additional types. SQLite
-// cannot ALTER a CHECK in place, so we recreate the table using the
-// standard CREATE _new -> INSERT SELECT -> DROP -> RENAME pattern (mirrors
+// SQLite cannot ALTER a CHECK in place, so we recreate the table using the
+// CREATE _new → INSERT SELECT → DROP → RENAME pattern (mirrors
 // rebuildEntityNotesTx and migrateEntityNotesExpandEntityTypes).
 //
-// Per the project convention documented in
-// .claude/rules/database-critical.md, the DB CHECK and the Go validator
-// allowlist (models.ValidateNoteType) must be kept in sync. If you add a
-// new note type to ValidateNoteType, you must also extend the CHECK here
-// (or add a follow-on migration). The companion regression tests
-// TestEntityNotesAcceptsReviewAndRequirementNoteTypes and
+// The DB CHECK and the Go validator allowlist (models.ValidateNoteType)
+// must be kept in sync — if a new note type is added to ValidateNoteType,
+// the CHECK here must be extended (or a follow-on migration added). The
+// regression tests TestEntityNotesAcceptsReviewAndRequirementNoteTypes and
 // TestEntityNotesNoteTypeCheckListsAllValidatorTypes guard against drift.
 //
-// Idempotent: if the table already contains 'review' in its note_type CHECK
-// (or no longer has a note_type CHECK at all), the migration is a no-op.
-//
-// DEVELOPER NOTE: This function adds schema version 20. CurrentSchemaVersion
-// is bumped to 20 in the same commit. See .claude/rules/database-critical.md.
+// Idempotent: a no-op if 'review' is already in the CHECK or no
+// note_type CHECK is present.
 func migrateEntityNotesExpandNoteTypes(db *sql.DB) error {
 	tableSQL, err := readTableSQL(db, "entity_notes")
 	if err != nil {
