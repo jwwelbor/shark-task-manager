@@ -19,14 +19,18 @@ var (
 	ErrInvalidEpicStatus    = errors.New("invalid epic status")
 	ErrInvalidFeatureStatus = errors.New("invalid feature status")
 	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
-	ErrInvalidTaskStatus       = errors.New("invalid task status")
-	ErrInvalidAgentType        = errors.New("invalid agent type: cannot be empty or whitespace-only")
-	ErrInvalidPriority         = errors.New("invalid priority: must be between 1 and 10")
-	ErrInvalidProgressPct      = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
-	ErrInvalidDependsOn        = errors.New("invalid depends_on: must be a valid JSON array of strings")
-	ErrEmptyTitle              = errors.New("title cannot be empty")
-	ErrEmptyNewStatus          = errors.New("new_status cannot be empty")
-	ErrInvalidNoteType         = errors.New("invalid note type: must be comment, decision, blocker, solution, reference, implementation, testing, future, question, rejection, or requirement")
+	ErrInvalidTaskStatus  = errors.New("invalid task status")
+	ErrInvalidAgentType   = errors.New("invalid agent type: cannot be empty or whitespace-only")
+	ErrInvalidPriority    = errors.New("invalid priority: must be between 1 and 10")
+	ErrInvalidProgressPct = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
+	ErrInvalidDependsOn   = errors.New("invalid depends_on: must be a valid JSON array of strings")
+	ErrEmptyTitle         = errors.New("title cannot be empty")
+	ErrEmptyNewStatus     = errors.New("new_status cannot be empty")
+	// ErrInvalidNoteType is the sentinel for an invalid note type. The
+	// human-readable list of valid types is appended dynamically by
+	// ValidateNoteType from the validNoteTypes slice (single source of
+	// truth), so the error message can never drift from the validator.
+	ErrInvalidNoteType         = errors.New("invalid note type")
 	ErrInvalidTaskID           = errors.New("task_id must be greater than 0")
 	ErrEmptyContent            = errors.New("content cannot be empty")
 	ErrInvalidRelationshipType = errors.New("invalid relationship type: must be depends_on, blocks, related_to, follows, spawned_from, duplicates, or references")
@@ -210,28 +214,59 @@ func ValidateDependsOn(dependsOn string) error {
 	return nil
 }
 
-// ValidateNoteType validates the note type enum
-func ValidateNoteType(noteType string) error {
-	validTypes := map[string]bool{
-		"comment":        true,
-		"decision":       true,
-		"blocker":        true,
-		"solution":       true,
-		"reference":      true,
-		"implementation": true,
-		"testing":        true,
-		"future":         true,
-		"question":       true,
-		"rejection":      true,
-		"requirement":    true,
-		// "review" records a code-review outcome (PASS/FAIL). The
-		// canonical code-review workflow emits --type=review for every
-		// entity type that goes through review (tasks, features, bugs,
-		// change-cards, …); see B027.
-		"review": true,
+// validNoteTypes is the canonical, ordered allowlist of note types.
+// This is the SINGLE SOURCE OF TRUTH consumed by both ValidateNoteType
+// (for membership checks) and the ErrInvalidNoteType error message
+// (rendered dynamically), so the two cannot drift. To add or remove a
+// note type, edit this slice only.
+//
+// Note on "review": records a code-review outcome (PASS/FAIL). The
+// canonical code-review workflow emits --type=review for every entity
+// type that goes through review (tasks, features, bugs, change-cards,
+// …); see B027.
+var validNoteTypes = []string{
+	"comment",
+	"decision",
+	"blocker",
+	"solution",
+	"reference",
+	"implementation",
+	"testing",
+	"future",
+	"question",
+	"rejection",
+	"requirement",
+	"review",
+}
+
+// validNoteTypeSet is the membership lookup derived from validNoteTypes.
+// Built once at package init so ValidateNoteType stays O(1) per call.
+var validNoteTypeSet = func() map[string]bool {
+	m := make(map[string]bool, len(validNoteTypes))
+	for _, t := range validNoteTypes {
+		m[t] = true
 	}
-	if !validTypes[noteType] {
-		return fmt.Errorf("%w: got %q", ErrInvalidNoteType, noteType)
+	return m
+}()
+
+// ValidNoteTypes returns a defensive copy of the canonical note-type
+// allowlist for callers that need to enumerate or display valid types
+// (e.g. CLI help, API schema generation).
+func ValidNoteTypes() []string {
+	out := make([]string, len(validNoteTypes))
+	copy(out, validNoteTypes)
+	return out
+}
+
+// ValidateNoteType validates the note type enum.
+//
+// On failure, the returned error wraps ErrInvalidNoteType and includes
+// the full allowlist (built dynamically from validNoteTypes) so the
+// human-readable hint cannot drift from the validator.
+func ValidateNoteType(noteType string) error {
+	if !validNoteTypeSet[noteType] {
+		return fmt.Errorf("%w: must be one of [%s]; got %q",
+			ErrInvalidNoteType, strings.Join(validNoteTypes, ", "), noteType)
 	}
 	return nil
 }
