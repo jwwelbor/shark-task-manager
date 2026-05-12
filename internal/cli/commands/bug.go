@@ -216,6 +216,9 @@ func init() {
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	bugCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 	bugCreateCmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
+	bugCreateCmd.Flags().String("description", "", "Bug description (optional)")
+	bugCreateCmd.Flags().String("linked-type", "", "Linked entity type: epic, feature, or task (optional)")
+	bugCreateCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
 
 	// List flags
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
@@ -277,9 +280,6 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// B024: the verb-first `shark create bug` advertises these flags; they
-	// were silently dropped before reaching the service. Both flag surfaces
-	// (`shark bug create` and `shark create bug`) read them here when present.
 	description, _ := cmd.Flags().GetString("description")
 	linkedType, _ := cmd.Flags().GetString("linked-type")
 	linkedKey, _ := cmd.Flags().GetString("linked-key")
@@ -298,9 +298,10 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 		input.FilePath = &filePath
 	}
 
-	// Linked entity: prefer the explicit --linked-type / --linked-key pair
-	// (verb-first form) over the combined --link convenience flag.
-	if linkedType != "" || linkedKey != "" {
+	// The explicit pair takes precedence; partial pairs fall through to
+	// --link so the service still gets a complete linkage instead of an
+	// empty key paired with a non-empty type.
+	if linkedType != "" && linkedKey != "" {
 		input.LinkedEntityType = linkedType
 		input.LinkedEntityKey = linkedKey
 	} else if link != "" {
