@@ -12,7 +12,10 @@ import (
 // behavior for the no-agent path.
 func TestAttachAgentBody_NoAgentType(t *testing.T) {
 	const prompt = "instruction prompt body"
-	got := attachAgentBody(prompt, "", map[string]string{"task_id": "T-E01-F01-001"})
+	got, err := attachAgentBody(prompt, "", map[string]string{"task_id": "T-E01-F01-001"})
+	if err != nil {
+		t.Fatalf("attachAgentBody returned unexpected error: %v", err)
+	}
 	if got != prompt {
 		t.Errorf("attachAgentBody with empty agentType should return prompt unchanged; got %q want %q", got, prompt)
 	}
@@ -34,7 +37,16 @@ func TestAttachAgentBody_GracefulDegradation(t *testing.T) {
 	// engine resolve agent files in tests, this assertion will need to
 	// be updated — but the contract on "graceful degradation when the
 	// agent file is unresolvable" must remain.
-	got := attachAgentBody(prompt, "developer", map[string]string{})
+	got, err := attachAgentBody(prompt, "developer", map[string]string{})
+	if err != nil {
+		// In unit-test context, root is "" so LoadAgentBodyForInline
+		// returns false and attachAgentBody never runs the lint. An
+		// error here would mean a future change wired a real agent
+		// body in, and the missing vars caused the lint to fire —
+		// that's a setup change worth surfacing here rather than
+		// silently passing.
+		t.Fatalf("attachAgentBody returned unexpected error: %v", err)
+	}
 	if got != prompt && !strings.Contains(got, prompt) {
 		t.Errorf("attachAgentBody should either return the prompt unchanged or prepend an agent body containing it; got %q", got)
 	}

@@ -196,16 +196,19 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	resp, err := resolveNext(ctx, adapters, entityType, normalizedKey, 0)
 	if err != nil {
+		// Unrendered agent-body tokens surface here via the per-step
+		// RenderAndLintAgentBody pass inside attachAgentBody. Action-prompt
+		// content is no longer post-render scanned because action prompts
+		// legitimately use `<...>` as instructional prose (e.g.
+		// `<enhancement-feature>`, `<findings>`); only the agent body
+		// region — substituted by RenderAgentBody, which is silent on miss —
+		// needs the loudness guarantee.
+		var tokErr *templates.UnrenderedTokenError
+		if errors.As(err, &tokErr) {
+			fmt.Fprintf(os.Stderr, "[shark next] %s (entity %s)\n", tokErr.Error(), normalizedKey)
+			os.Exit(3)
+		}
 		return err
-	}
-
-	// Post-render guard: any `<token>` surviving every render pass is a bug.
-	// Silent pass-through (the 2026-05-11 trial's failure mode) is the
-	// scenario we explicitly want to make loud. Exit 3 (invalid state) so
-	// orchestrators surface this distinctly from a missing-entity error.
-	if tok, found := templates.FirstUnrenderedToken(resp.Prompt); found {
-		fmt.Fprintf(os.Stderr, "[shark next] unrendered placeholder %s left in prompt for %s\n", tok, resp.EntityKey)
-		os.Exit(3)
 	}
 
 	return outputNextJSON(resp)
@@ -336,8 +339,16 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	resp = wireResp
 
 	// Step 9: Auto-inline the agent body so the harness receives the agent
-	// persona / config alongside the action prompt.
-	resp.Prompt = attachAgentBody(resp.Prompt, resp.AgentType, vars)
+	// persona / config alongside the action prompt. attachAgentBody runs
+	// the agent-body region through RenderAndLintAgentBody, which fails
+	// loudly if any `<token>` is unmapped — the lint that used to live as
+	// a post-render guard on the whole prompt, now scoped to just the
+	// agent body region.
+	attached, err := attachAgentBody(resp.Prompt, resp.AgentType, vars)
+	if err != nil {
+		return NextResponse{}, err
+	}
+	resp.Prompt = attached
 
 	return resp, nil
 }
@@ -467,18 +478,23 @@ func applyWireAction(
 //
 // Placeholder rendering: agent files use kebab-case tokens like `<task-id>`
 // that the instruction-template engine (Go templates, snake_case) doesn't
-// touch — RenderAgentBody closes that gap before concatenation.
-func attachAgentBody(prompt, agentType string, vars map[string]string) string {
+// touch — RenderAndLintAgentBody closes that gap before concatenation and
+// fails loudly on any surviving `<token>` (the lint scoped to the agent
+// body region so action-prompt prose using `<...>` is not falsely flagged).
+func attachAgentBody(prompt, agentType string, vars map[string]string) (string, error) {
 	if agentType == "" {
-		return prompt
+		return prompt, nil
 	}
 	root := templates.GetOrchestratorEngine().IncludeRoot()
 	body, ok := LoadAgentBodyForInline(root, agentType)
 	if !ok {
-		return prompt
+		return prompt, nil
 	}
-	body = templates.RenderAgentBody(body, vars)
-	return body + "\n\n---\n\n" + prompt
+	rendered, err := templates.RenderAndLintAgentBody(body, agentType, vars)
+	if err != nil {
+		return "", err
+	}
+	return rendered + "\n\n---\n\n" + prompt, nil
 }
 
 // LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/

@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -55,6 +56,66 @@ func TestFirstUnrenderedToken_CleanString(t *testing.T) {
 	s := "fully rendered T-E01-F41-003 ready to dispatch"
 	if _, ok := FirstUnrenderedToken(s); ok {
 		t.Error("expected no surviving tokens")
+	}
+}
+
+// TestRenderAndLintAgentBody_RejectsUnfilledToken covers the loudness
+// guarantee: a body with `<token>` and no matching var must surface as
+// an UnrenderedTokenError naming the offending token and the agent file.
+func TestRenderAndLintAgentBody_RejectsUnfilledToken(t *testing.T) {
+	body := "Task: <task_id>. Bad: <unfilled>."
+	vars := map[string]string{"task_id": "T-E01-F01-001"}
+
+	_, err := RenderAndLintAgentBody(body, "developer", vars)
+	if err == nil {
+		t.Fatal("expected error for unfilled token, got nil")
+	}
+	var tokErr *UnrenderedTokenError
+	if !errors.As(err, &tokErr) {
+		t.Fatalf("expected *UnrenderedTokenError, got %T: %v", err, err)
+	}
+	if tokErr.Token != "<unfilled>" {
+		t.Errorf("expected Token=<unfilled>, got %q", tokErr.Token)
+	}
+	if tokErr.AgentType != "developer" {
+		t.Errorf("expected AgentType=developer, got %q", tokErr.AgentType)
+	}
+}
+
+// TestRenderAndLintAgentBody_AcceptsFullyRendered covers the happy path:
+// every `<token>` in the body has a matching var, so rendering succeeds
+// and the result has no surviving placeholders.
+func TestRenderAndLintAgentBody_AcceptsFullyRendered(t *testing.T) {
+	body := "Task: <task_id> on <branch>."
+	vars := map[string]string{
+		"task_id": "T-E01-F01-001",
+		"branch":  "shark2-engine",
+	}
+
+	got, err := RenderAndLintAgentBody(body, "developer", vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "Task: T-E01-F01-001 on shark2-engine."
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestRenderAndLintAgentBody_IgnoresProseInCodeFences guarantees the lint
+// inherits FirstUnrenderedToken's fence-stripping behavior: an `<example>`
+// token sitting inside a triple-backtick code block is documentation, not
+// a missed substitution, and must not trip the lint.
+func TestRenderAndLintAgentBody_IgnoresProseInCodeFences(t *testing.T) {
+	body := "Use this:\n```\nshark next <example>\n```\nDone <task_id>."
+	vars := map[string]string{"task_id": "T-E01-F01-001"}
+
+	got, err := RenderAndLintAgentBody(body, "developer", vars)
+	if err != nil {
+		t.Fatalf("unexpected error (fence-stripping regression?): %v", err)
+	}
+	if !strings.Contains(got, "<example>") {
+		t.Errorf("fenced <example> should pass through untouched, got %q", got)
 	}
 }
 
