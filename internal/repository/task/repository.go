@@ -877,9 +877,24 @@ func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Ta
 // updateInternal performs the task update. When forceSkipCascade is true the
 // execution_order resequence is suppressed regardless of whether the order has
 // actually changed.
+//
+// In the skip-cascade path (TD-008), two optimizations apply:
+//  1. Dependency validation is bypassed — the --parallel update path renumbers
+//     an existing task and never changes DependsOn, so re-validating the
+//     existing graph wastes a SELECT round-trip.
+//  2. No transaction is opened — the operation is a single non-cascading row
+//     update, so BEGIN/COMMIT add latency (meaningful on Turso, negligible on
+//     local SQLite) without any atomicity benefit.
 func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool) error {
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Skip-cascade fast path: single-row UPDATE, no transaction, no dep validation.
+	// Used by UpdateNoResequence (--parallel renumber); DependsOn is unchanged in
+	// this path so circular-dependency re-validation is unnecessary.
+	if forceSkipCascade {
+		return r.updateRowDirect(ctx, task)
 	}
 
 	// Validate dependencies before updating
@@ -888,9 +903,8 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 	}
 
 	// Check if execution_order is being changed - if so, cascade to other tasks.
-	// Skipped entirely when forceSkipCascade is true.
 	var needsCascade bool
-	if !forceSkipCascade && task.ExecutionOrder != nil {
+	if task.ExecutionOrder != nil {
 		oldTask, err := r.GetByID(ctx, task.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get old task: %w", err)
@@ -915,6 +929,48 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// updateRowDirect performs a single-row task UPDATE outside any transaction.
+// Used by the --parallel update path (forceSkipCascade=true) where no sibling
+// cascade is needed and atomicity across multiple rows is irrelevant. See
+// TD-008 for the rationale.
+func (r *TaskRepository) updateRowDirect(ctx context.Context, task *models.Task) error {
+	query := `
+		UPDATE tasks
+		SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
+		    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?, context_data = ?, size = ?
+		WHERE id = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query,
+		task.Title,
+		task.Description,
+		task.Status,
+		task.AgentType,
+		task.Priority,
+		task.DependsOn,
+		task.AssignedAgent,
+		task.FilePath,
+		task.BlockedReason,
+		task.ExecutionOrder,
+		task.ContextData,
+		task.Size,
+		task.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task not found with id %d", task.ID)
 	}
 
 	return nil

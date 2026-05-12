@@ -515,15 +515,25 @@ func (r *FeatureRepository) UpdateNoResequence(ctx context.Context, feature *mod
 // updateInternal performs the feature update. When forceSkipCascade is true the
 // execution_order resequence is suppressed regardless of whether the order has
 // actually changed.
+//
+// In the skip-cascade path (TD-008), no transaction is opened — the operation
+// is a single non-cascading row update, so BEGIN/COMMIT add latency
+// (meaningful on Turso, negligible on local SQLite) without any atomicity
+// benefit.
 func (r *FeatureRepository) updateInternal(ctx context.Context, feature *models.Feature, forceSkipCascade bool) error {
 	if err := feature.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Skip-cascade fast path: single-row UPDATE, no transaction. Used by
+	// UpdateNoResequence (--parallel renumber).
+	if forceSkipCascade {
+		return r.updateRowDirect(ctx, feature)
+	}
+
 	// Check if execution_order is being changed - if so, cascade to other features.
-	// Skipped entirely when forceSkipCascade is true.
 	var needsCascade bool
-	if !forceSkipCascade && feature.ExecutionOrder != nil {
+	if feature.ExecutionOrder != nil {
 		oldFeature, err := r.GetByID(ctx, feature.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get old feature: %w", err)
@@ -548,6 +558,42 @@ func (r *FeatureRepository) updateInternal(ctx context.Context, feature *models.
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// updateRowDirect performs a single-row feature UPDATE outside any transaction.
+// Used by the --parallel update path (forceSkipCascade=true) where no sibling
+// cascade is needed and atomicity across multiple rows is irrelevant. See
+// TD-008 for the rationale.
+func (r *FeatureRepository) updateRowDirect(ctx context.Context, feature *models.Feature) error {
+	query := `
+		UPDATE features
+		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?, file_path = ?, size = ?
+		WHERE id = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query,
+		feature.Title,
+		feature.Description,
+		feature.Status,
+		feature.ProgressPct,
+		feature.ExecutionOrder,
+		feature.FilePath,
+		feature.Size,
+		feature.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update feature: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found with id %d: %w", feature.ID, repoerr.ErrNotFound)
 	}
 
 	return nil
