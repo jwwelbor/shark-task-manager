@@ -28,8 +28,74 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+)
+
+// nextAdapters bundles the three per-entity-type adapters resolveNext needs
+// (transitioner, placeholder generator, narrowed action service). Constructing
+// these is cheap individually — the underlying DB / workflow / root action
+// service are singletons — but in a cascade chain (epic → feature → task)
+// resolveNext is called several times and was rebuilding the same adapters on
+// each hop. We cache per-invocation so each entity type gets built at most
+// once per top-level `shark next` call (TD-020).
+type nextAdapters struct {
+	transitioner runner.EntityTransitioner
+	generator    runner.PlaceholderGenerator
+	actionSvc    action.ActionService
+}
+
+// nextAdapterCache is the per-invocation cache hoisted into runNext and passed
+// through resolveNext recursion. Lookup is keyed by entity type; entries are
+// populated lazily on first use and reused for the remainder of the call.
+// Reset between top-level `shark next` calls (no cross-invocation caching).
+type nextAdapterCache struct {
+	entries       map[string]*nextAdapters
+	actionSvcRoot action.ActionService
+}
+
+// newNextAdapterCache constructs an empty cache with the root action service
+// resolved once. The root is shared across all entity types — only the
+// ForEntity-narrowed view differs per type.
+func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
+	root, err := cli.GetActionService(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize action service: %w", err)
+	}
+	return &nextAdapterCache{
+		entries:       make(map[string]*nextAdapters),
+		actionSvcRoot: root,
+	}, nil
+}
+
+// get returns the cached adapter triple for entityType, constructing it on
+// first lookup. Errors propagate from buildTransitioner (the only fallible
+// builder); ForEntity and buildPlaceholderGenerator never error.
+func (c *nextAdapterCache) get(ctx context.Context, entityType string) (*nextAdapters, error) {
+	if a, ok := c.entries[entityType]; ok {
+		return a, nil
+	}
+	transitioner, err := nextBuildTransitioner(ctx, entityType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build transitioner for %s: %w", entityType, err)
+	}
+	a := &nextAdapters{
+		transitioner: transitioner,
+		generator:    nextBuildPlaceholderGenerator(ctx, entityType),
+		actionSvc:    c.actionSvcRoot.ForEntity(entityType),
+	}
+	c.entries[entityType] = a
+	return a, nil
+}
+
+// nextBuildTransitioner and nextBuildPlaceholderGenerator are indirection
+// hooks for testing — production code points them at the run.go builders.
+// Tests can swap in counting wrappers to assert the cache eliminates
+// redundant construction. Not for general use; this package owns both ends.
+var (
+	nextBuildTransitioner         = buildTransitioner
+	nextBuildPlaceholderGenerator = buildPlaceholderGenerator
 )
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is
@@ -119,7 +185,16 @@ func runNext(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid entity key %q: %w", args[0], err)
 	}
 
-	resp, err := resolveNext(ctx, entityType, normalizedKey, 0)
+	// Build a per-invocation adapter cache so cascade recursion doesn't
+	// rebuild the same transitioner / placeholder generator / action service
+	// view on every hop (TD-020). Cache is scoped to this top-level call;
+	// it's reset for each subsequent `shark next` invocation.
+	adapters, err := newNextAdapterCache(ctx)
+	if err != nil {
+		return err
+	}
+
+	resp, err := resolveNext(ctx, adapters, entityType, normalizedKey, 0)
 	if err != nil {
 		return err
 	}
@@ -143,7 +218,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 // itself on the child's key, prepending the parent key to resolved_via on
 // the way back up. The returned NextResponse is always wire-shaped — no
 // "cascade" verb ever leaks out of this function.
-func resolveNext(ctx context.Context, entityType, normalizedKey string, depth int) (NextResponse, error) {
+func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, normalizedKey string, depth int) (NextResponse, error) {
 	if depth > maxCascadeDepth {
 		return NextResponse{
 			EntityKey:  normalizedKey,
@@ -153,25 +228,20 @@ func resolveNext(ctx context.Context, entityType, normalizedKey string, depth in
 		}, nil
 	}
 
-	// Step 2: Build the same transitioner + placeholder generator the
-	// 'run' loop uses. Reusing these keeps `next` and `run` semantically
-	// identical at the per-step level — the only difference is who owns
-	// the loop.
-	transitioner, err := buildTransitioner(ctx, entityType)
+	// Step 2: Resolve the per-entity-type adapter triple (transitioner,
+	// placeholder generator, narrowed action service) from the per-invocation
+	// cache. On a cold cache the first call for each entity type does the
+	// construction work; subsequent recursion hops on the same type are O(1)
+	// map lookups (TD-020). Using the same triple as `run` keeps `next` and
+	// `run` semantically identical at the per-step level — the only difference
+	// is who owns the loop.
+	a, err := cache.get(ctx, entityType)
 	if err != nil {
-		return NextResponse{}, fmt.Errorf("failed to build transitioner for %s: %w", entityType, err)
+		return NextResponse{}, err
 	}
-	placeholderGen := buildPlaceholderGenerator(ctx, entityType)
-
-	// Step 3: Get the action service, narrowed to this entity type.
-	// ForEntity ensures status lookups resolve against the entity's own
-	// workflow YAML, which is what makes cross-entity status name collisions
-	// (e.g. "completed" shared by every entity) unambiguous.
-	actionSvcRoot, err := cli.GetActionService(ctx)
-	if err != nil {
-		return NextResponse{}, fmt.Errorf("failed to initialize action service: %w", err)
-	}
-	actionSvc := actionSvcRoot.ForEntity(entityType)
+	transitioner := a.transitioner
+	placeholderGen := a.generator
+	actionSvc := a.actionSvc
 
 	// Step 4: Read current status and detect terminal/archived states.
 	nextInfo, err := transitioner.GetNextStatus(ctx, normalizedKey)
@@ -252,7 +322,7 @@ func resolveNext(ctx context.Context, entityType, normalizedKey string, depth in
 			return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
 		}
 		for _, child := range children {
-			childResp, err := resolveNext(ctx, child.EntityType, child.Key, depth+1)
+			childResp, err := resolveNext(ctx, cache, child.EntityType, child.Key, depth+1)
 			if err != nil {
 				return NextResponse{}, err
 			}
@@ -298,7 +368,7 @@ func resolveNext(ctx context.Context, entityType, normalizedKey string, depth in
 		if _, err := transitioner.TransitionStatus(ctx, normalizedKey, transitionalTarget, services.TransitionOptions{}); err != nil {
 			return NextResponse{}, fmt.Errorf("auto-advance from %s to %s failed for %s: %w", currentStatus, transitionalTarget, normalizedKey, err)
 		}
-		recursed, err := resolveNext(ctx, entityType, normalizedKey, depth+1)
+		recursed, err := resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
 		if err != nil {
 			return NextResponse{}, err
 		}
