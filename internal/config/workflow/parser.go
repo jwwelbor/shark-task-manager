@@ -165,6 +165,11 @@ func GetWorkflowOrDefault(configPath string) *WorkflowConfig {
 // Missing config file returns (&MultiLevelWorkflow{}, nil).
 // Missing sections within the file result in nil for that level (will use default).
 // Empty sections (e.g., "epic_workflow": {}) are treated as unconfigured (nil).
+//
+// This is a thin wrapper around LoadMultiLevelWorkflowFromBytes that handles
+// the os.ReadFile call. Callers that have already read .sharkconfig.json
+// (e.g. defaultWorkflowDataLoader) should call LoadMultiLevelWorkflowFromBytes
+// directly to avoid re-reading the file (see TD-023).
 func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	// Check cache first (fast path)
 	multiLevelCacheLock.RLock()
@@ -174,7 +179,48 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	}
 	multiLevelCacheLock.RUnlock()
 
-	// Slow path: load from file
+	// Read config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			multiLevelCacheLock.Lock()
+			defer multiLevelCacheLock.Unlock()
+			// Double-check cache (another goroutine may have populated it).
+			if multiLevelCache != nil && multiLevelCachePath == configPath {
+				return multiLevelCache, nil
+			}
+			result := &MultiLevelWorkflow{}
+			multiLevelCache = result
+			multiLevelCachePath = configPath
+			return result, nil
+		}
+		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	return LoadMultiLevelWorkflowFromBytes(configPath, data)
+}
+
+// LoadMultiLevelWorkflowFromBytes is the same as LoadMultiLevelWorkflow except
+// it accepts the raw .sharkconfig.json bytes that the caller has already read.
+// This avoids redundant os.ReadFile calls on the hot startup path (TD-023).
+//
+// configPath is still required for:
+//   - Resolving relative paths in workflow_config
+//   - Cache keying (so subsequent LoadMultiLevelWorkflow calls hit cache)
+//   - Source tracking ("source": configPath strings on the returned MultiLevelWorkflow)
+//
+// If data is empty, behaves the same as LoadMultiLevelWorkflow when the file
+// is missing: returns an empty MultiLevelWorkflow.
+func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLevelWorkflow, error) {
+	// Check cache first (fast path) — callers may have already populated it.
+	multiLevelCacheLock.RLock()
+	if multiLevelCache != nil && multiLevelCachePath == configPath {
+		defer multiLevelCacheLock.RUnlock()
+		return multiLevelCache, nil
+	}
+	multiLevelCacheLock.RUnlock()
+
+	// Slow path: parse from bytes
 	multiLevelCacheLock.Lock()
 	defer multiLevelCacheLock.Unlock()
 
@@ -183,16 +229,12 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		return multiLevelCache, nil
 	}
 
-	// Read config file
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			result := &MultiLevelWorkflow{}
-			multiLevelCache = result
-			multiLevelCachePath = configPath
-			return result, nil
-		}
-		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	// Empty data => no config file present. Cache the empty result.
+	if len(data) == 0 {
+		result := &MultiLevelWorkflow{}
+		multiLevelCache = result
+		multiLevelCachePath = configPath
+		return result, nil
 	}
 
 	// Parse full config as raw JSON
@@ -450,6 +492,22 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 // Never returns nil, never returns an error (falls back to defaults on any failure).
 func LoadMultiLevelWorkflowOrDefault(configPath string) *MultiLevelWorkflow {
 	multi, err := LoadMultiLevelWorkflow(configPath)
+	if err != nil {
+		slog.Warn("Failed to load workflow config", "error", err)
+		return &MultiLevelWorkflow{}
+	}
+	if multi == nil {
+		return &MultiLevelWorkflow{}
+	}
+	return multi
+}
+
+// LoadMultiLevelWorkflowOrDefaultFromBytes is the bytes-accepting variant of
+// LoadMultiLevelWorkflowOrDefault. Callers that have already read
+// .sharkconfig.json should use this to avoid redundant os.ReadFile calls
+// (see TD-023).
+func LoadMultiLevelWorkflowOrDefaultFromBytes(configPath string, data []byte) *MultiLevelWorkflow {
+	multi, err := LoadMultiLevelWorkflowFromBytes(configPath, data)
 	if err != nil {
 		slog.Warn("Failed to load workflow config", "error", err)
 		return &MultiLevelWorkflow{}

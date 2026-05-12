@@ -23,6 +23,12 @@ import (
 // imports into hot paths elsewhere. It mirrors json.Unmarshal exactly.
 var jsonUnmarshal = json.Unmarshal
 
+// readConfigFile is the os.ReadFile call defaultWorkflowDataLoader uses to
+// pull .sharkconfig.json once per invocation (TD-023). Exposed as a package
+// variable so tests can wrap it with a counter and assert that downstream
+// helpers never reach back to the filesystem on their own.
+var readConfigFile = os.ReadFile
+
 // --- workflow/ types ---
 
 // WorkflowConfig is an alias for workflow.WorkflowConfig.
@@ -273,7 +279,21 @@ func entityTypesForLoader() []string {
 func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.StatusActionData, error) {
 	projectRoot := filepath.Dir(configPath)
 
-	workflowDir, overridesDir, isLegacyFile := resolveWorkflowDir(projectRoot, configPath)
+	// TD-023: read .sharkconfig.json bytes once and thread them through every
+	// helper that would otherwise re-read the same file. The previous code
+	// hit os.ReadFile 2-3× per call (resolveWorkflowDir, the legacy-error
+	// helper, and LoadMultiLevelWorkflowOrDefault). On the cold-startup path
+	// behind ActionService's sync.Once, that adds gratuitous syscalls.
+	//
+	// configBytes may be nil/empty when .sharkconfig.json is missing — every
+	// downstream helper tolerates that (resolveWorkflowDir defaults the dir,
+	// the parser returns an empty MultiLevelWorkflow). An I/O error other
+	// than os.IsNotExist also collapses to nil bytes; the helpers behave the
+	// same as if the file were absent, which matches the prior best-effort
+	// semantics of the individual readers.
+	configBytes, _ := readConfigFile(configPath)
+
+	workflowDir, overridesDir, isLegacyFile := resolveWorkflowDir(projectRoot, configBytes)
 
 	// Reject explicitly-configured legacy JSON workflow files. resolveWorkflowDir
 	// signals this case with isLegacyFile=true AND workflowDir=="". The
@@ -281,7 +301,7 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	// missing) leaves workflowDir non-empty and falls through to Pass 1/2/3
 	// so fresh projects and inline-config tests keep working.
 	if isLegacyFile && workflowDir == "" {
-		configured := readLegacyWorkflowConfigValue(configPath)
+		configured := readWorkflowConfigField(configBytes)
 		return nil, fmt.Errorf(
 			".sharkconfig.json field \"workflow_config\" = %q is a Shark 1.x "+
 				"JSON workflow file; Shark 2.0 uses per-entity YAML in "+
@@ -309,7 +329,8 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	// Pass 2: inline multi-level workflows from .sharkconfig.json itself.
 	// Covers fresh checkouts that haven't run `shark init` yet and the
 	// legacy top-level `status_flow` shape still used by many tests.
-	if mlw := workflow.LoadMultiLevelWorkflowOrDefault(configPath); mlw != nil {
+	// Use the bytes-accepting variant so we don't re-read the file.
+	if mlw := workflow.LoadMultiLevelWorkflowOrDefaultFromBytes(configPath, configBytes); mlw != nil {
 		for _, entityType := range entityTypes {
 			if _, already := out[entityType]; already {
 				continue
@@ -336,23 +357,11 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	return out, nil
 }
 
-// readLegacyWorkflowConfigValue reads .sharkconfig.json's workflow_config
-// field for use in the legacy-file error message. Best-effort: returns ""
-// if the file or field is unreadable, which still produces a usable error
-// message (the user can `cat .sharkconfig.json` themselves).
-func readLegacyWorkflowConfigValue(configPath string) string {
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		return ""
-	}
-	return readWorkflowConfigField(raw)
-}
-
 // resolveWorkflowDir picks the directory of per-entity workflow YAMLs to load.
 //
 // Resolution:
-//  1. Read `workflow_config` from .sharkconfig.json (raw decode to avoid
-//     pulling in the entire Manager). Empty/missing → use the default
+//  1. Read `workflow_config` from .sharkconfig.json bytes (raw decode to
+//     avoid pulling in the entire Manager). Empty/missing → use the default
 //     `<projectRoot>/shark-data/workflow/`.
 //  2. Stat the resolved path:
 //     - Directory → return (workflowDir, derived overridesDir, false).
@@ -368,11 +377,15 @@ func readLegacyWorkflowConfigValue(configPath string) string {
 // outside a shark-data/-shaped tree, the overrides dir is computed the same
 // way and may simply not exist — in which case override lookup silently
 // no-ops.
-func resolveWorkflowDir(projectRoot, configPath string) (workflowDir, overridesDir string, isLegacyFile bool) {
+//
+// configBytes is the already-read contents of .sharkconfig.json. Pass nil/
+// empty when the file is missing — both produce the same fallback behavior
+// (default workflow dir). This signature change (was: configPath) is part of
+// TD-023's "read .sharkconfig.json once" pass.
+func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, overridesDir string, isLegacyFile bool) {
 	const defaultRel = "shark-data/workflow"
 
-	raw, _ := os.ReadFile(configPath)
-	configured := readWorkflowConfigField(raw)
+	configured := readWorkflowConfigField(configBytes)
 
 	if configured == "" {
 		workflowDir = filepath.Join(projectRoot, defaultRel)

@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+// readConfig is a small helper that mirrors the once-per-call os.ReadFile
+// performed by defaultWorkflowDataLoader. Tests for resolveWorkflowDir pass
+// the resulting bytes in directly (TD-023).
+func readConfig(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	return data
+}
+
 // TestResolveWorkflowDir_DefaultsToSharkDataWorkflow verifies the default
 // path when workflow_config is not set in .sharkconfig.json.
 func TestResolveWorkflowDir_DefaultsToSharkDataWorkflow(t *testing.T) {
@@ -19,7 +31,7 @@ func TestResolveWorkflowDir_DefaultsToSharkDataWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, overrides, isFile := resolveWorkflowDir(tmp, configPath)
+	dir, overrides, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	want := filepath.Join(tmp, "shark-data", "workflow")
 	if dir != want {
 		t.Errorf("workflowDir=%q want %q", dir, want)
@@ -45,7 +57,7 @@ func TestResolveWorkflowDir_CustomRelativePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, _, isFile := resolveWorkflowDir(tmp, configPath)
+	dir, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	want := filepath.Join(tmp, "custom", "workflow")
 	if dir != want {
 		t.Errorf("workflowDir=%q want %q", dir, want)
@@ -69,7 +81,7 @@ func TestResolveWorkflowDir_AbsolutePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, _, isFile := resolveWorkflowDir(tmp, configPath)
+	dir, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	if dir != abs {
 		t.Errorf("workflowDir=%q want %q", dir, abs)
 	}
@@ -97,7 +109,7 @@ func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, _, isFile := resolveWorkflowDir(tmp, configPath)
+	dir, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	if !isFile {
 		t.Errorf("isLegacyFile=false; want true when workflow_config points at a file")
 	}
@@ -118,7 +130,7 @@ func TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy(t *testing.T) {
 	}
 	// shark-data/workflow/ does NOT exist.
 
-	_, _, isFile := resolveWorkflowDir(tmp, configPath)
+	_, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	if !isFile {
 		t.Errorf("expected legacy fallback when default dir is missing and no workflow_config is set")
 	}
