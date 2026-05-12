@@ -235,7 +235,12 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	// precedence below.
 	if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
 		overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
-		if mlw, yamlErr := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); yamlErr == nil && mlw != nil {
+		// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
+		// a non-nil error (e.g. one sibling YAML is malformed), the returned
+		// MultiLevelWorkflow may carry slots that loaded successfully. Consume
+		// those partial results so a single bad file doesn't silently reset
+		// every entity workflow to its hardcoded default.
+		if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
 			if mlw.Epic != nil {
 				result.Epic = mlw.Epic
 				result.Sources["epic"] = workflowFilePath

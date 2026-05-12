@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,6 +87,14 @@ func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*Multi
 		return nil, fmt.Errorf("failed to stat %s: %w", workflowDir, err)
 	}
 
+	// Per-file errors are accumulated and surfaced once at the end so a single
+	// bad YAML (e.g. malformed change.yaml) does not silently discard the
+	// other slots that loaded successfully. Regression: B026 — bug.yaml's
+	// "draft" status was lost when a sibling YAML had a parse error, causing
+	// `shark status advance` to fall back to DefaultBugWorkflow and reject
+	// valid transitions.
+	var loadErrs []error
+
 	for _, entry := range yamlEntityFiles {
 		// Override path takes precedence.
 		var overridePath string
@@ -102,7 +111,8 @@ func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*Multi
 			if info, statErr := os.Stat(overridePath); statErr == nil && !info.IsDir() {
 				data, err = os.ReadFile(overridePath)
 				if err != nil {
-					return nil, fmt.Errorf("failed to read override workflow %s: %w", overridePath, err)
+					loadErrs = append(loadErrs, fmt.Errorf("failed to read override workflow %s: %w", overridePath, err))
+					continue
 				}
 				loadedFrom = overridePath
 			}
@@ -111,7 +121,8 @@ func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*Multi
 			if info, statErr := os.Stat(defaultPath); statErr == nil && !info.IsDir() {
 				data, err = os.ReadFile(defaultPath)
 				if err != nil {
-					return nil, fmt.Errorf("failed to read workflow %s: %w", defaultPath, err)
+					loadErrs = append(loadErrs, fmt.Errorf("failed to read workflow %s: %w", defaultPath, err))
+					continue
 				}
 				loadedFrom = defaultPath
 			}
@@ -123,13 +134,17 @@ func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*Multi
 
 		cfg, err := parseWorkflowYAML(data, loadedFrom)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse workflow YAML %s: %w", loadedFrom, err)
+			loadErrs = append(loadErrs, fmt.Errorf("failed to parse workflow YAML %s: %w", loadedFrom, err))
+			continue
 		}
 
 		assignSlot(mlw, entry.Slot, cfg)
 		mlw.Sources[entry.Slot] = loadedFrom
 	}
 
+	if len(loadErrs) > 0 {
+		return mlw, errors.Join(loadErrs...)
+	}
 	return mlw, nil
 }
 
