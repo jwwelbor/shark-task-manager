@@ -360,7 +360,7 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
 	}
 	for _, child := range children {
-		childResp, err := resolveNext(ctx, cache, child.EntityType, child.Key, depth+1)
+		childResp, err := resolveNext(ctx, cache, string(child.EntityType), child.Key, depth+1)
 		if err != nil {
 			return NextResponse{}, err
 		}

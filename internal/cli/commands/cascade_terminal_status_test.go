@@ -75,45 +75,29 @@ func writeB028Config(t *testing.T) string {
 	return tmp
 }
 
-// TestB028_IsTerminalStatus_DelegatesToWorkflowService is the regression
-// test for B028. cascade.go's isTerminalStatus must consult
-// workflow.Service.IsTerminalStatus rather than a hardcoded literal list,
-// so a custom workflow that renames "completed" to "shipped" still
-// classifies children correctly during cascade resolution.
-//
-// Before the B028 fix this helper was:
-//
-//	switch s { case "completed", "cancelled", "archived", "done": return true }
-//
-// …which silently misclassified "shipped" as non-terminal and recursed
-// into entities that should have been filtered out.
-func TestB028_IsTerminalStatus_DelegatesToWorkflowService(t *testing.T) {
+// TestB028_TerminalStatusDelegation pins the workflow-level terminal-status
+// contract that cascade resolution depends on (see B028). A custom workflow
+// that renames "completed" to "shipped" must still classify children
+// correctly during cascade dispatch.
+func TestB028_TerminalStatusDelegation(t *testing.T) {
 	tmp := writeB028Config(t)
 	taskWf := workflow.NewService(tmp).ForLevel(workflow.LevelTask)
 
-	if !isTerminalStatus(taskWf, "shipped") {
-		t.Error("expected isTerminalStatus(\"shipped\") = true for custom workflow with renamed terminal; cascade.go regressed to hardcoded list")
+	if !taskWf.IsTerminalStatus("shipped") {
+		t.Error("expected IsTerminalStatus(\"shipped\") = true for custom workflow with renamed terminal")
 	}
-	if isTerminalStatus(taskWf, "in_progress") {
-		t.Error("expected isTerminalStatus(\"in_progress\") = false")
+	if taskWf.IsTerminalStatus("in_progress") {
+		t.Error("expected IsTerminalStatus(\"in_progress\") = false")
 	}
-	// "completed" is NOT a terminal for this workflow; the pre-fix
+	// "completed" is NOT a terminal for this workflow; the pre-B028
 	// hardcoded list would have wrongly returned true.
-	if isTerminalStatus(taskWf, "completed") {
-		t.Error("expected isTerminalStatus(\"completed\") = false; cascade.go is still consulting a hardcoded list")
+	if taskWf.IsTerminalStatus("completed") {
+		t.Error("expected IsTerminalStatus(\"completed\") = false; workflow.Service is consulting a hardcoded list")
 	}
 
 	featureWf := workflow.NewService(tmp).ForLevel(workflow.LevelFeature)
-	if !isTerminalStatus(featureWf, "shipped") {
-		t.Error("expected feature-level isTerminalStatus(\"shipped\") = true")
-	}
-}
-
-// TestB028_IsTerminalStatus_NilWorkflowSafe guards against panics if the
-// helper is ever called with a nil workflow.
-func TestB028_IsTerminalStatus_NilWorkflowSafe(t *testing.T) {
-	if isTerminalStatus(nil, "anything") {
-		t.Error("expected isTerminalStatus with nil wf to return false")
+	if !featureWf.IsTerminalStatus("shipped") {
+		t.Error("expected feature-level IsTerminalStatus(\"shipped\") = true")
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -239,16 +240,6 @@ var validNoteTypes = []string{
 	"review",
 }
 
-// validNoteTypeSet is the membership lookup derived from validNoteTypes.
-// Built once at package init so ValidateNoteType stays O(1) per call.
-var validNoteTypeSet = func() map[string]bool {
-	m := make(map[string]bool, len(validNoteTypes))
-	for _, t := range validNoteTypes {
-		m[t] = true
-	}
-	return m
-}()
-
 // ValidNoteTypes returns a defensive copy of the canonical note-type
 // allowlist for callers that need to enumerate or display valid types
 // (e.g. CLI help, API schema generation).
@@ -261,10 +252,10 @@ func ValidNoteTypes() []string {
 // ValidateNoteType validates the note type enum.
 //
 // On failure, the returned error wraps ErrInvalidNoteType and includes
-// the full allowlist (built dynamically from validNoteTypes) so the
-// human-readable hint cannot drift from the validator.
+// the full allowlist so the human-readable hint cannot drift from the
+// validator.
 func ValidateNoteType(noteType string) error {
-	if !validNoteTypeSet[noteType] {
+	if !slices.Contains(validNoteTypes, noteType) {
 		return fmt.Errorf("%w: must be one of [%s]; got %q",
 			ErrInvalidNoteType, strings.Join(validNoteTypes, ", "), noteType)
 	}

@@ -1,26 +1,10 @@
-// Package services — cascade_service.go provides the CascadeService used by
-// `shark next` to enumerate dispatchable children when an entity's workflow
-// action is "cascade".
+// Package services — CascadeService enumerates dispatchable children for
+// `shark next` cascade resolution.
 //
-// This service is the layered home for the cascade resolution that used to
-// live (as a fat-controller anti-pattern) directly in
-// internal/cli/commands/cascade.go. Per the project's architecture rules,
-// CLI commands must not construct repositories or perform business filtering
-// (terminal-status filter is workflow-level business logic — see B028 / B029).
-//
-// Contract recap from cascade.go:
-//
-//   - Ordering: the underlying repository queries already sort by
-//     (execution_order NULLS LAST, priority ASC, created_at ASC, key ASC).
-//     We pass that order through untouched.
-//   - Terminal-status children (per the per-level workflow's special_statuses
-//     `_complete_` set) are filtered out — they can't be dispatched and would
-//     only waste a recursion. Filtering delegates to
-//     workflow.Service.IsTerminalStatus so custom workflows that rename the
-//     terminal status (e.g. "shipped" instead of "completed") behave correctly.
-//   - Leaf entities (task, bug, change, tech-debt) have no children: returning
-//     an empty slice (not an error) lets the caller fall through to
-//     "no dispatchable child → pause".
+// Terminal-status filtering delegates to workflow.Service.IsTerminalStatus
+// so custom workflows that rename the terminal status (e.g. "shipped"
+// instead of "completed") continue to filter correctly. Repository query
+// order is passed through untouched.
 package services
 
 import (
@@ -32,12 +16,10 @@ import (
 )
 
 // CascadeChild is a (key, entityType) pair the cascade resolver hands back to
-// the CLI for recursion. The CLI re-detects the entity type from the key
-// shape, but emitting it here removes the need for the caller to re-derive it
-// and keeps the service self-contained.
+// the CLI for recursion.
 type CascadeChild struct {
 	Key        string
-	EntityType string
+	EntityType models.EntityType
 }
 
 // CascadeTaskRepo is the narrow task repository interface the cascade service
@@ -128,7 +110,7 @@ func (s *CascadeService) ListDispatchableChildren(ctx context.Context, entityTyp
 			if s.isTerminalStatus(taskWf, string(t.Status)) {
 				continue
 			}
-			out = append(out, CascadeChild{Key: t.Key, EntityType: "task"})
+			out = append(out, CascadeChild{Key: t.Key, EntityType: models.EntityTypeTask})
 		}
 		return out, nil
 
@@ -147,7 +129,7 @@ func (s *CascadeService) ListDispatchableChildren(ctx context.Context, entityTyp
 			if s.isTerminalStatus(featureWf, string(f.Status)) {
 				continue
 			}
-			out = append(out, CascadeChild{Key: f.Key, EntityType: "feature"})
+			out = append(out, CascadeChild{Key: f.Key, EntityType: models.EntityTypeFeature})
 		}
 		return out, nil
 	}

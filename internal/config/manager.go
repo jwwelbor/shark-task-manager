@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -225,55 +226,22 @@ func (m *Manager) GetLastSyncTime() *time.Time {
 	return m.config.LastSyncTime
 }
 
-// UpdateLastSyncTime updates the last_sync_time field in the config file
-// Uses atomic write (temp file + rename) to prevent corruption
+// UpdateLastSyncTime updates the last_sync_time field in the config file.
+// Routes through writeRawConfig for atomic write semantics.
 func (m *Manager) UpdateLastSyncTime(syncTime time.Time) error {
-	// Load current config if not loaded
 	if m.config == nil {
-		_, err := m.Load()
-		if err != nil {
+		if _, err := m.Load(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 	}
 
-	// Get current file permissions if file exists
-	var filePerms os.FileMode = 0644
-	if info, err := os.Stat(m.configPath); err == nil {
-		filePerms = info.Mode().Perm()
-	}
-
-	// Update the timestamp in raw data
 	if m.config.RawData == nil {
 		m.config.RawData = make(map[string]interface{})
 	}
 	m.config.RawData["last_sync_time"] = syncTime.Format(time.RFC3339)
-
-	// Update in-memory config
 	m.config.LastSyncTime = &syncTime
 
-	// Marshal to JSON with HTML escaping disabled for readability
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(m.config.RawData); err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	data := buf.Bytes()
-
-	// Write to temp file
-	tmpPath := m.configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, filePerms); err != nil {
-		return fmt.Errorf("failed to write temp config: %w", err)
-	}
-
-	// Atomic rename
-	if err := os.Rename(tmpPath, m.configPath); err != nil {
-		os.Remove(tmpPath) // Cleanup temp file on failure
-		return fmt.Errorf("failed to rename config: %w", err)
-	}
-
-	return nil
+	return writeRawConfig(m.configPath, m.config.RawData)
 }
 
 // SetSprintCapacityDefault updates sprint_defaults.capacity.<agentType> in
@@ -292,13 +260,6 @@ func (m *Manager) SetSprintCapacityDefault(agentType string, points float64) err
 		}
 	}
 
-	// Get current file permissions (preserve on rewrite)
-	var filePerms os.FileMode = 0644
-	if info, err := os.Stat(m.configPath); err == nil {
-		filePerms = info.Mode().Perm()
-	}
-
-	// Ensure RawData map is initialized
 	if m.config.RawData == nil {
 		m.config.RawData = make(map[string]interface{})
 	}
@@ -316,11 +277,10 @@ func (m *Manager) SetSprintCapacityDefault(agentType string, points float64) err
 		sprintDefaultsRaw["capacity"] = capacityRaw
 	}
 
-	// Set the value
 	capacityRaw[agentType] = points
 
-	// Mirror update into the in-memory SprintDefaultsConfig struct so subsequent
-	// reads via m.config.SprintDefaults see the new value without a reload.
+	// Mirror into in-memory SprintDefaultsConfig so subsequent reads see
+	// the new value without a reload.
 	if m.config.SprintDefaults == nil {
 		m.config.SprintDefaults = &SprintDefaultsConfig{}
 	}
@@ -329,23 +289,8 @@ func (m *Manager) SetSprintCapacityDefault(agentType string, points float64) err
 	}
 	m.config.SprintDefaults.Capacity[agentType] = points
 
-	// Marshal raw data to JSON (preserves all unknown fields)
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(m.config.RawData); err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// Atomic write: write to temp file then rename
-	tmpPath := m.configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, buf.Bytes(), filePerms); err != nil {
-		return fmt.Errorf("failed to write temp config: %w", err)
-	}
-	if err := os.Rename(tmpPath, m.configPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to rename config: %w", err)
+	if err := writeRawConfig(m.configPath, m.config.RawData); err != nil {
+		return err
 	}
 
 	slog.Info("config.sprint_defaults_updated",
@@ -381,10 +326,12 @@ func (m *Manager) SaveRaw(path string, rawData map[string]interface{}) error {
 	return writeRawConfig(path, rawData)
 }
 
-// writeRawConfig performs the atomic JSON write used by SaveRaw. Kept as a
-// package-level helper so it can be reused by other Manager write paths
-// (UpdateLastSyncTime, SetSprintCapacityDefault) without forcing callers
-// through the public SaveRaw signature.
+// writeRawConfig performs the atomic JSON write used by SaveRaw,
+// UpdateLastSyncTime, and SetSprintCapacityDefault.
+//
+// Uses os.CreateTemp so concurrent writers don't collide on a shared
+// `<path>.tmp` filename, and a deferred remove cleans up the temp file
+// on any failure path (including a panic mid-write).
 func writeRawConfig(path string, rawData map[string]interface{}) error {
 	// Preserve existing file permissions; fall back to 0644 for new files.
 	var filePerms os.FileMode = 0644
@@ -400,14 +347,35 @@ func writeRawConfig(path string, rawData map[string]interface{}) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, buf.Bytes(), filePerms); err != nil {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(dir, base+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	// Cleanup if anything below fails or panics.
+	removed := false
+	defer func() {
+		if !removed {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		tmp.Close()
 		return fmt.Errorf("failed to write temp config: %w", err)
 	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close temp config: %w", err)
+	}
+	if err := os.Chmod(tmpPath, filePerms); err != nil {
+		return fmt.Errorf("failed to set temp config permissions: %w", err)
+	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // Cleanup temp file on failure
 		return fmt.Errorf("failed to rename config: %w", err)
 	}
+	removed = true // rename consumed the temp file
 	return nil
 }
 

@@ -75,10 +75,8 @@ type ViewerTaskRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 	CountByStatus(ctx context.Context) (map[string]int, error)
 	CountBlocked(ctx context.Context) (int, error)
-	// ListWithViewerRelationships returns all tasks with pre-resolved relationship JSON
-	// from the viewer_task_relationships view. One DB round-trip replaces N+1 per-task calls.
-	ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
 	// ListByFeatureWithViewerRelationships returns tasks for a feature with pre-resolved relationship JSON.
+	// Used by FeatureTasks (the lazy-load endpoint that replaced inline embedding in Hierarchy — see B017).
 	ListByFeatureWithViewerRelationships(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error)
 	// CountsByFeature returns total and blocked task counts per feature in a single
 	// aggregate query. Used by the hierarchy endpoint (B017) so full task rows are
