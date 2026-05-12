@@ -1,0 +1,8 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME verification for change E07-F01: "Sample feature for golden test".
+
+Check for existing verification report. If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_development.
+
+Otherwise, continue with verification per ready_for_verification instructions.

@@ -1,0 +1,5 @@
+Feature E07-F01 is blocked. Do not spawn agent — wait for human resolution.
+
+Blocked reason: External dependency unavailable
+
+Once resolved, resume with: shark status advance E07-F01

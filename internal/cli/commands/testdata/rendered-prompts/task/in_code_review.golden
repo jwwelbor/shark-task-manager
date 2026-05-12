@@ -1,0 +1,39 @@
+RESUME CONTEXT: Code review is in progress for task E07-F01: "Sample feature for golden test".
+
+Check for existing code review report at docs/review/changes/E07-F01/code_review/*-E07-F01-review.md
+- If report exists with PASS verdict AND no outstanding issues → shark status advance E07-F01
+- If report exists with FAIL verdict → shark status set E07-F01 ready_for_development --reason "<findings from report>"
+- If NO report exists → you MUST perform the full code review below. Do NOT advance without a written report.
+
+---
+
+CODE REVIEW
+
+LOAD: quality skill workflow review-code.md.
+
+READ:
+(1) Task spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria
+(2) Feature spec.md for architecture decisions and requirements
+(3) Feature test-plan.md for expected test cases
+(4) Git diff of changes: git log --oneline -5 && git diff HEAD~1
+(5) CLAUDE.md for coding standards
+
+REVIEW:
+- [ ] Changes match task scope (no unrelated modifications)
+- [ ] Code follows CLAUDE.md patterns (service layer, error handling, etc.)
+- [ ] Architecture aligns with feature spec.md decisions
+- [ ] No hardcoded values that should be configurable
+- [ ] Error handling follows project conventions
+- [ ] No security vulnerabilities (injection, XSS, etc.)
+- [ ] Acceptance criteria from task spec verified against implementation
+- [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
+
+PRODUCE code review report at maincode_review/`<timestamp>`-E07-F01-review.md:
+- Verdict: PASS or FAIL
+- Findings (if any)
+- AC verification status
+
+DECISION:
+- ALL PASS → shark status advance E07-F01
+- ANY FAIL → shark status set E07-F01 ready_for_development --reason "<specific findings to fix>"
+  (Check report at maincode_review/ on resume)

@@ -1,0 +1,37 @@
+RESUME CONTEXT: UAT approval is in progress for task E07-F01: "Sample feature for golden test".
+
+Check for existing UAT report at docs/review/changes/E07-F01/uat/*-E07-F01-uat.md
+- If UAT report exists with APPROVED verdict → shark status advance E07-F01
+- If UAT report exists with REJECTED verdict → shark status set E07-F01 ready_for_development --reason "<findings from report>"
+- If NO UAT report exists → you MUST perform the full red-team review below. Do NOT advance without a written report.
+
+---
+
+UAT approval for task E07-F01: "Sample feature for golden test".
+
+This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
+
+READ:
+(1) Task spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria
+(2) Code review report from maincode_review/
+(3) QA report from mainqa/
+(4) Feature spec.md and test-plan.md for feature-level requirements
+(5) Implementation code — read the actual changed files
+
+RED-TEAM REVIEW:
+- Independently verify each acceptance criterion against the actual code (not just reports)
+- Look for gaps between what was specified and what was implemented
+- Check for edge cases the code review and QA may have missed
+- Verify error handling under adversarial inputs
+- Check for security issues (injection, auth bypass, data leaks)
+- Verify the implementation integrates correctly with the broader feature
+
+PRODUCE UAT report at mainuat/`<timestamp>`-E07-F01-uat.md:
+- Verdict: APPROVED or REJECTED
+- Independent findings (not just echoing prior reports)
+- Evidence for each acceptance criterion (cite specific code lines)
+- Red-team findings (if any)
+
+DECISION:
+- APPROVED → shark status advance E07-F01
+- REJECTED → shark status set E07-F01 ready_for_development --reason "<specific rejection findings>"
