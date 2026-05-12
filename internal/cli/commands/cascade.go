@@ -1,14 +1,8 @@
 // Package commands — cascade.go implements engine-internal cascade resolution
-// for `shark next`. When an entity (typically a feature or epic) is in a
-// status whose orchestrator action is "cascade", the engine looks one level
-// down, picks the first dispatchable child, and recurses runNext on the
-// child's key. The wire response carries the child's dispatch step plus a
-// `resolved_via` chain that audits the parents skipped through.
-//
-// Per the 2026-05-11 design decision, cascade never reaches the harness on
-// the wire — the harness only ever sees `spawn_agent`, `pause`, or
-// `archive`. This keeps the contract narrow and avoids teaching the
-// harness about parent/child entity topology.
+// for `shark next`. When an entity's status maps to action "cascade", the
+// engine looks one level down, picks the first dispatchable child, and
+// recurses on the child's key. Cascade never reaches the harness on the
+// wire — the harness only ever sees `spawn_agent`, `pause`, or `archive`.
 package commands
 
 import (
@@ -16,8 +10,8 @@ import (
 	"fmt"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // maxCascadeDepth bounds how deep cascade recursion can go. The hierarchy
@@ -52,6 +46,8 @@ func listDispatchableChildren(ctx context.Context, entityType, key string) ([]ca
 		return nil, fmt.Errorf("failed to get database: %w", err)
 	}
 
+	wfSvc := cli.GetWorkflowService()
+
 	switch entityType {
 	case "feature":
 		taskRepo := repository.NewTaskRepository(db)
@@ -59,9 +55,10 @@ func listDispatchableChildren(ctx context.Context, entityType, key string) ([]ca
 		if err != nil {
 			return nil, fmt.Errorf("failed to list tasks for feature %s: %w", key, err)
 		}
+		taskWf := wfSvc.ForLevel(workflow.LevelTask)
 		out := make([]cascadeChild, 0, len(tasks))
 		for _, t := range tasks {
-			if isTerminalTaskStatus(t.Status) {
+			if isTerminalStatus(taskWf, string(t.Status)) {
 				continue
 			}
 			out = append(out, cascadeChild{Key: t.Key, EntityType: "task"})
@@ -81,9 +78,10 @@ func listDispatchableChildren(ctx context.Context, entityType, key string) ([]ca
 		if err != nil {
 			return nil, fmt.Errorf("failed to list features for epic %s: %w", key, err)
 		}
+		featureWf := wfSvc.ForLevel(workflow.LevelFeature)
 		out := make([]cascadeChild, 0, len(features))
 		for _, f := range features {
-			if isTerminalFeatureStatus(f.Status) {
+			if isTerminalStatus(featureWf, string(f.Status)) {
 				continue
 			}
 			out = append(out, cascadeChild{Key: f.Key, EntityType: "feature"})
@@ -97,29 +95,17 @@ func listDispatchableChildren(ctx context.Context, entityType, key string) ([]ca
 	return nil, nil
 }
 
-// isTerminalTaskStatus reports whether a task status is in a terminal state
-// from which no dispatch will ever be productive. The exact terminal set is
-// workflow-defined; we hardcode the names that ship with the default short
-// workflow plus "archived"/"done" for compatibility with custom workflows.
+// isTerminalStatus reports whether a status is terminal (no productive
+// dispatch possible) for the given workflow level. Delegates to
+// workflow.Service.IsTerminalStatus, which reads the configured terminal
+// set from the per-level workflow YAML (special_statuses._complete_).
 //
-// This is intentionally a static list: cascade resolution runs before the
-// per-entity action service is consulted for the child, and we don't want
-// to pay the action-service round-trip just to filter children. If a
-// custom workflow renames "completed" to something exotic, the recursion
-// will still bottom out at "pause" — just one wasted call.
-func isTerminalTaskStatus(s models.TaskStatus) bool {
-	switch string(s) {
-	case "completed", "cancelled", "archived", "done":
-		return true
+// Using the workflow service rather than a hardcoded literal list keeps
+// cascade correctness aligned with custom workflows that rename terminal
+// statuses (e.g. "shipped" instead of "completed"). See B028.
+func isTerminalStatus(wf *workflow.Service, s string) bool {
+	if wf == nil {
+		return false
 	}
-	return false
-}
-
-// isTerminalFeatureStatus mirrors isTerminalTaskStatus for features.
-func isTerminalFeatureStatus(s models.FeatureStatus) bool {
-	switch string(s) {
-	case "completed", "cancelled", "archived", "done":
-		return true
-	}
-	return false
+	return wf.IsTerminalStatus(s)
 }

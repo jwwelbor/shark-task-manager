@@ -187,8 +187,8 @@ func resolveNext(ctx context.Context, entityType, normalizedKey string, depth in
 	}
 
 	// Terminal status: nothing to dispatch.
-	if nextInfo.IsTerminal || isArchivedStatus(currentStatus) {
-		if isArchivedStatus(currentStatus) {
+	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
+		if isArchivedStatus(entityType, currentStatus) {
 			resp.Action = "archive"
 		} else {
 			resp.Action = "pause"
@@ -392,16 +392,22 @@ func outputNextJSON(resp NextResponse) error {
 	return nil
 }
 
-// isArchivedStatus reports whether a status name conventionally indicates an
-// archived entity. The exact set varies by entity type / workflow profile;
-// we accept a loose suffix match so different vocabularies route consistently.
-func isArchivedStatus(status string) bool {
+// isArchivedStatus reports whether a status name indicates an archived /
+// terminal entity for the given entity type. The canonical terminal set is
+// resolved against the entity's own workflow.Service (so custom workflows
+// that rename "completed" still route correctly — see B028), and we also
+// keep a loose `_archived` suffix match for the cross-vocabulary cases
+// where some workflows use names like "in_qa_archived".
+func isArchivedStatus(entityType, status string) bool {
 	s := strings.ToLower(status)
-	switch s {
-	case "archived", "completed", "cancelled", "done":
+	if strings.HasSuffix(s, "_archived") {
 		return true
 	}
-	return strings.HasSuffix(s, "_archived")
+	wf := cli.GetWorkflowService()
+	if entityType != "" {
+		wf = wf.ForLevel(entityType)
+	}
+	return wf.IsTerminalStatus(status)
 }
 
 // Compile-time check that buildTransitioner / buildPlaceholderGenerator
