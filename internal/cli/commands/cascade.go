@@ -3,14 +3,18 @@
 // engine looks one level down, picks the first dispatchable child, and
 // recurses on the child's key. Cascade never reaches the harness on the
 // wire — the harness only ever sees `spawn_agent`, `pause`, or `archive`.
+//
+// This file is intentionally a thin CLI wrapper: it adapts the
+// command-layer types (`cascadeChild`) to and from the service layer
+// (`services.CascadeService`) and delegates all repository access and
+// terminal-status business logic to the service. See B029 for the
+// architectural rationale (fat-controller fix).
 package commands
 
 import (
 	"context"
-	"fmt"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -21,8 +25,9 @@ import (
 const maxCascadeDepth = 4
 
 // cascadeChild is a (key, entityType) pair the resolver hands back to
-// runNext for recursion. The pair is enough because runNext re-detects the
-// entity type from the key shape anyway.
+// runNext for recursion. Kept as a command-layer type so callers continue to
+// import only from `commands`. The service returns a structurally identical
+// `services.CascadeChild` which we map into this type below.
 type cascadeChild struct {
 	Key        string
 	EntityType string
@@ -31,78 +36,30 @@ type cascadeChild struct {
 // listDispatchableChildren returns the ordered list of child entities to
 // consider for cascade dispatch from parent (entityType, key).
 //
-// Ordering: the underlying repository queries already sort by
-// (execution_order NULLS LAST, priority ASC, created_at ASC, key ASC).
-// We pass that order through untouched so the caller picks "first
-// in-progress task; else first todo by order" simply by iterating.
-//
-// Terminal-status children (completed, cancelled, archived) are filtered
-// out — they can't be dispatched and would only waste a recursion. The
-// caller is still free to receive a "pause" response from the recursion
-// for non-terminal-but-stuck children (e.g. blocked).
+// This function is now a thin wrapper around services.CascadeService —
+// repository construction and terminal-status filtering happen there.
 func listDispatchableChildren(ctx context.Context, entityType, key string) ([]cascadeChild, error) {
-	db, err := cli.GetDB(ctx)
+	svc := cli.GetCascadeService()
+	children, err := svc.ListDispatchableChildren(ctx, entityType, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get database: %w", err)
+		return nil, err
 	}
-
-	wfSvc := cli.GetWorkflowService()
-
-	switch entityType {
-	case "feature":
-		taskRepo := repository.NewTaskRepository(db)
-		tasks, err := taskRepo.ListByFeatureKey(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list tasks for feature %s: %w", key, err)
-		}
-		taskWf := wfSvc.ForLevel(workflow.LevelTask)
-		out := make([]cascadeChild, 0, len(tasks))
-		for _, t := range tasks {
-			if isTerminalStatus(taskWf, string(t.Status)) {
-				continue
-			}
-			out = append(out, cascadeChild{Key: t.Key, EntityType: "task"})
-		}
-		return out, nil
-
-	case "epic":
-		// Resolve the epic ID once, then list its features.
-		epicRepo := repository.NewEpicRepository(db)
-		featureRepo := repository.NewFeatureRepository(db)
-
-		epic, err := epicRepo.GetByKey(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
-		}
-		features, err := featureRepo.ListByEpic(ctx, epic.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list features for epic %s: %w", key, err)
-		}
-		featureWf := wfSvc.ForLevel(workflow.LevelFeature)
-		out := make([]cascadeChild, 0, len(features))
-		for _, f := range features {
-			if isTerminalStatus(featureWf, string(f.Status)) {
-				continue
-			}
-			out = append(out, cascadeChild{Key: f.Key, EntityType: "feature"})
-		}
-		return out, nil
+	if len(children) == 0 {
+		return nil, nil
 	}
-
-	// Tasks, bugs, change-cards, tech-debt are leaf entities — they have
-	// no children. Returning an empty slice (not an error) lets the caller
-	// fall through to "no dispatchable child → pause".
-	return nil, nil
+	out := make([]cascadeChild, len(children))
+	for i, c := range children {
+		out[i] = cascadeChild{Key: c.Key, EntityType: c.EntityType}
+	}
+	return out, nil
 }
 
-// isTerminalStatus reports whether a status is terminal (no productive
-// dispatch possible) for the given workflow level. Delegates to
-// workflow.Service.IsTerminalStatus, which reads the configured terminal
-// set from the per-level workflow YAML (special_statuses._complete_).
+// isTerminalStatus reports whether a status is terminal for the given
+// workflow level. Retained as a package-level helper for the
+// cascade_terminal_status_test.go regression test (B028) which exercises
+// the workflow-level delegation contract directly.
 //
-// Using the workflow service rather than a hardcoded literal list keeps
-// cascade correctness aligned with custom workflows that rename terminal
-// statuses (e.g. "shipped" instead of "completed"). See B028.
+// New code should not call this helper; use services.CascadeService instead.
 func isTerminalStatus(wf *workflow.Service, s string) bool {
 	if wf == nil {
 		return false

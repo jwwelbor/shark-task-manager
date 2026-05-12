@@ -537,6 +537,31 @@ func GetTechDebtService() *services.TechDebtService {
 	return svc
 }
 
+// GetCascadeService returns a CascadeService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Used by `shark next` cascade resolution to enumerate dispatchable children
+// (B029): the CLI command must NOT construct repositories directly, so this
+// accessor wires the underlying task/epic/feature repositories at the CLI
+// boundary and returns a service the command can call.
+//
+// Usage:
+//
+//	svc := cli.GetCascadeService()
+//	children, err := svc.ListDispatchableChildren(ctx, "feature", "E07-F01")
+func GetCascadeService() *services.CascadeService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	taskRepo := repository.NewTaskRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	workflowSvc := GetWorkflowService()
+	return services.NewCascadeService(taskRepo, epicRepo, featureRepo, workflowSvc)
+}
+
 // GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.
 // Creates a new instance each call with the global DB connection.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
