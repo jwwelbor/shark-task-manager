@@ -249,33 +249,7 @@ func (s *DefaultActionService) ValidateActions(ctx context.Context) (*Validation
 	}
 
 	for entityType, entityMap := range s.statusData {
-		for status, data := range entityMap {
-			// Check if actionable status (ready_for_*) lacks action
-			if strings.HasPrefix(status, "ready_for_") && data.OrchestratorAction == nil {
-				key := status
-				if entityType != DefaultEntityType {
-					key = entityType + ":" + status
-				}
-				result.MissingActions = append(result.MissingActions, key)
-				result.Warnings = append(result.Warnings,
-					fmt.Sprintf("Status '%s' has no orchestrator_action defined", key))
-			}
-
-			// Validate action if present
-			if data.OrchestratorAction != nil {
-				if err := data.OrchestratorAction.Validate(); err != nil {
-					key := status
-					if entityType != DefaultEntityType {
-						key = entityType + ":" + status
-					}
-					result.Valid = false
-					result.InvalidActions = append(result.InvalidActions, InvalidAction{
-						Status: key,
-						Error:  err.Error(),
-					})
-				}
-			}
-		}
+		validateEntityMap(entityType, entityMap, true, result)
 	}
 
 	// Set overall validity
@@ -284,6 +258,40 @@ func (s *DefaultActionService) ValidateActions(ctx context.Context) (*Validation
 	}
 
 	return result, nil
+}
+
+// validateEntityMap walks a single entity's status -> action map and appends any
+// missing/invalid actions and warnings to result. When qualifyKeys is true,
+// status keys reported in MissingActions, InvalidActions, and Warnings are
+// prefixed with "<entityType>:" (except for the default entity type, which is
+// always reported unqualified for back-compat). When qualifyKeys is false,
+// raw status names are reported — used by entityActionView, which is already
+// scoped to a single entity and would otherwise emit redundant prefixes.
+func validateEntityMap(entityType string, entityMap map[string]StatusActionData, qualifyKeys bool, result *ValidationResult) {
+	for status, data := range entityMap {
+		key := status
+		if qualifyKeys && entityType != DefaultEntityType {
+			key = entityType + ":" + status
+		}
+
+		// Check if actionable status (ready_for_*) lacks action
+		if strings.HasPrefix(status, "ready_for_") && data.OrchestratorAction == nil {
+			result.MissingActions = append(result.MissingActions, key)
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Status '%s' has no orchestrator_action defined", key))
+		}
+
+		// Validate action if present
+		if data.OrchestratorAction != nil {
+			if err := data.OrchestratorAction.Validate(); err != nil {
+				result.Valid = false
+				result.InvalidActions = append(result.InvalidActions, InvalidAction{
+					Status: key,
+					Error:  err.Error(),
+				})
+			}
+		}
+	}
 }
 
 // Reload reloads configuration from disk
@@ -339,23 +347,7 @@ func (v *entityActionView) ValidateActions(ctx context.Context) (*ValidationResu
 		Warnings:       []string{},
 	}
 
-	entityMap := v.parent.statusData[v.entityType]
-	for status, data := range entityMap {
-		if strings.HasPrefix(status, "ready_for_") && data.OrchestratorAction == nil {
-			result.MissingActions = append(result.MissingActions, status)
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Status '%s' has no orchestrator_action defined", status))
-		}
-		if data.OrchestratorAction != nil {
-			if err := data.OrchestratorAction.Validate(); err != nil {
-				result.Valid = false
-				result.InvalidActions = append(result.InvalidActions, InvalidAction{
-					Status: status,
-					Error:  err.Error(),
-				})
-			}
-		}
-	}
+	validateEntityMap(v.entityType, v.parent.statusData[v.entityType], false, result)
 
 	if len(result.InvalidActions) > 0 {
 		result.Valid = false
