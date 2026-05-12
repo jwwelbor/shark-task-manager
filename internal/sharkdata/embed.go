@@ -317,11 +317,45 @@ func (r *ValidationReport) HasErrors() bool {
 	return false
 }
 
+// expectedWorkflowFiles is the canonical set of per-entity workflow YAML
+// filenames the engine expects to find under shark-data/workflow/.  When any
+// of these files is absent, shark validate reports an error: the engine will
+// silently fall back to hardcoded defaults at runtime, which can change
+// dispatch behavior in hard-to-diagnose ways (B023).
+//
+// This list mirrors the yamlEntityFiles table in
+// internal/config/workflow/yaml_loader.go.  tech-debt.yaml and sprint.yaml
+// are intentionally omitted: they are supplementary — most projects do not
+// define them and the fallback for those entity types is less disruptive.
+var expectedWorkflowFiles = []string{
+	"epic.yaml",
+	"feature.yaml",
+	"task.yaml",
+	"bug.yaml",
+	"change.yaml",
+}
+
 func validateWorkflowYAML(workflowDir string, report *ValidationReport) {
 	if _, err := os.Stat(workflowDir); err != nil {
 		// workflow/ is optional in F3; F4 populates it.
 		return
 	}
+
+	// Check that every expected per-entity workflow file is present.
+	// A missing file means the engine will silently fall back to hardcoded
+	// defaults at runtime — that config drift is precisely what shark validate
+	// is meant to catch before the worker hits it.
+	for _, filename := range expectedWorkflowFiles {
+		full := filepath.Join(workflowDir, filename)
+		if _, err := os.Stat(full); os.IsNotExist(err) {
+			report.AddIssue(
+				IssueLevelError,
+				"workflow/"+filename,
+				fmt.Sprintf("missing expected workflow file %q — engine will silently fall back to built-in defaults (run 'shark upgrade' to restore)", filename),
+			)
+		}
+	}
+
 	entries, err := os.ReadDir(workflowDir)
 	if err != nil {
 		report.AddIssue(IssueLevelError, "workflow/", fmt.Sprintf("read workflow dir: %v", err))

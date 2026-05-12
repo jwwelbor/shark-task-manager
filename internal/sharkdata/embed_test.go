@@ -297,6 +297,67 @@ func TestValidate_WorkflowYAMLMissingRequiredKey(t *testing.T) {
 	assert.True(t, found)
 }
 
+// TestValidate_MissingWorkflowYAML_SingleFile verifies that when one of the
+// expected per-entity workflow YAML files is absent from shark-data/workflow/,
+// shark validate surfaces an error-level issue (not silently falls back to
+// hardcoded defaults).  This is the regression test for B023.
+func TestValidate_MissingWorkflowYAML_SingleFile(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Remove feature.yaml — the same operation the B023 reproducer uses.
+	featurePath := filepath.Join(root, SharkDataDirName, "workflow", "feature.yaml")
+	require.NoError(t, os.Remove(featurePath))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	require.NotNil(t, report)
+
+	// Validation must report at least one error (not just warnings).
+	require.True(t, report.HasErrors(), "missing feature.yaml should produce an error-level issue")
+
+	// The error message must name the missing file so the user can act on it.
+	var found bool
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError && strings.Contains(issue.Path, "feature.yaml") {
+			found = true
+		}
+	}
+	assert.True(t, found, "error issue should reference workflow/feature.yaml; got issues: %+v", report.Issues)
+}
+
+// TestValidate_MissingWorkflowYAML_MultipleFiles verifies that each missing
+// expected workflow file produces its own error issue (not just the first one).
+func TestValidate_MissingWorkflowYAML_MultipleFiles(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.Remove(filepath.Join(workflowDir, "feature.yaml")))
+	require.NoError(t, os.Remove(filepath.Join(workflowDir, "epic.yaml")))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	require.True(t, report.HasErrors())
+
+	// Both missing files must appear as separate error issues.
+	missing := map[string]bool{"feature.yaml": false, "epic.yaml": false}
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError {
+			for name := range missing {
+				if strings.Contains(issue.Path, name) {
+					missing[name] = true
+				}
+			}
+		}
+	}
+	for name, found := range missing {
+		assert.True(t, found, "expected error issue for missing %s; got issues: %+v", name, report.Issues)
+	}
+}
+
 // ============================================================================
 // embed.FS sanity
 // ============================================================================
