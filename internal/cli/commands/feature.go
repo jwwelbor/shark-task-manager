@@ -232,7 +232,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 
 	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll, tagFilter)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "feature", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeFeature, "")
 	}
 
 	if len(featuresWithTaskCount) == 0 {
@@ -351,7 +351,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	featureSvc := cli.GetFeatureService()
 	feature, err := featureSvc.CreateFeature(ctx, input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", input.EpicKey)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeFeature, input.EpicKey)
 	}
 
 	featureFilePath := resolveFeatureFilePath(feature, input.EpicKey, projectRoot)

@@ -221,7 +221,7 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 	}
 	epics, err := cli.GetEpicService().ListEpics(ctx, services.EpicFilters{Status: statusFilter, Tags: tagFilter})
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "epic", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeEpic, "")
 	}
 
 	if len(epics) == 0 {

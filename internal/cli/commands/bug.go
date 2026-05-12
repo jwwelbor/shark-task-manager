@@ -314,7 +314,7 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bug, fileWasLinked, err := svc.CreateBug(cmd.Context(), input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", input.Title)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeBug, input.Title)
 	}
 
 	// Step 3: Format output
@@ -425,7 +425,7 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bugs, err := svc.ListBugs(cmd.Context(), filters)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "bug", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeBug, "")
 	}
 
 	// Step 3: Format output
@@ -487,7 +487,7 @@ func runBugUpdate(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bug, err := svc.UpdateBug(cmd.Context(), key, updates)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", key)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeBug, key)
 	}
 
 	// Step 3: Format output

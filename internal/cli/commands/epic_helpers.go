@@ -689,7 +689,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	epicSvc := cli.GetEpicService()
 	epic, err := epicSvc.CreateEpic(ctx, input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicTitle)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeEpic, epicTitle)
 	}
 
 	nextKey := epic.Key
@@ -1017,7 +1017,7 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 
 	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0 || updates.Size != nil || updates.ClearSize) {
 		if _, err := epicSvc.UpdateEpic(ctx, epicKey, updates); err != nil {
-			return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicKey)
+			return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeEpic, epicKey)
 		}
 	}
 

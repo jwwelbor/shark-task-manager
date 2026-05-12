@@ -289,7 +289,7 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, fileWasLinked, err := svc.CreateChangeCard(cmd.Context(), input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", input.Title)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, input.Title)
 	}
 
 	// Step 3: Format output
@@ -394,7 +394,7 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	cards, err := svc.ListChangeCards(cmd.Context(), filters)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "change", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeChange, "")
 	}
 
 	// Step 3: Format output
@@ -417,7 +417,7 @@ func runChangeUpdate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, err := svc.UpdateChangeCard(cmd.Context(), key, updates)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", key)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, key)
 	}
 
 	// Step 3: Format output

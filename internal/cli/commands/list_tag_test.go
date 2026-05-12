@@ -487,7 +487,7 @@ func TestListCmd_UnregisteredTagExitsWithCode3(t *testing.T) {
 	// we verify the error-path contract by calling handleEntityServiceError
 	// with a mock tag service and the same error the runner would produce.
 	tagSvc := &mockTagSvcForListTest{vocab: vocab}
-	err := handleEntityServiceError(cmd, tagSvc, &services.UnregisteredTagError{Name: "does-not-exist"}, "bug", "")
+	err := handleEntityServiceError(cmd, tagSvc, &services.UnregisteredTagError{Name: "does-not-exist"}, models.EntityTypeBug, "")
 
 	if err == nil {
 		t.Fatal("expected non-nil error")
@@ -524,7 +524,7 @@ func TestListCmd_UnregisteredTagJSON(t *testing.T) {
 	cmd.SetErr(&errBuf)
 
 	tagSvc := &mockTagSvcForListTest{vocab: vocab}
-	err := handleEntityServiceError(cmd, tagSvc, &services.UnregisteredTagError{Name: "does-not-exist"}, "bug", "")
+	err := handleEntityServiceError(cmd, tagSvc, &services.UnregisteredTagError{Name: "does-not-exist"}, models.EntityTypeBug, "")
 
 	if err == nil {
 		t.Fatal("expected non-nil error")

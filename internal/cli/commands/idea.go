@@ -322,7 +322,7 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	ideas, err := svc.ListIdeas(cmd.Context(), filters)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "idea", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeIdea, "")
 	}
 
 	ideas = filterIdeasByPriorityAndStatus(ideas, ideaPriority, ideaStatus)
@@ -399,7 +399,7 @@ func runIdeaCreate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	idea, err := svc.CreateIdea(cmd.Context(), input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "idea", input.Title)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeIdea, input.Title)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -420,7 +420,7 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	idea, err := svc.UpdateIdea(cmd.Context(), ideaKey, input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "idea", ideaKey)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeIdea, ideaKey)
 	}
 
 	if cli.GlobalConfig.JSON {

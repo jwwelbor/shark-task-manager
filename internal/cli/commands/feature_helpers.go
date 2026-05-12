@@ -1162,7 +1162,7 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
-			return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", featureKey)
+			return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeFeature, featureKey)
 		}
 	}
 

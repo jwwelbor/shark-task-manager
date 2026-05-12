@@ -102,7 +102,9 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 	}
 	results, err := cli.GetSearchService().SearchAll(cmd.Context(), query, entityTypeFlag, searchTags)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "search", "")
+		// Search has no single entity type; pass empty EntityType. The helper
+		// does not consume entityType for any rendering decisions today.
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityType(""), "")
 	}
 
 	// Step 3: Format output
