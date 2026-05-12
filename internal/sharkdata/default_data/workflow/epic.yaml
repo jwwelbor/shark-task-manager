@@ -91,6 +91,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: business-analyst
+      provider: anthropic
       model: opus
       skills:
       - specification-writing
@@ -106,6 +107,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: business-analyst
+      provider: anthropic
       model: opus
       skills:
       - specification-writing
@@ -123,6 +125,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: researcher
+      provider: anthropic
       model: sonnet
       skills:
       - research
@@ -138,6 +141,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: researcher
+      provider: anthropic
       model: sonnet
       skills:
       - research
@@ -155,6 +159,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: architect
+      provider: anthropic
       model: opus
       skills:
       - architecture
@@ -170,6 +175,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: architect
+      provider: anthropic
       model: opus
       skills:
       - architecture
@@ -187,6 +193,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: product-manager
+      provider: anthropic
       model: sonnet
       skills:
       - specification-writing
@@ -202,6 +209,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: product-manager
+      provider: anthropic
       model: sonnet
       skills:
       - specification-writing
@@ -219,6 +227,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: uat-agent
+      provider: openai
       model: codex
       skills:
       - quality
@@ -234,6 +243,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: uat-agent
+      provider: openai
       model: codex
       skills:
       - quality

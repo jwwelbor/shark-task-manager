@@ -57,6 +57,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: developer
+      provider: anthropic
       model: sonnet
       skills:
       - implementation
@@ -71,6 +72,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: developer
+      provider: anthropic
       model: sonnet
       skills:
       - implementation
@@ -87,6 +89,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: tech-lead
+      provider: anthropic
       model: opus
       skills:
       - quality
@@ -101,6 +104,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: tech-lead
+      provider: anthropic
       model: opus
       skills:
       - quality
@@ -117,6 +121,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: qa
+      provider: anthropic
       model: sonnet
       skills:
       - quality
@@ -131,6 +136,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: qa
+      provider: anthropic
       model: sonnet
       skills:
       - quality

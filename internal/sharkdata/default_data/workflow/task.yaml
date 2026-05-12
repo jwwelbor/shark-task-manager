@@ -45,6 +45,7 @@ status_metadata:
     orchestrator_action:
       action: spawn_agent
       agent_type: developer
+      provider: anthropic
       model: sonnet
       skills:
       - implementation
@@ -60,6 +61,7 @@ status_metadata:
     orchestrator_action:
       action: check_or_resume
       agent_type: developer
+      provider: anthropic
       model: sonnet
       skills:
       - implementation

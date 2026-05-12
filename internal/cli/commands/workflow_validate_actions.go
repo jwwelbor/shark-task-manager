@@ -255,6 +255,24 @@ func validateStatusAction(status string, metadata *config.StatusMetadata, strict
 		return result
 	}
 
+	// Soft-validate dispatch fields: spawn_agent / check_or_resume should set
+	// `provider` so consumers of `shark next` don't have to guess. Empty is
+	// still legal at the schema layer (run controller may default), so this is
+	// a warning, not an error.
+	dispatches := metadata.OrchestratorAction.Action == config.ActionSpawnAgent ||
+		metadata.OrchestratorAction.Action == config.ActionCheckOrResume
+	if dispatches && strings.TrimSpace(metadata.OrchestratorAction.Provider) == "" {
+		result.Valid = false
+		result.Severity = "warning"
+		result.Message = fmt.Sprintf("%s action missing provider", metadata.OrchestratorAction.Action)
+		result.Recommendation = "Set provider (e.g. anthropic, openai) so `shark next` returns a populated provider field"
+		// Still populate action details so the report is informative.
+		result.ActionType = metadata.OrchestratorAction.Action
+		result.AgentType = metadata.OrchestratorAction.AgentType
+		result.Skills = metadata.OrchestratorAction.Skills
+		return result
+	}
+
 	// Valid - populate action details
 	result.ActionType = metadata.OrchestratorAction.Action
 	result.AgentType = metadata.OrchestratorAction.AgentType
