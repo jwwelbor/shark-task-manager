@@ -372,6 +372,10 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 			tags = []string{}
 		}
 		result["tags"] = tags
+		// B032: size/size_label keys are always present (null when unset) so JSON
+		// consumers can rely on `--field size` and `jq has("size")` like they can
+		// for epics.
+		ensureSizeFieldsAlwaysPresent(result, bug)
 		return cli.OutputJSON(result)
 	}
 

@@ -290,6 +290,8 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
+			// B032: always surface size and size_label so `shark get <epic> --json`
+			// is consistent across entity types (null when unset).
 			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
 			// that --field size and --field size_label work for planning-mode epics.
 			// The struct marshals size inside the nested "epic" key; we mirror
@@ -298,7 +300,12 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 				infoMap["size"] = *epic.Size
 				if label, err := models.SizeLabel(*epic.Size); err == nil {
 					infoMap["size_label"] = label
+				} else {
+					infoMap["size_label"] = nil
 				}
+			} else {
+				infoMap["size"] = nil
+				infoMap["size_label"] = nil
 			}
 			return cli.OutputJSON(infoMap)
 		}

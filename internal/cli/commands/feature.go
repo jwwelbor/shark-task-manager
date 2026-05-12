@@ -298,6 +298,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
+			// B032: always surface size and size_label so `shark get <feature> --json`
+			// is consistent across entity types (null when unset).
 			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
 			// that --field size and --field size_label work for planning-mode features.
 			// The struct marshals size inside the nested "feature" key; we mirror
@@ -306,7 +308,12 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 				infoMap["size"] = *feature.Size
 				if label, err := models.SizeLabel(*feature.Size); err == nil {
 					infoMap["size_label"] = label
+				} else {
+					infoMap["size_label"] = nil
 				}
+			} else {
+				infoMap["size"] = nil
+				infoMap["size_label"] = nil
 			}
 			return cli.OutputJSON(infoMap)
 		}

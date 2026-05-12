@@ -1265,12 +1265,19 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 	if feature.ExecutionOrder != nil {
 		result["execution_order"] = *feature.ExecutionOrder
 	}
+	// B032: always emit size and size_label keys so `shark get <key> --json` is
+	// consistent across entity types. Values are null when Size is unset.
 	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
 	if feature.Size != nil {
 		result["size"] = *feature.Size
 		if label, err := models.SizeLabel(*feature.Size); err == nil {
 			result["size_label"] = label
+		} else {
+			result["size_label"] = nil
 		}
+	} else {
+		result["size"] = nil
+		result["size_label"] = nil
 	}
 
 	return result

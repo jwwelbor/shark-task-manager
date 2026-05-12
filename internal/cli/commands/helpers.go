@@ -835,6 +835,39 @@ func applySizeLabelToMap(result map[string]interface{}, sizable interface{}) {
 	}
 }
 
+// ensureSizeFieldsAlwaysPresent guarantees both "size" and "size_label" keys
+// exist in the JSON map, with null values when Size is unset. B032 (shark get
+// JSON omits size for bug/feature/change-card): every entity that carries Size
+// in its schema must expose the field consistently so callers can rely on
+// `--field size` / `--field size_label` and on `jq has("size")`.
+//
+// Used by bug and change-card get handlers after buildEnrichedJSON. Epic,
+// feature, and task have their own builders that handle this inline.
+//
+// sizable is any value whose concrete type implements GetSize() *int. When the
+// type does not satisfy that interface, the function is a no-op.
+func ensureSizeFieldsAlwaysPresent(result map[string]interface{}, sizable interface{}) {
+	type sizeGetter interface {
+		GetSize() *int
+	}
+	sg, ok := sizable.(sizeGetter)
+	if !ok || sg == nil {
+		return
+	}
+	size := sg.GetSize()
+	if size == nil {
+		result["size"] = nil
+		result["size_label"] = nil
+		return
+	}
+	result["size"] = *size
+	if label, err := models.SizeLabel(*size); err == nil {
+		result["size_label"] = label
+	} else {
+		result["size_label"] = nil
+	}
+}
+
 // buildEnrichedJSON converts an entity struct to a map[string]interface{} and adds
 // valid_transitions, orchestrator_action, and (when present) size_label fields.
 // This is a shared helper used by bug get and change get commands.
