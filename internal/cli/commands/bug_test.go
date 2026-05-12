@@ -141,6 +141,56 @@ func cobraExactArgs(n int) cobra.PositionalArgs {
 	}
 }
 
+// TestBugCreate_DescriptionAndLinkedFlags_PassThroughToService is the
+// regression test for B024: the `shark create bug` verb-first form advertises
+// --description, --linked-type, --linked-key but the handler silently dropped
+// them. This test asserts the flags arrive on the service input DTO.
+func TestBugCreate_DescriptionAndLinkedFlags_PassThroughToService(t *testing.T) {
+	stub := &mockBugServiceForTags{}
+	withBugSvcOverride(t, stub)
+
+	cmd := &cobra.Command{
+		Use:  "bug <title>",
+		Args: cobraExactArgs(1),
+		RunE: runBugCreate,
+	}
+	cmd.Flags().String("severity", "medium", "severity")
+	cmd.Flags().String("link", "", "link")
+	cmd.Flags().String("file", "", "file")
+	cmd.Flags().Bool("force", false, "force")
+	cmd.Flags().StringSlice("tag", nil, "tag")
+	cmd.Flags().String("description", "", "description")
+	cmd.Flags().String("linked-type", "", "linked-type")
+	cmd.Flags().String("linked-key", "", "linked-key")
+
+	cmd.SetArgs([]string{
+		"--severity=critical",
+		"--description=DESC_SHOULD_PERSIST",
+		"--linked-type=feature",
+		"--linked-key=E07-F01",
+		"all-flags-test",
+	})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if stub.lastCreate.Description != "DESC_SHOULD_PERSIST" {
+		t.Errorf("Description = %q, want %q (B024: --description dropped)",
+			stub.lastCreate.Description, "DESC_SHOULD_PERSIST")
+	}
+	if stub.lastCreate.LinkedEntityType != "feature" {
+		t.Errorf("LinkedEntityType = %q, want %q (B024: --linked-type dropped)",
+			stub.lastCreate.LinkedEntityType, "feature")
+	}
+	if stub.lastCreate.LinkedEntityKey != "E07-F01" {
+		t.Errorf("LinkedEntityKey = %q, want %q (B024: --linked-key dropped)",
+			stub.lastCreate.LinkedEntityKey, "E07-F01")
+	}
+}
+
 func TestBugCreate_TagFlag_PassesTagsToService(t *testing.T) {
 	stub := &mockBugServiceForTags{}
 	withBugSvcOverride(t, stub)

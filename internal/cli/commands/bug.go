@@ -277,21 +277,33 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// B024: the verb-first `shark create bug` advertises these flags; they
+	// were silently dropped before reaching the service. Both flag surfaces
+	// (`shark bug create` and `shark create bug`) read them here when present.
+	description, _ := cmd.Flags().GetString("description")
+	linkedType, _ := cmd.Flags().GetString("linked-type")
+	linkedKey, _ := cmd.Flags().GetString("linked-key")
+
 	input := services.CreateBugInput{
-		Title:    args[0],
-		Severity: models.BugSeverity(severity),
-		Force:    force,
-		Tags:     tags,
-		Size:     sizePtr,
-		Body:     body,
+		Title:       args[0],
+		Description: description,
+		Severity:    models.BugSeverity(severity),
+		Force:       force,
+		Tags:        tags,
+		Size:        sizePtr,
+		Body:        body,
 	}
 
 	if filePath != "" {
 		input.FilePath = &filePath
 	}
 
-	// Parse --link into linked entity type and key
-	if link != "" {
+	// Linked entity: prefer the explicit --linked-type / --linked-key pair
+	// (verb-first form) over the combined --link convenience flag.
+	if linkedType != "" || linkedKey != "" {
+		input.LinkedEntityType = linkedType
+		input.LinkedEntityKey = linkedKey
+	} else if link != "" {
 		entityType, entityKey := parseBugLinkFlag(link)
 		input.LinkedEntityType = entityType
 		input.LinkedEntityKey = entityKey
