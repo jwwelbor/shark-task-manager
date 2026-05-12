@@ -11,8 +11,9 @@ COMBINED REQUIREMENTS + ARCHITECTURE SPECIFICATION
 
 This is a SINGLE document (spec.md) that covers both what to build and how to build it. In brownfield development, the architect who understands the codebase is best positioned to write both.
 
-Load skill: `shark-data/skills/architecture/SKILL.md`
-Load skill: `shark-data/skills/specification-writing/SKILL.md`
+{{include: skills/architecture/SKILL.md}}
+
+{{include: skills/specification-writing/SKILL.md}}
 
 READ:
 (1) Parent epic PRD for business context and scope (DO NOT restate — reference by section)

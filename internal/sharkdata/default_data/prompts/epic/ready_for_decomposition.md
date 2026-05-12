@@ -7,7 +7,7 @@ Check for existing features: {{template "list" .}}. If features exist covering a
 
 ---
 
-Load skill: `shark-data/skills/specification-writing/workflows/write-feature-prd.md`
+{{include: skills/specification-writing/workflows/write-feature-prd.md}}
 
 READ:
 (1) Epic PRD for scope and requirements

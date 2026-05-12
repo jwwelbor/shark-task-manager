@@ -10,7 +10,7 @@ Check for an existing code review report at docs/review/{epic-folder}/{feature-f
 
 All tasks for feature {{.id}} ("{{.title}}") have completed development.
 
-Load skill: `shark-data/skills/quality/workflows/review-code.md`
+{{include: skills/quality/workflows/review-code.md}}
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria

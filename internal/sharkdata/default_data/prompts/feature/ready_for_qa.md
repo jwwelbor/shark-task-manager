@@ -1,6 +1,6 @@
 Feature code review passed for {{.id}} ("{{.title}}"). Launch QA agent for feature-level testing.
 
-Load skill: `shark-data/skills/quality/SKILL.md`
+{{include: skills/quality/SKILL.md}}
 
 READ:
 (1) Feature spec at {{.file_path}} for acceptance criteria and scope

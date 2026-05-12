@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,4 +130,51 @@ func TestLoadAgentBodyForInline_PrependFormatExample(t *testing.T) {
 	assert.True(t, strings.HasPrefix(combined, "QA persona"))
 	assert.Contains(t, combined, "\n\n---\n\n")
 	assert.True(t, strings.HasSuffix(combined, actionPrompt))
+}
+
+// findRepoPromptsDir walks up from the test working directory looking for
+// shark-data/prompts. Returns the absolute path or fails the test.
+func findRepoPromptsDir(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	dir := wd
+	for {
+		candidate := filepath.Join(dir, "shark-data", "prompts")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("could not locate shark-data/prompts walking up from %s", wd)
+		}
+		dir = parent
+	}
+}
+
+// TestRunNext_InlinesSkillContent is the F02 AC #2 end-to-end check: the
+// shipped feature/ready_for_assessment.md prompt must produce a rendered
+// output that contains the body of skills/assessment/SKILL.md inlined via
+// {{include:}}, not a path reference.
+func TestRunNext_InlinesSkillContent(t *testing.T) {
+	promptsDir := findRepoPromptsDir(t)
+
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes resolved")
+
+	out, err := renderer.Render("feature/ready_for_assessment.md", map[string]string{
+		"id":        "E32-F02",
+		"title":     "Engine — includes",
+		"file_path": "docs/plan/E32/E32-F02/E32-F02.md",
+		"epic_id":   "E32",
+		"is_resume": "false",
+	})
+	require.NoError(t, err)
+
+	// The skill body has a stable H1 that proves the file was inlined,
+	// not merely referenced by path.
+	assert.Contains(t, out, "# Assessment Skill (craft)",
+		"rendered prompt must inline skill body via {{include:}}")
+	assert.NotContains(t, out, "Load skill: ",
+		"path-reference idiom should not appear in the rendered prompt")
 }

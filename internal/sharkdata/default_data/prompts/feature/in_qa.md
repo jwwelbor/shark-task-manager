@@ -10,7 +10,7 @@ Check for an existing QA report at docs/review/{epic-folder}/{feature-folder}/qa
 
 Feature code review passed for {{.id}} ("{{.title}}"). Perform feature-level QA testing.
 
-Load skill: `shark-data/skills/quality/SKILL.md`
+{{include: skills/quality/SKILL.md}}
 
 READ:
 (1) Feature spec at {{.file_path}} for acceptance criteria and scope

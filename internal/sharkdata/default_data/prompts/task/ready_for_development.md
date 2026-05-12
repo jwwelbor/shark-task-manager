@@ -9,8 +9,9 @@ Check for existing implementation: review git diff and test files. If implementa
 
 TDD IMPLEMENTATION
 
-Load skill: `shark-data/skills/implementation/SKILL.md`
-Load skill: `shark-data/skills/test-driven-development/SKILL.md`
+{{include: skills/implementation/SKILL.md}}
+
+{{include: skills/test-driven-development/SKILL.md}}
 
 READ (in this order):
 (1) Task spec at {{.file_path}} for goal, scope, and file list

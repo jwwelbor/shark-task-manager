@@ -7,7 +7,7 @@ Check for existing tasks: {{template "list_json" .}}. If tasks exist covering al
 
 ---
 
-Load skill: `shark-data/skills/specification-writing/workflows/write-task.md`
+{{include: skills/specification-writing/workflows/write-task.md}}
 
 READ:
 (1) Feature spec.md for requirements, architecture, and file paths

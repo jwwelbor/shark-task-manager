@@ -9,8 +9,9 @@ Check for existing fix: review git diff and test files. If fix exists with regre
 
 BUG FIX WITH REGRESSION TEST
 
-Load skill: `shark-data/skills/debugging/SKILL.md`
-Load skill: `shark-data/skills/test-driven-development/SKILL.md`
+{{include: skills/debugging/SKILL.md}}
+
+{{include: skills/test-driven-development/SKILL.md}}
 
 READ:
 (1) Bug description at {{.file_path}}

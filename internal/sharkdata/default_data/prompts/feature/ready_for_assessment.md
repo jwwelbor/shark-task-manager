@@ -6,7 +6,8 @@ Check feature metadata: {{template "get_json" .}}. If complexity_tier already as
 
 COMBINED SCOPE VALIDATION + COMPLEXITY TRIAGE
 
-Load skill: `shark-data/skills/assessment/SKILL.md`
+{{include: skills/assessment/SKILL.md}}
+
 (Use complexity_triage mode.)
 
 READ:

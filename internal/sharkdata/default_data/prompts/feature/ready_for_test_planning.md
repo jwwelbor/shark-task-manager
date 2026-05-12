@@ -7,7 +7,7 @@ Check for existing test-plan.md in feature directory. If test plan exists meetin
 
 ---
 
-Load skill: `shark-data/skills/quality/workflows/test-planning.md`
+{{include: skills/quality/workflows/test-planning.md}}
 
 READ:
 (1) Feature spec.md for requirements and acceptance criteria

@@ -7,7 +7,7 @@ Check for existing PRD at {{.file_path}}. If PRD exists with all required sectio
 
 ---
 
-Load skill: `shark-data/skills/specification-writing/workflows/write-epic.md`
+{{include: skills/specification-writing/workflows/write-epic.md}}
 
 READ:
 (1) Epic description at {{.file_path}}

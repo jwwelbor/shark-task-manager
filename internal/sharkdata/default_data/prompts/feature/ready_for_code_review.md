@@ -2,7 +2,7 @@ All tasks for feature {{.id}} ("{{.title}}") have completed development.
 
 Launch tech-lead with quality skill to perform a single feature-level code review.
 
-Load skill: `shark-data/skills/quality/workflows/review-code.md`
+{{include: skills/quality/workflows/review-code.md}}
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria
