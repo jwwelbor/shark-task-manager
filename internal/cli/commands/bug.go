@@ -647,14 +647,3 @@ func confirmBugDelete(bug *models.Bug) bool {
 	_, _ = fmt.Scanln(&response)
 	return strings.ToLower(response) == "y"
 }
-
-// truncateBugString truncates a string to maxLen characters, appending "..." if truncated.
-func truncateBugString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}

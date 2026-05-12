@@ -296,55 +296,6 @@ func TestParseBugLinkFlag_SluggedEpic(t *testing.T) {
 	}
 }
 
-// TestTruncateBugString_Short verifies that short strings are not truncated.
-func TestTruncateBugString_Short(t *testing.T) {
-	result := truncateBugString("Hello", 10)
-	if result != "Hello" {
-		t.Errorf("expected %q, got %q", "Hello", result)
-	}
-}
-
-// TestTruncateBugString_Exact verifies that strings at exactly maxLen are not truncated.
-func TestTruncateBugString_Exact(t *testing.T) {
-	result := truncateBugString("Hello", 5)
-	if result != "Hello" {
-		t.Errorf("expected %q, got %q", "Hello", result)
-	}
-}
-
-// TestTruncateBugString_Long verifies that long strings are truncated with ellipsis.
-func TestTruncateBugString_Long(t *testing.T) {
-	result := truncateBugString("Hello World", 8)
-	if result != "Hello..." {
-		t.Errorf("expected %q, got %q", "Hello...", result)
-	}
-}
-
-// TestTruncateBugString_VeryShortMax verifies truncation with maxLen <= 3.
-func TestTruncateBugString_VeryShortMax(t *testing.T) {
-	result := truncateBugString("Hello", 3)
-	if result != "Hel" {
-		t.Errorf("expected %q, got %q", "Hel", result)
-	}
-}
-
-// TestTruncateBugString_Empty verifies that an empty string is returned unchanged.
-func TestTruncateBugString_Empty(t *testing.T) {
-	result := truncateBugString("", 10)
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
-	}
-}
-
-// TestTruncateBugString_MaxLenZero verifies that maxLen=0 returns empty string.
-func TestTruncateBugString_MaxLenZero(t *testing.T) {
-	result := truncateBugString("Hello", 0)
-	// maxLen=0 is <= 3, so it returns s[:0] = ""
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
-	}
-}
-
 // TestParseBugLinkFlag_TaskLongKey verifies that a longer task key (with slug) is identified as "task".
 func TestParseBugLinkFlag_TaskLongKey(t *testing.T) {
 	entityType, entityKey := parseBugLinkFlag("E07-F01-001-task-name")
@@ -396,36 +347,6 @@ func TestParseBugLinkFlag_Tables(t *testing.T) {
 			if entityKey != tt.link {
 				t.Errorf("parseBugLinkFlag(%q): expected entityKey %q, got %q",
 					tt.link, tt.link, entityKey)
-			}
-		})
-	}
-}
-
-// TestTruncateBugString_Table runs table-driven tests for truncation.
-func TestTruncateBugString_Table(t *testing.T) {
-	tests := []struct {
-		name     string
-		s        string
-		maxLen   int
-		expected string
-	}{
-		{"short string no truncation", "hi", 10, "hi"},
-		{"exact length no truncation", "hello", 5, "hello"},
-		{"one over max", "hello!", 5, "he..."},
-		{"long title", "This is a very long bug title that should be truncated", 20, "This is a very lo..."},
-		{"empty string", "", 10, ""},
-		{"maxLen 1", "abc", 1, "a"},
-		{"maxLen 2", "abc", 2, "ab"},
-		{"maxLen 3", "abc", 3, "abc"},
-		{"maxLen 4 with truncation", "abcde", 4, "a..."},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateBugString(tt.s, tt.maxLen)
-			if result != tt.expected {
-				t.Errorf("truncateBugString(%q, %d): expected %q, got %q",
-					tt.s, tt.maxLen, tt.expected, result)
 			}
 		})
 	}

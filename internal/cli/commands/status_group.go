@@ -523,17 +523,6 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// truncateString truncates a string to maxLen characters, adding "..." if truncated.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}
-
 // formatHistoryNotesForDisplay returns the notes string for human-readable table output.
 // If the notes start with the "auto_reopen:" prefix, a bracketed "[auto-reopen]" label
 // is appended so operators can visually distinguish automated cascade-reopens from
