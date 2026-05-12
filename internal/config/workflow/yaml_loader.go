@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -128,7 +129,18 @@ func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*Multi
 			}
 		}
 		if loadedFrom == "" {
-			// File absent — leave slot nil so GetWorkflowForLevel uses the default.
+			// File absent — leave slot nil so GetWorkflowForLevel uses the
+			// embedded default. Emit a verbose-only trace log (slog.Debug,
+			// suppressed at the default Info level) so operators running with
+			// `log_level=debug` can diagnose divergence between expected and
+			// actual dispatch behavior when validate is bypassed or a YAML is
+			// moved after validation. See TD-024.
+			slog.Debug(
+				"workflow yaml not found; using built-in default",
+				"entity_type", entry.Slot,
+				"path", defaultPath,
+				"override_path", overridePath,
+			)
 			continue
 		}
 

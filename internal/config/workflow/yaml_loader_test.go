@@ -1,8 +1,12 @@
 package workflow
 
 import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -253,4 +257,69 @@ func TestGetWorkflowForLevel_UsesYAMLWhenLoaded(t *testing.T) {
 	cfg := mlw.GetWorkflowForLevel("task")
 	require.NotNil(t, cfg)
 	assert.ElementsMatch(t, []string{"in_development", "blocked"}, cfg.StatusFlow["todo"])
+}
+
+// TestLoadMultiLevelWorkflowFromYAML_LogsDebugWhenFileMissing exercises the
+// TD-024 fix: when a per-entity workflow YAML is absent, the loader silently
+// falls back to the embedded default but must emit a verbose-only (slog.Debug)
+// trace so operators can diagnose divergence between expected and actual
+// dispatch behavior.
+func TestLoadMultiLevelWorkflowFromYAML_LogsDebugWhenFileMissing(t *testing.T) {
+	// Install an in-memory JSON slog handler at Debug level so we can capture
+	// the trace messages produced by the loader. Restore the previous default
+	// after the test.
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	old := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(old)
+
+	dataDir := t.TempDir()
+	// Provide only task.yaml; epic/feature/bug/change/tech-debt/sprint slots
+	// will be missing and should each emit a debug trace.
+	writeYAMLFixture(t, dataDir, "task.yaml", taskYAML)
+
+	_, err := LoadMultiLevelWorkflowFromYAML(dataDir)
+	require.NoError(t, err)
+
+	// Parse captured log lines into structured records.
+	var records []map[string]interface{}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var rec map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("failed to parse log line %q: %v", line, err)
+		}
+		records = append(records, rec)
+	}
+
+	// Collect entity_type values from records whose message matches the
+	// fallback trace.
+	const wantMsg = "workflow yaml not found; using built-in default"
+	missingSlots := map[string]string{}
+	for _, rec := range records {
+		if rec["msg"] != wantMsg {
+			continue
+		}
+		// Verify level is DEBUG so this stays a verbose-only trace.
+		assert.Equal(t, "DEBUG", rec["level"], "fallback trace must be DEBUG-level")
+		// Capture entity_type → path for cross-checks below.
+		entity, _ := rec["entity_type"].(string)
+		path, _ := rec["path"].(string)
+		missingSlots[entity] = path
+	}
+
+	// task.yaml was provided, so it must NOT have emitted a fallback trace.
+	assert.NotContains(t, missingSlots, "task")
+
+	// Every other slot must have emitted a fallback trace naming its expected
+	// default path under <dataDir>/workflow/.
+	for _, slot := range []string{"epic", "feature", "bug", "change", "tech_debt", "sprint"} {
+		path, ok := missingSlots[slot]
+		assert.True(t, ok, "expected fallback trace for slot %q", slot)
+		assert.True(t, strings.HasPrefix(path, filepath.Join(dataDir, YAMLWorkflowDir)),
+			"trace path for slot %q should reference the workflow dir, got %q", slot, path)
+	}
 }
