@@ -237,16 +237,11 @@ func NewActionService(configPath string) (*DefaultActionService, error) {
 	return action.NewActionService(configPath, defaultWorkflowDataLoader)
 }
 
-// entityFallback maps each entity type to its hardcoded default workflow.
-// Used when no per-entity YAML is loaded for that entity.
-var entityFallback = map[string]func() *workflow.WorkflowConfig{
-	"task":      workflow.DefaultWorkflow,
-	"epic":      workflow.DefaultEpicWorkflow,
-	"feature":   workflow.DefaultFeatureWorkflow,
-	"bug":       workflow.DefaultBugWorkflow,
-	"change":    workflow.DefaultChangeCardWorkflow,
-	"tech_debt": workflow.DefaultTechDebtWorkflow,
-	"sprint":    workflow.DefaultSprintWorkflow,
+// entityTypesForLoader is the canonical list of entity slots this loader
+// covers. Delegates to workflow.EntityTypes so adding a new entity type only
+// requires extending MultiLevelWorkflow + EntityTypes — no edit here.
+func entityTypesForLoader() []string {
+	return workflow.EntityTypes()
 }
 
 // defaultWorkflowDataLoader loads per-entity workflow action data.
@@ -298,11 +293,13 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 
 	out := map[string]map[string]action.StatusActionData{}
 
+	entityTypes := entityTypesForLoader()
+
 	// Pass 1: per-entity YAML at the configured workflow_config directory.
 	if workflowDir != "" {
 		if mlw, err := workflow.LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir); err == nil && mlw != nil {
-			for entityType := range entityFallback {
-				if wf := slotWorkflow(mlw, entityType); wf != nil {
+			for _, entityType := range entityTypes {
+				if wf := mlw.GetByType(entityType); wf != nil {
 					out[entityType] = workflowToStatusActionData(wf)
 				}
 			}
@@ -313,22 +310,25 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	// Covers fresh checkouts that haven't run `shark init` yet and the
 	// legacy top-level `status_flow` shape still used by many tests.
 	if mlw := workflow.LoadMultiLevelWorkflowOrDefault(configPath); mlw != nil {
-		for entityType := range entityFallback {
+		for _, entityType := range entityTypes {
 			if _, already := out[entityType]; already {
 				continue
 			}
-			if wf := slotWorkflow(mlw, entityType); wf != nil {
+			if wf := mlw.GetByType(entityType); wf != nil {
 				out[entityType] = workflowToStatusActionData(wf)
 			}
 		}
 	}
 
-	// Pass 3: hardcoded defaults for any entity still missing.
-	for entityType, defaultFn := range entityFallback {
+	// Pass 3: hardcoded defaults for any entity still missing. Uses
+	// GetWorkflowForLevel as the single source of truth for entity-type →
+	// default mapping (it falls back through defaultForType internally).
+	emptyMLW := &workflow.MultiLevelWorkflow{}
+	for _, entityType := range entityTypes {
 		if _, ok := out[entityType]; ok {
 			continue
 		}
-		if wf := defaultFn(); wf != nil {
+		if wf := emptyMLW.GetWorkflowForLevel(entityType); wf != nil {
 			out[entityType] = workflowToStatusActionData(wf)
 		}
 	}
@@ -425,29 +425,6 @@ func readWorkflowConfigField(raw []byte) string {
 		return ""
 	}
 	return probe.WorkflowConfig
-}
-
-// slotWorkflow returns the per-entity workflow that was actually loaded from
-// YAML, or nil if no YAML covered that slot. Unlike MultiLevelWorkflow.GetWorkflowForLevel
-// it does NOT fall back to defaults — that's the caller's job.
-func slotWorkflow(mlw *workflow.MultiLevelWorkflow, entityType string) *workflow.WorkflowConfig {
-	switch entityType {
-	case "task":
-		return mlw.Task
-	case "feature":
-		return mlw.Feature
-	case "epic":
-		return mlw.Epic
-	case "bug":
-		return mlw.Bug
-	case "change":
-		return mlw.Change
-	case "tech_debt":
-		return mlw.TechDebt
-	case "sprint":
-		return mlw.Sprint
-	}
-	return nil
 }
 
 // workflowToStatusActionData flattens a WorkflowConfig's StatusMetadata into the
