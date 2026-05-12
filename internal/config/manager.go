@@ -355,6 +355,62 @@ func (m *Manager) SetSprintCapacityDefault(agentType string, points float64) err
 	return nil
 }
 
+// SaveRaw writes the supplied rawData map to path as indented JSON, using an
+// atomic temp-file-then-rename pattern (same semantics as UpdateLastSyncTime
+// and SetSprintCapacityDefault). It is the single round-trip helper for
+// `.sharkconfig.json` writes so callers don't reimplement os.ReadFile →
+// json.Unmarshal → json.MarshalIndent → os.WriteFile inline.
+//
+// Behavior:
+//   - HTML escaping disabled (matches existing writers; keeps URLs readable).
+//   - Two-space indentation, trailing newline (via json.Encoder.Encode).
+//   - Preserves existing file permissions when path already exists; falls
+//     back to 0644 for fresh files.
+//   - Atomic: writes <path>.tmp, fsync-rename. Cleans up temp file on
+//     rename failure.
+//
+// SaveRaw does NOT mutate Manager state. Pass the path explicitly so callers
+// that operate on `.sharkconfig.json` outside the Load()/m.config lifecycle
+// (e.g. one-shot mutations from `shark init`) can use it without first
+// hydrating a Manager. For Manager-scoped writes that round-trip through
+// m.config.RawData, call SaveRaw(m.configPath, m.config.RawData).
+func (m *Manager) SaveRaw(path string, rawData map[string]interface{}) error {
+	if rawData == nil {
+		rawData = map[string]interface{}{}
+	}
+	return writeRawConfig(path, rawData)
+}
+
+// writeRawConfig performs the atomic JSON write used by SaveRaw. Kept as a
+// package-level helper so it can be reused by other Manager write paths
+// (UpdateLastSyncTime, SetSprintCapacityDefault) without forcing callers
+// through the public SaveRaw signature.
+func writeRawConfig(path string, rawData map[string]interface{}) error {
+	// Preserve existing file permissions; fall back to 0644 for new files.
+	var filePerms os.FileMode = 0644
+	if info, err := os.Stat(path); err == nil {
+		filePerms = info.Mode().Perm()
+	}
+
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(rawData); err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, buf.Bytes(), filePerms); err != nil {
+		return fmt.Errorf("failed to write temp config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath) // Cleanup temp file on failure
+		return fmt.Errorf("failed to rename config: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) GetActionService() (ActionService, error) {
 	if m.actionService == nil {
 		service, err := NewActionService(m.configPath)

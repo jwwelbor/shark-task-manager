@@ -8,7 +8,6 @@
 package commands
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
@@ -191,34 +191,23 @@ func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
 func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, migratedFrom string, err error) {
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
 
-	data, statErr := os.ReadFile(configPath)
-	if statErr != nil {
-		if !os.IsNotExist(statErr) {
-			return false, "", fmt.Errorf("read %s: %w", configPath, statErr)
-		}
-		// File missing — write a minimal config with just the field set.
-		minimal := map[string]interface{}{"workflow_config": defaultPath}
-		bytes, marshalErr := json.MarshalIndent(minimal, "", "  ")
-		if marshalErr != nil {
-			return false, "", fmt.Errorf("marshal minimal config: %w", marshalErr)
-		}
-		if writeErr := os.WriteFile(configPath, append(bytes, '\n'), 0644); writeErr != nil {
-			return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
-		}
-		return true, "", nil
+	// Route the read-modify-write through config.Manager so unknown keys are
+	// preserved and the on-disk format (indent, HTML escaping, atomic rename)
+	// stays consistent with other writers (UpdateLastSyncTime,
+	// SetSprintCapacityDefault). Load() handles the file-missing case by
+	// returning an empty RawData map, so the "create minimal config" branch
+	// folds into the same flow as the "edit existing" branch.
+	mgr := config.NewManager(configPath)
+	cfg, loadErr := mgr.Load()
+	if loadErr != nil {
+		return false, "", fmt.Errorf("load %s: %w", configPath, loadErr)
+	}
+	raw := cfg.RawData
+	if raw == nil {
+		raw = map[string]interface{}{}
 	}
 
-	// File exists — decode into a generic map so we don't impose a schema
-	// (callers may have extra keys we don't know about).
-	var generic map[string]interface{}
-	if unmarshalErr := json.Unmarshal(data, &generic); unmarshalErr != nil {
-		return false, "", fmt.Errorf("parse %s: %w", configPath, unmarshalErr)
-	}
-	if generic == nil {
-		generic = map[string]interface{}{}
-	}
-
-	existing, _ := generic["workflow_config"].(string)
+	existing, _ := raw["workflow_config"].(string)
 	switch {
 	case existing == "":
 		// Add the field.
@@ -230,12 +219,8 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 		return false, "", nil
 	}
 
-	generic["workflow_config"] = defaultPath
-	out, marshalErr := json.MarshalIndent(generic, "", "  ")
-	if marshalErr != nil {
-		return false, "", fmt.Errorf("marshal updated config: %w", marshalErr)
-	}
-	if writeErr := os.WriteFile(configPath, append(out, '\n'), 0644); writeErr != nil {
+	raw["workflow_config"] = defaultPath
+	if writeErr := mgr.SaveRaw(configPath, raw); writeErr != nil {
 		return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
 	}
 	return true, migratedFrom, nil
