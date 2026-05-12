@@ -624,19 +624,19 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 // A non-nil CapacityWarning does NOT indicate failure; the assignment was created.
 func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityInput) (*models.SprintAssignment, *CapacityWarning, error) {
 	// Step 1: Resolve sprint and validate its status.
-	// Per spec §4.2.1 step 1, only planning and active sprints may accept new
-	// entity assignments.
+	// Per spec §4.2.1 step 1, only sprints in the planning or execution phases
+	// may accept new entity assignments. We delegate phase membership to
+	// workflow.Service so custom sprint workflows (e.g. renamed "draft" instead
+	// of "planning") are honored without code changes here.
 	sprintEntity, err := s.repo.GetByKey(ctx, input.SprintKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve sprint %q: %w", input.SprintKey, err)
 	}
-	switch sprintEntity.Status {
-	case "planning", "active":
-		// planning or active — allowed
-	default:
+	if !s.sprintAcceptsAssignments(string(sprintEntity.Status)) {
 		return nil, nil, fmt.Errorf(
-			"cannot assign entity to sprint %s: sprint is in %q status (only planning or active sprints accept new assignments)",
+			"cannot assign entity to sprint %s: sprint is in %q status (only sprints in the planning or execution phases accept new assignments; valid statuses: %s)",
 			input.SprintKey, sprintEntity.Status,
+			strings.Join(s.assignableSprintStatuses(), ", "),
 		)
 	}
 
@@ -682,6 +682,52 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 	}
 
 	return assignment, warning, nil
+}
+
+// assignableSprintPhases returns the workflow phases whose sprint statuses
+// accept new entity assignments. Per spec §4.2.1 step 1, only sprints in the
+// planning or execution phases may receive new assignments. The default sprint
+// workflow maps "planning" -> phase "planning" and "active" -> phase
+// "execution"; custom workflows may rename the statuses but should preserve
+// the phase labels.
+func assignableSprintPhases() []string {
+	return []string{"planning", "execution"}
+}
+
+// assignableSprintStatuses returns the set of sprint statuses (from the
+// configured sprint workflow) that accept new entity assignments. Computed by
+// asking workflow.Service which statuses live in the planning and execution
+// phases. The result is deduplicated and ordered: planning phase first, then
+// execution phase, with within-phase order preserved from workflow.Service.
+func (s *SprintService) assignableSprintStatuses() []string {
+	seen := make(map[string]struct{})
+	statuses := make([]string, 0, 4)
+	for _, phase := range assignableSprintPhases() {
+		for _, status := range s.workflowSvc.GetStatusesByPhase(phase) {
+			if _, dup := seen[status]; dup {
+				continue
+			}
+			seen[status] = struct{}{}
+			statuses = append(statuses, status)
+		}
+	}
+	return statuses
+}
+
+// sprintAcceptsAssignments reports whether a sprint in the given status may
+// accept new entity assignments. Delegates to workflow.Service to discover
+// which statuses live in the planning and execution phases, so custom sprint
+// workflows with renamed statuses work without code changes.
+//
+// Comparison is case-insensitive, matching workflow.Service's other status
+// comparison helpers (IsTerminalStatus, IsValidTransition).
+func (s *SprintService) sprintAcceptsAssignments(status string) bool {
+	for _, accepting := range s.assignableSprintStatuses() {
+		if strings.EqualFold(accepting, status) {
+			return true
+		}
+	}
+	return false
 }
 
 // computeCapacityWarning returns a non-nil CapacityWarning if adding an entity
