@@ -516,22 +516,40 @@ func buildCreateChangeCardInput(title string) services.CreateChangeCardInput {
 }
 
 // buildChangeCardUpdates constructs a ChangeCardUpdates from changed flags.
+//
+// Reads values via cmd.Flags().Get* (not package-level globals) so the
+// function works correctly whether invoked from the entity-first
+// `shark change update` command or the unified `shark update <KEY>`
+// dispatch (B031). The dispatch registers its own flag set on `updateCmd`
+// and the entity-first vars (changeTitle, changePriority, ...) would be
+// stale when dispatch passes through.
 func buildChangeCardUpdates(cmd *cobra.Command) (services.ChangeCardUpdates, error) {
 	updates := services.ChangeCardUpdates{}
 	if cmd.Flags().Changed("title") {
-		updates.Title = &changeTitle
+		title, _ := cmd.Flags().GetString("title")
+		updates.Title = &title
 	}
 	if cmd.Flags().Changed("description") {
-		updates.Description = &changeDescription
+		desc, _ := cmd.Flags().GetString("description")
+		updates.Description = &desc
 	}
 	if cmd.Flags().Changed("priority") {
-		updates.Priority = &changePriority
+		// Priority is Int on the entity-first changeUpdateCmd but String on
+		// the unified updateCmd. Honour whichever type is registered on the
+		// invoking command so dispatch flows through cleanly.
+		pri, err := readPriorityIntFromFlag(cmd)
+		if err != nil {
+			return updates, err
+		}
+		updates.Priority = &pri
 	}
 	if cmd.Flags().Changed("requested-by") {
-		updates.RequestedBy = &changeRequestedBy
+		v, _ := cmd.Flags().GetString("requested-by")
+		updates.RequestedBy = &v
 	}
 	if cmd.Flags().Changed("assigned-to") {
-		updates.AssignedTo = &changeAssignedTo
+		v, _ := cmd.Flags().GetString("assigned-to")
+		updates.AssignedTo = &v
 	}
 	if v := getFileFlagValue(cmd); v != "" {
 		updates.FilePath = &v

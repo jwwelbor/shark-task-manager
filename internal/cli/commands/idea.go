@@ -888,12 +888,22 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 }
 
 // parseUpdateIdeaInput builds an UpdateIdeaInput from changed flags.
+//
+// Reads values via cmd.Flags().Get* (not package-level globals like
+// ideaDescription / ideaStatus / ...). This lets the function work under
+// both the entity-first `shark idea update` command and the unified
+// `shark update <KEY>` dispatch (B031). The unified dispatch registers
+// its own flag set on `updateCmd` and the package-level vars would be
+// stale when dispatch invokes this function.
 func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) {
-	input := services.UpdateIdeaInput{
-		// E28-F04 REQ-F-010: --tag is additive. When the flag is absent,
-		// ideaUpdateTags is nil (StringSliceVar default) and the service
-		// treats len(Tags) == 0 as a no-op.
-		Tags: ideaUpdateTags,
+	input := services.UpdateIdeaInput{}
+
+	// E28-F04 REQ-F-010: --tag is additive. When the flag is absent,
+	// the slice is nil and the service treats len(Tags) == 0 as a no-op.
+	if cmd.Flags().Changed("tag") {
+		if tags, err := cmd.Flags().GetStringSlice("tag"); err == nil {
+			input.Tags = tags
+		}
 	}
 
 	if cmd.Flags().Changed("title") {
@@ -901,22 +911,31 @@ func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) 
 		input.Title = &title
 	}
 	if cmd.Flags().Changed("description") {
-		input.Description = &ideaDescription
+		desc, _ := cmd.Flags().GetString("description")
+		input.Description = &desc
 	}
 	if cmd.Flags().Changed("status") {
-		input.Status = &ideaStatus
+		status, _ := cmd.Flags().GetString("status")
+		input.Status = &status
 	}
 	if cmd.Flags().Changed("priority") {
-		input.Priority = &ideaPriority
+		pri, err := readPriorityIntFromFlag(cmd)
+		if err != nil {
+			return input, err
+		}
+		input.Priority = &pri
 	}
 	if cmd.Flags().Changed("order") {
-		input.Order = &ideaOrder
+		order, _ := cmd.Flags().GetInt("order")
+		input.Order = &order
 	}
 	if cmd.Flags().Changed("notes") {
-		input.Notes = &ideaNotes
+		notes, _ := cmd.Flags().GetString("notes")
+		input.Notes = &notes
 	}
 	if cmd.Flags().Changed("related-docs") {
-		docs, err := json.Marshal(ideaRelatedDocs)
+		docsSlice, _ := cmd.Flags().GetStringSlice("related-docs")
+		docs, err := json.Marshal(docsSlice)
 		if err != nil {
 			return input, fmt.Errorf("failed to marshal related docs: %w", err)
 		}
@@ -924,7 +943,13 @@ func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) 
 		input.RelatedDocs = &docsStr
 	}
 	if cmd.Flags().Changed("depends-on") {
-		deps, err := json.Marshal(ideaDependencies)
+		// --depends-on is a StringSlice on the entity-first ideaUpdateCmd
+		// but a comma-separated String on the unified updateCmd. Handle both.
+		depsSlice, err := readStringSliceFromFlag(cmd, "depends-on")
+		if err != nil {
+			return input, err
+		}
+		deps, err := json.Marshal(depsSlice)
 		if err != nil {
 			return input, fmt.Errorf("failed to marshal dependencies: %w", err)
 		}
