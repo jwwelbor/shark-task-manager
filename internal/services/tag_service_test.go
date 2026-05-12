@@ -2572,7 +2572,7 @@ func TestListTagsForEntity_NoAttachments(t *testing.T) {
 }
 
 // AC-9c: ListTagNamesByEntities error propagated
-func TestListTagsForEntity_GetByIDError(t *testing.T) {
+func TestListTagsForEntity_ListBatchError(t *testing.T) {
 	entityTagRepo := &mockEntityTagRepo{
 		listTagNamesByEntitiesFn: func(ctx context.Context, entityType models.EntityType, entityIDs []int64) ([]tagrepo.EntityIDTagName, error) {
 			return nil, fmt.Errorf("db error")
