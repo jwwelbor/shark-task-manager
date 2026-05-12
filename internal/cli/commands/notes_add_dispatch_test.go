@@ -28,6 +28,13 @@ func TestResolveEntityFromKey(t *testing.T) {
 		{"idea", "I-2026-05-02-01", models.EntityTypeIdea, "idea"},
 		{"case-insensitive task", "e07-f01-001", models.EntityTypeTask, "task"},
 		{"case-insensitive bug", "b042", models.EntityTypeBug, "bug"},
+		// B030: sprint keys must resolve to EntityTypeSprint so that
+		// `shark create note S###` and `shark notes add S###` route to
+		// the sprint repository in the EntityRegistry rather than being
+		// rejected by the key parser.
+		{"sprint numeric", "S003", models.EntityTypeSprint, "sprint"},
+		{"sprint zero-padded", "S024", models.EntityTypeSprint, "sprint"},
+		{"sprint case-insensitive", "s003", models.EntityTypeSprint, "sprint"},
 	}
 
 	for _, tc := range cases {

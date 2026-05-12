@@ -90,6 +90,13 @@ func IsIdeaKey(s string) bool {
 	return keys.IsIdeaKey(s)
 }
 
+// IsSprintKey validates if a string is a valid sprint key format (S###).
+// Case insensitive: s001 is normalized to S001 before validation.
+// Delegates to keys.IsSprintKey for implementation.
+func IsSprintKey(s string) bool {
+	return keys.IsSprintKey(s)
+}
+
 // ParseFeatureKey parses a combined feature key format (E##-F##) into epic and feature parts
 // Case insensitive: normalizes input to uppercase before parsing
 // Returns (epic, feature, nil) for valid input like "E04-F01" or "e04-f01"
@@ -736,6 +743,13 @@ func DetectEntityType(key string) string {
 	// TD- starts with T, so it must be checked before T- task prefix matching
 	if IsTechDebtKey(normalized) {
 		return "tech_debt"
+	}
+
+	// Check sprint key (S###) — strict 3-digit format. Must be checked
+	// here so notes/links/etc. resolve sprint keys via DetectEntityType
+	// (B030).
+	if IsSprintKey(normalized) {
+		return "sprint"
 	}
 
 	// Check task patterns first (most specific)

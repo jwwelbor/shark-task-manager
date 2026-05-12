@@ -53,6 +53,62 @@ func (i *Idea) GetSize() *int { return i.Size }
 // SetSize sets the idea's Size field. Pass nil to clear.
 func (i *Idea) SetSize(s *int) { i.Size = s }
 
+// ----------------------------------------------------------------------------
+// Entity interface implementation (B030).
+//
+// Idea pre-dates the polymorphic BaseEntity refactor and does not embed
+// BaseEntity. The methods below adapt the Idea fields to the shared
+// models.Entity interface so cross-cutting services (NoteService,
+// EntityRegistry, etc.) can treat ideas polymorphically.
+//
+// Fields the ideas table does not carry (Slug, FilePath, ContextData)
+// degrade to empty strings / nil; their setters are no-ops.
+// ----------------------------------------------------------------------------
+
+// GetID returns the idea database ID.
+func (i *Idea) GetID() int64 { return i.ID }
+
+// GetKey returns the idea key (e.g., "I-2026-05-11-01").
+func (i *Idea) GetKey() string { return i.Key }
+
+// GetTitle returns the idea title.
+func (i *Idea) GetTitle() string { return i.Title }
+
+// GetSlug returns an empty string; ideas have no slug column.
+func (i *Idea) GetSlug() string { return "" }
+
+// GetEntityType returns EntityTypeIdea.
+func (i *Idea) GetEntityType() EntityType { return EntityTypeIdea }
+
+// GetStatus returns the idea status as a string.
+func (i *Idea) GetStatus() string { return string(i.Status) }
+
+// SetStatus updates the idea status from a string value.
+func (i *Idea) SetStatus(status string) { i.Status = IdeaStatus(status) }
+
+// GetDescription returns the idea description, or "" if not set.
+func (i *Idea) GetDescription() string {
+	if i.Description != nil {
+		return *i.Description
+	}
+	return ""
+}
+
+// GetFilePath returns an empty string; ideas have no file_path column.
+func (i *Idea) GetFilePath() string { return "" }
+
+// GetContextData returns nil; ideas do not carry context_data.
+func (i *Idea) GetContextData() *string { return nil }
+
+// SetContextData is a no-op; ideas do not carry context_data.
+func (i *Idea) SetContextData(_ *string) {}
+
+// GetCreatedAt returns the idea creation timestamp.
+func (i *Idea) GetCreatedAt() time.Time { return i.CreatedAt }
+
+// GetUpdatedAt returns the idea last-updated timestamp.
+func (i *Idea) GetUpdatedAt() time.Time { return i.UpdatedAt }
+
 // Validate validates the Idea fields
 func (i *Idea) Validate() error {
 	// Validate key format

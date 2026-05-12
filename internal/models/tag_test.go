@@ -197,11 +197,27 @@ func TestValidEntityTypes_ContainsAllExpected(t *testing.T) {
 		EntityTypeBug,
 		EntityTypeTechDebt,
 		EntityTypeIdea,
+		// B030: sprint joined the polymorphic entity-type set so
+		// EntityRegistry can route note operations to the sprint repo.
+		EntityTypeSprint,
 	}
 
 	for _, et := range expected {
 		if !ValidEntityTypes[et] {
 			t.Errorf("ValidEntityTypes[%q] = false, want true", et)
 		}
+	}
+}
+
+// TestEntityTypeSprint_B030 verifies the EntityTypeSprint constant is
+// defined and registered in ValidEntityTypes. Guards against a regression
+// of B030 (shark create note S### was rejected because the constant did
+// not exist and ValidEntityTypes did not allow "sprint").
+func TestEntityTypeSprint_B030(t *testing.T) {
+	if string(EntityTypeSprint) != "sprint" {
+		t.Errorf("EntityTypeSprint = %q, want %q", EntityTypeSprint, "sprint")
+	}
+	if !ValidEntityTypes[EntityTypeSprint] {
+		t.Errorf("ValidEntityTypes[EntityTypeSprint] = false, want true")
 	}
 }

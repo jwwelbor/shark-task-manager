@@ -179,6 +179,7 @@ Key format detection:
   C### or CC-###             Change card
   TD-###                     Tech-debt
   I-YYYY-MM-DD-##            Idea
+  S###                       Sprint
 
 Note Types:
   comment        General observation (default)
@@ -227,7 +228,7 @@ func resolveEntityFromKey(key string) (models.EntityType, string, error) {
 // resolved. Centralized so the long format list stays consistent across
 // `create note`, `notes add`, and any future dispatch surface.
 func unknownEntityKeyError(key string) error {
-	return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
+	return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 }
 
 func runCreateNote(cmd *cobra.Command, args []string) error {

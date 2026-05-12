@@ -90,6 +90,13 @@ func GetEntityRegistry() *services.EntityRegistry {
 			services.NewChangeCardRepositoryAdapter(repository.NewChangeCardRepository(db)))
 		c.registry.Register(models.EntityTypeTechDebt,
 			services.NewTechDebtRepositoryAdapter(repository.NewTechDebtRepository(db)))
+		// B030: register sprint and idea adapters so polymorphic services
+		// (NoteService, ContextService, EntityHistoryService, etc.) can
+		// resolve S### and I-YYYY-MM-DD-## keys to their backing entities.
+		c.registry.Register(models.EntityTypeSprint,
+			services.NewSprintRepositoryAdapter(repository.NewSprintRepository(db)))
+		c.registry.Register(models.EntityTypeIdea,
+			services.NewIdeaRepositoryAdapter(repository.NewIdeaRepository(db)))
 	})
 	return c.registry
 }
