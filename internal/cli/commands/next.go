@@ -317,104 +317,168 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	// dispatchable child here, then returns that child's dispatch step.
 	internalAction := strings.TrimSpace(populated.Action)
 	if internalAction == "cascade" {
-		children, err := listDispatchableChildren(ctx, entityType, normalizedKey)
-		if err != nil {
-			return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
-		}
-		for _, child := range children {
-			childResp, err := resolveNext(ctx, cache, child.EntityType, child.Key, depth+1)
-			if err != nil {
-				return NextResponse{}, err
-			}
-			switch childResp.Action {
-			case "spawn_agent":
-				// Found something to do — prepend this parent to the trail
-				// and propagate the child's response untouched.
-				childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
-				return childResp, nil
-			case "pause", "archive":
-				// This child has nothing dispatchable right now (blocked,
-				// already done, etc.) — try the next sibling.
-				continue
-			case "error":
-				// Propagate child errors up untouched, with parent in the trail.
-				childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
-				return childResp, nil
-			}
-		}
-		// All children either non-dispatchable or absent — pause the parent.
-		resp.Action = "pause"
-		return resp, nil
+		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp)
 	}
 
-	// Step 8: Verb normalization. The YAML's internal verb vocabulary
-	// (spawn_agent, check_or_resume, advance_status, pause, archive) is
-	// richer than the harness wire vocabulary {spawn_agent, pause, archive}.
-	// Map onto the wire set here so the harness only ever sees what it
-	// knows how to act on.
+	// Step 8: Verb normalization + action application. The YAML's internal
+	// verb vocabulary (spawn_agent, check_or_resume, advance_status, pause,
+	// archive) is richer than the harness wire vocabulary {spawn_agent,
+	// pause, archive}. applyWireAction maps onto the wire set and handles
+	// the special-case branches (advance_and_recurse, error) inline so the
+	// caller only deals with the simple wire-shaped result.
+	wireResp, handled, err := applyWireAction(ctx, cache, entityType, normalizedKey, depth, internalAction, populated, nextInfo, transitioner, resp)
+	if err != nil {
+		return NextResponse{}, err
+	}
+	if handled {
+		return wireResp, nil
+	}
+	resp = wireResp
+
+	// Step 9: Auto-inline the agent body so the harness receives the agent
+	// persona / config alongside the action prompt.
+	resp.Prompt = attachAgentBody(resp.Prompt, resp.AgentType, vars)
+
+	return resp, nil
+}
+
+// tryCascade owns the "cascade" verb's children-loop and resolved_via
+// threading. It iterates dispatchable children of (entityType, key),
+// recursing into resolveNext on each until one returns a non-pause/archive
+// action. The first parent on the chain is prepended to ResolvedVia so the
+// harness can audit which entities were traversed.
+//
+// When all children are non-dispatchable (or absent), the parent's response
+// is returned with action="pause" — the cascade verb never leaks onto the
+// wire.
+//
+// resp is the partially-filled NextResponse for the parent entity; the
+// function mutates and returns it on the all-paused path.
+func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normalizedKey string, depth int, resp NextResponse) (NextResponse, error) {
+	children, err := listDispatchableChildren(ctx, entityType, normalizedKey)
+	if err != nil {
+		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
+	}
+	for _, child := range children {
+		childResp, err := resolveNext(ctx, cache, child.EntityType, child.Key, depth+1)
+		if err != nil {
+			return NextResponse{}, err
+		}
+		switch childResp.Action {
+		case "spawn_agent":
+			// Found something to do — prepend this parent to the trail
+			// and propagate the child's response untouched.
+			childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
+			return childResp, nil
+		case "pause", "archive":
+			// This child has nothing dispatchable right now (blocked,
+			// already done, etc.) — try the next sibling.
+			continue
+		case "error":
+			// Propagate child errors up untouched, with parent in the trail.
+			childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
+			return childResp, nil
+		}
+	}
+	// All children either non-dispatchable or absent — pause the parent.
+	resp.Action = "pause"
+	return resp, nil
+}
+
+// applyWireAction maps the YAML internal verb onto a wire-vocabulary action
+// and handles the two non-trivial branches inline:
+//
+//   - "advance_and_recurse": the engine transitions the entity forward to
+//     transitionalTarget and recurses on the same key, returning whatever the
+//     next status dispatches to. Used for auto-advance placeholder statuses
+//     (advance_status with no agent_type).
+//   - "error": the verb is unknown — surface as pause with a clear Error
+//     field rather than silently dropping the entity.
+//
+// For the simple wire actions (spawn_agent, pause, archive), the function
+// fills resp with the populated action's fields and returns handled=false
+// so the caller can run any remaining post-processing (e.g., agent body
+// inlining). When handled=true, the returned NextResponse is final and
+// should be returned to the caller untouched.
+func applyWireAction(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	internalAction string,
+	populated *action.PopulatedAction,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+	resp NextResponse,
+) (NextResponse, bool, error) {
 	wireAction, transitionalTarget := normalizeWireAction(internalAction, populated.AgentType, nextInfo)
 	switch wireAction {
 	case "advance_and_recurse":
 		// Internal verb advance_status with no agent_type: this status is an
 		// auto-transition placeholder. The engine performs the advance and
 		// recurses on the same key, returning whatever the next status
-		// dispatches to. Track the original key in resolved_via so the harness
-		// can audit the auto-advance.
+		// dispatches to.
 		if transitionalTarget == "" {
 			// No safe forward transition — leave the entity for human review.
 			resp.Action = "pause"
-			return resp, nil
+			return resp, true, nil
 		}
 		if _, err := transitioner.TransitionStatus(ctx, normalizedKey, transitionalTarget, services.TransitionOptions{}); err != nil {
-			return NextResponse{}, fmt.Errorf("auto-advance from %s to %s failed for %s: %w", currentStatus, transitionalTarget, normalizedKey, err)
+			return NextResponse{}, true, fmt.Errorf("auto-advance from %s to %s failed for %s: %w", resp.Status, transitionalTarget, normalizedKey, err)
 		}
 		recursed, err := resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
 		if err != nil {
-			return NextResponse{}, err
+			return NextResponse{}, true, err
 		}
 		// We didn't move to a different entity, only a different status, so
 		// resolved_via isn't appropriate (it audits cross-entity hops). The
 		// status field on `recursed` already reflects the new state.
-		return recursed, nil
+		return recursed, true, nil
 
 	case "error":
 		// Unknown verb — surface to the harness as pause with a clear error
 		// field so the harness shows the failure to the user instead of
 		// silently dropping the entity.
 		resp.Action = "pause"
-		resp.Error = fmt.Sprintf("unknown internal action verb %q for status %q", internalAction, currentStatus)
-		return resp, nil
+		resp.Error = fmt.Sprintf("unknown internal action verb %q for status %q", internalAction, resp.Status)
+		return resp, true, nil
 	}
 
+	// Simple wire action — fill the response and hand back to the caller
+	// for any remaining post-processing (e.g., agent body inlining).
 	resp.Action = wireAction
 	resp.AgentType = populated.AgentType
 	resp.Provider = populated.Provider
 	resp.Model = populated.Model
 	resp.Prompt = populated.Instruction
+	return resp, false, nil
+}
 
-	// Auto-inline the agent body. Per the 2026-05-10 rendering-model decision,
-	// the rendered response from `shark next` should contain the agent persona /
-	// config inline rather than requiring the harness to resolve agent files
-	// from its own filesystem. We prepend the agent body (with frontmatter
-	// stripped) above the action prompt, separated by a horizontal rule.
-	//
-	// If the data root is unknown (legacy shark-templates/ mode) or the agent
-	// file doesn't exist, we proceed without inlining — the harness can still
-	// spawn the agent by type if it has a local copy. This is graceful
-	// degradation, not a hard requirement.
-	if resp.AgentType != "" {
-		root := templates.GetOrchestratorEngine().IncludeRoot()
-		if body, ok := LoadAgentBodyForInline(root, resp.AgentType); ok {
-			// Render `<token>` placeholders inside the agent body before
-			// concatenating. Agent files use kebab-case tokens like
-			// `<task-id>` that the instruction-template engine (Go templates,
-			// snake_case) doesn't touch — this dedicated pass closes that gap.
-			body = templates.RenderAgentBody(body, vars)
-			resp.Prompt = body + "\n\n---\n\n" + resp.Prompt
-		}
+// attachAgentBody inlines the agent persona / config above the rendered
+// instruction prompt, separated by a horizontal rule. Per the 2026-05-10
+// rendering-model decision, the response from `shark next` should be
+// self-contained so the harness can spawn the agent without resolving agent
+// files from its own filesystem.
+//
+// Graceful degradation: when agentType is empty, the data root is unknown
+// (legacy shark-templates/ mode), or the agent file doesn't exist, the
+// original prompt is returned unchanged — the harness can still spawn the
+// agent by type if it has a local copy.
+//
+// Placeholder rendering: agent files use kebab-case tokens like `<task-id>`
+// that the instruction-template engine (Go templates, snake_case) doesn't
+// touch — RenderAgentBody closes that gap before concatenation.
+func attachAgentBody(prompt, agentType string, vars map[string]string) string {
+	if agentType == "" {
+		return prompt
 	}
-
-	return resp, nil
+	root := templates.GetOrchestratorEngine().IncludeRoot()
+	body, ok := LoadAgentBodyForInline(root, agentType)
+	if !ok {
+		return prompt
+	}
+	body = templates.RenderAgentBody(body, vars)
+	return body + "\n\n---\n\n" + prompt
 }
 
 // LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/
