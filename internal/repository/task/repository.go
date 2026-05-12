@@ -2124,6 +2124,100 @@ func (r *TaskRepository) GetTaskCountsForFeatures(ctx context.Context, featureID
 	return counts, nil
 }
 
+// FeatureIDsForTaskIDs returns the distinct feature IDs that contain any of the
+// given task IDs. Used by the viewer hierarchy endpoint (B017) to support
+// tag-based filtering: when the hierarchy no longer carries task data, we still
+// need to know which features have matching tagged tasks so we can keep those
+// features in the pruned tree.
+//
+// Returns an empty map when taskIDs is empty.
+func (r *TaskRepository) FeatureIDsForTaskIDs(ctx context.Context, taskIDs []int64) (map[int64]struct{}, error) {
+	if len(taskIDs) == 0 {
+		return map[int64]struct{}{}, nil
+	}
+
+	placeholders := make([]string, len(taskIDs))
+	args := make([]interface{}, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(
+		`SELECT DISTINCT feature_id FROM tasks WHERE id IN (%s)`,
+		strings.Join(placeholders, ", "),
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query feature IDs for task IDs: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64]struct{}, len(taskIDs))
+	for rows.Next() {
+		var featureID int64
+		if err := rows.Scan(&featureID); err != nil {
+			return nil, fmt.Errorf("failed to scan feature ID: %w", err)
+		}
+		result[featureID] = struct{}{}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating feature IDs for task IDs: %w", err)
+	}
+
+	return result, nil
+}
+
+// FeatureTaskCounts holds the aggregate counts of tasks for a single feature.
+// Used by viewer hierarchy endpoint to satisfy lazy-load contract (B017,
+// E27-F02 REQ-F-002) — full task rows are never loaded.
+type FeatureTaskCounts struct {
+	Total   int
+	Blocked int
+}
+
+// CountsByFeature returns total task count and blocked task count per feature
+// in a single aggregate query — no full task rows are loaded. Used by the
+// viewer hierarchy endpoint (B017) to avoid embedding task data in the payload.
+//
+// A task is considered "blocked" when its blocked_reason column is non-NULL.
+// Features with zero tasks are omitted from the map; callers should treat a
+// missing key as {Total: 0, Blocked: 0}.
+func (r *TaskRepository) CountsByFeature(ctx context.Context) (map[int64]FeatureTaskCounts, error) {
+	query := `
+		SELECT feature_id,
+		       COUNT(*) AS total,
+		       SUM(CASE WHEN blocked_reason IS NOT NULL THEN 1 ELSE 0 END) AS blocked
+		FROM tasks
+		GROUP BY feature_id
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query task counts by feature: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64]FeatureTaskCounts)
+	for rows.Next() {
+		var featureID int64
+		var total int
+		var blocked int
+		if err := rows.Scan(&featureID, &total, &blocked); err != nil {
+			return nil, fmt.Errorf("failed to scan task counts by feature row: %w", err)
+		}
+		result[featureID] = FeatureTaskCounts{Total: total, Blocked: blocked}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating task counts by feature: %w", err)
+	}
+
+	return result, nil
+}
+
 // TaskDisplayDataRaw holds the raw JSON strings from the task_display_data view.
 // The service layer is responsible for unmarshaling these into domain types.
 type TaskDisplayDataRaw struct {

@@ -2287,7 +2287,55 @@ async function apiGetHierarchy(tags, includeTerminal) {
   if (includeTerminal) url.searchParams.set('include_terminal', 'true');
   const resp = await fetch(url.pathname + url.search);
   if (!resp.ok) throw new Error(`hierarchy fetch failed: HTTP ${resp.status}`);
-  return await resp.json();
+  const hierarchy = await resp.json();
+  // B017 / E27-F02 REQ-F-002: the hierarchy payload no longer carries task
+  // rows — only task_count and blocked_count per feature. Hydrate `feature.tasks`
+  // via parallel calls to /api/v1/viewer/features/{key}/tasks so the existing
+  // dashboard/charts/search code that reads feature.tasks continues to work.
+  // The task fetches run in parallel; the hierarchy itself returns quickly so
+  // the sidebar can be drawn (with counts) while task data streams in.
+  await hydrateHierarchyTasks(hierarchy, tags);
+  return hierarchy;
+}
+
+/**
+ * Populates `feature.tasks` on the in-memory hierarchy by issuing parallel
+ * `/features/{key}/tasks` calls for every feature in the tree. Errors per
+ * feature are swallowed (the corresponding feature gets an empty tasks array)
+ * so a partial failure does not block the dashboard.
+ *
+ * This is a compatibility shim for B017: the backend (correctly) no longer
+ * embeds tasks in the hierarchy payload, but the dashboard code was written
+ * against the old (broken) shape. Migrating all ~15 read sites to per-feature
+ * lazy fetches is a larger refactor tracked separately; this helper keeps the
+ * UI functional in the meantime while satisfying the API spec.
+ *
+ * @param {object} hierarchy - response from /api/v1/viewer/hierarchy
+ * @param {string[]} [tags] - optional active tag filter to pass through
+ */
+async function hydrateHierarchyTasks(hierarchy, tags) {
+  if (!hierarchy || !Array.isArray(hierarchy.epics)) return;
+  const fetches = [];
+  for (const epic of hierarchy.epics) {
+    const features = Array.isArray(epic.features) ? epic.features : [];
+    for (const feature of features) {
+      // Initialise to empty so downstream readers never see undefined.
+      feature.tasks = [];
+      if (!feature.key) continue;
+      fetches.push(
+        apiGetFeatureTasks(feature.key, tags).then(tasks => {
+          if (Array.isArray(tasks)) {
+            feature.tasks = tasks;
+          }
+        }).catch(() => {
+          // best-effort: leave feature.tasks as [] on failure
+        })
+      );
+    }
+  }
+  if (fetches.length > 0) {
+    await Promise.all(fetches);
+  }
 }
 
 /**
