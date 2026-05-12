@@ -1748,7 +1748,7 @@ func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize
 
 	var detail string
 	if unsatisfied == 0 {
-		detail = "All task dependencies are satisfied (assigned or already completed)"
+		detail = "All task dependencies are satisfied (assigned to this sprint)"
 	} else {
 		detail = fmt.Sprintf("%d unsatisfied external task dependenc%s", unsatisfied,
 			pluralize(unsatisfied, "y", "ies"))

@@ -240,10 +240,9 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		slog.Warn("Failed to load config", "error", cfgErr)
 	}
 
-	// First pass: build rows with empty title cells so the title width can
-	// be derived from the actual rendered widths of the other columns
-	// (key, progress, status incl. ANSI color, size). Titles are then
-	// fitted/padded so pterm renders the table at full console width.
+	// First pass: build rows with empty title cells. Title widths are
+	// computed below via availableTitleWidth from the other columns
+	// (key, progress, status incl. ANSI color, size).
 	titles := make([]string, len(features))
 	rows := make([][]string, 0, len(features))
 	worstLevel := healthHealthy

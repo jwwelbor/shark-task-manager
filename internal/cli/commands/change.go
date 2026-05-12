@@ -593,9 +593,7 @@ const changeCardListTitleColIdx = 1
 
 // buildChangeCardListRows converts a slice of change-cards to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
-//
-// The title column is sized from the actual rendered widths of the other
-// columns so the table fills the configured console_width.
+// Columns: Key, Title (sized via availableTitleWidth), Status, Linked Entity, Created, Size.
 func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
 	rows := make([][]string, 0, len(cards))
 	for _, c := range cards {
