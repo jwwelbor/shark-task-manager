@@ -159,7 +159,6 @@
           "action": "spawn_agent",
           "agent_type": "researcher",
           "skills": [
-            "discovery",
             "research"
           ],
           "instruction_template": "epic/ready_for_research.tmpl"
@@ -176,7 +175,6 @@
           "action": "check_or_resume",
           "agent_type": "researcher",
           "skills": [
-            "discovery",
             "research"
           ],
           "instruction_template": "epic/in_research.tmpl"
@@ -196,8 +194,7 @@
           "action": "spawn_agent",
           "agent_type": "business-analyst",
           "skills": [
-            "specification-writing",
-            "discovery"
+            "specification-writing"
           ],
           "instruction_template": "epic/ready_for_feasibility_review_ba.tmpl"
         }
@@ -213,8 +210,7 @@
           "action": "check_or_resume",
           "agent_type": "business-analyst",
           "skills": [
-            "specification-writing",
-            "discovery"
+            "specification-writing"
           ],
           "instruction_template": "epic/in_feasibility_review_ba.tmpl"
         }
