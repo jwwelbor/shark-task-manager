@@ -3,6 +3,20 @@ skill_name: quality
 description: Authoritative source for all validation, code review, and quality assurance workflows. Provides consistent quality gates across all development phases.
 version: 1.0.0
 created: 2025-12-09
+inputs:
+  - entity_type: the type of entity being validated (task|feature|epic|design|code)
+  - entity_key: the entity key being validated
+  - spec_path: absolute path to the specification document
+  - implementation_paths: list of paths to implemented code or documentation
+  - test_paths: list of paths to test files (optional)
+  - design_refs: list of paths to design documents or wireframes (optional)
+  - acceptance_criteria: list of acceptance criteria text to validate against
+outputs:
+  - selected_workflow: one of {validate-design, validate-tasks, review-code, test-planning, qa-testing, generate-standards}
+  - validation_report: structured validation results (PASS|FAIL)
+  - issues_found: list of {severity, description, location, remediation}
+  - coverage_analysis: validation coverage and gaps
+  - recommendations: actionable recommendations for improvement
 ---
 
 # Quality Skill

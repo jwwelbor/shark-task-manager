@@ -3,6 +3,18 @@ skill_name: architecture
 description: Authoritative source for all architecture design workflows (System, Backend, Frontend, Database, Security). Provides standardized patterns, templates, and design frameworks for consistent architecture documentation across all projects.
 version: 1.0.0
 created: 2025-12-09
+inputs:
+  - feature_prd_path: absolute path to the feature PRD (provides scope and requirements)
+  - epic_prd_path: absolute path to the epic PRD (optional, provides broader context)
+  - task_spec_path: absolute path to the task spec (optional, specific architecture task)
+  - existing_architecture_path: absolute path to existing architecture documentation (optional)
+  - constraints_doc_path: absolute path to constraints and limitations document (optional)
+outputs:
+  - selected_workflow: one of {design-system, design-backend, design-frontend, design-database, design-security, design-compliance, feasibility-review, infra-requirements}
+  - architecture_documents: list of paths to created/modified architecture documents
+  - design_decisions: structured record of key design choices and rationale
+  - trade-offs: documented trade-offs with analysis of alternatives
+  - risks_and_mitigations: identified architectural risks and mitigation strategies
 ---
 
 # Architecture Skill

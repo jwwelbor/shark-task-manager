@@ -2,6 +2,19 @@
 skill_name: specification-writing
 description: Authoritative source for all specification document generation workflows (Epics, Feature PRDs, Tasks). Provides standardized templates, procedures, and naming conventions for consistent documentation across all projects.
 version: 2.0.0
+inputs:
+  - parent_spec_path: absolute path to parent spec (epic for feature, feature for task)
+  - current_scope_path: absolute path to current scope document (optional)
+  - related_research_path: absolute path to related research findings (optional)
+  - design_docs_paths: list of design document paths (optional)
+  - previous_spec_path: absolute path to a previous version for comparison (optional)
+outputs:
+  - selected_workflow: one of {decompose-epic, write-epic, write-feature-prd, write-task, plan-epic-ba-plan, plan-epic-tech-plan, plan-feature-ba-plan, plan-feature-tech-plan, check-ba-docs, check-tech-docs, refine-task-requirements}
+  - specification_document: created or updated specification markdown
+  - acceptance_criteria: structured list of acceptance criteria
+  - dependencies: identified dependencies on other epics/features/tasks
+  - decomposition: if applicable, child features/tasks decomposed from the spec
+  - tech_plan: detailed implementation planning (if applicable)
 ---
 
 # Specification Writing Skill

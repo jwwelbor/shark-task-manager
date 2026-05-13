@@ -2,6 +2,19 @@
 name: research
 description: Systematic codebase analysis and project understanding workflows. Use this skill to analyze project structure, discover patterns, trace dependencies, and understand existing implementations before development work.
 domain: codebase-analysis
+inputs:
+  - research_objective: description of what needs to be researched (feature|architecture|pattern|dependency|scalability)
+  - search_scope: paths or directories to search (optional, defaults to project root)
+  - existing_analysis_path: path to previous analysis (optional, for building on prior work)
+  - related_docs_paths: list of related documentation paths (optional)
+  - constraints: specific constraints or limitations to consider (optional)
+outputs:
+  - selected_workflow: one of {understand-feature, brownfield-analysis, map-filesystem, find-patterns, trace-dependencies, project-init, greenfield-scaffold, tracing-knowledge-lineages, consult-related-work, analyze-codebase}
+  - findings_report: structured markdown documenting discoveries
+  - pattern_catalog: identified patterns with locations and usage frequency
+  - dependency_graph: mapped dependencies and interactions
+  - recommended_approach: evidence-based recommendations for next steps
+  - knowledge_gaps: identified gaps in understanding
 ---
 
 # Research Skill

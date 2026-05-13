@@ -3,6 +3,19 @@ name: debugging
 description: Systematic debugging workflows for frontend, backend, tests, devops, and web issues. Provides structured approaches to isolate root causes and resolve problems efficiently.
 when_to_use: when troubleshooting errors, failures, unexpected behavior, or performance issues
 model: sonnet
+inputs:
+  - error_description: description of the error or failure observed
+  - reproduction_steps: steps to reproduce the issue (optional)
+  - affected_component: what part of the system is affected (frontend|backend|database|devops|tests)
+  - log_paths: list of relevant log file paths (optional)
+  - codebase_paths: list of relevant source code paths (optional)
+  - error_context_path: absolute path to error context document (optional)
+outputs:
+  - selected_workflow: one of {debug-frontend, debug-backend, debug-database, debug-devops, debug-tests, debug-web}
+  - root_cause_analysis: structured analysis identifying the root cause
+  - reproduction_confirmation: verified steps to reproduce the issue
+  - fix_strategy: proposed fix with rationale
+  - diagnostic_logs: relevant diagnostic output from debugging process
 ---
 
 # Debugging Skill
