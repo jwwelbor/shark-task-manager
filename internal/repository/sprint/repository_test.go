@@ -871,7 +871,7 @@ func TestListAssignmentsForCarryover_EmptyWhenAllCompleted(t *testing.T) {
 
 	_ = seedSprintAssignment(t, database, sprintID, "task", taskID)
 
-	assignments, err := repo.ListAssignmentsForCarryover(ctx, sprintID)
+	assignments, err := repo.ListAssignmentsForCarryover(ctx, sprintID, "completed")
 	require.NoError(t, err)
 	assert.Empty(t, assignments, "all completed sprint should return empty carryover list")
 }

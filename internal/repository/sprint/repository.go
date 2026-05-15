@@ -616,15 +616,6 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 // If completedStatuses is empty, ALL active assignments are returned (the
 // caller is responsible for passing a meaningful set).
 func (r *SprintRepository) ListAssignmentsForCarryover(ctx context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
-	// Default completed statuses when none are provided. This ensures that
-	// entities marked "completed" are always excluded from the carryover
-	// list even when the caller does not explicitly specify which statuses
-	// represent terminal/completed work. The service layer may pass a
-	// workflow-derived list for non-default workflows.
-	if len(completedStatuses) == 0 {
-		completedStatuses = []string{"completed"}
-	}
-
 	// Build NOT IN clause for completed statuses
 	var completedFilter string
 	var filterArgs []interface{}

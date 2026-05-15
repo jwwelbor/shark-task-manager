@@ -883,6 +883,15 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 	totalCount := len(items)
 	completedCount := 0
 
+	// Build per-entity-type terminal status sets once, outside the item loop.
+	// Keyed by the entity_type string stored in sprint_assignments.
+	terminalStatusesByEntityType := map[string]map[string]bool{
+		"task":        terminalSet(s.workflowSvc.ForLevel(workflow.LevelTask)),
+		"bug":         terminalSet(s.workflowSvc.ForLevel(workflow.LevelBug)),
+		"change_card": terminalSet(s.workflowSvc.ForLevel(workflow.LevelChange)),
+		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
+	}
+
 	for _, item := range items {
 		view := &BacklogItemView{
 			EntityType:     item.EntityType,
@@ -898,8 +907,9 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 			view.AgentType = *item.AgentType
 		}
 
-		// Count completed items for CompletionPercent
-		if s.workflowSvc.IsTerminalStatus(item.Status) {
+		// Count completed items for CompletionPercent.
+		// Check only this item's own entity-type workflow, not all levels.
+		if terminals, ok := terminalStatusesByEntityType[item.EntityType]; ok && terminals[item.Status] {
 			completedCount++
 		}
 
@@ -943,7 +953,7 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 // 2. Priority (highest first, 1=highest)
 // 3. AssignedAt (oldest first)
 //
-// Filters for items in the "todo" phase of their respective workflows.
+// Filters for items in the initial (queued) status of their respective entity-type workflows.
 // If agentType is non-empty, only items for that agent are considered.
 func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
 	// 1. Find the active sprint (must be exactly one for unambiguous selection)
@@ -963,17 +973,24 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 		return nil, err
 	}
 
-	// 3. Collect candidates in the initial (queued) task status.
-	// ForLevel(LevelTask) reads the starting status from the task workflow config
-	// so custom workflows work without any hardcoding here.
-	queuedStatus := s.workflowSvc.ForLevel(workflow.LevelTask).GetInitialStatusString()
+	// 3. Collect candidates whose status is the initial (queued) status for their entity type.
+	// Each entity type has its own workflow with its own initial status (e.g. tasks start at
+	// "todo", tech_debt at "identified"), so we must check per-entity-type rather than
+	// assuming everything uses the task workflow's initial status.
+	initialStatusByEntityType := map[string]string{
+		"task":        s.workflowSvc.ForLevel(workflow.LevelTask).GetInitialStatusString(),
+		"bug":         s.workflowSvc.ForLevel(workflow.LevelBug).GetInitialStatusString(),
+		"change_card": s.workflowSvc.ForLevel(workflow.LevelChange).GetInitialStatusString(),
+		"tech_debt":   s.workflowSvc.ForLevel(workflow.LevelTechDebt).GetInitialStatusString(),
+	}
 
 	var candidates []*BacklogItemView
 	for _, group := range backlog.Groups {
-		if group.StatusCategory != queuedStatus {
-			continue
-		}
 		for _, item := range group.Items {
+			initialStatus, ok := initialStatusByEntityType[item.EntityType]
+			if !ok || item.Status != initialStatus {
+				continue
+			}
 			// Apply agent filter if requested
 			if agentType != "" && item.AgentType != agentType {
 				continue
@@ -1322,8 +1339,20 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	}
 	totalCount := len(allAssignments)
 
-	// Incomplete assignments — uses workflow-aware terminal status detection (TC-C07)
-	terminalStatuses := s.workflowSvc.GetTerminalStatuses()
+	// Incomplete assignments — uses workflow-aware terminal status detection (TC-C07).
+	// Collect terminal statuses from each entity level that can be assigned to sprints.
+	// Using s.workflowSvc.GetTerminalStatuses() would return sprint-level terminal statuses
+	// (e.g. "completed", "archived"), not entity-level ones (e.g. "resolved" for tech_debt).
+	terminalSet := make(map[string]struct{})
+	for _, level := range []string{workflow.LevelTask, workflow.LevelBug, workflow.LevelChange, workflow.LevelTechDebt} {
+		for _, st := range s.workflowSvc.ForLevel(level).GetTerminalStatuses() {
+			terminalSet[st] = struct{}{}
+		}
+	}
+	terminalStatuses := make([]string, 0, len(terminalSet))
+	for st := range terminalSet {
+		terminalStatuses = append(terminalStatuses, st)
+	}
 	incompleteAssignments, err := s.repo.ListAssignmentsForCarryover(ctx, sprintEntity.ID, terminalStatuses...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list incomplete assignments for sprint %s: %w", sprintKey, err)
@@ -2100,4 +2129,13 @@ func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacitie
 		UnsizedEntities:   unsized,
 		OversizedEntities: oversized,
 	}
+}
+
+// terminalSet returns a set of terminal status strings for the given workflow level.
+func terminalSet(svc *workflow.Service) map[string]bool {
+	result := make(map[string]bool)
+	for _, s := range svc.GetTerminalStatuses() {
+		result[s] = true
+	}
+	return result
 }
