@@ -1,0 +1,13 @@
+{{template "_resume_preamble" .}}
+{{template "advance_preamble" .}}
+
+RESUME code review for tech debt {{.id}}: "{{.title}}".
+
+Category: {{.category}} | Severity: {{.severity}}
+
+Check for an existing review report at `docs/review/tech-debt/{{.id}}/code_review/*-{{.id}}-review.md`:
+- If report exists with PASS verdict AND no outstanding findings → {{template "advance" .}}
+- If report exists with FAIL verdict → `shark status set {{.id}} ready_for_resolution --reason "<findings from report>"`
+- If NO report exists → you MUST perform the full code review per the `ready_for_code_review` instructions. Do NOT advance without a written report. The presence of merged code alone is NOT sufficient.
+
+Also re-run `shark td notes {{.id}}` and `shark links {{.id}}` — any new context since the last session?

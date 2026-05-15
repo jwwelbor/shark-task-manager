@@ -1,0 +1,41 @@
+{{template "advance_preamble" .}}
+
+Review the tech debt resolution for {{.id}}: "{{.title}}".
+
+Category: {{.category}} | Severity: {{.severity}}
+
+Check for existing review: look for a report at `docs/review/tech-debt/{{.id}}/code_review/*-{{.id}}-review.md`. If a PASS report exists with no outstanding findings, advance immediately.
+
+---
+
+LOAD: quality skill, refactoring skill.
+
+READ:
+(1) Tech debt body at {{.file_path}} — the original problem statement
+(2) Prior notes: `shark td notes {{.id}}` — especially the `decision` (resolution plan) and `implementation` (what was changed) notes
+(3) Related entities: `shark links {{.id}}` — does the refactor respect contracts of linked features/tasks?
+(4) The diff: `git log --oneline -10 && git diff <base>..HEAD` (use the merge base, not just HEAD~1 — tech debt work often spans several commits)
+(5) CLAUDE.md for coding standards
+
+REVIEW CHECKLIST (tech-debt specific — there is no feature spec or test-plan to anchor on, so the original TD description and the resolution-plan note ARE the spec):
+
+- [ ] Refactor matches the resolution plan from the `decision` note (no scope drift)
+- [ ] Behavior is preserved — regression tests exist, exercise the affected paths, and pass
+- [ ] The new structure actually improves maintainability (clearer naming, reduced duplication, smaller blast radius for future changes) — it doesn't just shuffle code
+- [ ] Coverage on the refactored paths is equal to or better than before
+- [ ] No drive-by edits unrelated to the tech debt
+- [ ] No NEW tech debt introduced (e.g., adding TODOs, leaving dead code, weakening interfaces)
+- [ ] Public API / CLI contracts unchanged unless the TD explicitly called for breaking them
+- [ ] Coding standards in CLAUDE.md respected (error wrapping, service-layer rules, no hardcoded statuses, parameterized queries, etc.)
+- [ ] Quality gate clean: `make fmt && make lint && make test`
+
+PRODUCE a written review report at `docs/review/tech-debt/{{.id}}/code_review/<YYYY-MM-DD-HHMM>-{{.id}}-review.md` containing:
+- Verdict: PASS or FAIL
+- Summary of what was changed (1-2 sentences)
+- Checklist results (each item ticked or annotated with a finding)
+- Specific findings if FAIL (file:line references, what needs to change)
+- Any follow-up tech debt observed (capture via `/triage` or a `future`-type note)
+
+DECISION:
+- PASS → {{template "advance" .}} (goes to `in_code_review`, which will recognize the PASS report and advance to `resolved`)
+- FAIL → `shark status set {{.id}} ready_for_resolution --reason "<specific findings — point at the report path>"`

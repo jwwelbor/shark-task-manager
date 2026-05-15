@@ -1,0 +1,52 @@
+{{template "advance_preamble" .}}
+
+Investigate tech debt {{.id}}: "{{.title}}".
+
+Category: {{.category}} | Severity: {{.severity}}{{if .effort_estimate}} | Effort: {{.effort_estimate}}{{end}}
+
+Goal: produce a concrete resolution plan grounded in the actual code. The developer who runs the next status reads YOUR notes — make them sufficient to act on.
+
+Check for an existing `decision`-type note titled "Resolution plan" or similar. If one exists and covers approach + risks + scope, advance immediately.
+
+---
+
+LOAD: research skill, brownfield-analysis skill.
+
+READ:
+(1) Tech debt body at {{.file_path}} — full description, impact, any pre-existing resolution sketch
+(2) Prior notes: `shark td notes {{.id}}` — triage notes explain why this debt exists
+(3) Related entities: `shark links {{.id}}` — for every link, `shark get <key> --json` to understand the relationship (a tech debt about a feature's code often has hidden context in that feature)
+(4) CLAUDE.md sections relevant to {{.category}}
+
+INVESTIGATE:
+
+Step 1 — MAP the affected surface:
+- Identify the files, packages, and public APIs touched by this debt
+- Grep callers: who depends on the code that would change?
+- Note test coverage on the affected paths (which tests exist, which paths are uncovered)
+
+Step 2 — ASSESS blast radius:
+- What's the risk of regression? (high-traffic code path, lots of callers, weak test coverage = high risk)
+- Will the change break any public API or CLI contract?
+- Any performance implications?
+
+Step 3 — DRAFT the resolution approach:
+- What is the concrete refactor / fix?
+- What is the smallest safe step? (prefer incremental over big-bang)
+- Which regression tests must exist BEFORE the change to make it safe?
+
+Step 4 — SIZE the work honestly:
+- Confirm or revise the effort estimate from triage
+- If the work is bigger than a single tech-debt item (touches >5 files, requires design decisions, or has user-visible impact), STOP and recommend promotion to a feature instead.
+
+RECORD:
+- One `decision`-type note titled "Resolution plan" containing: approach, affected files, blast radius, required pre-tests, sized effort.
+- Additional `reference`-type notes pointing at the specific code locations you analyzed (file:line references are gold).
+- `shark link {{.id}} <other-key> --type=related` for any new related entities you discover.
+- If sizing exploded: `shark td note add {{.id}} --type=decision --content="Recommend cancel — scope exceeds tech debt. Promote to feature: <reasoning>."` then `shark status set {{.id}} cancelled --reason "Promoted to feature scope"`.
+
+EXIT GATE:
+- A `decision` note exists with a concrete resolution plan a developer can execute
+- Risks and pre-tests are explicit
+- Related links recorded
+- {{template "advance" .}} (goes to `ready_for_resolution`)

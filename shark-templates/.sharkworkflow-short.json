@@ -1555,5 +1555,294 @@
         "cancelled"
       ]
     }
+  },
+  "tech_debt_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "identified": [
+        "triaged",
+        "wont_fix",
+        "cancelled",
+        "on_hold"
+      ],
+      "triaged": [
+        "ready_for_investigation",
+        "ready_for_resolution",
+        "wont_fix",
+        "cancelled",
+        "on_hold"
+      ],
+      "ready_for_investigation": [
+        "in_investigation",
+        "blocked",
+        "on_hold"
+      ],
+      "in_investigation": [
+        "ready_for_resolution",
+        "triaged",
+        "wont_fix",
+        "cancelled",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_resolution": [
+        "in_progress",
+        "blocked",
+        "on_hold"
+      ],
+      "in_progress": [
+        "ready_for_code_review",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_code_review": [
+        "in_code_review",
+        "on_hold"
+      ],
+      "in_code_review": [
+        "resolved",
+        "ready_for_resolution",
+        "on_hold"
+      ],
+      "resolved": [],
+      "wont_fix": [],
+      "cancelled": [],
+      "blocked": [
+        "ready_for_investigation",
+        "ready_for_resolution",
+        "triaged",
+        "cancelled"
+      ],
+      "on_hold": [
+        "triaged",
+        "ready_for_investigation",
+        "ready_for_resolution",
+        "wont_fix",
+        "cancelled"
+      ]
+    },
+    "status_metadata": {
+      "identified": {
+        "description": "Tech debt captured, awaiting triage",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "haiku",
+          "skills": [
+            "triage",
+            "assessment"
+          ],
+          "instruction_template": "tech_debt/identified.tmpl"
+        }
+      },
+      "triaged": {
+        "description": "Severity, category, and effort assessed",
+        "phase": "triage",
+        "color": "orange",
+        "progress_weight": 0.1,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "tech_debt/triaged.tmpl"
+        }
+      },
+      "ready_for_investigation": {
+        "description": "Ready to investigate blast radius, affected code, and resolution approach",
+        "phase": "investigation",
+        "color": "purple",
+        "progress_weight": 0.2,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "researcher"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": [
+            "research",
+            "brownfield-analysis"
+          ],
+          "instruction_template": "tech_debt/ready_for_investigation.tmpl"
+        }
+      },
+      "in_investigation": {
+        "description": "Researcher analyzing blast radius, risks, and resolution approach",
+        "phase": "investigation",
+        "color": "purple",
+        "progress_weight": 0.3,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": [
+            "research",
+            "brownfield-analysis"
+          ],
+          "instruction_template": "tech_debt/in_investigation.tmpl"
+        }
+      },
+      "ready_for_resolution": {
+        "description": "Ready for refactor/cleanup implementation",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.4,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": [
+          "developer"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": [
+            "implementation",
+            "refactoring",
+            "test-driven-development"
+          ],
+          "instruction_template": "tech_debt/ready_for_resolution.tmpl"
+        }
+      },
+      "in_progress": {
+        "description": "Refactor/cleanup in progress",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.55,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": [
+            "implementation",
+            "refactoring",
+            "test-driven-development"
+          ],
+          "instruction_template": "tech_debt/in_progress.tmpl"
+        }
+      },
+      "ready_for_code_review": {
+        "description": "Ready for code review (regression focus)",
+        "phase": "code_review",
+        "color": "magenta",
+        "progress_weight": 0.75,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": [
+          "tech-lead"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "model": "opus",
+          "skills": [
+            "quality",
+            "refactoring"
+          ],
+          "instruction_template": "tech_debt/ready_for_code_review.tmpl"
+        }
+      },
+      "in_code_review": {
+        "description": "Tech-lead reviewing for regressions and refactor quality",
+        "phase": "code_review",
+        "color": "magenta",
+        "progress_weight": 0.9,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "tech-lead",
+          "model": "opus",
+          "skills": [
+            "quality",
+            "refactoring"
+          ],
+          "instruction_template": "tech_debt/in_code_review.tmpl"
+        }
+      },
+      "resolved": {
+        "description": "Tech debt resolved and verified",
+        "phase": "done",
+        "color": "green",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "tech_debt/resolved.tmpl"
+        }
+      },
+      "wont_fix": {
+        "description": "Triaged as not worth fixing",
+        "phase": "done",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "exclude_from_progress": true,
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "tech_debt/wont_fix.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Tech debt abandoned (e.g. obsoleted, promoted to feature)",
+        "phase": "done",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "exclude_from_progress": true,
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "tech_debt/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "Cannot proceed, awaiting external resolution",
+        "phase": "blocked",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "tech_debt/blocked.tmpl"
+        }
+      },
+      "on_hold": {
+        "description": "Intentionally deferred",
+        "phase": "paused",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "tech_debt/on_hold.tmpl"
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": [
+        "identified"
+      ],
+      "_complete_": [
+        "resolved",
+        "wont_fix",
+        "cancelled"
+      ]
+    }
   }
 }

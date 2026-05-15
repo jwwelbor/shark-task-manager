@@ -1,3 +1,35 @@
 {{template "advance_preamble" .}}
 
-Tech debt {{.id}} has been identified but not yet triaged. Awaiting triage to assess severity, category, and effort.
+Triage tech debt {{.id}}: "{{.title}}".
+
+Fast triage pass. Goal: classify this debt and decide its lane. Do NOT investigate deeply — that is the next status. Spend minutes, not hours.
+
+Check for existing triage: if `{{.severity}}` and `{{.category}}` are already populated and prior notes explain the call, you may advance immediately.
+
+---
+
+LOAD: triage skill, assessment skill.
+
+READ:
+(1) Tech debt description at {{.file_path}}
+(2) Prior notes: `shark td notes {{.id}}`
+(3) Related entities (if any): `shark links {{.id}}` — follow with `shark get <key> --json` only if a link is clearly material to classification
+
+CLASSIFY:
+
+Step 1 — CATEGORY (pick one): code-quality | architecture | dependency | testing | performance | documentation
+Step 2 — SEVERITY (pick one): critical (actively causing pain / blocking) | high (regular friction) | medium (notable but tolerable) | low (nice-to-have cleanup)
+Step 3 — EFFORT (t-shirt size): XS (<1h) | S (half day) | M (1-2 days) | L (>2 days, consider promoting to a feature)
+Step 4 — Add a `comment`-type note summarizing why this debt exists and what it's costing today.
+Step 5 — Link any obvious related entities you spotted: `shark link {{.id}} <other-key> --type=related`
+
+RECORD via:
+```
+shark td triage {{.id}} --severity=<...> --category=<...> --effort=<...>
+shark td note add {{.id}} --type=comment --content="Triage: <why this exists, current impact, obvious blast radius>"
+```
+
+EXIT GATE:
+- Severity, category, and effort are set on the record
+- At least one note captures the triage rationale
+- {{template "advance" .}} (goes to `triaged` — the decision gate)

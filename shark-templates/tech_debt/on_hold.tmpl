@@ -1,0 +1,12 @@
+Tech debt {{.id}} is on hold. No further action required — wait for decision to resume.
+
+Common reasons tech debt is put on hold:
+- Deferred until after the current release
+- Not a priority this cycle
+- Superseded by another initiative (e.g., the affected module is being rewritten as a feature)
+{{if .blocked_reason}}
+Reason: {{.blocked_reason}}
+{{end}}
+See `shark td notes {{.id}}` for context on why this was paused.
+
+Once ready to revisit, resume with: shark status advance {{.id}}
