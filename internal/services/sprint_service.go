@@ -901,9 +901,10 @@ func (s *SprintService) RemoveEntityFromSprint(ctx context.Context, sprintKey, e
 // or "grouped" (current grouped-by-status behavior). If View is "" the service applies a
 // default: "ordered" for active sprints, "grouped" for all other statuses.
 type BacklogOptions struct {
-	EntityType  string // "" = all types
-	BlockedOnly bool
-	View        string // "ordered" | "grouped" | "" (auto-detect from sprint status)
+	EntityType       string // "" = all types
+	BlockedOnly      bool
+	View             string // "ordered" | "grouped" | "" (auto-detect from sprint status)
+	IncludeCompleted bool   // when true, terminal-status items are included in ordered view
 }
 
 // SprintBacklog is the return value of GetSprintBacklog.

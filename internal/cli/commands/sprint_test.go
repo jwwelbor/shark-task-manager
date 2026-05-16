@@ -43,6 +43,8 @@ type MockSprintService struct {
 	GetSprintCapacityFunc  func(ctx context.Context, key string) ([]services.CapacityRow, error)
 	BulkAddToSprintFunc    func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
 	GetNextTaskFunc        func(ctx context.Context, agentType string) (*services.BacklogItemView, error)
+	// F07 ordering methods
+	ReorderAssignmentFunc func(ctx context.Context, sprintKey, entityKey string, target services.ReorderTarget) (*models.SprintAssignment, []*models.SprintAssignment, error)
 }
 
 func (m *MockSprintService) CreateSprint(ctx context.Context, input services.CreateSprintInput) (*models.Sprint, error) {
@@ -171,6 +173,13 @@ func (m *MockSprintService) GetNextTask(ctx context.Context, agentType string) (
 		return m.GetNextTaskFunc(ctx, agentType)
 	}
 	return nil, nil
+}
+
+func (m *MockSprintService) ReorderAssignment(ctx context.Context, sprintKey, entityKey string, target services.ReorderTarget) (*models.SprintAssignment, []*models.SprintAssignment, error) {
+	if m.ReorderAssignmentFunc != nil {
+		return m.ReorderAssignmentFunc(ctx, sprintKey, entityKey, target)
+	}
+	return &models.SprintAssignment{}, []*models.SprintAssignment{}, nil
 }
 
 // Compile-time interface checks for the narrowed sprint CLI service contracts.
@@ -1776,6 +1785,10 @@ func (m *MockSprintPlanningService) GetNextTask(ctx context.Context, agentType s
 	return nil, nil
 }
 
+func (m *MockSprintPlanningService) ReorderAssignment(ctx context.Context, sprintKey, entityKey string, target services.ReorderTarget) (*models.SprintAssignment, []*models.SprintAssignment, error) {
+	return &models.SprintAssignment{}, []*models.SprintAssignment{}, nil
+}
+
 // setupPlanningTest sets up the sprint service override using the extended mock.
 func setupPlanningTest(t *testing.T, mock *MockSprintPlanningService) func() {
 	t.Helper()
@@ -2441,4 +2454,479 @@ func TestSprintClose_TC022_CarryoverBacklogPrintsOrderPreservedNo(t *testing.T) 
 	assert.NoError(t, runErr)
 	output := buf.String()
 	assert.Contains(t, output, "Order preserved: no", "output must contain 'Order preserved: no' for carryover=backlog")
+}
+
+// =============================================================================
+// TC-014: sprint reorder --top passes ReorderTarget{Top:true} to service
+// =============================================================================
+//
+// TC-014 — Caller-Path Contract (CLI-layer):
+//   - Entrypoint: runSprintReorder CLI handler via cobra.Command args ["S001", "E07-F01-001", "--top"].
+//   - Mock seam: MockSprintService.ReorderAssignment — asserts it is called with ReorderTarget{Top: true}.
+//   - Forbidden mocks: Do NOT resolve --top to Position:intPtr(1) in CLI; pass ReorderTarget{Top:true} to service.
+//   - Counter-factual: a buggy CLI converting --top to --at=1 would call ReorderAssignment with Position set,
+//     not Top:true; TC-014 asserts the mock was called with Top:true.
+func TestSprintReorder_TC014_TopFlagPassesReorderTargetTop(t *testing.T) {
+	var capturedTarget services.ReorderTarget
+	var capturedSprint, capturedEntity string
+
+	mock := &MockSprintService{
+		ReorderAssignmentFunc: func(ctx context.Context, sprintKey, entityKey string, target services.ReorderTarget) (*models.SprintAssignment, []*models.SprintAssignment, error) {
+			capturedSprint = sprintKey
+			capturedEntity = entityKey
+			capturedTarget = target
+			order := 1
+			return &models.SprintAssignment{SprintOrder: &order}, []*models.SprintAssignment{}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	// Capture stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := sprintReorderCmd
+	cmd.SetContext(context.Background())
+
+	runErr := runSprintReorder(cmd, []string{"S001", "E07-F01-001"})
+
+	// Trigger --top via the flag on the command
+	// We test by calling runSprintReorder directly with the flag pre-set
+	// This approach sets up the reorder cmd flags before calling
+	_ = runErr // ignore error from no-flag invocation; we need to test via the real command path
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	// Now test via command with --top flag
+	r2, w2, err2 := os.Pipe()
+	require.NoError(t, err2)
+	os.Stdout = w2
+
+	capturedTarget = services.ReorderTarget{} // reset
+	cmd2 := &cobra.Command{}
+	cmd2.SetContext(context.Background())
+	cmd2.Flags().Bool("top", false, "")
+	cmd2.Flags().Bool("bottom", false, "")
+	cmd2.Flags().Int("at", 0, "")
+	require.NoError(t, cmd2.Flags().Set("top", "true"))
+
+	runErr2 := runSprintReorder(cmd2, []string{"S001", "E07-F01-001"})
+
+	w2.Close()
+	os.Stdout = origOut
+	var buf2 bytes.Buffer
+	buf2.ReadFrom(r2)
+
+	assert.NoError(t, runErr2)
+	assert.Equal(t, "S001", capturedSprint)
+	assert.Equal(t, "E07-F01-001", capturedEntity)
+	assert.True(t, capturedTarget.Top, "CLI must pass ReorderTarget{Top:true} when --top flag is set")
+	assert.Nil(t, capturedTarget.Position, "CLI must NOT set Position when --top flag is used")
+	assert.False(t, capturedTarget.Bottom, "CLI must NOT set Bottom when --top flag is used")
+	// stdout should contain the pull queue header
+	assert.Contains(t, buf2.String(), "S001", "human output must mention sprint key")
+}
+
+// TC-014 negative: --top and --bottom together returns CLI parse error.
+func TestSprintReorder_TC014_TopAndBottomMutuallyExclusive(t *testing.T) {
+	mock := &MockSprintService{}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().Bool("top", false, "")
+	cmd.Flags().Bool("bottom", false, "")
+	cmd.Flags().Int("at", 0, "")
+	require.NoError(t, cmd.Flags().Set("top", "true"))
+	require.NoError(t, cmd.Flags().Set("bottom", "true"))
+
+	err := runSprintReorder(cmd, []string{"S001", "E07-F01-001"})
+	assert.Error(t, err, "combining --top and --bottom must return an error")
+}
+
+// TC-014 negative: positional position and --top together returns CLI parse error.
+func TestSprintReorder_TC014_PositionAndTopMutuallyExclusive(t *testing.T) {
+	mock := &MockSprintService{}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().Bool("top", false, "")
+	cmd.Flags().Bool("bottom", false, "")
+	cmd.Flags().Int("at", 0, "")
+	require.NoError(t, cmd.Flags().Set("top", "true"))
+
+	// "3" is the positional position argument
+	err := runSprintReorder(cmd, []string{"S001", "E07-F01-001", "3"})
+	assert.Error(t, err, "combining positional position with --top must return an error")
+}
+
+// =============================================================================
+// TC-014b: sprint add --at=1 --json includes sprint_order in output
+// =============================================================================
+//
+// TC-014b — Caller-Path Contract (CLI-layer):
+//   - Entrypoint: runSprintAdd CLI handler with --at=1 --json.
+//   - Mock seam: MockSprintService.AddEntityToSprint — receives AddEntityInput with Position set.
+//   - Counter-factual: a buggy CLI omitting sprint_order from JSON output would produce JSON
+//     without the field; TC-014b asserts json contains sprint_order == 1.
+func TestSprintAdd_TC014b_AtFlagPassesPositionAndJSONIncludesSprintOrder(t *testing.T) {
+	order := 1
+	var capturedInput services.AddEntityInput
+
+	mock := &MockSprintService{
+		AddEntityToSprintFunc: func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			capturedInput = input
+			return &models.SprintAssignment{
+				ID:          42,
+				SprintID:    1,
+				EntityType:  "task",
+				EntityID:    101,
+				SprintOrder: &order,
+			}, nil, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+	cmd.Flags().Int("at", 0, "")
+	require.NoError(t, cmd.Flags().Set("at", "1"))
+
+	runErr := runSprintAdd(cmd, []string{"S001", "E07-F01-001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+
+	// Position must be passed to service
+	require.NotNil(t, capturedInput.Position, "CLI must pass Position to service when --at flag is set")
+	assert.Equal(t, 1, *capturedInput.Position)
+
+	// JSON output must include sprint_order
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result), "output must be valid JSON")
+	soVal, ok := result["sprint_order"]
+	assert.True(t, ok, "JSON output must include sprint_order field")
+	assert.Equal(t, float64(1), soVal, "sprint_order must equal 1")
+}
+
+// TC-014b negative: --at is ignored when no flag provided (Position is nil).
+func TestSprintAdd_AtFlagAbsentPassesNilPosition(t *testing.T) {
+	var capturedInput services.AddEntityInput
+
+	mock := &MockSprintService{
+		AddEntityToSprintFunc: func(ctx context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			capturedInput = input
+			return &models.SprintAssignment{}, nil, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+	cmd.Flags().Int("at", 0, "")
+	// --at not set
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+	runErr := runSprintAdd(cmd, []string{"S001", "E07-F01-001"})
+	w.Close()
+	os.Stdout = origOut
+	buf := &bytes.Buffer{}
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	assert.Nil(t, capturedInput.Position, "Position must be nil when --at flag is not provided")
+}
+
+// TC-014b-bulk: --at combined with bulk flag returns error before service call.
+func TestSprintAdd_AtFlagWithBulkReturnsError(t *testing.T) {
+	called := false
+	mock := &MockSprintService{
+		BulkAddToSprintFunc: func(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error) {
+			called = true
+			return &services.BulkAddResult{AddedByType: map[string]int{}, SkippedByType: map[string]int{}}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+	cmd.Flags().Int("at", 0, "")
+	require.NoError(t, cmd.Flags().Set("at", "2"))
+	require.NoError(t, cmd.Flags().Set("bulk-bugs", "true"))
+
+	err := runSprintAdd(cmd, []string{"S001"})
+	assert.Error(t, err, "--at and bulk flags must be mutually exclusive")
+	assert.False(t, called, "BulkAddToSprint must NOT be called when --at is combined with bulk flag")
+}
+
+// =============================================================================
+// TC-017: sprint backlog --view=ordered returns Items array
+// =============================================================================
+//
+// TC-017 — Caller-Path Contract (CLI-layer via service mock):
+//   - Entrypoint: runSprintBacklog CLI handler with --view=ordered.
+//   - Mock seam: MockSprintService.GetSprintBacklog.
+//   - Counter-factual: a buggy CLI that ignores --view and always calls with View="" would
+//     not exercise the ordered path; TC-017 asserts GetSprintBacklog is called with View="ordered".
+func TestSprintBacklog_TC017_ViewOrderedPassedToService(t *testing.T) {
+	var capturedOpts services.BacklogOptions
+
+	pos1, pos2 := 1, 2
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			capturedOpts = opts
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "ordered",
+				Items: []*services.BacklogItemView{
+					{Key: "E07-F01-001", EntityType: "task", Status: "todo", Position: &pos1, SprintOrder: &pos1},
+					{Key: "B001", EntityType: "bug", Status: "todo", Position: &pos2, SprintOrder: &pos2},
+				},
+				Groups: nil,
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("view", "ordered"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	assert.Equal(t, "ordered", capturedOpts.View, "CLI must pass View='ordered' to service when --view=ordered flag is set")
+	// Human output should show # column (pull queue format)
+	output := buf.String()
+	assert.Contains(t, output, "#", "ordered view output must contain # column header")
+}
+
+// =============================================================================
+// TC-018: Active sprint defaults to --view=ordered without flag
+// =============================================================================
+//
+// TC-018 — Caller-Path Contract (CLI-layer via service mock):
+//   - Entrypoint: runSprintBacklog CLI handler with no --view flag.
+//   - Mock seam: MockSprintService.GetSprintBacklog — service decides view based on sprint status.
+//   - Forbidden mocks: Do NOT default View to "ordered" in CLI before calling service;
+//     service detects sprint status and sets view.
+//   - Counter-factual: a buggy CLI that defaults View to "grouped" would pass View="grouped"
+//     to service; TC-018 asserts capturedOpts.View is "" (empty) so service can auto-detect.
+func TestSprintBacklog_TC018_NoViewFlagPassesEmptyViewToService(t *testing.T) {
+	var capturedOpts services.BacklogOptions
+
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			capturedOpts = opts
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "ordered", // service auto-detected active sprint
+				Items:      []*services.BacklogItemView{},
+				Groups:     nil,
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("include-completed", false, "")
+	// --view NOT set
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	assert.Equal(t, "", capturedOpts.View, "CLI must pass empty View to service when --view flag is not set (let service auto-detect)")
+}
+
+// TC-018b: sprint backlog --view=grouped passes View="grouped" to service.
+func TestSprintBacklog_TC018b_ViewGroupedPassedToService(t *testing.T) {
+	var capturedOpts services.BacklogOptions
+
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			capturedOpts = opts
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "grouped",
+				Groups:     []*services.BacklogGroup{},
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("view", "grouped"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	assert.Equal(t, "grouped", capturedOpts.View)
+}
+
+// TC-017-unordered: ordered view with unordered item shows ~ in # column.
+func TestSprintBacklog_TC017_UnorderedItemShowsTildeInPosColumn(t *testing.T) {
+	pos1 := 1
+	pos2 := 2
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "ordered",
+				Items: []*services.BacklogItemView{
+					{Key: "E07-F01-001", EntityType: "task", Status: "todo", Title: "Ordered task", Position: &pos1, SprintOrder: &pos1},
+					{Key: "B001", EntityType: "bug", Status: "todo", Title: "Ordered bug", Position: &pos2, SprintOrder: &pos2},
+					// Unordered item: Position set (dense rank) but SprintOrder is nil
+					{Key: "E07-F02-001", EntityType: "task", Status: "todo", Title: "Unordered task", Position: func() *int { p := 3; return &p }(), SprintOrder: nil},
+				},
+				Groups: nil,
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("view", "ordered"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	// Ordered items show their position number
+	assert.Contains(t, output, "1", "ordered view must show position 1")
+	assert.Contains(t, output, "2", "ordered view must show position 2")
+	// Unordered item shows ~ in position column
+	assert.Contains(t, output, "~", "ordered view must show ~ for unordered items")
 }
