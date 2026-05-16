@@ -2175,3 +2175,449 @@ func TestSprintRepository_GetAssignmentsWithSize_MultiType(t *testing.T) {
 	require.NotNil(t, assigned[0].AgentType)
 	assert.Equal(t, "backend", *assigned[0].AgentType)
 }
+
+// ---------------------------------------------------------------------------
+// T-E19-F07-002: SprintOrder field and new repository methods
+// ---------------------------------------------------------------------------
+
+// sprintOrderTestHelper sets up a sprint with a task assigned to it for
+// sprint_order tests. Returns the sprint, task ID, and assignment ID.
+// The caller is responsible for cleanup.
+func sprintOrderTestHelper(t *testing.T, ctx context.Context, database *sql.DB, db *dbconn.DB, sprintKey string, taskKey string) (*models.Sprint, int64, int64) {
+	t.Helper()
+
+	// Clean up any leftover data
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key = ?)", sprintKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = ?", sprintKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = ?", taskKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+
+	var epicID int64
+	err := database.QueryRowContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES ('SPORD-E01', 'SprintOrder Epic', 'active', 'medium') RETURNING id`,
+	).Scan(&epicID)
+	require.NoError(t, err)
+
+	var featureID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, 'SPORD-F01', 'SprintOrder Feature', 'in_progress') RETURNING id`,
+		epicID,
+	).Scan(&featureID)
+	require.NoError(t, err)
+
+	var taskID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, ?, 'SprintOrder Task', 'todo', 5) RETURNING id`,
+		featureID, taskKey,
+	).Scan(&taskID)
+	require.NoError(t, err)
+
+	repo := NewSprintRepository(db)
+	sprint := &models.Sprint{
+		Key:       sprintKey,
+		Name:      "Sprint Order Test Sprint",
+		Goal:      "Test sprint_order",
+		StartDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 1, 14, 0, 0, 0, 0, time.UTC),
+		Status:    "planning",
+	}
+	err = repo.Create(ctx, sprint)
+	require.NoError(t, err)
+
+	var assignmentID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at) VALUES (?, 'task', ?, CURRENT_TIMESTAMP) RETURNING id`,
+		sprint.ID, taskID,
+	).Scan(&assignmentID)
+	require.NoError(t, err)
+
+	return sprint, taskID, assignmentID
+}
+
+// TestSprintRepository_MaxSprintOrder_EmptySprint verifies that MaxSprintOrder
+// returns 0 (not an error) when no ordered items exist in the sprint.
+// Covers TC-011 (MaxSprintOrder returns 0 for empty/unordered sprint).
+func TestSprintRepository_MaxSprintOrder_EmptySprint(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	sprint, taskID, _ := sprintOrderTestHelper(t, ctx, database, db, "S991", "SPORD-E01-F01-001")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+	}()
+
+	// The assignment has sprint_order = NULL (not yet ordered).
+	// MaxSprintOrder must return 0 without error.
+	max, err := repo.MaxSprintOrder(ctx, sprint.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, max, "MaxSprintOrder should return 0 when no ordered items exist")
+}
+
+// TestSprintRepository_MaxSprintOrder_WithOrderedItems verifies that
+// MaxSprintOrder returns the highest sprint_order value when ordered items exist.
+func TestSprintRepository_MaxSprintOrder_WithOrderedItems(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	sprint, taskID, _ := sprintOrderTestHelper(t, ctx, database, db, "S992", "SPORD-E01-F01-002")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+	}()
+
+	// Set sprint_order = 3 directly on the assignment.
+	_, err := database.ExecContext(ctx,
+		`UPDATE sprint_assignments SET sprint_order = 3 WHERE sprint_id = ? AND removed_at IS NULL`,
+		sprint.ID,
+	)
+	require.NoError(t, err)
+
+	max, err := repo.MaxSprintOrder(ctx, sprint.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 3, max, "MaxSprintOrder should return the max sprint_order value")
+}
+
+// TestSprintRepository_SetSprintOrderTx verifies that SetSprintOrderTx assigns
+// a sprint_order value to a specific assignment within a transaction.
+func TestSprintRepository_SetSprintOrderTx(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	sprint, taskID, assignmentID := sprintOrderTestHelper(t, ctx, database, db, "S993", "SPORD-E01-F01-003")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+	}()
+
+	t.Run("set to specific position", func(t *testing.T) {
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+
+		pos := 2
+		err = repo.SetSprintOrderTx(ctx, tx, assignmentID, &pos)
+		require.NoError(t, err)
+
+		err = tx.Commit()
+		require.NoError(t, err)
+
+		// Verify the sprint_order was set.
+		var gotOrder sql.NullInt64
+		err = database.QueryRowContext(ctx,
+			`SELECT sprint_order FROM sprint_assignments WHERE id = ?`, assignmentID,
+		).Scan(&gotOrder)
+		require.NoError(t, err)
+		require.True(t, gotOrder.Valid, "sprint_order should not be NULL after SetSprintOrderTx")
+		assert.Equal(t, int64(2), gotOrder.Int64)
+	})
+
+	t.Run("set to nil clears sprint_order", func(t *testing.T) {
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+
+		err = repo.SetSprintOrderTx(ctx, tx, assignmentID, nil)
+		require.NoError(t, err)
+
+		err = tx.Commit()
+		require.NoError(t, err)
+
+		var gotOrder sql.NullInt64
+		err = database.QueryRowContext(ctx,
+			`SELECT sprint_order FROM sprint_assignments WHERE id = ?`, assignmentID,
+		).Scan(&gotOrder)
+		require.NoError(t, err)
+		assert.False(t, gotOrder.Valid, "sprint_order should be NULL after SetSprintOrderTx(nil)")
+	})
+}
+
+// TestSprintRepository_RenumberAssignmentsTx verifies the single-statement
+// CASE WHEN UPDATE that assigns multiple positions atomically.
+// Covers AC-T2 (single CASE WHEN UPDATE, not a loop).
+func TestSprintRepository_RenumberAssignmentsTx(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	// Clean up and create two tasks and one sprint.
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key = 'S994')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S994'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('SPORD-E01-F01-004', 'SPORD-E01-F01-005')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+
+	var epicID int64
+	err := database.QueryRowContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES ('SPORD-E01', 'SprintOrder Epic', 'active', 'medium') RETURNING id`,
+	).Scan(&epicID)
+	require.NoError(t, err)
+
+	var featureID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, 'SPORD-F01', 'SprintOrder Feature', 'in_progress') RETURNING id`,
+		epicID,
+	).Scan(&featureID)
+	require.NoError(t, err)
+
+	var task1ID, task2ID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, 'SPORD-E01-F01-004', 'Task 4', 'todo', 5) RETURNING id`,
+		featureID,
+	).Scan(&task1ID)
+	require.NoError(t, err)
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, 'SPORD-E01-F01-005', 'Task 5', 'todo', 5) RETURNING id`,
+		featureID,
+	).Scan(&task2ID)
+	require.NoError(t, err)
+
+	sprint := &models.Sprint{
+		Key:       "S994",
+		Name:      "Renumber Test Sprint",
+		Goal:      "Test renumber",
+		StartDate: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 2, 14, 0, 0, 0, 0, time.UTC),
+		Status:    "planning",
+	}
+	err = repo.Create(ctx, sprint)
+	require.NoError(t, err)
+
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?)", task1ID, task2ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID)
+	}()
+
+	// Insert two assignments with no sprint_order.
+	var a1ID, a2ID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at) VALUES (?, 'task', ?, CURRENT_TIMESTAMP) RETURNING id`,
+		sprint.ID, task1ID,
+	).Scan(&a1ID)
+	require.NoError(t, err)
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at) VALUES (?, 'task', ?, CURRENT_TIMESTAMP) RETURNING id`,
+		sprint.ID, task2ID,
+	).Scan(&a2ID)
+	require.NoError(t, err)
+
+	t.Run("assigns positions via single UPDATE", func(t *testing.T) {
+		pos1, pos2 := 1, 2
+		ops := []RenumberOp{
+			{AssignmentID: a1ID, NewPosition: &pos1},
+			{AssignmentID: a2ID, NewPosition: &pos2},
+		}
+
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+
+		err = repo.RenumberAssignmentsTx(ctx, tx, sprint.ID, ops)
+		require.NoError(t, err)
+
+		err = tx.Commit()
+		require.NoError(t, err)
+
+		// Verify both assignments have the expected sprint_order.
+		var ord1, ord2 sql.NullInt64
+		err = database.QueryRowContext(ctx, `SELECT sprint_order FROM sprint_assignments WHERE id = ?`, a1ID).Scan(&ord1)
+		require.NoError(t, err)
+		assert.True(t, ord1.Valid)
+		assert.Equal(t, int64(1), ord1.Int64)
+
+		err = database.QueryRowContext(ctx, `SELECT sprint_order FROM sprint_assignments WHERE id = ?`, a2ID).Scan(&ord2)
+		require.NoError(t, err)
+		assert.True(t, ord2.Valid)
+		assert.Equal(t, int64(2), ord2.Int64)
+	})
+
+	t.Run("nil position clears sprint_order", func(t *testing.T) {
+		ops := []RenumberOp{
+			{AssignmentID: a1ID, NewPosition: nil},
+		}
+
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+
+		err = repo.RenumberAssignmentsTx(ctx, tx, sprint.ID, ops)
+		require.NoError(t, err)
+
+		err = tx.Commit()
+		require.NoError(t, err)
+
+		var ord sql.NullInt64
+		err = database.QueryRowContext(ctx, `SELECT sprint_order FROM sprint_assignments WHERE id = ?`, a1ID).Scan(&ord)
+		require.NoError(t, err)
+		assert.False(t, ord.Valid, "sprint_order should be NULL when RenumberOp.NewPosition is nil")
+	})
+
+	t.Run("empty ops slice is a no-op", func(t *testing.T) {
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+
+		err = repo.RenumberAssignmentsTx(ctx, tx, sprint.ID, []RenumberOp{})
+		require.NoError(t, err)
+
+		err = tx.Commit()
+		require.NoError(t, err)
+	})
+}
+
+// TestSprintRepository_ListOrderedAssignments verifies that
+// ListOrderedAssignments returns assignments sorted by sprint_order ASC NULLS LAST
+// then by assigned_at ASC.
+func TestSprintRepository_ListOrderedAssignments(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	// Create supporting entities.
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key = 'S995')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S995'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('SPORD-E01-F01-006', 'SPORD-E01-F01-007', 'SPORD-E01-F01-008')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+
+	var epicID int64
+	err := database.QueryRowContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES ('SPORD-E01', 'SprintOrder Epic', 'active', 'medium') RETURNING id`,
+	).Scan(&epicID)
+	require.NoError(t, err)
+
+	var featureID int64
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, 'SPORD-F01', 'SprintOrder Feature', 'in_progress') RETURNING id`,
+		epicID,
+	).Scan(&featureID)
+	require.NoError(t, err)
+
+	var tID1, tID2, tID3 int64
+	for i, key := range []string{"SPORD-E01-F01-006", "SPORD-E01-F01-007", "SPORD-E01-F01-008"} {
+		ptrs := []*int64{&tID1, &tID2, &tID3}
+		err = database.QueryRowContext(ctx,
+			`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, ?, ?, 'todo', 5) RETURNING id`,
+			featureID, key, fmt.Sprintf("Task %d", i+6),
+		).Scan(ptrs[i])
+		require.NoError(t, err)
+	}
+
+	sprint := &models.Sprint{
+		Key:       "S995",
+		Name:      "ListOrdered Test Sprint",
+		Goal:      "Test ordered listing",
+		StartDate: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 3, 14, 0, 0, 0, 0, time.UTC),
+		Status:    "planning",
+	}
+	err = repo.Create(ctx, sprint)
+	require.NoError(t, err)
+
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?, ?)", tID1, tID2, tID3)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID)
+	}()
+
+	// Insert three assignments: tID1 at order 2, tID2 unordered (NULL), tID3 at order 1.
+	// Expected sort: tID3 (order=1), tID1 (order=2), tID2 (order=NULL last).
+	var sa1ID, sa2ID, sa3ID int64
+	t1 := time.Now().UTC().Add(-3 * time.Second)
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order) VALUES (?, 'task', ?, ?, 2) RETURNING id`,
+		sprint.ID, tID1, t1,
+	).Scan(&sa1ID)
+	require.NoError(t, err)
+
+	t2 := time.Now().UTC().Add(-2 * time.Second)
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at) VALUES (?, 'task', ?, ?) RETURNING id`,
+		sprint.ID, tID2, t2,
+	).Scan(&sa2ID)
+	require.NoError(t, err)
+
+	t3 := time.Now().UTC().Add(-1 * time.Second)
+	err = database.QueryRowContext(ctx,
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order) VALUES (?, 'task', ?, ?, 1) RETURNING id`,
+		sprint.ID, tID3, t3,
+	).Scan(&sa3ID)
+	require.NoError(t, err)
+
+	assignments, err := repo.ListOrderedAssignments(ctx, sprint.ID)
+	require.NoError(t, err)
+	require.Len(t, assignments, 3)
+
+	// First: sprint_order=1 (tID3)
+	require.NotNil(t, assignments[0].SprintOrder, "first assignment should have sprint_order set")
+	assert.Equal(t, 1, *assignments[0].SprintOrder)
+	assert.Equal(t, tID3, assignments[0].EntityID)
+
+	// Second: sprint_order=2 (tID1)
+	require.NotNil(t, assignments[1].SprintOrder, "second assignment should have sprint_order set")
+	assert.Equal(t, 2, *assignments[1].SprintOrder)
+	assert.Equal(t, tID1, assignments[1].EntityID)
+
+	// Third: sprint_order=NULL (tID2) — sorted last.
+	assert.Nil(t, assignments[2].SprintOrder, "NULL sprint_order should sort last")
+	assert.Equal(t, tID2, assignments[2].EntityID)
+}
+
+// TestSprintRepository_SprintAssignment_SprintOrderField verifies that
+// GetActiveAssignment and ListAssignments correctly populate the SprintOrder field.
+func TestSprintRepository_SprintAssignment_SprintOrderField(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	sprint, taskID, _ := sprintOrderTestHelper(t, ctx, database, db, "S996", "SPORD-E01-F01-009")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SPORD-F01'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SPORD-E01'")
+	}()
+
+	// Set sprint_order = 5 on the assignment.
+	_, err := database.ExecContext(ctx,
+		`UPDATE sprint_assignments SET sprint_order = 5 WHERE sprint_id = ? AND removed_at IS NULL`,
+		sprint.ID,
+	)
+	require.NoError(t, err)
+
+	t.Run("GetActiveAssignment populates SprintOrder", func(t *testing.T) {
+		a, err := repo.GetActiveAssignment(ctx, "task", taskID)
+		require.NoError(t, err)
+		require.NotNil(t, a)
+		require.NotNil(t, a.SprintOrder, "SprintOrder should be populated")
+		assert.Equal(t, 5, *a.SprintOrder)
+	})
+
+	t.Run("ListAssignments populates SprintOrder", func(t *testing.T) {
+		assignments, err := repo.ListAssignments(ctx, sprint.ID, nil)
+		require.NoError(t, err)
+		require.Len(t, assignments, 1)
+		require.NotNil(t, assignments[0].SprintOrder, "SprintOrder should be populated")
+		assert.Equal(t, 5, *assignments[0].SprintOrder)
+	})
+}
