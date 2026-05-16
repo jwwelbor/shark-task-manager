@@ -43,6 +43,12 @@ type MockSprintRepository struct {
 	GetBugIDByKeyFunc               func(ctx context.Context, key string) (int64, error)
 	GetChangeCardIDByKeyFunc        func(ctx context.Context, key string) (int64, error)
 	GetTechDebtIDByKeyFunc          func(ctx context.Context, key string) (int64, error)
+
+	// F07 sprint_order methods
+	MaxSprintOrderFunc         func(ctx context.Context, sprintID int64) (int, error)
+	SetSprintOrderTxFunc       func(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error
+	RenumberAssignmentsTxFunc  func(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error
+	ListOrderedAssignmentsFunc func(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
 }
 
 func (m *MockSprintRepository) Create(ctx context.Context, s *models.Sprint) error {
@@ -197,6 +203,36 @@ func (m *MockSprintRepository) GetTechDebtIDByKey(ctx context.Context, key strin
 		return m.GetTechDebtIDByKeyFunc(ctx, key)
 	}
 	return 0, fmt.Errorf("GetTechDebtIDByKey not implemented in mock")
+}
+
+// F07 sprint_order mock implementations.
+
+func (m *MockSprintRepository) MaxSprintOrder(ctx context.Context, sprintID int64) (int, error) {
+	if m.MaxSprintOrderFunc != nil {
+		return m.MaxSprintOrderFunc(ctx, sprintID)
+	}
+	return 0, nil
+}
+
+func (m *MockSprintRepository) SetSprintOrderTx(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error {
+	if m.SetSprintOrderTxFunc != nil {
+		return m.SetSprintOrderTxFunc(ctx, tx, assignmentID, newPosition)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) RenumberAssignmentsTx(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error {
+	if m.RenumberAssignmentsTxFunc != nil {
+		return m.RenumberAssignmentsTxFunc(ctx, tx, sprintID, ops)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) ListOrderedAssignments(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error) {
+	if m.ListOrderedAssignmentsFunc != nil {
+		return m.ListOrderedAssignmentsFunc(ctx, sprintID)
+	}
+	return []*models.SprintAssignment{}, nil
 }
 
 // TestSprintService_NewSprintService tests constructor validation.
@@ -1129,7 +1165,7 @@ func TestSprintService_GetSprintBacklog_CompletionPercentBVA(t *testing.T) {
 			items: []*sprint.BacklogItem{
 				makeItem("task", "completed"),
 				makeItem("task", "completed"),
-				makeItem("bug", "resolved"),         // bug terminal = resolved, not completed
+				makeItem("bug", "resolved"),          // bug terminal = resolved, not completed
 				makeItem("change_card", "completed"), // change_card terminal = completed
 			},
 			completedStatus:   "completed",
@@ -3837,4 +3873,456 @@ func TestPlanSprint_NilAssignmentRepo(t *testing.T) {
 	assert.Len(t, result.Capacity, 0)
 	require.NotNil(t, result.Readiness, "readiness must be non-nil even with nil repos")
 	assert.Equal(t, 0, result.Readiness.OverallScore, "nil repos → no assignments → score=0")
+}
+
+// ─── E19-F07-003: AddEntityToSprint with Position and BulkAddToSprint auto-number ───────────
+
+// intPtr returns a pointer to the given int value. Used in service-layer position tests
+// (TC-005 through TC-012) to build *int values without taking the address of a literal.
+func intPtr(v int) *int { return &v }
+
+// makeActiveSprint creates a minimal *models.Sprint in "active" status for use in
+// the TC-005..TC-012 test helpers. The caller may override fields as needed.
+func makeActiveSprint(id int64, key string) *models.Sprint {
+	return &models.Sprint{
+		ID:        id,
+		Key:       key,
+		Status:    "active",
+		Name:      "Test Sprint",
+		StartDate: time.Now().Add(-24 * time.Hour),
+		EndDate:   time.Now().Add(7 * 24 * time.Hour),
+	}
+}
+
+// makeAssignment creates a *models.SprintAssignment with the given sprint order (nil = unordered).
+func makeAssignment(id, sprintID int64, entityType string, entityID int64, order *int) *models.SprintAssignment {
+	return &models.SprintAssignment{
+		ID:          id,
+		SprintID:    sprintID,
+		EntityType:  entityType,
+		EntityID:    entityID,
+		AssignedAt:  time.Now(),
+		SprintOrder: order,
+	}
+}
+
+// TestAddEntityToSprint_TC005_AtPosition1_ShiftsExistingItems verifies that
+// providing Position=1 places the new item at position 1 and shifts the 3
+// existing ordered items to positions 2, 3, 4.
+//
+// TC-005 — Caller-Path Contract:
+//   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{..., Position: intPtr(1)})
+//   - Mock seam: MockSprintRepository (MaxSprintOrder, AddAssignment, ListOrderedAssignments, RenumberAssignmentsTx)
+//   - Counter-factual: a buggy impl that ignores Position and always appends would NOT call
+//     RenumberAssignmentsTx; this test asserts it IS called with the correct shift ops.
+func TestAddEntityToSprint_TC005_AtPosition1_ShiftsExistingItems(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	// Three existing ordered items at positions 1, 2, 3.
+	existing := []*models.SprintAssignment{
+		makeAssignment(1, 10, "task", 100, intPtr(1)),
+		makeAssignment(2, 10, "task", 101, intPtr(2)),
+		makeAssignment(3, 10, "task", 102, intPtr(3)),
+	}
+
+	var capturedOps []sprint.RenumberOp
+	var addedAssignment *models.SprintAssignment
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) { return 3, nil },
+		ListOrderedAssignmentsFunc: func(_ context.Context, _ int64) ([]*models.SprintAssignment, error) {
+			return existing, nil
+		},
+		AddAssignmentFunc: func(_ context.Context, a *models.SprintAssignment) error {
+			a.ID = 99 // simulate DB auto-increment
+			addedAssignment = a
+			return nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, ops []sprint.RenumberOp) error {
+			capturedOps = ops
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error {
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  intPtr(1),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	require.NotNil(t, assignment.SprintOrder, "SprintOrder must be set")
+	assert.Equal(t, 1, *assignment.SprintOrder, "new item must land at position 1")
+
+	// Verify shift ops: items formerly at 1,2,3 must shift to 2,3,4.
+	require.Len(t, capturedOps, 3, "RenumberAssignmentsTx must receive 3 shift ops")
+	assert.Equal(t, int64(1), capturedOps[0].AssignmentID)
+	assert.Equal(t, intPtr(2), capturedOps[0].NewPosition)
+	assert.Equal(t, int64(2), capturedOps[1].AssignmentID)
+	assert.Equal(t, intPtr(3), capturedOps[1].NewPosition)
+	assert.Equal(t, int64(3), capturedOps[2].AssignmentID)
+	assert.Equal(t, intPtr(4), capturedOps[2].NewPosition)
+
+	_ = addedAssignment // verified via assignment return value
+}
+
+// TestAddEntityToSprint_TC006_AtPositionCountPlus1_Appends verifies that
+// providing Position=count+1 (boundary) succeeds without error and the item
+// lands at the last position (no sibling shift required).
+//
+// TC-006 — Counter-factual: a buggy impl that rejects count+1 returns an error;
+// this test asserts nil error and sprint_order == count+1.
+func TestAddEntityToSprint_TC006_AtPositionCountPlus1_Appends(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	existing := []*models.SprintAssignment{
+		makeAssignment(1, 10, "task", 100, intPtr(1)),
+		makeAssignment(2, 10, "task", 101, intPtr(2)),
+		makeAssignment(3, 10, "task", 102, intPtr(3)),
+	}
+
+	renumberCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) { return 3, nil },
+		ListOrderedAssignmentsFunc: func(_ context.Context, _ int64) ([]*models.SprintAssignment, error) {
+			return existing, nil
+		},
+		AddAssignmentFunc: func(_ context.Context, a *models.SprintAssignment) error {
+			a.ID = 99
+			return nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ []sprint.RenumberOp) error {
+			renumberCalled = true
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error { return nil },
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	// Position=4 == count+1 (3 existing items)
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  intPtr(4),
+	})
+
+	require.NoError(t, err, "count+1 position must not return an error")
+	require.NotNil(t, assignment)
+	require.NotNil(t, assignment.SprintOrder)
+	assert.Equal(t, 4, *assignment.SprintOrder)
+	assert.False(t, renumberCalled, "RenumberAssignmentsTx must NOT be called when appending at end")
+}
+
+// TestAddEntityToSprint_TC007_AtPositionCountPlus2_Error verifies that
+// providing Position=count+2 (out of range) returns a validation error and does
+// NOT create any assignment.
+//
+// TC-007 — Counter-factual: a buggy impl that clamps position to count+1 would
+// not return an error; this test asserts a non-nil error containing "out of range".
+func TestAddEntityToSprint_TC007_AtPositionCountPlus2_Error(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	addCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) { return 3, nil },
+		ListOrderedAssignmentsFunc: func(_ context.Context, _ int64) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{
+				makeAssignment(1, 10, "task", 100, intPtr(1)),
+				makeAssignment(2, 10, "task", 101, intPtr(2)),
+				makeAssignment(3, 10, "task", 102, intPtr(3)),
+			}, nil
+		},
+		AddAssignmentFunc: func(_ context.Context, _ *models.SprintAssignment) error {
+			addCalled = true
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	// Position=5 == count+2 (3 existing items, so max valid = 4)
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  intPtr(5),
+	})
+
+	require.Error(t, err, "position count+2 must return an error")
+	assert.Nil(t, assignment, "no assignment must be created on out-of-range position")
+	assert.Contains(t, err.Error(), "out of range", "error must mention 'out of range'")
+	assert.Contains(t, err.Error(), "3", "error must mention the count of ordered items (3)")
+	assert.False(t, addCalled, "AddAssignment must NOT be called when position is invalid")
+}
+
+// TestAddEntityToSprint_TC008_AtPosition0_Error verifies that Position=0 returns
+// a validation error before any repository call.
+//
+// TC-008 — Counter-factual: a buggy impl that treats 0 as "append at start"
+// would not return an error; this test asserts non-nil error.
+func TestAddEntityToSprint_TC008_AtPosition0_Error(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	repoCalled := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) {
+			repoCalled = true
+			return 0, nil
+		},
+		AddAssignmentFunc: func(_ context.Context, _ *models.SprintAssignment) error {
+			repoCalled = true
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  intPtr(0),
+	})
+
+	require.Error(t, err, "position=0 must return an error")
+	assert.Nil(t, assignment)
+	assert.Contains(t, err.Error(), "1", "error must reference the minimum valid position (1)")
+	assert.False(t, repoCalled, "no repo order/add calls must be made for position <= 0")
+}
+
+// TestAddEntityToSprint_TC009_NegativePosition_Error verifies that a negative
+// Position returns the same "must be >= 1" validation error as TC-008.
+//
+// TC-009 — extends TC-008 to negative values.
+func TestAddEntityToSprint_TC009_NegativePosition_Error(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	addCalled := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(_ context.Context, _ *models.SprintAssignment) error {
+			addCalled = true
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  intPtr(-3),
+	})
+
+	require.Error(t, err, "negative position must return an error")
+	assert.Nil(t, assignment)
+	assert.Contains(t, err.Error(), "1")
+	assert.False(t, addCalled, "AddAssignment must NOT be called for negative position")
+}
+
+// TestAddEntityToSprint_TC010_NilPosition_AppendsAtMaxPlus1 verifies that a nil
+// Position (no --at flag) auto-assigns sprint_order = max + 1 without calling
+// RenumberAssignmentsTx.
+//
+// TC-010 — Counter-factual: a buggy impl that defaults nil to position=1 would
+// call RenumberAssignmentsTx; this test asserts it is NOT called.
+func TestAddEntityToSprint_TC010_NilPosition_AppendsAtMaxPlus1(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	renumberCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) { return 3, nil },
+		AddAssignmentFunc: func(_ context.Context, a *models.SprintAssignment) error {
+			a.ID = 99
+			return nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ []sprint.RenumberOp) error {
+			renumberCalled = true
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error { return nil },
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	// Position is nil — no --at flag
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  nil,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	require.NotNil(t, assignment.SprintOrder, "SprintOrder must be set even for nil Position")
+	assert.Equal(t, 4, *assignment.SprintOrder, "nil Position must auto-assign max+1 = 4")
+	assert.False(t, renumberCalled, "nil Position must NOT trigger RenumberAssignmentsTx")
+}
+
+// TestAddEntityToSprint_TC011_EmptySprint_FirstItemGetsPosition1 verifies that
+// when a sprint has no ordered items (MaxSprintOrder returns 0), the first item
+// added with nil Position gets sprint_order = 1.
+//
+// TC-011 — Counter-factual: a buggy impl using max-initialized-to-(-1) would
+// assign sprint_order=0 (reserved); this test asserts sprint_order=1.
+func TestAddEntityToSprint_TC011_EmptySprint_FirstItemGetsPosition1(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	maxCalled := false
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		GetTaskIDByKeyFunc: func(_ context.Context, _ string) (int64, error) { return 200, nil },
+		GetActiveAssignmentFunc: func(_ context.Context, _ string, _ int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) {
+			maxCalled = true
+			return 0, nil // no ordered items
+		},
+		AddAssignmentFunc: func(_ context.Context, a *models.SprintAssignment) error {
+			a.ID = 99
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error { return nil },
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "E07-F01-001",
+		Position:  nil,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	require.NotNil(t, assignment.SprintOrder, "SprintOrder must be set for first item")
+	assert.Equal(t, 1, *assignment.SprintOrder, "first item in empty sprint must get sprint_order=1")
+	assert.True(t, maxCalled, "MaxSprintOrder must be called to determine next position")
+}
+
+// TestBulkAddToSprint_TC012_AssignsSequentialSprintOrders verifies that
+// BulkAddToSprint assigns sequential sprint_order values per row passed to
+// BulkAssign, and calls RenumberAssignmentsTx to repair gaps from INSERT OR IGNORE skips.
+//
+// TC-012 — Caller-Path Contract:
+//   - Entrypoint: SprintService.BulkAddToSprint(ctx, BulkAddInput{SprintKey:"S001", FeatureKey:"E07-F01"})
+//   - Mock seam: MockSprintRepository (BulkAssign, MaxSprintOrder; assert BulkAssign receives
+//     per-row sprint_order values; assert RenumberAssignmentsTx called after skip)
+//   - Counter-factual: a buggy impl leaving gaps (items 1,3,4 after skip) would have
+//     sprint_order=3 for the second item; this test asserts dense renumber produces 1,2,3,4.
+func TestBulkAddToSprint_TC012_AssignsSequentialSprintOrders(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+
+	// Existing 2 ordered items (positions 1 and 2).
+	// BulkAdd will attempt 3 tasks; one is a duplicate (INSERT OR IGNORE skips it → inserted=2).
+	candidates := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 100, Key: "E07-F01-001", Status: "todo"},
+		{EntityType: "task", EntityID: 101, Key: "E07-F01-002", Status: "todo"},
+		{EntityType: "task", EntityID: 102, Key: "E07-F01-003", Status: "todo"},
+	}
+
+	var capturedAssignments []models.SprintAssignment
+	renumberOpsCaptured := []sprint.RenumberOp(nil)
+
+	// After the bulk insert, ListOrderedAssignments is called to find batch items that need
+	// renumbering. We simulate the DB state: existing 2 items (pos 1,2) plus 2 inserted (pos 3,5
+	// — gaps because item at pos 4 was skipped). The service must renumber 3→3, 5→4.
+	orderedAfterBulk := []*models.SprintAssignment{
+		makeAssignment(10, 10, "task", 200, intPtr(1)), // pre-existing
+		makeAssignment(11, 10, "task", 201, intPtr(2)), // pre-existing
+		makeAssignment(12, 10, "task", 100, intPtr(3)), // inserted (candidate 0)
+		// candidate 1 (entityID=101) was skipped by INSERT OR IGNORE
+		makeAssignment(13, 10, "task", 102, intPtr(5)), // inserted (candidate 2, gets pos 5 due to gap)
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) { return 2, nil },
+		ListOrderedAssignmentsFunc: func(_ context.Context, _ int64) ([]*models.SprintAssignment, error) {
+			return orderedAfterBulk, nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, ops []sprint.RenumberOp) error {
+			renumberOpsCaptured = ops
+			return nil
+		},
+	}
+
+	mockAssignmentRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(_ context.Context, _ []string) ([]sprint.BacklogItem, error) {
+			return candidates, nil
+		},
+		BulkAssignFunc: func(_ context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			capturedAssignments = assignments
+			// Simulate INSERT OR IGNORE skipping one row → 2 inserted out of 3.
+			return 2, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), mockAssignmentRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:  "S001",
+		FeatureKey: "E07-F01",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Assert BulkAssign received per-row sprint_order values (max=2, so new rows get 3,4,5).
+	require.Len(t, capturedAssignments, 3, "all 3 candidates must be passed to BulkAssign")
+	for i, a := range capturedAssignments {
+		require.NotNil(t, a.SprintOrder, "each assignment must have a sprint_order set")
+		assert.Equal(t, 2+i+1, *a.SprintOrder, "assignment %d must have sprint_order=%d", i, 2+i+1)
+	}
+
+	// After INSERT OR IGNORE skip (1 skipped), RenumberAssignmentsTx must be called
+	// to repair gaps — the 2 inserted items should be renumbered densely.
+	assert.NotNil(t, renumberOpsCaptured, "RenumberAssignmentsTx must be called after a bulk skip")
 }

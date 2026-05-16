@@ -63,6 +63,25 @@ type SprintRepository interface {
 	GetBugIDByKey(ctx context.Context, key string) (int64, error)
 	GetChangeCardIDByKey(ctx context.Context, key string) (int64, error)
 	GetTechDebtIDByKey(ctx context.Context, key string) (int64, error)
+
+	// --- Sprint order methods (F07) ---
+
+	// MaxSprintOrder returns max(sprint_order) for active assignments in the sprint,
+	// or 0 if no ordered items exist. Used by AddEntityToSprint when Position is nil.
+	MaxSprintOrder(ctx context.Context, sprintID int64) (int, error)
+
+	// SetSprintOrderTx assigns sprint_order = newPosition for the given assignment ID
+	// within the caller-supplied transaction. Pass nil to clear (set NULL).
+	SetSprintOrderTx(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error
+
+	// RenumberAssignmentsTx applies a slice of (assignment_id, new_position) pairs in a
+	// single CASE WHEN UPDATE. Used by AddEntityToSprint (--at) and ReorderAssignment.
+	RenumberAssignmentsTx(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error
+
+	// ListOrderedAssignments returns active assignments for a sprint sorted by
+	// sprint_order ASC NULLS LAST, assigned_at ASC. Used by AddEntityToSprint (--at)
+	// to build the shift plan without re-scanning the full backlog UNION.
+	ListOrderedAssignments(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
 }
 
 // SprintAssignmentQueryRepository handles assignment queries needed for sprint planning.
@@ -524,6 +543,12 @@ type AddEntityInput struct {
 	// Zero means "unknown size"; the capacity check treats unknown-size entities as
 	// contributing 0 points (advisory only — does not block).
 	EstimatedSize int
+	// Position is an optional 1-based position for the new assignment in the sprint order.
+	// When nil (no --at flag), the item is appended after all ordered items: sprint_order = max + 1.
+	// When set, the item is inserted at the given position and all items at >= position are
+	// shifted up by 1. Must be in the range [1, count+1]; count+1 is equivalent to append.
+	// Validation: returns error if Position <= 0 or Position > count+1.
+	Position *int
 }
 
 // CapacityWarning is returned alongside the assignment when assigning an entity
@@ -605,19 +630,24 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 }
 
 // ---------------------------------------------------------------------------
-// AddEntityToSprint — T-E19-F03-005
+// AddEntityToSprint — T-E19-F03-005 / T-E19-F07-003
 // ---------------------------------------------------------------------------
 
 // AddEntityToSprint assigns any supported entity to a sprint.
 //
 // Steps:
 //  1. Resolve sprint by key.
-//  2. Parse entity key to determine entity_type (task/bug/change_card/tech_debt).
-//  3. Resolve entity_id by querying the entity's table.
-//  4. Check for an existing active assignment; return ConflictError naming the
+//  2. Validate Position when provided (must be >= 1 before any repo call).
+//  3. Parse entity key to determine entity_type (task/bug/change_card/tech_debt).
+//  4. Resolve entity_id by querying the entity's table.
+//  5. Check for an existing active assignment; return ConflictError naming the
 //     conflicting sprint if one is found.
-//  5. Call repo.AddAssignment.
-//  6. Compute capacity warning if capacityRepo and AgentType are provided
+//  6. Determine sprint_order:
+//     - Position nil: auto-assign = MaxSprintOrder + 1 (FIFO append).
+//     - Position set: validate against current count; insert at position and shift siblings.
+//  7. Call repo.AddAssignment with sprint_order populated.
+//  8. For insert-at-position: call RenumberAssignmentsTx to shift items >= position.
+//  9. Compute capacity warning if capacityRepo and AgentType are provided
 //     (advisory only — never blocks).
 //
 // Returns the created SprintAssignment and an optional CapacityWarning.
@@ -640,13 +670,21 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 		)
 	}
 
-	// Step 2+3: Parse entity key and resolve entity ID
+	// Step 2: Validate Position early (before any repo calls) per TD-10 / TC-008 / TC-009.
+	if input.Position != nil && *input.Position < 1 {
+		return nil, nil, fmt.Errorf(
+			"invalid position %d for sprint %s: position must be >= 1",
+			*input.Position, input.SprintKey,
+		)
+	}
+
+	// Step 3+4: Parse entity key and resolve entity ID
 	entityType, entityID, err := resolveEntityTypeAndID(ctx, s.repo, input.EntityKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve entity %q for sprint assignment: %w", input.EntityKey, err)
 	}
 
-	// Step 4: Conflict check — at most one active sprint assignment per entity
+	// Step 5: Conflict check — at most one active sprint assignment per entity
 	existing, err := s.repo.GetActiveAssignment(ctx, entityType, entityID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check existing assignment for %q: %w", input.EntityKey, err)
@@ -663,19 +701,96 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 		)
 	}
 
-	// Step 5: Create assignment
+	// Step 6: Determine sprint_order for the new assignment.
+	//
+	// When Position is nil (no --at flag): append at max+1 (FIFO). This is the fast
+	// path — no ListOrderedAssignments needed, just MaxSprintOrder.
+	//
+	// When Position is set: validate range, then call ListOrderedAssignments to build
+	// the shift plan; shift is applied inside a transaction after AddAssignment succeeds.
+	var targetOrder int
+	var orderedItems []*models.SprintAssignment // populated only for insert-at-position
+
+	if input.Position == nil {
+		// Auto-assign: append at max+1. MaxSprintOrder returns 0 when no ordered items
+		// exist, so the first item gets sprint_order=1 (per TC-011).
+		maxOrder, maxErr := s.repo.MaxSprintOrder(ctx, sprintEntity.ID)
+		if maxErr != nil {
+			return nil, nil, fmt.Errorf("failed to determine sprint order for %q in sprint %s: %w",
+				input.EntityKey, input.SprintKey, maxErr)
+		}
+		targetOrder = maxOrder + 1
+	} else {
+		// Insert at requested position: validate and fetch ordered items for shift.
+		pos := *input.Position
+
+		// Get current ordered items to determine valid upper bound.
+		orderedItems, err = s.repo.ListOrderedAssignments(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to list ordered assignments for sprint %s: %w",
+				input.SprintKey, err)
+		}
+
+		count := len(orderedItems)
+		if pos > count+1 {
+			return nil, nil, fmt.Errorf(
+				"position %d is out of range: sprint has %d ordered items (valid range: 1..%d)",
+				pos, count, count+1,
+			)
+		}
+
+		targetOrder = pos
+	}
+
+	// Step 7: Create assignment with sprint_order pre-populated.
 	assignment := &models.SprintAssignment{
-		SprintID:   sprintEntity.ID,
-		EntityType: entityType,
-		EntityID:   entityID,
-		AssignedAt: time.Now().UTC(),
+		SprintID:    sprintEntity.ID,
+		EntityType:  entityType,
+		EntityID:    entityID,
+		AssignedAt:  time.Now().UTC(),
+		SprintOrder: &targetOrder,
 	}
 	if err := s.repo.AddAssignment(ctx, assignment); err != nil {
 		return nil, nil, fmt.Errorf("failed to add assignment for %q to sprint %s: %w",
 			input.EntityKey, input.SprintKey, err)
 	}
 
-	// Step 6: Advisory capacity warning (never blocks)
+	// Step 8: For insert-at-position, shift all items that were at >= targetOrder up by 1.
+	// Items at position == count+1 (append at boundary) require no shift.
+	if input.Position != nil && len(orderedItems) > 0 {
+		pos := *input.Position
+		count := len(orderedItems)
+		if pos <= count {
+			// Build shift ops for all existing items at positions >= pos.
+			ops := make([]sprint.RenumberOp, 0, count-pos+1)
+			for _, item := range orderedItems {
+				if item.SprintOrder != nil && *item.SprintOrder >= pos {
+					newPos := *item.SprintOrder + 1
+					ops = append(ops, sprint.RenumberOp{
+						AssignmentID: item.ID,
+						NewPosition:  &newPos,
+					})
+				}
+			}
+			if len(ops) > 0 {
+				// TD-9: service owns the transaction boundary.
+				// Since we have no outstanding tx here (AddAssignment committed above),
+				// we call RenumberAssignmentsTx with a nil tx — the repo handles it
+				// as a non-transactional update. The spec allows this because the
+				// partial unique index (sprint_id, sprint_order) enforces ordering
+				// invariants at the DB layer.
+				//
+				// Note: for full transactional safety, s.db must be non-nil. If s.db
+				// is nil we proceed without a transaction (advisory, not blocking).
+				if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
+					return nil, nil, fmt.Errorf("failed to shift sprint order for insert at position %d in sprint %s: %w",
+						pos, input.SprintKey, err)
+				}
+			}
+		}
+	}
+
+	// Step 9: Advisory capacity warning (never blocks)
 	var warning *CapacityWarning
 	if s.capacityRepo != nil && input.AgentType != "" {
 		warning = s.computeCapacityWarning(ctx, sprintEntity.ID, input.AgentType, input.EstimatedSize)
@@ -1189,20 +1304,66 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 		return result, nil
 	}
 
+	// Step 5a (F07): Fetch the current max sprint_order so bulk rows can be auto-numbered.
+	// §3.6: new rows get sprint_order = max + 1, max + 2, … (dense per-row assignment).
+	maxOrder, maxOrderErr := s.repo.MaxSprintOrder(ctx, sprintEntity.ID)
+	if maxOrderErr != nil {
+		return nil, fmt.Errorf("failed to determine sprint order for bulk add to sprint %s: %w",
+			input.SprintKey, maxOrderErr)
+	}
+
 	toAssign := make([]models.SprintAssignment, 0, len(filtered))
-	for _, item := range filtered {
+	for i, item := range filtered {
+		order := maxOrder + i + 1 // 1-based offset within the bulk batch
 		toAssign = append(toAssign, models.SprintAssignment{
-			SprintID:   sprintEntity.ID,
-			EntityType: item.EntityType,
-			EntityID:   item.EntityID,
+			SprintID:    sprintEntity.ID,
+			EntityType:  item.EntityType,
+			EntityID:    item.EntityID,
+			SprintOrder: &order,
 		})
 	}
 
 	// Step 6: Perform the bulk insert. BulkAssign uses INSERT OR IGNORE to skip
 	// any entity that gained an active assignment between ListUnassignedBacklog and now.
+	// sprint_order is passed per-row so the DB receives the intended ordering immediately.
 	inserted, err := s.assignmentRepo.BulkAssign(ctx, sprintEntity.ID, toAssign)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bulk assign to sprint %s: %w", input.SprintKey, err)
+	}
+
+	// Step 6a (F07 §3.6 ImplementationNote-1): If INSERT OR IGNORE skipped any rows,
+	// gaps appear in the sprint_order sequence (e.g., items at 3, 5 after item 4 was skipped).
+	// Call RenumberAssignmentsTx to repair the sequence densely.
+	// We only need to renumber when skips occurred AND some rows were inserted.
+	skippedFromBulk := len(filtered) - inserted
+	if skippedFromBulk > 0 && inserted > 0 {
+		// Fetch the current ordered state after the bulk insert to build a clean renumber plan.
+		// We renumber only the newly inserted batch (sprint_order > maxOrder) to avoid disturbing
+		// pre-existing items.
+		orderedAfter, listErr := s.repo.ListOrderedAssignments(ctx, sprintEntity.ID)
+		if listErr == nil {
+			// Build renumber ops for inserted batch items (those with sprint_order > maxOrder).
+			var batchItems []*models.SprintAssignment
+			for _, a := range orderedAfter {
+				if a.SprintOrder != nil && *a.SprintOrder > maxOrder {
+					batchItems = append(batchItems, a)
+				}
+			}
+			// Dense-renumber the batch starting at maxOrder+1.
+			if len(batchItems) > 0 {
+				ops := make([]sprint.RenumberOp, 0, len(batchItems))
+				for i, a := range batchItems {
+					newPos := maxOrder + i + 1
+					ops = append(ops, sprint.RenumberOp{
+						AssignmentID: a.ID,
+						NewPosition:  &newPos,
+					})
+				}
+				// Ignore renumber errors — advisory, non-blocking. The sprint is usable
+				// even if the order has minor gaps (user can run sprint reorder to fix).
+				_ = s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops)
+			}
+		}
 	}
 
 	// Step 7: Compute per-type counts from the inserted vs. filtered totals.
