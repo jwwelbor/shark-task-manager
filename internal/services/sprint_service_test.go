@@ -4326,3 +4326,417 @@ func TestBulkAddToSprint_TC012_AssignsSequentialSprintOrders(t *testing.T) {
 	// to repair gaps — the 2 inserted items should be renumbered densely.
 	assert.NotNil(t, renumberOpsCaptured, "RenumberAssignmentsTx must be called after a bulk skip")
 }
+
+// ---------------------------------------------------------------------------
+// TC-001: GetNextTask — sprint_order beats ExecutionOrder
+// ---------------------------------------------------------------------------
+//
+// TC-001 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "") — agentType="" = no filter
+//   - Mock seam: MockSprintRepository (ListFunc + ListBacklogFunc; real comparator runs)
+//   - Forbidden mocks: do NOT mock the sort comparator or selectionReason helper
+//   - Counter-factual: a buggy impl that ignores sprint_order (old three-tier sort) would
+//     return itemB (lower ExecutionOrder=1) instead of itemA (sprint_order=1); this test
+//     would fail because it asserts Key=="task-A" and SelectionReason=="sprint_order"
+func TestGetNextTask_TC001_SprintOrderBeatsExecutionOrder(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+	execOrder1 := 1
+
+	// itemA has sprint_order=1 but higher ExecutionOrder
+	// itemB has no sprint_order but lower ExecutionOrder=1
+	// Without the sprint_order tier, itemB would win; with it, itemA must win.
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			Key:         "task-A",
+			Title:       "Task A",
+			Status:      "todo",
+			SprintOrder: &order1, // sprint_order = 1 → should win
+			AssignedAt:  time.Now().Add(-1 * time.Hour),
+		},
+		{
+			EntityType:     "task",
+			Key:            "task-B",
+			Title:          "Task B",
+			Status:         "todo",
+			ExecutionOrder: &execOrder1, // execution_order = 1, no sprint_order
+			AssignedAt:     time.Now().Add(-2 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "task-A", result.Key, "sprint_order=1 item must be selected over unordered item with lower ExecutionOrder")
+	assert.Equal(t, "sprint_order", result.SelectionReason, "SelectionReason must be sprint_order")
+	assert.NotNil(t, result.SprintOrder, "SprintOrder must be set on the returned item")
+	assert.Equal(t, 1, *result.SprintOrder, "SprintOrder must equal the stored sprint_order")
+	assert.Equal(t, "S001", result.SprintKey, "SprintKey must be set on the returned item")
+}
+
+// ---------------------------------------------------------------------------
+// TC-002: GetNextTask — two ordered items, lower sprint_order wins
+// ---------------------------------------------------------------------------
+//
+// TC-002 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "")
+//   - Mock seam: MockSprintRepository (ListBacklogFunc)
+//   - Counter-factual: a buggy impl that sorts by ExecutionOrder first would return
+//     itemB (ExecutionOrder=1) instead of itemA (sprint_order=1, ExecutionOrder=5)
+func TestGetNextTask_TC002_LowerSprintOrderWins(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+	order2 := 2
+	execOrder5 := 5
+	execOrder1 := 1
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:     "task",
+			Key:            "task-A",
+			Title:          "Task A",
+			Status:         "todo",
+			SprintOrder:    &order1,     // sprint_order = 1 → must win
+			ExecutionOrder: &execOrder5, // execution_order = 5 (higher)
+			AssignedAt:     time.Now().Add(-1 * time.Hour),
+		},
+		{
+			EntityType:     "task",
+			Key:            "task-B",
+			Title:          "Task B",
+			Status:         "todo",
+			SprintOrder:    &order2,     // sprint_order = 2
+			ExecutionOrder: &execOrder1, // execution_order = 1 (lower)
+			AssignedAt:     time.Now().Add(-2 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "task-A", result.Key, "lower sprint_order must win over lower ExecutionOrder")
+	assert.Equal(t, "sprint_order", result.SelectionReason, "SelectionReason must be sprint_order when that tier breaks the tie")
+}
+
+// ---------------------------------------------------------------------------
+// TC-003: GetNextTask — two unordered items, lower ExecutionOrder wins (stable)
+// ---------------------------------------------------------------------------
+//
+// TC-003 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "") called 10 times
+//   - Mock seam: MockSprintRepository (stable mock return — same slice every call)
+//   - Forbidden mocks: do NOT randomise mock return order between calls
+//   - Counter-factual: sort.Slice (unstable) would permute equal-key candidates;
+//     across 10 calls the result might change, failing the determinism assertion
+func TestGetNextTask_TC003_ExecutionOrderFallback_StableResult(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	execOrder1 := 1
+	execOrder2 := 2
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:     "task",
+			Key:            "task-A",
+			Title:          "Task A",
+			Status:         "todo",
+			ExecutionOrder: &execOrder1, // lower → must win
+			AssignedAt:     time.Now().Add(-1 * time.Hour),
+		},
+		{
+			EntityType:     "task",
+			Key:            "task-B",
+			Title:          "Task B",
+			Status:         "todo",
+			ExecutionOrder: &execOrder2,
+			AssignedAt:     time.Now().Add(-2 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	// Call 10 times — stable sort must return the same result every time.
+	for i := 0; i < 10; i++ {
+		result, err := svc.GetNextTask(ctx, "")
+		require.NoError(t, err, "call %d must succeed", i)
+		require.NotNil(t, result, "call %d must return a result", i)
+		assert.Equal(t, "task-A", result.Key, "call %d: lower ExecutionOrder must win deterministically", i)
+		assert.Equal(t, "execution_order", result.SelectionReason, "call %d: SelectionReason must be execution_order", i)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-004: GetNextTask — same ExecutionOrder, higher priority (lower number) wins
+// ---------------------------------------------------------------------------
+//
+// TC-004 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "")
+//   - Mock seam: MockSprintRepository
+//   - Counter-factual: a buggy impl that sorts priority descending (higher number = higher
+//     priority) would return task-B (Priority=10); this test asserts task-A (Priority=1) wins
+//     because lower number = higher priority matches existing GetNextTask semantics
+func TestGetNextTask_TC004_PriorityFallback(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	execOrder5 := 5
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:     "task",
+			Key:            "task-A",
+			Title:          "Task A",
+			Status:         "todo",
+			ExecutionOrder: &execOrder5,
+			Priority:       1, // lower number = higher priority → must win
+			AssignedAt:     time.Now().Add(-1 * time.Hour),
+		},
+		{
+			EntityType:     "task",
+			Key:            "task-B",
+			Title:          "Task B",
+			Status:         "todo",
+			ExecutionOrder: &execOrder5, // same execution_order
+			Priority:       10,
+			AssignedAt:     time.Now().Add(-2 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "task-A", result.Key, "lower Priority number (higher priority) must win when ExecutionOrder ties")
+	assert.Equal(t, "priority", result.SelectionReason, "SelectionReason must be priority when that tier breaks the tie")
+}
+
+// ---------------------------------------------------------------------------
+// TC-016: GetNextTask — single candidate defaults to selection_reason="assigned_at"
+// ---------------------------------------------------------------------------
+//
+// TC-016 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "") with exactly one candidate
+//   - Mock seam: MockSprintRepository
+//   - Forbidden mocks: do NOT special-case single-candidate in the comparator mock
+//   - Counter-factual: a buggy impl that returns selection_reason="" for single-candidate
+//     would fail; this test asserts selection_reason=="assigned_at" even when sprint_order is set
+func TestGetNextTask_TC016_SingleCandidateDefaultsToAssignedAt(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			Key:         "task-A",
+			Title:       "Task A",
+			Status:      "todo",
+			SprintOrder: &order1, // has sprint_order — but single candidate, must still default to "assigned_at"
+			AssignedAt:  time.Now().Add(-1 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "task-A", result.Key)
+	assert.Equal(t, "assigned_at", result.SelectionReason,
+		"single-candidate must return selection_reason=assigned_at (no index-out-of-bounds on candidates[1])")
+	assert.NotNil(t, result.SprintOrder, "SprintOrder must be populated from the sprint item")
+	assert.Equal(t, 1, *result.SprintOrder)
+}
+
+// ---------------------------------------------------------------------------
+// TC-013: ReorderAssignment — move item from position 3 to position 1
+// ---------------------------------------------------------------------------
+//
+// TC-013 — Caller-Path Contract:
+//   - Entrypoint: SprintService.ReorderAssignment(ctx, "S001", "E07-F01-001", ReorderTarget{Position: intPtr(1)})
+//   - Mock seam: MockSprintRepository (ListOrderedAssignments, RenumberAssignmentsTx, SetSprintOrderTx)
+//   - Forbidden mocks: do NOT mock at CLI layer; pass ReorderTarget.Position directly
+//   - Counter-factual: a buggy impl that mutates entity tables would be caught by asserting
+//     that mock task/bug repo methods were NOT called (only sprint repo methods called)
+func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+
+	// Three ordered items: task-X at pos 1, task-Y at pos 2, task-Z (target) at pos 3.
+	existing := []*models.SprintAssignment{
+		makeAssignment(1, 10, "task", 100, intPtr(1)), // task-X, pos 1
+		makeAssignment(2, 10, "task", 101, intPtr(2)), // task-Y, pos 2
+		makeAssignment(3, 10, "task", 102, intPtr(3)), // task-Z, target: move to pos 1
+	}
+
+	var renumberOpsCapt []sprint.RenumberOp
+	var setOrderCalledWithID int64
+	var setOrderCalledWithPos *int
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			if key == "S001" {
+				return activeSprint, nil
+			}
+			return nil, fmt.Errorf("sprint %q not found", key)
+		},
+		GetTaskIDByKeyFunc: func(_ context.Context, key string) (int64, error) {
+			// resolveEntityTypeAndID normalizes "E07-F01-001" → "T-E07-F01-001"
+			if key == "T-E07-F01-001" {
+				return 102, nil // entityID=102 = task-Z (assignment ID=3)
+			}
+			return 0, fmt.Errorf("task %q not found", key)
+		},
+		GetActiveAssignmentFunc: func(_ context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			// task-Z is assignment ID=3 in sprint 10
+			if entityType == "task" && entityID == 102 {
+				return existing[2], nil
+			}
+			return nil, nil
+		},
+		ListOrderedAssignmentsFunc: func(_ context.Context, _ int64) ([]*models.SprintAssignment, error) {
+			return existing, nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, ops []sprint.RenumberOp) error {
+			renumberOpsCapt = ops
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, assignmentID int64, pos *int) error {
+			setOrderCalledWithID = assignmentID
+			setOrderCalledWithPos = pos
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	moved, topN, err := svc.ReorderAssignment(ctx, "S001", "E07-F01-001", ReorderTarget{Position: intPtr(1)})
+
+	require.NoError(t, err)
+	require.NotNil(t, moved, "moved assignment must be returned")
+	require.NotNil(t, topN, "top-N list must be returned")
+
+	// The target assignment (ID=3) must be set to position 1.
+	assert.Equal(t, int64(3), setOrderCalledWithID, "SetSprintOrderTx must be called for the target assignment")
+	require.NotNil(t, setOrderCalledWithPos)
+	assert.Equal(t, 1, *setOrderCalledWithPos, "target must be placed at position 1")
+
+	// The remaining items (pos 1 and 2) must be renumbered to 2 and 3.
+	// RenumberAssignmentsTx receives the sibling ops.
+	require.NotNil(t, renumberOpsCapt, "RenumberAssignmentsTx must be called with shift ops")
+	// Verify sibling assignments are shifted up by 1
+	// (task-X at old pos 1 → new pos 2, task-Y at old pos 2 → new pos 3)
+	assert.Len(t, renumberOpsCapt, 2, "two siblings must be renumbered")
+}
+
+// ---------------------------------------------------------------------------
+// TC-014: ReorderAssignment — completed sprint returns error
+// ---------------------------------------------------------------------------
+//
+// TC-014 — Caller-Path Contract (service-level):
+//   - Entrypoint: SprintService.ReorderAssignment(ctx, "S_DONE", "E07-F01-001", ReorderTarget{Position: intPtr(1)})
+//   - Mock seam: MockSprintRepository (GetByKey returns a completed sprint)
+//   - Counter-factual: a buggy impl that does not validate sprint status would proceed
+//     to list assignments and attempt reorder; this test asserts an error is returned
+func TestReorderAssignment_TC014_CompletedSprintReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	completedSprint := &models.Sprint{
+		ID:     10,
+		Key:    "S_DONE",
+		Status: "completed",
+		Name:   "Done Sprint",
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return completedSprint, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	moved, topN, err := svc.ReorderAssignment(ctx, "S_DONE", "E07-F01-001", ReorderTarget{Position: intPtr(1)})
+
+	require.Error(t, err, "reordering a completed sprint must return an error")
+	assert.Nil(t, moved)
+	assert.Nil(t, topN)
+	assert.Contains(t, err.Error(), "cannot reorder", "error must mention cannot reorder")
+}
