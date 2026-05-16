@@ -82,6 +82,11 @@ type SprintRepository interface {
 	// sprint_order ASC NULLS LAST, assigned_at ASC. Used by AddEntityToSprint (--at)
 	// to build the shift plan without re-scanning the full backlog UNION.
 	ListOrderedAssignments(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
+
+	// CountNullSprintOrder returns the number of active assignments for the sprint
+	// that have sprint_order = NULL. Used by StartSprint to surface a soft warning
+	// (REQ-F-009) without blocking the start transition.
+	CountNullSprintOrder(ctx context.Context, sprintID int64) (int, error)
 }
 
 // SprintAssignmentQueryRepository handles assignment queries needed for sprint planning.
@@ -474,6 +479,22 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 
 	slog.Info("sprint transitioned", "key", key, "from", sprint.Status, "to", updated.Status)
 	return updated, nil
+}
+
+// CountNullSprintOrder returns the number of active assignments in the sprint with
+// sprint_order = NULL. Called by runSprintStart after a successful start to surface
+// the soft warning required by REQ-F-009. Non-fatal: callers should log or warn on
+// error rather than blocking the operation.
+func (s *SprintService) CountNullSprintOrder(ctx context.Context, sprintKey string) (int, error) {
+	sprintEntity, err := s.GetSprint(ctx, sprintKey)
+	if err != nil {
+		return 0, fmt.Errorf("CountNullSprintOrder: failed to resolve sprint %q: %w", sprintKey, err)
+	}
+	n, err := s.repo.CountNullSprintOrder(ctx, sprintEntity.ID)
+	if err != nil {
+		return 0, fmt.Errorf("CountNullSprintOrder: failed to count for sprint %q: %w", sprintKey, err)
+	}
+	return n, nil
 }
 
 // CloseSprint transitions a sprint to closing status.

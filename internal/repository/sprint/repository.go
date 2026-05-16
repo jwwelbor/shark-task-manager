@@ -1314,6 +1314,22 @@ func (r *SprintRepository) MaxSprintOrder(ctx context.Context, sprintID int64) (
 	return int(max.Int64), nil
 }
 
+// CountNullSprintOrder returns the count of active (removed_at IS NULL) assignments
+// for the sprint where sprint_order IS NULL. Used by StartSprint to surface the
+// REQ-F-009 soft warning without blocking the start transition.
+func (r *SprintRepository) CountNullSprintOrder(ctx context.Context, sprintID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sprint_assignments
+		 WHERE sprint_id = ? AND removed_at IS NULL AND sprint_order IS NULL`,
+		sprintID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count null sprint_order for sprint %d: %w", sprintID, err)
+	}
+	return count, nil
+}
+
 // ListOrderedAssignments returns all active assignments for a sprint sorted by
 // sprint_order ASC NULLS LAST, then assigned_at ASC. Used by ReorderAssignment
 // in the service layer to compute a renumber plan without re-running the full

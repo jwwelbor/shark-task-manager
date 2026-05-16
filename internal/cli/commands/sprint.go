@@ -31,6 +31,9 @@ type sprintLifecycleServicer interface {
 	CloseSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryover(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
+	// CountNullSprintOrder returns the count of active assignments with sprint_order = NULL
+	// for the given sprint. Used by runSprintStart to surface the REQ-F-009 soft warning.
+	CountNullSprintOrder(ctx context.Context, sprintKey string) (int, error)
 }
 
 // sprintAssignmentServicer defines the assignment/backlog operations used by
@@ -873,10 +876,19 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
+		// REQ-F-009 AC-T1: warning is omitted in --json mode; JSON contract is unchanged.
 		return cli.OutputJSON(sprint)
 	}
 
 	cli.Success(fmt.Sprintf("Started sprint %s (%s)", sprint.Key, sprint.Name))
+
+	// REQ-F-009: soft warning when any active assignment has sprint_order = NULL.
+	// Non-blocking: failure to count doesn't prevent sprint start output.
+	nullCount, countErr := svc.CountNullSprintOrder(cmd.Context(), sprint.Key)
+	if countErr == nil && nullCount > 0 {
+		fmt.Printf("Warning: %d items have no sprint order. Use `shark sprint reorder` to set pull priority.\n", nullCount)
+	}
+
 	return nil
 }
 
@@ -1815,7 +1827,7 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(item)
 	}
 
-	fmt.Printf("\nNext Task: %s\n", item.Key)
+	fmt.Printf("\nNext Task: %s — %s\n", item.Key, item.Title)
 	fmt.Printf("  Type:    %s\n", item.EntityType)
 	fmt.Printf("  Title:   %s\n", item.Title)
 	if item.AgentType != "" {
@@ -1825,6 +1837,19 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Priority: %d\n", item.Priority)
 	if item.Size != nil {
 		fmt.Printf("  Size:     %d\n", *item.Size)
+	}
+	// REQ-F-004 human-mode output: Sprint position and selection reason (spec §3.5).
+	if item.SprintOrder != nil {
+		fmt.Printf("  Sprint order: #%d", *item.SprintOrder)
+	} else {
+		fmt.Printf("  Sprint order: (unordered)")
+	}
+	if item.SelectionReason != "" {
+		fmt.Printf("  |  Selected by: %s", item.SelectionReason)
+	}
+	fmt.Println()
+	if item.SprintKey != "" {
+		fmt.Printf("  Sprint:  %s\n", item.SprintKey)
 	}
 	fmt.Println()
 	return nil

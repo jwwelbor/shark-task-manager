@@ -51,6 +51,7 @@ type MockSprintRepository struct {
 	SetSprintOrderTxFunc       func(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error
 	RenumberAssignmentsTxFunc  func(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error
 	ListOrderedAssignmentsFunc func(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
+	CountNullSprintOrderFunc   func(ctx context.Context, sprintID int64) (int, error)
 }
 
 func (m *MockSprintRepository) Create(ctx context.Context, s *models.Sprint) error {
@@ -235,6 +236,13 @@ func (m *MockSprintRepository) ListOrderedAssignments(ctx context.Context, sprin
 		return m.ListOrderedAssignmentsFunc(ctx, sprintID)
 	}
 	return []*models.SprintAssignment{}, nil
+}
+
+func (m *MockSprintRepository) CountNullSprintOrder(ctx context.Context, sprintID int64) (int, error) {
+	if m.CountNullSprintOrderFunc != nil {
+		return m.CountNullSprintOrderFunc(ctx, sprintID)
+	}
+	return 0, nil
 }
 
 // TestSprintService_NewSprintService tests constructor validation.
