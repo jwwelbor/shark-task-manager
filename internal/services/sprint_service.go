@@ -897,19 +897,25 @@ func (s *SprintService) RemoveEntityFromSprint(ctx context.Context, sprintKey, e
 // BacklogOptions carries filter parameters for the backlog view.
 // EntityType is "" for all types; "task", "bug", "change_card", "tech_debt" to filter.
 // BlockedOnly limits results to entities in a blocked-equivalent workflow status.
+// View selects the display mode: "ordered" (pull-queue sorted by sprint_order ASC NULLS LAST)
+// or "grouped" (current grouped-by-status behavior). If View is "" the service applies a
+// default: "ordered" for active sprints, "grouped" for all other statuses.
 type BacklogOptions struct {
 	EntityType  string // "" = all types
 	BlockedOnly bool
+	View        string // "ordered" | "grouped" | "" (auto-detect from sprint status)
 }
 
 // SprintBacklog is the return value of GetSprintBacklog.
 type SprintBacklog struct {
-	SprintKey         string          `json:"sprint_key"`
-	SprintName        string          `json:"sprint_name"`
-	TotalCount        int             `json:"total_count"`
-	CompletedCount    int             `json:"completed_count"`
-	CompletionPercent float64         `json:"completion_percent"`
-	Groups            []*BacklogGroup `json:"groups"` // ordered by status phase
+	SprintKey         string             `json:"sprint_key"`
+	SprintName        string             `json:"sprint_name"`
+	TotalCount        int                `json:"total_count"`
+	CompletedCount    int                `json:"completed_count"`
+	CompletionPercent float64            `json:"completion_percent"`
+	Groups            []*BacklogGroup    `json:"groups,omitempty"` // populated in grouped view only
+	Items             []*BacklogItemView `json:"items,omitempty"`  // populated in ordered view only
+	View              string             `json:"view"`             // "ordered" | "grouped"
 }
 
 // BacklogGroup is a set of entities sharing the same status category.
@@ -930,9 +936,10 @@ type BacklogItemView struct {
 	Size            *int      `json:"size,omitempty"`
 	AssignedAt      time.Time `json:"assigned_at,omitempty"`
 	DaysBlocked     int       `json:"days_blocked,omitempty"`     // For --blocked view
-	SprintOrder     *int      `json:"sprint_order,omitempty"`     // NEW — nullable; nil = unordered
-	SprintKey       string    `json:"sprint_key,omitempty"`       // NEW — set by GetNextTask only
-	SelectionReason string    `json:"selection_reason,omitempty"` // NEW — set by GetNextTask only
+	SprintOrder     *int      `json:"sprint_order,omitempty"`     // nullable; nil = unordered
+	Position        *int      `json:"position,omitempty"`         // 1-based dense rank in ordered view; set even when SprintOrder is nil
+	SprintKey       string    `json:"sprint_key,omitempty"`       // set by GetNextTask only
+	SelectionReason string    `json:"selection_reason,omitempty"` // set by GetNextTask only
 }
 
 // ReorderTarget specifies where to move an assignment within the sprint.
@@ -954,16 +961,22 @@ var validBacklogEntityTypes = map[string]bool{
 	"tech_debt":   true,
 }
 
-// GetSprintBacklog returns all entities assigned to a sprint, grouped by status.
+// GetSprintBacklog returns all entities assigned to a sprint.
+//
+// View modes (controlled by opts.View):
+//   - "ordered":  Items array sorted by sprint_order ASC NULLS LAST, then execution_order, priority,
+//     assigned_at. Groups is nil. Each item gets a 1-based dense-rank Position field.
+//   - "grouped":  Items is nil. Groups is populated by status category (existing behavior).
+//   - "":         Defaults to "ordered" when sprint is active; "grouped" otherwise.
 //
 // The method:
 //  1. Resolves the sprint by key.
-//  2. Validates the optional entity-type filter (returns error for invalid types).
-//  3. Asks workflow.Service for the blocked-status set when BlockedOnly=true.
-//  4. Calls repo.ListBacklog to fetch raw items.
-//  5. Groups items by status into BacklogGroup slices.
-//  6. Computes CompletionPercent as float64 (completed / total * 100); returns 0.0 when total=0
-//     (no divide-by-zero).
+//  2. Determines the effective view mode from opts.View + sprint.Status.
+//  3. Validates the optional entity-type filter (returns error for invalid types).
+//  4. Asks workflow.Service for the blocked-status set when BlockedOnly=true.
+//  5. Calls repo.ListBacklog to fetch raw items.
+//  6. Builds view-mode output: ordered items list OR grouped-by-status map.
+//  7. Computes CompletionPercent as float64 (completed / total * 100); returns 0.0 when total=0.
 //
 // The blocked-status set is delegated to workflow.Service so that custom workflow
 // configurations with non-standard "blocked" status names are handled correctly.
@@ -974,7 +987,18 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		return nil, fmt.Errorf("failed to get sprint %s for backlog: %w", sprintKey, err)
 	}
 
-	// Step 2: Validate entity type filter
+	// Step 2: Resolve effective view mode.
+	// Default: "ordered" for active sprints; "grouped" for all other statuses.
+	effectiveView := opts.View
+	if effectiveView == "" {
+		if string(sprintEntity.Status) == "active" {
+			effectiveView = "ordered"
+		} else {
+			effectiveView = "grouped"
+		}
+	}
+
+	// Step 3: Validate entity type filter
 	var entityTypeFilter *string
 	if opts.EntityType != "" {
 		if !validBacklogEntityTypes[opts.EntityType] {
@@ -986,7 +1010,7 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		entityTypeFilter = &opts.EntityType
 	}
 
-	// Step 3: Determine blocked statuses from workflow service (never hardcode "blocked")
+	// Step 4: Determine blocked statuses from workflow service (never hardcode "blocked")
 	var blockedStatuses []string
 	if opts.BlockedOnly {
 		blockedStatuses = s.workflowSvc.GetStatusesByPhase("blocked")
@@ -996,16 +1020,11 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		}
 	}
 
-	// Step 4: Fetch raw backlog items from repository
+	// Step 5: Fetch raw backlog items from repository
 	items, err := s.repo.ListBacklog(ctx, sprintEntity.ID, entityTypeFilter, opts.BlockedOnly, blockedStatuses...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list backlog for sprint %s: %w", sprintKey, err)
 	}
-
-	// Step 5: Group items by status category
-	// Use ordered insertion to keep groups stable across calls.
-	groupOrder := make([]string, 0)
-	groupMap := make(map[string]*BacklogGroup)
 
 	totalCount := len(items)
 	completedCount := 0
@@ -1019,44 +1038,11 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
 	}
 
+	// Count completed items across both view modes.
 	for _, item := range items {
-		view := &BacklogItemView{
-			EntityType:     item.EntityType,
-			Key:            item.Key,
-			Title:          item.Title,
-			Status:         item.Status,
-			Priority:       item.Priority,
-			ExecutionOrder: item.ExecutionOrder,
-			Size:           item.Size,
-			AssignedAt:     item.AssignedAt,
-			SprintOrder:    item.SprintOrder, // propagate nullable sprint_order
-		}
-		if item.AgentType != nil {
-			view.AgentType = *item.AgentType
-		}
-
-		// Count completed items for CompletionPercent.
-		// Check only this item's own entity-type workflow, not all levels.
 		if terminals, ok := terminalStatusesByEntityType[item.EntityType]; ok && terminals[item.Status] {
 			completedCount++
 		}
-
-		// Group by status
-		category := item.Status
-		if _, exists := groupMap[category]; !exists {
-			groupMap[category] = &BacklogGroup{
-				StatusCategory: category,
-				Items:          []*BacklogItemView{},
-			}
-			groupOrder = append(groupOrder, category)
-		}
-		groupMap[category].Items = append(groupMap[category].Items, view)
-	}
-
-	// Build ordered groups slice
-	groups := make([]*BacklogGroup, 0, len(groupOrder))
-	for _, status := range groupOrder {
-		groups = append(groups, groupMap[status])
 	}
 
 	// Step 6: Compute CompletionPercent using float64 division (never integer)
@@ -1065,14 +1051,128 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		completionPercent = float64(completedCount) / float64(totalCount) * 100.0
 	}
 
-	return &SprintBacklog{
+	backlog := &SprintBacklog{
 		SprintKey:         sprintKey,
 		SprintName:        sprintEntity.Name,
 		TotalCount:        totalCount,
 		CompletedCount:    completedCount,
 		CompletionPercent: completionPercent,
-		Groups:            groups,
-	}, nil
+		View:              effectiveView,
+	}
+
+	if effectiveView == "ordered" {
+		backlog.Items = buildOrderedView(items)
+	} else {
+		backlog.Groups = buildGroupedView(items)
+	}
+
+	return backlog, nil
+}
+
+// buildOrderedView converts raw BacklogItems into a sorted Items slice for the ordered view.
+// Sorting: sprint_order ASC NULLS LAST, then execution_order ASC NULLS LAST, priority ASC, assigned_at ASC.
+// Each item receives a 1-based dense-rank Position field. Items with nil sprint_order receive a Position
+// but their SprintOrder field remains nil (the two fields diverge — spec §3.2, TC-019).
+func buildOrderedView(items []*sprint.BacklogItem) []*BacklogItemView {
+	views := make([]*BacklogItemView, 0, len(items))
+	for _, item := range items {
+		v := backlogItemToView(item)
+		views = append(views, v)
+	}
+
+	// Sort: sprint_order ASC NULLS LAST, execution_order ASC NULLS LAST, priority ASC, assigned_at ASC
+	sort.SliceStable(views, func(i, j int) bool {
+		a, b := views[i], views[j]
+
+		// Tier 1: sprint_order ASC NULLS LAST
+		switch {
+		case a.SprintOrder != nil && b.SprintOrder == nil:
+			return true // a comes first (ordered before unordered)
+		case a.SprintOrder == nil && b.SprintOrder != nil:
+			return false // b comes first
+		case a.SprintOrder != nil && b.SprintOrder != nil:
+			if *a.SprintOrder != *b.SprintOrder {
+				return *a.SprintOrder < *b.SprintOrder
+			}
+		}
+
+		// Tier 2: execution_order ASC NULLS LAST
+		switch {
+		case a.ExecutionOrder != nil && b.ExecutionOrder == nil:
+			return true
+		case a.ExecutionOrder == nil && b.ExecutionOrder != nil:
+			return false
+		case a.ExecutionOrder != nil && b.ExecutionOrder != nil:
+			if *a.ExecutionOrder != *b.ExecutionOrder {
+				return *a.ExecutionOrder < *b.ExecutionOrder
+			}
+		}
+
+		// Tier 3: priority ASC (lower number = higher priority)
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+
+		// Tier 4: assigned_at ASC (oldest first — FIFO tiebreaker)
+		return a.AssignedAt.Before(b.AssignedAt)
+	})
+
+	// Assign 1-based dense-rank Position to all items.
+	// Items with a non-nil sprint_order retain their sprint_order; unordered items get Position
+	// from the dense rank but their SprintOrder remains nil.
+	for i, v := range views {
+		pos := i + 1
+		v.Position = &pos
+	}
+
+	return views
+}
+
+// buildGroupedView groups raw BacklogItems by status category (existing behavior).
+// Returns a slice of BacklogGroup in insertion order (stable across calls).
+func buildGroupedView(items []*sprint.BacklogItem) []*BacklogGroup {
+	groupOrder := make([]string, 0)
+	groupMap := make(map[string]*BacklogGroup)
+
+	for _, item := range items {
+		v := backlogItemToView(item)
+
+		category := item.Status
+		if _, exists := groupMap[category]; !exists {
+			groupMap[category] = &BacklogGroup{
+				StatusCategory: category,
+				Items:          []*BacklogItemView{},
+			}
+			groupOrder = append(groupOrder, category)
+		}
+		groupMap[category].Items = append(groupMap[category].Items, v)
+	}
+
+	groups := make([]*BacklogGroup, 0, len(groupOrder))
+	for _, status := range groupOrder {
+		groups = append(groups, groupMap[status])
+	}
+	return groups
+}
+
+// backlogItemToView converts a sprint.BacklogItem into a BacklogItemView.
+// Position is not set here; it is assigned by buildOrderedView after sorting.
+func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
+	v := &BacklogItemView{
+		EntityType:     item.EntityType,
+		Key:            item.Key,
+		Title:          item.Title,
+		Status:         item.Status,
+		Priority:       item.Priority,
+		ExecutionOrder: item.ExecutionOrder,
+		Size:           item.Size,
+		AssignedAt:     item.AssignedAt,
+		SprintOrder:    item.SprintOrder, // propagate nullable sprint_order
+	}
+	if item.AgentType != nil {
+		v.AgentType = *item.AgentType
+	}
+	return v
 }
 
 // GetNextTask returns the single next eligible item to work on from the active sprint.
@@ -1101,8 +1201,10 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	}
 	activeSprint := activeSprints[0]
 
-	// 2. Fetch the backlog for the active sprint
-	backlog, err := s.GetSprintBacklog(ctx, activeSprint.Key, BacklogOptions{})
+	// 2. Fetch the backlog for the active sprint using grouped view so we can filter by status.
+	// GetNextTask does its own four-tier sort, so it needs all items regardless of sprint_order.
+	// Using View="grouped" explicitly avoids the active-sprint default of "ordered".
+	backlog, err := s.GetSprintBacklog(ctx, activeSprint.Key, BacklogOptions{View: "grouped"})
 	if err != nil {
 		return nil, err
 	}
@@ -1722,6 +1824,10 @@ type SprintCloseResult struct {
 	DroppedCount int
 	// NextSprintKey is the key of the sprint that received carryover entities. Empty when carryover=backlog.
 	NextSprintKey string
+	// CarryoverPreserved indicates whether the relative sprint_order of carried-over items was
+	// preserved in the receiving sprint. True for CarryoverNext (items appended at M+1..M+K),
+	// false for CarryoverBacklog (sprint_order cleared).
+	CarryoverPreserved bool
 }
 
 // CloseSprintWithCarryover atomically closes a sprint and handles incomplete entity assignments.
@@ -1808,6 +1914,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	var nextSprintID *int64
 	carriedOverCount := 0
 	droppedCount := 0
+	carryoverPreserved := false
 
 	switch resolvedMode {
 	case CarryoverNext:
@@ -1857,12 +1964,60 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		}
 		carriedOverCount = len(incompleteIDs)
 
+		// Append carried-over items after existing ordered items in the receiving sprint (TC-021).
+		// Sort carried assignments by (sprint_order ASC NULLS LAST, assigned_at ASC, id ASC) so that
+		// items that had an explicit pull priority in the closed sprint are appended in that order.
+		if len(incompleteAssignments) > 0 {
+			maxOrder, maxErr := s.repo.MaxSprintOrder(ctx, nextSprint.ID)
+			if maxErr != nil {
+				return nil, fmt.Errorf("failed to get max sprint_order for receiving sprint %s: %w", nextSprintKey, maxErr)
+			}
+
+			// Sort carried assignments for deterministic append order.
+			sortedCarried := make([]*models.SprintAssignment, len(incompleteAssignments))
+			copy(sortedCarried, incompleteAssignments)
+			sort.SliceStable(sortedCarried, func(i, j int) bool {
+				a, b := sortedCarried[i], sortedCarried[j]
+				// Tier 1: sprint_order ASC NULLS LAST
+				switch {
+				case a.SprintOrder != nil && b.SprintOrder == nil:
+					return true
+				case a.SprintOrder == nil && b.SprintOrder != nil:
+					return false
+				case a.SprintOrder != nil && b.SprintOrder != nil && *a.SprintOrder != *b.SprintOrder:
+					return *a.SprintOrder < *b.SprintOrder
+				}
+				// Tier 2: assigned_at ASC
+				if !a.AssignedAt.Equal(b.AssignedAt) {
+					return a.AssignedAt.Before(b.AssignedAt)
+				}
+				// Tier 3: id ASC (stable tiebreaker)
+				return a.ID < b.ID
+			})
+
+			// Build renumber ops: assign positions maxOrder+1, maxOrder+2, ...
+			ops := make([]sprint.RenumberOp, 0, len(sortedCarried))
+			for k, a := range sortedCarried {
+				pos := maxOrder + k + 1
+				ops = append(ops, sprint.RenumberOp{
+					AssignmentID: a.ID,
+					NewPosition:  &pos,
+				})
+			}
+			if renumErr := s.repo.RenumberAssignmentsTx(ctx, tx, nextSprint.ID, ops); renumErr != nil {
+				return nil, fmt.Errorf("failed to renumber carried-over assignments in sprint %s: %w", nextSprintKey, renumErr)
+			}
+		}
+		carryoverPreserved = true
+
 	case CarryoverBacklog:
-		// Soft-delete incomplete assignments (TC-C05, TC-C06, no-op when empty)
+		// Soft-delete incomplete assignments (TC-C05, TC-C06, no-op when empty).
+		// sprint_order is cleared atomically in the same UPDATE as removed_at (TC-023).
 		if dropErr := s.repo.DropAssignmentsTx(ctx, tx, incompleteIDs); dropErr != nil {
 			return nil, fmt.Errorf("failed to drop incomplete assignments for sprint %s: %w", sprintKey, dropErr)
 		}
 		droppedCount = len(incompleteIDs)
+		carryoverPreserved = false
 
 	default:
 		return nil, fmt.Errorf("unsupported carryover mode %q: must be %q or %q", resolvedMode, CarryoverNext, CarryoverBacklog)
@@ -1900,11 +2055,12 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	}
 
 	return &SprintCloseResult{
-		Sprint:           closedSprint,
-		CompletedCount:   completedCount,
-		CarriedOverCount: carriedOverCount,
-		DroppedCount:     droppedCount,
-		NextSprintKey:    nextSprintKey,
+		Sprint:             closedSprint,
+		CompletedCount:     completedCount,
+		CarriedOverCount:   carriedOverCount,
+		DroppedCount:       droppedCount,
+		NextSprintKey:      nextSprintKey,
+		CarryoverPreserved: carryoverPreserved,
 	}, nil
 }
 

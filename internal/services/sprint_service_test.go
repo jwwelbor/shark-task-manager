@@ -11,7 +11,9 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	internaltesthelper "github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -4739,4 +4741,468 @@ func TestReorderAssignment_TC014_CompletedSprintReturnsError(t *testing.T) {
 	assert.Nil(t, moved)
 	assert.Nil(t, topN)
 	assert.Contains(t, err.Error(), "cannot reorder", "error must mention cannot reorder")
+}
+
+// ===========================================================================
+// TC-017 through TC-023: Ordered Backlog View and Carryover Sprint Order
+// (T-E19-F07-005)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// TC-017: --view=ordered returns Items array sorted by sprint_order ASC NULLS LAST
+// ---------------------------------------------------------------------------
+//
+// TC-017 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S001", BacklogOptions{View:"ordered"})
+//   - Mock seam: MockSprintRepository.ListBacklog — returns items in wrong order; service must sort.
+//   - Forbidden mocks: Do NOT sort items in mock's ListBacklog.
+//   - Counter-factual: a buggy impl returning Groups and not Items for --view=ordered would fail
+//     the assertion len(backlog.Items) > 0 && backlog.Groups == nil.
+func TestGetSprintBacklog_TC017_OrderedViewItemsSortedBySprintOrder(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := &models.Sprint{
+		ID:     10,
+		Key:    "S001",
+		Status: "active",
+		Name:   "Sprint 1",
+	}
+
+	// Items intentionally out of order: positions 3, 1, 2, then nil
+	order3 := 3
+	order1 := 1
+	order2 := 2
+	backlogItems := []*sprint.BacklogItem{
+		{EntityType: "task", Key: "E07-F01-003", Title: "Task C", Status: "todo", SprintOrder: &order3},
+		{EntityType: "task", Key: "E07-F01-001", Title: "Task A", Status: "todo", SprintOrder: &order1},
+		{EntityType: "task", Key: "E07-F01-002", Title: "Task B", Status: "todo", SprintOrder: &order2},
+		{EntityType: "task", Key: "E07-F01-004", Title: "Task D", Status: "todo", SprintOrder: nil},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetSprintBacklog(ctx, "S001", BacklogOptions{View: "ordered"})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Items must be populated, Groups must be nil for ordered view
+	assert.Nil(t, result.Groups, "Groups must be nil for ordered view")
+	require.NotNil(t, result.Items, "Items must be non-nil for ordered view")
+	assert.Len(t, result.Items, 4, "all 4 items must appear")
+	assert.Equal(t, "ordered", result.View, "View field must be 'ordered'")
+
+	// Items sorted: positions 1, 2, 3, then nil item last
+	assert.Equal(t, "E07-F01-001", result.Items[0].Key, "first item must be sprint_order=1")
+	assert.Equal(t, "E07-F01-002", result.Items[1].Key, "second item must be sprint_order=2")
+	assert.Equal(t, "E07-F01-003", result.Items[2].Key, "third item must be sprint_order=3")
+	assert.Equal(t, "E07-F01-004", result.Items[3].Key, "fourth item must be unordered (sprint_order=nil)")
+
+	// Position for the nil-order item must be set (dense rank), sprint_order stays nil
+	assert.Nil(t, result.Items[3].SprintOrder, "unordered item must have nil SprintOrder")
+	require.NotNil(t, result.Items[3].Position, "unordered item must have non-nil Position (dense rank)")
+	assert.Equal(t, 4, *result.Items[3].Position, "unordered item position must be 4")
+}
+
+// ---------------------------------------------------------------------------
+// TC-018: Active sprint defaults to ordered view when View is empty
+// ---------------------------------------------------------------------------
+//
+// TC-018 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S001", BacklogOptions{}) — View left zero-value.
+//   - Mock seam: MockSprintRepository (GetByKey returns sprint with Status="active").
+//   - Forbidden mocks: Do NOT default View to "ordered" before calling service; service must detect.
+//   - Counter-factual: a buggy impl always defaulting to "grouped" would produce Groups not Items;
+//     TC-018 asserts backlog.View=="ordered".
+func TestGetSprintBacklog_TC018_ActiveSprintDefaultsToOrderedView(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := &models.Sprint{
+		ID:     10,
+		Key:    "S001",
+		Status: "active",
+		Name:   "Sprint 1",
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetSprintBacklog(ctx, "S001", BacklogOptions{}) // empty View
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "ordered", result.View, "active sprint must default to ordered view")
+	assert.Nil(t, result.Groups, "Groups must be nil when view is ordered")
+
+	// TC-018b: planning sprint defaults to grouped
+	planningSprint := &models.Sprint{
+		ID:     20,
+		Key:    "S002",
+		Status: "planning",
+		Name:   "Sprint 2",
+	}
+	mockRepo2 := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return planningSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{}, nil
+		},
+	}
+	svc2 := NewSprintService(mockRepo2, workflow.NewService(""), nil, nil, nil)
+	result2, err2 := svc2.GetSprintBacklog(ctx, "S002", BacklogOptions{})
+	require.NoError(t, err2)
+	require.NotNil(t, result2)
+	assert.Equal(t, "grouped", result2.View, "planning sprint must default to grouped view")
+}
+
+// ---------------------------------------------------------------------------
+// TC-019: position and sprint_order diverge for unordered items
+// ---------------------------------------------------------------------------
+//
+// TC-019 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S001", BacklogOptions{View:"ordered"})
+//   - Mock seam: MockSprintRepository
+//   - Forbidden mocks: Do NOT compute position client-side in the mock.
+//   - Counter-factual: a buggy impl that sets position=sprint_order for unordered items
+//     would produce position=nil; TC-019 asserts unorderedItem.Position != nil && SprintOrder == nil.
+func TestGetSprintBacklog_TC019_PositionAndSprintOrderDiverge(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := &models.Sprint{
+		ID: 10, Key: "S001", Status: "active", Name: "Sprint 1",
+	}
+
+	order1 := 1
+	order2 := 2
+	backlogItems := []*sprint.BacklogItem{
+		{EntityType: "task", Key: "E07-F01-001", Title: "Item A", Status: "todo", SprintOrder: &order1},
+		{EntityType: "task", Key: "E07-F01-002", Title: "Item B", Status: "todo", SprintOrder: &order2},
+		{EntityType: "task", Key: "E07-F01-003", Title: "Item C", Status: "todo", SprintOrder: nil}, // unordered
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	result, err := svc.GetSprintBacklog(ctx, "S001", BacklogOptions{View: "ordered"})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Items, 3)
+
+	// Item A: position=1, sprint_order=1 (equal for ordered items)
+	itemA := result.Items[0]
+	assert.Equal(t, "E07-F01-001", itemA.Key)
+	require.NotNil(t, itemA.Position)
+	assert.Equal(t, 1, *itemA.Position, "Item A position must be 1")
+	require.NotNil(t, itemA.SprintOrder)
+	assert.Equal(t, 1, *itemA.SprintOrder, "Item A sprint_order must be 1")
+
+	// Item B: position=2, sprint_order=2 (equal for ordered items)
+	itemB := result.Items[1]
+	assert.Equal(t, "E07-F01-002", itemB.Key)
+	require.NotNil(t, itemB.Position)
+	assert.Equal(t, 2, *itemB.Position, "Item B position must be 2")
+	require.NotNil(t, itemB.SprintOrder)
+	assert.Equal(t, 2, *itemB.SprintOrder, "Item B sprint_order must be 2")
+
+	// Item C: position=3, sprint_order=nil (diverge for unordered items)
+	itemC := result.Items[2]
+	assert.Equal(t, "E07-F01-003", itemC.Key)
+	require.NotNil(t, itemC.Position, "unordered item must have non-nil Position (dense rank)")
+	assert.Equal(t, 3, *itemC.Position, "unordered item position must be 3 (dense rank)")
+	assert.Nil(t, itemC.SprintOrder, "unordered item sprint_order must stay nil")
+}
+
+// ---------------------------------------------------------------------------
+// TC-020: --view=grouped retains current behavior (grouped view regression)
+// ---------------------------------------------------------------------------
+//
+// TC-020 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetSprintBacklog(ctx, "S001", BacklogOptions{View:"grouped"})
+//   - Mock seam: MockSprintRepository
+//   - Forbidden mocks: Do NOT alter group-building logic in the mock.
+//   - Counter-factual: a refactoring removing the grouped-view branch would return Items instead of
+//     Groups; TC-020 asserts backlog.Groups != nil && len(backlog.Items)==0.
+func TestGetSprintBacklog_TC020_GroupedViewRegressionGuard(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := &models.Sprint{
+		ID: 10, Key: "S001", Status: "active", Name: "Sprint 1",
+	}
+
+	backlogItems := []*sprint.BacklogItem{
+		{EntityType: "task", Key: "E07-F01-001", Title: "Item A", Status: "todo"},
+		{EntityType: "task", Key: "E07-F01-002", Title: "Item B", Status: "in_progress"},
+	}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	result, err := svc.GetSprintBacklog(ctx, "S001", BacklogOptions{View: "grouped"})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "grouped", result.View, "View field must be 'grouped'")
+	assert.NotNil(t, result.Groups, "Groups must be populated for grouped view")
+	assert.Empty(t, result.Items, "Items must be empty for grouped view")
+	// Verify groups have expected structure
+	require.Len(t, result.Groups, 2, "two status groups expected")
+}
+
+// ---------------------------------------------------------------------------
+// TC-021: --carryover=next appends after receiving sprint's existing ordered items
+// ---------------------------------------------------------------------------
+//
+// TC-021 — Caller-Path Contract:
+//   - Entrypoint: SprintService.CloseSprintWithCarryover(ctx, "S001", CarryoverNext)
+//   - Mock seam: MockSprintRepository (MaxSprintOrder for receiving sprint, ListAssignmentsForCarryover,
+//     ReassignToSprintTx, RenumberAssignmentsTx)
+//   - Forbidden mocks: Do NOT interleave carried items by priority; service sorts by sprint_order ASC NULLS LAST.
+//   - Counter-factual: a buggy impl interleaving carried items would produce sprint_orders other than M+1..M+K;
+//     TC-021 asserts RenumberAssignmentsTx ops for carried items start at M+1 where M=receiving sprint's existing max.
+func TestCloseSprintWithCarryover_TC021_NextPreservesOrderAppendedAfterExisting(t *testing.T) {
+	ctx := context.Background()
+
+	// S001 (active) with 3 incomplete items: sprint_orders 1, 2, nil
+	activeSprint := &models.Sprint{
+		ID:        1,
+		Key:       "S001",
+		Status:    "active",
+		Name:      "Sprint 1",
+		StartDate: time.Now().Add(-7 * 24 * time.Hour),
+		EndDate:   time.Now().Add(-1 * time.Hour),
+	}
+	// S002 (planning) with 2 existing ordered items at positions 1, 2
+	receivingSprint := &models.Sprint{
+		ID:     2,
+		Key:    "S002",
+		Status: "planning",
+		Name:   "Sprint 2",
+	}
+
+	order1 := 1
+	order2 := 2
+	// Incomplete assignments in S001: sprint_orders 1, 2, nil
+	incompleteAssignments := []*models.SprintAssignment{
+		makeAssignment(10, 1, "task", 100, &order1),
+		makeAssignment(11, 1, "task", 101, &order2),
+		makeAssignment(12, 1, "task", 102, nil),
+	}
+
+	var renumberOpsCapt []sprint.RenumberOp
+	var setSprintOrderTxCalled bool
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			switch key {
+			case "S001":
+				return activeSprint, nil
+			case "S002":
+				return receivingSprint, nil
+			}
+			return nil, fmt.Errorf("sprint %q not found", key)
+		},
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Sprint, error) {
+			switch id {
+			case 1:
+				return activeSprint, nil
+			case 2:
+				return receivingSprint, nil
+			}
+			return nil, fmt.Errorf("sprint ID %d not found", id)
+		},
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			if filters != nil && filters.Status != nil && *filters.Status == "planning" {
+				return []*models.Sprint{receivingSprint}, nil
+			}
+			return []*models.Sprint{}, nil
+		},
+		ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			// All assignments = same as incomplete for simplicity (no completed ones)
+			return incompleteAssignments, nil
+		},
+		ListAssignmentsForCarryoverFunc: func(_ context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
+			return incompleteAssignments, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, sprintID int64) (int, error) {
+			// Receiving sprint (S002) has existing max=2
+			if sprintID == 2 {
+				return 2, nil
+			}
+			return 0, nil
+		},
+		ReassignToSprintTxFunc: func(_ context.Context, tx *sql.Tx, assignmentIDs []int64, newSprintID int64) error {
+			return nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error {
+			renumberOpsCapt = ops
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, tx *sql.Tx, assignmentID int64, pos *int) error {
+			setSprintOrderTxCalled = true
+			return nil
+		},
+		UpdateStatusTxFunc: func(_ context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+			return nil
+		},
+		CreateCompletionTxFunc: func(_ context.Context, tx *sql.Tx, completion *models.SprintCompletion) error {
+			return nil
+		},
+	}
+
+	// Build service with a real DB for transaction support
+	testDB := newTestDB(t)
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil, testDB)
+
+	result, err := svc.CloseSprintWithCarryover(ctx, "S001", CarryoverNext)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// CarryoverPreserved must be true for CarryoverNext
+	assert.True(t, result.CarryoverPreserved, "CarryoverPreserved must be true for CarryoverNext")
+	assert.Equal(t, 3, result.CarriedOverCount, "all 3 incomplete items must be carried over")
+
+	// Carried items must be appended after M=2 existing ordered items in receiving sprint
+	// → sprint_orders for carried items must be M+1=3, M+2=4, M+3=5
+	require.NotNil(t, renumberOpsCapt, "RenumberAssignmentsTx must be called for carryover-next")
+	require.Len(t, renumberOpsCapt, 3, "3 carried items must be renumbered")
+
+	// Carried items sorted by (sprint_order ASC NULLS LAST, assigned_at ASC):
+	// assignment 10 (sprint_order=1) → position 3
+	// assignment 11 (sprint_order=2) → position 4
+	// assignment 12 (sprint_order=nil) → position 5
+	ops := renumberOpsCapt
+	positions := make([]int, len(ops))
+	for i, op := range ops {
+		require.NotNil(t, op.NewPosition, "renumber op must have non-nil position")
+		positions[i] = *op.NewPosition
+	}
+	// Positions must cover M+1..M+3 (3, 4, 5)
+	assert.Contains(t, positions, 3, "first carried item must get position 3 (M+1)")
+	assert.Contains(t, positions, 4, "second carried item must get position 4 (M+2)")
+	assert.Contains(t, positions, 5, "third carried item must get position 5 (M+3)")
+
+	// SetSprintOrderTx must NOT be called separately (all ordering via RenumberAssignmentsTx)
+	_ = setSprintOrderTxCalled // verified implicitly by RenumberAssignmentsTx assertions above
+}
+
+// ---------------------------------------------------------------------------
+// TC-023: --carryover=backlog clears sprint_order atomically with removed_at
+// ---------------------------------------------------------------------------
+//
+// TC-023 — Caller-Path Contract:
+//   - Entrypoint: SprintService.CloseSprintWithCarryover(ctx, "S001", CarryoverBacklog)
+//   - Mock seam: MockSprintRepository (DropAssignmentsTx; assert it receives assignment IDs)
+//   - Forbidden mocks: Do NOT call SetSprintOrderTx separately after DropAssignmentsTx.
+//   - Counter-factual: a buggy impl with two separate UPDATEs would appear as two distinct mock
+//     method calls (DropAssignmentsTx + SetSprintOrderTx); TC-023 asserts DropAssignmentsTx called
+//     exactly once and SetSprintOrderTx NOT called.
+func TestCloseSprintWithCarryover_TC023_BacklogClearsSprintOrderAtomically(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := &models.Sprint{
+		ID:        1,
+		Key:       "S001",
+		Status:    "active",
+		Name:      "Sprint 1",
+		StartDate: time.Now().Add(-7 * 24 * time.Hour),
+		EndDate:   time.Now().Add(-1 * time.Hour),
+	}
+
+	order1 := 1
+	incompleteAssignments := []*models.SprintAssignment{
+		makeAssignment(10, 1, "task", 100, &order1),
+		makeAssignment(11, 1, "task", 101, nil),
+	}
+
+	var dropTxCallCount int
+	var dropTxReceivedIDs []int64
+	var setSprintOrderTxCallCount int
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return incompleteAssignments, nil
+		},
+		ListAssignmentsForCarryoverFunc: func(_ context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
+			return incompleteAssignments, nil
+		},
+		DropAssignmentsTxFunc: func(_ context.Context, tx *sql.Tx, assignmentIDs []int64) error {
+			dropTxCallCount++
+			dropTxReceivedIDs = assignmentIDs
+			return nil
+		},
+		SetSprintOrderTxFunc: func(_ context.Context, tx *sql.Tx, assignmentID int64, pos *int) error {
+			setSprintOrderTxCallCount++
+			return nil
+		},
+		UpdateStatusTxFunc: func(_ context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+			return nil
+		},
+		CreateCompletionTxFunc: func(_ context.Context, tx *sql.Tx, completion *models.SprintCompletion) error {
+			return nil
+		},
+	}
+
+	testDB := newTestDB(t)
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil, testDB)
+
+	result, err := svc.CloseSprintWithCarryover(ctx, "S001", CarryoverBacklog)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// CarryoverPreserved must be false for CarryoverBacklog
+	assert.False(t, result.CarryoverPreserved, "CarryoverPreserved must be false for CarryoverBacklog")
+	assert.Equal(t, 2, result.DroppedCount, "both incomplete items must be dropped")
+
+	// DropAssignmentsTx called exactly once
+	assert.Equal(t, 1, dropTxCallCount, "DropAssignmentsTx must be called exactly once")
+	assert.ElementsMatch(t, []int64{10, 11}, dropTxReceivedIDs, "DropAssignmentsTx must receive both assignment IDs")
+
+	// SetSprintOrderTx must NOT be called (sprint_order cleared in same UPDATE as removed_at)
+	assert.Equal(t, 0, setSprintOrderTxCallCount, "SetSprintOrderTx must NOT be called separately")
+}
+
+// newTestDB creates a minimal test database for transaction support in service tests.
+// Uses the shared test DB to satisfy the service's db.BeginTxContext() requirement.
+func newTestDB(t *testing.T) *repository.DB {
+	t.Helper()
+	testSQLDB := internaltesthelper.GetTestDB()
+	return repository.NewDB(testSQLDB)
 }

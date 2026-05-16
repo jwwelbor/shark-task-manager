@@ -868,6 +868,12 @@ func runSprintClose(cmd *cobra.Command, args []string) error {
 	if result.NextSprintKey != "" {
 		fmt.Printf("  Incomplete entities moved to: %s\n", result.NextSprintKey)
 	}
+	// Print order-preserved status (TC-022): present for both carryover modes.
+	if result.CarryoverPreserved {
+		fmt.Println("  Order preserved: yes")
+	} else {
+		fmt.Println("  Order preserved: no")
+	}
 	return nil
 }
 

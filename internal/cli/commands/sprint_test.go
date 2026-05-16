@@ -2333,3 +2333,112 @@ func TestSprintCapacitySet_PerSprint(t *testing.T) {
 	assert.Equal(t, "backend", capturedInput.AgentType)
 	assert.Equal(t, float64(21), capturedInput.Points)
 }
+
+// =============================================================================
+// TC-022: sprint close --carryover=next prints "Order preserved: yes"
+// TC-022 (negative): sprint close --carryover=backlog prints "Order preserved: no"
+// =============================================================================
+//
+// TC-022 — Caller-Path Contract (CLI-layer):
+//   - Entrypoint: runSprintClose CLI handler with args ["close", "S001", "--carryover=next"].
+//   - Mock seam: MockSprintService.CloseSprintWithCarryover returns SprintCloseResult{CarryoverPreserved: true}.
+//   - Forbidden mocks: Do NOT print "Order preserved" in the mock; the CLI handler must read
+//     CarryoverPreserved and emit the line.
+//   - Counter-factual: a buggy CLI ignoring CarryoverPreserved would not print the line;
+//     TC-022 asserts stdout contains "Order preserved: yes".
+func TestSprintClose_TC022_CarryoverNextPrintsOrderPreservedYes(t *testing.T) {
+	closedSprint := &models.Sprint{
+		Key:    "S001",
+		Name:   "Sprint 1",
+		Status: "completed",
+	}
+
+	mock := &MockSprintService{
+		CloseSprintWithCarryoverFunc: func(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error) {
+			return &services.SprintCloseResult{
+				Sprint:             closedSprint,
+				CompletedCount:     2,
+				CarriedOverCount:   3,
+				DroppedCount:       0,
+				NextSprintKey:      "S002",
+				CarryoverPreserved: true,
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("carryover", "", "")
+	cmd.Flags().Set("carryover", "next")
+
+	runErr := runSprintClose(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	assert.Contains(t, output, "Order preserved: yes", "output must contain 'Order preserved: yes' for carryover=next")
+}
+
+// TC-022 negative: carryover=backlog prints "Order preserved: no"
+func TestSprintClose_TC022_CarryoverBacklogPrintsOrderPreservedNo(t *testing.T) {
+	closedSprint := &models.Sprint{
+		Key:    "S001",
+		Name:   "Sprint 1",
+		Status: "completed",
+	}
+
+	mock := &MockSprintService{
+		CloseSprintWithCarryoverFunc: func(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error) {
+			return &services.SprintCloseResult{
+				Sprint:             closedSprint,
+				CompletedCount:     2,
+				CarriedOverCount:   0,
+				DroppedCount:       3,
+				NextSprintKey:      "",
+				CarryoverPreserved: false,
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("carryover", "", "")
+	cmd.Flags().Set("carryover", "backlog")
+
+	runErr := runSprintClose(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	output := buf.String()
+	assert.Contains(t, output, "Order preserved: no", "output must contain 'Order preserved: no' for carryover=backlog")
+}

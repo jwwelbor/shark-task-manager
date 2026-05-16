@@ -831,8 +831,9 @@ func (r *SprintRepository) ReassignToSprintTx(ctx context.Context, tx *sql.Tx, a
 }
 
 // DropAssignmentsTx soft-deletes a set of sprint_assignments by setting
-// removed_at = NOW(). Used by the carryover-to-backlog path in
-// SprintService.CloseSprintWithCarryover.
+// removed_at = NOW() AND sprint_order = NULL in the same UPDATE statement (TC-023).
+// Clearing sprint_order atomically with removed_at ensures no orphaned ordering data
+// remains when entities are returned to the unassigned backlog.
 //
 // Like ReassignToSprintTx, this method operates within the caller-supplied
 // *sql.Tx so the service owns rollback/commit. An empty assignmentIDs slice
@@ -845,8 +846,9 @@ func (r *SprintRepository) DropAssignmentsTx(ctx context.Context, tx *sql.Tx, as
 	placeholders := strings.Repeat("?,", len(assignmentIDs))
 	placeholders = placeholders[:len(placeholders)-1]
 
+	// Set sprint_order = NULL in the same UPDATE as removed_at (atomically — TC-023).
 	query := fmt.Sprintf(
-		`UPDATE sprint_assignments SET removed_at = ? WHERE id IN (%s)`,
+		`UPDATE sprint_assignments SET removed_at = ?, sprint_order = NULL WHERE id IN (%s)`,
 		placeholders,
 	)
 
