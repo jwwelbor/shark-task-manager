@@ -482,9 +482,9 @@ func TestMigration_SchemaVersion(t *testing.T) {
 	assert.GreaterOrEqual(t, version, 19,
 		"schema version should be at least 19 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
-	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 19, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 19 (E19-F03 — sprint_completions table)")
+	// Also confirm the constant itself is at least 20 (E19-F07 bumped from 19 → 20).
+	assert.GreaterOrEqual(t, CurrentSchemaVersion, 20,
+		"CurrentSchemaVersion should be >= 20 after E19-F07 (sprint_order migration)")
 }
 
 // ---------------------------------------------------------------------------
@@ -493,7 +493,7 @@ func TestMigration_SchemaVersion(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestMigration_SprintCompletions_SchemaVersion verifies that after InitDB:
-//  1. The schema_version equals 19 (CurrentSchemaVersion).
+//  1. The schema_version equals CurrentSchemaVersion (>= 19, the E19-F03 version).
 //  2. The sprint_completions table exists.
 //  3. The idx_sprint_completions_sprint index exists.
 //  4. Running migrateSprintCompletionsTable a second time (idempotency) causes no error.
@@ -502,7 +502,11 @@ func TestMigration_SchemaVersion(t *testing.T) {
 //   - Entrypoint: internal/db.ApplySchemaIfNeeded (the production migration path)
 //   - Lowest allowed mock seam: Real test database (no mocking)
 //   - Counter-factual: If migrateSprintCompletionsTable is not called from runMigrations,
-//     getSchemaVersion returns 18 and the table existence check fails.
+//     the sprint_completions table existence check fails.
+//
+// NOTE: The version assertion uses >= 19 (not == 19) so that subsequent feature migrations
+// (e.g., E19-F07 bumped to 20) do not break this E19-F03 guard. The AC for E19-F03 is
+// "schema_version >= 19 after the sprint_completions migration" — not "exactly 19".
 func TestMigration_SprintCompletions_SchemaVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"
@@ -512,11 +516,12 @@ func TestMigration_SprintCompletions_SchemaVersion(t *testing.T) {
 	require.NoError(t, err, "InitDB should succeed")
 	defer db.Close()
 
-	// Step 2: Assert schema version == 19 (BVA: must be exactly 19, not 18, not 20).
+	// Step 2: Assert schema version >= 19 (E19-F03 established version 19;
+	// subsequent features such as E19-F07 may bump further).
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.Equal(t, 19, version,
-		"schema version must be exactly 19 after E19-F03 migration (got %d)", version)
+	assert.GreaterOrEqual(t, version, 19,
+		"schema version must be >= 19 after E19-F03 migration (got %d)", version)
 
 	// Step 3: Assert sprint_completions table exists.
 	var tableCount int
@@ -549,11 +554,14 @@ func TestMigration_SprintCompletions_SchemaVersion(t *testing.T) {
 	err = migrateSprintCompletionsTable(db)
 	require.NoError(t, err, "migrateSprintCompletionsTable should be idempotent (no error on second run)")
 
-	// Step 7: Confirm version is still 19 (no regression from idempotent run).
+	// Step 7: Confirm version is still >= 19 after idempotent re-run.
+	// The schema version is set by setSchemaVersion at the end of ApplySchemaAndMigrations,
+	// not by individual migration functions — so re-running migrateSprintCompletionsTable
+	// alone does not change the stored version.
 	versionAfter, err := getSchemaVersion(db)
 	require.NoError(t, err)
-	assert.Equal(t, 19, versionAfter,
-		"schema version should remain 19 after idempotent re-run of migrateSprintCompletionsTable")
+	assert.GreaterOrEqual(t, versionAfter, 19,
+		"schema version should remain >= 19 after idempotent re-run of migrateSprintCompletionsTable")
 }
 
 // ---------------------------------------------------------------------------

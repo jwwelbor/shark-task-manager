@@ -441,9 +441,10 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	            entity_notes, entity_relationships, entity_tags)
 //	18 — E19-F01 (sprints, sprint_assignments, sprint_capacity)
 //	19 — E19-F03 (sprint_completions table for carryover transaction and velocity analytics)
+//	20 — E19-F07 (sprint_order column + partial unique index + backfill on sprint_assignments)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 19
+const CurrentSchemaVersion = 20
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -864,6 +865,12 @@ func runMigrations(db *sql.DB) error {
 	// view recreation is needed here.
 	if err := migrateDropPolymorphicEntityTypeChecks(db); err != nil {
 		return fmt.Errorf("failed to drop polymorphic entity_type CHECK constraints: %w", err)
+	}
+
+	// Add sprint_order column to sprint_assignments, create the partial unique
+	// index, and backfill planning/active sprints (E19-F07).
+	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
+		return fmt.Errorf("sprint_order migration: %w", err)
 	}
 
 	return nil
@@ -3644,6 +3651,94 @@ func migrateSprintCompletionsTable(db *sql.DB) error {
 			ON sprint_completions(sprint_id);
 	`); err != nil {
 		return fmt.Errorf("failed to create idx_sprint_completions_sprint: %w", err)
+	}
+
+	return nil
+}
+
+// migrateSprintAssignmentsAddSprintOrder adds the nullable sprint_order INTEGER
+// column to sprint_assignments, creates the partial unique index
+// idx_sprint_assignments_order_unique, and backfills planning/active sprints using
+// ROW_NUMBER() OVER (PARTITION BY sprint_id ORDER BY assigned_at, id) so that
+// existing assignments get a deterministic initial ordering.
+//
+// Design decisions (spec §3.1 / REQ-F-007):
+//   - sprint_order is nullable. NULL means "not yet ordered"; non-NULL means the
+//     item has an explicit position within its sprint.
+//   - Backfill applies only to sprints in 'planning' or 'active' status. Completed
+//     and archived sprint assignments remain NULL (their ordering is frozen history).
+//   - The partial unique index guards against duplicate positions per active sprint.
+//     WHERE sprint_order IS NOT NULL AND removed_at IS NULL ensures soft-deleted rows
+//     and unordered items are outside the uniqueness domain.
+//   - Idempotency: if the sprint_order column already exists (detected via
+//     pragma_table_info), the column-add and backfill steps are skipped. The CREATE
+//     INDEX IF NOT EXISTS guard makes the index creation unconditionally safe.
+//     This mirrors the migrateSlugColumns pattern from db.go:976.
+//
+// SQLite >= 3.25 (released 2018) is required for the ROW_NUMBER() window function.
+// All supported Turso versions use libSQL based on SQLite 3.39+, so this is safe.
+//
+// CurrentSchemaVersion is bumped from 19 → 20 in the same commit that wires this
+// function into runMigrations(). See database-critical.md for the migration checklist.
+//
+// Part of Epic E19 — Sprint Management & Planning System (T-E19-F07-001).
+func migrateSprintAssignmentsAddSprintOrder(db *sql.DB) error {
+	// Step 1: Check whether the sprint_order column already exists.
+	// Mirrors the migrateSlugColumns pattern: check pragma_table_info first,
+	// only run ALTER TABLE when the column is absent (AC-T1).
+	var columnExists int
+	err := db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('sprint_assignments') WHERE name = 'sprint_order'`,
+	).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check sprint_assignments.sprint_order column: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Step 2: Add the nullable sprint_order column.
+		if _, err := db.Exec(
+			`ALTER TABLE sprint_assignments ADD COLUMN sprint_order INTEGER`,
+		); err != nil {
+			return fmt.Errorf("failed to add sprint_order to sprint_assignments: %w", err)
+		}
+
+		// Step 3: Backfill planning and active sprints only (AC-T3, AC-T4).
+		// ROW_NUMBER() assigns a dense 1-based rank per sprint, ordered by
+		// assigned_at ASC then id ASC (stable tie-break) for active assignments
+		// only (removed_at IS NULL).
+		//
+		// SQLite does not support UPDATE … FROM (the CTE approach), so we use a
+		// correlated sub-select to compute the row number per row.
+		if _, err := db.Exec(`
+			UPDATE sprint_assignments
+			SET sprint_order = (
+				SELECT COUNT(*) + 1
+				FROM sprint_assignments sa2
+				WHERE sa2.sprint_id   = sprint_assignments.sprint_id
+				  AND sa2.removed_at  IS NULL
+				  AND (
+				        sa2.assigned_at < sprint_assignments.assigned_at
+				        OR (sa2.assigned_at = sprint_assignments.assigned_at AND sa2.id < sprint_assignments.id)
+				      )
+			)
+			WHERE sprint_id IN (
+				SELECT id FROM sprints WHERE status IN ('planning', 'active')
+			)
+			AND removed_at IS NULL
+		`); err != nil {
+			return fmt.Errorf("failed to backfill sprint_order on sprint_assignments: %w", err)
+		}
+	}
+
+	// Step 4: Create the partial unique index (AC-T2).
+	// CREATE INDEX IF NOT EXISTS is idempotent — safe to call on every run
+	// regardless of whether the column was just added or already existed.
+	if _, err := db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_sprint_assignments_order_unique
+			ON sprint_assignments(sprint_id, sprint_order)
+			WHERE sprint_order IS NOT NULL AND removed_at IS NULL
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_sprint_assignments_order_unique: %w", err)
 	}
 
 	return nil
