@@ -763,52 +763,78 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 		targetOrder = pos
 	}
 
-	// Step 7: Create assignment with sprint_order pre-populated.
+	// Step 7: Determine whether this insert needs to shift existing siblings.
+	// "Shift needed" = at least one ordered item currently sits at sprint_order >= targetOrder.
+	// Append-at-end (targetOrder == count+1 or no ordered items yet) never collides.
+	var shiftOps []sprint.RenumberOp
+	if input.Position != nil {
+		pos := *input.Position
+		if len(orderedItems) > 0 && pos <= len(orderedItems) {
+			shiftOps = make([]sprint.RenumberOp, 0, len(orderedItems)-pos+1)
+			for _, item := range orderedItems {
+				if item.SprintOrder != nil && *item.SprintOrder >= pos {
+					newPos := *item.SprintOrder + 1
+					shiftOps = append(shiftOps, sprint.RenumberOp{
+						AssignmentID: item.ID,
+						NewPosition:  &newPos,
+					})
+				}
+			}
+		}
+	}
+
+	// Step 8: Create the assignment.
+	//
+	// Fast path (no shift): INSERT with sprint_order = targetOrder. No siblings
+	// occupy that slot, so the partial unique index won't fire.
+	//
+	// Shift path: INSERT with sprint_order = NULL first. The partial unique
+	// index has WHERE sprint_order IS NOT NULL, so a NULL insert never collides
+	// even though existing rows still occupy positions [pos, count]. The final
+	// position is assigned in step 9 via a single renumber UPDATE that also
+	// shifts the siblings — but only after the siblings are NULL-cleared, so
+	// the per-row unique-index check during that UPDATE never sees a duplicate.
+	insertOrder := &targetOrder
+	if len(shiftOps) > 0 {
+		insertOrder = nil
+	}
 	assignment := &models.SprintAssignment{
 		SprintID:    sprintEntity.ID,
 		EntityType:  entityType,
 		EntityID:    entityID,
 		AssignedAt:  time.Now().UTC(),
-		SprintOrder: &targetOrder,
+		SprintOrder: insertOrder,
 	}
 	if err := s.repo.AddAssignment(ctx, assignment); err != nil {
 		return nil, nil, fmt.Errorf("failed to add assignment for %q to sprint %s: %w",
 			input.EntityKey, input.SprintKey, err)
 	}
 
-	// Step 8: For insert-at-position, shift all items that were at >= targetOrder up by 1.
-	// Items at position == count+1 (append at boundary) require no shift.
-	if input.Position != nil && len(orderedItems) > 0 {
-		pos := *input.Position
-		count := len(orderedItems)
-		if pos <= count {
-			// Build shift ops for all existing items at positions >= pos.
-			ops := make([]sprint.RenumberOp, 0, count-pos+1)
-			for _, item := range orderedItems {
-				if item.SprintOrder != nil && *item.SprintOrder >= pos {
-					newPos := *item.SprintOrder + 1
-					ops = append(ops, sprint.RenumberOp{
-						AssignmentID: item.ID,
-						NewPosition:  &newPos,
-					})
-				}
-			}
-			if len(ops) > 0 {
-				// TD-9: service owns the transaction boundary.
-				// Since we have no outstanding tx here (AddAssignment committed above),
-				// we call RenumberAssignmentsTx with a nil tx — the repo handles it
-				// as a non-transactional update. The spec allows this because the
-				// partial unique index (sprint_id, sprint_order) enforces ordering
-				// invariants at the DB layer.
-				//
-				// Note: for full transactional safety, s.db must be non-nil. If s.db
-				// is nil we proceed without a transaction (advisory, not blocking).
-				if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
-					return nil, nil, fmt.Errorf("failed to shift sprint order for insert at position %d in sprint %s: %w",
-						pos, input.SprintKey, err)
-				}
-			}
+	// Step 9: For the shift path, NULL-clear the siblings, then apply final
+	// positions (target + shifted siblings) in one renumber statement.
+	if len(shiftOps) > 0 {
+		clearOps := make([]sprint.RenumberOp, 0, len(shiftOps))
+		for _, op := range shiftOps {
+			clearOps = append(clearOps, sprint.RenumberOp{AssignmentID: op.AssignmentID, NewPosition: nil})
 		}
+
+		finalOps := make([]sprint.RenumberOp, 0, len(shiftOps)+1)
+		finalOps = append(finalOps, sprint.RenumberOp{AssignmentID: assignment.ID, NewPosition: &targetOrder})
+		finalOps = append(finalOps, shiftOps...)
+
+		// TD-9: AddAssignment doesn't accept a *sql.Tx today, so we can't make
+		// this fully atomic without expanding the repo API. The worst-case
+		// mid-failure leaves the new row with sprint_order=NULL (unordered),
+		// which is recoverable via a subsequent reorder.
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, clearOps); err != nil {
+			return nil, nil, fmt.Errorf("failed to clear sprint_order for insert at position %d in sprint %s: %w",
+				*input.Position, input.SprintKey, err)
+		}
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, finalOps); err != nil {
+			return nil, nil, fmt.Errorf("failed to shift sprint order for insert at position %d in sprint %s: %w",
+				*input.Position, input.SprintKey, err)
+		}
+		assignment.SprintOrder = &targetOrder
 	}
 
 	// Step 9: Advisory capacity warning (never blocks)
@@ -1434,8 +1460,8 @@ func (s *SprintService) ReorderAssignment(
 		maxPos := len(ordered) + 1
 		if newPosition > maxPos {
 			return nil, nil, fmt.Errorf(
-				"cannot reorder: position %d is out of range (sprint has %d ordered items)",
-				newPosition, len(ordered),
+				"cannot reorder: position %d is out of range (sprint has %d ordered items, valid range: 1..%d)",
+				newPosition, len(orderedAll), maxPos,
 			)
 		}
 	default:
@@ -1447,10 +1473,21 @@ func (s *SprintService) ReorderAssignment(
 	siblings := orderedWithoutTarget(orderedAll, assignment.ID)
 	ops := buildRenumberOps(siblings, newPosition)
 
+	// Build a NULL pre-pass: every row whose sprint_order will change (target +
+	// all renumbered siblings) is cleared first. Without this, the single CASE
+	// WHEN UPDATE applied by RenumberAssignmentsTx transiently collides with
+	// idx_sprint_assignments_order_unique because SQLite enforces the partial
+	// unique index per row as the statement executes (no per-statement defer
+	// for unique constraints).
+	clearOps := buildReorderClearOps(assignment.ID, ops)
+
 	// Step 6: Apply in a transaction (TD-9)
 	if s.db == nil {
 		// No DB available — apply ops without a real transaction (test path or CLI without --db).
 		// For production use, db must be provided to NewSprintService.
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, clearOps); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
+		}
 		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
 			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
 		}
@@ -1464,6 +1501,9 @@ func (s *SprintService) ReorderAssignment(
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, clearOps); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
+		}
 		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, ops); err != nil {
 			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
 		}
@@ -1509,15 +1549,29 @@ func orderedWithoutTarget(ordered []*models.SprintAssignment, targetID int64) []
 	return out
 }
 
+// buildReorderClearOps returns ops that set sprint_order=NULL for the target
+// assignment plus every sibling in renumberOps. Used as a pre-pass so the
+// subsequent renumber UPDATE never transiently violates
+// idx_sprint_assignments_order_unique.
+func buildReorderClearOps(targetID int64, renumberOps []sprint.RenumberOp) []sprint.RenumberOp {
+	clear := make([]sprint.RenumberOp, 0, len(renumberOps)+1)
+	clear = append(clear, sprint.RenumberOp{AssignmentID: targetID, NewPosition: nil})
+	for _, op := range renumberOps {
+		clear = append(clear, sprint.RenumberOp{AssignmentID: op.AssignmentID, NewPosition: nil})
+	}
+	return clear
+}
+
 // buildRenumberOps builds a []RenumberOp for sibling assignments around a new position.
 // siblings are already ordered by sprint_order (all ordered items excluding the target).
-// Items at positions >= newPosition are shifted up by 1; items before are unchanged.
+// The slot at newPosition is reserved for the target; siblings fill 1..newPosition-1
+// and newPosition+1..len(siblings)+1 densely.
 func buildRenumberOps(siblings []*models.SprintAssignment, newPosition int) []sprint.RenumberOp {
 	ops := make([]sprint.RenumberOp, 0, len(siblings))
 	pos := 1
 	for _, sib := range siblings {
-		if pos >= newPosition {
-			pos++ // skip the slot reserved for the target
+		if pos == newPosition {
+			pos++ // skip the slot reserved for the target (exactly once)
 		}
 		p := pos
 		ops = append(ops, sprint.RenumberOp{AssignmentID: sib.ID, NewPosition: &p})

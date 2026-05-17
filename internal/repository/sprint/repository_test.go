@@ -2480,6 +2480,156 @@ func TestSprintRepository_RenumberAssignmentsTx(t *testing.T) {
 	})
 }
 
+// TestSprintRepository_RenumberAssignmentsTx_ShiftOnDensePartialIndex is a
+// regression test for the UNIQUE constraint violation reported on long sprints
+// (wormwoodGM, sprint S004, 2026-05-16). It proves two things:
+//
+//  1. A naive single-statement shift (e.g. UPDATE … SET sprint_order = sprint_order+1)
+//     applied to rows that already cover a dense range fails with
+//     "UNIQUE constraint failed: sprint_assignments.sprint_id, sprint_assignments.sprint_order".
+//     SQLite enforces idx_sprint_assignments_order_unique per row as the UPDATE executes,
+//     so the first row pushed into a slot still occupied by an unprocessed row trips
+//     the partial unique index.
+//
+//  2. The fix used by ReorderAssignment / AddEntityToSprint --at — NULL the affected
+//     rows first, then renumber — works without violations because rows with
+//     sprint_order IS NULL are outside the partial index's WHERE clause.
+//
+// Tests run with 10 dense assignments so the failure mode matches the bug report's
+// 24-item sprint scenario qualitatively without bloating fixtures.
+func TestSprintRepository_RenumberAssignmentsTx_ShiftOnDensePartialIndex(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	// Cleanup state from any previous run before seeding.
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key = 'S995')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S995'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'SHFT-E01-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'SHFT-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'SHFT-E01'")
+
+	var epicID, featureID int64
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES ('SHFT-E01', 'Shift Test Epic', 'active', 'medium') RETURNING id`,
+	).Scan(&epicID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, 'SHFT-F01', 'Shift Test Feature', 'in_progress') RETURNING id`,
+		epicID,
+	).Scan(&featureID))
+
+	sprint := &models.Sprint{
+		Key:       "S995",
+		Name:      "Shift regression sprint",
+		Goal:      "regression",
+		StartDate: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 5, 14, 0, 0, 0, 0, time.UTC),
+		Status:    "planning",
+	}
+	require.NoError(t, repo.Create(ctx, sprint))
+
+	const N = 10
+	taskIDs := make([]int64, N)
+	assignmentIDs := make([]int64, N)
+	for i := 0; i < N; i++ {
+		taskKey := fmt.Sprintf("SHFT-E01-F01-%03d", i+1)
+		require.NoError(t, database.QueryRowContext(ctx,
+			`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, ?, ?, 'todo', 5) RETURNING id`,
+			featureID, taskKey, fmt.Sprintf("Task %d", i+1),
+		).Scan(&taskIDs[i]))
+
+		pos := i + 1 // dense 1..N
+		require.NoError(t, database.QueryRowContext(ctx,
+			`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order)
+			 VALUES (?, 'task', ?, CURRENT_TIMESTAMP, ?) RETURNING id`,
+			sprint.ID, taskIDs[i], pos,
+		).Scan(&assignmentIDs[i]))
+	}
+
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprint.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID)
+	}()
+
+	// ---- Part 1: prove the naive shift fails ----------------------------
+	t.Run("naive shift without clear-pass violates the partial unique index", func(t *testing.T) {
+		// Build a shift plan that pushes assignments at positions [5..10] up by 1
+		// (positions 5..10 → 6..11). Applied as a single UPDATE this collides:
+		// e.g. setting pos 5 → 6 conflicts with the unprocessed row still at 6.
+		ops := make([]RenumberOp, 0, 6)
+		for i := 4; i < N; i++ { // indexes 4..9 are positions 5..10
+			newPos := (i + 1) + 1
+			ops = append(ops, RenumberOp{AssignmentID: assignmentIDs[i], NewPosition: &newPos})
+		}
+
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+
+		err = repo.RenumberAssignmentsTx(ctx, tx, sprint.ID, ops)
+		require.Error(t, err, "naive shift must violate idx_sprint_assignments_order_unique")
+		assert.Contains(t, err.Error(), "UNIQUE", "error must reference the unique-index violation")
+	})
+
+	// ---- Part 2: the clear-then-shift pattern succeeds ------------------
+	t.Run("clear-then-shift pattern succeeds", func(t *testing.T) {
+		// Re-state: positions are still 1..10 because Part 1's tx rolled back.
+		// First pass: NULL positions 5..10. Second pass: assign final 6..11.
+		clearOps := make([]RenumberOp, 0, 6)
+		assignOps := make([]RenumberOp, 0, 6)
+		for i := 4; i < N; i++ {
+			newPos := (i + 1) + 1
+			clearOps = append(clearOps, RenumberOp{AssignmentID: assignmentIDs[i], NewPosition: nil})
+			assignOps = append(assignOps, RenumberOp{AssignmentID: assignmentIDs[i], NewPosition: &newPos})
+		}
+
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+
+		require.NoError(t, repo.RenumberAssignmentsTx(ctx, tx, sprint.ID, clearOps),
+			"clear pass must succeed (NULL is outside the partial unique index domain)")
+		require.NoError(t, repo.RenumberAssignmentsTx(ctx, tx, sprint.ID, assignOps),
+			"assign pass must succeed once the affected rows are NULL")
+
+		require.NoError(t, tx.Commit())
+
+		// Verify the final state: positions 1..4 unchanged, 5 is now NULL-free
+		// because the row at 5 moved to 6, and positions 6..11 are populated.
+		rows, err := database.QueryContext(ctx,
+			`SELECT id, sprint_order FROM sprint_assignments WHERE sprint_id = ? ORDER BY id`,
+			sprint.ID,
+		)
+		require.NoError(t, err)
+		defer rows.Close()
+		gotOrders := make(map[int64]sql.NullInt64)
+		for rows.Next() {
+			var id int64
+			var ord sql.NullInt64
+			require.NoError(t, rows.Scan(&id, &ord))
+			gotOrders[id] = ord
+		}
+		require.NoError(t, rows.Err())
+
+		for i := 0; i < N; i++ {
+			ord, ok := gotOrders[assignmentIDs[i]]
+			require.True(t, ok, "missing row for assignment[%d]", i)
+			require.True(t, ord.Valid, "sprint_order must be non-NULL after assign pass for assignment[%d]", i)
+			var want int64
+			if i < 4 {
+				want = int64(i + 1) // unchanged
+			} else {
+				want = int64(i + 2) // shifted up by 1
+			}
+			assert.Equal(t, want, ord.Int64, "assignment[%d] final position mismatch", i)
+		}
+	})
+}
+
 // TestSprintRepository_ListOrderedAssignments verifies that
 // ListOrderedAssignments returns assignments sorted by sprint_order ASC NULLS LAST
 // then by assigned_at ASC.

@@ -247,9 +247,16 @@ func TestTC030_SprintReorderDoesNotMutateEntityFields(t *testing.T) {
 	assert.Equal(t, 1, *moved.SprintOrder, "moved assignment must have sprint_order=1")
 	_ = topN
 
-	// Assert: sprint repo methods were called correctly
-	assert.Equal(t, 1, renumberCallCount,
-		"RenumberAssignmentsTx must be called exactly once for dense renumbering")
+	// Assert: sprint repo methods were called correctly.
+	//
+	// RenumberAssignmentsTx is called twice on the reorder path:
+	//   1. NULL pre-pass that clears sprint_order on the target + every shifted
+	//      sibling. Required so the partial unique index
+	//      idx_sprint_assignments_order_unique doesn't fire mid-UPDATE when a
+	//      shifted value transiently collides with an unprocessed row.
+	//   2. Final pass that assigns the siblings' new positions.
+	assert.Equal(t, 2, renumberCallCount,
+		"RenumberAssignmentsTx must be called twice: NULL pre-pass + final renumber")
 	assert.Equal(t, 1, setSprintOrderCallCount,
 		"SetSprintOrderTx must be called exactly once to update the target's position")
 

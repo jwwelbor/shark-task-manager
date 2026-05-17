@@ -3936,8 +3936,9 @@ func TestAddEntityToSprint_TC005_AtPosition1_ShiftsExistingItems(t *testing.T) {
 		makeAssignment(3, 10, "task", 102, intPtr(3)),
 	}
 
-	var capturedOps []sprint.RenumberOp
-	var addedAssignment *models.SprintAssignment
+	var renumberCalls [][]sprint.RenumberOp
+	var addAssignmentInsertOrder *int // snapshot of sprint_order at INSERT time
+	addAssignmentCalled := false
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
@@ -3951,11 +3952,23 @@ func TestAddEntityToSprint_TC005_AtPosition1_ShiftsExistingItems(t *testing.T) {
 		},
 		AddAssignmentFunc: func(_ context.Context, a *models.SprintAssignment) error {
 			a.ID = 99 // simulate DB auto-increment
-			addedAssignment = a
+			addAssignmentCalled = true
+			// Snapshot the sprint_order value at the moment of INSERT — the
+			// service may rebind a.SprintOrder later, so a pointer-capture
+			// would race with that mutation.
+			if a.SprintOrder != nil {
+				v := *a.SprintOrder
+				addAssignmentInsertOrder = &v
+			} else {
+				addAssignmentInsertOrder = nil
+			}
 			return nil
 		},
 		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, ops []sprint.RenumberOp) error {
-			capturedOps = ops
+			// Copy the slice so the test sees the call's snapshot, not a later mutation.
+			snap := make([]sprint.RenumberOp, len(ops))
+			copy(snap, ops)
+			renumberCalls = append(renumberCalls, snap)
 			return nil
 		},
 		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error {
@@ -3976,16 +3989,35 @@ func TestAddEntityToSprint_TC005_AtPosition1_ShiftsExistingItems(t *testing.T) {
 	require.NotNil(t, assignment.SprintOrder, "SprintOrder must be set")
 	assert.Equal(t, 1, *assignment.SprintOrder, "new item must land at position 1")
 
-	// Verify shift ops: items formerly at 1,2,3 must shift to 2,3,4.
-	require.Len(t, capturedOps, 3, "RenumberAssignmentsTx must receive 3 shift ops")
-	assert.Equal(t, int64(1), capturedOps[0].AssignmentID)
-	assert.Equal(t, intPtr(2), capturedOps[0].NewPosition)
-	assert.Equal(t, int64(2), capturedOps[1].AssignmentID)
-	assert.Equal(t, intPtr(3), capturedOps[1].NewPosition)
-	assert.Equal(t, int64(3), capturedOps[2].AssignmentID)
-	assert.Equal(t, intPtr(4), capturedOps[2].NewPosition)
+	// AddAssignment must INSERT with sprint_order=NULL so the partial unique
+	// index (sprint_id, sprint_order) doesn't fire on the existing row at pos 1.
+	require.True(t, addAssignmentCalled, "AddAssignment must have been called")
+	assert.Nil(t, addAssignmentInsertOrder,
+		"new row must be INSERTed with sprint_order=NULL when a shift is needed; final position is assigned via the renumber UPDATE")
 
-	_ = addedAssignment // verified via assignment return value
+	// Two RenumberAssignmentsTx calls: pre-pass NULLs the siblings, then a
+	// single statement assigns target + shifted siblings their final positions.
+	require.Len(t, renumberCalls, 2, "expected exactly two renumber calls: clear then assign")
+
+	clearOps := renumberCalls[0]
+	require.Len(t, clearOps, 3, "clear pass must NULL all three shifted siblings")
+	for i, op := range clearOps {
+		assert.Nil(t, op.NewPosition, "clear-pass op[%d] must have NewPosition=nil", i)
+	}
+
+	finalOps := renumberCalls[1]
+	require.Len(t, finalOps, 4, "final pass must place target + shift the 3 siblings")
+	// Op 0 = target at position 1.
+	assert.Equal(t, int64(99), finalOps[0].AssignmentID, "first op must be the new assignment")
+	require.NotNil(t, finalOps[0].NewPosition)
+	assert.Equal(t, 1, *finalOps[0].NewPosition)
+	// Ops 1..3 = shifted siblings.
+	assert.Equal(t, int64(1), finalOps[1].AssignmentID)
+	assert.Equal(t, intPtr(2), finalOps[1].NewPosition)
+	assert.Equal(t, int64(2), finalOps[2].AssignmentID)
+	assert.Equal(t, intPtr(3), finalOps[2].NewPosition)
+	assert.Equal(t, int64(3), finalOps[3].AssignmentID)
+	assert.Equal(t, intPtr(4), finalOps[3].NewPosition)
 }
 
 // TestAddEntityToSprint_TC006_AtPositionCountPlus1_Appends verifies that
@@ -5213,4 +5245,125 @@ func newTestDB(t *testing.T) *repository.DB {
 	t.Helper()
 	testSQLDB := internaltesthelper.GetTestDB()
 	return repository.NewDB(testSQLDB)
+}
+
+// ---------------------------------------------------------------------------
+// buildRenumberOps unit tests — regression guard for the renumber off-by-one
+// that caused UNIQUE constraint violations on long sprints. The original
+// implementation used `if pos >= newPosition { pos++ }` which fires every
+// iteration after newPosition, producing sparse non-contiguous positions
+// (e.g. 1..8, 10, 12, 14, ...) instead of the dense 1..8, 10..24 the index
+// requires.
+// ---------------------------------------------------------------------------
+
+func TestBuildRenumberOps_DenseSequenceForVariousPositions(t *testing.T) {
+	makeSiblings := func(n int) []*models.SprintAssignment {
+		siblings := make([]*models.SprintAssignment, n)
+		for i := 0; i < n; i++ {
+			p := i + 1
+			siblings[i] = &models.SprintAssignment{ID: int64(i + 1), SprintOrder: &p}
+		}
+		return siblings
+	}
+
+	tests := []struct {
+		name        string
+		nSiblings   int
+		newPosition int
+		// expected[i] is the new sprint_order assigned to siblings[i].
+		// Together with newPosition (reserved for the target), the union must be the
+		// dense set {1..nSiblings+1} \ {newPosition} in order.
+		expected []int
+	}{
+		{
+			name:        "5 siblings, target at front",
+			nSiblings:   5,
+			newPosition: 1,
+			expected:    []int{2, 3, 4, 5, 6},
+		},
+		{
+			name:        "5 siblings, target in middle",
+			nSiblings:   5,
+			newPosition: 3,
+			expected:    []int{1, 2, 4, 5, 6},
+		},
+		{
+			name:        "5 siblings, target at end",
+			nSiblings:   5,
+			newPosition: 6, // = len(siblings) + 1
+			expected:    []int{1, 2, 3, 4, 5},
+		},
+		{
+			name:        "23 siblings, target at position 9 (mirrors B-report)",
+			nSiblings:   23,
+			newPosition: 9,
+			expected:    []int{1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24},
+		},
+		{
+			name:        "23 siblings, target at top (newPosition=1)",
+			nSiblings:   23,
+			newPosition: 1,
+			expected:    []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24},
+		},
+		{
+			name:        "23 siblings, target at bottom (newPosition=24)",
+			nSiblings:   23,
+			newPosition: 24,
+			expected:    []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23},
+		},
+		{
+			name:        "single sibling, target after it",
+			nSiblings:   1,
+			newPosition: 2,
+			expected:    []int{1},
+		},
+		{
+			name:        "no siblings",
+			nSiblings:   0,
+			newPosition: 1,
+			expected:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := buildRenumberOps(makeSiblings(tt.nSiblings), tt.newPosition)
+			require.Len(t, ops, len(tt.expected), "op count must equal sibling count")
+
+			seen := make(map[int]bool, len(ops))
+			for i, op := range ops {
+				require.NotNil(t, op.NewPosition, "op[%d] must have non-nil NewPosition", i)
+				assert.Equal(t, tt.expected[i], *op.NewPosition,
+					"op[%d] (sibling ID %d) must land at the expected position", i, op.AssignmentID)
+				assert.NotEqual(t, tt.newPosition, *op.NewPosition,
+					"op[%d] must not collide with the slot reserved for the target", i)
+				assert.False(t, seen[*op.NewPosition],
+					"op[%d] position %d duplicates an earlier op", i, *op.NewPosition)
+				seen[*op.NewPosition] = true
+			}
+		})
+	}
+}
+
+// TestBuildReorderClearOps_ClearsTargetAndAllRenumberSiblings verifies the
+// NULL pre-pass covers every row whose sprint_order will change in the
+// subsequent renumber UPDATE. Without this, the per-row partial-unique-index
+// check inside SQLite's UPDATE fires when a shifted value collides with an
+// unprocessed sibling.
+func TestBuildReorderClearOps_ClearsTargetAndAllRenumberSiblings(t *testing.T) {
+	pos2, pos3 := 2, 3
+	renumberOps := []sprint.RenumberOp{
+		{AssignmentID: 10, NewPosition: &pos2},
+		{AssignmentID: 11, NewPosition: &pos3},
+	}
+
+	clearOps := buildReorderClearOps(99, renumberOps)
+
+	require.Len(t, clearOps, 3, "clear must cover target + every sibling op")
+	assert.Equal(t, int64(99), clearOps[0].AssignmentID, "target must be cleared first")
+	assert.Nil(t, clearOps[0].NewPosition)
+	assert.Equal(t, int64(10), clearOps[1].AssignmentID)
+	assert.Nil(t, clearOps[1].NewPosition)
+	assert.Equal(t, int64(11), clearOps[2].AssignmentID)
+	assert.Nil(t, clearOps[2].NewPosition)
 }
