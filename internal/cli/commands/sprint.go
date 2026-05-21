@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -16,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	wf "github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -1026,14 +1028,19 @@ func printVelocityTable(result *services.VelocityResult) error {
 	fmt.Printf("\nSprint Velocity (last %d sprints)\n", result.SprintCount)
 
 	headers := []string{"KEY", "NAME", "COMPLETED", "UNSIZED"}
+	const nameColIdx = 1
 	rows := make([][]string, 0, len(result.Sprints))
 	for _, s := range result.Sprints {
 		rows = append(rows, []string{
 			s.Key,
-			s.Name,
+			"", // name placeholder; filled below after width is computed
 			fmt.Sprintf("%d", s.CompletedSize),
 			fmt.Sprintf("%d", s.UnsizedCompleted),
 		})
+	}
+	nameMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, nameColIdx)
+	for i, s := range result.Sprints {
+		rows[i][nameColIdx] = truncateToWidth(s.Name, nameMax)
 	}
 	cli.OutputTable(headers, rows)
 
@@ -1453,27 +1460,148 @@ func printBacklog(backlog *services.SprintBacklog) error {
 	return printBacklogGrouped(backlog)
 }
 
+// formatBacklogSize renders a backlog item's Size pointer for display.
+// Returns "-" for nil so unsized entities are visually distinct from
+// sized-zero (cx-designer guidance — surfaces sizing-hygiene gaps).
+func formatBacklogSize(size *int) string {
+	if size == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *size)
+}
+
+// sumBacklogSize totals the Size pointers across a slice of backlog items,
+// returning the sum, the count of sized items, and the count of unsized items.
+func sumBacklogSize(items []*services.BacklogItemView) (total, sized, unsized int) {
+	for _, it := range items {
+		if it.Size != nil {
+			total += *it.Size
+			sized++
+		} else {
+			unsized++
+		}
+	}
+	return total, sized, unsized
+}
+
+var (
+	backlogOrderedHeaders     = []string{"#", "KEY", "ST", "SIZE", "TITLE"}
+	backlogOrderedTitleColIdx = 4
+	backlogGroupedHeaders     = []string{"KEY", "ST", "SIZE", "TITLE"}
+	backlogGroupedTitleColIdx = 3
+)
+
+func workflowLevelForBacklogEntityType(entityType string) string {
+	switch strings.ToLower(entityType) {
+	case "bug":
+		return wf.LevelBug
+	case "change", "change_card":
+		return wf.LevelChange
+	case "tech_debt":
+		return wf.LevelTechDebt
+	default:
+		return wf.LevelTask
+	}
+}
+
+func fallbackStatusToken(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return "?"
+	}
+
+	parts := strings.FieldsFunc(status, func(r rune) bool {
+		return r == '_' || r == '-' || unicode.IsSpace(r)
+	})
+	if len(parts) <= 1 {
+		runes := []rune(strings.ToUpper(status))
+		if len(runes) <= 3 {
+			return string(runes)
+		}
+		return string(runes[:3])
+	}
+
+	var b strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		b.WriteRune(unicode.ToUpper([]rune(part)[0]))
+		if b.Len() == 3 {
+			break
+		}
+	}
+	if b.Len() == 0 {
+		return "?"
+	}
+	return b.String()
+}
+
+func colorizeBacklogStatusToken(token, colorName string) string {
+	if cli.GlobalConfig.NoColor || colorName == "" {
+		return token
+	}
+
+	colorCodes := map[string]string{
+		"red":     "\033[31m",
+		"green":   "\033[32m",
+		"yellow":  "\033[33m",
+		"blue":    "\033[34m",
+		"magenta": "\033[35m",
+		"cyan":    "\033[36m",
+		"white":   "\033[37m",
+		"gray":    "\033[90m",
+		"orange":  "\033[38;5;208m",
+		"purple":  "\033[38;5;141m",
+	}
+
+	colorCode, found := colorCodes[colorName]
+	if !found {
+		return token
+	}
+	return colorCode + token + "\033[0m"
+}
+
+func formatBacklogStatus(item *services.BacklogItemView) string {
+	workflowSvc := cli.GetWorkflowService().ForLevel(workflowLevelForBacklogEntityType(item.EntityType))
+	meta := workflowSvc.GetStatusMetadata(item.Status)
+
+	token := meta.DisplayToken
+	if token == "" {
+		token = fallbackStatusToken(item.Status)
+	}
+	return colorizeBacklogStatusToken(token, meta.Color)
+}
+
 // printBacklogOrdered prints the sprint pull queue in ordered view (spec §3.5).
-// Columns: # | KEY | TYPE | STATUS | AGENT | TITLE
-// Position column: integer for ordered items, ~ for unordered items, !N for blocked.
+//
+// Columns: `# | KEY | ST | SIZE | TITLE`. ST uses workflow metadata
+// `display_token` when configured and a deterministic fallback when absent.
+// AGENT (always empty) and TYPE (already encoded in the KEY prefix:
+// E##-F##-### = task, B### = bug, CC-### = change, TD-### = tech-debt)
+// were dropped. SIZE is included so operators can size-gate their pulls
+// ("can I fit this in before standup?"). TITLE truncates to fit
+// console_width via availableTitleWidth, matching other list views.
+//
+// Position column: integer for ordered items, "~" for unordered items,
+// "!N" for blocked items at position N.
 func printBacklogOrdered(backlog *services.SprintBacklog) error {
-	fmt.Printf("\nPull Queue: %s (%s)  —  %.0f%% complete (%d/%d)\n\n",
+	total, _, unsized := sumBacklogSize(backlog.Items)
+	fmt.Printf("\nPull Queue: %s (%s)  —  %.0f%% complete (%d/%d, %d pts",
 		backlog.SprintKey, backlog.SprintName,
-		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount)
+		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount, total)
+	if unsized > 0 {
+		fmt.Printf(", %d unsized", unsized)
+	}
+	fmt.Print(")\n\n")
 
 	if len(backlog.Items) == 0 {
 		cli.Info("No entities assigned to this sprint.")
 		return nil
 	}
 
-	fmt.Printf("  %-4s %-20s %-10s %-16s %-10s %s\n", "#", "KEY", "TYPE", "STATUS", "AGENT", "TITLE")
-	fmt.Printf("  %-4s %-20s %-10s %-16s %-10s %s\n",
-		strings.Repeat("-", 4), strings.Repeat("-", 20), strings.Repeat("-", 10),
-		strings.Repeat("-", 16), strings.Repeat("-", 10), strings.Repeat("-", 30))
-
+	rows := make([][]string, 0, len(backlog.Items))
 	for _, item := range backlog.Items {
-		// Position column: use SprintOrder if set; otherwise ~ for unordered.
-		// Blocked items (status contains "blocked") get !N prefix.
 		posStr := "~"
 		if item.SprintOrder != nil {
 			posStr = fmt.Sprintf("%d", *item.SprintOrder)
@@ -1481,23 +1609,46 @@ func printBacklogOrdered(backlog *services.SprintBacklog) error {
 				posStr = fmt.Sprintf("!%d", *item.SprintOrder)
 			}
 		}
-
-		title := item.Title
-		if len(title) > 30 {
-			title = title[:27] + "..."
-		}
-		fmt.Printf("  %-4s %-20s %-10s %-16s %-10s %s\n",
-			posStr, item.Key, item.EntityType, item.Status, item.AgentType, title)
+		rows = append(rows, []string{
+			posStr,
+			item.Key,
+			formatBacklogStatus(item),
+			formatBacklogSize(item.Size),
+			"", // title placeholder; filled below once console width is known
+		})
 	}
+	titleMax := availableTitleWidth(cli.GetConsoleWidth(), backlogOrderedHeaders, rows, backlogOrderedTitleColIdx)
+	for i, item := range backlog.Items {
+		rows[i][backlogOrderedTitleColIdx] = truncateToWidth(item.Title, titleMax)
+	}
+	cli.OutputTable(backlogOrderedHeaders, rows)
 	fmt.Println()
 	return nil
 }
 
 // printBacklogGrouped prints the sprint backlog as human-readable grouped sections.
+//
+// Per group, columns are `KEY | ST | SIZE | TITLE`. ST uses workflow metadata
+// `display_token` when configured and a deterministic fallback when absent.
+// Position (meaningless within a status bucket) and TYPE (encoded in the
+// KEY prefix) were dropped. Each group header includes a per-bucket size
+// subtotal so the reader can see how loaded each status bucket is without
+// mentally aggregating.
 func printBacklogGrouped(backlog *services.SprintBacklog) error {
-	fmt.Printf("\nBacklog: %s (%s)  —  %.0f%% complete (%d/%d)\n\n",
+	// Aggregate totals across all groups for the header summary.
+	var grandTotal, grandUnsized int
+	for _, g := range backlog.Groups {
+		t, _, u := sumBacklogSize(g.Items)
+		grandTotal += t
+		grandUnsized += u
+	}
+	fmt.Printf("\nBacklog: %s (%s)  —  %.0f%% complete (%d/%d, %d pts",
 		backlog.SprintKey, backlog.SprintName,
-		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount)
+		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount, grandTotal)
+	if grandUnsized > 0 {
+		fmt.Printf(", %d unsized", grandUnsized)
+	}
+	fmt.Print(")\n\n")
 
 	if backlog.TotalCount == 0 {
 		cli.Info("No entities assigned to this sprint.")
@@ -1505,22 +1656,30 @@ func printBacklogGrouped(backlog *services.SprintBacklog) error {
 	}
 
 	for _, group := range backlog.Groups {
-		fmt.Printf("--- %s (%d) ---\n", group.StatusCategory, len(group.Items))
 		if len(group.Items) == 0 {
 			continue
 		}
-		fmt.Printf("  %-15s %-12s %-12s  %s\n", "KEY", "TYPE", "STATUS", "TITLE")
-		fmt.Printf("  %-15s %-12s %-12s  %s\n",
-			strings.Repeat("-", 15), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 30))
-		for _, item := range group.Items {
-			// Display label uses brackets (display-only); JSON uses raw entity_type string.
-			typeLabel := fmt.Sprintf("[%s]", item.EntityType)
-			title := item.Title
-			if len(title) > 40 {
-				title = title[:37] + "..."
-			}
-			fmt.Printf("  %-15s %-12s %-12s  %s\n", item.Key, typeLabel, item.Status, title)
+		groupTotal, _, groupUnsized := sumBacklogSize(group.Items)
+		fmt.Printf("--- %s (%d items, %d pts", group.StatusCategory, len(group.Items), groupTotal)
+		if groupUnsized > 0 {
+			fmt.Printf(", %d unsized", groupUnsized)
 		}
+		fmt.Println(") ---")
+
+		rows := make([][]string, 0, len(group.Items))
+		for _, item := range group.Items {
+			rows = append(rows, []string{
+				item.Key,
+				formatBacklogStatus(item),
+				formatBacklogSize(item.Size),
+				"", // title placeholder
+			})
+		}
+		titleMax := availableTitleWidth(cli.GetConsoleWidth(), backlogGroupedHeaders, rows, backlogGroupedTitleColIdx)
+		for i, item := range group.Items {
+			rows[i][backlogGroupedTitleColIdx] = truncateToWidth(item.Title, titleMax)
+		}
+		cli.OutputTable(backlogGroupedHeaders, rows)
 		fmt.Println()
 	}
 	return nil
@@ -1579,52 +1738,69 @@ func printSprintPlanView(view *services.SprintPlanView) error {
 	}
 	fmt.Printf("\nSprint Planning View%s\n\n", sprintLabel)
 
-	// Section 1: Backlog
+	// Section 1: Backlog (unassigned entities available to pull into the sprint).
+	// Columns: KEY | SIZE | TITLE — same layout as printBacklogGrouped.
 	fmt.Printf("=== Backlog (%d unassigned entities) ===\n", len(view.Backlog))
 	if len(view.Backlog) == 0 {
 		fmt.Println("  (no unassigned entities)")
 	} else {
-		fmt.Printf("%-15s %-10s %-8s %s\n", "KEY", "TYPE", "SIZE", "TITLE")
-		fmt.Printf("%-15s %-10s %-8s %s\n",
-			strings.Repeat("-", 15), strings.Repeat("-", 10), strings.Repeat("-", 8), strings.Repeat("-", 30))
+		headers := []string{"KEY", "SIZE", "TITLE"}
+		const titleColIdx = 2
+		rows := make([][]string, 0, len(view.Backlog))
 		for _, item := range view.Backlog {
-			sizeStr := "-"
-			if item.Size != nil {
-				sizeStr = fmt.Sprintf("%d", *item.Size)
-			}
-			title := item.Title
-			if len(title) > 40 {
-				title = title[:37] + "..."
-			}
-			fmt.Printf("%-15s %-10s %-8s %s\n", item.Key, item.EntityType, sizeStr, title)
+			rows = append(rows, []string{
+				item.Key,
+				formatBacklogSize(item.Size),
+				"", // title placeholder
+			})
 		}
+		titleMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, titleColIdx)
+		for i, item := range view.Backlog {
+			rows[i][titleColIdx] = truncateToWidth(item.Title, titleMax)
+		}
+		cli.OutputTable(headers, rows)
 	}
 
-	// Section 2: Capacity
+	// Section 2: Capacity (all narrow numeric columns; cli.OutputTable handles widths).
 	fmt.Printf("\n=== Capacity ===\n")
 	if len(view.Capacity) == 0 {
 		fmt.Println("  (no capacity configured — use `shark sprint capacity set`)")
 	} else {
-		fmt.Printf("%-12s %10s %10s %10s %8s\n", "AGENT", "CAPACITY", "ALLOCATED", "REMAINING", "UNSIZED")
-		fmt.Printf("%-12s %10s %10s %10s %8s\n",
-			strings.Repeat("-", 12), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 8))
+		headers := []string{"AGENT", "CAPACITY", "ALLOCATED", "REMAINING", "UNSIZED"}
+		rows := make([][]string, 0, len(view.Capacity))
 		for _, row := range view.Capacity {
-			fmt.Printf("%-12s %10.0f %10.0f %10.0f %8d\n",
-				row.AgentType, row.CapacityPoints, row.AllocatedPoints, row.Remaining, row.UnsizedAssigned)
+			rows = append(rows, []string{
+				row.AgentType,
+				fmt.Sprintf("%.0f", row.CapacityPoints),
+				fmt.Sprintf("%.0f", row.AllocatedPoints),
+				fmt.Sprintf("%.0f", row.Remaining),
+				fmt.Sprintf("%d", row.UnsizedAssigned),
+			})
 		}
+		cli.OutputTable(headers, rows)
 	}
 
-	// Section 3: Readiness
+	// Section 3: Readiness (DETAIL is the variable-width column).
 	fmt.Printf("\n=== Readiness ===\n")
 	if view.Readiness != nil {
 		fmt.Printf("Overall Score: %d / 100\n", view.Readiness.OverallScore)
 		if len(view.Readiness.Factors) > 0 {
-			fmt.Printf("%-30s %6s %8s  %s\n", "FACTOR", "SCORE", "MAX", "DETAIL")
-			fmt.Printf("%-30s %6s %8s  %s\n",
-				strings.Repeat("-", 30), strings.Repeat("-", 6), strings.Repeat("-", 8), strings.Repeat("-", 30))
+			headers := []string{"FACTOR", "SCORE", "MAX", "DETAIL"}
+			const detailColIdx = 3
+			rows := make([][]string, 0, len(view.Readiness.Factors))
 			for _, f := range view.Readiness.Factors {
-				fmt.Printf("%-30s %6d %8d  %s\n", f.Name, f.Score, f.MaxScore, f.Detail)
+				rows = append(rows, []string{
+					f.Name,
+					fmt.Sprintf("%d", f.Score),
+					fmt.Sprintf("%d", f.MaxScore),
+					"", // detail placeholder
+				})
 			}
+			detailMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, detailColIdx)
+			for i, f := range view.Readiness.Factors {
+				rows[i][detailColIdx] = truncateToWidth(f.Detail, detailMax)
+			}
+			cli.OutputTable(headers, rows)
 		}
 	}
 	fmt.Println()
@@ -1651,17 +1827,30 @@ func runSprintReadiness(cmd *cobra.Command, args []string) error {
 }
 
 // printReadiness formats the readiness score and factor table for human output.
+// FACTOR and DETAIL columns are width-aware: DETAIL absorbs the remaining
+// console width, with FACTOR capped so a single long factor name doesn't
+// crowd out the detail message.
 func printReadiness(sprintKey string, r *services.SprintReadiness) error {
 	fmt.Printf("\nSprint Readiness: %s\n", sprintKey)
 	fmt.Printf("Overall Score: %d / 100\n\n", r.OverallScore)
 
 	if len(r.Factors) > 0 {
-		fmt.Printf("%-30s %6s %8s  %s\n", "FACTOR", "SCORE", "MAX", "DETAIL")
-		fmt.Printf("%-30s %6s %8s  %s\n",
-			strings.Repeat("-", 30), strings.Repeat("-", 6), strings.Repeat("-", 8), strings.Repeat("-", 30))
+		headers := []string{"FACTOR", "SCORE", "MAX", "DETAIL"}
+		const detailColIdx = 3
+		rows := make([][]string, 0, len(r.Factors))
 		for _, f := range r.Factors {
-			fmt.Printf("%-30s %6d %8d  %s\n", f.Name, f.Score, f.MaxScore, f.Detail)
+			rows = append(rows, []string{
+				f.Name,
+				fmt.Sprintf("%d", f.Score),
+				fmt.Sprintf("%d", f.MaxScore),
+				"", // detail placeholder; filled below after width is computed
+			})
 		}
+		detailMax := availableTitleWidth(cli.GetConsoleWidth(), headers, rows, detailColIdx)
+		for i, f := range r.Factors {
+			rows[i][detailColIdx] = truncateToWidth(f.Detail, detailMax)
+		}
+		cli.OutputTable(headers, rows)
 	}
 
 	if len(r.UnsizedEntities) > 0 {
@@ -1755,19 +1944,27 @@ func runSprintCapacityShow(cmd *cobra.Command, args []string) error {
 }
 
 // printCapacityTable formats and prints capacity rows for human output.
+// Renders via cli.OutputTable so column widths match the rest of the
+// CLI list views; all cells are short numeric/identifier values that
+// fit comfortably even on narrow terminals.
 func printCapacityTable(sprintKey string, rows []services.CapacityRow) error {
 	fmt.Printf("\nCapacity: %s\n\n", sprintKey)
 	if len(rows) == 0 {
 		cli.Info("No capacity configured. Use `shark sprint capacity set` to configure agent capacity.")
 		return nil
 	}
-	fmt.Printf("%-12s %10s %10s %10s %8s\n", "AGENT", "CAPACITY", "ALLOCATED", "REMAINING", "UNSIZED")
-	fmt.Printf("%-12s %10s %10s %10s %8s\n",
-		strings.Repeat("-", 12), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 8))
+	headers := []string{"AGENT", "CAPACITY", "ALLOCATED", "REMAINING", "UNSIZED"}
+	tableRows := make([][]string, 0, len(rows))
 	for _, row := range rows {
-		fmt.Printf("%-12s %10.0f %10.0f %10.0f %8d\n",
-			row.AgentType, row.CapacityPoints, row.AllocatedPoints, row.Remaining, row.UnsizedAssigned)
+		tableRows = append(tableRows, []string{
+			row.AgentType,
+			fmt.Sprintf("%.0f", row.CapacityPoints),
+			fmt.Sprintf("%.0f", row.AllocatedPoints),
+			fmt.Sprintf("%.0f", row.Remaining),
+			fmt.Sprintf("%d", row.UnsizedAssigned),
+		})
 	}
+	cli.OutputTable(headers, tableRows)
 	fmt.Println()
 	return nil
 }
@@ -1782,22 +1979,33 @@ func confirmSprintDelete(sprint *models.Sprint) bool {
 	return strings.ToLower(response) == "yes"
 }
 
-// printSprintTable formats and prints sprints as a table.
-func printSprintTable(sprints []*models.Sprint) error {
-	headers := []string{"KEY", "NAME", "STATUS", "START DATE", "END DATE"}
-	rows := make([][]string, 0, len(sprints))
+// sprintListHeaders / sprintListNameColIdx define the sprint list table layout.
+// NAME is the variable-width column; truncated to fit console width.
+var sprintListHeaders = []string{"KEY", "NAME", "STATUS", "START DATE", "END DATE"}
 
+const sprintListNameColIdx = 1
+
+// printSprintTable formats and prints sprints as a table.
+// NAME column is truncated to fit the configured console_width, matching
+// the pattern used by epic/feature/task/bug list views.
+func printSprintTable(sprints []*models.Sprint) error {
+	rows := make([][]string, 0, len(sprints))
 	for _, s := range sprints {
 		rows = append(rows, []string{
 			s.Key,
-			s.Name,
+			"", // name placeholder; filled below after width is computed
 			string(s.Status),
 			s.StartDate.Format("2006-01-02"),
 			s.EndDate.Format("2006-01-02"),
 		})
 	}
 
-	cli.OutputTable(headers, rows)
+	nameMax := availableTitleWidth(cli.GetConsoleWidth(), sprintListHeaders, rows, sprintListNameColIdx)
+	for i, s := range sprints {
+		rows[i][sprintListNameColIdx] = truncateToWidth(s.Name, nameMax)
+	}
+
+	cli.OutputTable(sprintListHeaders, rows)
 	return nil
 }
 

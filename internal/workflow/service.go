@@ -244,11 +244,33 @@ func (s *Service) GetStatusMetadata(status string) StatusInfo {
 	return StatusInfo{
 		Name:                status,
 		Color:               meta.Color,
+		DisplayToken:        meta.DisplayToken,
 		Description:         meta.Description,
 		Phase:               meta.Phase,
 		AgentTypes:          meta.AgentTypes,
 		ExcludeFromProgress: meta.ExcludeFromProgress,
 	}
+}
+
+// HasOrchestratorAction returns true when the status metadata declares the
+// requested orchestrator action for this workflow level.
+func (s *Service) HasOrchestratorAction(status, action string) bool {
+	meta, found := s.workflow.GetStatusMetadata(s.NormalizeStatus(status))
+	if !found || meta.OrchestratorAction == nil {
+		return false
+	}
+	return strings.EqualFold(meta.OrchestratorAction.Action, action)
+}
+
+// GetSingleNextStatus returns the only valid transition from the given status.
+// It returns ok=false when the status is terminal, unknown, or branches to
+// multiple next statuses.
+func (s *Service) GetSingleNextStatus(currentStatus string) (next string, ok bool) {
+	transitions := s.GetValidTransitions(currentStatus)
+	if len(transitions) != 1 {
+		return "", false
+	}
+	return transitions[0], true
 }
 
 // GetStatusesByPhase returns all statuses in the given phase.

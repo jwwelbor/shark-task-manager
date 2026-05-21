@@ -26,7 +26,8 @@ func TestLoadWorkflowMetadata(t *testing.T) {
       "color": "gray",
       "description": "Task is ready to be started",
       "phase": "planning",
-      "agent_types": ["business-analyst", "project-manager"]
+      "agent_types": ["business-analyst", "project-manager"],
+      "display_token": "TD"
     },
     "in_progress": {
       "color": "blue",
@@ -68,6 +69,7 @@ func TestLoadWorkflowMetadata(t *testing.T) {
 	assert.Equal(t, "Task is ready to be started", todoMeta.Description)
 	assert.Equal(t, "planning", todoMeta.Phase)
 	assert.Equal(t, []string{"business-analyst", "project-manager"}, todoMeta.AgentTypes)
+	assert.Equal(t, "TD", todoMeta.DisplayToken)
 
 	// Check in_progress metadata
 	inProgressMeta := workflow.StatusMetadata["in_progress"]
@@ -166,10 +168,11 @@ func TestGetStatusMetadata(t *testing.T) {
 	workflow := &WorkflowConfig{
 		StatusMetadata: map[string]StatusMetadata{
 			"todo": {
-				Color:       "gray",
-				Description: "Ready to start",
-				Phase:       "planning",
-				AgentTypes:  []string{"developer"},
+				Color:        "gray",
+				Description:  "Ready to start",
+				Phase:        "planning",
+				AgentTypes:   []string{"developer"},
+				DisplayToken: "TD",
 			},
 		},
 	}
@@ -178,6 +181,7 @@ func TestGetStatusMetadata(t *testing.T) {
 	meta, found := workflow.GetStatusMetadata("todo")
 	assert.True(t, found)
 	assert.Equal(t, "gray", meta.Color)
+	assert.Equal(t, "TD", meta.DisplayToken)
 
 	// Test non-existent status - should return empty metadata
 	meta, found = workflow.GetStatusMetadata("nonexistent")

@@ -4688,9 +4688,8 @@ func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
 		makeAssignment(3, 10, "task", 102, intPtr(3)), // task-Z, target: move to pos 1
 	}
 
-	var renumberOpsCapt []sprint.RenumberOp
-	var setOrderCalledWithID int64
-	var setOrderCalledWithPos *int
+	var renumberCalls [][]sprint.RenumberOp
+	setSprintOrderCalled := false
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
@@ -4717,12 +4716,13 @@ func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
 			return existing, nil
 		},
 		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, ops []sprint.RenumberOp) error {
-			renumberOpsCapt = ops
+			snap := make([]sprint.RenumberOp, len(ops))
+			copy(snap, ops)
+			renumberCalls = append(renumberCalls, snap)
 			return nil
 		},
-		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, assignmentID int64, pos *int) error {
-			setOrderCalledWithID = assignmentID
-			setOrderCalledWithPos = pos
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error {
+			setSprintOrderCalled = true
 			return nil
 		},
 	}
@@ -4735,17 +4735,32 @@ func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
 	require.NotNil(t, moved, "moved assignment must be returned")
 	require.NotNil(t, topN, "top-N list must be returned")
 
-	// The target assignment (ID=3) must be set to position 1.
-	assert.Equal(t, int64(3), setOrderCalledWithID, "SetSprintOrderTx must be called for the target assignment")
-	require.NotNil(t, setOrderCalledWithPos)
-	assert.Equal(t, 1, *setOrderCalledWithPos, "target must be placed at position 1")
+	// The reorder happens in two RenumberAssignmentsTx UPDATEs:
+	//   1. NULL pre-pass over target + every shifted sibling
+	//   2. Single CASE WHEN that assigns the target's new position alongside
+	//      the siblings' new positions.
+	// SetSprintOrderTx is no longer used — the target is folded into pass 2.
+	require.Len(t, renumberCalls, 2, "reorder must use exactly two renumber UPDATEs (clear + assign)")
+	assert.False(t, setSprintOrderCalled,
+		"SetSprintOrderTx must not be called: target's new position is folded into the final renumber")
 
-	// The remaining items (pos 1 and 2) must be renumbered to 2 and 3.
-	// RenumberAssignmentsTx receives the sibling ops.
-	require.NotNil(t, renumberOpsCapt, "RenumberAssignmentsTx must be called with shift ops")
-	// Verify sibling assignments are shifted up by 1
-	// (task-X at old pos 1 → new pos 2, task-Y at old pos 2 → new pos 3)
-	assert.Len(t, renumberOpsCapt, 2, "two siblings must be renumbered")
+	clearOps := renumberCalls[0]
+	require.Len(t, clearOps, 3, "clear pass must NULL target + both siblings")
+	for i, op := range clearOps {
+		assert.Nil(t, op.NewPosition, "clear-pass op[%d] must have NewPosition=nil", i)
+	}
+
+	finalOps := renumberCalls[1]
+	require.Len(t, finalOps, 3, "final pass must assign target + both siblings their post-state positions")
+	// Op 0 is the target (assignment ID=3) at its new position 1.
+	assert.Equal(t, int64(3), finalOps[0].AssignmentID, "first op must be the target")
+	require.NotNil(t, finalOps[0].NewPosition)
+	assert.Equal(t, 1, *finalOps[0].NewPosition)
+	// Ops 1..2 are the shifted siblings: task-X 1→2, task-Y 2→3.
+	assert.Equal(t, int64(1), finalOps[1].AssignmentID)
+	assert.Equal(t, intPtr(2), finalOps[1].NewPosition)
+	assert.Equal(t, int64(2), finalOps[2].AssignmentID)
+	assert.Equal(t, intPtr(3), finalOps[2].NewPosition)
 }
 
 // ---------------------------------------------------------------------------

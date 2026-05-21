@@ -1468,31 +1468,43 @@ func (s *SprintService) ReorderAssignment(
 		return nil, nil, fmt.Errorf("cannot reorder: one of Position, Top, or Bottom must be set in ReorderTarget")
 	}
 
-	// Step 5: Build renumber plan for siblings
-	// Siblings = ordered items excluding the target, shifted to accommodate the target's new position.
+	// Step 5: Build the renumber plan.
+	//
+	// siblings = ordered items excluding the target; buildRenumberOps assigns
+	// them dense positions around the slot reserved for the target. The target
+	// gets folded into finalOps so the entire post-reorder state lands in a
+	// single CASE WHEN UPDATE.
+	//
+	// clearOps is a NULL pre-pass over every row that will change. Without it,
+	// the renumber UPDATE transiently collides with
+	// idx_sprint_assignments_order_unique — SQLite enforces partial unique
+	// indexes per row as the statement executes, so shifting a value into a
+	// slot still occupied by an unprocessed row trips the index.
 	siblings := orderedWithoutTarget(orderedAll, assignment.ID)
-	ops := buildRenumberOps(siblings, newPosition)
+	siblingOps := buildRenumberOps(siblings, newPosition)
+	clearOps := buildReorderClearOps(assignment.ID, siblingOps)
+	finalOps := make([]sprint.RenumberOp, 0, len(siblingOps)+1)
+	finalOps = append(finalOps, sprint.RenumberOp{AssignmentID: assignment.ID, NewPosition: &newPosition})
+	finalOps = append(finalOps, siblingOps...)
 
-	// Build a NULL pre-pass: every row whose sprint_order will change (target +
-	// all renumbered siblings) is cleared first. Without this, the single CASE
-	// WHEN UPDATE applied by RenumberAssignmentsTx transiently collides with
-	// idx_sprint_assignments_order_unique because SQLite enforces the partial
-	// unique index per row as the statement executes (no per-statement defer
-	// for unique constraints).
-	clearOps := buildReorderClearOps(assignment.ID, ops)
+	// Step 6: Apply the two UPDATEs (clear, then assign).
+	//
+	// When s.db is nil (test path / CLI without --db) we drop the tx wrapper.
+	// Otherwise we wrap both UPDATEs in one tx so a mid-failure rolls back to
+	// the pre-reorder state.
+	apply := func(tx *sql.Tx) error {
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, clearOps); err != nil {
+			return fmt.Errorf("cannot reorder: clear failed: %w", err)
+		}
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, finalOps); err != nil {
+			return fmt.Errorf("cannot reorder: renumber failed: %w", err)
+		}
+		return nil
+	}
 
-	// Step 6: Apply in a transaction (TD-9)
 	if s.db == nil {
-		// No DB available — apply ops without a real transaction (test path or CLI without --db).
-		// For production use, db must be provided to NewSprintService.
-		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, clearOps); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
-		}
-		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
-		}
-		if err := s.repo.SetSprintOrderTx(ctx, nil, assignment.ID, &newPosition); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: set sprint_order failed: %w", err)
+		if err := apply(nil); err != nil {
+			return nil, nil, err
 		}
 	} else {
 		tx, txErr := s.db.BeginTxContext(ctx)
@@ -1501,14 +1513,8 @@ func (s *SprintService) ReorderAssignment(
 		}
 		defer tx.Rollback() //nolint:errcheck
 
-		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, clearOps); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
-		}
-		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, ops); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
-		}
-		if err := s.repo.SetSprintOrderTx(ctx, tx, assignment.ID, &newPosition); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: set sprint_order failed: %w", err)
+		if err := apply(tx); err != nil {
+			return nil, nil, err
 		}
 		if err := tx.Commit(); err != nil {
 			return nil, nil, fmt.Errorf("cannot reorder: commit failed: %w", err)
@@ -1522,7 +1528,7 @@ func (s *SprintService) ReorderAssignment(
 		"sprint_id", sprintKey,
 		"entity", entityKey,
 		"new_pos", newPosition,
-		"renumbered", len(ops),
+		"renumbered", len(siblingOps),
 	)
 
 	// Step 7: Build top-8 abbreviated list from the updated ordered assignments

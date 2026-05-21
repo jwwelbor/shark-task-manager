@@ -870,8 +870,8 @@ func (s *EpicService) RecalculateStatus(ctx context.Context, epicID int64) (*Epi
 		return nil, fmt.Errorf("failed to get feature status breakdown for epic %s: %w", epic.Key, err)
 	}
 
-	// Derive new status from feature breakdown
-	newStatus := deriveEpicStatusFromFeatures(featureCounts, epic.Status)
+	// Derive new status from feature breakdown and workflow metadata.
+	newStatus := deriveEpicStatusFromFeatures(featureCounts, epic.Status, s.entitySvc.GetWorkflowService())
 	previousStatus := string(epic.Status)
 
 	result := &EpicRecalcResult{

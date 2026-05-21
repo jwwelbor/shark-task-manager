@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -228,7 +229,7 @@ func TestFeatureService_TransitionStatus_Valid(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceWithCascade(t)), featureRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -266,7 +267,7 @@ func TestFeatureService_TransitionStatus_Invalid(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceWithCascade(t)), featureRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	// "draft" -> "completed" is not valid in default feature workflow
@@ -295,7 +296,7 @@ func TestFeatureService_TransitionStatus_Force(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceWithCascade(t)), featureRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "custom_status", TransitionOptions{Force: true, Reason: "test force override"})
@@ -525,6 +526,91 @@ func newTestFeatureWorkflowServiceWithActions(t *testing.T) *workflow.Service {
 	return svc
 }
 
+func newTestFeatureWorkflowServiceWithCascade(t *testing.T) *workflow.Service {
+	t.Helper()
+
+	config.ClearWorkflowCache()
+
+	tmpDir := t.TempDir()
+	configContent := `{
+  "task_workflow": {
+    "status_flow_version": "1.0",
+    "special_statuses": {
+      "_start_": ["todo"],
+      "_complete_": ["completed"]
+    },
+    "status_flow": {
+      "todo": ["completed"],
+      "completed": []
+    },
+    "status_metadata": {
+      "todo": {
+        "phase": "planning",
+        "progress_weight": 0.0
+      },
+      "completed": {
+        "phase": "done",
+        "progress_weight": 1.0
+      }
+    }
+  },
+  "feature_workflow": {
+    "status_flow_version": "1.0",
+    "status_flow": {
+      "draft": ["active", "archived"],
+      "active": ["completed"],
+      "completed": ["archived"],
+      "archived": []
+    },
+    "status_metadata": {
+      "draft": {
+        "phase": "planning"
+      },
+      "active": {
+        "phase": "execution",
+        "orchestrator_action": {
+          "action": "cascade",
+          "instruction_template": "Cascade from child progress"
+        }
+      },
+      "completed": {
+        "phase": "done"
+      },
+      "archived": {
+        "phase": "done"
+      }
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "archived"],
+      "_aggregation_": ["active"]
+    }
+  }
+}`
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	t.Cleanup(config.ClearWorkflowCache)
+	return workflow.NewService(tmpDir)
+}
+
+func newTestFeatureWorkflowServiceWithConfig(t *testing.T, configContent string) *workflow.Service {
+	t.Helper()
+
+	config.ClearWorkflowCache()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	t.Cleanup(config.ClearWorkflowCache)
+	return workflow.NewService(tmpDir)
+}
+
 func TestFeatureService_TransitionStatus_WithAction(t *testing.T) {
 	var updatedFeature *models.Feature
 	repo := &mockFeatureRepo{
@@ -667,7 +753,7 @@ func TestFeatureService_resolveAction_NilWorkflow(t *testing.T) {
 	// Use empty string project root - this gives a default workflow (not nil).
 	// To truly test nil, we test through the default workflow which has no actions.
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceWithCascade(t)), featureRepoAsEntityRepo(repo), nil, nil)
 
 	// The default feature workflow has no orchestrator_action on any status.
 	// resolveAction should return nil without panicking.
@@ -1510,7 +1596,7 @@ func TestFeatureService_RecalculateAndSetProgress_AutoComplete(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceWithCascade(t)), featureRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgress(ctx, 1)
@@ -3493,6 +3579,114 @@ func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
 	// Cascade uses "auto_reopen:" prefix (underscore), visible in shark status history.
 	if h.Notes == nil || !strings.HasPrefix(*h.Notes, "auto_reopen:") {
 		t.Errorf("expected notes to have 'auto_reopen:' prefix, got %v", h.Notes)
+	}
+}
+
+func TestFeatureService_CreateFeature_ReopensForwardAdvancedEpicToLastNonTerminalStatus(t *testing.T) {
+	theEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
+		Status:     "completed",
+	}
+
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return theEpic, nil
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			feature.ID = 100
+			return nil
+		},
+	}
+
+	workflowSvc := newTestFeatureWorkflowServiceWithConfig(t, `{
+  "feature_workflow": {
+    "status_flow_version": "1.0",
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed"]
+    },
+    "status_flow": {
+      "draft": ["active"],
+      "active": ["completed"],
+      "completed": []
+    },
+    "status_metadata": {
+      "draft": {"phase": "planning"},
+      "active": {"phase": "execution"},
+      "completed": {"phase": "done"}
+    }
+  },
+  "epic_workflow": {
+    "status_flow_version": "1.0",
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed"],
+      "_aggregation_": ["active"]
+    },
+    "status_flow": {
+      "draft": ["active"],
+      "active": ["ready_for_code_review"],
+      "ready_for_code_review": ["completed"],
+      "completed": []
+    },
+    "status_metadata": {
+      "draft": {"phase": "planning"},
+      "active": {"phase": "execution"},
+      "ready_for_code_review": {"phase": "review"},
+      "completed": {"phase": "done"}
+    }
+  }
+}`)
+
+	svc := NewFeatureService(featureRepo, NewEntityService(workflowSvc), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
+
+	txBeginner, _ := newMockTxBeginner()
+	cascadeEpicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Epic, error) {
+			return theEpic, nil
+		},
+		GetByIDTxFunc: func(_ context.Context, _ *sql.Tx, id int64) (*models.Epic, error) {
+			return theEpic, nil
+		},
+	}
+	histTx := &mockEntityHistoryTxRecorder{}
+	histQuerier := &mockParentReopenHistoryQuerier{
+		GetLastNonTerminalStatusFunc: func(_ context.Context, entityType models.EntityType, entityID int64, terminalStatuses []string) (string, bool, error) {
+			if entityType != models.EntityTypeEpic {
+				t.Fatalf("expected epic history lookup, got %q", entityType)
+			}
+			return "ready_for_code_review", true, nil
+		},
+	}
+	svc.SetCascadeDeps(txBeginner, cascadeEpicRepo, histQuerier, histTx)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Feature under forward-advanced completed epic",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if cascadeEpicRepo.updateStatusTxCalls != 1 {
+		t.Fatalf("expected 1 cascade epic reopen, got %d", cascadeEpicRepo.updateStatusTxCalls)
+	}
+	if cascadeEpicRepo.lastUpdateStatus != "ready_for_code_review" {
+		t.Fatalf("expected epic to reopen to ready_for_code_review, got %q", cascadeEpicRepo.lastUpdateStatus)
+	}
+	if histTx.calls != 1 {
+		t.Fatalf("expected 1 cascade history row, got %d", histTx.calls)
+	}
+	if histTx.captured[0].ToStatus != "ready_for_code_review" {
+		t.Fatalf("expected history to_status ready_for_code_review, got %q", histTx.captured[0].ToStatus)
 	}
 }
 
