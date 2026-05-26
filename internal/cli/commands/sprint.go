@@ -373,16 +373,18 @@ Examples:
 
 // sprintBacklogCmd shows all entities assigned to a sprint.
 var sprintBacklogCmd = &cobra.Command{
-	Use:   "backlog <sprint-key> [--type=task|bug|change_card|tech_debt] [--blocked]",
+	Use:   "backlog <sprint-key> [--type=task|bug|change_card|tech_debt] [--blocked] [--all]",
 	Short: "View all entities assigned to a sprint",
 	Long: `Display all entities assigned to a sprint, grouped by status.
 
 Use --type to filter by entity type. Use --blocked to show only blocked entities.
+Use --all to include terminal-status items in ordered view.
 
 Examples:
   shark sprint backlog S001
   shark sprint backlog S001 --type=task
   shark sprint backlog S001 --blocked
+  shark sprint backlog S001 --all
   shark sprint backlog S001 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSprintBacklog,
@@ -488,17 +490,18 @@ Examples:
 	RunE: runSprintReorder,
 }
 
-// sprintNextCmd retrieves the next task to work on from the active sprint.
+// sprintNextCmd retrieves the next item to work on from the active sprint.
 var sprintNextCmd = &cobra.Command{
 	Use:   "next",
-	Short: "Get the next task from the active sprint",
-	Long: `Identify and display the next highest-priority task in the active sprint.
+	Short: "Get the next item from the active sprint",
+	Long: `Identify and display the next highest-priority item in the active sprint.
 Optionally filter by agent type.
 
 Selection logic:
-1. Explicit Execution Order (lowest first)
-2. Priority (highest first, 1=highest)
-3. Date Assigned (oldest first)
+1. Sprint order (lowest first)
+2. Explicit Execution Order (lowest first)
+3. Priority (highest first, 1=highest)
+4. Date Assigned (oldest first)
 
 Examples:
   shark sprint next
@@ -576,6 +579,7 @@ func init() {
 	// Backlog flags (F03 base filters + F07 view/include-completed)
 	sprintBacklogCmd.Flags().String("type", "", "Filter by entity type: task, bug, change_card, tech_debt")
 	sprintBacklogCmd.Flags().Bool("blocked", false, "Show only blocked entities")
+	sprintBacklogCmd.Flags().Bool("all", false, "Show all items regardless of status (includes terminal-status items in ordered view)")
 	sprintBacklogCmd.Flags().Bool("include-completed", false, "Include completed/terminal-status items in ordered view")
 
 	// Add flags (F05 - single entity and bulk; F07 - --at position)
@@ -1431,6 +1435,10 @@ func runSprintBacklog(cmd *cobra.Command, args []string) error {
 	}
 
 	includeCompleted, _ := cmd.Flags().GetBool("include-completed")
+	showAll, _ := cmd.Flags().GetBool("all")
+	if showAll {
+		includeCompleted = true
+	}
 
 	// Step 2: Call service
 	svc := getSprintAssignmentService()
@@ -2024,9 +2032,9 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 			return cli.OutputJSON(nil)
 		}
 		if agentType != "" {
-			cli.Info(fmt.Sprintf("No more tasks found for agent type %q in the active sprint.", agentType))
+			cli.Info(fmt.Sprintf("No more items found for agent type %q in the active sprint.", agentType))
 		} else {
-			cli.Info("No more tasks found in the active sprint.")
+			cli.Info("No more items found in the active sprint.")
 		}
 		return nil
 	}
@@ -2035,7 +2043,7 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(item)
 	}
 
-	fmt.Printf("\nNext Task: %s — %s\n", item.Key, item.Title)
+	fmt.Printf("\nNext Item: %s — %s\n", item.Key, item.Title)
 	fmt.Printf("  Type:    %s\n", item.EntityType)
 	fmt.Printf("  Title:   %s\n", item.Title)
 	if item.AgentType != "" {

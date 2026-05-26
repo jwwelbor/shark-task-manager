@@ -4636,6 +4636,8 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 		EndDate:   time.Date(2026, 5, 14, 0, 0, 0, 0, time.UTC),
 		Status:    "active",
 	}
+	upcoming := &models.Sprint{ID: 25, Key: "S025", Name: "Next Sprint", Status: "planning"}
+	completed := &models.Sprint{ID: 23, Key: "S023", Name: "Done Sprint", Status: "completed"}
 
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{},
@@ -4646,14 +4648,28 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 		&mockViewerHistoryRepo{},
 	)
 
-	var listCalls int
+	statusCalls := map[string]int{}
 	sprintSvc := &mockViewerSprintService{
 		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
-			listCalls++
-			if filters == nil || filters.Status != "active" {
-				t.Fatalf("expected active sprint filter, got %#v", filters)
+			if filters == nil {
+				t.Fatal("expected sprint status filter")
 			}
-			return []*models.Sprint{active}, nil
+			statusCalls[filters.Status]++
+			switch filters.Status {
+			case "active":
+				return []*models.Sprint{active}, nil
+			case "closing":
+				return nil, nil
+			case "planning":
+				return []*models.Sprint{upcoming}, nil
+			case "completed":
+				return []*models.Sprint{completed}, nil
+			case "cancelled", "archived":
+				return nil, nil
+			default:
+				t.Fatalf("unexpected sprint status filter %q", filters.Status)
+			}
+			return nil, nil
 		},
 		GetSprintBacklogFunc: func(_ context.Context, sprintKey string, opts BacklogOptions) (*SprintBacklog, error) {
 			if sprintKey != active.Key {
@@ -4703,8 +4719,13 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if listCalls != 1 {
-		t.Fatalf("expected one active sprint lookup, got %d", listCalls)
+	if statusCalls["active"] != 2 {
+		t.Fatalf("expected active sprint listing twice (resolve + catalog), got %d", statusCalls["active"])
+	}
+	for _, status := range []string{"closing", "planning", "completed", "cancelled", "archived"} {
+		if statusCalls[status] != 1 {
+			t.Fatalf("expected one catalog list call for %s, got %d", status, statusCalls[status])
+		}
 	}
 	if resp.Sprint == nil || resp.Sprint.Key != active.Key {
 		t.Fatalf("expected sprint %q in overview, got %#v", active.Key, resp.Sprint)
@@ -4720,6 +4741,18 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 	}
 	if resp.Summary != nil {
 		t.Fatalf("expected no summary for active sprint, got %#v", resp.Summary)
+	}
+	if resp.Catalog == nil {
+		t.Fatal("expected sprint catalog in overview response")
+	}
+	if len(resp.Catalog.Active) != 1 || resp.Catalog.Active[0].Key != active.Key {
+		t.Fatalf("expected active catalog to contain %q, got %#v", active.Key, resp.Catalog.Active)
+	}
+	if len(resp.Catalog.Upcoming) != 1 || resp.Catalog.Upcoming[0].Key != upcoming.Key {
+		t.Fatalf("expected upcoming catalog to contain %q, got %#v", upcoming.Key, resp.Catalog.Upcoming)
+	}
+	if len(resp.Catalog.Archived) != 1 || resp.Catalog.Archived[0].Key != completed.Key {
+		t.Fatalf("expected archived catalog to contain %q, got %#v", completed.Key, resp.Catalog.Archived)
 	}
 }
 
@@ -4741,6 +4774,20 @@ func TestViewerService_SprintOverview_CompletedSprintIncludesSummary(t *testing.
 	)
 
 	sprintSvc := &mockViewerSprintService{
+		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+			if filters == nil {
+				t.Fatal("expected sprint status filter")
+			}
+			switch filters.Status {
+			case "completed":
+				return []*models.Sprint{completed}, nil
+			case "active", "closing", "planning", "cancelled", "archived":
+				return nil, nil
+			default:
+				t.Fatalf("unexpected sprint status filter %q", filters.Status)
+			}
+			return nil, nil
+		},
 		GetSprintFunc: func(_ context.Context, key string) (*models.Sprint, error) {
 			return completed, nil
 		},
@@ -4771,6 +4818,9 @@ func TestViewerService_SprintOverview_CompletedSprintIncludesSummary(t *testing.
 	if resp.Summary == nil || resp.Summary.VelocityThisSprint != 34 {
 		t.Fatalf("expected summary for completed sprint, got %#v", resp.Summary)
 	}
+	if resp.Catalog == nil || len(resp.Catalog.Archived) != 1 || resp.Catalog.Archived[0].Key != completed.Key {
+		t.Fatalf("expected archived catalog to contain %q, got %#v", completed.Key, resp.Catalog)
+	}
 }
 
 func TestViewerService_SprintPlan_UsesResolvedSprint(t *testing.T) {
@@ -4785,6 +4835,20 @@ func TestViewerService_SprintPlan_UsesResolvedSprint(t *testing.T) {
 
 	var gotKey string
 	sprintSvc := &mockViewerSprintService{
+		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+			if filters == nil {
+				t.Fatal("expected sprint status filter")
+			}
+			switch filters.Status {
+			case "active", "closing", "completed", "cancelled", "archived":
+				return nil, nil
+			case "planning":
+				return []*models.Sprint{{Key: "S024", Status: "planning"}}, nil
+			default:
+				t.Fatalf("unexpected sprint status filter %q", filters.Status)
+			}
+			return nil, nil
+		},
 		GetSprintFunc: func(_ context.Context, sprintKey string) (*models.Sprint, error) {
 			if sprintKey != "S024" {
 				t.Fatalf("expected normalized sprint key S024, got %q", sprintKey)
@@ -4816,6 +4880,9 @@ func TestViewerService_SprintPlan_UsesResolvedSprint(t *testing.T) {
 	}
 	if resp.Readiness == nil || resp.Readiness.OverallScore != 64 {
 		t.Fatalf("expected plan readiness 64, got %#v", resp.Readiness)
+	}
+	if resp.Catalog == nil || len(resp.Catalog.Upcoming) != 1 || resp.Catalog.Upcoming[0].Key != "S024" {
+		t.Fatalf("expected plan catalog with S024 in upcoming, got %#v", resp.Catalog)
 	}
 }
 
@@ -4858,6 +4925,20 @@ func TestViewerService_SprintReport_ComposesAnalytics(t *testing.T) {
 		},
 	}
 	sprintSvc := &mockViewerSprintService{
+		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+			if filters == nil {
+				t.Fatal("expected sprint status filter")
+			}
+			switch filters.Status {
+			case "active":
+				return []*models.Sprint{active}, nil
+			case "closing", "planning", "completed", "cancelled", "archived":
+				return nil, nil
+			default:
+				t.Fatalf("unexpected sprint status filter %q", filters.Status)
+			}
+			return nil, nil
+		},
 		GetSprintFunc: func(_ context.Context, sprintKey string) (*models.Sprint, error) {
 			if sprintKey != active.Key {
 				t.Fatalf("expected sprint key %q, got %q", active.Key, sprintKey)
@@ -4887,5 +4968,8 @@ func TestViewerService_SprintReport_ComposesAnalytics(t *testing.T) {
 	}
 	if velocityLimit != 6 {
 		t.Fatalf("expected report velocity limit 6, got %d", velocityLimit)
+	}
+	if resp.Catalog == nil || len(resp.Catalog.Active) != 1 || resp.Catalog.Active[0].Key != active.Key {
+		t.Fatalf("expected report catalog with active sprint %q, got %#v", active.Key, resp.Catalog)
 	}
 }

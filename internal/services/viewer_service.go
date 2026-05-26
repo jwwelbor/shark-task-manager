@@ -443,6 +443,7 @@ type SprintOverviewResponse struct {
 	Backlog   *SprintBacklog       `json:"backlog"`
 	Readiness *SprintReadiness     `json:"readiness"`
 	Capacity  []CapacityRow        `json:"capacity"`
+	Catalog   *SprintCatalog       `json:"catalog,omitempty"`
 	Summary   *SprintSummaryResult `json:"summary,omitempty"`
 }
 
@@ -452,7 +453,15 @@ type SprintReportResponse struct {
 	Sprint   *models.Sprint       `json:"sprint"`
 	Burndown *BurndownResult      `json:"burndown"`
 	Velocity *VelocityResult      `json:"velocity"`
+	Catalog  *SprintCatalog       `json:"catalog,omitempty"`
 	Summary  *SprintSummaryResult `json:"summary"`
+}
+
+// SprintCatalog groups sprints for the viewer sidebar tree.
+type SprintCatalog struct {
+	Active   []*models.Sprint `json:"active"`
+	Upcoming []*models.Sprint `json:"upcoming"`
+	Archived []*models.Sprint `json:"archived"`
 }
 
 // ViewerSprintService is the narrow viewer-facing contract needed to compose sprint
@@ -671,11 +680,54 @@ func (s *ViewerService) resolveSprint(ctx context.Context, key string) (*models.
 	return nil, fmt.Errorf("sprint not found: no active or planning sprint found")
 }
 
+func (s *ViewerService) buildSprintCatalog(ctx context.Context) (*SprintCatalog, error) {
+	if s.sprintSvc == nil {
+		return nil, fmt.Errorf("viewer sprint: sprint service not wired")
+	}
+
+	activeStatuses := []string{"active", "closing"}
+	upcomingStatuses := []string{"planning"}
+	archivedStatuses := []string{"completed", "cancelled", "archived"}
+
+	catalog := &SprintCatalog{
+		Active:   []*models.Sprint{},
+		Upcoming: []*models.Sprint{},
+		Archived: []*models.Sprint{},
+	}
+
+	loadInto := func(statuses []string, target *[]*models.Sprint) error {
+		for _, status := range statuses {
+			sprints, err := s.sprintSvc.ListSprints(ctx, &SprintListFilters{Status: status})
+			if err != nil {
+				return fmt.Errorf("viewer sprint: failed to list %s sprints: %w", status, err)
+			}
+			*target = append(*target, sprints...)
+		}
+		return nil
+	}
+
+	if err := loadInto(activeStatuses, &catalog.Active); err != nil {
+		return nil, err
+	}
+	if err := loadInto(upcomingStatuses, &catalog.Upcoming); err != nil {
+		return nil, err
+	}
+	if err := loadInto(archivedStatuses, &catalog.Archived); err != nil {
+		return nil, err
+	}
+
+	return catalog, nil
+}
+
 // SprintOverview returns the current sprint's operational bundle for the Overview subview.
 // It composes the sprint identity, backlog/status buckets, readiness, capacity, and optional
 // analytics summary from the existing sprint services.
 func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*SprintOverviewResponse, error) {
 	sprintEntity, err := s.resolveSprint(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := s.buildSprintCatalog(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -712,6 +764,7 @@ func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*Sprint
 		Backlog:   backlog,
 		Readiness: readiness,
 		Capacity:  capacity,
+		Catalog:   catalog,
 		Summary:   summary,
 	}, nil
 }
@@ -723,11 +776,16 @@ func (s *ViewerService) SprintPlan(ctx context.Context, key string) (*SprintPlan
 	if err != nil {
 		return nil, err
 	}
+	catalog, err := s.buildSprintCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	view, err := s.sprintSvc.PlanSprint(ctx, sprintEntity.Key)
 	if err != nil {
 		return nil, fmt.Errorf("viewer sprint plan: failed to load plan: %w", err)
 	}
+	view.Catalog = catalog
 	return view, nil
 }
 
@@ -735,6 +793,10 @@ func (s *ViewerService) SprintPlan(ctx context.Context, key string) (*SprintPlan
 // It composes burndown, velocity, and summary analytics from the sprint analytics service.
 func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintReportResponse, error) {
 	sprintEntity, err := s.resolveSprint(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := s.buildSprintCatalog(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -761,6 +823,7 @@ func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintRe
 		Sprint:   sprintEntity,
 		Burndown: burndown,
 		Velocity: velocity,
+		Catalog:  catalog,
 		Summary:  summary,
 	}, nil
 }

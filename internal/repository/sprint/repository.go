@@ -792,9 +792,10 @@ func (r *SprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (
 }
 
 // ReassignToSprintTx updates the sprint_id on a set of active sprint_assignments
-// rows to newSprintID. This is used by the carryover path in
-// SprintService.CloseSprintWithCarryover to move incomplete work to the next
-// sprint atomically.
+// rows to newSprintID. The move also clears sprint_order in the same UPDATE so
+// the reassigned rows cannot collide with existing ordered rows in the
+// receiving sprint before CloseSprintWithCarryover appends them at new dense
+// positions.
 //
 // The method accepts *sql.Tx so that the service layer owns the transaction
 // boundary (follows .claude/rules/go/patterns.md "Transaction ownership in
@@ -812,7 +813,7 @@ func (r *SprintRepository) ReassignToSprintTx(ctx context.Context, tx *sql.Tx, a
 	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
 
 	query := fmt.Sprintf(
-		`UPDATE sprint_assignments SET sprint_id = ? WHERE id IN (%s)`,
+		`UPDATE sprint_assignments SET sprint_id = ?, sprint_order = NULL WHERE id IN (%s)`,
 		placeholders,
 	)
 

@@ -130,8 +130,25 @@
       flex-shrink: 0;
     }
 
+    #sidebar-resizer {
+      width: 6px;
+      flex-shrink: 0;
+      cursor: col-resize;
+      touch-action: none;
+      background: transparent;
+      border-right: 1px solid transparent;
+      transition: background var(--transition), border-color var(--transition);
+    }
+
+    #sidebar-resizer:hover,
+    body.is-resizing-sidebar #sidebar-resizer {
+      background: rgba(77, 119, 255, 0.12);
+      border-right-color: var(--accent-dim);
+    }
+
     #content {
       flex: 1;
+      min-width: 0;
       overflow-y: auto;
       background: var(--bg);
       padding: 20px 24px;
@@ -139,7 +156,8 @@
 
     /* Hide header/sidebar on pick_folder state */
     .state-pick-folder #header,
-    .state-pick-folder #body-row #sidebar {
+    .state-pick-folder #body-row #sidebar,
+    .state-pick-folder #body-row #sidebar-resizer {
       display: none;
     }
 
@@ -605,6 +623,14 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 12px;
+      flex: 1;
+    }
+
+    .tree-node-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
       flex: 1;
     }
 
@@ -1872,6 +1898,8 @@
       <div id="sidebar-content"></div>
     </aside>
 
+    <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
+
     <!-- Main content area -->
     <main id="content">
 
@@ -2942,6 +2970,10 @@ let showAllFiles     = false;         // sidebar filter: show untracked folder f
 let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
+const SIDEBAR_WIDTH_STORAGE_KEY = 'shark.viewer.sidebarWidth';
+const SIDEBAR_WIDTH_DEFAULT = 320;
+const SIDEBAR_WIDTH_MIN = 240;
+const SIDEBAR_WIDTH_MAX = 720;
 
 // ── E28-F06 tag state ──
 let vocabulary       = [];           // cached tag vocabulary from GET /api/v1/viewer/tags
@@ -5772,12 +5804,39 @@ function sprintTreeItemCount(payload) {
   return sprintBacklogItems(payload).length;
 }
 
+function sprintCatalogRows(rows, currentKey) {
+  const list = Array.isArray(rows) ? rows : [];
+  return list.map(row => {
+    const key = escapeHtml(row?.key || '');
+    const name = escapeHtml(row?.name || row?.title || row?.key || 'Unnamed Sprint');
+    const status = escapeHtml(String(row?.status || '').replace(/_/g, ' '));
+    const selectedClass = row?.key && row.key === currentKey ? ' selected' : '';
+    const range = sprintFormatRange(row);
+    return `<div class="sprint-item-row${selectedClass}" style="cursor:default">
+      <span class="status-badge status-badge-sm">${status || 'sprint'}</span>
+      <span class="sprint-item-key">${key}</span>
+      <span class="sprint-item-title" title="${name}">${name}</span>
+      <span style="margin-left:auto;color:var(--fg-dim);font-size:11px">${escapeHtml(range)}</span>
+    </div>`;
+  }).join('');
+}
+
+function sprintCatalogRowsExcludingCurrent(rows, currentKey) {
+  const list = Array.isArray(rows) ? rows.filter(row => (row?.key || '') !== currentKey) : [];
+  return sprintCatalogRows(list, currentKey);
+}
+
 function renderSprintTree(payload) {
   const sprint = payload?.sprint || {};
+  const catalog = payload?.catalog || {};
   const activeExpanded = sprintTreeExpandedScopes.has('active');
   const upcomingExpanded = sprintTreeExpandedScopes.has('upcoming');
   const archiveExpanded = sprintTreeExpandedScopes.has('archive');
   const activeBuckets = sprintBucketGroups(payload);
+  const currentKey = sprint.key || '';
+  const activeRows = sprintCatalogRowsExcludingCurrent(catalog.active, currentKey);
+  const upcomingRows = sprintCatalogRows(catalog.upcoming, currentKey);
+  const archiveRows = sprintCatalogRows(catalog.archived, currentKey);
   const sprintKey = escapeHtml(sprint.key || 'Active Sprint');
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const sprintRange = sprintFormatRange(sprint);
@@ -5794,7 +5853,8 @@ function renderSprintTree(payload) {
   }).join('');
 
   const activeBody = activeExpanded
-    ? `<div class="sprint-tree-active-body">
+       ? `<div class="sprint-tree-active-body">
+         ${activeRows ? `<div class="sprint-item-list" style="padding-left:16px;margin-bottom:6px">${activeRows}</div>` : ''}
          <div class="sprint-item-row" style="cursor:default">
            <span class="sprint-item-key">${sprintKey}</span>
            <span class="sprint-item-title" title="${sprintName}">${sprintName}</span>
@@ -5805,10 +5865,14 @@ function renderSprintTree(payload) {
     : `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Active sprint collapsed.</div>`;
 
   const upcomingBody = upcomingExpanded
-    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Upcoming sprint queue will appear here.</div>`
+    ? (upcomingRows
+        ? `<div class="sprint-item-list" style="padding-left:16px;margin:6px 0 0">${upcomingRows}</div>`
+        : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No upcoming sprints.</div>')
     : '';
   const archiveBody = archiveExpanded
-    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Archived sprint history will appear here.</div>`
+    ? (archiveRows
+        ? `<div class="sprint-item-list" style="padding-left:16px;margin:6px 0 0">${archiveRows}</div>`
+        : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No archived sprints.</div>')
     : '';
 
   return `
@@ -6858,6 +6922,99 @@ function buildArrowHtml(expandable, expanded, key) {
   return `<span class="tree-arrow" data-arrow-key="${escapeHtml(key)}">${symbol}</span>`;
 }
 
+function clampSidebarWidth(width) {
+  const numeric = Number(width);
+  if (!Number.isFinite(numeric)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(numeric)));
+}
+
+function getStoredSidebarWidth() {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (!raw) return SIDEBAR_WIDTH_DEFAULT;
+    return clampSidebarWidth(raw);
+  } catch (e) {
+    return SIDEBAR_WIDTH_DEFAULT;
+  }
+}
+
+function applySidebarWidth(width, persist) {
+  const nextWidth = clampSidebarWidth(width);
+  document.documentElement.style.setProperty('--sidebar-width', `${nextWidth}px`);
+  const resizer = document.getElementById('sidebar-resizer');
+  if (resizer) {
+    resizer.setAttribute('aria-valuemin', String(SIDEBAR_WIDTH_MIN));
+    resizer.setAttribute('aria-valuemax', String(SIDEBAR_WIDTH_MAX));
+    resizer.setAttribute('aria-valuenow', String(nextWidth));
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(nextWidth));
+    } catch (e) {}
+  }
+  return nextWidth;
+}
+
+function toggleTreeNodeExpansion(nodeEl, key) {
+  if (!nodeEl || !key) return false;
+  if (nodeEl.classList.contains('tree-node-epic')) {
+    if (expandedEpics.has(key)) {
+      expandedEpics.delete(key);
+    } else {
+      expandedEpics.add(key);
+    }
+    return true;
+  }
+  if (nodeEl.classList.contains('tree-node-feature')) {
+    if (expandedFeatures.has(key)) {
+      expandedFeatures.delete(key);
+    } else {
+      expandedFeatures.add(key);
+    }
+    return true;
+  }
+  return false;
+}
+
+function initSidebarResizer() {
+  const resizer = document.getElementById('sidebar-resizer');
+  if (!resizer) return;
+
+  applySidebarWidth(getStoredSidebarWidth(), false);
+
+  resizer.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = clampSidebarWidth(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'));
+    document.body.classList.add('is-resizing-sidebar');
+
+    if (typeof resizer.setPointerCapture === 'function') {
+      try { resizer.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+
+    const handlePointerMove = moveEvent => {
+      const delta = moveEvent.clientX - startX;
+      applySidebarWidth(startWidth + delta, false);
+    };
+
+    const finishResize = finishEvent => {
+      document.body.classList.remove('is-resizing-sidebar');
+      applySidebarWidth(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10), true);
+      if (typeof resizer.releasePointerCapture === 'function') {
+        try { resizer.releasePointerCapture(finishEvent.pointerId); } catch (err) {}
+      }
+      resizer.removeEventListener('pointermove', handlePointerMove);
+      resizer.removeEventListener('pointerup', finishResize);
+      resizer.removeEventListener('pointercancel', finishResize);
+    };
+
+    resizer.addEventListener('pointermove', handlePointerMove);
+    resizer.addEventListener('pointerup', finishResize);
+    resizer.addEventListener('pointercancel', finishResize);
+  });
+}
+
 /**
  * Builds an HTML string for a single tree node row.
  * @param {Object} opts
@@ -6884,7 +7041,7 @@ function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bo
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
   const sizeHtml = buildSizeBadgeHtml(size); // E27-F11: size badge (empty string when absent)
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}${sizeHtml}</div>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}<span class="tree-node-label">${keyLabel}${titleHtml}${sizeHtml}</span></div>`;
 }
 
 /**
@@ -6916,7 +7073,7 @@ function buildDocNodeHtml(doc, level) {
   // Show only the filename portion of path-like keys (e.g. "docs/plan/E27/foo.md" → "foo.md")
   const displayKey = key.includes('/') ? key.split('/').pop() : key;
   const nodeClass = level === 'epic' ? 'tree-node-doc-epic' : 'tree-node-doc-feature';
-  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></div>`;
+  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-label"><span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></span></div>`;
 }
 
 /**
@@ -7025,7 +7182,7 @@ function buildFlatSectionHtml(title, items, entityType) {
     const statusClass = isCancelledStatus(item.status) ? ' entity-cancelled'
       : (item.status || '') === 'completed' ? ' entity-completed'
       : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span>${buildSizeBadgeHtml(item.size)}</div>`; // E27-F11: size badge
+    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-label"><span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span>${buildSizeBadgeHtml(item.size)}</span></div>`; // E27-F11: size badge
   }
   return html;
 }
@@ -7183,24 +7340,19 @@ function renderSidebar() {
     if (arrowEl) {
       // Expand/collapse — do NOT select
       const key = arrowEl.getAttribute('data-arrow-key');
-      // Determine entity level from nearby node class
       const parentNode = arrowEl.closest('.tree-node');
-      if (parentNode && parentNode.classList.contains('tree-node-epic')) {
-        if (expandedEpics.has(key)) {
-          expandedEpics.delete(key);
-        } else {
-          expandedEpics.add(key);
-        }
-      } else {
-        // Feature
-        if (expandedFeatures.has(key)) {
-          expandedFeatures.delete(key);
-        } else {
-          expandedFeatures.add(key);
-        }
-      }
-      renderSidebar();
+      if (toggleTreeNodeExpansion(parentNode, key)) renderSidebar();
       return;
+    }
+
+    const labelEl = e.target.closest('.tree-node-label');
+    if (labelEl) {
+      const parentNode = labelEl.closest('.tree-node');
+      const key = parentNode?.getAttribute('data-key') || parentNode?.getAttribute('data-select-key');
+      if (toggleTreeNodeExpansion(parentNode, key)) {
+        renderSidebar();
+        return;
+      }
     }
 
     // Node body click — select entity or doc
@@ -7235,6 +7387,8 @@ function renderSidebar() {
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+  initSidebarResizer();
+
   // Auto-load project data immediately — shark web is always pre-connected to
   // a single project, so no folder selection is needed.
   loadProjectData();

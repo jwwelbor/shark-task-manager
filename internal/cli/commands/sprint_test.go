@@ -2901,6 +2901,52 @@ func TestSprintBacklog_TC018b_ViewGroupedPassedToService(t *testing.T) {
 	assert.Equal(t, "grouped", capturedOpts.View)
 }
 
+func TestSprintBacklog_AllFlagPassesIncludeCompletedToService(t *testing.T) {
+	var capturedOpts services.BacklogOptions
+
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			capturedOpts = opts
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "ordered",
+				Items:      []*services.BacklogItemView{},
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("all", false, "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("all", "true"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	assert.True(t, capturedOpts.IncludeCompleted, "CLI must pass IncludeCompleted=true when --all is set")
+}
+
 // TC-017-unordered: ordered view with unordered item shows ~ in # column.
 func TestSprintBacklog_TC017_UnorderedItemShowsTildeInPosColumn(t *testing.T) {
 	pos1 := 1

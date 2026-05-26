@@ -82,6 +82,34 @@ func TestUpdateDispatch_SizeFlagInLongHelp(t *testing.T) {
 	}
 }
 
+// TestUpdateDispatch_TagFlagRegistered asserts that --tag is registered on the
+// unified `update` dispatch command as a string-slice flag. The downstream
+// entity update runners already read `cmd.Flags().GetStringSlice("tag")`; this
+// test ensures Cobra accepts the flag on the dispatch surface.
+func TestUpdateDispatch_TagFlagRegistered(t *testing.T) {
+	flag := updateCmd.Flags().Lookup("tag")
+	if flag == nil {
+		t.Fatal("--tag flag not registered on updateCmd (dispatch)")
+	}
+	if flag.Value.Type() != "stringSlice" {
+		t.Errorf("expected --tag to be stringSlice type on updateCmd, got %s", flag.Value.Type())
+	}
+	if flag.DefValue != "[]" {
+		t.Errorf("expected --tag default \"[]\" on updateCmd, got %q", flag.DefValue)
+	}
+}
+
+// TestUpdateDispatch_TagFlagInLongHelp asserts that the dispatch's Long
+// description mentions the `--tag` flag so `shark update --help` documents it.
+func TestUpdateDispatch_TagFlagInLongHelp(t *testing.T) {
+	if updateCmd.Long == "" {
+		t.Fatal("updateCmd.Long is empty")
+	}
+	if !containsAll(updateCmd.Long, "--tag") {
+		t.Errorf("updateCmd.Long does not mention --tag:\n%s", updateCmd.Long)
+	}
+}
+
 // TestUpdateDispatch_BugSizeFlow runs the full dispatch path for a bug key
 // with `--size=L` and verifies the bug service receives Size=ptr(5). This
 // exercises the wiring from updateCmd flag → DetectEntityType → runBugUpdate

@@ -1233,8 +1233,9 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 // sort.SliceStable is used (not sort.Slice) so that full ties preserve insertion order,
 // giving AI agents deterministic results across repeated calls.
 //
-// Filters for items in the initial (queued) status of their respective entity-type workflows.
-// If agentType is non-empty, only items for that agent are considered.
+// Filters out terminal items for each entity-type workflow so the sprint queue can return
+// any open assigned entity regardless of whether it is a task, bug, change card, or
+// tech-debt item. If agentType is non-empty, only items for that agent are considered.
 //
 // The returned BacklogItemView has SprintOrder, SprintKey, and SelectionReason populated.
 func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
@@ -1257,22 +1258,21 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 		return nil, err
 	}
 
-	// 3. Collect candidates whose status is the initial (queued) status for their entity type.
-	// Each entity type has its own workflow with its own initial status (e.g. tasks start at
-	// "todo", tech_debt at "identified"), so we must check per-entity-type rather than
-	// assuming everything uses the task workflow's initial status.
-	initialStatusByEntityType := map[string]string{
-		"task":        s.workflowSvc.ForLevel(workflow.LevelTask).GetInitialStatusString(),
-		"bug":         s.workflowSvc.ForLevel(workflow.LevelBug).GetInitialStatusString(),
-		"change_card": s.workflowSvc.ForLevel(workflow.LevelChange).GetInitialStatusString(),
-		"tech_debt":   s.workflowSvc.ForLevel(workflow.LevelTechDebt).GetInitialStatusString(),
+	// 3. Collect candidates whose status is non-terminal for their entity type.
+	// Sprint execution order is an explicit pull queue across assigned items, so selection
+	// must not be limited to workflow-initial statuses.
+	terminalStatusesByEntityType := map[string]map[string]bool{
+		"task":        terminalSet(s.workflowSvc.ForLevel(workflow.LevelTask)),
+		"bug":         terminalSet(s.workflowSvc.ForLevel(workflow.LevelBug)),
+		"change_card": terminalSet(s.workflowSvc.ForLevel(workflow.LevelChange)),
+		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
 	}
 
 	var candidates []*BacklogItemView
 	for _, group := range backlog.Groups {
 		for _, item := range group.Items {
-			initialStatus, ok := initialStatusByEntityType[item.EntityType]
-			if !ok || item.Status != initialStatus {
+			terminals, ok := terminalStatusesByEntityType[item.EntityType]
+			if !ok || terminals[item.Status] {
 				continue
 			}
 			// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
@@ -2584,6 +2584,7 @@ type SprintPlanView struct {
 	Backlog   []sprint.BacklogItem `json:"backlog"`   // unassigned entities eligible for assignment
 	Capacity  []CapacityRow        `json:"capacity"`  // per agent-type capacity vs. allocation
 	Readiness *SprintReadiness     `json:"readiness"` // 0-100 readiness score with factor breakdown
+	Catalog   *SprintCatalog       `json:"catalog,omitempty"`
 }
 
 // PlanSprint returns the composite planning view for a sprint.

@@ -22,15 +22,16 @@ Key format detection:
 
 Use 'shark status set' to change entity status.
 
-Common flags (all entities):
-  --title          New title
-  --description    New description
-  --order          New execution order
-  --parallel       Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)
-  --key            Rename entity key
-  --file           New file path
-  --force          Force file reassignment
-  --size           New size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)
+	Common flags (all entities):
+	  --title          New title
+	  --description    New description
+	  --order          New execution order
+	  --parallel       Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)
+	  --tag            Tag to apply additively (repeatable)
+	  --key            Rename entity key
+	  --file           New file path
+	  --force          Force file reassignment
+	  --size           New size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)
 
 Priority & agent flags:
   --priority       New priority (1-10 for tasks; low/medium/high for epics)
@@ -61,6 +62,7 @@ func init() {
 	updateCmd.Flags().StringP("description", "d", "", "New description")
 	updateCmd.Flags().Int("order", -1, "New execution order (-1=no change)")
 	updateCmd.Flags().Bool("parallel", false, "Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)")
+	updateCmd.Flags().StringSlice("tag", nil, "Tag to apply additively (repeatable). Empty = no change; detach via the entity-specific 'tag rm' command.")
 
 	// Key rename
 	updateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")

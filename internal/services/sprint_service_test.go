@@ -4615,6 +4615,74 @@ func TestGetNextTask_TC004_PriorityFallback(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TC-005: GetNextTask — open non-task items remain eligible in sprint order
+// ---------------------------------------------------------------------------
+//
+// TC-005 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "")
+//   - Mock seam: MockSprintRepository
+//   - Counter-factual: a buggy impl that restricts candidates to task-only or
+//     workflow-initial statuses would return nil here because the sprint has no
+//     queued tasks and the open entities are already in ready_for_development.
+func TestGetNextTask_TC005_OpenNonTaskItemsRemainEligible(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+	order2 := 2
+	order3 := 3
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			Key:         "task-complete",
+			Title:       "Completed task",
+			Status:      "completed",
+			SprintOrder: &order1,
+			AssignedAt:  time.Now().Add(-3 * time.Hour),
+		},
+		{
+			EntityType:  "bug",
+			Key:         "B058",
+			Title:       "Open bug in ready_for_development",
+			Status:      "ready_for_development",
+			SprintOrder: &order2,
+			AssignedAt:  time.Now().Add(-2 * time.Hour),
+		},
+		{
+			EntityType:  "change_card",
+			Key:         "CC-037",
+			Title:       "Open change card in ready_for_development",
+			Status:      "ready_for_development",
+			SprintOrder: &order3,
+			AssignedAt:  time.Now().Add(-1 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "B058", result.Key, "lowest sprint_order non-terminal item must be selected even when it is a bug")
+	assert.Equal(t, "bug", result.EntityType, "non-task entity types must remain eligible")
+	assert.Equal(t, "sprint_order", result.SelectionReason, "selection should still be driven by sprint_order")
+}
+
+// ---------------------------------------------------------------------------
 // TC-016: GetNextTask — single candidate defaults to selection_reason="assigned_at"
 // ---------------------------------------------------------------------------
 //

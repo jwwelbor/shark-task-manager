@@ -242,6 +242,32 @@ func TestViewerHTMLSprintTreeAndReportMarkers(t *testing.T) {
 	}
 }
 
+func TestViewerHTMLSprintTreeRendersCatalogRows(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"sprintCatalogRows",
+		"payload?.catalog",
+		"No upcoming sprints.",
+		"No archived sprints.",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing sprint catalog marker: %q", marker)
+		}
+	}
+
+	forbidden := []string{
+		"Upcoming sprint queue will appear here.",
+		"Archived sprint history will appear here.",
+	}
+	for _, marker := range forbidden {
+		if strings.Contains(content, marker) {
+			t.Errorf("viewer.html still contains sprint placeholder marker: %q", marker)
+		}
+	}
+}
+
 // TestViewerHTMLSidebarSection verifies that the === SIDEBAR === section label
 // and the renderSidebar function are present. TC-TREE-01 (section present).
 func TestViewerHTMLSidebarSection(t *testing.T) {

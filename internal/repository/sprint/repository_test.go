@@ -1274,6 +1274,16 @@ func insertAssignment(t *testing.T, database *sql.DB, sprintID int64, entityType
 	return id
 }
 
+func setAssignmentSprintOrder(t *testing.T, database *sql.DB, assignmentID int64, sprintOrder int) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := database.ExecContext(ctx,
+		`UPDATE sprint_assignments SET sprint_order = ? WHERE id = ?`,
+		sprintOrder, assignmentID,
+	)
+	require.NoError(t, err, "setAssignmentSprintOrder: assignment=%d order=%d", assignmentID, sprintOrder)
+}
+
 // --------------------------------------------------------------------------
 // TC-C08 subset: ReassignToSprintTx updates sprint_id for listed IDs
 // --------------------------------------------------------------------------
@@ -1323,6 +1333,51 @@ func TestSprintRepository_ReassignToSprintTx_UpdatesSprintID(t *testing.T) {
 	for _, sid := range sprintIDs {
 		assert.Equal(t, destID, sid, "expected sprint_id to be updated to destID")
 	}
+}
+
+func TestSprintRepository_ReassignToSprintTx_ClearsSprintOrderToAvoidDestinationCollisions(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewSprintRepository(db)
+
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id IN (SELECT id FROM sprints WHERE key IN ('S916', 'S917'))")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S916', 'S917')")
+
+	sourceID := createTestSprintForTx(t, database, repo, "S916", "active")
+	destID := createTestSprintForTx(t, database, repo, "S917", "planning")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_assignments WHERE sprint_id IN (?, ?)", sourceID, destID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key IN ('S916', 'S917')")
+	}()
+
+	destExisting := insertAssignment(t, database, destID, "task", 99905)
+	carried := insertAssignment(t, database, sourceID, "task", 99906)
+	setAssignmentSprintOrder(t, database, destExisting, 1)
+	setAssignmentSprintOrder(t, database, carried, 1)
+
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback() //nolint:errcheck
+
+	err = repo.ReassignToSprintTx(ctx, tx, []int64{carried}, destID)
+	require.NoError(t, err, "reassign must succeed even when destination already has sprint_order=1")
+
+	err = tx.Commit()
+	require.NoError(t, err)
+
+	var (
+		gotSprintID   int64
+		gotSprintOrder sql.NullInt64
+	)
+	err = database.QueryRowContext(ctx,
+		`SELECT sprint_id, sprint_order FROM sprint_assignments WHERE id = ?`,
+		carried,
+	).Scan(&gotSprintID, &gotSprintOrder)
+	require.NoError(t, err)
+
+	assert.Equal(t, destID, gotSprintID, "expected carried assignment to move to destination sprint")
+	assert.False(t, gotSprintOrder.Valid, "reassign must clear sprint_order before later renumbering")
 }
 
 // --------------------------------------------------------------------------
