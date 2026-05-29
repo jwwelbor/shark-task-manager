@@ -1231,10 +1231,18 @@ type RenumberOp struct {
 // No sibling renumbering is performed — the caller is responsible for
 // ensuring the resulting state has no duplicate positions.
 func (r *SprintRepository) SetSprintOrderTx(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error {
-	_, err := tx.ExecContext(ctx,
-		`UPDATE sprint_assignments SET sprint_order = ? WHERE id = ?`,
-		newPosition, assignmentID,
-	)
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx,
+			`UPDATE sprint_assignments SET sprint_order = ? WHERE id = ?`,
+			newPosition, assignmentID,
+		)
+	} else {
+		_, err = r.db.ExecContext(ctx,
+			`UPDATE sprint_assignments SET sprint_order = ? WHERE id = ?`,
+			newPosition, assignmentID,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to set sprint_order for assignment %d: %w", assignmentID, err)
 	}

@@ -752,11 +752,16 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 				input.SprintKey, err)
 		}
 
-		count := len(orderedItems)
-		if pos > count+1 {
+		orderedCount := 0
+		for _, item := range orderedItems {
+			if item.SprintOrder != nil {
+				orderedCount++
+			}
+		}
+		if pos > orderedCount+1 {
 			return nil, nil, fmt.Errorf(
 				"position %d is out of range: sprint has %d ordered items (valid range: 1..%d)",
-				pos, count, count+1,
+				pos, orderedCount, orderedCount+1,
 			)
 		}
 

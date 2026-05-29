@@ -6923,7 +6923,7 @@ function buildArrowHtml(expandable, expanded, key) {
 }
 
 function clampSidebarWidth(width) {
-  const numeric = Number(width);
+  const numeric = parseInt(width, 10);
   if (!Number.isFinite(numeric)) return SIDEBAR_WIDTH_DEFAULT;
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(numeric)));
 }
@@ -7345,15 +7345,7 @@ function renderSidebar() {
       return;
     }
 
-    const labelEl = e.target.closest('.tree-node-label');
-    if (labelEl) {
-      const parentNode = labelEl.closest('.tree-node');
-      const key = parentNode?.getAttribute('data-key') || parentNode?.getAttribute('data-select-key');
-      if (toggleTreeNodeExpansion(parentNode, key)) {
-        renderSidebar();
-        return;
-      }
-    }
+    // Selection is handled by the nodeEl click handler below
 
     // Node body click — select entity or doc
     const nodeEl = e.target.closest('[data-select-key]');
