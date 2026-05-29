@@ -1686,6 +1686,75 @@ func TestCascade_HistoryRowHasChangedAt(t *testing.T) {
 	}
 }
 
+func TestCascade_RegressionReopensForwardAdvancedParentsFromHistory(t *testing.T) {
+	ctx := context.Background()
+
+	featureID := int64(310)
+	epicID := int64(410)
+	feature := newTestFeature(featureID, epicID, "completed")
+	epic := newTestEpic(epicID, "completed")
+
+	txBeginner, _ := newMockTxBeginner()
+	featureRepo := &mockCascadeFeatureRepo{
+		GetByIDFunc: func(_ context.Context, _ int64) (*models.Feature, error) { return feature, nil },
+		GetByIDTxFunc: func(_ context.Context, _ *sql.Tx, _ int64) (*models.Feature, error) {
+			return feature, nil
+		},
+	}
+	epicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, _ int64) (*models.Epic, error) { return epic, nil },
+		GetByIDTxFunc: func(_ context.Context, _ *sql.Tx, _ int64) (*models.Epic, error) {
+			return epic, nil
+		},
+	}
+	histQuerier := &mockParentReopenHistoryQuerier{
+		GetLastNonTerminalStatusFunc: func(_ context.Context, entityType models.EntityType, entityID int64, terminalStatuses []string) (string, bool, error) {
+			switch entityType {
+			case models.EntityTypeFeature:
+				return "ready_for_code_review", true, nil
+			case models.EntityTypeEpic:
+				return "ready_for_release", true, nil
+			default:
+				return "", false, fmt.Errorf("unexpected entity type %q", entityType)
+			}
+		},
+	}
+	histTx := &mockEntityHistoryTxRecorder{}
+	deps := cascadeDeps{
+		db:             txBeginner,
+		featureRepo:    featureRepo,
+		epicRepo:       epicRepo,
+		historyQuerier: histQuerier,
+		historyTx:      histTx,
+		workflowSvc:    newTestTaskWorkflowService(t),
+	}
+	trigger := cascadeTrigger{
+		triggerKey:  "E07-F44-001",
+		triggerKind: "regression",
+		triggerType: models.EntityTypeTask,
+		startLeg:    cascadeLegFeature,
+		featureID:   featureID,
+	}
+
+	cascadeParentReopens(ctx, deps, trigger)
+
+	if featureRepo.lastUpdateStatus != "ready_for_code_review" {
+		t.Fatalf("expected feature reopen target ready_for_code_review, got %q", featureRepo.lastUpdateStatus)
+	}
+	if epicRepo.lastUpdateStatus != "ready_for_release" {
+		t.Fatalf("expected epic reopen target ready_for_release, got %q", epicRepo.lastUpdateStatus)
+	}
+	if len(histTx.captured) != 2 {
+		t.Fatalf("expected 2 history rows, got %d", len(histTx.captured))
+	}
+	if histTx.captured[0].ToStatus != "ready_for_code_review" {
+		t.Fatalf("expected feature history to_status ready_for_code_review, got %q", histTx.captured[0].ToStatus)
+	}
+	if histTx.captured[1].ToStatus != "ready_for_release" {
+		t.Fatalf("expected epic history to_status ready_for_release, got %q", histTx.captured[1].ToStatus)
+	}
+}
+
 // ============================================================
 // Empty terminal-set guard (per UAT observation 4.3)
 // ============================================================

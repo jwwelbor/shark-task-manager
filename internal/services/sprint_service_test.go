@@ -4615,6 +4615,74 @@ func TestGetNextTask_TC004_PriorityFallback(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TC-005: GetNextTask — open non-task items remain eligible in sprint order
+// ---------------------------------------------------------------------------
+//
+// TC-005 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "")
+//   - Mock seam: MockSprintRepository
+//   - Counter-factual: a buggy impl that restricts candidates to task-only or
+//     workflow-initial statuses would return nil here because the sprint has no
+//     queued tasks and the open entities are already in ready_for_development.
+func TestGetNextTask_TC005_OpenNonTaskItemsRemainEligible(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+	order2 := 2
+	order3 := 3
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			Key:         "task-complete",
+			Title:       "Completed task",
+			Status:      "completed",
+			SprintOrder: &order1,
+			AssignedAt:  time.Now().Add(-3 * time.Hour),
+		},
+		{
+			EntityType:  "bug",
+			Key:         "B058",
+			Title:       "Open bug in ready_for_development",
+			Status:      "ready_for_development",
+			SprintOrder: &order2,
+			AssignedAt:  time.Now().Add(-2 * time.Hour),
+		},
+		{
+			EntityType:  "change_card",
+			Key:         "CC-037",
+			Title:       "Open change card in ready_for_development",
+			Status:      "ready_for_development",
+			SprintOrder: &order3,
+			AssignedAt:  time.Now().Add(-1 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "B058", result.Key, "lowest sprint_order non-terminal item must be selected even when it is a bug")
+	assert.Equal(t, "bug", result.EntityType, "non-task entity types must remain eligible")
+	assert.Equal(t, "sprint_order", result.SelectionReason, "selection should still be driven by sprint_order")
+}
+
+// ---------------------------------------------------------------------------
 // TC-016: GetNextTask — single candidate defaults to selection_reason="assigned_at"
 // ---------------------------------------------------------------------------
 //
@@ -4688,9 +4756,8 @@ func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
 		makeAssignment(3, 10, "task", 102, intPtr(3)), // task-Z, target: move to pos 1
 	}
 
-	var renumberOpsCapt []sprint.RenumberOp
-	var setOrderCalledWithID int64
-	var setOrderCalledWithPos *int
+	var renumberCalls [][]sprint.RenumberOp
+	setSprintOrderCalled := false
 
 	mockRepo := &MockSprintRepository{
 		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
@@ -4717,12 +4784,13 @@ func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
 			return existing, nil
 		},
 		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, ops []sprint.RenumberOp) error {
-			renumberOpsCapt = ops
+			snap := make([]sprint.RenumberOp, len(ops))
+			copy(snap, ops)
+			renumberCalls = append(renumberCalls, snap)
 			return nil
 		},
-		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, assignmentID int64, pos *int) error {
-			setOrderCalledWithID = assignmentID
-			setOrderCalledWithPos = pos
+		SetSprintOrderTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ *int) error {
+			setSprintOrderCalled = true
 			return nil
 		},
 	}
@@ -4735,17 +4803,32 @@ func TestReorderAssignment_TC013_MoveFromPosition3ToPosition1(t *testing.T) {
 	require.NotNil(t, moved, "moved assignment must be returned")
 	require.NotNil(t, topN, "top-N list must be returned")
 
-	// The target assignment (ID=3) must be set to position 1.
-	assert.Equal(t, int64(3), setOrderCalledWithID, "SetSprintOrderTx must be called for the target assignment")
-	require.NotNil(t, setOrderCalledWithPos)
-	assert.Equal(t, 1, *setOrderCalledWithPos, "target must be placed at position 1")
+	// The reorder happens in two RenumberAssignmentsTx UPDATEs:
+	//   1. NULL pre-pass over target + every shifted sibling
+	//   2. Single CASE WHEN that assigns the target's new position alongside
+	//      the siblings' new positions.
+	// SetSprintOrderTx is no longer used — the target is folded into pass 2.
+	require.Len(t, renumberCalls, 2, "reorder must use exactly two renumber UPDATEs (clear + assign)")
+	assert.False(t, setSprintOrderCalled,
+		"SetSprintOrderTx must not be called: target's new position is folded into the final renumber")
 
-	// The remaining items (pos 1 and 2) must be renumbered to 2 and 3.
-	// RenumberAssignmentsTx receives the sibling ops.
-	require.NotNil(t, renumberOpsCapt, "RenumberAssignmentsTx must be called with shift ops")
-	// Verify sibling assignments are shifted up by 1
-	// (task-X at old pos 1 → new pos 2, task-Y at old pos 2 → new pos 3)
-	assert.Len(t, renumberOpsCapt, 2, "two siblings must be renumbered")
+	clearOps := renumberCalls[0]
+	require.Len(t, clearOps, 3, "clear pass must NULL target + both siblings")
+	for i, op := range clearOps {
+		assert.Nil(t, op.NewPosition, "clear-pass op[%d] must have NewPosition=nil", i)
+	}
+
+	finalOps := renumberCalls[1]
+	require.Len(t, finalOps, 3, "final pass must assign target + both siblings their post-state positions")
+	// Op 0 is the target (assignment ID=3) at its new position 1.
+	assert.Equal(t, int64(3), finalOps[0].AssignmentID, "first op must be the target")
+	require.NotNil(t, finalOps[0].NewPosition)
+	assert.Equal(t, 1, *finalOps[0].NewPosition)
+	// Ops 1..2 are the shifted siblings: task-X 1→2, task-Y 2→3.
+	assert.Equal(t, int64(1), finalOps[1].AssignmentID)
+	assert.Equal(t, intPtr(2), finalOps[1].NewPosition)
+	assert.Equal(t, int64(2), finalOps[2].AssignmentID)
+	assert.Equal(t, intPtr(3), finalOps[2].NewPosition)
 }
 
 // ---------------------------------------------------------------------------

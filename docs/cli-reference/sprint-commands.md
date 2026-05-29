@@ -641,7 +641,7 @@ shark sprint capacity show S024 --json
 
 ### `shark sprint next`
 
-Identify the next highest-priority entity in the active sprint.
+Identify the next highest-priority non-terminal entity in the active sprint.
 
 The entity is selected using a four-tier stable sort:
 
@@ -667,6 +667,8 @@ shark sprint next [sprint-key]
 ```
 
 If no sprint key is given, Shark uses the current active sprint.
+
+`shark sprint next` is not task-only. It considers any assigned `task`, `bug`, `change_card`, or `tech_debt` item that is still open, then returns the first one in sprint pull order.
 
 **Examples**
 

@@ -9,6 +9,9 @@ type StatusInfo struct {
 	// Color for CLI display (e.g., "yellow", "green", "red")
 	Color string `json:"color,omitempty"`
 
+	// DisplayToken is a compact status label for dense UI/CLI tables.
+	DisplayToken string `json:"display_token,omitempty"`
+
 	// Description is a human-readable explanation of the status
 	Description string `json:"description,omitempty"`
 

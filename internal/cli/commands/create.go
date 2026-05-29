@@ -311,12 +311,14 @@ func init() {
 	_ = createEpicCmd.Flags().MarkHidden("filename")
 	_ = createEpicCmd.Flags().MarkHidden("path")
 
-	createEpicCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
-	createEpicCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
-	createEpicCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
-	createEpicCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
-	// --size must be registered on each unified subcommand; Cobra flags are per-command, not shared via RunE.
-	createEpicCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+		createEpicCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
+		createEpicCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
+		createEpicCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
+		createEpicCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
+		createEpicCmd.Flags().StringSlice("tag", nil,
+			"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+		// --size must be registered on each unified subcommand; Cobra flags are per-command, not shared via RunE.
+		createEpicCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// ======================================================================
 	// Feature Create Flags
@@ -327,10 +329,12 @@ func init() {
 	createFeatureCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	createFeatureCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
 	_ = createFeatureCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
-	createFeatureCmd.Flags().IntVar(&featureCreateExecutionOrder, "order", 0, "Execution order (lower runs first)")
-	createFeatureCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
-	createFeatureCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
-	createFeatureCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
+		createFeatureCmd.Flags().IntVar(&featureCreateExecutionOrder, "order", 0, "Execution order (lower runs first)")
+		createFeatureCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
+		createFeatureCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
+		createFeatureCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
+		createFeatureCmd.Flags().StringSlice("tag", nil,
+			"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// File path flags: --file is primary, --filename and --path are hidden aliases
 	createFeatureCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/feature.md)")
@@ -352,10 +356,12 @@ func init() {
 	createTaskCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys")
 	createTaskCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
 	_ = createTaskCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
-	createTaskCmd.Flags().Int("order", 0, "Execution order (lower runs first)")
-	createTaskCmd.Flags().String("key", "", "Custom key for the task")
-	createTaskCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
-	createTaskCmd.Flags().Bool("create", false, "Create file if doesn't exist")
+		createTaskCmd.Flags().Int("order", 0, "Execution order (lower runs first)")
+		createTaskCmd.Flags().String("key", "", "Custom key for the task")
+		createTaskCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
+		createTaskCmd.Flags().Bool("create", false, "Create file if doesn't exist")
+		createTaskCmd.Flags().StringSlice("tag", nil,
+			"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// File path flags: --file is primary, --filename and --path are hidden aliases
 	createTaskCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/task.md)")
@@ -368,11 +374,13 @@ func init() {
 	// ======================================================================
 	// Bug Create Flags
 	// ======================================================================
-	createBugCmd.Flags().String("severity", "medium", "Severity: critical, high, medium, low (default: medium)")
-	createBugCmd.Flags().String("description", "", "Bug description (optional)")
-	createBugCmd.Flags().String("linked-type", "", "Linked entity type: epic, feature, or task (optional)")
-	createBugCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
-	createBugCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+		createBugCmd.Flags().String("severity", "medium", "Severity: critical, high, medium, low (default: medium)")
+		createBugCmd.Flags().String("description", "", "Bug description (optional)")
+		createBugCmd.Flags().String("linked-type", "", "Linked entity type: epic, feature, or task (optional)")
+		createBugCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
+		createBugCmd.Flags().StringSlice("tag", nil,
+			"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+		createBugCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// ======================================================================
 	// Idea Create Flags
@@ -380,20 +388,24 @@ func init() {
 	createIdeaCmd.Flags().StringVar(&ideaDescription, "description", "", "Idea description (optional)")
 	createIdeaCmd.Flags().IntVar(&ideaPriority, "priority", 0, "Priority (1-10, optional)")
 	createIdeaCmd.Flags().IntVar(&ideaOrder, "order", 0, "Order for sorting (optional)")
-	createIdeaCmd.Flags().StringVar(&ideaNotes, "notes", "", "Additional notes (optional)")
-	createIdeaCmd.Flags().StringSliceVar(&ideaRelatedDocs, "related-docs", []string{}, "Related document paths (optional)")
-	createIdeaCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Dependent idea keys (optional)")
-	createIdeaCmd.Flags().StringVar(&ideaStatus, "status", "new", "Initial status (new, on_hold, converted, archived)")
+		createIdeaCmd.Flags().StringVar(&ideaNotes, "notes", "", "Additional notes (optional)")
+		createIdeaCmd.Flags().StringSliceVar(&ideaRelatedDocs, "related-docs", []string{}, "Related document paths (optional)")
+		createIdeaCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Dependent idea keys (optional)")
+		createIdeaCmd.Flags().StringVar(&ideaStatus, "status", "new", "Initial status (new, on_hold, converted, archived)")
+		createIdeaCmd.Flags().StringSlice("tag", nil,
+			"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// ======================================================================
 	// Change-Card Create Flags (applied to both 'change' and 'change-card')
 	// ======================================================================
-	for _, cmd := range []*cobra.Command{createChangeCmd, createChangeCardCmd} {
-		cmd.Flags().String("description", "", "Change card description (optional)")
-		cmd.Flags().String("justification", "", "Business justification for the change (optional)")
-		cmd.Flags().String("requested-by", "", "Name or team requesting the change (optional)")
-		cmd.Flags().String("epic", "", "Link to epic key (e.g., E07) (optional)")
-		cmd.Flags().String("feature", "", "Link to feature key (e.g., E07-F01) (optional)")
-		cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+		for _, cmd := range []*cobra.Command{createChangeCmd, createChangeCardCmd} {
+			cmd.Flags().String("description", "", "Change card description (optional)")
+			cmd.Flags().String("justification", "", "Business justification for the change (optional)")
+			cmd.Flags().String("requested-by", "", "Name or team requesting the change (optional)")
+			cmd.Flags().String("epic", "", "Link to epic key (e.g., E07) (optional)")
+			cmd.Flags().String("feature", "", "Link to feature key (e.g., E07-F01) (optional)")
+			cmd.Flags().StringSlice("tag", nil,
+				"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+			cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
+		}
 	}
-}

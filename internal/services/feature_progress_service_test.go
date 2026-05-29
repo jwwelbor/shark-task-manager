@@ -16,13 +16,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newFeatureProgressWorkflowService(t *testing.T) *workflow.Service {
+func newFeatureProgressWorkflowService(t *testing.T, configData string) *workflow.Service {
 	t.Helper()
 
 	config.ClearWorkflowCache()
 
 	tmpDir := t.TempDir()
-	configData := `{
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0o644))
+
+	t.Cleanup(func() {
+		config.ClearWorkflowCache()
+	})
+
+	return workflow.NewService(tmpDir)
+}
+
+func defaultFeatureProgressWorkflowConfig() string {
+	return `{
 		"task_workflow": {
 			"status_flow_version": "1.0",
 			"special_statuses": {
@@ -53,24 +64,95 @@ func newFeatureProgressWorkflowService(t *testing.T) *workflow.Service {
 			},
 			"status_flow": {
 				"draft": ["active", "archived"],
-				"active": ["completed", "archived"],
+				"active": ["completed"],
 				"completed": ["archived"],
 				"archived": []
+			},
+			"status_metadata": {
+				"draft": {
+					"phase": "planning"
+				},
+				"active": {
+					"phase": "development",
+					"orchestrator_action": {
+						"action": "cascade",
+						"instruction_template": "Cascade from child progress"
+					}
+				},
+				"completed": {
+					"phase": "done"
+				},
+				"archived": {
+					"phase": "done"
+				}
 			}
 		}
 	}`
-
-	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
-	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0o644))
-
-	t.Cleanup(func() {
-		config.ClearWorkflowCache()
-	})
-
-	return workflow.NewService(tmpDir)
 }
 
-func setupFeatureProgressScenario(t *testing.T, featureStatus models.FeatureStatus, override bool, taskStatuses []models.TaskStatus) (*FeatureProgressService, *repository.FeatureRepository, int64) {
+func extendedFeatureProgressWorkflowConfig() string {
+	return `{
+		"task_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["todo"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"todo": ["completed"],
+				"completed": []
+			},
+			"status_metadata": {
+				"todo": {
+					"phase": "planning",
+					"progress_weight": 0.0
+				},
+				"completed": {
+					"phase": "done",
+					"progress_weight": 1.0
+				}
+			}
+		},
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed", "archived"],
+				"_aggregation_": ["active"]
+			},
+			"status_flow": {
+				"draft": ["active", "archived"],
+				"active": ["ready_for_code_review"],
+				"ready_for_code_review": ["completed", "archived"],
+				"completed": ["archived"],
+				"archived": []
+			},
+			"status_metadata": {
+				"draft": {
+					"phase": "planning"
+				},
+				"active": {
+					"phase": "development",
+					"orchestrator_action": {
+						"action": "cascade",
+						"instruction_template": "Cascade from child progress"
+					}
+				},
+				"ready_for_code_review": {
+					"phase": "review"
+				},
+				"completed": {
+					"phase": "done"
+				},
+				"archived": {
+					"phase": "done"
+				}
+			}
+		}
+	}`
+}
+
+func setupFeatureProgressScenario(t *testing.T, workflowConfig string, featureStatus models.FeatureStatus, override bool, taskStatuses []models.TaskStatus) (*FeatureProgressService, *repository.FeatureRepository, int64) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -78,7 +160,7 @@ func setupFeatureProgressScenario(t *testing.T, featureStatus models.FeatureStat
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
-	workflowSvc := newFeatureProgressWorkflowService(t)
+	workflowSvc := newFeatureProgressWorkflowService(t, workflowConfig)
 
 	epic := &models.Epic{
 		BaseEntity: models.BaseEntity{
@@ -121,6 +203,7 @@ func setupFeatureProgressScenario(t *testing.T, featureStatus models.FeatureStat
 func TestFeatureProgressService_RecalculateAndSetProgress_StatusDerivation(t *testing.T) {
 	tests := []struct {
 		name           string
+		workflowConfig string
 		featureStatus  models.FeatureStatus
 		statusOverride bool
 		taskStatuses   []models.TaskStatus
@@ -128,21 +211,48 @@ func TestFeatureProgressService_RecalculateAndSetProgress_StatusDerivation(t *te
 		wantProgress   float64
 	}{
 		{
-			name:          "downgrades completed when progress drops below 100",
-			featureStatus: models.FeatureStatusCompleted,
-			taskStatuses:  []models.TaskStatus{"completed", "todo", "todo", "todo"},
-			wantStatus:    models.FeatureStatusActive,
-			wantProgress:  25.0,
+			name:           "downgrades completed when progress drops below 100",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusCompleted,
+			taskStatuses:   []models.TaskStatus{"completed", "todo", "todo", "todo"},
+			wantStatus:     models.FeatureStatusActive,
+			wantProgress:   25.0,
 		},
 		{
-			name:          "preserves completed when all tasks are done",
-			featureStatus: models.FeatureStatusCompleted,
-			taskStatuses:  []models.TaskStatus{"completed", "completed", "completed", "completed"},
-			wantStatus:    models.FeatureStatusCompleted,
-			wantProgress:  100.0,
+			name:           "cascade status advances to configured terminal step when all tasks are done",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusActive,
+			taskStatuses:   []models.TaskStatus{"completed", "completed", "completed", "completed"},
+			wantStatus:     models.FeatureStatusCompleted,
+			wantProgress:   100.0,
+		},
+		{
+			name:           "cascade status advances to configured non terminal step when all tasks are done",
+			workflowConfig: extendedFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusActive,
+			taskStatuses:   []models.TaskStatus{"completed", "completed", "completed", "completed"},
+			wantStatus:     models.FeatureStatus("ready_for_code_review"),
+			wantProgress:   100.0,
+		},
+		{
+			name:           "non cascade status stays put when all tasks are done",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusDraft,
+			taskStatuses:   []models.TaskStatus{"completed", "completed", "completed", "completed"},
+			wantStatus:     models.FeatureStatusDraft,
+			wantProgress:   100.0,
+		},
+		{
+			name:           "cascade status stays put when any task is incomplete",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusActive,
+			taskStatuses:   []models.TaskStatus{"completed", "todo", "completed", "completed"},
+			wantStatus:     models.FeatureStatusActive,
+			wantProgress:   75.0,
 		},
 		{
 			name:           "respects status override",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
 			featureStatus:  models.FeatureStatusCompleted,
 			statusOverride: true,
 			taskStatuses:   []models.TaskStatus{"completed", "todo", "todo", "todo"},
@@ -150,24 +260,26 @@ func TestFeatureProgressService_RecalculateAndSetProgress_StatusDerivation(t *te
 			wantProgress:   25.0,
 		},
 		{
-			name:          "preserves manual terminal archived",
-			featureStatus: models.FeatureStatusArchived,
-			taskStatuses:  []models.TaskStatus{"completed", "todo", "todo", "todo"},
-			wantStatus:    models.FeatureStatusArchived,
-			wantProgress:  25.0,
+			name:           "preserves manual terminal archived",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusArchived,
+			taskStatuses:   []models.TaskStatus{"completed", "todo", "todo", "todo"},
+			wantStatus:     models.FeatureStatusArchived,
+			wantProgress:   25.0,
 		},
 		{
-			name:          "empty task list does not flip status",
-			featureStatus: models.FeatureStatusCompleted,
-			taskStatuses:  nil,
-			wantStatus:    models.FeatureStatusCompleted,
-			wantProgress:  0.0,
+			name:           "empty task list does not flip status",
+			workflowConfig: defaultFeatureProgressWorkflowConfig(),
+			featureStatus:  models.FeatureStatusCompleted,
+			taskStatuses:   nil,
+			wantStatus:     models.FeatureStatusCompleted,
+			wantProgress:   0.0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, featureRepo, featureID := setupFeatureProgressScenario(t, tt.featureStatus, tt.statusOverride, tt.taskStatuses)
+			svc, featureRepo, featureID := setupFeatureProgressScenario(t, tt.workflowConfig, tt.featureStatus, tt.statusOverride, tt.taskStatuses)
 
 			require.NoError(t, svc.RecalculateAndSetProgress(context.Background(), featureID))
 

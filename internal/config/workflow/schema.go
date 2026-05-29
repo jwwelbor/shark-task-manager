@@ -92,6 +92,10 @@ type StatusMetadata struct {
 	// Used for colored terminal output (unless --no-color)
 	Color string `json:"color,omitempty"`
 
+	// DisplayToken is a short, human-chosen status abbreviation for dense CLI tables
+	// (e.g., "IP", "REV", "BLK"). When omitted, callers may derive a fallback token.
+	DisplayToken string `json:"display_token,omitempty"`
+
 	// Human-readable description of what this status means
 	Description string `json:"description,omitempty"`
 

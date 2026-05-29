@@ -254,11 +254,12 @@ func TestTC030_SprintReorderDoesNotMutateEntityFields(t *testing.T) {
 	//      sibling. Required so the partial unique index
 	//      idx_sprint_assignments_order_unique doesn't fire mid-UPDATE when a
 	//      shifted value transiently collides with an unprocessed row.
-	//   2. Final pass that assigns the siblings' new positions.
+	//   2. Final pass that assigns target + sibling positions in one CASE WHEN.
+	// SetSprintOrderTx is unused on this path — the target is folded into pass 2.
 	assert.Equal(t, 2, renumberCallCount,
 		"RenumberAssignmentsTx must be called twice: NULL pre-pass + final renumber")
-	assert.Equal(t, 1, setSprintOrderCallCount,
-		"SetSprintOrderTx must be called exactly once to update the target's position")
+	assert.Equal(t, 0, setSprintOrderCallCount,
+		"SetSprintOrderTx must not be called: target's position is folded into the final renumber")
 
 	// Assert (AC-T2): entity repo Update call count == 0
 	// SprintService.ReorderAssignment must NOT call any entity repository method.
@@ -444,8 +445,11 @@ func TestIS_RoundTrip_ReorderAndGetNextTask(t *testing.T) {
 		assert.Greater(t, *op.NewPosition, 0, "renumber op position must be >= 1 (dense)")
 	}
 
-	assert.Equal(t, 1, setSprintOrderCallCount,
-		"SetSprintOrderTx must be called exactly once (for the moved item)")
+	// SetSprintOrderTx is no longer called on the reorder path — the moved
+	// item's new position is folded into the final RenumberAssignmentsTx
+	// UPDATE alongside its siblings.
+	assert.Equal(t, 0, setSprintOrderCallCount,
+		"SetSprintOrderTx must not be called: target's position is folded into the final renumber")
 
 	// Step 3: Verify GetNextTask returns the entity at new position 1 (Entity B).
 	next, err := sprintSvc.GetNextTask(ctx, "")

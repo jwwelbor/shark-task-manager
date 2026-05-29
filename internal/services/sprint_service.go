@@ -752,11 +752,16 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 				input.SprintKey, err)
 		}
 
-		count := len(orderedItems)
-		if pos > count+1 {
+		orderedCount := 0
+		for _, item := range orderedItems {
+			if item.SprintOrder != nil {
+				orderedCount++
+			}
+		}
+		if pos > orderedCount+1 {
 			return nil, nil, fmt.Errorf(
 				"position %d is out of range: sprint has %d ordered items (valid range: 1..%d)",
-				pos, count, count+1,
+				pos, orderedCount, orderedCount+1,
 			)
 		}
 
@@ -1233,8 +1238,9 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 // sort.SliceStable is used (not sort.Slice) so that full ties preserve insertion order,
 // giving AI agents deterministic results across repeated calls.
 //
-// Filters for items in the initial (queued) status of their respective entity-type workflows.
-// If agentType is non-empty, only items for that agent are considered.
+// Filters out terminal items for each entity-type workflow so the sprint queue can return
+// any open assigned entity regardless of whether it is a task, bug, change card, or
+// tech-debt item. If agentType is non-empty, only items for that agent are considered.
 //
 // The returned BacklogItemView has SprintOrder, SprintKey, and SelectionReason populated.
 func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
@@ -1257,22 +1263,21 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 		return nil, err
 	}
 
-	// 3. Collect candidates whose status is the initial (queued) status for their entity type.
-	// Each entity type has its own workflow with its own initial status (e.g. tasks start at
-	// "todo", tech_debt at "identified"), so we must check per-entity-type rather than
-	// assuming everything uses the task workflow's initial status.
-	initialStatusByEntityType := map[string]string{
-		"task":        s.workflowSvc.ForLevel(workflow.LevelTask).GetInitialStatusString(),
-		"bug":         s.workflowSvc.ForLevel(workflow.LevelBug).GetInitialStatusString(),
-		"change_card": s.workflowSvc.ForLevel(workflow.LevelChange).GetInitialStatusString(),
-		"tech_debt":   s.workflowSvc.ForLevel(workflow.LevelTechDebt).GetInitialStatusString(),
+	// 3. Collect candidates whose status is non-terminal for their entity type.
+	// Sprint execution order is an explicit pull queue across assigned items, so selection
+	// must not be limited to workflow-initial statuses.
+	terminalStatusesByEntityType := map[string]map[string]bool{
+		"task":        terminalSet(s.workflowSvc.ForLevel(workflow.LevelTask)),
+		"bug":         terminalSet(s.workflowSvc.ForLevel(workflow.LevelBug)),
+		"change_card": terminalSet(s.workflowSvc.ForLevel(workflow.LevelChange)),
+		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
 	}
 
 	var candidates []*BacklogItemView
 	for _, group := range backlog.Groups {
 		for _, item := range group.Items {
-			initialStatus, ok := initialStatusByEntityType[item.EntityType]
-			if !ok || item.Status != initialStatus {
+			terminals, ok := terminalStatusesByEntityType[item.EntityType]
+			if !ok || terminals[item.Status] {
 				continue
 			}
 			// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
@@ -1468,31 +1473,43 @@ func (s *SprintService) ReorderAssignment(
 		return nil, nil, fmt.Errorf("cannot reorder: one of Position, Top, or Bottom must be set in ReorderTarget")
 	}
 
-	// Step 5: Build renumber plan for siblings
-	// Siblings = ordered items excluding the target, shifted to accommodate the target's new position.
+	// Step 5: Build the renumber plan.
+	//
+	// siblings = ordered items excluding the target; buildRenumberOps assigns
+	// them dense positions around the slot reserved for the target. The target
+	// gets folded into finalOps so the entire post-reorder state lands in a
+	// single CASE WHEN UPDATE.
+	//
+	// clearOps is a NULL pre-pass over every row that will change. Without it,
+	// the renumber UPDATE transiently collides with
+	// idx_sprint_assignments_order_unique — SQLite enforces partial unique
+	// indexes per row as the statement executes, so shifting a value into a
+	// slot still occupied by an unprocessed row trips the index.
 	siblings := orderedWithoutTarget(orderedAll, assignment.ID)
-	ops := buildRenumberOps(siblings, newPosition)
+	siblingOps := buildRenumberOps(siblings, newPosition)
+	clearOps := buildReorderClearOps(assignment.ID, siblingOps)
+	finalOps := make([]sprint.RenumberOp, 0, len(siblingOps)+1)
+	finalOps = append(finalOps, sprint.RenumberOp{AssignmentID: assignment.ID, NewPosition: &newPosition})
+	finalOps = append(finalOps, siblingOps...)
 
-	// Build a NULL pre-pass: every row whose sprint_order will change (target +
-	// all renumbered siblings) is cleared first. Without this, the single CASE
-	// WHEN UPDATE applied by RenumberAssignmentsTx transiently collides with
-	// idx_sprint_assignments_order_unique because SQLite enforces the partial
-	// unique index per row as the statement executes (no per-statement defer
-	// for unique constraints).
-	clearOps := buildReorderClearOps(assignment.ID, ops)
+	// Step 6: Apply the two UPDATEs (clear, then assign).
+	//
+	// When s.db is nil (test path / CLI without --db) we drop the tx wrapper.
+	// Otherwise we wrap both UPDATEs in one tx so a mid-failure rolls back to
+	// the pre-reorder state.
+	apply := func(tx *sql.Tx) error {
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, clearOps); err != nil {
+			return fmt.Errorf("cannot reorder: clear failed: %w", err)
+		}
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, finalOps); err != nil {
+			return fmt.Errorf("cannot reorder: renumber failed: %w", err)
+		}
+		return nil
+	}
 
-	// Step 6: Apply in a transaction (TD-9)
 	if s.db == nil {
-		// No DB available — apply ops without a real transaction (test path or CLI without --db).
-		// For production use, db must be provided to NewSprintService.
-		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, clearOps); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
-		}
-		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
-		}
-		if err := s.repo.SetSprintOrderTx(ctx, nil, assignment.ID, &newPosition); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: set sprint_order failed: %w", err)
+		if err := apply(nil); err != nil {
+			return nil, nil, err
 		}
 	} else {
 		tx, txErr := s.db.BeginTxContext(ctx)
@@ -1501,14 +1518,8 @@ func (s *SprintService) ReorderAssignment(
 		}
 		defer tx.Rollback() //nolint:errcheck
 
-		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, clearOps); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
-		}
-		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, ops); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
-		}
-		if err := s.repo.SetSprintOrderTx(ctx, tx, assignment.ID, &newPosition); err != nil {
-			return nil, nil, fmt.Errorf("cannot reorder: set sprint_order failed: %w", err)
+		if err := apply(tx); err != nil {
+			return nil, nil, err
 		}
 		if err := tx.Commit(); err != nil {
 			return nil, nil, fmt.Errorf("cannot reorder: commit failed: %w", err)
@@ -1522,7 +1533,7 @@ func (s *SprintService) ReorderAssignment(
 		"sprint_id", sprintKey,
 		"entity", entityKey,
 		"new_pos", newPosition,
-		"renumbered", len(ops),
+		"renumbered", len(siblingOps),
 	)
 
 	// Step 7: Build top-8 abbreviated list from the updated ordered assignments
@@ -2578,6 +2589,7 @@ type SprintPlanView struct {
 	Backlog   []sprint.BacklogItem `json:"backlog"`   // unassigned entities eligible for assignment
 	Capacity  []CapacityRow        `json:"capacity"`  // per agent-type capacity vs. allocation
 	Readiness *SprintReadiness     `json:"readiness"` // 0-100 readiness score with factor breakdown
+	Catalog   *SprintCatalog       `json:"catalog,omitempty"`
 }
 
 // PlanSprint returns the composite planning view for a sprint.

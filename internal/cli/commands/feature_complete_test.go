@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +13,73 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+func writeCascadeFeatureWorkflowConfig(t *testing.T) string {
+	t.Helper()
+
+	configContent := `{
+  "task_workflow": {
+    "status_flow_version": "1.0",
+    "special_statuses": {
+      "_start_": ["todo"],
+      "_complete_": ["completed"]
+    },
+    "status_flow": {
+      "todo": ["completed"],
+      "completed": []
+    },
+    "status_metadata": {
+      "todo": {
+        "phase": "planning",
+        "progress_weight": 0.0
+      },
+      "completed": {
+        "phase": "done",
+        "progress_weight": 1.0
+      }
+    }
+  },
+  "feature_workflow": {
+    "status_flow_version": "1.0",
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "archived"],
+      "_aggregation_": ["active"]
+    },
+    "status_flow": {
+      "draft": ["active", "archived"],
+      "active": ["completed"],
+      "completed": ["archived"],
+      "archived": []
+    },
+    "status_metadata": {
+      "draft": {
+        "phase": "planning"
+      },
+      "active": {
+        "phase": "execution",
+        "orchestrator_action": {
+          "action": "cascade",
+          "instruction_template": "Cascade from child progress"
+        }
+      },
+      "completed": {
+        "phase": "done"
+      },
+      "archived": {
+        "phase": "done"
+      }
+    }
+  }
+}`
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	return tmpDir
+}
 
 func TestFeatureComplete_SetsFeatureStatusToCompletedWithNoTasks(t *testing.T) {
 	// Setup test database
@@ -121,7 +190,8 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 	}
 
 	// Update feature progress via service layer
-	workflowSvc := workflow.NewService(".")
+	projectRoot := writeCascadeFeatureWorkflowConfig(t)
+	workflowSvc := workflow.NewService(projectRoot)
 	featureSvc := services.NewFeatureService(featureRepo, services.NewEntityService(workflowSvc), services.NewNoopEntityRepository(), taskRepo, nil)
 	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		t.Fatalf("Failed to update feature progress: %v", err)

@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // EpicAnalyticsRepository defines the subset of EpicRepository needed by EpicAnalyticsService.
@@ -494,11 +496,11 @@ func unmarshalJSONArray[T any](raw string) ([]T, error) {
 // status.CalculationService but operates without that package dependency.
 //
 // Rules:
-//   - No features → keep current status
-//   - All completed/archived → completed
-//   - Any active → active
-//   - Otherwise → draft
-func deriveEpicStatusFromFeatures(featureCounts map[models.FeatureStatus]int, current models.EpicStatus) models.EpicStatus {
+//   - No features -> keep current status
+//   - Non-cascade parent statuses -> keep current status
+//   - Cascade parent statuses with any non-terminal child feature -> keep current status
+//   - Cascade parent statuses with all child features terminal -> advance one configured step
+func deriveEpicStatusFromFeatures(featureCounts map[models.FeatureStatus]int, current models.EpicStatus, workflowSvc *workflow.Service) models.EpicStatus {
 	total := 0
 	for _, count := range featureCounts {
 		total += count
@@ -507,17 +509,31 @@ func deriveEpicStatusFromFeatures(featureCounts map[models.FeatureStatus]int, cu
 		return current
 	}
 
-	completed := featureCounts[models.FeatureStatusCompleted] + featureCounts[models.FeatureStatusArchived]
-	if completed == total {
-		return models.EpicStatusCompleted
+	if workflowSvc == nil {
+		return current
 	}
 
-	active := featureCounts[models.FeatureStatusActive]
-	if active > 0 {
-		return models.EpicStatusActive
+	epicWorkflow := workflowSvc.ForLevel(workflow.LevelEpic)
+	if !epicWorkflow.HasOrchestratorAction(string(current), config.ActionCascade) {
+		return current
 	}
 
-	return models.EpicStatusDraft
+	featureWorkflow := workflowSvc.ForLevel(workflow.LevelFeature)
+	terminalChildren := 0
+	for status, count := range featureCounts {
+		if featureWorkflow.IsTerminalStatus(string(status)) {
+			terminalChildren += count
+		}
+	}
+	if terminalChildren != total {
+		return current
+	}
+
+	if nextStatus, ok := epicWorkflow.GetSingleNextStatus(string(current)); ok {
+		return models.EpicStatus(nextStatus)
+	}
+
+	return current
 }
 
 // resolveEpicPathFromLoaded returns the relative file path for an epic without

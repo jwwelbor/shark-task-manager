@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -1997,6 +1999,11 @@ func TestSprintReadiness_HumanFactorTable(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
+	// Capture pterm table output and plain fmt.Printf output separately.
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
@@ -2008,15 +2015,15 @@ func TestSprintReadiness_HumanFactorTable(t *testing.T) {
 
 	w.Close()
 	os.Stdout = origOut
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
 
 	assert.NoError(t, runErr)
-	output := buf.String()
+	combined := stdoutBuf.String() + ptermBuf.String()
 	// Must show overall score
-	assert.Contains(t, output, "85")
-	// Must show factor names
-	assert.Contains(t, output, "Capacity utilization")
+	assert.Contains(t, combined, "85")
+	// Must show factor names (rendered in pterm table)
+	assert.Contains(t, combined, "Capacity utilization")
 }
 
 // =============================================================================
@@ -2086,6 +2093,11 @@ func TestSprintCapacityShow_NegativeRemaining(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
+	// Capture pterm table output and plain fmt.Printf output separately.
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
@@ -2097,13 +2109,13 @@ func TestSprintCapacityShow_NegativeRemaining(t *testing.T) {
 
 	w.Close()
 	os.Stdout = origOut
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
 
 	assert.NoError(t, runErr)
-	output := buf.String()
-	// -5 should appear in human output
-	assert.Contains(t, output, "-5")
+	// -5 should appear in human output (now rendered via pterm table).
+	combined := stdoutBuf.String() + ptermBuf.String()
+	assert.Contains(t, combined, "-5")
 }
 
 // =============================================================================
@@ -2754,6 +2766,11 @@ func TestSprintBacklog_TC017_ViewOrderedPassedToService(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
+	// Capture pterm table output (column data) and fmt.Printf output separately.
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
@@ -2771,13 +2788,13 @@ func TestSprintBacklog_TC017_ViewOrderedPassedToService(t *testing.T) {
 
 	w.Close()
 	os.Stdout = origOut
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
 
 	assert.NoError(t, runErr)
 	assert.Equal(t, "ordered", capturedOpts.View, "CLI must pass View='ordered' to service when --view=ordered flag is set")
-	// Human output should show # column (pull queue format)
-	output := buf.String()
+	// Human output should show # column (pull queue format; rendered via pterm table).
+	output := stdoutBuf.String() + ptermBuf.String()
 	assert.Contains(t, output, "#", "ordered view output must contain # column header")
 }
 
@@ -2884,6 +2901,52 @@ func TestSprintBacklog_TC018b_ViewGroupedPassedToService(t *testing.T) {
 	assert.Equal(t, "grouped", capturedOpts.View)
 }
 
+func TestSprintBacklog_AllFlagPassesIncludeCompletedToService(t *testing.T) {
+	var capturedOpts services.BacklogOptions
+
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			capturedOpts = opts
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "ordered",
+				Items:      []*services.BacklogItemView{},
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("all", false, "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("all", "true"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, runErr)
+	assert.True(t, capturedOpts.IncludeCompleted, "CLI must pass IncludeCompleted=true when --all is set")
+}
+
 // TC-017-unordered: ordered view with unordered item shows ~ in # column.
 func TestSprintBacklog_TC017_UnorderedItemShowsTildeInPosColumn(t *testing.T) {
 	pos1 := 1
@@ -2911,6 +2974,11 @@ func TestSprintBacklog_TC017_UnorderedItemShowsTildeInPosColumn(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
+	// Capture pterm table output (column data) and fmt.Printf output separately.
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
@@ -2928,16 +2996,210 @@ func TestSprintBacklog_TC017_UnorderedItemShowsTildeInPosColumn(t *testing.T) {
 
 	w.Close()
 	os.Stdout = origOut
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
 
 	assert.NoError(t, runErr)
-	output := buf.String()
-	// Ordered items show their position number
+	output := stdoutBuf.String() + ptermBuf.String()
+	// Ordered items show their position number (in pterm-rendered table).
 	assert.Contains(t, output, "1", "ordered view must show position 1")
 	assert.Contains(t, output, "2", "ordered view must show position 2")
 	// Unordered item shows ~ in position column
 	assert.Contains(t, output, "~", "ordered view must show ~ for unordered items")
+}
+
+func TestSprintBacklog_OrderedViewUsesWorkflowDisplayToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	configJSON := `{
+  "status_flow_version": "1.0",
+  "status_flow": {
+    "todo": ["in_progress"],
+    "in_progress": ["completed"],
+    "completed": []
+  },
+  "status_metadata": {
+    "todo": {
+      "color": "gray",
+      "display_token": "TD"
+    },
+    "in_progress": {
+      "color": "blue",
+      "display_token": "IP"
+    },
+    "completed": {
+      "color": "green",
+      "display_token": "CMP"
+    }
+  },
+  "special_statuses": {
+    "_start_": ["todo"],
+    "_complete_": ["completed"]
+  }
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".sharkconfig.json"), []byte(configJSON), 0644))
+
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() {
+		_ = os.Chdir(origWD)
+		cli.ResetWorkflowService()
+		config.ClearWorkflowCache()
+	}()
+	cli.ResetWorkflowService()
+	config.ClearWorkflowCache()
+
+	pos1 := 1
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "ordered",
+				Items: []*services.BacklogItemView{
+					{Key: "E07-F01-001", EntityType: "task", Status: "in_progress", Title: "Implement token display", Position: &pos1, SprintOrder: &pos1},
+				},
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	origNoColor := cli.GlobalConfig.NoColor
+	defer func() {
+		cli.GlobalConfig.JSON = origJSON
+		cli.GlobalConfig.NoColor = origNoColor
+	}()
+	cli.GlobalConfig.JSON = false
+	cli.GlobalConfig.NoColor = true
+
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("view", "ordered"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
+
+	require.NoError(t, runErr)
+	output := stdoutBuf.String() + ptermBuf.String()
+	assert.Contains(t, output, "ST", "ordered backlog should include compact status column")
+	assert.Contains(t, output, "IP", "ordered backlog should render configured display token")
+}
+
+func TestSprintBacklog_GroupedViewFallsBackWhenDisplayTokenMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	configJSON := `{
+  "status_flow_version": "1.0",
+  "status_flow": {
+    "todo": ["ready_for_review"],
+    "ready_for_review": ["completed"],
+    "completed": []
+  },
+  "status_metadata": {
+    "todo": {
+      "color": "gray"
+    },
+    "ready_for_review": {
+      "color": "yellow"
+    },
+    "completed": {
+      "color": "green"
+    }
+  },
+  "special_statuses": {
+    "_start_": ["todo"],
+    "_complete_": ["completed"]
+  }
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".sharkconfig.json"), []byte(configJSON), 0644))
+
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() {
+		_ = os.Chdir(origWD)
+		cli.ResetWorkflowService()
+		config.ClearWorkflowCache()
+	}()
+	cli.ResetWorkflowService()
+	config.ClearWorkflowCache()
+
+	mock := &MockSprintService{
+		GetSprintBacklogFunc: func(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error) {
+			return &services.SprintBacklog{
+				SprintKey:  sprintKey,
+				SprintName: "Sprint 1",
+				View:       "grouped",
+				TotalCount: 1,
+				Groups: []*services.BacklogGroup{
+					{
+						StatusCategory: "review",
+						Items: []*services.BacklogItemView{
+							{Key: "E07-F01-001", EntityType: "task", Status: "ready_for_review", Title: "Review work"},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	origNoColor := cli.GlobalConfig.NoColor
+	defer func() {
+		cli.GlobalConfig.JSON = origJSON
+		cli.GlobalConfig.NoColor = origNoColor
+	}()
+	cli.GlobalConfig.JSON = false
+	cli.GlobalConfig.NoColor = true
+
+	var ptermBuf bytes.Buffer
+	pterm.SetDefaultOutput(&ptermBuf)
+	defer pterm.SetDefaultOutput(os.Stdout)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("type", "", "")
+	cmd.Flags().Bool("blocked", false, "")
+	cmd.Flags().String("view", "", "")
+	cmd.Flags().Bool("include-completed", false, "")
+	require.NoError(t, cmd.Flags().Set("view", "grouped"))
+
+	runErr := runSprintBacklog(cmd, []string{"S001"})
+
+	w.Close()
+	os.Stdout = origOut
+	var stdoutBuf bytes.Buffer
+	stdoutBuf.ReadFrom(r)
+
+	require.NoError(t, runErr)
+	output := stdoutBuf.String() + ptermBuf.String()
+	assert.Contains(t, output, "ST", "grouped backlog should include compact status column")
+	assert.Contains(t, output, "RFR", "grouped backlog should fall back to deterministic token when display_token is missing")
 }
 
 // =============================================================================
