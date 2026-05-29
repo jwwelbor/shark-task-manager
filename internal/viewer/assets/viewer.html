@@ -316,6 +316,19 @@
       gap: 12px;
     }
 
+    .sprint-plan-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .sprint-plan-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .sprint-hero {
       display: grid;
       gap: 10px;
@@ -6024,7 +6037,7 @@ function sprintPlanSelectableCount(items) {
   return items.length;
 }
 
-function renderSprintPlan(payload, filters) {
+function renderSprintPlan(payload, filters, overviewPayload) {
   const sprint = payload?.sprint || {};
   const items = sprintPlanItems(payload);
   const activeFilters = Object.assign({ status: '', agent: '', assignment: '' }, filters || sprintPlanFilters);
@@ -6083,6 +6096,26 @@ function renderSprintPlan(payload, filters) {
     ? `<div class="sprint-item-list">${itemRows}</div>`
     : '<div class="content-placeholder">No candidate items match the current filters.</div>';
 
+  // Right column: Assigned This Sprint — items from sprintOverviewData (no new fetch).
+  const assignedItems = sprintBacklogItems(overviewPayload || null);
+  const assignedCount = assignedItems.length;
+  const assignedRows = assignedItems.map(item => {
+    const key = escapeHtml(item.key || '');
+    const title = escapeHtml(item.title || item.key || '');
+    const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
+    const agent = escapeHtml(item.agent_type || item.agent || '');
+    const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
+    return `<div class="sprint-item-row" role="button" tabindex="0" data-sprint-item-key="${key}">
+      ${statusBadge}
+      <span class="sprint-item-key">${key}</span>
+      <span class="sprint-item-title" title="${title}">${title}</span>
+      <span style="font-size:11px;color:var(--fg-dim)">${agent || 'unassigned'} · ${size}</span>
+    </div>`;
+  }).join('');
+  const assignedHtml = assignedCount
+    ? `<div class="sprint-item-list">${assignedRows}</div>`
+    : '<div class="content-placeholder">No items assigned to this sprint.</div>';
+
   return `
     <div class="sprint-overview-grid">
       <section class="sprint-hero">
@@ -6097,15 +6130,17 @@ function renderSprintPlan(payload, filters) {
         <div class="ov-section-header">Filters</div>
         ${filtersHtml}
       </section>
-      <section class="ov-section">
-        <div class="ov-section-header">Candidate Backlog</div>
-        ${actionButtons}
-        ${itemsHtml}
-      </section>
-      <section class="ov-section">
-        <div class="ov-section-header">Capacity by Agent Type</div>
-        ${capacityRowsHtml(capacity)}
-      </section>
+      <div class="sprint-plan-columns">
+        <section class="ov-section">
+          <div class="ov-section-header">Candidate Backlog</div>
+          ${actionButtons}
+          ${itemsHtml}
+        </section>
+        <section class="ov-section">
+          <div class="ov-section-header">Assigned This Sprint (${assignedCount})</div>
+          ${assignedHtml}
+        </section>
+      </div>
     </div>`;
 }
 
@@ -6510,7 +6545,7 @@ function renderSprintModePanels() {
     }
   } else if (sprintViewTab === 'plan') {
     if (planPayload) {
-      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters);
+      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters, overviewPayload);
     } else {
       mainPanel.innerHTML = `<div class="content-placeholder">${sprintPlanError ? escapeHtml(sprintPlanError) : 'Loading sprint plan…'}</div>`;
     }
