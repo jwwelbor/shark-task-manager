@@ -329,6 +329,33 @@
       }
     }
 
+    .sprint-health-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .sprint-health-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .capacity-indicator {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .capacity-indicator-ok   { background: rgba(56, 161, 105, 0.2); color: #68d391; }
+    .capacity-indicator-high { background: rgba(236, 153, 75, 0.2); color: #f6ad55; }
+    .capacity-indicator-over { background: rgba(229, 62, 62, 0.2); color: #fc8181; }
+
     .sprint-hero {
       display: grid;
       gap: 10px;
@@ -5917,6 +5944,39 @@ function sprintTreeItemCount(payload) {
   return sprintBacklogItems(payload).length;
 }
 
+// renderScopeSnapshot renders the "Assigned Scope Snapshot" one-line bar.
+// assignedItems must be an array of sprint backlog items (from sprintBacklogItems).
+// Buckets with zero items are omitted from the rendered output (TC-018).
+// Returns an HTML string for a section element, or an empty string when
+// assignedItems is empty — callers must guard against rendering an empty section.
+function renderScopeSnapshot(assignedItems) {
+  if (!Array.isArray(assignedItems) || assignedItems.length === 0) {
+    return '';
+  }
+  // Tally items into display buckets using SPRINT_BUCKET_MAP.
+  const tally = { ready: 0, in_progress: 0, blocked: 0, done: 0 };
+  for (const item of assignedItems) {
+    const category = item?.status_category || item?.status || '';
+    const bucket = SPRINT_BUCKET_MAP[category];
+    if (bucket && Object.prototype.hasOwnProperty.call(tally, bucket)) {
+      tally[bucket]++;
+    }
+  }
+  // Build pills for non-zero buckets only (TC-018: zero-count pills omitted).
+  const bucketOrder = ['ready', 'in_progress', 'blocked', 'done'];
+  const pills = bucketOrder
+    .filter(key => tally[key] > 0)
+    .map(key => `<span class="header-pill">${escapeHtml(SPRINT_BUCKET_LABELS[key])} ${escapeHtml(String(tally[key]))}</span>`)
+    .join(' ');
+  if (!pills) {
+    return '';
+  }
+  return `<section class="ov-section">
+      <div class="ov-section-header">Assigned Scope Snapshot</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 0;">${pills}</div>
+    </section>`;
+}
+
 function sprintCatalogRows(rows, currentKey) {
   const list = Array.isArray(rows) ? rows : [];
   return list.map(row => {
@@ -6390,6 +6450,7 @@ function renderSprintOverview(payload) {
           </div>
         </div>
       </section>` : ''}
+      ${renderScopeSnapshot(backlogItems)}
     </div>`;
 }
 
