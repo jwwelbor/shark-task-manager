@@ -319,7 +319,7 @@
     .sprint-plan-columns {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      gap: 20px;
       align-items: start;
     }
 
@@ -327,6 +327,86 @@
       .sprint-plan-columns {
         grid-template-columns: 1fr;
       }
+    }
+
+    /* T-E27-F14-009: "Assigned This Sprint" column — subtle tint + accent border
+       to visually distinguish it from "Candidate Backlog" at a glance. */
+    .sprint-plan-col-assigned {
+      background: rgba(77, 119, 255, 0.04);
+      border: 1px solid var(--accent-dim);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+
+    /* T-E27-F14-009: Plan column headers — slightly more prominent than the
+       default ov-section-header (12px vs 10px, fg-muted vs fg-dim). */
+    .sprint-plan-col-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-muted);
+      margin: 0 0 10px;
+    }
+    .sprint-plan-col-header::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* T-E27-F14-009: Candidate item row — 5-column grid:
+       [checkbox] [badge] [key] [title fills remaining] [meta].
+       Replaces the generic .sprint-item-row for Plan tab candidate rows. */
+    .sprint-plan-item-row {
+      display: grid;
+      grid-template-columns: 16px auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .sprint-plan-item-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+    .sprint-plan-item-row.selected {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent-dim);
+    }
+
+    /* T-E27-F14-009: Assigned item row — 4-column grid (no checkbox):
+       [badge] [key] [title fills remaining] [meta]. */
+    .sprint-plan-assigned-row {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .sprint-plan-assigned-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+
+    /* T-E27-F14-009: meta label — agent + size; fg-muted gives ~3.5:1 contrast
+       against bg-2 (vs fg-dim which was ~2.2:1 and too low). */
+    .sprint-item-meta {
+      font-size: 11px;
+      color: var(--fg-muted);
+      white-space: nowrap;
     }
 
     .sprint-health-columns {
@@ -6373,6 +6453,105 @@ function renderSprintBacklogSection(payload, selectedKey) {
   return `<div>${groupsHtml}</div>`;
 }
 
+/**
+ * Returns the CSS class suffix for a capacity indicator based on the
+ * allocated/total ratio. Thresholds (AC-T3):
+ *   >100% = OVER, 85–100% = HIGH, <85% = OK.
+ * When total is 0, returns 'ok' to avoid division-by-zero.
+ */
+function capacityIndicatorLevel(allocated, total) {
+  if (!total || total <= 0) return 'ok';
+  const pct = (allocated / total) * 100;
+  if (pct > 100) return 'over';
+  if (pct >= 85) return 'high';
+  return 'ok';
+}
+
+/**
+ * Renders the two-column health zone for the Sprint Overview tab.
+ * Left panel: per-agent Capacity rows with OK/HIGH/OVER indicator and
+ *             failing Readiness factors.
+ * Right panel: Blockers enumerated with days-blocked age and unsized-item
+ *              warning count.
+ *
+ * All data is read from payload.capacity, payload.readiness, and
+ * payload.backlog.groups — no additional fetch (AC-T1).
+ * Blocked item rows call selectSprintItem(key) on click (AC-T2).
+ */
+function renderSprintHealthColumns(payload) {
+  // --- Left panel: Capacity by Agent Type ---
+  const capacityRows = Array.isArray(payload?.capacity) ? payload.capacity : [];
+  const capacityRowsHtmlStr = capacityRows.length
+    ? capacityRows.map(row => {
+        const agent = escapeHtml(row.agent_type || 'unassigned');
+        const allocated = Number(row.allocated_points || 0);
+        const total = Number(row.capacity_points || 0);
+        const level = capacityIndicatorLevel(allocated, total);
+        const levelLabel = level.toUpperCase();
+        const pct = total > 0 ? Math.round((allocated / total) * 100) : 0;
+        return `<div class="sprint-item-row" style="cursor:default">
+          <span class="sprint-item-key">${agent}</span>
+          <span class="sprint-item-title">${escapeHtml(String(allocated))} / ${escapeHtml(String(total))} pts (${escapeHtml(String(pct))}%)</span>
+          <span class="capacity-indicator capacity-indicator-${level}">${levelLabel}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No capacity data available.</div>';
+
+  // Failing readiness factors: score < max_score
+  const readiness = payload?.readiness || {};
+  const factors = Array.isArray(readiness.factors) ? readiness.factors : [];
+  const failingFactors = factors.filter(f => (f.score || 0) < (f.max_score || 0));
+  const failingHtml = failingFactors.length
+    ? failingFactors.map(f => {
+        return `<div class="sprint-item-row" style="cursor:default">
+          <span class="sprint-item-key" style="color:var(--accent)">${escapeHtml(f.name || '')}</span>
+          <span class="sprint-item-title" style="color:var(--fg-muted)">${escapeHtml(f.detail || '')} (${escapeHtml(String(f.score || 0))}/${escapeHtml(String(f.max_score || 0))})</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder" style="font-size:12px">All readiness factors passing.</div>';
+
+  // --- Right panel: Blockers/Risks ---
+  // Find blocked items from backlog groups
+  const blockedItems = sprintBacklogGroups(payload)
+    .filter(group => (group?.status_category || '') === 'blocked')
+    .flatMap(group => Array.isArray(group.items) ? group.items : []);
+
+  const blockerRowsHtml = blockedItems.length
+    ? blockedItems.map(item => {
+        const key = escapeHtml(item.key || '');
+        const title = escapeHtml(item.title || item.key || '');
+        const daysBlocked = item.days_blocked != null
+          ? ` · ${escapeHtml(String(item.days_blocked))}d blocked`
+          : '';
+        return `<div class="sprint-item-row" role="button" tabindex="0" data-sprint-item-key="${key}" onclick="selectSprintItem('${key}')">
+          <span class="sprint-item-key">${key}</span>
+          <span class="sprint-item-title" title="${title}">${title}</span>
+          <span style="font-size:11px;color:var(--accent)">${escapeHtml(daysBlocked)}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No blocked items.</div>';
+
+  // Unsized item warning count from capacity rows
+  const unsizedCount = capacityRows.reduce((acc, row) => acc + Number(row.unsized_assigned || 0), 0);
+  const unsizedWarning = unsizedCount > 0
+    ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(236,153,75,0.12);border-radius:4px;font-size:12px;color:#f6ad55">⚠️ ${escapeHtml(String(unsizedCount))} item${unsizedCount !== 1 ? 's' : ''} unsized</div>`
+    : '';
+
+  return `
+    <div class="sprint-health-columns">
+      <section class="ov-section">
+        <div class="ov-section-header">Capacity by Agent Type</div>
+        <div class="sprint-item-list">${capacityRowsHtmlStr}</div>
+        ${failingFactors.length ? `<div class="ov-section-header" style="margin-top:12px">Readiness Factors</div><div class="sprint-item-list">${failingHtml}</div>` : ''}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Blockers / Risks</div>
+        <div class="sprint-item-list">${blockerRowsHtml}</div>
+        ${unsizedWarning}
+      </section>
+    </div>`;
+}
+
 function renderSprintOverview(payload) {
   const sprint = payload?.sprint || {};
   const readiness = payload?.readiness || {};
@@ -6425,6 +6604,7 @@ function renderSprintOverview(payload) {
         </div>
       </section>
       <section>${metrics}</section>
+      <section>${renderSprintHealthColumns(payload)}</section>
       <section class="ov-section">
         <div class="ov-section-header">Sprint Backlog</div>
         ${renderSprintBacklogSection(payload, sprintSelectedKey)}
