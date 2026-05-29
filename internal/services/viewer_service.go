@@ -816,7 +816,7 @@ func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintRe
 
 	summary, err := s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
 	if err != nil {
-		return nil, fmt.Errorf("viewer sprint report: failed to load summary: %w", err)
+		summary = nil // summary only available for completed/archived sprints
 	}
 
 	return &SprintReportResponse{

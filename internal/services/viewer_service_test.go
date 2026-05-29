@@ -4886,6 +4886,167 @@ func TestViewerService_SprintPlan_UsesResolvedSprint(t *testing.T) {
 	}
 }
 
+// TestViewerService_SprintReport_PlanningSprintReturnsNilSummary verifies TC-001 and TC-002:
+// SprintReport must return (response, nil) with response.Summary == nil when GetSummary
+// returns an error (i.e. the sprint is in planning or active status, not completed/archived).
+// Counter-factual: the pre-fix code propagates the GetSummary error, so err != nil in the test.
+func TestViewerService_SprintReport_PlanningSprintReturnsNilSummary(t *testing.T) {
+	planning := &models.Sprint{
+		ID:     24,
+		Key:    "S024",
+		Name:   "Planning Sprint",
+		Status: models.SprintStatus("planning"),
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	analyticsSvc := &mockViewerSprintAnalyticsService{
+		GetBurndownFunc: func(_ context.Context, sprintKey string) (*BurndownResult, error) {
+			return &BurndownResult{SprintKey: sprintKey, SprintName: planning.Name}, nil
+		},
+		GetVelocityFunc: func(_ context.Context, n int) (*VelocityResult, error) {
+			return &VelocityResult{SprintCount: n}, nil
+		},
+		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+			// Simulate the error returned by SprintAnalyticsService for non-completed sprints.
+			return nil, fmt.Errorf("sprint summary is available for completed or archived sprints only")
+		},
+	}
+	sprintSvc := &mockViewerSprintService{
+		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+			if filters == nil {
+				t.Fatal("expected sprint status filter")
+			}
+			switch filters.Status {
+			case "active":
+				return nil, nil
+			case "planning":
+				return []*models.Sprint{planning}, nil
+			case "closing", "completed", "cancelled", "archived":
+				return nil, nil
+			default:
+				t.Fatalf("unexpected sprint status filter %q", filters.Status)
+			}
+			return nil, nil
+		},
+		GetSprintFunc: func(_ context.Context, sprintKey string) (*models.Sprint, error) {
+			if sprintKey != planning.Key {
+				t.Fatalf("expected sprint key %q, got %q", planning.Key, sprintKey)
+			}
+			return planning, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+	svc.WithSprintAnalyticsService(analyticsSvc)
+
+	// TC-001: err must be nil (GetSummary error is non-fatal)
+	resp, err := svc.SprintReport(context.Background(), planning.Key)
+	if err != nil {
+		t.Fatalf("TC-001: expected no error for planning sprint, got: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("TC-001: expected non-nil response for planning sprint")
+	}
+	if resp.Sprint == nil || resp.Sprint.Key != planning.Key {
+		t.Fatalf("TC-001: expected sprint %q in report, got %#v", planning.Key, resp.Sprint)
+	}
+	if resp.Burndown == nil {
+		t.Fatal("TC-001: expected non-nil Burndown in report")
+	}
+	if resp.Velocity == nil {
+		t.Fatal("TC-001: expected non-nil Velocity in report")
+	}
+
+	// TC-002: Summary must be nil (pointer nil, not zero-value struct)
+	if resp.Summary != nil {
+		t.Fatalf("TC-002: expected Summary == nil for planning sprint, got %#v", resp.Summary)
+	}
+}
+
+// TestViewerService_SprintReport_CompletedSprintRetainsSummary verifies TC-003:
+// Completed/archived sprints must still return a non-nil Summary (backward compatibility).
+// Counter-factual: an impl that always sets summary = nil would fail the non-nil assertion.
+func TestViewerService_SprintReport_CompletedSprintRetainsSummary(t *testing.T) {
+	completed := &models.Sprint{
+		ID:     10,
+		Key:    "S010",
+		Name:   "Completed Sprint",
+		Status: models.SprintStatus("completed"),
+	}
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	analyticsSvc := &mockViewerSprintAnalyticsService{
+		GetBurndownFunc: func(_ context.Context, sprintKey string) (*BurndownResult, error) {
+			return &BurndownResult{SprintKey: sprintKey, SprintName: completed.Name}, nil
+		},
+		GetVelocityFunc: func(_ context.Context, n int) (*VelocityResult, error) {
+			return &VelocityResult{SprintCount: n}, nil
+		},
+		GetSummaryFunc: func(_ context.Context, sprintKey string, detailed bool) (*SprintSummaryResult, error) {
+			// Completed sprint: GetSummary succeeds and returns a real summary.
+			return &SprintSummaryResult{SprintKey: sprintKey, SprintName: completed.Name, VelocityThisSprint: 42}, nil
+		},
+	}
+	sprintSvc := &mockViewerSprintService{
+		ListSprintsFunc: func(_ context.Context, filters *SprintListFilters) ([]*models.Sprint, error) {
+			if filters == nil {
+				t.Fatal("expected sprint status filter")
+			}
+			switch filters.Status {
+			case "active", "planning", "closing", "cancelled":
+				return nil, nil
+			case "completed":
+				return []*models.Sprint{completed}, nil
+			case "archived":
+				return nil, nil
+			default:
+				t.Fatalf("unexpected sprint status filter %q", filters.Status)
+			}
+			return nil, nil
+		},
+		GetSprintFunc: func(_ context.Context, sprintKey string) (*models.Sprint, error) {
+			if sprintKey != completed.Key {
+				t.Fatalf("expected sprint key %q, got %q", completed.Key, sprintKey)
+			}
+			return completed, nil
+		},
+	}
+
+	svc.WithSprintService(sprintSvc)
+	svc.WithSprintAnalyticsService(analyticsSvc)
+
+	// TC-003: completed sprint must return non-nil Summary
+	resp, err := svc.SprintReport(context.Background(), completed.Key)
+	if err != nil {
+		t.Fatalf("TC-003: unexpected error for completed sprint: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("TC-003: expected non-nil response for completed sprint")
+	}
+	if resp.Summary == nil {
+		t.Fatal("TC-003: expected non-nil Summary for completed sprint")
+	}
+	if resp.Summary.VelocityThisSprint != 42 {
+		t.Fatalf("TC-003: expected VelocityThisSprint=42, got %d", resp.Summary.VelocityThisSprint)
+	}
+}
+
 func TestViewerService_SprintReport_ComposesAnalytics(t *testing.T) {
 	active := &models.Sprint{
 		ID:   24,

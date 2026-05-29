@@ -2146,9 +2146,8 @@ function formatDateOnly(isoString) {
     const months = ['Jan','Feb','Mar','Apr','May','Jun',
                     'Jul','Aug','Sep','Oct','Nov','Dec'];
     const monLabel = months[mon];
-    const currentYear = parseInt(String(isoString).split('T')[0].split('-')[0], 10);
     const nowYear = new Date().getFullYear();
-    if (currentYear !== nowYear) {
+    if (year !== nowYear) {
       return `${monLabel} ${day}, ${year}`;
     }
     return `${monLabel} ${day}`;
@@ -5895,7 +5894,7 @@ function sprintCatalogRows(rows, currentKey) {
     const name = escapeHtml(row?.name || row?.title || row?.key || 'Unnamed Sprint');
     const status = escapeHtml(String(row?.status || '').replace(/_/g, ' '));
     const selectedClass = row?.key && row.key === currentKey ? ' selected' : '';
-    const range = sprintFormatRange(row);
+    const range = sprintFormatRange(row?.start_date || row?.startDate || row?.start, row?.end_date || row?.endDate || row?.end);
     return `<div class="sprint-item-row${selectedClass}" style="cursor:default">
       <span class="status-badge status-badge-sm">${status || 'sprint'}</span>
       <span class="sprint-item-key">${key}</span>
@@ -5923,7 +5922,7 @@ function renderSprintTree(payload) {
   const archiveRows = sprintCatalogRows(catalog.archived, currentKey);
   const sprintKey = escapeHtml(sprint.key || 'Active Sprint');
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
-  const sprintRange = sprintFormatRange(sprint);
+  const sprintRange = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
 
   const bucketHtml = activeBuckets.map(bucket => {
     const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
@@ -6038,7 +6037,7 @@ function renderSprintPlan(payload, filters) {
   const itemRows = filtered.map(item => {
     const key = escapeHtml(item.key || '');
     const title = escapeHtml(item.title || item.key || '');
-    const statusBadge = ovStatusBadge(item.status || 'unknown');
+    const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
     const checked = sprintPlanSelection.has(item.key) ? ' checked' : '';
     const agent = escapeHtml(item.agent_type || item.agent || '');
     const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
@@ -6275,7 +6274,7 @@ function renderSprintOverview(payload) {
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const keyLabel = escapeHtml(sprint.key || '');
-  const dateLabel = sprintFormatRange(sprint);
+  const dateLabel = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
   const summaryLabel = payload?.summary
     ? `Velocity ${escapeHtml(String(payload.summary.velocity_this_sprint ?? '—'))} · Completed ${escapeHtml(String(payload.summary.completed_count ?? '—'))}`
     : 'Read-first operational view';
