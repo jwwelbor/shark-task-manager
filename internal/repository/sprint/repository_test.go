@@ -1367,7 +1367,7 @@ func TestSprintRepository_ReassignToSprintTx_ClearsSprintOrderToAvoidDestination
 	require.NoError(t, err)
 
 	var (
-		gotSprintID   int64
+		gotSprintID    int64
 		gotSprintOrder sql.NullInt64
 	)
 	err = database.QueryRowContext(ctx,
