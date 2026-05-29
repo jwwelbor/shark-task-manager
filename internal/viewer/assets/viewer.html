@@ -6211,12 +6211,13 @@ function renderSprintPlan(payload, filters, overviewPayload) {
     const checked = sprintPlanSelection.has(item.key) ? ' checked' : '';
     const agent = escapeHtml(item.agent_type || item.agent || '');
     const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
-    return `<div class="sprint-item-row" data-sprint-plan-key="${key}">
+    // T-E27-F14-009: use sprint-plan-item-row (5-column grid) and .sprint-item-meta for improved contrast
+    return `<div class="sprint-plan-item-row" data-sprint-plan-key="${key}">
       <input type="checkbox" class="sprint-plan-checkbox" data-sprint-plan-select-key="${key}"${checked}>
       ${statusBadge}
       <span class="sprint-item-key">${key}</span>
       <span class="sprint-item-title" title="${title}">${title}</span>
-      <span style="font-size:11px;color:var(--fg-dim)">${agent || 'unassigned'} · ${size}</span>
+      <span class="sprint-item-meta">${agent || 'unassigned'} · ${size}</span>
     </div>`;
   }).join('');
 
@@ -6246,7 +6247,7 @@ function renderSprintPlan(payload, filters, overviewPayload) {
       <button class="header-btn header-btn-accent" id="sprint-plan-stage-btn">Stage selected</button>
       <button class="header-btn" id="sprint-plan-remove-btn">Remove selected</button>
       <button class="header-btn" id="sprint-plan-ready-btn">Mark ready</button>
-      <span style="align-self:center;color:var(--fg-dim);font-size:12px">${actionCount} selected</span>
+      <span style="align-self:center;color:var(--fg-muted);font-size:12px">${actionCount} selected</span>
     </div>`;
 
   const itemsHtml = filtered.length
@@ -6262,11 +6263,12 @@ function renderSprintPlan(payload, filters, overviewPayload) {
     const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
     const agent = escapeHtml(item.agent_type || item.agent || '');
     const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
-    return `<div class="sprint-item-row" role="button" tabindex="0" data-sprint-item-key="${key}">
+    // T-E27-F14-009: use sprint-plan-assigned-row (4-column grid, no checkbox) and .sprint-item-meta
+    return `<div class="sprint-plan-assigned-row" role="button" tabindex="0" data-sprint-item-key="${key}">
       ${statusBadge}
       <span class="sprint-item-key">${key}</span>
       <span class="sprint-item-title" title="${title}">${title}</span>
-      <span style="font-size:11px;color:var(--fg-dim)">${agent || 'unassigned'} · ${size}</span>
+      <span class="sprint-item-meta">${agent || 'unassigned'} · ${size}</span>
     </div>`;
   }).join('');
   const assignedHtml = assignedCount
@@ -6289,12 +6291,12 @@ function renderSprintPlan(payload, filters, overviewPayload) {
       </section>
       <div class="sprint-plan-columns">
         <section class="ov-section">
-          <div class="ov-section-header">Candidate Backlog</div>
+          <div class="sprint-plan-col-header">Candidate Backlog</div>
           ${actionButtons}
           ${itemsHtml}
         </section>
-        <section class="ov-section">
-          <div class="ov-section-header">Assigned This Sprint (${assignedCount})</div>
+        <section class="sprint-plan-col-assigned">
+          <div class="sprint-plan-col-header">Assigned This Sprint (${assignedCount})</div>
           ${assignedHtml}
         </section>
       </div>
