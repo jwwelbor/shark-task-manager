@@ -1,4 +1,4 @@
-{{define "_qa_process"}}LOAD: quality skill.
+{{define "_qa_process"}}LOAD: quality skill workflow qa-testing.md.
 
 READ:
 (1) Task spec at {{.file_path}} for acceptance criteria and **Scope file list**
@@ -35,16 +35,15 @@ The full integration suite has many pre-existing failures unrelated to any singl
    - For changes touching a shared module / interface used by many consumers, run the full unit suite once: `cd backend && uv run pytest tests/unit -x --tb=short` (~40s)
    - For localized changes (single service / single API route / doc-only), skip this — the targeted run above is sufficient.
 
-VALIDATE:
-- Quality gates pass (fmt, lint)
-- All targeted tests pass (zero failures introduced by this task)
-- Acceptance criteria from the feature test plan are exercised by the tests you ran (cite test names)
-- Edge cases identified in the test plan are covered
-- No regressions in the targeted scope
+MANDATORY VERIFICATION (from qa-testing.md — DO NOT SKIP):
+
+- E2E Reachability: confirm new components have call sites outside tests and trace to a runtime entry point. Zero call sites = BLOCKER.
+- Production Caller Signature Match: verify at least one test per service-contract change drives the exact argument shape production uses. Signature mismatch = BLOCKER.
+- Codex Red-Team: run codex to independently verify implementation against spec.
+- Integration Test Assertion Quality: verify tests assert positive outcomes, not just absence of exceptions. Tests that only pass via degradation/fallback = BLOCKER.
 
 DO NOT RUN:
 - `make test` / `scripts/ramtest.sh` (runs full integration suite — too slow for per-task QA)
-- Codex red-team (UAT owns red-team; running it here is redundant and costs ~5 min when it times out)
 - Manual `make test-performance` unless the task explicitly modifies code paths timed by performance tests
 
 REVIEW BASE PATH: Derive from {{.file_path}} — replace "docs/plan/" with "docs/review/", keep epic-folder/feature-folder segments (strip /tasks/filename if present).

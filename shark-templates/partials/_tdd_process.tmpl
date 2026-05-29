@@ -6,4 +6,11 @@
 5. Refactor while keeping tests green.
 6. Commit when test suite passes.
 
-Tests that mock above the prescribed entrypoint, or use helper-test signatures production never passes, will be rejected at code review.{{end}}
+Tests that mock above the prescribed entrypoint, or use helper-test signatures production never passes, will be rejected at code review.
+
+AGGREGATE-RESULT INVARIANT (when implementing loops or multi-dispatch):
+If the implementation processes a collection, the test suite MUST include:
+- A test where ALL items fail — verifying the aggregate escalates rather than reporting success with zero results.
+- A test where SOME items fail — verifying partial-failure is distinguishable from full-success.
+"The loop ran" is not "the loop worked."
+{{end}}
