@@ -48,6 +48,10 @@ const AggregationStatusKey = workflow.AggregationStatusKey
 // DefaultWorkflowVersion is the default version for workflow configs.
 const DefaultWorkflowVersion = workflow.DefaultWorkflowVersion
 
+// KnownWorkflowLevels lists every entity workflow level shark supports in
+// canonical display order.
+var KnownWorkflowLevels = workflow.KnownLevels
+
 // --- workflow/ functions ---
 
 // LoadWorkflowConfig loads workflow configuration from .sharkconfig.json.

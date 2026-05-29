@@ -1,5 +1,19 @@
 package workflow
 
+// KnownLevels lists every entity workflow level shark supports, in the canonical
+// display order used by `shark admin workflow list/validate` and any other
+// consumer that needs to iterate all levels. Adding a new entity workflow
+// requires appending its level name here so every consumer picks it up.
+var KnownLevels = []string{
+	"epic",
+	"feature",
+	"task",
+	"sprint",
+	"bug",
+	"change",
+	"tech_debt",
+}
+
 // MultiLevelWorkflow holds workflow configurations for all entity levels.
 // Any level may be nil, meaning "use default workflow for that level."
 type MultiLevelWorkflow struct {
@@ -25,11 +39,38 @@ type MultiLevelWorkflow struct {
 	HasLegacyTaskKeys bool
 }
 
+// RawForLevel returns the raw (possibly nil) workflow config for the given
+// level. Unlike GetWorkflowForLevel, it does NOT fall back to defaults — a nil
+// return means "no custom workflow configured for this level."
+//
+// Callers can use this to distinguish custom-vs-default sources when rendering
+// or validating the multi-level workflow.
+func (m *MultiLevelWorkflow) RawForLevel(level string) *WorkflowConfig {
+	switch level {
+	case "epic":
+		return m.Epic
+	case "feature":
+		return m.Feature
+	case "task":
+		return m.Task
+	case "sprint":
+		return m.Sprint
+	case "bug":
+		return m.Bug
+	case "change":
+		return m.Change
+	case "tech_debt":
+		return m.TechDebt
+	default:
+		return nil
+	}
+}
+
 // GetWorkflowForLevel returns the workflow config for the given level.
 // Falls back to the appropriate default if nil.
 //
 // Parameters:
-//   - level: one of "epic", "feature", "task", "sprint", "bug", "change"
+//   - level: one of "epic", "feature", "task", "sprint", "bug", "change", "tech_debt"
 //
 // Returns:
 //   - *WorkflowConfig: never nil (falls back to defaults)

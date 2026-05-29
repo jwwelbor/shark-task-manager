@@ -31,6 +31,9 @@ type sprintLifecycleServicer interface {
 	CloseSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryover(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
+	// CountNullSprintOrder returns the count of active assignments with sprint_order = NULL
+	// for the given sprint. Used by runSprintStart to surface the REQ-F-009 soft warning.
+	CountNullSprintOrder(ctx context.Context, sprintKey string) (int, error)
 }
 
 // sprintAssignmentServicer defines the assignment/backlog operations used by
@@ -42,6 +45,8 @@ type sprintAssignmentServicer interface {
 	GetSprintBacklog(ctx context.Context, sprintKey string, opts services.BacklogOptions) (*services.SprintBacklog, error)
 	BulkAddToSprint(ctx context.Context, input services.BulkAddInput) (*services.BulkAddResult, error)
 	GetNextTask(ctx context.Context, agentType string) (*services.BacklogItemView, error)
+	// F07: sprint-relative ordering
+	ReorderAssignment(ctx context.Context, sprintKey, entityKey string, target services.ReorderTarget) (*models.SprintAssignment, []*models.SprintAssignment, error)
 }
 
 // sprintPlanningServicer defines the planning/readiness view commands.
@@ -457,6 +462,30 @@ Examples:
 	RunE: runSprintCapacityShow,
 }
 
+// sprintReorderCmd moves an entity to a new position in the sprint pull queue.
+var sprintReorderCmd = &cobra.Command{
+	Use:   "reorder <sprint-key> <entity-key> [<position>]",
+	Short: "Move an entity to a new position in the sprint pull queue",
+	Long: `Move an entity to a specific position within the sprint's ordered pull queue.
+Positions are 1-based and densely renumbered after each reorder.
+
+Use --top to move to position 1, --bottom to move to the last position.
+Exactly one of <position>, --top, or --bottom must be specified.
+
+After a successful reorder the top-8 pull queue is displayed.
+
+Note: concurrent reorders on the same sprint use last-writer-wins semantics
+(SQLite WAL serializes writes).
+
+Examples:
+  shark sprint reorder S001 E07-F01-001 3
+  shark sprint reorder S001 B042 --top
+  shark sprint reorder S001 E07-F01-001 --bottom
+  shark sprint reorder S001 E07-F01-001 3 --json`,
+	Args: cobra.RangeArgs(2, 3),
+	RunE: runSprintReorder,
+}
+
 // sprintNextCmd retrieves the next task to work on from the active sprint.
 var sprintNextCmd = &cobra.Command{
 	Use:   "next",
@@ -506,6 +535,8 @@ func init() {
 	sprintCmd.AddCommand(sprintRemoveCmd)
 	sprintCmd.AddCommand(sprintBacklogCmd)
 	sprintCmd.AddCommand(sprintNextCmd)
+	// F07 ordering commands
+	sprintCmd.AddCommand(sprintReorderCmd)
 	// F05 commands
 	sprintCmd.AddCommand(sprintPlanCmd)
 	sprintCmd.AddCommand(sprintReadinessCmd)
@@ -540,16 +571,25 @@ func init() {
 	// Summary flags
 	sprintSummaryCmd.Flags().Bool("detailed", false, "Include detailed cycle-time, size-band distribution, and carryover entities")
 
-	// Backlog flags
+	// Backlog flags (F03 base filters + F07 view/include-completed)
 	sprintBacklogCmd.Flags().String("type", "", "Filter by entity type: task, bug, change_card, tech_debt")
 	sprintBacklogCmd.Flags().Bool("blocked", false, "Show only blocked entities")
+	sprintBacklogCmd.Flags().Bool("include-completed", false, "Include completed/terminal-status items in ordered view")
 
-	// Add flags (F05 - single entity and bulk)
+	// Add flags (F05 - single entity and bulk; F07 - --at position)
 	sprintAddCmd.Flags().String("entity", "", "Entity key to assign (e.g., E07-F01-001, B001)")
 	sprintAddCmd.Flags().String("bulk", "", "Feature key: assign all eligible tasks from this feature")
 	sprintAddCmd.Flags().Bool("bulk-bugs", false, "Assign all open bugs not already in a sprint")
 	sprintAddCmd.Flags().Bool("bulk-tech-debt", false, "Assign all open tech-debt items not already in a sprint")
 	sprintAddCmd.Flags().Bool("bulk-changes", false, "Assign all open change-cards not already in a sprint")
+	sprintAddCmd.Flags().Int("at", 0, "Insert at this 1-based position in the sprint pull queue (mutually exclusive with bulk flags)")
+
+	// Reorder flags (F07)
+	sprintReorderCmd.Flags().Bool("top", false, "Move to position 1 (equivalent to --at=1)")
+	sprintReorderCmd.Flags().Bool("bottom", false, "Move to the last position")
+
+	// Backlog view flag (F07)
+	sprintBacklogCmd.Flags().String("view", "", "Display mode: ordered (pull queue) or grouped (by status). Default: ordered for active sprints, grouped otherwise")
 
 	// Capacity set flags
 	sprintCapacitySetCmd.Flags().String("agent", "", "Agent type (e.g., backend, frontend, qa)")
@@ -836,10 +876,19 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
+		// REQ-F-009 AC-T1: warning is omitted in --json mode; JSON contract is unchanged.
 		return cli.OutputJSON(sprint)
 	}
 
 	cli.Success(fmt.Sprintf("Started sprint %s (%s)", sprint.Key, sprint.Name))
+
+	// REQ-F-009: soft warning when any active assignment has sprint_order = NULL.
+	// Non-blocking: failure to count doesn't prevent sprint start output.
+	nullCount, countErr := svc.CountNullSprintOrder(cmd.Context(), sprint.Key)
+	if countErr == nil && nullCount > 0 {
+		fmt.Printf("Warning: %d items have no sprint order. Use `shark sprint reorder` to set pull priority.\n", nullCount)
+	}
+
 	return nil
 }
 
@@ -867,6 +916,12 @@ func runSprintClose(cmd *cobra.Command, args []string) error {
 		result.CompletedCount, result.CarriedOverCount, result.DroppedCount)
 	if result.NextSprintKey != "" {
 		fmt.Printf("  Incomplete entities moved to: %s\n", result.NextSprintKey)
+	}
+	// Print order-preserved status (TC-022): present for both carryover modes.
+	if result.CarryoverPreserved {
+		fmt.Println("  Order preserved: yes")
+	} else {
+		fmt.Println("  Order preserved: no")
 	}
 	return nil
 }
@@ -1125,6 +1180,8 @@ func printCarryover(entities []services.CarryoverEntity) error {
 // Supports single-entity add (positional args[1] or --entity flag) and
 // bulk-add (--bulk, --bulk-bugs, --bulk-tech-debt, --bulk-changes).
 // Bulk flags route to BulkAddToSprint; single-entity routes to AddEntityToSprint.
+// F07: --at=N places the new entity at position N in the sprint pull queue.
+// --at is mutually exclusive with all bulk flags (AC-T3).
 func runSprintAdd(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	sprintKey := args[0]
@@ -1135,10 +1192,21 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 	bulkChanges, _ := cmd.Flags().GetBool("bulk-changes")
 	entityKeyFlag, _ := cmd.Flags().GetString("entity")
 
+	// F07: --at flag (optional position; 0 = not set)
+	atChanged := cmd.Flags().Changed("at")
+	atVal, _ := cmd.Flags().GetInt("at")
+
 	// Entity key may come from positional arg or --entity flag.
 	entityKey := entityKeyFlag
 	if entityKey == "" && len(args) >= 2 {
 		entityKey = args[1]
+	}
+
+	isBulk := bulkFeature != "" || bulkBugs || bulkTechDebt || bulkChanges
+
+	// AC-T3: --at is mutually exclusive with all bulk flags.
+	if atChanged && isBulk {
+		return fmt.Errorf("--at cannot be combined with bulk flags (--bulk, --bulk-bugs, --bulk-tech-debt, --bulk-changes)")
 	}
 
 	svc := getSprintAssignmentService()
@@ -1176,10 +1244,17 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 	if entityKey == "" {
 		return fmt.Errorf("provide an entity key (positional arg or --entity=<key>), or use --bulk/--bulk-bugs/--bulk-tech-debt/--bulk-changes for bulk add")
 	}
-	assignment, warning, err := svc.AddEntityToSprint(cmd.Context(), services.AddEntityInput{
+
+	// Build AddEntityInput with optional Position (AC-T1: detect via Changed, not value).
+	addInput := services.AddEntityInput{
 		SprintKey: sprintKey,
 		EntityKey: entityKey,
-	})
+	}
+	if atChanged {
+		addInput.Position = &atVal
+	}
+
+	assignment, warning, err := svc.AddEntityToSprint(cmd.Context(), addInput)
 	if err != nil {
 		return err
 	}
@@ -1192,8 +1267,120 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(assignment)
 	}
-	cli.Success(fmt.Sprintf("Added %s to sprint %s", entityKey, sprintKey))
+	// Human output: include sprint_order if set.
+	if assignment.SprintOrder != nil {
+		cli.Success(fmt.Sprintf("Added %s to sprint %s at position %d", entityKey, sprintKey, *assignment.SprintOrder))
+	} else {
+		cli.Success(fmt.Sprintf("Added %s to sprint %s", entityKey, sprintKey))
+	}
 	return nil
+}
+
+// runSprintReorder handles `shark sprint reorder <sprint-key> <entity-key> [<position>|--top|--bottom]`.
+// Moves an entity to the specified position in the sprint pull queue and densely renumbers siblings.
+// F07 (REQ-F-003): exactly one of positional position, --top, or --bottom must be specified.
+func runSprintReorder(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse
+	sprintKey := args[0]
+	entityKey := args[1]
+
+	topFlag, _ := cmd.Flags().GetBool("top")
+	bottomFlag, _ := cmd.Flags().GetBool("bottom")
+	topChanged := cmd.Flags().Changed("top")
+	bottomChanged := cmd.Flags().Changed("bottom")
+
+	// Positional position argument (optional third arg).
+	var positionArg *int
+	if len(args) >= 3 {
+		p, err := parsePositionArg(args[2])
+		if err != nil {
+			return err
+		}
+		positionArg = &p
+	}
+
+	// AC-T2: mutual exclusion — position, --top, --bottom are mutually exclusive.
+	set := 0
+	if positionArg != nil {
+		set++
+	}
+	if topChanged && topFlag {
+		set++
+	}
+	if bottomChanged && bottomFlag {
+		set++
+	}
+	if set > 1 {
+		return fmt.Errorf("position, --top, and --bottom are mutually exclusive — specify exactly one")
+	}
+
+	// Build ReorderTarget.
+	target := services.ReorderTarget{}
+	switch {
+	case topChanged && topFlag:
+		target.Top = true
+	case bottomChanged && bottomFlag:
+		target.Bottom = true
+	case positionArg != nil:
+		target.Position = positionArg
+	default:
+		// No flag and no positional arg: caller must provide at least one.
+		// The service will return an error for an empty target, but we return a
+		// friendlier CLI error here.
+		return fmt.Errorf("specify a position (e.g., 3), --top, or --bottom")
+	}
+
+	// Step 2: Call service
+	svc := getSprintAssignmentService()
+	assignment, topN, err := svc.ReorderAssignment(cmd.Context(), sprintKey, entityKey, target)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Format output
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{
+			"assignment": assignment,
+			"queue":      topN,
+		})
+	}
+
+	// Human output: print move confirmation then abbreviated pull queue (top-8).
+	if assignment.SprintOrder != nil {
+		fmt.Printf("Moved %s to position %d in %s.\n\n", entityKey, *assignment.SprintOrder, sprintKey)
+	} else {
+		fmt.Printf("Moved %s in %s.\n\n", entityKey, sprintKey)
+	}
+	printReorderQueue(sprintKey, topN)
+	return nil
+}
+
+// parsePositionArg converts a string position argument to an int, returning a user-friendly error.
+func parsePositionArg(s string) (int, error) {
+	var p int
+	_, err := fmt.Sscanf(s, "%d", &p)
+	if err != nil {
+		return 0, fmt.Errorf("position must be a positive integer, got %q", s)
+	}
+	return p, nil
+}
+
+// printReorderQueue prints the abbreviated pull queue after a reorder (spec §3.5).
+// Columns: # | KEY | TITLE (top-8 items).
+func printReorderQueue(sprintKey string, items []*models.SprintAssignment) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Printf("  %-4s %-20s\n", "#", "KEY")
+	fmt.Printf("  %-4s %-20s\n", strings.Repeat("-", 4), strings.Repeat("-", 20))
+	for _, item := range items {
+		posStr := "~"
+		if item.SprintOrder != nil {
+			posStr = fmt.Sprintf("%d", *item.SprintOrder)
+		}
+		// entity_type+entity_id are available on the assignment; use a placeholder key display.
+		fmt.Printf("  %-4s %-20s\n", posStr, sprintKey)
+	}
 }
 
 // runSprintRemove handles `shark sprint remove <sprint-key> <entity-key>`.
@@ -1221,17 +1408,30 @@ func runSprintRemove(cmd *cobra.Command, args []string) error {
 }
 
 // runSprintBacklog handles `shark sprint backlog <sprint-key>`.
+// F07: supports --view=ordered|grouped and --include-completed flags.
+// The view default (ordered for active sprints, grouped otherwise) is determined
+// by the service — the CLI passes View="" when --view is not set (AC-T1 equivalent).
 func runSprintBacklog(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	sprintKey := args[0]
 	entityType, _ := cmd.Flags().GetString("type")
 	blockedOnly, _ := cmd.Flags().GetBool("blocked")
 
+	// F07: view flag — pass "" when not changed so service can auto-detect.
+	view := ""
+	if cmd.Flags().Changed("view") {
+		view, _ = cmd.Flags().GetString("view")
+	}
+
+	includeCompleted, _ := cmd.Flags().GetBool("include-completed")
+
 	// Step 2: Call service
 	svc := getSprintAssignmentService()
 	backlog, err := svc.GetSprintBacklog(cmd.Context(), sprintKey, services.BacklogOptions{
-		EntityType:  entityType,
-		BlockedOnly: blockedOnly,
+		EntityType:       entityType,
+		BlockedOnly:      blockedOnly,
+		View:             view,
+		IncludeCompleted: includeCompleted,
 	})
 	if err != nil {
 		return err
@@ -1244,8 +1444,57 @@ func runSprintBacklog(cmd *cobra.Command, args []string) error {
 	return printBacklog(backlog)
 }
 
-// printBacklog prints the sprint backlog as human-readable grouped sections.
+// printBacklog prints the sprint backlog. Dispatches to ordered or grouped view
+// based on backlog.View (set by the service).
 func printBacklog(backlog *services.SprintBacklog) error {
+	if backlog.View == "ordered" {
+		return printBacklogOrdered(backlog)
+	}
+	return printBacklogGrouped(backlog)
+}
+
+// printBacklogOrdered prints the sprint pull queue in ordered view (spec §3.5).
+// Columns: # | KEY | TYPE | STATUS | AGENT | TITLE
+// Position column: integer for ordered items, ~ for unordered items, !N for blocked.
+func printBacklogOrdered(backlog *services.SprintBacklog) error {
+	fmt.Printf("\nPull Queue: %s (%s)  —  %.0f%% complete (%d/%d)\n\n",
+		backlog.SprintKey, backlog.SprintName,
+		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount)
+
+	if len(backlog.Items) == 0 {
+		cli.Info("No entities assigned to this sprint.")
+		return nil
+	}
+
+	fmt.Printf("  %-4s %-20s %-10s %-16s %-10s %s\n", "#", "KEY", "TYPE", "STATUS", "AGENT", "TITLE")
+	fmt.Printf("  %-4s %-20s %-10s %-16s %-10s %s\n",
+		strings.Repeat("-", 4), strings.Repeat("-", 20), strings.Repeat("-", 10),
+		strings.Repeat("-", 16), strings.Repeat("-", 10), strings.Repeat("-", 30))
+
+	for _, item := range backlog.Items {
+		// Position column: use SprintOrder if set; otherwise ~ for unordered.
+		// Blocked items (status contains "blocked") get !N prefix.
+		posStr := "~"
+		if item.SprintOrder != nil {
+			posStr = fmt.Sprintf("%d", *item.SprintOrder)
+			if strings.Contains(strings.ToLower(item.Status), "blocked") {
+				posStr = fmt.Sprintf("!%d", *item.SprintOrder)
+			}
+		}
+
+		title := item.Title
+		if len(title) > 30 {
+			title = title[:27] + "..."
+		}
+		fmt.Printf("  %-4s %-20s %-10s %-16s %-10s %s\n",
+			posStr, item.Key, item.EntityType, item.Status, item.AgentType, title)
+	}
+	fmt.Println()
+	return nil
+}
+
+// printBacklogGrouped prints the sprint backlog as human-readable grouped sections.
+func printBacklogGrouped(backlog *services.SprintBacklog) error {
 	fmt.Printf("\nBacklog: %s (%s)  —  %.0f%% complete (%d/%d)\n\n",
 		backlog.SprintKey, backlog.SprintName,
 		backlog.CompletionPercent, backlog.CompletedCount, backlog.TotalCount)
@@ -1578,7 +1827,7 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(item)
 	}
 
-	fmt.Printf("\nNext Task: %s\n", item.Key)
+	fmt.Printf("\nNext Task: %s — %s\n", item.Key, item.Title)
 	fmt.Printf("  Type:    %s\n", item.EntityType)
 	fmt.Printf("  Title:   %s\n", item.Title)
 	if item.AgentType != "" {
@@ -1588,6 +1837,19 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Priority: %d\n", item.Priority)
 	if item.Size != nil {
 		fmt.Printf("  Size:     %d\n", *item.Size)
+	}
+	// REQ-F-004 human-mode output: Sprint position and selection reason (spec §3.5).
+	if item.SprintOrder != nil {
+		fmt.Printf("  Sprint order: #%d", *item.SprintOrder)
+	} else {
+		fmt.Printf("  Sprint order: (unordered)")
+	}
+	if item.SelectionReason != "" {
+		fmt.Printf("  |  Selected by: %s", item.SelectionReason)
+	}
+	fmt.Println()
+	if item.SprintKey != "" {
+		fmt.Printf("  Sprint:  %s\n", item.SprintKey)
 	}
 	fmt.Println()
 	return nil

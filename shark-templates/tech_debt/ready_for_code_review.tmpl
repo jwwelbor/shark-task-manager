@@ -28,12 +28,34 @@ REVIEW CHECKLIST (tech-debt specific — there is no feature spec or test-plan t
 - [ ] Public API / CLI contracts unchanged unless the TD explicitly called for breaking them
 - [ ] Coding standards in CLAUDE.md respected (error wrapping, service-layer rules, no hardcoded statuses, parameterized queries, etc.)
 - [ ] Quality gate clean: `make fmt && make lint && make test`
+- [ ] Codex red-team ran and findings are incorporated (or codex failure is documented as a non-blocking note)
+
+CODEX RED-TEAM (mandatory — run after your own checklist):
+
+**Codex IS installed.** Path: `/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex`. Do NOT check `which codex` — just run it.
+
+Determine the changed files from the diff, then run:
+
+```
+codex exec -m gpt-5.2-codex -s read-only \
+  --context "<changed files and CLAUDE.md>" \
+  "You are performing an independent red-team CRAFT review of a tech debt resolution. Focus on craft quality: DRY, naming, complexity, test adequacy, hidden regressions, and whether the refactor actually reduces technical debt or just moves it. Do NOT re-verify the resolution plan — that is the human reviewer's job. Report: (1) Blockers — findings that would reintroduce or worsen the tech debt, introduce regressions, or break contracts. (2) Non-blockers — genuine craft issues worth capturing. (3) Verdict: PASS or FAIL."
+```
+
+**Timeout:** 5 minutes. If it times out, retry once. After two failures, log `"Codex craft review: FAILED — [error]"` as a NON-BLOCKING note and continue.
+
+**Merge codex findings into your own:**
+- Codex blockers are blockers unless you can defend the downgrade. Downgrade discipline: if you downgrade a codex blocker, you MUST state verbatim in the report: *"This finding is non-load-bearing because it does not mask a regression, a wiring gap, or a contract break, for the following reason: [reason]."*
+- If codex disagreed with your verdict, note the disagreement and pick the more conservative verdict.
+
+Include codex's response verbatim in the report under a **"Codex Red-Team"** section.
 
 PRODUCE a written review report at `docs/review/tech-debt/{{.id}}/code_review/<YYYY-MM-DD-HHMM>-{{.id}}-review.md` containing:
 - Verdict: PASS or FAIL
 - Summary of what was changed (1-2 sentences)
 - Checklist results (each item ticked or annotated with a finding)
 - Specific findings if FAIL (file:line references, what needs to change)
+- Codex Red-Team section (verbatim codex output + any disagreement notes)
 - Any follow-up tech debt observed (capture via `/triage` or a `future`-type note)
 
 DECISION:

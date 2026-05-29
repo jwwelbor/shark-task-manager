@@ -63,6 +63,30 @@ type SprintRepository interface {
 	GetBugIDByKey(ctx context.Context, key string) (int64, error)
 	GetChangeCardIDByKey(ctx context.Context, key string) (int64, error)
 	GetTechDebtIDByKey(ctx context.Context, key string) (int64, error)
+
+	// --- Sprint order methods (F07) ---
+
+	// MaxSprintOrder returns max(sprint_order) for active assignments in the sprint,
+	// or 0 if no ordered items exist. Used by AddEntityToSprint when Position is nil.
+	MaxSprintOrder(ctx context.Context, sprintID int64) (int, error)
+
+	// SetSprintOrderTx assigns sprint_order = newPosition for the given assignment ID
+	// within the caller-supplied transaction. Pass nil to clear (set NULL).
+	SetSprintOrderTx(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error
+
+	// RenumberAssignmentsTx applies a slice of (assignment_id, new_position) pairs in a
+	// single CASE WHEN UPDATE. Used by AddEntityToSprint (--at) and ReorderAssignment.
+	RenumberAssignmentsTx(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error
+
+	// ListOrderedAssignments returns active assignments for a sprint sorted by
+	// sprint_order ASC NULLS LAST, assigned_at ASC. Used by AddEntityToSprint (--at)
+	// to build the shift plan without re-scanning the full backlog UNION.
+	ListOrderedAssignments(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
+
+	// CountNullSprintOrder returns the number of active assignments for the sprint
+	// that have sprint_order = NULL. Used by StartSprint to surface a soft warning
+	// (REQ-F-009) without blocking the start transition.
+	CountNullSprintOrder(ctx context.Context, sprintID int64) (int, error)
 }
 
 // SprintAssignmentQueryRepository handles assignment queries needed for sprint planning.
@@ -457,6 +481,22 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	return updated, nil
 }
 
+// CountNullSprintOrder returns the number of active assignments in the sprint with
+// sprint_order = NULL. Called by runSprintStart after a successful start to surface
+// the soft warning required by REQ-F-009. Non-fatal: callers should log or warn on
+// error rather than blocking the operation.
+func (s *SprintService) CountNullSprintOrder(ctx context.Context, sprintKey string) (int, error) {
+	sprintEntity, err := s.GetSprint(ctx, sprintKey)
+	if err != nil {
+		return 0, fmt.Errorf("CountNullSprintOrder: failed to resolve sprint %q: %w", sprintKey, err)
+	}
+	n, err := s.repo.CountNullSprintOrder(ctx, sprintEntity.ID)
+	if err != nil {
+		return 0, fmt.Errorf("CountNullSprintOrder: failed to count for sprint %q: %w", sprintKey, err)
+	}
+	return n, nil
+}
+
 // CloseSprint transitions a sprint to closing status.
 //
 // Parameters:
@@ -524,6 +564,12 @@ type AddEntityInput struct {
 	// Zero means "unknown size"; the capacity check treats unknown-size entities as
 	// contributing 0 points (advisory only — does not block).
 	EstimatedSize int
+	// Position is an optional 1-based position for the new assignment in the sprint order.
+	// When nil (no --at flag), the item is appended after all ordered items: sprint_order = max + 1.
+	// When set, the item is inserted at the given position and all items at >= position are
+	// shifted up by 1. Must be in the range [1, count+1]; count+1 is equivalent to append.
+	// Validation: returns error if Position <= 0 or Position > count+1.
+	Position *int
 }
 
 // CapacityWarning is returned alongside the assignment when assigning an entity
@@ -605,19 +651,24 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 }
 
 // ---------------------------------------------------------------------------
-// AddEntityToSprint — T-E19-F03-005
+// AddEntityToSprint — T-E19-F03-005 / T-E19-F07-003
 // ---------------------------------------------------------------------------
 
 // AddEntityToSprint assigns any supported entity to a sprint.
 //
 // Steps:
 //  1. Resolve sprint by key.
-//  2. Parse entity key to determine entity_type (task/bug/change_card/tech_debt).
-//  3. Resolve entity_id by querying the entity's table.
-//  4. Check for an existing active assignment; return ConflictError naming the
+//  2. Validate Position when provided (must be >= 1 before any repo call).
+//  3. Parse entity key to determine entity_type (task/bug/change_card/tech_debt).
+//  4. Resolve entity_id by querying the entity's table.
+//  5. Check for an existing active assignment; return ConflictError naming the
 //     conflicting sprint if one is found.
-//  5. Call repo.AddAssignment.
-//  6. Compute capacity warning if capacityRepo and AgentType are provided
+//  6. Determine sprint_order:
+//     - Position nil: auto-assign = MaxSprintOrder + 1 (FIFO append).
+//     - Position set: validate against current count; insert at position and shift siblings.
+//  7. Call repo.AddAssignment with sprint_order populated.
+//  8. For insert-at-position: call RenumberAssignmentsTx to shift items >= position.
+//  9. Compute capacity warning if capacityRepo and AgentType are provided
 //     (advisory only — never blocks).
 //
 // Returns the created SprintAssignment and an optional CapacityWarning.
@@ -640,13 +691,21 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 		)
 	}
 
-	// Step 2+3: Parse entity key and resolve entity ID
+	// Step 2: Validate Position early (before any repo calls) per TD-10 / TC-008 / TC-009.
+	if input.Position != nil && *input.Position < 1 {
+		return nil, nil, fmt.Errorf(
+			"invalid position %d for sprint %s: position must be >= 1",
+			*input.Position, input.SprintKey,
+		)
+	}
+
+	// Step 3+4: Parse entity key and resolve entity ID
 	entityType, entityID, err := resolveEntityTypeAndID(ctx, s.repo, input.EntityKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve entity %q for sprint assignment: %w", input.EntityKey, err)
 	}
 
-	// Step 4: Conflict check — at most one active sprint assignment per entity
+	// Step 5: Conflict check — at most one active sprint assignment per entity
 	existing, err := s.repo.GetActiveAssignment(ctx, entityType, entityID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check existing assignment for %q: %w", input.EntityKey, err)
@@ -663,19 +722,122 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 		)
 	}
 
-	// Step 5: Create assignment
+	// Step 6: Determine sprint_order for the new assignment.
+	//
+	// When Position is nil (no --at flag): append at max+1 (FIFO). This is the fast
+	// path — no ListOrderedAssignments needed, just MaxSprintOrder.
+	//
+	// When Position is set: validate range, then call ListOrderedAssignments to build
+	// the shift plan; shift is applied inside a transaction after AddAssignment succeeds.
+	var targetOrder int
+	var orderedItems []*models.SprintAssignment // populated only for insert-at-position
+
+	if input.Position == nil {
+		// Auto-assign: append at max+1. MaxSprintOrder returns 0 when no ordered items
+		// exist, so the first item gets sprint_order=1 (per TC-011).
+		maxOrder, maxErr := s.repo.MaxSprintOrder(ctx, sprintEntity.ID)
+		if maxErr != nil {
+			return nil, nil, fmt.Errorf("failed to determine sprint order for %q in sprint %s: %w",
+				input.EntityKey, input.SprintKey, maxErr)
+		}
+		targetOrder = maxOrder + 1
+	} else {
+		// Insert at requested position: validate and fetch ordered items for shift.
+		pos := *input.Position
+
+		// Get current ordered items to determine valid upper bound.
+		orderedItems, err = s.repo.ListOrderedAssignments(ctx, sprintEntity.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to list ordered assignments for sprint %s: %w",
+				input.SprintKey, err)
+		}
+
+		count := len(orderedItems)
+		if pos > count+1 {
+			return nil, nil, fmt.Errorf(
+				"position %d is out of range: sprint has %d ordered items (valid range: 1..%d)",
+				pos, count, count+1,
+			)
+		}
+
+		targetOrder = pos
+	}
+
+	// Step 7: Determine whether this insert needs to shift existing siblings.
+	// "Shift needed" = at least one ordered item currently sits at sprint_order >= targetOrder.
+	// Append-at-end (targetOrder == count+1 or no ordered items yet) never collides.
+	var shiftOps []sprint.RenumberOp
+	if input.Position != nil {
+		pos := *input.Position
+		if len(orderedItems) > 0 && pos <= len(orderedItems) {
+			shiftOps = make([]sprint.RenumberOp, 0, len(orderedItems)-pos+1)
+			for _, item := range orderedItems {
+				if item.SprintOrder != nil && *item.SprintOrder >= pos {
+					newPos := *item.SprintOrder + 1
+					shiftOps = append(shiftOps, sprint.RenumberOp{
+						AssignmentID: item.ID,
+						NewPosition:  &newPos,
+					})
+				}
+			}
+		}
+	}
+
+	// Step 8: Create the assignment.
+	//
+	// Fast path (no shift): INSERT with sprint_order = targetOrder. No siblings
+	// occupy that slot, so the partial unique index won't fire.
+	//
+	// Shift path: INSERT with sprint_order = NULL first. The partial unique
+	// index has WHERE sprint_order IS NOT NULL, so a NULL insert never collides
+	// even though existing rows still occupy positions [pos, count]. The final
+	// position is assigned in step 9 via a single renumber UPDATE that also
+	// shifts the siblings — but only after the siblings are NULL-cleared, so
+	// the per-row unique-index check during that UPDATE never sees a duplicate.
+	insertOrder := &targetOrder
+	if len(shiftOps) > 0 {
+		insertOrder = nil
+	}
 	assignment := &models.SprintAssignment{
-		SprintID:   sprintEntity.ID,
-		EntityType: entityType,
-		EntityID:   entityID,
-		AssignedAt: time.Now().UTC(),
+		SprintID:    sprintEntity.ID,
+		EntityType:  entityType,
+		EntityID:    entityID,
+		AssignedAt:  time.Now().UTC(),
+		SprintOrder: insertOrder,
 	}
 	if err := s.repo.AddAssignment(ctx, assignment); err != nil {
 		return nil, nil, fmt.Errorf("failed to add assignment for %q to sprint %s: %w",
 			input.EntityKey, input.SprintKey, err)
 	}
 
-	// Step 6: Advisory capacity warning (never blocks)
+	// Step 9: For the shift path, NULL-clear the siblings, then apply final
+	// positions (target + shifted siblings) in one renumber statement.
+	if len(shiftOps) > 0 {
+		clearOps := make([]sprint.RenumberOp, 0, len(shiftOps))
+		for _, op := range shiftOps {
+			clearOps = append(clearOps, sprint.RenumberOp{AssignmentID: op.AssignmentID, NewPosition: nil})
+		}
+
+		finalOps := make([]sprint.RenumberOp, 0, len(shiftOps)+1)
+		finalOps = append(finalOps, sprint.RenumberOp{AssignmentID: assignment.ID, NewPosition: &targetOrder})
+		finalOps = append(finalOps, shiftOps...)
+
+		// TD-9: AddAssignment doesn't accept a *sql.Tx today, so we can't make
+		// this fully atomic without expanding the repo API. The worst-case
+		// mid-failure leaves the new row with sprint_order=NULL (unordered),
+		// which is recoverable via a subsequent reorder.
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, clearOps); err != nil {
+			return nil, nil, fmt.Errorf("failed to clear sprint_order for insert at position %d in sprint %s: %w",
+				*input.Position, input.SprintKey, err)
+		}
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, finalOps); err != nil {
+			return nil, nil, fmt.Errorf("failed to shift sprint order for insert at position %d in sprint %s: %w",
+				*input.Position, input.SprintKey, err)
+		}
+		assignment.SprintOrder = &targetOrder
+	}
+
+	// Step 9: Advisory capacity warning (never blocks)
 	var warning *CapacityWarning
 	if s.capacityRepo != nil && input.AgentType != "" {
 		warning = s.computeCapacityWarning(ctx, sprintEntity.ID, input.AgentType, input.EstimatedSize)
@@ -782,19 +944,26 @@ func (s *SprintService) RemoveEntityFromSprint(ctx context.Context, sprintKey, e
 // BacklogOptions carries filter parameters for the backlog view.
 // EntityType is "" for all types; "task", "bug", "change_card", "tech_debt" to filter.
 // BlockedOnly limits results to entities in a blocked-equivalent workflow status.
+// View selects the display mode: "ordered" (pull-queue sorted by sprint_order ASC NULLS LAST)
+// or "grouped" (current grouped-by-status behavior). If View is "" the service applies a
+// default: "ordered" for active sprints, "grouped" for all other statuses.
 type BacklogOptions struct {
-	EntityType  string // "" = all types
-	BlockedOnly bool
+	EntityType       string // "" = all types
+	BlockedOnly      bool
+	View             string // "ordered" | "grouped" | "" (auto-detect from sprint status)
+	IncludeCompleted bool   // when true, terminal-status items are included in ordered view
 }
 
 // SprintBacklog is the return value of GetSprintBacklog.
 type SprintBacklog struct {
-	SprintKey         string          `json:"sprint_key"`
-	SprintName        string          `json:"sprint_name"`
-	TotalCount        int             `json:"total_count"`
-	CompletedCount    int             `json:"completed_count"`
-	CompletionPercent float64         `json:"completion_percent"`
-	Groups            []*BacklogGroup `json:"groups"` // ordered by status phase
+	SprintKey         string             `json:"sprint_key"`
+	SprintName        string             `json:"sprint_name"`
+	TotalCount        int                `json:"total_count"`
+	CompletedCount    int                `json:"completed_count"`
+	CompletionPercent float64            `json:"completion_percent"`
+	Groups            []*BacklogGroup    `json:"groups,omitempty"` // populated in grouped view only
+	Items             []*BacklogItemView `json:"items,omitempty"`  // populated in ordered view only
+	View              string             `json:"view"`             // "ordered" | "grouped"
 }
 
 // BacklogGroup is a set of entities sharing the same status category.
@@ -805,16 +974,29 @@ type BacklogGroup struct {
 
 // BacklogItemView is the CLI-friendly projection of a BacklogItem.
 type BacklogItemView struct {
-	EntityType     string    `json:"entity_type"`
-	Key            string    `json:"key"`
-	Title          string    `json:"title"`
-	Status         string    `json:"status"`
-	AgentType      string    `json:"agent_type,omitempty"`
-	Priority       int       `json:"priority,omitempty"`
-	ExecutionOrder *int      `json:"execution_order,omitempty"`
-	Size           *int      `json:"size,omitempty"`
-	AssignedAt     time.Time `json:"assigned_at,omitempty"`
-	DaysBlocked    int       `json:"days_blocked,omitempty"` // For --blocked view
+	EntityType      string    `json:"entity_type"`
+	Key             string    `json:"key"`
+	Title           string    `json:"title"`
+	Status          string    `json:"status"`
+	AgentType       string    `json:"agent_type,omitempty"`
+	Priority        int       `json:"priority,omitempty"`
+	ExecutionOrder  *int      `json:"execution_order,omitempty"`
+	Size            *int      `json:"size,omitempty"`
+	AssignedAt      time.Time `json:"assigned_at,omitempty"`
+	DaysBlocked     int       `json:"days_blocked,omitempty"`     // For --blocked view
+	SprintOrder     *int      `json:"sprint_order,omitempty"`     // nullable; nil = unordered
+	Position        *int      `json:"position,omitempty"`         // 1-based dense rank in ordered view; set even when SprintOrder is nil
+	SprintKey       string    `json:"sprint_key,omitempty"`       // set by GetNextTask only
+	SelectionReason string    `json:"selection_reason,omitempty"` // set by GetNextTask only
+}
+
+// ReorderTarget specifies where to move an assignment within the sprint.
+// Exactly one of Position, Top, or Bottom must be set; all three set at once
+// is a programming error caught by ReorderAssignment at service entry.
+type ReorderTarget struct {
+	Position *int // 1-based target position; nil if Top or Bottom is set
+	Top      bool // move to position 1
+	Bottom   bool // move to position max+1 (last)
 }
 
 // validBacklogEntityTypes is the allowlist of entity types accepted by GetSprintBacklog's
@@ -827,16 +1009,22 @@ var validBacklogEntityTypes = map[string]bool{
 	"tech_debt":   true,
 }
 
-// GetSprintBacklog returns all entities assigned to a sprint, grouped by status.
+// GetSprintBacklog returns all entities assigned to a sprint.
+//
+// View modes (controlled by opts.View):
+//   - "ordered":  Items array sorted by sprint_order ASC NULLS LAST, then execution_order, priority,
+//     assigned_at. Groups is nil. Each item gets a 1-based dense-rank Position field.
+//   - "grouped":  Items is nil. Groups is populated by status category (existing behavior).
+//   - "":         Defaults to "ordered" when sprint is active; "grouped" otherwise.
 //
 // The method:
 //  1. Resolves the sprint by key.
-//  2. Validates the optional entity-type filter (returns error for invalid types).
-//  3. Asks workflow.Service for the blocked-status set when BlockedOnly=true.
-//  4. Calls repo.ListBacklog to fetch raw items.
-//  5. Groups items by status into BacklogGroup slices.
-//  6. Computes CompletionPercent as float64 (completed / total * 100); returns 0.0 when total=0
-//     (no divide-by-zero).
+//  2. Determines the effective view mode from opts.View + sprint.Status.
+//  3. Validates the optional entity-type filter (returns error for invalid types).
+//  4. Asks workflow.Service for the blocked-status set when BlockedOnly=true.
+//  5. Calls repo.ListBacklog to fetch raw items.
+//  6. Builds view-mode output: ordered items list OR grouped-by-status map.
+//  7. Computes CompletionPercent as float64 (completed / total * 100); returns 0.0 when total=0.
 //
 // The blocked-status set is delegated to workflow.Service so that custom workflow
 // configurations with non-standard "blocked" status names are handled correctly.
@@ -847,7 +1035,18 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		return nil, fmt.Errorf("failed to get sprint %s for backlog: %w", sprintKey, err)
 	}
 
-	// Step 2: Validate entity type filter
+	// Step 2: Resolve effective view mode.
+	// Default: "ordered" for active sprints; "grouped" for all other statuses.
+	effectiveView := opts.View
+	if effectiveView == "" {
+		if string(sprintEntity.Status) == "active" {
+			effectiveView = "ordered"
+		} else {
+			effectiveView = "grouped"
+		}
+	}
+
+	// Step 3: Validate entity type filter
 	var entityTypeFilter *string
 	if opts.EntityType != "" {
 		if !validBacklogEntityTypes[opts.EntityType] {
@@ -859,7 +1058,7 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		entityTypeFilter = &opts.EntityType
 	}
 
-	// Step 3: Determine blocked statuses from workflow service (never hardcode "blocked")
+	// Step 4: Determine blocked statuses from workflow service (never hardcode "blocked")
 	var blockedStatuses []string
 	if opts.BlockedOnly {
 		blockedStatuses = s.workflowSvc.GetStatusesByPhase("blocked")
@@ -869,16 +1068,11 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		}
 	}
 
-	// Step 4: Fetch raw backlog items from repository
+	// Step 5: Fetch raw backlog items from repository
 	items, err := s.repo.ListBacklog(ctx, sprintEntity.ID, entityTypeFilter, opts.BlockedOnly, blockedStatuses...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list backlog for sprint %s: %w", sprintKey, err)
 	}
-
-	// Step 5: Group items by status category
-	// Use ordered insertion to keep groups stable across calls.
-	groupOrder := make([]string, 0)
-	groupMap := make(map[string]*BacklogGroup)
 
 	totalCount := len(items)
 	completedCount := 0
@@ -892,43 +1086,11 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
 	}
 
+	// Count completed items across both view modes.
 	for _, item := range items {
-		view := &BacklogItemView{
-			EntityType:     item.EntityType,
-			Key:            item.Key,
-			Title:          item.Title,
-			Status:         item.Status,
-			Priority:       item.Priority,
-			ExecutionOrder: item.ExecutionOrder,
-			Size:           item.Size,
-			AssignedAt:     item.AssignedAt,
-		}
-		if item.AgentType != nil {
-			view.AgentType = *item.AgentType
-		}
-
-		// Count completed items for CompletionPercent.
-		// Check only this item's own entity-type workflow, not all levels.
 		if terminals, ok := terminalStatusesByEntityType[item.EntityType]; ok && terminals[item.Status] {
 			completedCount++
 		}
-
-		// Group by status
-		category := item.Status
-		if _, exists := groupMap[category]; !exists {
-			groupMap[category] = &BacklogGroup{
-				StatusCategory: category,
-				Items:          []*BacklogItemView{},
-			}
-			groupOrder = append(groupOrder, category)
-		}
-		groupMap[category].Items = append(groupMap[category].Items, view)
-	}
-
-	// Build ordered groups slice
-	groups := make([]*BacklogGroup, 0, len(groupOrder))
-	for _, status := range groupOrder {
-		groups = append(groups, groupMap[status])
 	}
 
 	// Step 6: Compute CompletionPercent using float64 division (never integer)
@@ -937,24 +1099,144 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 		completionPercent = float64(completedCount) / float64(totalCount) * 100.0
 	}
 
-	return &SprintBacklog{
+	backlog := &SprintBacklog{
 		SprintKey:         sprintKey,
 		SprintName:        sprintEntity.Name,
 		TotalCount:        totalCount,
 		CompletedCount:    completedCount,
 		CompletionPercent: completionPercent,
-		Groups:            groups,
-	}, nil
+		View:              effectiveView,
+	}
+
+	if effectiveView == "ordered" {
+		backlog.Items = buildOrderedView(items)
+	} else {
+		backlog.Groups = buildGroupedView(items)
+	}
+
+	return backlog, nil
+}
+
+// buildOrderedView converts raw BacklogItems into a sorted Items slice for the ordered view.
+// Sorting: sprint_order ASC NULLS LAST, then execution_order ASC NULLS LAST, priority ASC, assigned_at ASC.
+// Each item receives a 1-based dense-rank Position field. Items with nil sprint_order receive a Position
+// but their SprintOrder field remains nil (the two fields diverge — spec §3.2, TC-019).
+func buildOrderedView(items []*sprint.BacklogItem) []*BacklogItemView {
+	views := make([]*BacklogItemView, 0, len(items))
+	for _, item := range items {
+		v := backlogItemToView(item)
+		views = append(views, v)
+	}
+
+	// Sort: sprint_order ASC NULLS LAST, execution_order ASC NULLS LAST, priority ASC, assigned_at ASC
+	sort.SliceStable(views, func(i, j int) bool {
+		a, b := views[i], views[j]
+
+		// Tier 1: sprint_order ASC NULLS LAST
+		switch {
+		case a.SprintOrder != nil && b.SprintOrder == nil:
+			return true // a comes first (ordered before unordered)
+		case a.SprintOrder == nil && b.SprintOrder != nil:
+			return false // b comes first
+		case a.SprintOrder != nil && b.SprintOrder != nil:
+			if *a.SprintOrder != *b.SprintOrder {
+				return *a.SprintOrder < *b.SprintOrder
+			}
+		}
+
+		// Tier 2: execution_order ASC NULLS LAST
+		switch {
+		case a.ExecutionOrder != nil && b.ExecutionOrder == nil:
+			return true
+		case a.ExecutionOrder == nil && b.ExecutionOrder != nil:
+			return false
+		case a.ExecutionOrder != nil && b.ExecutionOrder != nil:
+			if *a.ExecutionOrder != *b.ExecutionOrder {
+				return *a.ExecutionOrder < *b.ExecutionOrder
+			}
+		}
+
+		// Tier 3: priority ASC (lower number = higher priority)
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+
+		// Tier 4: assigned_at ASC (oldest first — FIFO tiebreaker)
+		return a.AssignedAt.Before(b.AssignedAt)
+	})
+
+	// Assign 1-based dense-rank Position to all items.
+	// Items with a non-nil sprint_order retain their sprint_order; unordered items get Position
+	// from the dense rank but their SprintOrder remains nil.
+	for i, v := range views {
+		pos := i + 1
+		v.Position = &pos
+	}
+
+	return views
+}
+
+// buildGroupedView groups raw BacklogItems by status category (existing behavior).
+// Returns a slice of BacklogGroup in insertion order (stable across calls).
+func buildGroupedView(items []*sprint.BacklogItem) []*BacklogGroup {
+	groupOrder := make([]string, 0)
+	groupMap := make(map[string]*BacklogGroup)
+
+	for _, item := range items {
+		v := backlogItemToView(item)
+
+		category := item.Status
+		if _, exists := groupMap[category]; !exists {
+			groupMap[category] = &BacklogGroup{
+				StatusCategory: category,
+				Items:          []*BacklogItemView{},
+			}
+			groupOrder = append(groupOrder, category)
+		}
+		groupMap[category].Items = append(groupMap[category].Items, v)
+	}
+
+	groups := make([]*BacklogGroup, 0, len(groupOrder))
+	for _, status := range groupOrder {
+		groups = append(groups, groupMap[status])
+	}
+	return groups
+}
+
+// backlogItemToView converts a sprint.BacklogItem into a BacklogItemView.
+// Position is not set here; it is assigned by buildOrderedView after sorting.
+func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
+	v := &BacklogItemView{
+		EntityType:     item.EntityType,
+		Key:            item.Key,
+		Title:          item.Title,
+		Status:         item.Status,
+		Priority:       item.Priority,
+		ExecutionOrder: item.ExecutionOrder,
+		Size:           item.Size,
+		AssignedAt:     item.AssignedAt,
+		SprintOrder:    item.SprintOrder, // propagate nullable sprint_order
+	}
+	if item.AgentType != nil {
+		v.AgentType = *item.AgentType
+	}
+	return v
 }
 
 // GetNextTask returns the single next eligible item to work on from the active sprint.
-// Selection logic (matches task_helpers.selectNextTasks):
-// 1. Items with ExecutionOrder (lowest group first)
-// 2. Priority (highest first, 1=highest)
-// 3. AssignedAt (oldest first)
+// Selection logic (four-tier stable sort, TD-8):
+//  1. sprint_order ASC NULLS LAST (ordered items before unordered)
+//  2. ExecutionOrder ASC NULLS LAST
+//  3. Priority ASC (lower number = higher priority — preserves existing semantics)
+//  4. AssignedAt ASC (oldest first — FIFO tiebreaker)
+//
+// sort.SliceStable is used (not sort.Slice) so that full ties preserve insertion order,
+// giving AI agents deterministic results across repeated calls.
 //
 // Filters for items in the initial (queued) status of their respective entity-type workflows.
 // If agentType is non-empty, only items for that agent are considered.
+//
+// The returned BacklogItemView has SprintOrder, SprintKey, and SelectionReason populated.
 func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
 	// 1. Find the active sprint (must be exactly one for unambiguous selection)
 	filters := &SprintListFilters{Status: "active"}
@@ -965,10 +1247,12 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	if len(activeSprints) == 0 {
 		return nil, fmt.Errorf("no active sprint found (start a sprint first)")
 	}
-	sprint := activeSprints[0]
+	activeSprint := activeSprints[0]
 
-	// 2. Fetch the backlog for the active sprint
-	backlog, err := s.GetSprintBacklog(ctx, sprint.Key, BacklogOptions{})
+	// 2. Fetch the backlog for the active sprint using grouped view so we can filter by status.
+	// GetNextTask does its own four-tier sort, so it needs all items regardless of sprint_order.
+	// Using View="grouped" explicitly avoids the active-sprint default of "ordered".
+	backlog, err := s.GetSprintBacklog(ctx, activeSprint.Key, BacklogOptions{View: "grouped"})
 	if err != nil {
 		return nil, err
 	}
@@ -991,7 +1275,7 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 			if !ok || item.Status != initialStatus {
 				continue
 			}
-			// Apply agent filter if requested
+			// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
 			if agentType != "" && item.AgentType != agentType {
 				continue
 			}
@@ -1003,11 +1287,24 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 		return nil, nil
 	}
 
-	// 4. Sort candidates
-	sort.Slice(candidates, func(i, j int) bool {
+	// 4. Four-tier stable sort (TD-8: sort.SliceStable, not sort.Slice)
+	sort.SliceStable(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
 
-		// Factor 1: ExecutionOrder (ordered before unordered)
+		// Tier 1: sprint_order ASC NULLS LAST (ordered items first)
+		if a.SprintOrder != nil && b.SprintOrder == nil {
+			return true
+		}
+		if a.SprintOrder == nil && b.SprintOrder != nil {
+			return false
+		}
+		if a.SprintOrder != nil && b.SprintOrder != nil {
+			if *a.SprintOrder != *b.SprintOrder {
+				return *a.SprintOrder < *b.SprintOrder
+			}
+		}
+
+		// Tier 2: ExecutionOrder ASC NULLS LAST
 		if a.ExecutionOrder != nil && b.ExecutionOrder == nil {
 			return true
 		}
@@ -1020,16 +1317,275 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 			}
 		}
 
-		// Factor 2: Priority
+		// Tier 3: Priority ASC (lower number = higher priority — existing semantics preserved)
 		if a.Priority != b.Priority {
 			return a.Priority < b.Priority
 		}
 
-		// Factor 3: AssignedAt (oldest first)
+		// Tier 4: AssignedAt ASC (oldest first — FIFO)
 		return a.AssignedAt.Before(b.AssignedAt)
 	})
 
-	return candidates[0], nil
+	// 5. Compute selection_reason by comparing winner to runner-up
+	winner := candidates[0]
+	var runnerUp *BacklogItemView
+	if len(candidates) > 1 {
+		runnerUp = candidates[1]
+	}
+	winner.SprintKey = activeSprint.Key
+	winner.SelectionReason = computeSelectionReason(winner, runnerUp)
+
+	slog.Debug("sprint.next.selection",
+		"reason", winner.SelectionReason,
+		"sprint_id", activeSprint.Key,
+		"key", winner.Key,
+	)
+
+	return winner, nil
+}
+
+// computeSelectionReason determines which sort tier differentiated the winner from the
+// runner-up. If there is only one candidate (runnerUp == nil), returns "assigned_at"
+// as the default (AC-T2: no index-out-of-bounds on candidates[1]).
+//
+// Returns exactly one of: "sprint_order", "execution_order", "priority", "assigned_at".
+func computeSelectionReason(top, runnerUp *BacklogItemView) string {
+	if runnerUp == nil {
+		// Single candidate — default to "assigned_at" (AC-T2)
+		return "assigned_at"
+	}
+
+	// Tier 1: sprint_order
+	aHasOrder := top.SprintOrder != nil
+	bHasOrder := runnerUp.SprintOrder != nil
+	if aHasOrder != bHasOrder {
+		return "sprint_order"
+	}
+	if aHasOrder && bHasOrder && *top.SprintOrder != *runnerUp.SprintOrder {
+		return "sprint_order"
+	}
+
+	// Tier 2: execution_order
+	aHasExec := top.ExecutionOrder != nil
+	bHasExec := runnerUp.ExecutionOrder != nil
+	if aHasExec != bHasExec {
+		return "execution_order"
+	}
+	if aHasExec && bHasExec && *top.ExecutionOrder != *runnerUp.ExecutionOrder {
+		return "execution_order"
+	}
+
+	// Tier 3: priority
+	if top.Priority != runnerUp.Priority {
+		return "priority"
+	}
+
+	// Tier 4: assigned_at (FIFO — also the default when all else ties)
+	return "assigned_at"
+}
+
+// ReorderAssignment moves an entity's sprint assignment to the specified position
+// within the sprint's ordered pull queue, then densely renumbers all ordered items.
+//
+// The moved assignment and the abbreviated top-N list (N=8) are returned.
+// The operation runs inside a single transaction — either all renumbers succeed or
+// none are committed (TD-9: service-owned transaction).
+//
+// Validation:
+//   - Sprint must be in "planning" or "active" status (not "completed" or "archived").
+//   - Entity must be assigned to the sprint (AC-T3).
+//   - Exactly one of target.Position, target.Top, or target.Bottom must be set.
+//   - target.Position must be in range [1, orderedCount+1].
+//
+// AC-T4: entity-level repo methods (TaskService.Update etc.) are NOT called.
+func (s *SprintService) ReorderAssignment(
+	ctx context.Context,
+	sprintKey, entityKey string,
+	target ReorderTarget,
+) (*models.SprintAssignment, []*models.SprintAssignment, error) {
+	// Step 1: Resolve and validate sprint
+	sprintEntity, err := s.repo.GetByKey(ctx, sprintKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot reorder: failed to resolve sprint %q: %w", sprintKey, err)
+	}
+
+	status := string(sprintEntity.Status)
+	if status != "planning" && status != "active" {
+		return nil, nil, fmt.Errorf(
+			"cannot reorder: sprint %q is in status %q; only planning and active sprints can be reordered",
+			sprintKey, status,
+		)
+	}
+
+	// Step 2: Resolve entity to (type, ID)
+	entityType, entityID, err := resolveEntityTypeAndID(ctx, s.repo, entityKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot reorder: %w", err)
+	}
+
+	// Step 3: Verify entity is assigned to this sprint (AC-T3)
+	assignment, err := s.repo.GetActiveAssignment(ctx, entityType, entityID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot reorder: failed to look up assignment for %q: %w", entityKey, err)
+	}
+	if assignment == nil || assignment.SprintID != sprintEntity.ID {
+		return nil, nil, fmt.Errorf(
+			"entity %q is not assigned to sprint %s",
+			entityKey, sprintKey,
+		)
+	}
+
+	// Step 4: Compute target position from ReorderTarget
+	// Get current ordered assignments (excludes the target so we can compute count correctly)
+	orderedAll, err := s.repo.ListOrderedAssignments(ctx, sprintEntity.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot reorder: failed to list ordered assignments: %w", err)
+	}
+
+	var newPosition int
+	switch {
+	case target.Top:
+		newPosition = 1
+	case target.Bottom:
+		// Place after the last ordered item
+		ordered := orderedWithoutTarget(orderedAll, assignment.ID)
+		newPosition = len(ordered) + 1
+	case target.Position != nil:
+		newPosition = *target.Position
+		if newPosition < 1 {
+			return nil, nil, fmt.Errorf("cannot reorder: position must be >= 1, got %d", newPosition)
+		}
+		// Validate upper bound: count of ordered items excluding target + 1
+		ordered := orderedWithoutTarget(orderedAll, assignment.ID)
+		maxPos := len(ordered) + 1
+		if newPosition > maxPos {
+			return nil, nil, fmt.Errorf(
+				"cannot reorder: position %d is out of range (sprint has %d ordered items, valid range: 1..%d)",
+				newPosition, len(orderedAll), maxPos,
+			)
+		}
+	default:
+		return nil, nil, fmt.Errorf("cannot reorder: one of Position, Top, or Bottom must be set in ReorderTarget")
+	}
+
+	// Step 5: Build renumber plan for siblings
+	// Siblings = ordered items excluding the target, shifted to accommodate the target's new position.
+	siblings := orderedWithoutTarget(orderedAll, assignment.ID)
+	ops := buildRenumberOps(siblings, newPosition)
+
+	// Build a NULL pre-pass: every row whose sprint_order will change (target +
+	// all renumbered siblings) is cleared first. Without this, the single CASE
+	// WHEN UPDATE applied by RenumberAssignmentsTx transiently collides with
+	// idx_sprint_assignments_order_unique because SQLite enforces the partial
+	// unique index per row as the statement executes (no per-statement defer
+	// for unique constraints).
+	clearOps := buildReorderClearOps(assignment.ID, ops)
+
+	// Step 6: Apply in a transaction (TD-9)
+	if s.db == nil {
+		// No DB available — apply ops without a real transaction (test path or CLI without --db).
+		// For production use, db must be provided to NewSprintService.
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, clearOps); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
+		}
+		if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
+		}
+		if err := s.repo.SetSprintOrderTx(ctx, nil, assignment.ID, &newPosition); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: set sprint_order failed: %w", err)
+		}
+	} else {
+		tx, txErr := s.db.BeginTxContext(ctx)
+		if txErr != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: failed to begin transaction: %w", txErr)
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, clearOps); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: clear failed: %w", err)
+		}
+		if err := s.repo.RenumberAssignmentsTx(ctx, tx, sprintEntity.ID, ops); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: renumber failed: %w", err)
+		}
+		if err := s.repo.SetSprintOrderTx(ctx, tx, assignment.ID, &newPosition); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: set sprint_order failed: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, nil, fmt.Errorf("cannot reorder: commit failed: %w", err)
+		}
+	}
+
+	// Update the in-memory assignment to reflect the new position
+	assignment.SprintOrder = &newPosition
+
+	slog.Debug("sprint.reorder",
+		"sprint_id", sprintKey,
+		"entity", entityKey,
+		"new_pos", newPosition,
+		"renumbered", len(ops),
+	)
+
+	// Step 7: Build top-8 abbreviated list from the updated ordered assignments
+	// Re-fetch ordered assignments to reflect the post-reorder state.
+	updatedOrdered, err := s.repo.ListOrderedAssignments(ctx, sprintEntity.ID)
+	if err != nil {
+		// Non-fatal: return the moved assignment without top-N
+		updatedOrdered = nil
+	}
+	topN := topNAssignments(updatedOrdered, 8)
+
+	return assignment, topN, nil
+}
+
+// orderedWithoutTarget returns the ordered assignments slice with the target assignment
+// removed. The input is NOT modified (a new slice is allocated).
+func orderedWithoutTarget(ordered []*models.SprintAssignment, targetID int64) []*models.SprintAssignment {
+	out := make([]*models.SprintAssignment, 0, len(ordered))
+	for _, a := range ordered {
+		if a.ID != targetID {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// buildReorderClearOps returns ops that set sprint_order=NULL for the target
+// assignment plus every sibling in renumberOps. Used as a pre-pass so the
+// subsequent renumber UPDATE never transiently violates
+// idx_sprint_assignments_order_unique.
+func buildReorderClearOps(targetID int64, renumberOps []sprint.RenumberOp) []sprint.RenumberOp {
+	clear := make([]sprint.RenumberOp, 0, len(renumberOps)+1)
+	clear = append(clear, sprint.RenumberOp{AssignmentID: targetID, NewPosition: nil})
+	for _, op := range renumberOps {
+		clear = append(clear, sprint.RenumberOp{AssignmentID: op.AssignmentID, NewPosition: nil})
+	}
+	return clear
+}
+
+// buildRenumberOps builds a []RenumberOp for sibling assignments around a new position.
+// siblings are already ordered by sprint_order (all ordered items excluding the target).
+// The slot at newPosition is reserved for the target; siblings fill 1..newPosition-1
+// and newPosition+1..len(siblings)+1 densely.
+func buildRenumberOps(siblings []*models.SprintAssignment, newPosition int) []sprint.RenumberOp {
+	ops := make([]sprint.RenumberOp, 0, len(siblings))
+	pos := 1
+	for _, sib := range siblings {
+		if pos == newPosition {
+			pos++ // skip the slot reserved for the target (exactly once)
+		}
+		p := pos
+		ops = append(ops, sprint.RenumberOp{AssignmentID: sib.ID, NewPosition: &p})
+		pos++
+	}
+	return ops
+}
+
+// topNAssignments returns the first n assignments from the ordered slice, or all if len < n.
+func topNAssignments(ordered []*models.SprintAssignment, n int) []*models.SprintAssignment {
+	if n > len(ordered) {
+		n = len(ordered)
+	}
+	return ordered[:n]
 }
 
 // ArchiveSprint transitions a sprint to completed status.
@@ -1189,20 +1745,66 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 		return result, nil
 	}
 
+	// Step 5a (F07): Fetch the current max sprint_order so bulk rows can be auto-numbered.
+	// §3.6: new rows get sprint_order = max + 1, max + 2, … (dense per-row assignment).
+	maxOrder, maxOrderErr := s.repo.MaxSprintOrder(ctx, sprintEntity.ID)
+	if maxOrderErr != nil {
+		return nil, fmt.Errorf("failed to determine sprint order for bulk add to sprint %s: %w",
+			input.SprintKey, maxOrderErr)
+	}
+
 	toAssign := make([]models.SprintAssignment, 0, len(filtered))
-	for _, item := range filtered {
+	for i, item := range filtered {
+		order := maxOrder + i + 1 // 1-based offset within the bulk batch
 		toAssign = append(toAssign, models.SprintAssignment{
-			SprintID:   sprintEntity.ID,
-			EntityType: item.EntityType,
-			EntityID:   item.EntityID,
+			SprintID:    sprintEntity.ID,
+			EntityType:  item.EntityType,
+			EntityID:    item.EntityID,
+			SprintOrder: &order,
 		})
 	}
 
 	// Step 6: Perform the bulk insert. BulkAssign uses INSERT OR IGNORE to skip
 	// any entity that gained an active assignment between ListUnassignedBacklog and now.
+	// sprint_order is passed per-row so the DB receives the intended ordering immediately.
 	inserted, err := s.assignmentRepo.BulkAssign(ctx, sprintEntity.ID, toAssign)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bulk assign to sprint %s: %w", input.SprintKey, err)
+	}
+
+	// Step 6a (F07 §3.6 ImplementationNote-1): If INSERT OR IGNORE skipped any rows,
+	// gaps appear in the sprint_order sequence (e.g., items at 3, 5 after item 4 was skipped).
+	// Call RenumberAssignmentsTx to repair the sequence densely.
+	// We only need to renumber when skips occurred AND some rows were inserted.
+	skippedFromBulk := len(filtered) - inserted
+	if skippedFromBulk > 0 && inserted > 0 {
+		// Fetch the current ordered state after the bulk insert to build a clean renumber plan.
+		// We renumber only the newly inserted batch (sprint_order > maxOrder) to avoid disturbing
+		// pre-existing items.
+		orderedAfter, listErr := s.repo.ListOrderedAssignments(ctx, sprintEntity.ID)
+		if listErr == nil {
+			// Build renumber ops for inserted batch items (those with sprint_order > maxOrder).
+			var batchItems []*models.SprintAssignment
+			for _, a := range orderedAfter {
+				if a.SprintOrder != nil && *a.SprintOrder > maxOrder {
+					batchItems = append(batchItems, a)
+				}
+			}
+			// Dense-renumber the batch starting at maxOrder+1.
+			if len(batchItems) > 0 {
+				ops := make([]sprint.RenumberOp, 0, len(batchItems))
+				for i, a := range batchItems {
+					newPos := maxOrder + i + 1
+					ops = append(ops, sprint.RenumberOp{
+						AssignmentID: a.ID,
+						NewPosition:  &newPos,
+					})
+				}
+				// Ignore renumber errors — advisory, non-blocking. The sprint is usable
+				// even if the order has minor gaps (user can run sprint reorder to fix).
+				_ = s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops)
+			}
+		}
 	}
 
 	// Step 7: Compute per-type counts from the inserted vs. filtered totals.
@@ -1298,6 +1900,10 @@ type SprintCloseResult struct {
 	DroppedCount int
 	// NextSprintKey is the key of the sprint that received carryover entities. Empty when carryover=backlog.
 	NextSprintKey string
+	// CarryoverPreserved indicates whether the relative sprint_order of carried-over items was
+	// preserved in the receiving sprint. True for CarryoverNext (items appended at M+1..M+K),
+	// false for CarryoverBacklog (sprint_order cleared).
+	CarryoverPreserved bool
 }
 
 // CloseSprintWithCarryover atomically closes a sprint and handles incomplete entity assignments.
@@ -1384,6 +1990,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	var nextSprintID *int64
 	carriedOverCount := 0
 	droppedCount := 0
+	carryoverPreserved := false
 
 	switch resolvedMode {
 	case CarryoverNext:
@@ -1433,12 +2040,60 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		}
 		carriedOverCount = len(incompleteIDs)
 
+		// Append carried-over items after existing ordered items in the receiving sprint (TC-021).
+		// Sort carried assignments by (sprint_order ASC NULLS LAST, assigned_at ASC, id ASC) so that
+		// items that had an explicit pull priority in the closed sprint are appended in that order.
+		if len(incompleteAssignments) > 0 {
+			maxOrder, maxErr := s.repo.MaxSprintOrder(ctx, nextSprint.ID)
+			if maxErr != nil {
+				return nil, fmt.Errorf("failed to get max sprint_order for receiving sprint %s: %w", nextSprintKey, maxErr)
+			}
+
+			// Sort carried assignments for deterministic append order.
+			sortedCarried := make([]*models.SprintAssignment, len(incompleteAssignments))
+			copy(sortedCarried, incompleteAssignments)
+			sort.SliceStable(sortedCarried, func(i, j int) bool {
+				a, b := sortedCarried[i], sortedCarried[j]
+				// Tier 1: sprint_order ASC NULLS LAST
+				switch {
+				case a.SprintOrder != nil && b.SprintOrder == nil:
+					return true
+				case a.SprintOrder == nil && b.SprintOrder != nil:
+					return false
+				case a.SprintOrder != nil && b.SprintOrder != nil && *a.SprintOrder != *b.SprintOrder:
+					return *a.SprintOrder < *b.SprintOrder
+				}
+				// Tier 2: assigned_at ASC
+				if !a.AssignedAt.Equal(b.AssignedAt) {
+					return a.AssignedAt.Before(b.AssignedAt)
+				}
+				// Tier 3: id ASC (stable tiebreaker)
+				return a.ID < b.ID
+			})
+
+			// Build renumber ops: assign positions maxOrder+1, maxOrder+2, ...
+			ops := make([]sprint.RenumberOp, 0, len(sortedCarried))
+			for k, a := range sortedCarried {
+				pos := maxOrder + k + 1
+				ops = append(ops, sprint.RenumberOp{
+					AssignmentID: a.ID,
+					NewPosition:  &pos,
+				})
+			}
+			if renumErr := s.repo.RenumberAssignmentsTx(ctx, tx, nextSprint.ID, ops); renumErr != nil {
+				return nil, fmt.Errorf("failed to renumber carried-over assignments in sprint %s: %w", nextSprintKey, renumErr)
+			}
+		}
+		carryoverPreserved = true
+
 	case CarryoverBacklog:
-		// Soft-delete incomplete assignments (TC-C05, TC-C06, no-op when empty)
+		// Soft-delete incomplete assignments (TC-C05, TC-C06, no-op when empty).
+		// sprint_order is cleared atomically in the same UPDATE as removed_at (TC-023).
 		if dropErr := s.repo.DropAssignmentsTx(ctx, tx, incompleteIDs); dropErr != nil {
 			return nil, fmt.Errorf("failed to drop incomplete assignments for sprint %s: %w", sprintKey, dropErr)
 		}
 		droppedCount = len(incompleteIDs)
+		carryoverPreserved = false
 
 	default:
 		return nil, fmt.Errorf("unsupported carryover mode %q: must be %q or %q", resolvedMode, CarryoverNext, CarryoverBacklog)
@@ -1476,11 +2131,12 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	}
 
 	return &SprintCloseResult{
-		Sprint:           closedSprint,
-		CompletedCount:   completedCount,
-		CarriedOverCount: carriedOverCount,
-		DroppedCount:     droppedCount,
-		NextSprintKey:    nextSprintKey,
+		Sprint:             closedSprint,
+		CompletedCount:     completedCount,
+		CarriedOverCount:   carriedOverCount,
+		DroppedCount:       droppedCount,
+		NextSprintKey:      nextSprintKey,
+		CarryoverPreserved: carryoverPreserved,
 	}, nil
 }
 

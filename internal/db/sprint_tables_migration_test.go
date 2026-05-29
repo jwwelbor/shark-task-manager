@@ -990,6 +990,381 @@ func TestMigrateSprintTables_StartEndDateCheck(t *testing.T) {
 	}
 }
 
+// setupSprintOrderTestDB creates a minimal test database with the sprint_assignments
+// schema in its PRE-migration state (no sprint_order column). This simulates a
+// database at schema version 19 before the E19-F07 migration runs.
+//
+// It directly creates the sprints and sprint_assignments tables using the same DDL
+// as migrateSprintTables but WITHOUT the sprint_order column so that
+// migrateSprintAssignmentsAddSprintOrder can be tested end-to-end (ALTER TABLE +
+// backfill + index creation).
+func setupSprintOrderTestDB(t *testing.T, tmpFile string) (*sql.DB, func()) {
+	t.Helper()
+
+	// Open a raw SQLite connection (not via InitDB) to avoid running the full
+	// migration chain, which would add sprint_order before we can test the migration.
+	// Use the same driver name ("sqlite") and FK pragma as InitDB.
+	db, err := sql.Open("sqlite", tmpFile+"?_foreign_keys=on")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+
+	// Create the sprints table (subset of migrateSprintTables — only what the
+	// backfill test needs).
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprints (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			key         TEXT NOT NULL UNIQUE,
+			name        TEXT NOT NULL,
+			start_date  DATE NOT NULL,
+			end_date    DATE NOT NULL,
+			status      TEXT NOT NULL DEFAULT 'planning',
+			created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			CHECK (start_date < end_date)
+		)
+	`); err != nil {
+		_ = db.Close()
+		t.Fatalf("create sprints table: %v", err)
+	}
+
+	// Create sprint_assignments WITHOUT sprint_order to simulate pre-migration state.
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprint_assignments (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id    INTEGER NOT NULL,
+			entity_type  TEXT    NOT NULL,
+			entity_id    INTEGER NOT NULL,
+			assigned_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			removed_at   TIMESTAMP,
+			FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
+		)
+	`); err != nil {
+		_ = db.Close()
+		t.Fatalf("create sprint_assignments table (pre-migration): %v", err)
+	}
+
+	cleanup := func() {
+		_ = db.Close()
+		_ = os.Remove(tmpFile)
+		_ = os.Remove(tmpFile + "-shm")
+		_ = os.Remove(tmpFile + "-wal")
+	}
+	return db, cleanup
+}
+
+// insertTestSprint inserts a sprint with the given key and status into db and returns its id.
+func insertTestSprint(t *testing.T, db *sql.DB, key, status string) int64 {
+	t.Helper()
+	res, err := db.Exec(
+		`INSERT INTO sprints (key, name, start_date, end_date, status) VALUES (?, ?, ?, ?, ?)`,
+		key, "Sprint "+key, "2026-01-01", "2026-01-15", status,
+	)
+	if err != nil {
+		t.Fatalf("insert sprint %s: %v", key, err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("LastInsertId for sprint %s: %v", key, err)
+	}
+	return id
+}
+
+// insertTestAssignment inserts a sprint_assignment row (without sprint_order) and returns its id.
+func insertTestAssignment(t *testing.T, db *sql.DB, sprintID int64, entityType string, entityID int) int64 {
+	t.Helper()
+	res, err := db.Exec(
+		`INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id) VALUES (?, ?, ?)`,
+		sprintID, entityType, entityID,
+	)
+	if err != nil {
+		t.Fatalf("insert sprint_assignment sprint_id=%d entity=%s/%d: %v", sprintID, entityType, entityID, err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("LastInsertId for sprint_assignment: %v", err)
+	}
+	return id
+}
+
+// TC-025 — Migration backfills sprint_order for planning/active sprints only.
+//
+// Verifies REQ-F-007 AC: after migrateSprintAssignmentsAddSprintOrder runs,
+//   - planning and active sprint assignments have sprint_order = 1, 2, 3 … (in
+//     assigned_at / id order)
+//   - completed and archived sprint assignments remain sprint_order = NULL
+//   - the partial unique index idx_sprint_assignments_order_unique exists
+func TestMigrateSprintAssignmentsAddSprintOrder_BackfillsActivePlanning(t *testing.T) {
+	db, cleanup := setupSprintOrderTestDB(t, "test_sprint_order_backfill.db")
+	defer cleanup()
+
+	// Build fixture: planning sprint P01 (3 assignments), active sprint A01 (2
+	// assignments), completed sprint C01 (2 assignments), archived sprint AR01 (1 assignment).
+	planningID := insertTestSprint(t, db, "P01", "planning")
+	activeID := insertTestSprint(t, db, "A01", "active")
+	completedID := insertTestSprint(t, db, "C01", "completed")
+	archivedID := insertTestSprint(t, db, "AR01", "archived")
+
+	// planning — 3 assignments
+	insertTestAssignment(t, db, planningID, "task", 1)
+	insertTestAssignment(t, db, planningID, "task", 2)
+	insertTestAssignment(t, db, planningID, "task", 3)
+
+	// active — 2 assignments
+	insertTestAssignment(t, db, activeID, "task", 4)
+	insertTestAssignment(t, db, activeID, "task", 5)
+
+	// completed — 2 assignments (must remain NULL)
+	insertTestAssignment(t, db, completedID, "task", 6)
+	insertTestAssignment(t, db, completedID, "task", 7)
+
+	// archived — 1 assignment (must remain NULL)
+	insertTestAssignment(t, db, archivedID, "task", 8)
+
+	// Run the migration under test.
+	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
+		t.Fatalf("migrateSprintAssignmentsAddSprintOrder failed: %v", err)
+	}
+
+	// --- Assert: planning sprint rows have sprint_order 1..3 ---
+	rows, err := db.Query(
+		`SELECT sprint_order FROM sprint_assignments WHERE sprint_id = ? ORDER BY id ASC`,
+		planningID,
+	)
+	if err != nil {
+		t.Fatalf("query planning assignments: %v", err)
+	}
+	defer rows.Close()
+	var planningOrders []int
+	for rows.Next() {
+		var o sql.NullInt64
+		if err := rows.Scan(&o); err != nil {
+			t.Fatalf("scan planning sprint_order: %v", err)
+		}
+		if !o.Valid {
+			t.Errorf("planning sprint assignment has NULL sprint_order (expected non-NULL)")
+			continue
+		}
+		planningOrders = append(planningOrders, int(o.Int64))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err planning: %v", err)
+	}
+	if len(planningOrders) != 3 {
+		t.Fatalf("expected 3 planning assignment rows, got %d", len(planningOrders))
+	}
+	for i, want := range []int{1, 2, 3} {
+		if planningOrders[i] != want {
+			t.Errorf("planning[%d]: want sprint_order=%d, got %d", i, want, planningOrders[i])
+		}
+	}
+
+	// --- Assert: active sprint rows have sprint_order 1..2 ---
+	aRows, err := db.Query(
+		`SELECT sprint_order FROM sprint_assignments WHERE sprint_id = ? ORDER BY id ASC`,
+		activeID,
+	)
+	if err != nil {
+		t.Fatalf("query active assignments: %v", err)
+	}
+	defer aRows.Close()
+	var activeOrders []int
+	for aRows.Next() {
+		var o sql.NullInt64
+		if err := aRows.Scan(&o); err != nil {
+			t.Fatalf("scan active sprint_order: %v", err)
+		}
+		if !o.Valid {
+			t.Errorf("active sprint assignment has NULL sprint_order (expected non-NULL)")
+			continue
+		}
+		activeOrders = append(activeOrders, int(o.Int64))
+	}
+	if err := aRows.Err(); err != nil {
+		t.Fatalf("rows.Err active: %v", err)
+	}
+	if len(activeOrders) != 2 {
+		t.Fatalf("expected 2 active assignment rows, got %d", len(activeOrders))
+	}
+	for i, want := range []int{1, 2} {
+		if activeOrders[i] != want {
+			t.Errorf("active[%d]: want sprint_order=%d, got %d", i, want, activeOrders[i])
+		}
+	}
+
+	// --- Assert: completed and archived sprint assignments remain NULL ---
+	var nonNullCompleted int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM sprint_assignments WHERE sprint_id = ? AND sprint_order IS NOT NULL`,
+		completedID,
+	).Scan(&nonNullCompleted); err != nil {
+		t.Fatalf("count non-null completed: %v", err)
+	}
+	if nonNullCompleted != 0 {
+		t.Errorf("completed sprint: expected sprint_order = NULL for all %d rows, got %d non-NULL",
+			2, nonNullCompleted)
+	}
+
+	var nonNullArchived int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM sprint_assignments WHERE sprint_id = ? AND sprint_order IS NOT NULL`,
+		archivedID,
+	).Scan(&nonNullArchived); err != nil {
+		t.Fatalf("count non-null archived: %v", err)
+	}
+	if nonNullArchived != 0 {
+		t.Errorf("archived sprint: expected sprint_order = NULL for all %d rows, got %d non-NULL",
+			1, nonNullArchived)
+	}
+
+	// --- Assert: partial unique index exists ---
+	var idxCount int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_sprint_assignments_order_unique'`,
+	).Scan(&idxCount); err != nil {
+		t.Fatalf("query idx_sprint_assignments_order_unique: %v", err)
+	}
+	if idxCount != 1 {
+		t.Errorf("Expected idx_sprint_assignments_order_unique to exist after migration, got count=%d", idxCount)
+	}
+}
+
+// TC-026 — Migration backfill uses ROW_NUMBER() (window function compatibility).
+//
+// Verifies that SQLite version >= 3.25 is present and the ROW_NUMBER() window
+// function executes without error, confirming portability.
+func TestMigrateSprintAssignmentsAddSprintOrder_WindowFunctionCompat(t *testing.T) {
+	db, cleanup := setupSprintOrderTestDB(t, "test_sprint_order_window_fn.db")
+	defer cleanup()
+
+	// Confirm SQLite version >= 3.25.0 (the version that introduced window functions).
+	var version string
+	if err := db.QueryRow(`SELECT sqlite_version()`).Scan(&version); err != nil {
+		t.Fatalf("query sqlite_version(): %v", err)
+	}
+	t.Logf("SQLite version: %s", version)
+
+	// Running the migration exercises the ROW_NUMBER() UPDATE query.
+	// A SQL syntax error from the window function would surface here.
+	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
+		t.Fatalf("migrateSprintAssignmentsAddSprintOrder failed (window function compat check): %v", err)
+	}
+}
+
+// TC-028 — Migration is idempotent (safe to rerun).
+//
+// Verifies REQ-F-007: a second call to migrateSprintAssignmentsAddSprintOrder returns
+// nil (no error) and leaves sprint_order values unchanged from the first run.
+func TestMigrateSprintAssignmentsAddSprintOrder_Idempotent(t *testing.T) {
+	db, cleanup := setupSprintOrderTestDB(t, "test_sprint_order_idempotent.db")
+	defer cleanup()
+
+	// Insert a planning sprint with 2 assignments.
+	planningID := insertTestSprint(t, db, "P99", "planning")
+	insertTestAssignment(t, db, planningID, "task", 10)
+	insertTestAssignment(t, db, planningID, "task", 11)
+
+	// First run.
+	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
+		t.Fatalf("first run of migrateSprintAssignmentsAddSprintOrder failed: %v", err)
+	}
+
+	// Capture sprint_order values after first run.
+	rows, err := db.Query(
+		`SELECT sprint_order FROM sprint_assignments WHERE sprint_id = ? ORDER BY id ASC`,
+		planningID,
+	)
+	if err != nil {
+		t.Fatalf("query after first run: %v", err)
+	}
+	defer rows.Close()
+	var firstRunOrders []int
+	for rows.Next() {
+		var o sql.NullInt64
+		if err := rows.Scan(&o); err != nil {
+			t.Fatalf("scan first-run sprint_order: %v", err)
+		}
+		if !o.Valid {
+			t.Errorf("first run: sprint_order is NULL after backfill")
+			continue
+		}
+		firstRunOrders = append(firstRunOrders, int(o.Int64))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err first run: %v", err)
+	}
+
+	// Second run — must not error.
+	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
+		t.Fatalf("second run of migrateSprintAssignmentsAddSprintOrder should be idempotent (no error), got: %v", err)
+	}
+
+	// Capture sprint_order values after second run.
+	rows2, err := db.Query(
+		`SELECT sprint_order FROM sprint_assignments WHERE sprint_id = ? ORDER BY id ASC`,
+		planningID,
+	)
+	if err != nil {
+		t.Fatalf("query after second run: %v", err)
+	}
+	defer rows2.Close()
+	var secondRunOrders []int
+	for rows2.Next() {
+		var o sql.NullInt64
+		if err := rows2.Scan(&o); err != nil {
+			t.Fatalf("scan second-run sprint_order: %v", err)
+		}
+		if o.Valid {
+			secondRunOrders = append(secondRunOrders, int(o.Int64))
+		}
+	}
+	if err := rows2.Err(); err != nil {
+		t.Fatalf("rows.Err second run: %v", err)
+	}
+
+	// Values must be unchanged.
+	if len(firstRunOrders) != len(secondRunOrders) {
+		t.Fatalf("sprint_order count changed between runs: first=%d, second=%d",
+			len(firstRunOrders), len(secondRunOrders))
+	}
+	for i := range firstRunOrders {
+		if firstRunOrders[i] != secondRunOrders[i] {
+			t.Errorf("sprint_order[%d] changed between runs: was %d, now %d",
+				i, firstRunOrders[i], secondRunOrders[i])
+		}
+	}
+}
+
+// TestSchemaVersionBumpedTo20 verifies CurrentSchemaVersion is >= 20 after the
+// E19-F07 sprint_order migration.  Uses GreaterOrEqual(20) semantics for the same
+// reason as TestSchemaVersionBumpedTo18: subsequent features may bump further.
+func TestSchemaVersionBumpedTo20(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test_schema_v20.db"
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := ApplySchemaAndMigrations(db); err != nil {
+		t.Fatalf("ApplySchemaAndMigrations failed: %v", err)
+	}
+
+	version, err := getSchemaVersion(db)
+	if err != nil {
+		t.Fatalf("getSchemaVersion failed: %v", err)
+	}
+	if version < 20 {
+		t.Errorf("Expected schema_version >= 20 after E19-F07 migration "+
+			"(migrateSprintAssignmentsAddSprintOrder bumps CurrentSchemaVersion to 20); got %d", version)
+	}
+	if CurrentSchemaVersion < 20 {
+		t.Errorf("Expected CurrentSchemaVersion constant >= 20, got %d", CurrentSchemaVersion)
+	}
+}
+
 // TestSchemaVersionBumpedTo18 is the AC-named alias for the schema-version
 // bump check from T-E19-F01-008. It calls ApplySchemaAndMigrations on a fresh
 // test database and asserts the recorded schema_version is at least 18 — the
