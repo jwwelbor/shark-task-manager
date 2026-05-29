@@ -5861,16 +5861,33 @@ function sprintRecentChanges(payload) {
 // values to the four display buckets: ready, in_progress, blocked, done.
 // T-E27-F14-006 derives ACTIVE_SPRINT_CATEGORIES from this constant.
 const SPRINT_BUCKET_MAP = {
-  ready_for_development: 'ready',
-  todo:                  'ready',
-  draft:                 'ready',
-  in_development:        'in_progress',
-  ready_for_approval:    'in_progress',
-  in_progress:           'in_progress',
-  blocked:               'blocked',
-  completed:             'done',
-  resolved:              'done',
+  todo:                        'ready',
+  draft:                       'ready',
+  ready_for_development:       'in_progress',
+  in_development:              'in_progress',
+  ready_for_approval:          'in_progress',
+  in_progress:                 'in_progress',
+  in_review:                   'in_progress',
+  in_qa:                       'in_progress',
+  ready_for_refinement_tech:   'in_progress',
+  ready_for_refinement_ba:     'in_progress',
+  in_refinement:               'in_progress',
+  blocked:                     'blocked',
+  completed:                   'done',
+  resolved:                    'done',
 };
+
+// ACTIVE_SPRINT_CATEGORIES is derived from SPRINT_BUCKET_MAP: the set of all
+// status_category values that map to the 'in_progress' display bucket.
+// This is the single source of truth for the "Active" metric in the Overview.
+// REQ-F-005: counts in_development, ready_for_approval, ready_for_development,
+// in_progress, in_review, in_qa, ready_for_refinement_tech,
+// ready_for_refinement_ba, in_refinement.
+const ACTIVE_SPRINT_CATEGORIES = new Set(
+  Object.entries(SPRINT_BUCKET_MAP)
+    .filter(([, bucket]) => bucket === 'in_progress')
+    .map(([category]) => category)
+);
 
 const SPRINT_BUCKET_LABELS = {
   ready:       'Ready',
@@ -6304,8 +6321,8 @@ function renderSprintOverview(payload) {
   const blockedCount = sprintBacklogGroups(payload)
     .filter(group => (group?.status_category || '') === 'blocked')
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
-  const wipCount = sprintBacklogGroups(payload)
-    .filter(group => ['in_progress', 'in_review', 'in_qa'].includes(group?.status_category || ''))
+  const activeCount = sprintBacklogGroups(payload)
+    .filter(group => ACTIVE_SPRINT_CATEGORIES.has(group?.status_category || ''))
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const keyLabel = escapeHtml(sprint.key || '');
@@ -6319,7 +6336,7 @@ function renderSprintOverview(payload) {
       ${sprintSummaryCard('Readiness', `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))};color:${getContrastColor(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))}">${escapeHtml(String(readiness.overall_score ?? 0))}</span>`, 'Overall readiness score')}
       ${sprintSummaryCard('Capacity', `${escapeHtml(String(capacity.pressure || 0))}%`, `${escapeHtml(String(capacity.allocated.toFixed ? capacity.allocated.toFixed(1) : capacity.allocated))} allocated / ${escapeHtml(String(capacity.capacity.toFixed ? capacity.capacity.toFixed(1) : capacity.capacity))} capacity`)}
       ${sprintSummaryCard('Blocked', escapeHtml(String(blockedCount)), 'Items blocked in the current sprint')}
-      ${sprintSummaryCard('WIP', escapeHtml(String(wipCount)), 'Items currently in progress')}
+      ${sprintSummaryCard('Active', escapeHtml(String(activeCount)), 'Items currently in active workflow states')}
     </div>`;
 
   const changes = sprintRecentChanges(payload);
