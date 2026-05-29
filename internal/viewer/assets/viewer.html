@@ -2119,6 +2119,45 @@ function isHiddenTerminalStatus(status, entityType) {
 const FOLDER_KEY_PREFIX = 'folder:';
 
 /**
+ * Formats an ISO date string (YYYY-MM-DD or ISO 8601 with time) as a short
+ * human-readable date, e.g. "May 8" or "May 8, 2025" if cross-year.
+ * Parses the date part directly from the ISO string (no Date object) to avoid
+ * local-timezone day-shift on midnight-UTC timestamps.
+ * @param {string} isoString
+ * @returns {string} e.g. "May 8" or "May 8, 2025" or "—" when absent
+ */
+function formatDateOnly(isoString) {
+  if (!isoString) return '—';
+  // Handle sql.NullTime object { Time: "...", Valid: bool }
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '—';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '—';
+  try {
+    // Parse date part directly from ISO string to avoid timezone day-shift.
+    // e.g. "2026-05-08T00:00:00Z" → "2026-05-08"
+    const datePart = String(isoString).split('T')[0];
+    const [yearStr, monStr, dayStr] = datePart.split('-');
+    const year = parseInt(yearStr, 10);
+    const mon  = parseInt(monStr, 10) - 1; // 0-based
+    const day  = parseInt(dayStr, 10);
+    if (isNaN(year) || isNaN(mon) || isNaN(day) || year < 2) return '—';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monLabel = months[mon];
+    const currentYear = parseInt(String(isoString).split('T')[0].split('-')[0], 10);
+    const nowYear = new Date().getFullYear();
+    if (currentYear !== nowYear) {
+      return `${monLabel} ${day}, ${year}`;
+    }
+    return `${monLabel} ${day}`;
+  } catch {
+    return '—';
+  }
+}
+
+/**
  * Formats an ISO timestamp to a short human-readable date.
  * e.g. "Apr 9" or "Apr 9, 2024" if year differs from current.
  * @param {string} isoString
@@ -5750,12 +5789,39 @@ function sprintSummaryCard(label, value, note) {
   </div>`;
 }
 
-function sprintFormatRange(sprint) {
-  if (!sprint) return 'No sprint selected';
-  const start = formatDate(sprint.start_date || sprint.startDate || sprint.start || '');
-  const end = formatDate(sprint.end_date || sprint.endDate || sprint.end || '');
-  if (!start && !end) return 'Date range unavailable';
-  return `${escapeHtml(start || '—')} → ${escapeHtml(end || '—')}`;
+/**
+ * Formats a sprint date range from two ISO date strings (or falsy).
+ * Same-year:  "May 8 → May 22"
+ * Cross-year: "Dec 30, 2025 → Jan 13, 2026"
+ * Missing date renders as "—".
+ * @param {string|null|undefined} startISO
+ * @param {string|null|undefined} endISO
+ * @returns {string}
+ */
+function sprintFormatRange(startISO, endISO) {
+  const startStr = startISO ? String(startISO).split('T')[0] : null;
+  const endStr   = endISO   ? String(endISO).split('T')[0]   : null;
+  const startYear = startStr ? parseInt(startStr.split('-')[0], 10) : null;
+  const endYear   = endStr   ? parseInt(endStr.split('-')[0],   10) : null;
+  const crossYear = startYear !== null && endYear !== null && startYear !== endYear;
+
+  const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function fmt(dateStr, year) {
+    if (!dateStr) return '—';
+    const [, monStr, dayStr] = dateStr.split('-');
+    const mon = parseInt(monStr, 10) - 1;
+    const day = parseInt(dayStr, 10);
+    if (isNaN(mon) || isNaN(day)) return '—';
+    const monLabel = months[mon];
+    return crossYear ? `${monLabel} ${day}, ${year}` : `${monLabel} ${day}`;
+  }
+
+  const start = fmt(startStr, startYear);
+  const end   = fmt(endStr,   endYear);
+  if (start === '—' && end === '—') return 'Date range unavailable';
+  return `${escapeHtml(start)} → ${escapeHtml(end)}`;
 }
 
 function sprintCapacityStats(rows) {
@@ -5779,24 +5845,42 @@ function sprintRecentChanges(payload) {
   }).slice(0, 8);
 }
 
+// SPRINT_BUCKET_MAP is the single source of truth mapping API status_category
+// values to the four display buckets: ready, in_progress, blocked, done.
+// T-E27-F14-006 derives ACTIVE_SPRINT_CATEGORIES from this constant.
+const SPRINT_BUCKET_MAP = {
+  ready_for_development: 'ready',
+  todo:                  'ready',
+  draft:                 'ready',
+  in_development:        'in_progress',
+  ready_for_approval:    'in_progress',
+  in_progress:           'in_progress',
+  blocked:               'blocked',
+  completed:             'done',
+  resolved:              'done',
+};
+
 const SPRINT_BUCKET_LABELS = {
-  ready: 'Ready',
+  ready:       'Ready',
   in_progress: 'In Progress',
-  blocked: 'Blocked',
-  done: 'Done',
+  blocked:     'Blocked',
+  done:        'Done',
 };
 
 function sprintBucketGroups(payload) {
-  const map = new Map();
+  // Aggregate items from all status_category groups into the four display buckets.
+  const bucketItems = { ready: [], in_progress: [], blocked: [], done: [] };
   for (const group of sprintBacklogGroups(payload)) {
-    if (group?.status_category) {
-      map.set(group.status_category, group);
+    const category = group?.status_category;
+    const bucket = category ? SPRINT_BUCKET_MAP[category] : undefined;
+    if (bucket && Array.isArray(group.items)) {
+      bucketItems[bucket].push(...group.items);
     }
   }
   return Object.keys(SPRINT_BUCKET_LABELS).map(key => ({
     key,
     label: SPRINT_BUCKET_LABELS[key],
-    items: Array.isArray(map.get(key)?.items) ? map.get(key).items : [],
+    items: bucketItems[key],
   }));
 }
 
