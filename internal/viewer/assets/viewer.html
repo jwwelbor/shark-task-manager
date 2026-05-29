@@ -5966,11 +5966,12 @@ function sprintRecentChanges(payload) {
 
 // SPRINT_BUCKET_MAP is the single source of truth mapping API status_category
 // values to the four display buckets: ready, in_progress, blocked, done.
-// T-E27-F14-006 derives ACTIVE_SPRINT_CATEGORIES from this constant.
+// AC-005 (spec §1.3): ready_for_development maps to the 'ready' display bucket.
+// AC-006: in_development, ready_for_approval, in_progress map to 'in_progress'.
 const SPRINT_BUCKET_MAP = {
   todo:                        'ready',
   draft:                       'ready',
-  ready_for_development:       'in_progress',
+  ready_for_development:       'ready',
   in_development:              'in_progress',
   ready_for_approval:          'in_progress',
   in_progress:                 'in_progress',
@@ -5984,17 +5985,25 @@ const SPRINT_BUCKET_MAP = {
   resolved:                    'done',
 };
 
-// ACTIVE_SPRINT_CATEGORIES is derived from SPRINT_BUCKET_MAP: the set of all
-// status_category values that map to the 'in_progress' display bucket.
-// This is the single source of truth for the "Active" metric in the Overview.
-// REQ-F-005: counts in_development, ready_for_approval, ready_for_development,
-// in_progress, in_review, in_qa, ready_for_refinement_tech,
-// ready_for_refinement_ba, in_refinement.
-const ACTIVE_SPRINT_CATEGORIES = new Set(
-  Object.entries(SPRINT_BUCKET_MAP)
-    .filter(([, bucket]) => bucket === 'in_progress')
-    .map(([category]) => category)
-);
+// ACTIVE_SPRINT_CATEGORIES is the explicit set of status_category values that
+// count as "active work" for the Overview "Active" metric (REQ-F-005 / AC-013).
+// This is defined independently of SPRINT_BUCKET_MAP because ready_for_development
+// maps to the 'ready' display bucket (AC-005) but is still active work that must
+// be counted in the Active metric (AC-013). The two concerns are orthogonal.
+// REQ-F-005 authoritative list: in_development, ready_for_approval,
+// ready_for_development, in_progress, in_review, in_qa,
+// ready_for_refinement_tech, ready_for_refinement_ba, in_refinement.
+const ACTIVE_SPRINT_CATEGORIES = new Set([
+  'ready_for_development',
+  'in_development',
+  'ready_for_approval',
+  'in_progress',
+  'in_review',
+  'in_qa',
+  'ready_for_refinement_tech',
+  'ready_for_refinement_ba',
+  'in_refinement',
+]);
 
 const SPRINT_BUCKET_LABELS = {
   ready:       'Ready',
