@@ -839,7 +839,10 @@ func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintRe
 
 	summary, err := s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
 	if err != nil {
-		summary = nil // summary only available for completed/archived sprints
+		if sprintEntity.Status == "completed" || sprintEntity.Status == "archived" {
+			return nil, fmt.Errorf("viewer sprint report: failed to load summary: %w", err)
+		}
+		summary = nil // summary not yet available for in-progress sprints
 	}
 
 	return &SprintReportResponse{
@@ -937,7 +940,7 @@ func (s *ViewerService) Summary(ctx context.Context) (*SummaryResponse, error) {
 			counts := enrichEntityCounts(techDebtCounts, techDebtSvc)
 			return &counts
 		}(),
-		Ideas:       ideaCounts,
+		Ideas: ideaCounts,
 	}, nil
 }
 
@@ -1910,6 +1913,9 @@ func (s *ViewerService) resolveEntityID(ctx context.Context, entityType models.E
 		if err != nil {
 			return 0, fmt.Errorf("failed to look up tech debt %q: %w", key, err)
 		}
+		if td == nil {
+			return 0, fmt.Errorf("tech debt %q not found", key)
+		}
 		return td.ID, nil
 
 	default:
@@ -2130,6 +2136,9 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 		if err != nil {
 			return "", fmt.Errorf("failed to look up bug %q: %w", key, err)
 		}
+		if b == nil {
+			return "", nil
+		}
 		if b.FilePath != nil {
 			return *b.FilePath, nil
 		}
@@ -2155,6 +2164,9 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 		td, err := s.techDebtRepo.GetByKey(ctx, key)
 		if err != nil {
 			return "", fmt.Errorf("failed to look up tech debt %q: %w", key, err)
+		}
+		if td == nil {
+			return "", nil
 		}
 		if td.FilePath != nil {
 			return *td.FilePath, nil

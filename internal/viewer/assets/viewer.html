@@ -6657,8 +6657,8 @@ function renderSprintHealthColumns(payload) {
       }).join('')
     : '<div class="content-placeholder">No blocked items.</div>';
 
-  // Unsized item warning count from capacity rows
-  const unsizedCount = capacityRows.reduce((acc, row) => acc + Number(row.unsized_assigned || 0), 0);
+  // Unsized item warning count from readiness data (capacity rows don't carry unsized_assigned)
+  const unsizedCount = Array.isArray(payload?.readiness?.unsized_entities) ? payload.readiness.unsized_entities.length : 0;
   const unsizedWarning = unsizedCount > 0
     ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(236,153,75,0.12);border-radius:4px;font-size:12px;color:#f6ad55">⚠️ ${escapeHtml(String(unsizedCount))} item${unsizedCount !== 1 ? 's' : ''} unsized</div>`
     : '';
@@ -7691,6 +7691,10 @@ function buildFlatSectionBodyHtml(items, entityType) {
   return html;
 }
 
+function buildFlatSectionHtml(title, items, entityType) {
+  return buildFlatSectionBodyHtml(items, entityType);
+}
+
 function buildDocsBrowserBodyHtml() {
   const folderKey = FOLDER_KEY_PREFIX + 'docs';
   return `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="docs"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Browse docs/</span></div>`;
@@ -7742,6 +7746,7 @@ function renderSidebar() {
       </span>
     </div>
     <div class="sidebar-filter-actions">
+      <button class="sidebar-collapse-btn" id="collapse-all-btn" type="button" title="Collapse all epics and features" aria-label="Collapse all epics and features">↑</button>
       <button class="sidebar-collapse-btn sidebar-filter-toggle-all" id="sidebar-toggle-all-btn" type="button" aria-label="${escapeHtml(toggleAllTitle)}" title="${escapeHtml(toggleAllTitle)}">${escapeHtml(toggleAllLabel)}</button>
     </div>
   </div>`;
@@ -7773,7 +7778,7 @@ function renderSidebar() {
   html += renderSidebarSection('tech_debt', 'Tech Debt', buildFlatSectionBodyHtml(techDebts, 'tech_debt'));
 
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
-  html += renderSidebarSection('ideas', 'Ideas', buildFlatSectionBodyHtml(ideas, 'idea'));
+  html += renderSidebarSection('ideas', 'Ideas', buildFlatSectionHtml('Ideas', ideas, 'idea'));
 
   // ── Docs browser ──
   html += renderSidebarSection('docs', 'Docs', buildDocsBrowserBodyHtml(), { keepEmpty: true });
@@ -7822,6 +7827,15 @@ function renderSidebar() {
     sidebarToggleAllBtn.onclick = function() {
       const expandAll = !areAllSidebarSectionsExpanded();
       setAllSidebarSectionsExpanded(expandAll);
+      renderSidebar();
+    };
+  }
+
+  const collapseAllBtn = document.getElementById('collapse-all-btn');
+  if (collapseAllBtn) {
+    collapseAllBtn.onclick = function() {
+      expandedEpics.clear();
+      expandedFeatures.clear();
       renderSidebar();
     };
   }
