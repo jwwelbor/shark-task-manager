@@ -64,3 +64,6 @@ task_reviews/
 qa_reports/
 feature_reviews/
 docs/review/
+
+
+test-results/
