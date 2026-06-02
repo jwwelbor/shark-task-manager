@@ -305,6 +305,17 @@ func testWorkflowSvc(t *testing.T) *workflow.Service {
 
 func ptr[T any](v T) *T { return &v }
 
+func writeTestFile(t *testing.T, root, relPath, content string) {
+	t.Helper()
+	fullPath := filepath.Join(root, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatalf("failed to create parent directories for %s: %v", relPath, err)
+	}
+	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write test file %s: %v", relPath, err)
+	}
+}
+
 // noopEntityRelRepo is a minimal EntityRelationshipRepository that returns
 // empty slices from all read methods. Used to satisfy the NewViewerService
 // constructor in tests that do not exercise relationship resolution.
@@ -553,6 +564,33 @@ func TestViewerService_Summary_CountsEntities(t *testing.T) {
 	}
 }
 
+func TestViewerService_Summary_IncludesTechDebtsWhenRepoWired(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithTechDebtRepo(&mockViewerTechDebtRepo{
+		CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+			return map[string]int{"open": 2, "resolved": 1}, nil
+		},
+	})
+
+	resp, err := svc.Summary(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.TechDebts == nil {
+		t.Fatal("expected tech_debts to be present when tech debt repo is wired")
+	}
+	if resp.TechDebts.Total != 3 {
+		t.Errorf("expected 3 tech debts, got %d", resp.TechDebts.Total)
+	}
+}
+
 func TestViewerService_Summary_UnknownStatusFallback(t *testing.T) {
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{
@@ -706,6 +744,100 @@ func TestViewerService_Hierarchy_EmbedsDocs(t *testing.T) {
 	f := epic.Features[0]
 	if len(f.Docs) != 1 || f.Docs[0].Title != "Feature Design" {
 		t.Errorf("expected 1 feature doc with title 'Feature Design', got %v", f.Docs)
+	}
+}
+
+func TestViewerService_Hierarchy_IncludesTechDebts(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithTechDebtRepo(&mockViewerTechDebtRepo{
+		ListAllFunc: func(ctx context.Context) ([]*models.TechDebt, error) {
+			return []*models.TechDebt{
+				{
+					BaseEntity: models.BaseEntity{ID: 300, Key: "TD-001", Title: "Untangle shared state"},
+					Status:     models.TechDebtStatus("open"),
+					Category:   models.TechDebtCategoryArchitecture,
+					Severity:   models.TechDebtSeverityHigh,
+				},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.TechDebts) != 1 {
+		t.Fatalf("expected 1 tech debt item, got %d", len(resp.TechDebts))
+	}
+	if resp.TechDebts[0].Key != "TD-001" {
+		t.Errorf("expected tech debt key TD-001, got %q", resp.TechDebts[0].Key)
+	}
+	if resp.TechDebts[0].Tags == nil {
+		t.Error("expected tech debt tags to be initialized")
+	}
+}
+
+func TestViewerService_Hierarchy_TechDebtsSortedNewestFirst(t *testing.T) {
+	newer := time.Date(2026, 1, 3, 12, 0, 0, 0, time.UTC)
+	older := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListWithViewerRelationshipsFunc: func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithTechDebtRepo(&mockViewerTechDebtRepo{
+		ListAllFunc: func(ctx context.Context) ([]*models.TechDebt, error) {
+			return []*models.TechDebt{
+				{BaseEntity: models.BaseEntity{ID: 2, Key: "TD-002", Title: "Older item", CreatedAt: older, UpdatedAt: older}},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "TD-001", Title: "Newer item", CreatedAt: newer, UpdatedAt: newer}},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.TechDebts) != 2 {
+		t.Fatalf("expected 2 tech debt items, got %d", len(resp.TechDebts))
+	}
+	if resp.TechDebts[0].Key != "TD-001" || resp.TechDebts[1].Key != "TD-002" {
+		t.Fatalf("expected newest-to-oldest order TD-001, TD-002; got %q, %q", resp.TechDebts[0].Key, resp.TechDebts[1].Key)
 	}
 }
 
@@ -1269,6 +1401,7 @@ func TestViewerService_WorkflowMeta_ContainsAllLevels(t *testing.T) {
 		workflow.LevelTask,
 		workflow.LevelBug,
 		workflow.LevelChange,
+		workflow.LevelTechDebt,
 	}
 	for _, level := range expectedLevels {
 		if _, ok := resp.Levels[level]; !ok {
@@ -1872,20 +2005,85 @@ func TestViewerService_File_EpicNotFound(t *testing.T) {
 	}
 }
 
-func TestViewerService_File_UnsupportedEntityType(t *testing.T) {
-	// Bug key format is unsupported for file read.
-	svc := buildViewerService(t,
+func TestViewerService_File_BugKey_UsesBugFilePath(t *testing.T) {
+	dir := t.TempDir()
+	const relPath = "docs/bugs/B001.md"
+	writeTestFile(t, dir, relPath, "# bug\n")
+	relPathValue := relPath
+
+	svc := NewViewerService(
 		&mockViewerEpicRepo{},
 		&mockViewerFeatureRepo{},
 		&mockViewerTaskRepo{},
 		&mockViewerBugRepo{},
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+		buildNoopEntityRelSvc(),
+		NewEntityRegistry(),
 	)
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{
+				BaseEntity: models.BaseEntity{ID: 101, Key: key, FilePath: &relPathValue},
+				Status:     "new",
+			}, nil
+		},
+	})
 
-	_, err := svc.File(context.Background(), "B001")
-	if err == nil {
-		t.Fatal("expected error for unsupported entity type (bug)")
+	resp, err := svc.File(context.Background(), "B001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Exists {
+		t.Fatal("expected Exists=true for bug file path")
+	}
+	if resp.Path != relPath {
+		t.Errorf("expected file path %q, got %q", relPath, resp.Path)
+	}
+}
+
+func TestViewerService_File_TechDebtKey_UsesTechDebtFilePath(t *testing.T) {
+	dir := t.TempDir()
+	const relPath = "docs/tech-debt/TD-001.md"
+	writeTestFile(t, dir, relPath, "# tech debt\n")
+	relPathValue := relPath
+
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+		buildNoopEntityRelSvc(),
+		NewEntityRegistry(),
+	)
+	svc.WithTechDebtRepo(&mockViewerTechDebtRepo{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.TechDebt, error) {
+			return &models.TechDebt{
+				BaseEntity: models.BaseEntity{ID: 202, Key: key, FilePath: &relPathValue},
+				Status:     models.TechDebtStatus("open"),
+				Category:   models.TechDebtCategoryArchitecture,
+				Severity:   models.TechDebtSeverityHigh,
+			}, nil
+		},
+	})
+
+	resp, err := svc.File(context.Background(), "TD-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Exists {
+		t.Fatal("expected Exists=true for tech debt file path")
+	}
+	if resp.Path != relPath {
+		t.Errorf("expected file path %q, got %q", relPath, resp.Path)
 	}
 }
 
@@ -2033,34 +2231,57 @@ func TestViewerService_FeatureTasks_OffsetPastEnd(t *testing.T) {
 
 // ----- resolveEntityID additional coverage tests -----
 
-func TestViewerService_History_BugKey_Unsupported(t *testing.T) {
-	// Bug keys are detected by detectEntityType but resolveEntityID has no case for them.
+func TestViewerService_History_BugChangeAndTechDebtKeysSupported(t *testing.T) {
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{},
 		&mockViewerFeatureRepo{},
 		&mockViewerTaskRepo{},
 		&mockViewerBugRepo{},
 		&mockViewerChangeCardRepo{},
-		&mockViewerHistoryRepo{},
+		&mockViewerHistoryRepo{
+			ListByEntityFunc: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityHistory, error) {
+				return []*models.EntityHistory{}, nil
+			},
+		},
 	)
-	_, err := svc.History(context.Background(), "B001")
-	if err == nil {
-		t.Fatal("expected error for bug key (unsupported in resolveEntityID)")
-	}
-}
+	svc.WithBugListRepo(&mockViewerBugListRepo{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 101, Key: key}}, nil
+		},
+	})
+	svc.WithChangeCardListRepo(&mockViewerChangeCardListRepo{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 202, Key: key}}, nil
+		},
+	})
+	svc.WithTechDebtRepo(&mockViewerTechDebtRepo{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.TechDebt, error) {
+			return &models.TechDebt{BaseEntity: models.BaseEntity{ID: 303, Key: key}}, nil
+		},
+	})
 
-func TestViewerService_History_ChangeCardKey_Unsupported(t *testing.T) {
-	svc := buildViewerService(t,
-		&mockViewerEpicRepo{},
-		&mockViewerFeatureRepo{},
-		&mockViewerTaskRepo{},
-		&mockViewerBugRepo{},
-		&mockViewerChangeCardRepo{},
-		&mockViewerHistoryRepo{},
-	)
-	_, err := svc.History(context.Background(), "CC-001")
-	if err == nil {
-		t.Fatal("expected error for change card key (unsupported in resolveEntityID)")
+	cases := []struct {
+		key      string
+		wantType models.EntityType
+	}{
+		{key: "B001", wantType: models.EntityTypeBug},
+		{key: "CC-001", wantType: models.EntityTypeChange},
+		{key: "TD-001", wantType: models.EntityTypeTechDebt},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.wantType), func(t *testing.T) {
+			resp, err := svc.History(context.Background(), tc.key)
+			if err != nil {
+				t.Fatalf("unexpected error for %s: %v", tc.key, err)
+			}
+			if resp.EntityType != tc.wantType {
+				t.Errorf("expected entity type %q, got %q", tc.wantType, resp.EntityType)
+			}
+			if resp.EntityKey != tc.key {
+				t.Errorf("expected normalized entity key %q, got %q", tc.key, resp.EntityKey)
+			}
+		})
 	}
 }
 
@@ -2145,6 +2366,70 @@ func TestViewerService_File_EpicRepoError(t *testing.T) {
 	_, err := svc.File(context.Background(), "E01")
 	if err == nil {
 		t.Fatal("expected error from epic repo failure in resolveFilePath")
+	}
+}
+
+func TestViewerService_FolderFiles_DocsAndNestedDirectories(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "docs/README.md", "# docs\n")
+	writeTestFile(t, dir, "docs/architecture/overview.md", "# overview\n")
+	writeTestFile(t, dir, "docs/architecture/deep/note.md", "# note\n")
+
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+		buildNoopEntityRelSvc(),
+		NewEntityRegistry(),
+	)
+
+	rootResp, err := svc.FolderFiles(context.Background(), "docs")
+	if err != nil {
+		t.Fatalf("unexpected error listing docs/: %v", err)
+	}
+	if rootResp.DirPath != "docs" {
+		t.Errorf("expected dir_path=docs, got %q", rootResp.DirPath)
+	}
+	if len(rootResp.Entries) != 2 {
+		t.Fatalf("expected 2 entries in docs/, got %d", len(rootResp.Entries))
+	}
+
+	childByName := map[string]*FolderFileEntry{}
+	for _, entry := range rootResp.Entries {
+		childByName[entry.Name] = entry
+	}
+	if entry := childByName["README.md"]; entry == nil || entry.IsDir {
+		t.Fatalf("expected README.md to be listed as a file, got %+v", entry)
+	}
+	if entry := childByName["architecture"]; entry == nil || !entry.IsDir {
+		t.Fatalf("expected docs/architecture to be listed as a directory, got %+v", entry)
+	}
+
+	nestedResp, err := svc.FolderFiles(context.Background(), "docs/architecture")
+	if err != nil {
+		t.Fatalf("unexpected error listing docs/architecture: %v", err)
+	}
+	if nestedResp.DirPath != "docs/architecture" {
+		t.Errorf("expected dir_path=docs/architecture, got %q", nestedResp.DirPath)
+	}
+	if len(nestedResp.Entries) != 2 {
+		t.Fatalf("expected 2 entries in docs/architecture, got %d", len(nestedResp.Entries))
+	}
+	nestedByName := map[string]*FolderFileEntry{}
+	for _, entry := range nestedResp.Entries {
+		nestedByName[entry.Name] = entry
+	}
+	if entry := nestedByName["overview.md"]; entry == nil || entry.IsDir {
+		t.Fatalf("expected overview.md to be listed as a file, got %+v", entry)
+	}
+	if entry := nestedByName["deep"]; entry == nil || !entry.IsDir {
+		t.Fatalf("expected deep to be listed as a directory, got %+v", entry)
 	}
 }
 
@@ -3543,6 +3828,33 @@ func (m *mockViewerChangeCardListRepo) GetByKey(ctx context.Context, key string)
 		return m.GetByKeyFunc(ctx, key)
 	}
 	return nil, fmt.Errorf("change card not found: %s", key)
+}
+
+type mockViewerTechDebtRepo struct {
+	ListAllFunc      func(ctx context.Context) ([]*models.TechDebt, error)
+	GetByKeyFunc     func(ctx context.Context, key string) (*models.TechDebt, error)
+	CountByStatusFunc func(ctx context.Context) (map[string]int, error)
+}
+
+func (m *mockViewerTechDebtRepo) ListAll(ctx context.Context) ([]*models.TechDebt, error) {
+	if m.ListAllFunc != nil {
+		return m.ListAllFunc(ctx)
+	}
+	return []*models.TechDebt{}, nil
+}
+
+func (m *mockViewerTechDebtRepo) GetByKey(ctx context.Context, key string) (*models.TechDebt, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("tech debt not found: %s", key)
+}
+
+func (m *mockViewerTechDebtRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	if m.CountByStatusFunc != nil {
+		return m.CountByStatusFunc(ctx)
+	}
+	return map[string]int{}, nil
 }
 
 type mockViewerIdeaListRepo struct {

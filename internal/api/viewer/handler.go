@@ -344,10 +344,10 @@ func (h *ViewerHandler) RecentActivity(w http.ResponseWriter, r *http.Request) {
 	if entityType != "" {
 		validEntityTypes := map[string]bool{
 			"epic": true, "feature": true, "task": true,
-			"bug": true, "change_card": true,
+			"bug": true, "change_card": true, "tech_debt": true,
 		}
 		if !validEntityTypes[entityType] {
-			respondError(w, http.StatusBadRequest, `invalid "entity_type": must be one of epic, feature, task, bug, change_card`)
+			respondError(w, http.StatusBadRequest, `invalid "entity_type": must be one of epic, feature, task, bug, change_card, tech_debt`)
 			return
 		}
 	}
@@ -495,6 +495,8 @@ func validateAndNormalizeAnyKey(rawKey string) (string, error) {
 	case keys.IsBugKey(upper):
 		return upper, nil
 	case keys.IsChangeCardKey(upper):
+		return upper, nil
+	case keys.IsTechDebtKey(upper):
 		return upper, nil
 	}
 	return "", errors.New("unrecognized entity key format")

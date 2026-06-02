@@ -205,6 +205,7 @@ func TestHandler_Summary(t *testing.T) {
 					Tasks:       services.SummaryTaskCounts{SummaryEntityCounts: services.SummaryEntityCounts{Total: 20}},
 					Bugs:        services.SummaryBugCounts{SummaryEntityCounts: services.SummaryEntityCounts{Total: 4}},
 					ChangeCards: services.SummaryEntityCounts{Total: 1},
+					TechDebts:   &services.SummaryEntityCounts{Total: 2},
 				}, nil
 			},
 		}
@@ -217,7 +218,7 @@ func TestHandler_Summary(t *testing.T) {
 
 		var body map[string]json.RawMessage
 		assertJSON(t, rec, &body)
-		for _, key := range []string{"epics", "features", "tasks", "bugs", "change_cards"} {
+		for _, key := range []string{"epics", "features", "tasks", "bugs", "change_cards", "tech_debts"} {
 			if _, ok := body[key]; !ok {
 				t.Errorf("TC-H-001: missing key %q in response", key)
 			}
@@ -878,6 +879,98 @@ func TestHandler_File(t *testing.T) {
 			t.Fatalf("TC-H-036: expected 200, got %d", rec.Code)
 		}
 	})
+
+	// TC-H-037: Bug key accepted and normalized.
+	t.Run("TC-H-037_bug_key_accepted", func(t *testing.T) {
+		var receivedKey string
+		mock := &MockViewerServicer{
+			FileFunc: func(_ context.Context, key string) (*services.FileResponse, error) {
+				receivedKey = key
+				return &services.FileResponse{Exists: true, Content: "# bug", Path: "docs/bug.md"}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/file/B001", newTestMux(mock))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-H-037: expected 200, got %d", rec.Code)
+		}
+		if receivedKey != "B001" {
+			t.Errorf("TC-H-037: expected normalized key B001, got %q", receivedKey)
+		}
+	})
+
+	// TC-H-038: Tech-debt key accepted and normalized.
+	t.Run("TC-H-038_tech_debt_key_accepted", func(t *testing.T) {
+		var receivedKey string
+		mock := &MockViewerServicer{
+			FileFunc: func(_ context.Context, key string) (*services.FileResponse, error) {
+				receivedKey = key
+				return &services.FileResponse{Exists: true, Content: "# tech debt", Path: "docs/tech-debt.md"}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/file/td-001", newTestMux(mock))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-H-038: expected 200, got %d", rec.Code)
+		}
+		if receivedKey != "TD-001" {
+			t.Errorf("TC-H-038: expected normalized key TD-001, got %q", receivedKey)
+		}
+	})
+}
+
+// ----- TC-H-039: GET /folder-files/{path...} -----
+
+func TestHandler_FolderFiles(t *testing.T) {
+	t.Run("TC-H-039_docs_root", func(t *testing.T) {
+		var receivedPath string
+		mock := &MockViewerServicer{
+			FolderFilesFunc: func(_ context.Context, dirPath string) (*services.FolderFilesResponse, error) {
+				receivedPath = dirPath
+				return &services.FolderFilesResponse{
+					DirPath: "docs",
+					Entries: []*services.FolderFileEntry{
+						{Name: "README.md", Path: "docs/README.md", IsDir: false, Size: 10},
+						{Name: "architecture", Path: "docs/architecture", IsDir: true, Size: 0},
+					},
+				}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/folder-files/docs", newTestMux(mock))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-H-039: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if receivedPath != "docs" {
+			t.Errorf("TC-H-039: expected dirPath=docs, got %q", receivedPath)
+		}
+
+		var body struct {
+			DirPath string `json:"dir_path"`
+			Entries []*services.FolderFileEntry `json:"entries"`
+		}
+		assertJSON(t, rec, &body)
+		if body.DirPath != "docs" {
+			t.Errorf("TC-H-039: expected dir_path=docs, got %q", body.DirPath)
+		}
+		if len(body.Entries) != 2 {
+			t.Fatalf("TC-H-039: expected 2 entries, got %d", len(body.Entries))
+		}
+	})
+
+	t.Run("TC-H-039_nested_docs_path", func(t *testing.T) {
+		var receivedPath string
+		mock := &MockViewerServicer{
+			FolderFilesFunc: func(_ context.Context, dirPath string) (*services.FolderFilesResponse, error) {
+				receivedPath = dirPath
+				return &services.FolderFilesResponse{DirPath: dirPath, Entries: []*services.FolderFileEntry{}}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/folder-files/docs/architecture", newTestMux(mock))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-H-039 nested: expected 200, got %d", rec.Code)
+		}
+		if receivedPath != "docs/architecture" {
+			t.Errorf("TC-H-039 nested: expected dirPath=docs/architecture, got %q", receivedPath)
+		}
+	})
 }
 
 // ----- TC-H-040 through TC-H-044: GET /features/{key}/tasks -----
@@ -1325,6 +1418,27 @@ func TestHandler_RecentActivity(t *testing.T) {
 		}
 	})
 
+	// TC-H-053b: tech_debt entity_type is accepted and passed through.
+	t.Run("TC-H-053b_tech_debt_entity_type_accepted", func(t *testing.T) {
+		called := false
+		mock := &MockViewerServicer{
+			RecentActivityFunc: func(_ context.Context, opts services.RecentActivityOptions) (*services.RecentActivityResponse, error) {
+				called = true
+				if opts.EntityType != "tech_debt" {
+					t.Fatalf("TC-H-053b: expected opts.EntityType=tech_debt, got %q", opts.EntityType)
+				}
+				return &services.RecentActivityResponse{Records: []*services.ActivityRecord{}}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/recent-activity?entity_type=tech_debt", newTestMux(mock))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-H-053b: expected 200, got %d", rec.Code)
+		}
+		if !called {
+			t.Error("TC-H-053b: RecentActivityFunc should have been called")
+		}
+	})
+
 	// TC-H-054: Malformed since → 400
 	t.Run("TC-H-054_malformed_since_400", func(t *testing.T) {
 		called := false
@@ -1365,14 +1479,15 @@ func TestHandler_RecentActivity(t *testing.T) {
 // ----- TC-H-060 through TC-H-061: GET /workflow-meta -----
 
 func TestHandler_WorkflowMeta(t *testing.T) {
-	// TC-H-060: Happy path — short workflow with 5 levels
-	t.Run("TC-H-060_happy_path_5_levels", func(t *testing.T) {
+	// TC-H-060: Happy path — workflow metadata includes all supported levels
+	t.Run("TC-H-060_happy_path_6_levels", func(t *testing.T) {
 		levels := map[string]*services.WorkflowLevelMeta{
 			"epic":        {Level: "epic", Statuses: []services.WorkflowStatusMeta{{Name: "active", Color: "green"}}, Transitions: []services.WorkflowTransitionMeta{}},
 			"feature":     {Level: "feature", Statuses: []services.WorkflowStatusMeta{{Name: "active", Color: "green"}}, Transitions: []services.WorkflowTransitionMeta{}},
 			"task":        {Level: "task", Statuses: []services.WorkflowStatusMeta{{Name: "todo", Color: "gray"}}, Transitions: []services.WorkflowTransitionMeta{}},
 			"bug":         {Level: "bug", Statuses: []services.WorkflowStatusMeta{{Name: "reported", Color: "red"}}, Transitions: []services.WorkflowTransitionMeta{}},
 			"change_card": {Level: "change_card", Statuses: []services.WorkflowStatusMeta{{Name: "proposed", Color: "blue"}}, Transitions: []services.WorkflowTransitionMeta{}},
+			"tech_debt":   {Level: "tech_debt", Statuses: []services.WorkflowStatusMeta{{Name: "open", Color: "orange"}}, Transitions: []services.WorkflowTransitionMeta{}},
 		}
 		mock := &MockViewerServicer{
 			WorkflowMetaFunc: func(_ context.Context) (*services.WorkflowMetaResponse, error) {
@@ -1392,7 +1507,7 @@ func TestHandler_WorkflowMeta(t *testing.T) {
 			} `json:"levels"`
 		}
 		assertJSON(t, rec, &body)
-		for _, levelName := range []string{"epic", "feature", "task", "bug", "change_card"} {
+		for _, levelName := range []string{"epic", "feature", "task", "bug", "change_card", "tech_debt"} {
 			if _, ok := body.Levels[levelName]; !ok {
 				t.Errorf("TC-H-060: missing level %q in response", levelName)
 			}
@@ -2175,5 +2290,135 @@ func TestHandler_SprintReport(t *testing.T) {
 	}
 	if gotKey != "S024" {
 		t.Fatalf("expected normalized sprint key S024, got %q", gotKey)
+	}
+}
+
+// TestHandler_SprintOverview_BacklogUsesGroupedView verifies that the sprint overview
+// endpoint returns backlog.view="grouped" so the sidebar JS can aggregate bucket counts.
+// Regression test for T-E27-F14-002: previously the active sprint used "ordered" view,
+// causing all sidebar bucket counts to show zero.
+func TestHandler_SprintOverview_BacklogUsesGroupedView(t *testing.T) {
+	mock := &MockViewerServicer{
+		SprintOverviewFunc: func(_ context.Context, key string) (*services.SprintOverviewResponse, error) {
+			return &services.SprintOverviewResponse{
+				Sprint: &models.Sprint{Key: key},
+				Backlog: &services.SprintBacklog{
+					SprintKey:  key,
+					View:       "grouped",
+					TotalCount: 8,
+					Groups: []*services.BacklogGroup{
+						{StatusCategory: "in_development", Items: []*services.BacklogItemView{{Key: "T-E01-F01-001"}}},
+						{StatusCategory: "completed", Items: []*services.BacklogItemView{{Key: "T-E01-F01-002"}, {Key: "T-E01-F01-003"}}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/sprint/overview", newTestMux(mock))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp services.SprintOverviewResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Backlog == nil {
+		t.Fatal("expected backlog in response, got nil")
+	}
+	if resp.Backlog.View != "grouped" {
+		t.Errorf("expected backlog.view=%q, got %q — sidebar bucket aggregation requires grouped view", "grouped", resp.Backlog.View)
+	}
+}
+
+// TestHandler_SprintOverview_BacklogGroupsHaveStatusCategory verifies that each group
+// in the backlog has a non-empty status_category so the JS SPRINT_BUCKET_MAP lookup
+// can match groups to buckets (ready/in_progress/blocked/done).
+func TestHandler_SprintOverview_BacklogGroupsHaveStatusCategory(t *testing.T) {
+	groups := []*services.BacklogGroup{
+		{StatusCategory: "todo", Items: []*services.BacklogItemView{{Key: "T-E01-F01-001"}}},
+		{StatusCategory: "in_development", Items: []*services.BacklogItemView{{Key: "T-E01-F01-002"}}},
+		{StatusCategory: "completed", Items: []*services.BacklogItemView{{Key: "T-E01-F01-003"}}},
+	}
+	mock := &MockViewerServicer{
+		SprintOverviewFunc: func(_ context.Context, key string) (*services.SprintOverviewResponse, error) {
+			return &services.SprintOverviewResponse{
+				Sprint: &models.Sprint{Key: key},
+				Backlog: &services.SprintBacklog{
+					SprintKey:  key,
+					View:       "grouped",
+					TotalCount: 3,
+					Groups:     groups,
+				},
+			}, nil
+		},
+	}
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/sprint/overview", newTestMux(mock))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp services.SprintOverviewResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Backlog.Groups) == 0 {
+		t.Fatal("expected non-empty backlog.groups")
+	}
+	for i, g := range resp.Backlog.Groups {
+		if g.StatusCategory == "" {
+			t.Errorf("group[%d] has empty status_category", i)
+		}
+	}
+}
+
+// TestHandler_SprintOverview_BacklogGroupCountsMatchTotal verifies that the sum of
+// items across all groups equals backlog.total_count.
+func TestHandler_SprintOverview_BacklogGroupCountsMatchTotal(t *testing.T) {
+	items := func(keys ...string) []*services.BacklogItemView {
+		out := make([]*services.BacklogItemView, len(keys))
+		for i, k := range keys {
+			out[i] = &services.BacklogItemView{Key: k}
+		}
+		return out
+	}
+	mock := &MockViewerServicer{
+		SprintOverviewFunc: func(_ context.Context, key string) (*services.SprintOverviewResponse, error) {
+			return &services.SprintOverviewResponse{
+				Sprint: &models.Sprint{Key: key},
+				Backlog: &services.SprintBacklog{
+					SprintKey:  key,
+					View:       "grouped",
+					TotalCount: 5,
+					Groups: []*services.BacklogGroup{
+						{StatusCategory: "todo", Items: items("T-E01-F01-001", "T-E01-F01-002")},
+						{StatusCategory: "in_development", Items: items("T-E01-F01-003")},
+						{StatusCategory: "completed", Items: items("T-E01-F01-004", "T-E01-F01-005")},
+					},
+				},
+			}, nil
+		},
+	}
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/sprint/overview", newTestMux(mock))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp services.SprintOverviewResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	total := 0
+	for _, g := range resp.Backlog.Groups {
+		total += len(g.Items)
+	}
+	if total != resp.Backlog.TotalCount {
+		t.Errorf("sum of group item counts (%d) != backlog.total_count (%d)", total, resp.Backlog.TotalCount)
 	}
 }
