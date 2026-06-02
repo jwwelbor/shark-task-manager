@@ -3831,8 +3831,8 @@ func (m *mockViewerChangeCardListRepo) GetByKey(ctx context.Context, key string)
 }
 
 type mockViewerTechDebtRepo struct {
-	ListAllFunc      func(ctx context.Context) ([]*models.TechDebt, error)
-	GetByKeyFunc     func(ctx context.Context, key string) (*models.TechDebt, error)
+	ListAllFunc       func(ctx context.Context) ([]*models.TechDebt, error)
+	GetByKeyFunc      func(ctx context.Context, key string) (*models.TechDebt, error)
 	CountByStatusFunc func(ctx context.Context) (map[string]int, error)
 }
 

@@ -943,7 +943,7 @@ func TestHandler_FolderFiles(t *testing.T) {
 		}
 
 		var body struct {
-			DirPath string `json:"dir_path"`
+			DirPath string                      `json:"dir_path"`
 			Entries []*services.FolderFileEntry `json:"entries"`
 		}
 		assertJSON(t, rec, &body)
