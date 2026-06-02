@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	repnote "github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	techdebtrepo "github.com/jwwelbor/shark-task-manager/internal/repository/techdebt"
 	tagrepo "github.com/jwwelbor/shark-task-manager/internal/repository/tag"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
@@ -446,6 +447,8 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	sprintSvc := services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, nil, db)
 	sprintAnalyticsSvc := services.NewSprintAnalyticsService(&sprintAnalyticsAdapter{repo: sprintAnalyticsRepo}, sprintRepo)
 
+	techDebtRepo := techdebtrepo.NewTechDebtRepository(db)
+
 	// Step 5b: Construct ViewerService for the read-only dashboard API.
 	viewerService := services.NewViewerService(
 		epicRepo,
@@ -470,6 +473,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		repo:             changeCardRepoAdapter,
 		terminalStatuses: workflowSvc.ForLevel(workflow.LevelChange).GetTerminalStatuses(),
 	})
+	viewerService.WithTechDebtRepo(techDebtRepo)
 	viewerService.WithNoteRepo(repnote.NewEntityNoteRepository(db))
 	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
 	viewerService.WithSprintService(sprintSvc)

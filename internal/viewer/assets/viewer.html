@@ -316,6 +316,126 @@
       gap: 12px;
     }
 
+    .sprint-plan-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .sprint-plan-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* T-E27-F14-009: "Assigned This Sprint" column — subtle tint + accent border
+       to visually distinguish it from "Candidate Backlog" at a glance. */
+    .sprint-plan-col-assigned {
+      background: rgba(77, 119, 255, 0.04);
+      border: 1px solid var(--accent-dim);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+
+    /* T-E27-F14-009: Plan column headers — slightly more prominent than the
+       default ov-section-header (12px vs 10px, fg-muted vs fg-dim). */
+    .sprint-plan-col-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-muted);
+      margin: 0 0 10px;
+    }
+    .sprint-plan-col-header::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* T-E27-F14-009: Candidate item row — 5-column grid:
+       [checkbox] [badge] [key] [title fills remaining] [meta].
+       Replaces the generic .sprint-item-row for Plan tab candidate rows. */
+    .sprint-plan-item-row {
+      display: grid;
+      grid-template-columns: 16px auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .sprint-plan-item-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+    .sprint-plan-item-row.selected {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent-dim);
+    }
+
+    /* T-E27-F14-009: Assigned item row — 4-column grid (no checkbox):
+       [badge] [key] [title fills remaining] [meta]. */
+    .sprint-plan-assigned-row {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .sprint-plan-assigned-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+
+    /* T-E27-F14-009: meta label — agent + size; fg-muted gives ~3.5:1 contrast
+       against bg-2 (vs fg-dim which was ~2.2:1 and too low). */
+    .sprint-item-meta {
+      font-size: 11px;
+      color: var(--fg-muted);
+      white-space: nowrap;
+    }
+
+    .sprint-health-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .sprint-health-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .capacity-indicator {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .capacity-indicator-ok   { background: rgba(56, 161, 105, 0.2); color: #68d391; }
+    .capacity-indicator-high { background: rgba(236, 153, 75, 0.2); color: #f6ad55; }
+    .capacity-indicator-over { background: rgba(229, 62, 62, 0.2); color: #fc8181; }
+
     .sprint-hero {
       display: grid;
       gap: 10px;
@@ -449,8 +569,15 @@
        SIDEBAR TREE
        ============================================================ */
     .sidebar-filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       padding: 8px 12px 6px;
       border-bottom: 1px solid var(--border);
+    }
+    .sidebar-filter-main {
+      min-width: 0;
+      flex: 1;
     }
     .sidebar-filter-label {
       display: flex;
@@ -459,6 +586,13 @@
       font-size: 11px;
       color: var(--fg-dim);
       user-select: none;
+    }
+    .sidebar-filter-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
     }
     .sidebar-filter-inline {
       display: flex;
@@ -469,9 +603,10 @@
     .sidebar-filter-inline input[type="checkbox"] {
       cursor: pointer;
     }
+    .sidebar-section {
+      border-bottom: 1px solid var(--border);
+    }
     .sidebar-section-header {
-      position: sticky;
-      top: 0;
       background: var(--bg-2);
       padding: 10px 12px 6px;
       font-size: 10px;
@@ -479,11 +614,15 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--fg-dim);
-      border-bottom: 1px solid var(--border);
       z-index: 1;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 10px;
+    }
+    .sidebar-section-title {
+      min-width: 0;
+      flex: 1;
     }
     .sidebar-collapse-btn {
       width: 16px;
@@ -502,6 +641,12 @@
     .sidebar-collapse-btn:hover {
       background: var(--bg-3, var(--border));
       color: var(--fg);
+    }
+    .sidebar-section-body {
+      padding-bottom: 2px;
+    }
+    .sidebar-section.is-collapsed .sidebar-section-body {
+      display: none;
     }
 
     .tree-node {
@@ -2095,6 +2240,7 @@ const HIDDEN_TERMINAL_BY_TYPE = {
   task:        new Set(['completed', 'done', 'cancelled', 'closed', 'wont_fix', 'rejected']),
   bug:         new Set(['completed', 'done', 'verified', 'closed', 'wont_fix', 'rejected']),
   change_card: new Set(['completed', 'done', 'approved', 'rejected', 'closed']),
+  tech_debt:   new Set(['completed', 'done', 'resolved', 'cancelled', 'closed', 'wont_fix', 'rejected', 'archived']),
   idea:        new Set(['converted', 'archived']),
 };
 
@@ -2105,7 +2251,7 @@ const HIDDEN_TERMINAL_BY_TYPE = {
  * entityType is unknown — defensive default that hides terminal items rather than leaking them.
  *
  * @param {string} status      e.g. 'completed', 'converted', 'cancelled'
- * @param {string} entityType  one of 'epic'|'feature'|'task'|'bug'|'change_card'|'idea'
+ * @param {string} entityType  one of 'epic'|'feature'|'task'|'bug'|'change_card'|'tech_debt'|'idea'
  * @returns {boolean}
  */
 function isHiddenTerminalStatus(status, entityType) {
@@ -2117,6 +2263,44 @@ function isHiddenTerminalStatus(status, entityType) {
 
 /** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
 const FOLDER_KEY_PREFIX = 'folder:';
+
+/**
+ * Formats an ISO date string (YYYY-MM-DD or ISO 8601 with time) as a short
+ * human-readable date, e.g. "May 8" or "May 8, 2025" if cross-year.
+ * Parses the date part directly from the ISO string (no Date object) to avoid
+ * local-timezone day-shift on midnight-UTC timestamps.
+ * @param {string} isoString
+ * @returns {string} e.g. "May 8" or "May 8, 2025" or "—" when absent
+ */
+function formatDateOnly(isoString) {
+  if (!isoString) return '—';
+  // Handle sql.NullTime object { Time: "...", Valid: bool }
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '—';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '—';
+  try {
+    // Parse date part directly from ISO string to avoid timezone day-shift.
+    // e.g. "2026-05-08T00:00:00Z" → "2026-05-08"
+    const datePart = String(isoString).split('T')[0];
+    const [yearStr, monStr, dayStr] = datePart.split('-');
+    const year = parseInt(yearStr, 10);
+    const mon  = parseInt(monStr, 10) - 1; // 0-based
+    const day  = parseInt(dayStr, 10);
+    if (isNaN(year) || isNaN(mon) || isNaN(day) || year < 2) return '—';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monLabel = months[mon];
+    const nowYear = new Date().getFullYear();
+    if (year !== nowYear) {
+      return `${monLabel} ${day}, ${year}`;
+    }
+    return `${monLabel} ${day}`;
+  } catch {
+    return '—';
+  }
+}
 
 /**
  * Formats an ISO timestamp to a short human-readable date.
@@ -2778,13 +2962,13 @@ async function applyTagFilter(selectedTags) {
  */
 function buildTagFilterControlHtml() {
   if (vocabulary.length === 0) {
-    return `<span class="tag-filter-label">Tags</span><div class="tag-filter-chips"><span class="chip-empty">No tags registered yet</span></div>`;
+    return `<div class="tag-filter-chips"><span class="chip-empty">No tags registered yet</span></div>`;
   }
   const chips = vocabulary.map(name => {
     const sel = activeTagFilter.has(name) ? ' selected' : '';
     return `<span class="chip${sel}" data-tag-filter-chip="${escapeHtml(name)}">${escapeHtml(name)}</span>`;
   }).join('');
-  return `<span class="tag-filter-label">Tags</span><div class="tag-filter-chips">${chips}</div>`;
+  return `<div class="tag-filter-chips">${chips}</div>`;
 }
 
 // ============================================================
@@ -2952,7 +3136,7 @@ let sprintPlanFilters = { status: '', agent: '', assignment: '' };
 let sprintPlanSelection = new Set();
 let cameFromSprint = false;          // jump-back path from Sprint drawer → entity view
 let treeData       = [];             // cached hierarchy epics array (hierarchy.epics)
-let hierarchyData  = null;           // full cached /hierarchy response (includes bugs, change_cards, ideas)
+let hierarchyData  = null;           // full cached /hierarchy response (includes bugs, change_cards, tech_debts, ideas)
 let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
@@ -2970,6 +3154,17 @@ let showAllFiles     = false;         // sidebar filter: show untracked folder f
 let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
+const SIDEBAR_SECTION_STORAGE_KEY = 'shark.viewer.sidebarSections';
+const SIDEBAR_SECTION_DEFAULTS = {
+  tags: true,
+  epics: true,
+  bugs: true,
+  change_cards: true,
+  tech_debt: true,
+  ideas: true,
+  docs: true,
+};
+let sidebarSectionState = loadSidebarSectionState();
 const SIDEBAR_WIDTH_STORAGE_KEY = 'shark.viewer.sidebarWidth';
 const SIDEBAR_WIDTH_DEFAULT = 320;
 const SIDEBAR_WIDTH_MIN = 240;
@@ -2978,6 +3173,50 @@ const SIDEBAR_WIDTH_MAX = 720;
 // ── E28-F06 tag state ──
 let vocabulary       = [];           // cached tag vocabulary from GET /api/v1/viewer/tags
 let activeTagFilter  = new Set();    // currently selected tag names for hierarchy filter
+
+function loadSidebarSectionState() {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_SECTION_STORAGE_KEY);
+    if (!raw) return Object.assign({}, SIDEBAR_SECTION_DEFAULTS);
+    const parsed = JSON.parse(raw);
+    return Object.assign({}, SIDEBAR_SECTION_DEFAULTS, parsed && typeof parsed === 'object' ? parsed : {});
+  } catch (e) {
+    return Object.assign({}, SIDEBAR_SECTION_DEFAULTS);
+  }
+}
+
+function persistSidebarSectionState() {
+  try {
+    localStorage.setItem(SIDEBAR_SECTION_STORAGE_KEY, JSON.stringify(sidebarSectionState));
+  } catch (e) {}
+}
+
+function isSidebarSectionExpanded(sectionId) {
+  if (!sectionId) return true;
+  return sidebarSectionState[sectionId] !== false;
+}
+
+function setSidebarSectionExpanded(sectionId, expanded, persist = true) {
+  if (!sectionId) return;
+  sidebarSectionState[sectionId] = !!expanded;
+  if (persist) persistSidebarSectionState();
+}
+
+function toggleSidebarSection(sectionId) {
+  if (!sectionId) return;
+  setSidebarSectionExpanded(sectionId, !isSidebarSectionExpanded(sectionId));
+}
+
+function areAllSidebarSectionsExpanded() {
+  return Object.keys(SIDEBAR_SECTION_DEFAULTS).every(sectionId => isSidebarSectionExpanded(sectionId));
+}
+
+function setAllSidebarSectionsExpanded(expanded, persist = true) {
+  for (const sectionId of Object.keys(SIDEBAR_SECTION_DEFAULTS)) {
+    setSidebarSectionExpanded(sectionId, expanded, false);
+  }
+  if (persist) persistSidebarSectionState();
+}
 
 // ============================================================
 // SECTION: State Machine — render() Dispatcher
@@ -3200,7 +3439,7 @@ function navigateToEntity(key, fromSprint) {
 /**
  * Renders the Status Breakdown section.
  * Grid of cards — one per entity type that has items.
- * Data source: summaryData.{epics,features,tasks,bugs}.status_counts (project-wide),
+ * Data source: summaryData.{epics,features,tasks,bugs,tech_debts}.status_counts (project-wide),
  * or treeData filtered to epicKey (epic-scoped).
  * @param {string} [epicKey] - Optional. When provided, filters to that epic's entities.
  * @returns {string} HTML string
@@ -3280,6 +3519,7 @@ function renderStatusBreakdown(epicKey) {
     ['FEATURES',     summaryData?.features?.by_status],
     ['TASKS',        summaryData?.tasks?.by_status],
     ['BUGS',         summaryData?.bugs?.by_status],
+    ['TECH DEBT',    summaryData?.tech_debts?.by_status],
     ['IDEAS',        summaryData?.ideas?.by_status],
     ['CHANGE CARDS', summaryData?.change_cards?.by_status],
   ];
@@ -3524,6 +3764,24 @@ function renderStaleEntities(epicKey) {
     }
   }
 
+  if (!epicKey) {
+    const techDebts = Array.isArray(hierarchyData?.tech_debts) ? hierarchyData.tech_debts : [];
+    for (const td of techDebts) {
+      if (td?.updated_at && !isTerminalStatus(td.status || '')) {
+        const days = daysSince(td.updated_at);
+        if (days > 7) {
+          stale.push({
+            key:        td.key || '',
+            status:     td.status || '',
+            title:      td.title || '',
+            updated_at: td.updated_at,
+            days,
+          });
+        }
+      }
+    }
+  }
+
   if (stale.length === 0) {
     return `<div class="content-placeholder">No stale entities found</div>`;
   }
@@ -3595,7 +3853,7 @@ function buildDonutChart(byStatus, size = 100) {
 
 /**
  * Renders the Entity Charts section.
- * One donut chart per entity type (epics, features, tasks, bugs, ideas, change cards)
+ * One donut chart per entity type (epics, features, tasks, bugs, tech debt, ideas, change cards)
  * plus an overall "All Entities" chart showing type distribution.
  * @param {string} [epicKey] - Optional. When provided, builds charts from treeData for that epic.
  * @returns {string} HTML string, or '' if no data
@@ -3696,6 +3954,7 @@ function renderEntityCharts(epicKey) {
     { label: 'Features',     data: summaryData.features,     overallColor: '#22a362' },
     { label: 'Tasks',        data: summaryData.tasks,        overallColor: '#e7b30e' },
     { label: 'Bugs',         data: summaryData.bugs,         overallColor: '#c0392b' },
+    { label: 'Tech Debt',    data: summaryData.tech_debts,   overallColor: '#f97316' },
     { label: 'Ideas',        data: summaryData.ideas,        overallColor: '#60a5fa' },
     { label: 'Change Cards', data: summaryData.change_cards, overallColor: '#8c4dbb' },
   ];
@@ -3901,11 +4160,12 @@ function findEntityByKey(key) {
     }
   }
 
-  // Also search flat sections (bugs, change_cards, ideas) from hierarchy
+  // Also search flat sections (bugs, change_cards, tech_debts, ideas) from hierarchy
   if (hierarchyData) {
     const flatLists = [
       ['bug',         hierarchyData.bugs],
       ['change_card', hierarchyData.change_cards],
+      ['tech_debt',   hierarchyData.tech_debts],
       ['idea',        hierarchyData.ideas],
     ];
     for (const [type, items] of flatLists) {
@@ -3972,7 +4232,7 @@ function renderBreadcrumb(entity) {
       chain.push({ key: entity.key });
       break;
     default:
-      return ''; // bug / change-card / idea — no breadcrumb
+      return ''; // bug / change-card / tech-debt / idea — no breadcrumb
   }
   // Filter out segments with undefined/empty keys (guard for missing parent data)
   const validChain = chain.filter(seg => seg.key);
@@ -4156,6 +4416,18 @@ function appendChangeCardFields(rows, e) {
 }
 
 /**
+ * Appends tech-debt-specific fields to the rows array.
+ * @param {string[]} rows
+ * @param {Object} e - tech_debt entity
+ */
+function appendTechDebtFields(rows, e) {
+  if (e.category)         pushRow(rows, 'Category', escapeHtml(e.category));
+  if (e.severity)         pushRow(rows, 'Severity', escapeHtml(e.severity));
+  if (e.effort_estimate)  pushRow(rows, 'Effort Estimate', escapeHtml(e.effort_estimate));
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
+}
+
+/**
  * Appends idea-specific fields to the rows array. (E27-F11 D5)
  * @param {string[]} rows
  * @param {Object} e - idea entity
@@ -4219,6 +4491,7 @@ function renderPropertiesPanel(entity) {
     case 'task':        appendTaskFields(rows, entity);        break;
     case 'bug':         appendBugFields(rows, entity);         break;
     case 'change_card': appendChangeCardFields(rows, entity);  break;
+    case 'tech_debt':   appendTechDebtFields(rows, entity);    break;
     case 'idea':        appendIdeaFields(rows, entity);        break; // E27-F11 D5
   }
 
@@ -5750,12 +6023,39 @@ function sprintSummaryCard(label, value, note) {
   </div>`;
 }
 
-function sprintFormatRange(sprint) {
-  if (!sprint) return 'No sprint selected';
-  const start = formatDate(sprint.start_date || sprint.startDate || sprint.start || '');
-  const end = formatDate(sprint.end_date || sprint.endDate || sprint.end || '');
-  if (!start && !end) return 'Date range unavailable';
-  return `${escapeHtml(start || '—')} → ${escapeHtml(end || '—')}`;
+/**
+ * Formats a sprint date range from two ISO date strings (or falsy).
+ * Same-year:  "May 8 → May 22"
+ * Cross-year: "Dec 30, 2025 → Jan 13, 2026"
+ * Missing date renders as "—".
+ * @param {string|null|undefined} startISO
+ * @param {string|null|undefined} endISO
+ * @returns {string}
+ */
+function sprintFormatRange(startISO, endISO) {
+  const startStr = startISO ? String(startISO).split('T')[0] : null;
+  const endStr   = endISO   ? String(endISO).split('T')[0]   : null;
+  const startYear = startStr ? parseInt(startStr.split('-')[0], 10) : null;
+  const endYear   = endStr   ? parseInt(endStr.split('-')[0],   10) : null;
+  const crossYear = startYear !== null && endYear !== null && startYear !== endYear;
+
+  const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function fmt(dateStr, year) {
+    if (!dateStr) return '—';
+    const [, monStr, dayStr] = dateStr.split('-');
+    const mon = parseInt(monStr, 10) - 1;
+    const day = parseInt(dayStr, 10);
+    if (isNaN(mon) || isNaN(day)) return '—';
+    const monLabel = months[mon];
+    return crossYear ? `${monLabel} ${day}, ${year}` : `${monLabel} ${day}`;
+  }
+
+  const start = fmt(startStr, startYear);
+  const end   = fmt(endStr,   endYear);
+  if (start === '—' && end === '—') return 'Date range unavailable';
+  return `${escapeHtml(start)} → ${escapeHtml(end)}`;
 }
 
 function sprintCapacityStats(rows) {
@@ -5779,29 +6079,106 @@ function sprintRecentChanges(payload) {
   }).slice(0, 8);
 }
 
+// SPRINT_BUCKET_MAP is the single source of truth mapping API status_category
+// values to the four display buckets: ready, in_progress, blocked, done.
+// AC-005 (spec §1.3): ready_for_development maps to the 'ready' display bucket.
+// AC-006: in_development, ready_for_approval, in_progress map to 'in_progress'.
+const SPRINT_BUCKET_MAP = {
+  todo:                        'ready',
+  draft:                       'ready',
+  ready_for_development:       'ready',
+  in_development:              'in_progress',
+  ready_for_approval:          'in_progress',
+  in_progress:                 'in_progress',
+  in_review:                   'in_progress',
+  in_qa:                       'in_progress',
+  ready_for_refinement_tech:   'in_progress',
+  ready_for_refinement_ba:     'in_progress',
+  in_refinement:               'in_progress',
+  blocked:                     'blocked',
+  completed:                   'done',
+  resolved:                    'done',
+};
+
+// ACTIVE_SPRINT_CATEGORIES is the explicit set of status_category values that
+// count as "active work" for the Overview "Active" metric (REQ-F-005 / AC-013).
+// This is defined independently of SPRINT_BUCKET_MAP because ready_for_development
+// maps to the 'ready' display bucket (AC-005) but is still active work that must
+// be counted in the Active metric (AC-013). The two concerns are orthogonal.
+// REQ-F-005 authoritative list: in_development, ready_for_approval,
+// ready_for_development, in_progress, in_review, in_qa,
+// ready_for_refinement_tech, ready_for_refinement_ba, in_refinement.
+const ACTIVE_SPRINT_CATEGORIES = new Set([
+  'ready_for_development',
+  'in_development',
+  'ready_for_approval',
+  'in_progress',
+  'in_review',
+  'in_qa',
+  'ready_for_refinement_tech',
+  'ready_for_refinement_ba',
+  'in_refinement',
+]);
+
 const SPRINT_BUCKET_LABELS = {
-  ready: 'Ready',
+  ready:       'Ready',
   in_progress: 'In Progress',
-  blocked: 'Blocked',
-  done: 'Done',
+  blocked:     'Blocked',
+  done:        'Done',
 };
 
 function sprintBucketGroups(payload) {
-  const map = new Map();
+  // Aggregate items from all status_category groups into the four display buckets.
+  const bucketItems = { ready: [], in_progress: [], blocked: [], done: [] };
   for (const group of sprintBacklogGroups(payload)) {
-    if (group?.status_category) {
-      map.set(group.status_category, group);
+    const category = group?.status_category;
+    const bucket = category ? SPRINT_BUCKET_MAP[category] : undefined;
+    if (bucket && Array.isArray(group.items)) {
+      bucketItems[bucket].push(...group.items);
     }
   }
   return Object.keys(SPRINT_BUCKET_LABELS).map(key => ({
     key,
     label: SPRINT_BUCKET_LABELS[key],
-    items: Array.isArray(map.get(key)?.items) ? map.get(key).items : [],
+    items: bucketItems[key],
   }));
 }
 
 function sprintTreeItemCount(payload) {
   return sprintBacklogItems(payload).length;
+}
+
+// renderScopeSnapshot renders the "Assigned Scope Snapshot" one-line bar.
+// assignedItems must be an array of sprint backlog items (from sprintBacklogItems).
+// Buckets with zero items are omitted from the rendered output (TC-018).
+// Returns an HTML string for a section element, or an empty string when
+// assignedItems is empty — callers must guard against rendering an empty section.
+function renderScopeSnapshot(assignedItems) {
+  if (!Array.isArray(assignedItems) || assignedItems.length === 0) {
+    return '';
+  }
+  // Tally items into display buckets using SPRINT_BUCKET_MAP.
+  const tally = { ready: 0, in_progress: 0, blocked: 0, done: 0 };
+  for (const item of assignedItems) {
+    const category = item?.status_category || item?.status || '';
+    const bucket = SPRINT_BUCKET_MAP[category];
+    if (bucket && Object.prototype.hasOwnProperty.call(tally, bucket)) {
+      tally[bucket]++;
+    }
+  }
+  // Build pills for non-zero buckets only (TC-018: zero-count pills omitted).
+  const bucketOrder = ['ready', 'in_progress', 'blocked', 'done'];
+  const pills = bucketOrder
+    .filter(key => tally[key] > 0)
+    .map(key => `<span class="header-pill">${escapeHtml(SPRINT_BUCKET_LABELS[key])} ${escapeHtml(String(tally[key]))}</span>`)
+    .join(' ');
+  if (!pills) {
+    return '';
+  }
+  return `<section class="ov-section">
+      <div class="ov-section-header">Assigned Scope Snapshot</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 0;">${pills}</div>
+    </section>`;
 }
 
 function sprintCatalogRows(rows, currentKey) {
@@ -5811,7 +6188,7 @@ function sprintCatalogRows(rows, currentKey) {
     const name = escapeHtml(row?.name || row?.title || row?.key || 'Unnamed Sprint');
     const status = escapeHtml(String(row?.status || '').replace(/_/g, ' '));
     const selectedClass = row?.key && row.key === currentKey ? ' selected' : '';
-    const range = sprintFormatRange(row);
+    const range = sprintFormatRange(row?.start_date || row?.startDate || row?.start, row?.end_date || row?.endDate || row?.end);
     return `<div class="sprint-item-row${selectedClass}" style="cursor:default">
       <span class="status-badge status-badge-sm">${status || 'sprint'}</span>
       <span class="sprint-item-key">${key}</span>
@@ -5839,7 +6216,7 @@ function renderSprintTree(payload) {
   const archiveRows = sprintCatalogRows(catalog.archived, currentKey);
   const sprintKey = escapeHtml(sprint.key || 'Active Sprint');
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
-  const sprintRange = sprintFormatRange(sprint);
+  const sprintRange = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
 
   const bucketHtml = activeBuckets.map(bucket => {
     const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
@@ -5941,7 +6318,7 @@ function sprintPlanSelectableCount(items) {
   return items.length;
 }
 
-function renderSprintPlan(payload, filters) {
+function renderSprintPlan(payload, filters, overviewPayload) {
   const sprint = payload?.sprint || {};
   const items = sprintPlanItems(payload);
   const activeFilters = Object.assign({ status: '', agent: '', assignment: '' }, filters || sprintPlanFilters);
@@ -5954,16 +6331,17 @@ function renderSprintPlan(payload, filters) {
   const itemRows = filtered.map(item => {
     const key = escapeHtml(item.key || '');
     const title = escapeHtml(item.title || item.key || '');
-    const statusBadge = ovStatusBadge(item.status || 'unknown');
+    const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
     const checked = sprintPlanSelection.has(item.key) ? ' checked' : '';
     const agent = escapeHtml(item.agent_type || item.agent || '');
     const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
-    return `<div class="sprint-item-row" data-sprint-plan-key="${key}">
+    // T-E27-F14-009: use sprint-plan-item-row (5-column grid) and .sprint-item-meta for improved contrast
+    return `<div class="sprint-plan-item-row" data-sprint-plan-key="${key}">
       <input type="checkbox" class="sprint-plan-checkbox" data-sprint-plan-select-key="${key}"${checked}>
       ${statusBadge}
       <span class="sprint-item-key">${key}</span>
       <span class="sprint-item-title" title="${title}">${title}</span>
-      <span style="font-size:11px;color:var(--fg-dim)">${agent || 'unassigned'} · ${size}</span>
+      <span class="sprint-item-meta">${agent || 'unassigned'} · ${size}</span>
     </div>`;
   }).join('');
 
@@ -5993,12 +6371,33 @@ function renderSprintPlan(payload, filters) {
       <button class="header-btn header-btn-accent" id="sprint-plan-stage-btn">Stage selected</button>
       <button class="header-btn" id="sprint-plan-remove-btn">Remove selected</button>
       <button class="header-btn" id="sprint-plan-ready-btn">Mark ready</button>
-      <span style="align-self:center;color:var(--fg-dim);font-size:12px">${actionCount} selected</span>
+      <span style="align-self:center;color:var(--fg-muted);font-size:12px">${actionCount} selected</span>
     </div>`;
 
   const itemsHtml = filtered.length
     ? `<div class="sprint-item-list">${itemRows}</div>`
     : '<div class="content-placeholder">No candidate items match the current filters.</div>';
+
+  // Right column: Assigned This Sprint — items from sprintOverviewData (no new fetch).
+  const assignedItems = sprintBacklogItems(overviewPayload || null);
+  const assignedCount = assignedItems.length;
+  const assignedRows = assignedItems.map(item => {
+    const key = escapeHtml(item.key || '');
+    const title = escapeHtml(item.title || item.key || '');
+    const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
+    const agent = escapeHtml(item.agent_type || item.agent || '');
+    const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
+    // T-E27-F14-009: use sprint-plan-assigned-row (4-column grid, no checkbox) and .sprint-item-meta
+    return `<div class="sprint-plan-assigned-row" role="button" tabindex="0" data-sprint-item-key="${key}">
+      ${statusBadge}
+      <span class="sprint-item-key">${key}</span>
+      <span class="sprint-item-title" title="${title}">${title}</span>
+      <span class="sprint-item-meta">${agent || 'unassigned'} · ${size}</span>
+    </div>`;
+  }).join('');
+  const assignedHtml = assignedCount
+    ? `<div class="sprint-item-list">${assignedRows}</div>`
+    : '<div class="content-placeholder">No items assigned to this sprint.</div>';
 
   return `
     <div class="sprint-overview-grid">
@@ -6014,15 +6413,17 @@ function renderSprintPlan(payload, filters) {
         <div class="ov-section-header">Filters</div>
         ${filtersHtml}
       </section>
-      <section class="ov-section">
-        <div class="ov-section-header">Candidate Backlog</div>
-        ${actionButtons}
-        ${itemsHtml}
-      </section>
-      <section class="ov-section">
-        <div class="ov-section-header">Capacity by Agent Type</div>
-        ${capacityRowsHtml(capacity)}
-      </section>
+      <div class="sprint-plan-columns">
+        <section class="ov-section">
+          <div class="sprint-plan-col-header">Candidate Backlog</div>
+          ${actionButtons}
+          ${itemsHtml}
+        </section>
+        <section class="sprint-plan-col-assigned">
+          <div class="sprint-plan-col-header">Assigned This Sprint (${assignedCount})</div>
+          ${assignedHtml}
+        </section>
+      </div>
     </div>`;
 }
 
@@ -6178,6 +6579,105 @@ function renderSprintBacklogSection(payload, selectedKey) {
   return `<div>${groupsHtml}</div>`;
 }
 
+/**
+ * Returns the CSS class suffix for a capacity indicator based on the
+ * allocated/total ratio. Thresholds (AC-T3):
+ *   >100% = OVER, 85–100% = HIGH, <85% = OK.
+ * When total is 0, returns 'ok' to avoid division-by-zero.
+ */
+function capacityIndicatorLevel(allocated, total) {
+  if (!total || total <= 0) return 'ok';
+  const pct = (allocated / total) * 100;
+  if (pct > 100) return 'over';
+  if (pct >= 85) return 'high';
+  return 'ok';
+}
+
+/**
+ * Renders the two-column health zone for the Sprint Overview tab.
+ * Left panel: per-agent Capacity rows with OK/HIGH/OVER indicator and
+ *             failing Readiness factors.
+ * Right panel: Blockers enumerated with days-blocked age and unsized-item
+ *              warning count.
+ *
+ * All data is read from payload.capacity, payload.readiness, and
+ * payload.backlog.groups — no additional fetch (AC-T1).
+ * Blocked item rows call selectSprintItem(key) on click (AC-T2).
+ */
+function renderSprintHealthColumns(payload) {
+  // --- Left panel: Capacity by Agent Type ---
+  const capacityRows = Array.isArray(payload?.capacity) ? payload.capacity : [];
+  const capacityRowsHtmlStr = capacityRows.length
+    ? capacityRows.map(row => {
+        const agent = escapeHtml(row.agent_type || 'unassigned');
+        const allocated = Number(row.allocated_points || 0);
+        const total = Number(row.capacity_points || 0);
+        const level = capacityIndicatorLevel(allocated, total);
+        const levelLabel = level.toUpperCase();
+        const pct = total > 0 ? Math.round((allocated / total) * 100) : 0;
+        return `<div class="sprint-item-row" style="cursor:default">
+          <span class="sprint-item-key">${agent}</span>
+          <span class="sprint-item-title">${escapeHtml(String(allocated))} / ${escapeHtml(String(total))} pts (${escapeHtml(String(pct))}%)</span>
+          <span class="capacity-indicator capacity-indicator-${level}">${levelLabel}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No capacity data available.</div>';
+
+  // Failing readiness factors: score < max_score
+  const readiness = payload?.readiness || {};
+  const factors = Array.isArray(readiness.factors) ? readiness.factors : [];
+  const failingFactors = factors.filter(f => (f.score || 0) < (f.max_score || 0));
+  const failingHtml = failingFactors.length
+    ? failingFactors.map(f => {
+        return `<div class="sprint-item-row" style="cursor:default">
+          <span class="sprint-item-key" style="color:var(--accent)">${escapeHtml(f.name || '')}</span>
+          <span class="sprint-item-title" style="color:var(--fg-muted)">${escapeHtml(f.detail || '')} (${escapeHtml(String(f.score || 0))}/${escapeHtml(String(f.max_score || 0))})</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder" style="font-size:12px">All readiness factors passing.</div>';
+
+  // --- Right panel: Blockers/Risks ---
+  // Find blocked items from backlog groups
+  const blockedItems = sprintBacklogGroups(payload)
+    .filter(group => (group?.status_category || '') === 'blocked')
+    .flatMap(group => Array.isArray(group.items) ? group.items : []);
+
+  const blockerRowsHtml = blockedItems.length
+    ? blockedItems.map(item => {
+        const key = escapeHtml(item.key || '');
+        const title = escapeHtml(item.title || item.key || '');
+        const daysBlocked = item.days_blocked != null
+          ? ` · ${escapeHtml(String(item.days_blocked))}d blocked`
+          : '';
+        return `<div class="sprint-item-row" role="button" tabindex="0" data-sprint-item-key="${key}" onclick="selectSprintItem('${key}')">
+          <span class="sprint-item-key">${key}</span>
+          <span class="sprint-item-title" title="${title}">${title}</span>
+          <span style="font-size:11px;color:var(--accent)">${escapeHtml(daysBlocked)}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No blocked items.</div>';
+
+  // Unsized item warning count from readiness data (capacity rows don't carry unsized_assigned)
+  const unsizedCount = Array.isArray(payload?.readiness?.unsized_entities) ? payload.readiness.unsized_entities.length : 0;
+  const unsizedWarning = unsizedCount > 0
+    ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(236,153,75,0.12);border-radius:4px;font-size:12px;color:#f6ad55">⚠️ ${escapeHtml(String(unsizedCount))} item${unsizedCount !== 1 ? 's' : ''} unsized</div>`
+    : '';
+
+  return `
+    <div class="sprint-health-columns">
+      <section class="ov-section">
+        <div class="ov-section-header">Capacity by Agent Type</div>
+        <div class="sprint-item-list">${capacityRowsHtmlStr}</div>
+        ${failingFactors.length ? `<div class="ov-section-header" style="margin-top:12px">Readiness Factors</div><div class="sprint-item-list">${failingHtml}</div>` : ''}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Blockers / Risks</div>
+        <div class="sprint-item-list">${blockerRowsHtml}</div>
+        ${unsizedWarning}
+      </section>
+    </div>`;
+}
+
 function renderSprintOverview(payload) {
   const sprint = payload?.sprint || {};
   const readiness = payload?.readiness || {};
@@ -6186,12 +6686,12 @@ function renderSprintOverview(payload) {
   const blockedCount = sprintBacklogGroups(payload)
     .filter(group => (group?.status_category || '') === 'blocked')
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
-  const wipCount = sprintBacklogGroups(payload)
-    .filter(group => ['in_progress', 'in_review', 'in_qa'].includes(group?.status_category || ''))
+  const activeCount = sprintBacklogGroups(payload)
+    .filter(group => ACTIVE_SPRINT_CATEGORIES.has(group?.status_category || ''))
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const keyLabel = escapeHtml(sprint.key || '');
-  const dateLabel = sprintFormatRange(sprint);
+  const dateLabel = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
   const summaryLabel = payload?.summary
     ? `Velocity ${escapeHtml(String(payload.summary.velocity_this_sprint ?? '—'))} · Completed ${escapeHtml(String(payload.summary.completed_count ?? '—'))}`
     : 'Read-first operational view';
@@ -6201,7 +6701,7 @@ function renderSprintOverview(payload) {
       ${sprintSummaryCard('Readiness', `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))};color:${getContrastColor(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))}">${escapeHtml(String(readiness.overall_score ?? 0))}</span>`, 'Overall readiness score')}
       ${sprintSummaryCard('Capacity', `${escapeHtml(String(capacity.pressure || 0))}%`, `${escapeHtml(String(capacity.allocated.toFixed ? capacity.allocated.toFixed(1) : capacity.allocated))} allocated / ${escapeHtml(String(capacity.capacity.toFixed ? capacity.capacity.toFixed(1) : capacity.capacity))} capacity`)}
       ${sprintSummaryCard('Blocked', escapeHtml(String(blockedCount)), 'Items blocked in the current sprint')}
-      ${sprintSummaryCard('WIP', escapeHtml(String(wipCount)), 'Items currently in progress')}
+      ${sprintSummaryCard('Active', escapeHtml(String(activeCount)), 'Items currently in active workflow states')}
     </div>`;
 
   const changes = sprintRecentChanges(payload);
@@ -6230,6 +6730,7 @@ function renderSprintOverview(payload) {
         </div>
       </section>
       <section>${metrics}</section>
+      <section>${renderSprintHealthColumns(payload)}</section>
       <section class="ov-section">
         <div class="ov-section-header">Sprint Backlog</div>
         ${renderSprintBacklogSection(payload, sprintSelectedKey)}
@@ -6255,6 +6756,7 @@ function renderSprintOverview(payload) {
           </div>
         </div>
       </section>` : ''}
+      ${renderScopeSnapshot(backlogItems)}
     </div>`;
 }
 
@@ -6390,11 +6892,13 @@ function ensureSprintOverviewLoaded() {
       }
     }
     renderSprintMode();
+    renderSidebar();
   }).catch(() => {
     sprintOverviewLoading = false;
     sprintOverviewLoaded = true;
     sprintOverviewError = 'failed to load sprint overview';
     renderSprintMode();
+    renderSidebar();
   });
 }
 
@@ -6427,7 +6931,7 @@ function renderSprintModePanels() {
     }
   } else if (sprintViewTab === 'plan') {
     if (planPayload) {
-      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters);
+      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters, overviewPayload);
     } else {
       mainPanel.innerHTML = `<div class="content-placeholder">${sprintPlanError ? escapeHtml(sprintPlanError) : 'Loading sprint plan…'}</div>`;
     }
@@ -6605,13 +7109,13 @@ function renderEntityView() {
 
   const entity = findEntityByKey(selectedKey);
   const isEpic = entity?.type === 'epic';
-  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'idea');
+  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'tech_debt' || entity.type === 'idea');
 
   // Guard: if history state restored 'dashboard' for a non-epic, coerce to 'overview' (AC-001.5)
   if (entityViewTab === 'dashboard' && !isEpic) {
     entityViewTab = 'overview';
   }
-  // Guard: bug/change-card/idea do not support 'overview' pane — coerce to 'info'
+  // Guard: bug/change-card/tech-debt/idea do not support 'overview' pane — coerce to 'info'
   if (entityViewTab === 'overview' && isSimpleEntity) {
     entityViewTab = 'info';
   }
@@ -6626,7 +7130,7 @@ function renderEntityView() {
   const transActive    = entityViewTab === 'transitions' ? ' active' : '';
   const filesActive    = entityViewTab === 'files'       ? ' active' : '';
 
-  // Overview button: shown for epic/feature/task, not for bug/change-card/idea (AC-001.2, AC-001.3)
+  // Overview button: shown for epic/feature/task, not for bug/change-card/tech-debt/idea (AC-001.2, AC-001.3)
   const overviewBtnHtml = !isSimpleEntity
     ? `<button class="toggle-btn${overviewActive}" id="ev-tab-overview">Overview</button>`
     : '';
@@ -7163,17 +7667,17 @@ function buildEpicNodeHtml(epic) {
 }
 
 /**
- * Builds an HTML string for a flat section (Ideas, Change Cards, Tags, Tech Debt).
+ * Builds the inner HTML for a flat sidebar section.
  * Only called when items is a non-empty array.
- * @param {string} title - section title (shown as uppercase label)
  * @param {Array} items - array of items with .key/.title/.status
+ * @param {string} entityType
  * @returns {string} HTML string
  */
-function buildFlatSectionHtml(title, items, entityType) {
+function buildFlatSectionBodyHtml(items, entityType) {
   if (!Array.isArray(items) || items.length === 0) return '';
   const filtered = showCompleted ? items : items.filter(i => !isHiddenTerminalStatus(i.status, entityType));
   if (filtered.length === 0) return '';
-  let html = `<div class="sidebar-section-header">${escapeHtml(title)}</div>`;
+  let html = '';
   for (const item of filtered) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
@@ -7187,62 +7691,97 @@ function buildFlatSectionHtml(title, items, entityType) {
   return html;
 }
 
+function buildFlatSectionHtml(title, items, entityType) {
+  return buildFlatSectionBodyHtml(items, entityType);
+}
+
+function buildDocsBrowserBodyHtml() {
+  const folderKey = FOLDER_KEY_PREFIX + 'docs';
+  return `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="docs"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Browse docs/</span></div>`;
+}
+
+function renderSidebarSection(sectionId, title, bodyHtml, options = {}) {
+  if (!bodyHtml && !options.keepEmpty) return '';
+  const expanded = isSidebarSectionExpanded(sectionId);
+  const label = escapeHtml(title);
+  const buttonTitle = expanded ? `Collapse ${title}` : `Expand ${title}`;
+  const buttonLabel = expanded ? '−' : '+';
+  const bodyClass = options.bodyClass ? ` ${options.bodyClass}` : '';
+  return `
+    <div class="sidebar-section${expanded ? '' : ' is-collapsed'}" data-sidebar-section="${escapeHtml(sectionId)}">
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-title">${label}</span>
+        <button class="sidebar-collapse-btn" type="button" data-sidebar-section-toggle="${escapeHtml(sectionId)}" aria-expanded="${expanded ? 'true' : 'false'}" title="${escapeHtml(buttonTitle)}">${buttonLabel}</button>
+      </div>
+      <div class="sidebar-section-body${bodyClass}">${bodyHtml}</div>
+    </div>`;
+}
+
 /**
  * Renders the sidebar tree navigator. Populates #sidebar-content
  * and wires up expand/collapse and click-to-select via event delegation.
  *
  * Structure:
- * - "HIERARCHY" section header
- * - Epic nodes (start expanded) → Feature nodes (start collapsed) → Task nodes
+ * - Tags section
+ * - Docs browser entry
+ * - Epics section (Epic nodes → Feature nodes → Task nodes)
  * - Epic-level and feature-level doc nodes (italic, muted)
- * - Flat sections (Ideas, Change Cards, Tags, Tech Debt) — only if items exist
+ * - Flat sections (Bugs, Change Cards, Tech Debt, Ideas) — only if items exist
  */
 function renderSidebar() {
   const sidebarContent = document.getElementById('sidebar-content');
   if (!sidebarContent) return;
 
   let html = '';
+  const allSectionsExpanded = areAllSidebarSectionsExpanded();
+  const toggleAllTitle = allSectionsExpanded ? 'Collapse all sections' : 'Expand all sections';
+  const toggleAllLabel = allSectionsExpanded ? '−' : '+';
 
   // ── Filter bar ──
   html += `<div class="sidebar-filter-bar">
-    <span class="sidebar-filter-label">show all
-      <label class="sidebar-filter-inline"><input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}> items</label>
-      <label class="sidebar-filter-inline"><input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}> files</label>
-    </span>
+    <div class="sidebar-filter-main">
+      <span class="sidebar-filter-label">show all
+        <label class="sidebar-filter-inline"><input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}> items</label>
+        <label class="sidebar-filter-inline"><input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}> files</label>
+      </span>
+    </div>
+    <div class="sidebar-filter-actions">
+      <button class="sidebar-collapse-btn" id="collapse-all-btn" type="button" title="Collapse all epics and features" aria-label="Collapse all epics and features">↑</button>
+      <button class="sidebar-collapse-btn sidebar-filter-toggle-all" id="sidebar-toggle-all-btn" type="button" aria-label="${escapeHtml(toggleAllTitle)}" title="${escapeHtml(toggleAllTitle)}">${escapeHtml(toggleAllLabel)}</button>
+    </div>
   </div>`;
-
-  // ── Tag filter control (E28-F06 REQ-F-017, AC-12) ──
-  html += buildTagFilterControlHtml();
 
   // ── Sprint section (Sprint mode only) ──
   if (appState === 'sprint') {
     html += renderSprintTree(sprintOverviewData || sprintPlanData || sprintReportData || null);
   }
 
-  // ── Hierarchy section ──
-  const collapseSymbol = expandedEpics.size > 0 ? '−' : '+';
-  html += `<div class="sidebar-section-header">Hierarchy<button id="collapse-all-btn" class="sidebar-collapse-btn" type="button" title="${expandedEpics.size > 0 ? 'Collapse all' : 'Expand all'}">${collapseSymbol}</button></div>`;
+  // ── Tags section ──
+  html += renderSidebarSection('tags', 'Tags', buildTagFilterControlHtml(), { keepEmpty: true });
+
+  // ── Epics section ──
+  let epicBodyHtml = '';
   for (const epic of treeData) {
     if (!showCompleted && isHiddenTerminalStatus(epic.status, 'epic')) continue;
-    html += buildEpicNodeHtml(epic);
+    epicBodyHtml += buildEpicNodeHtml(epic);
   }
+  html += renderSidebarSection('epics', 'Epics', epicBodyHtml, { keepEmpty: true });
 
   // ── Flat sections — only render when data is present ──
-  if (treeData.length === 0 && !summaryData) {
-    // No data loaded yet — render nothing extra
-  }
-
-  // Bugs (from hierarchy flat section)
   const bugs = Array.isArray(hierarchyData?.bugs) ? hierarchyData.bugs : [];
-  html += buildFlatSectionHtml('Bugs', bugs, 'bug');
+  html += renderSidebarSection('bugs', 'Bugs', buildFlatSectionBodyHtml(bugs, 'bug'));
 
-  // Change Cards (from hierarchy flat section)
   const changeCards = Array.isArray(hierarchyData?.change_cards) ? hierarchyData.change_cards : [];
-  html += buildFlatSectionHtml('Change Cards', changeCards, 'change_card');
+  html += renderSidebarSection('change_cards', 'Change Cards', buildFlatSectionBodyHtml(changeCards, 'change_card'));
 
-  // Ideas (from hierarchy flat section)
+  const techDebts = Array.isArray(hierarchyData?.tech_debts) ? hierarchyData.tech_debts : [];
+  html += renderSidebarSection('tech_debt', 'Tech Debt', buildFlatSectionBodyHtml(techDebts, 'tech_debt'));
+
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
-  html += buildFlatSectionHtml('Ideas', ideas, 'idea');
+  html += renderSidebarSection('ideas', 'Ideas', buildFlatSectionHtml('Ideas', ideas, 'idea'));
+
+  // ── Docs browser ──
+  html += renderSidebarSection('docs', 'Docs', buildDocsBrowserBodyHtml(), { keepEmpty: true });
 
   sidebarContent.innerHTML = html;
 
@@ -7252,7 +7791,7 @@ function renderSidebar() {
     showCompletedCb.onchange = async function() {
       showCompleted = this.checked;
       try { localStorage.setItem('shark.viewer.showAllItems', String(this.checked)); } catch (e) {}
-      // Refetch hierarchy so terminal-status bugs/change cards are
+      // Refetch hierarchy so terminal-status bugs/change cards/tech debt are
       // included/excluded server-side (mirrors `bug list --all`).
       // Tree entities (epics/features/tasks) continue to be filtered
       // client-side via isHiddenTerminalStatus + showCompleted.
@@ -7283,21 +7822,32 @@ function renderSidebar() {
     };
   }
 
-  // ── Wire collapse/expand-all button (T-E27-F10-003 REQ-F-003) ──
-  const collapseAllBtn = document.getElementById('collapse-all-btn');
-  if (collapseAllBtn) {
-    collapseAllBtn.onclick = function() {
-      if (expandedEpics.size > 0) {
-        expandedEpics.clear();
-        expandedFeatures.clear();
-      } else {
-        for (const epic of (treeData || [])) {
-          expandedEpics.add(epic.key || '');
-        }
-      }
+  const sidebarToggleAllBtn = document.getElementById('sidebar-toggle-all-btn');
+  if (sidebarToggleAllBtn) {
+    sidebarToggleAllBtn.onclick = function() {
+      const expandAll = !areAllSidebarSectionsExpanded();
+      setAllSidebarSectionsExpanded(expandAll);
       renderSidebar();
     };
   }
+
+  const collapseAllBtn = document.getElementById('collapse-all-btn');
+  if (collapseAllBtn) {
+    collapseAllBtn.onclick = function() {
+      expandedEpics.clear();
+      expandedFeatures.clear();
+      renderSidebar();
+    };
+  }
+
+  sidebarContent.querySelectorAll('[data-sidebar-section-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sectionId = btn.getAttribute('data-sidebar-section-toggle');
+      if (!sectionId) return;
+      toggleSidebarSection(sectionId);
+      renderSidebar();
+    });
+  });
 
   // ── Wire tag filter chip clicks (E28-F06 REQ-F-017, AC-12, AC-T3) ──
   // No mutation controls — chip list is read-only selection only (AC-T5, REQ-F-018).

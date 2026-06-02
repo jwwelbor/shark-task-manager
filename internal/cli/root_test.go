@@ -239,54 +239,21 @@ func TestFindProjectRoot_WithGitDir(t *testing.T) {
 }
 
 func TestFindProjectRoot_NoMarkers(t *testing.T) {
-	// Skip test if /tmp has project markers (shark-tasks.db, .git, .sharkconfig.json)
-	// This prevents test failures when running on systems where /tmp contains these files
-	hasMarkers := false
-	for _, marker := range []string{".sharkconfig.json", "shark-tasks.db", ".git"} {
-		if _, err := os.Stat(filepath.Join(os.TempDir(), marker)); err == nil {
-			hasMarkers = true
-			break
-		}
-	}
-	if hasMarkers {
-		t.Skip("Skipping test: /tmp contains project markers that would interfere with test")
-	}
-
-	// Create a temporary directory structure with no markers
+	// Use a deeply nested subdir with no markers. Pass tmpDir as the ceiling so
+	// the walk cannot escape into host-environment ancestors (e.g. /tmp/.sharkconfig.json).
 	tmpDir := t.TempDir()
-
-	// Create nested subdirectory
 	subdir := filepath.Join(tmpDir, "some", "random", "path")
 	if err := os.MkdirAll(subdir, 0755); err != nil {
 		t.Fatalf("Failed to create subdirectories: %v", err)
 	}
 
-	// Save original working directory
-	originalWd, err := os.Getwd()
+	root, err := findProjectRootFrom(subdir, tmpDir)
 	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
-	defer func() {
-		if err := os.Chdir(originalWd); err != nil {
-			t.Errorf("Failed to restore working directory: %v", err)
-		}
-	}()
-
-	// Change to subdirectory
-	if err := os.Chdir(subdir); err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
+		t.Fatalf("findProjectRootFrom() error = %v", err)
 	}
 
-	// Find project root - should return current directory when no markers found
-	root, err := FindProjectRoot()
-	if err != nil {
-		t.Errorf("FindProjectRoot() error = %v", err)
-		return
-	}
-
-	// Should return the current working directory (subdir) since no markers were found
 	if root != subdir {
-		t.Errorf("FindProjectRoot() = %v, want %v (current dir when no markers)", root, subdir)
+		t.Errorf("findProjectRootFrom() = %q, want %q (startDir when no markers found)", root, subdir)
 	}
 }
 

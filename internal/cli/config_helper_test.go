@@ -165,35 +165,18 @@ func TestGetConfigPath(t *testing.T) {
 	})
 
 	t.Run("returns current directory when no project root markers found", func(t *testing.T) {
-		// Skip test if /tmp has project markers (shark-tasks.db, .git, .sharkconfig.json)
-		// This prevents test failures when running on systems where /tmp contains these files
-		hasMarkers := false
-		for _, marker := range []string{".sharkconfig.json", "shark-tasks.db", ".git"} {
-			if _, err := os.Stat(filepath.Join(os.TempDir(), marker)); err == nil {
-				hasMarkers = true
-				break
-			}
-		}
-		if hasMarkers {
-			t.Skip("Skipping test: /tmp contains project markers that would interfere with test")
-		}
-
-		// Create temp directory with no markers
+		// Use findProjectRootFrom with a ceiling so the walk cannot escape into
+		// host-environment ancestors (e.g. /tmp/.sharkconfig.json in CI sandboxes).
 		tmpDir := t.TempDir()
 		subDir := filepath.Join(tmpDir, "subdir")
 		require.NoError(t, os.MkdirAll(subDir, 0755))
 
-		// Change to subdirectory
-		require.NoError(t, os.Chdir(subDir))
-		defer func() { _ = os.Chdir(originalWd) }()
-
-		// Get config path - should use current directory as fallback
-		configPath, err := GetConfigPath()
+		root, err := findProjectRootFrom(subDir, tmpDir)
 		require.NoError(t, err)
 
-		// Should return path to .sharkconfig.json in current directory
+		// No markers in the subtree → should fall back to startDir.
 		expectedPath := filepath.Join(subDir, ".sharkconfig.json")
-		assert.Equal(t, expectedPath, configPath)
+		assert.Equal(t, expectedPath, filepath.Join(root, ".sharkconfig.json"))
 	})
 
 	t.Run("uses explicit config path when GlobalConfig.ConfigFile is set", func(t *testing.T) {
