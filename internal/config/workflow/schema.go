@@ -152,7 +152,7 @@ type StatusMetadata struct {
 	// When set, the sprint planner uses this value directly instead of deriving
 	// a bucket from the phase name. This allows each workflow to explicitly control
 	// how its statuses appear in the sprint board.
-	SprintBucket string `json:"sprint_bucket,omitempty"`
+	SprintBucket *string `json:"sprint_bucket,omitempty"`
 }
 
 // Special status keys used in SpecialStatuses map

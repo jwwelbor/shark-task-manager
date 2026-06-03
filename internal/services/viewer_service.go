@@ -425,7 +425,7 @@ type WorkflowStatusMeta struct {
 	Color          string  `json:"color"`
 	Phase          string  `json:"phase"`
 	ProgressWeight float64 `json:"progress_weight"`
-	SprintBucket   string  `json:"sprint_bucket,omitempty"`
+	SprintBucket   *string `json:"sprint_bucket,omitempty"`
 }
 
 // WorkflowTransitionMeta describes one valid status transition.
