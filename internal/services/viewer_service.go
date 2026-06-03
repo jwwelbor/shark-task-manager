@@ -425,6 +425,7 @@ type WorkflowStatusMeta struct {
 	Color          string  `json:"color"`
 	Phase          string  `json:"phase"`
 	ProgressWeight float64 `json:"progress_weight"`
+	SprintBucket   string  `json:"sprint_bucket,omitempty"`
 }
 
 // WorkflowTransitionMeta describes one valid status transition.
@@ -2401,6 +2402,7 @@ func (s *ViewerService) WorkflowMeta(_ context.Context) (*WorkflowMetaResponse, 
 				Color:          colorOrGray(meta.Color),
 				Phase:          phaseOrUnknown(meta.Phase),
 				ProgressWeight: pw,
+				SprintBucket:   meta.SprintBucket,
 			})
 		}
 

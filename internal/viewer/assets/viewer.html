@@ -537,6 +537,40 @@
       color: var(--accent);
     }
 
+    .sprint-bucket-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-left: 16px;
+      padding-right: 10px;
+      min-height: 28px;
+    }
+    .sprint-bucket-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+    }
+    .sprint-bucket-meta {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .sprint-bucket-count {
+      font-size: 10px;
+      color: var(--fg-dim);
+      font-variant-numeric: tabular-nums;
+    }
+    .sprint-bucket-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      opacity: 0.75;
+      flex-shrink: 0;
+    }
+
     .sprint-drawer-panel {
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
@@ -556,6 +590,12 @@
       font-size: 12px;
       color: var(--fg-muted);
       margin-bottom: 12px;
+    }
+
+    .history-ts {
+      font-size: 11px;
+      color: var(--fg-dim);
+      white-space: nowrap;
     }
 
     .sprint-drawer-actions {
@@ -2070,6 +2110,14 @@
 
 <!-- Toast notifications -->
 <div id="toast-container"></div>
+
+<!-- Spec popup modal -->
+<div id="spec-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;overflow:auto">
+  <div id="spec-modal-inner" style="background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius-lg);max-width:820px;margin:40px auto;padding:24px 28px;position:relative;max-height:calc(100vh - 80px);overflow-y:auto">
+    <button id="spec-modal-close" class="header-btn" style="position:absolute;top:12px;right:12px">✕ Close</button>
+    <div id="spec-modal-body" style="margin-top:8px"></div>
+  </div>
+</div>
 
 <!-- ============================================================
      JAVASCRIPT
@@ -4468,7 +4516,7 @@ function renderOrchestratorDetails(oa) {
  * @param {Object} entity - entity object from treeData / flat list
  * @returns {string} HTML string
  */
-function renderPropertiesPanel(entity) {
+function renderPropertiesPanel(entity, extraRows = []) {
   if (!entity) return '';
 
   // Helper: copy-to-clipboard button (uses data attribute + global delegation handler)
@@ -4512,8 +4560,9 @@ function renderPropertiesPanel(entity) {
     ? ` style="border-left:3px solid ${escapeHtml(statusColor)}" data-status-accent="${escapeHtml(entity.status)}"`
     : '';
 
-  const grid = rows.length
-    ? `<div class="props-grid"${accentStyle}>${rows.join('')}</div>`
+  const allRows = rows.concat(extraRows);
+  const grid = allRows.length
+    ? `<div class="props-grid"${accentStyle}>${allRows.join('')}</div>`
     : '';
   return grid + orchHtml;
 }
@@ -5010,6 +5059,25 @@ function showToast(message, type) {
   toast.textContent = message;
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 2500);
+}
+
+async function openSpecModal(key) {
+  const modal = document.getElementById('spec-modal');
+  const body  = document.getElementById('spec-modal-body');
+  if (!modal || !body) return;
+  body.innerHTML = '<div class="content-placeholder">Loading spec…</div>';
+  modal.style.display = 'block';
+  const resp = await apiGetFile(key);
+  if (!resp || !resp.exists) {
+    body.innerHTML = '<div class="content-placeholder">No spec file found for this entity.</div>';
+    return;
+  }
+  renderMarkdownFromString(resp.content || '', body);
+}
+
+function closeSpecModal() {
+  const modal = document.getElementById('spec-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 /**
@@ -6100,14 +6168,39 @@ const SPRINT_BUCKET_MAP = {
   resolved:                    'done',
 };
 
-// ACTIVE_SPRINT_CATEGORIES is the explicit set of status_category values that
-// count as "active work" for the Overview "Active" metric (REQ-F-005 / AC-013).
-// This is defined independently of SPRINT_BUCKET_MAP because ready_for_development
-// maps to the 'ready' display bucket (AC-005) but is still active work that must
-// be counted in the Active metric (AC-013). The two concerns are orthogonal.
-// REQ-F-005 authoritative list: in_development, ready_for_approval,
-// ready_for_development, in_progress, in_review, in_qa,
-// ready_for_refinement_tech, ready_for_refinement_ba, in_refinement.
+// Returns the sprint display bucket for a status string.
+// Reads sprint_bucket directly from the workflowMeta loaded via /api/v1/viewer/workflow-meta.
+// Each status in the workflow JSON declares its own sprint_bucket value ("ready",
+// "in_progress", "blocked", "done", or absent to hide from the sprint board).
+// Falls back to the hardcoded SPRINT_BUCKET_MAP for workflows that predate this field.
+function getSprintBucketForStatus(status) {
+  if (!status) return undefined;
+  if (workflowMeta && workflowMeta.levels) {
+    for (const level of Object.values(workflowMeta.levels)) {
+      const meta = (level.statuses || []).find(s => s.name === status);
+      if (meta) {
+        // sprint_bucket present in workflow config — use it directly.
+        if (meta.sprint_bucket) return meta.sprint_bucket;
+        // sprint_bucket explicitly blank means "hide from sprint board".
+        // Only fall through to the legacy map when the field is absent entirely.
+        if (Object.prototype.hasOwnProperty.call(meta, 'sprint_bucket')) return undefined;
+      }
+    }
+  }
+  return SPRINT_BUCKET_MAP[status];
+}
+
+// Returns true if the status counts as "active work" in the sprint.
+// Active = maps to 'ready' or 'in_progress' bucket.
+function isActiveSprintStatus(status) {
+  if (!status) return false;
+  const bucket = getSprintBucketForStatus(status);
+  if (bucket !== undefined) return bucket === 'ready' || bucket === 'in_progress';
+  return ACTIVE_SPRINT_CATEGORIES.has(status);
+}
+
+// ACTIVE_SPRINT_CATEGORIES is kept as a fallback for when workflowMeta has not
+// yet loaded. The isActiveSprintStatus() function above is the preferred path.
 const ACTIVE_SPRINT_CATEGORIES = new Set([
   'ready_for_development',
   'in_development',
@@ -6132,7 +6225,7 @@ function sprintBucketGroups(payload) {
   const bucketItems = { ready: [], in_progress: [], blocked: [], done: [] };
   for (const group of sprintBacklogGroups(payload)) {
     const category = group?.status_category;
-    const bucket = category ? SPRINT_BUCKET_MAP[category] : undefined;
+    const bucket = getSprintBucketForStatus(category);
     if (bucket && Array.isArray(group.items)) {
       bucketItems[bucket].push(...group.items);
     }
@@ -6157,11 +6250,11 @@ function renderScopeSnapshot(assignedItems) {
   if (!Array.isArray(assignedItems) || assignedItems.length === 0) {
     return '';
   }
-  // Tally items into display buckets using SPRINT_BUCKET_MAP.
+  // Tally items into display buckets using workflow-aware bucket lookup.
   const tally = { ready: 0, in_progress: 0, blocked: 0, done: 0 };
   for (const item of assignedItems) {
     const category = item?.status_category || item?.status || '';
-    const bucket = SPRINT_BUCKET_MAP[category];
+    const bucket = getSprintBucketForStatus(category);
     if (bucket && Object.prototype.hasOwnProperty.call(tally, bucket)) {
       tally[bucket]++;
     }
@@ -6218,16 +6311,22 @@ function renderSprintTree(payload) {
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const sprintRange = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
 
-  const bucketHtml = activeBuckets.map(bucket => {
-    const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
-    return `<div class="sprint-tree-bucket">
-      <div class="tree-node tree-node-flat" style="padding-left:28px">
-        <span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(bucket.key))};color:${escapeHtml(getContrastColor(getStatusColor(bucket.key)))}">${escapeHtml(bucket.label)}</span>
-        <span style="margin-left:8px;color:var(--fg-dim)">${bucket.items.length}</span>
+  const bucketHtml = !payload
+    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0;color:var(--fg-dim)">Loading…</div>`
+    : activeBuckets.map(bucket => {
+        const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
+        const dotColor = escapeHtml(getStatusColor(bucket.key));
+        return `<div class="sprint-tree-bucket">
+      <div class="sprint-bucket-header">
+        <span class="sprint-bucket-label">${escapeHtml(bucket.label)}</span>
+        <span class="sprint-bucket-meta">
+          <span class="sprint-bucket-count">${bucket.items.length}</span>
+          <span class="sprint-bucket-dot" style="background:${dotColor}"></span>
+        </span>
       </div>
       ${rows ? `<div class="sprint-item-list" style="padding-left:16px">${rows}</div>` : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No items in this bucket.</div>'}
     </div>`;
-  }).join('');
+      }).join('');
 
   const activeBody = activeExpanded
        ? `<div class="sprint-tree-active-body">
@@ -6551,10 +6650,8 @@ function toggleSprintTreeNode(scope) {
 function renderSprintItemRow(item, selectedKey) {
   const key = escapeHtml(item?.key || '');
   const title = escapeHtml(sprintItemLabel(item) || item?.key || '');
-  const badge = ovStatusBadge(sprintItemStatus(item));
   const selectedClass = item?.key && item.key === selectedKey ? ' selected' : '';
   return `<div class="sprint-item-row${selectedClass}" role="button" tabindex="0" data-sprint-item-key="${key}">
-    ${badge}
     <span class="sprint-item-key">${key}</span>
     <span class="sprint-item-title" title="${title}">${title}</span>
   </div>`;
@@ -6639,7 +6736,7 @@ function renderSprintHealthColumns(payload) {
   // --- Right panel: Blockers/Risks ---
   // Find blocked items from backlog groups
   const blockedItems = sprintBacklogGroups(payload)
-    .filter(group => (group?.status_category || '') === 'blocked')
+    .filter(group => getSprintBucketForStatus(group?.status_category || '') === 'blocked')
     .flatMap(group => Array.isArray(group.items) ? group.items : []);
 
   const blockerRowsHtml = blockedItems.length
@@ -6684,10 +6781,10 @@ function renderSprintOverview(payload) {
   const capacity = sprintCapacityStats(payload?.capacity || []);
   const backlogItems = sprintBacklogItems(payload);
   const blockedCount = sprintBacklogGroups(payload)
-    .filter(group => (group?.status_category || '') === 'blocked')
+    .filter(group => getSprintBucketForStatus(group?.status_category || '') === 'blocked')
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
   const activeCount = sprintBacklogGroups(payload)
-    .filter(group => ACTIVE_SPRINT_CATEGORIES.has(group?.status_category || ''))
+    .filter(group => isActiveSprintStatus(group?.status_category || ''))
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const keyLabel = escapeHtml(sprint.key || '');
@@ -6771,26 +6868,16 @@ function renderSprintDetailDrawer(key, payload) {
   const statusColor = getStatusColor(status);
   const drawerTitle = entity ? escapeHtml(entity.title || entity.key || key) : escapeHtml(key);
   const drawerKey = escapeHtml(key);
-  const assignmentLines = [];
-  if (item?.status_category) assignmentLines.push(`<div class="props-label">Bucket</div><div class="props-value">${escapeHtml(item.status_category.replace(/_/g, ' '))}</div>`);
-  if (item?.agent_type) assignmentLines.push(`<div class="props-label">Agent</div><div class="props-value">${escapeHtml(item.agent_type)}</div>`);
-  if (item?.priority != null) assignmentLines.push(`<div class="props-label">Priority</div><div class="props-value">${escapeHtml(String(item.priority))}</div>`);
-  if (item?.size != null) assignmentLines.push(`<div class="props-label">Size</div><div class="props-value">${escapeHtml(formatSizeLabel(item.size))} (${escapeHtml(String(item.size))})</div>`);
-  if (item?.days_blocked != null) assignmentLines.push(`<div class="props-label">Days Blocked</div><div class="props-value">${escapeHtml(String(item.days_blocked))}</div>`);
-  if (assignmentLines.length === 0) assignmentLines.push('<div class="props-value">No sprint assignment details available.</div>');
+  const extraRows = [];
+  if (item?.agent_type)       extraRows.push(`<div class="props-label">Agent</div><div class="props-value">${escapeHtml(item.agent_type)}</div>`);
+  if (item?.priority != null) extraRows.push(`<div class="props-label">Priority</div><div class="props-value">${escapeHtml(String(item.priority))}</div>`);
+  if (item?.days_blocked != null) extraRows.push(`<div class="props-label">Days Blocked</div><div class="props-value">${escapeHtml(String(item.days_blocked))}</div>`);
 
   return `
     <div class="sprint-drawer-panel history-drawer" data-sprint-drawer-for="${drawerKey}">
       <div class="sprint-drawer-title">${drawerTitle}</div>
-      <div class="sprint-drawer-subtitle">
-        <span class="status-badge status-badge-sm" style="background:${escapeHtml(statusColor)};color:${escapeHtml(getContrastColor(statusColor))}">${escapeHtml(status.replace(/_/g, ' '))}</span>
-        <span style="margin-left:8px">${drawerKey}</span>
-      </div>
-      ${entity ? renderPropertiesPanel(entity) : '<div class="content-placeholder">Entity details unavailable.</div>'}
-      <div class="ov-section">
-        <div class="ov-section-header">Assignment History</div>
-        <div class="props-grid">${assignmentLines.join('')}</div>
-      </div>
+      <div class="sprint-drawer-subtitle">${drawerKey}</div>
+      ${entity ? renderPropertiesPanel(entity, extraRows) : '<div class="content-placeholder">Entity details unavailable.</div>'}
       <div class="ov-section" id="sprint-history-section">
         <div class="ov-section-header">Status History</div>
         <div class="content-placeholder">Loading history…</div>
@@ -6800,7 +6887,8 @@ function renderSprintDetailDrawer(key, payload) {
         <div class="content-placeholder">Loading related work…</div>
       </div>
       <div class="sprint-drawer-actions">
-        <button class="header-btn header-btn-accent" id="sprint-open-entity-btn">Open Entity View</button>
+        <button class="header-btn" id="sprint-spec-btn">Spec</button>
+        <button class="header-btn header-btn-accent" id="sprint-open-entity-btn">Open</button>
       </div>
     </div>`;
 }
@@ -7004,6 +7092,16 @@ function renderSprintModePanels() {
     if (stageBtn) stageBtn.addEventListener('click', () => explicitAction('Stage selected'));
     if (removeBtn) removeBtn.addEventListener('click', () => explicitAction('Remove selected'));
     if (readyBtn) readyBtn.addEventListener('click', () => explicitAction('Mark ready'));
+  }
+
+  const specModalClose = document.getElementById('spec-modal-close');
+  if (specModalClose) specModalClose.addEventListener('click', closeSpecModal);
+  const specModal = document.getElementById('spec-modal');
+  if (specModal) specModal.addEventListener('click', e => { if (e.target === specModal) closeSpecModal(); });
+
+  const specBtn = document.getElementById('sprint-spec-btn');
+  if (specBtn && sprintSelectedKey) {
+    specBtn.addEventListener('click', () => openSpecModal(sprintSelectedKey));
   }
 
   const openEntityBtn = document.getElementById('sprint-open-entity-btn');

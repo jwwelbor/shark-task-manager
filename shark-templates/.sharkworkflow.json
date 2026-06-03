@@ -1252,7 +1252,8 @@
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "task/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "todo": {
         "blocks_feature": false,
@@ -1264,7 +1265,8 @@
         "orchestrator_action": {
           "action": "wait_for_triage",
           "instruction_template": "task/todo.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_refinement_ba": {
         "agent_types": [
@@ -1284,7 +1286,8 @@
             "shark"
           ],
           "instruction_template": "task/ready_for_refinement_ba.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_refinement_ba": {
         "blocks_feature": false,
@@ -1292,7 +1295,8 @@
         "description": "Being analyzed and specified",
         "phase": "planning",
         "progress_weight": 0.12,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "sprint_bucket": "in_progress"
       },
       "ready_for_refinement_tech": {
         "agent_types": [
@@ -1313,7 +1317,8 @@
             "shark"
           ],
           "instruction_template": "task/ready_for_refinement_tech.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_refinement_tech": {
         "blocks_feature": false,
@@ -1321,7 +1326,8 @@
         "description": "Being analyzed and specified",
         "phase": "planning",
         "progress_weight": 0.2,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "sprint_bucket": "in_progress"
       },
       "ready_for_development": {
         "agent_types": [
@@ -1341,7 +1347,8 @@
             "implementation"
           ],
           "instruction_template": "task/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "blocks_feature": false,
@@ -1349,7 +1356,8 @@
         "description": "Code implementation in progress",
         "phase": "development",
         "progress_weight": 0.5,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "sprint_bucket": "in_progress"
       },
       "ready_for_code_review": {
         "agent_types": [
@@ -1369,7 +1377,8 @@
             "quality"
           ],
           "instruction_template": "task/ready_for_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_code_review": {
         "blocks_feature": false,
@@ -1377,7 +1386,8 @@
         "description": "Under code review",
         "phase": "review",
         "progress_weight": 0.8,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "sprint_bucket": "in_progress"
       },
       "ready_for_qa": {
         "agent_types": [
@@ -1397,7 +1407,8 @@
             "shark"
           ],
           "instruction_template": "task/ready_for_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_qa": {
         "blocks_feature": false,
@@ -1405,7 +1416,8 @@
         "description": "Being tested",
         "phase": "qa",
         "progress_weight": 0.85,
-        "responsibility": "qa_team"
+        "responsibility": "qa_team",
+        "sprint_bucket": "in_progress"
       },
       "ready_for_approval": {
         "agent_types": [
@@ -1426,7 +1438,8 @@
             "uat"
           ],
           "instruction_template": "task/ready_for_approval.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_approval": {
         "blocks_feature": false,
@@ -1434,7 +1447,8 @@
         "description": "Under final review",
         "phase": "approval",
         "progress_weight": 0.95,
-        "responsibility": "human"
+        "responsibility": "human",
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "blocks_feature": false,
@@ -1446,7 +1460,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "task/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "blocks_feature": false,
@@ -1470,7 +1485,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "task/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "blocks_feature": false,
@@ -1482,7 +1498,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "task/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1544,7 +1561,8 @@
             "shark"
           ],
           "instruction_template": "bug/reported.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "triaged": {
         "color": "yellow",
@@ -1564,7 +1582,8 @@
             "shark"
           ],
           "instruction_template": "bug/triaged.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_fix": {
         "color": "blue",
@@ -1581,7 +1600,8 @@
             "shark"
           ],
           "instruction_template": "bug/in_fix.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_verification": {
         "color": "cyan",
@@ -1597,7 +1617,8 @@
             "shark"
           ],
           "instruction_template": "bug/in_verification.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "resolved": {
         "color": "green",
@@ -1607,7 +1628,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "bug/resolved.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "wont_fix": {
         "color": "gray",
@@ -1679,7 +1701,8 @@
             "shark"
           ],
           "instruction_template": "change/proposed.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "approved": {
         "color": "cyan",
@@ -1698,7 +1721,8 @@
             "shark"
           ],
           "instruction_template": "change/approved.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_progress": {
         "color": "blue",
@@ -1714,7 +1738,8 @@
             "shark"
           ],
           "instruction_template": "change/in_progress.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "color": "green",
@@ -1724,7 +1749,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "change/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "declined": {
         "color": "red",

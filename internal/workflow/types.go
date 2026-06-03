@@ -23,6 +23,10 @@ type StatusInfo struct {
 
 	// ExcludeFromProgress indicates this status should be excluded from progress calculations.
 	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
+
+	// SprintBucket defines which sprint display bucket this status belongs to.
+	// Values: "ready", "in_progress", "blocked", "done", or "" (omit from sprint view).
+	SprintBucket string `json:"sprint_bucket,omitempty"`
 }
 
 // TransitionInfo describes a valid status transition.

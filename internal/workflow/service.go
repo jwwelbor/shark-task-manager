@@ -249,6 +249,7 @@ func (s *Service) GetStatusMetadata(status string) StatusInfo {
 		Phase:               meta.Phase,
 		AgentTypes:          meta.AgentTypes,
 		ExcludeFromProgress: meta.ExcludeFromProgress,
+		SprintBucket:        meta.SprintBucket,
 	}
 }
 

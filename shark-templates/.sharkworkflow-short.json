@@ -1014,7 +1014,8 @@
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "task_short/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_development": {
         "description": "Ready for TDD implementation",
@@ -1036,7 +1037,8 @@
             "test-driven-development"
           ],
           "instruction_template": "task_short/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "description": "TDD implementation in progress",
@@ -1055,7 +1057,8 @@
             "test-driven-development"
           ],
           "instruction_template": "task_short/in_development.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "description": "Task done and verified",
@@ -1068,7 +1071,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "task_short/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "description": "Task abandoned",
@@ -1095,7 +1099,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "task_short/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally paused",
@@ -1108,7 +1113,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "task_short/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1185,7 +1191,8 @@
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "bug/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "reported": {
         "description": "Bug reported, not yet started",
@@ -1198,7 +1205,8 @@
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "bug/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_development": {
         "description": "Ready for bug reproduction and fix",
@@ -1220,7 +1228,8 @@
             "test-driven-development"
           ],
           "instruction_template": "bug/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "description": "Bug fix in progress",
@@ -1239,7 +1248,8 @@
             "test-driven-development"
           ],
           "instruction_template": "bug/in_development.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_code_review": {
         "description": "Ready for code review of bug fix",
@@ -1260,7 +1270,8 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_code_review": {
         "description": "Code review of bug fix in progress",
@@ -1278,7 +1289,8 @@
             "quality"
           ],
           "instruction_template": "task_short/in_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_qa": {
         "description": "Ready for QA verification of bug fix",
@@ -1299,7 +1311,8 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_qa": {
         "description": "QA verification of bug fix in progress",
@@ -1317,7 +1330,8 @@
             "quality"
           ],
           "instruction_template": "task_short/in_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "description": "Bug fixed and verified",
@@ -1330,7 +1344,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "bug/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "description": "Bug not reproducible or won't fix",
@@ -1357,7 +1372,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally deferred",
@@ -1370,7 +1386,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1443,7 +1460,8 @@
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "change/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_development": {
         "description": "Ready for implementation",
@@ -1464,7 +1482,8 @@
             "implementation"
           ],
           "instruction_template": "change/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "description": "Implementation in progress",
@@ -1482,7 +1501,8 @@
             "implementation"
           ],
           "instruction_template": "change/in_development.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_code_review": {
         "description": "Ready for code review",
@@ -1503,7 +1523,8 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_code_review": {
         "description": "Code review in progress",
@@ -1521,7 +1542,8 @@
             "quality"
           ],
           "instruction_template": "task_short/in_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_qa": {
         "description": "Ready for QA verification",
@@ -1542,7 +1564,8 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_qa": {
         "description": "QA verification in progress",
@@ -1560,7 +1583,8 @@
             "quality"
           ],
           "instruction_template": "task_short/in_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "description": "Change implemented and verified",
@@ -1573,7 +1597,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "change/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "description": "Change no longer needed",
@@ -1600,7 +1625,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally deferred",
@@ -1613,7 +1639,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1709,7 +1736,8 @@
             "assessment"
           ],
           "instruction_template": "tech_debt/identified.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "triaged": {
         "description": "Severity, category, and effort assessed",
@@ -1722,7 +1750,8 @@
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "tech_debt/triaged.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_investigation": {
         "description": "Ready to investigate blast radius, affected code, and resolution approach",
@@ -1744,7 +1773,8 @@
             "brownfield-analysis"
           ],
           "instruction_template": "tech_debt/ready_for_investigation.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_investigation": {
         "description": "Researcher analyzing blast radius, risks, and resolution approach",
@@ -1763,7 +1793,8 @@
             "brownfield-analysis"
           ],
           "instruction_template": "tech_debt/in_investigation.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_resolution": {
         "description": "Ready for refactor/cleanup implementation",
@@ -1786,7 +1817,8 @@
             "test-driven-development"
           ],
           "instruction_template": "tech_debt/ready_for_resolution.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_progress": {
         "description": "Refactor/cleanup in progress",
@@ -1806,7 +1838,8 @@
             "test-driven-development"
           ],
           "instruction_template": "tech_debt/in_progress.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_code_review": {
         "description": "Ready for code review (regression focus)",
@@ -1828,7 +1861,8 @@
             "refactoring"
           ],
           "instruction_template": "tech_debt/ready_for_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_code_review": {
         "description": "Tech-lead reviewing for regressions and refactor quality",
@@ -1847,7 +1881,8 @@
             "refactoring"
           ],
           "instruction_template": "tech_debt/in_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "resolved": {
         "description": "Tech debt resolved and verified",
@@ -1860,7 +1895,8 @@
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "tech_debt/resolved.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "wont_fix": {
         "description": "Triaged as not worth fixing",
@@ -1901,7 +1937,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "tech_debt/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally deferred",
@@ -1914,7 +1951,8 @@
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "tech_debt/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
