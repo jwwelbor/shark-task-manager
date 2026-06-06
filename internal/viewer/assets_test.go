@@ -268,6 +268,34 @@ func TestViewerHTMLSprintTreeRendersCatalogRows(t *testing.T) {
 	}
 }
 
+func TestViewerHTMLMermaidPanZoomMarkers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"svg-pan-zoom@3.6.2",
+		"mermaid-viewer",
+		"mermaid-toolbar",
+		"mermaid-zoom-in",
+		"mermaid-zoom-out",
+		"mermaid-reset",
+		"mermaid-maximize",
+		"mermaid-collapse",
+		"mermaid-overlay",
+		"mermaid-overlay-close",
+		"initMermaidPanZoom",
+		"resetMermaidZoom",
+		"openMermaidOverlay",
+		"toggleMermaidCollapse",
+		"ResizeObserver",
+		"resizeMermaidObserver",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing Mermaid pan/zoom marker: %q", marker)
+		}
+	}
+}
+
 // TestViewerHTMLSidebarSection verifies that the === SIDEBAR === section label
 // and the renderSidebar function are present. TC-TREE-01 (section present).
 func TestViewerHTMLSidebarSection(t *testing.T) {
