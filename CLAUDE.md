@@ -212,6 +212,8 @@ See @.claude/rules/development-workflows.md for complete workflows.
 **Testing**:
 - Only repository tests use real database
 - All other tests use mocks
+- Viewer HTML is covered by Go asset/API/service tests; do not add Playwright,
+  npm, or `node_modules` for viewer testing
 - See @.claude/rules/testing/architecture.md for details
 
 **Go Patterns**:
