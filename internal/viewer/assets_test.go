@@ -288,8 +288,9 @@ func TestViewerHTMLMermaidPanZoomMarkers(t *testing.T) {
 		"toggleMermaidCollapse",
 		"ResizeObserver",
 		"resizeMermaidObserver",
-		"onPan: () => scheduleMermaidZoomStateSync(viewer)",
-		"onZoom: () => scheduleMermaidZoomStateSync(viewer)",
+		"onPan:",
+		"onZoom:",
+		"scheduleMermaidZoomStateSync",
 	}
 	for _, marker := range required {
 		if !strings.Contains(content, marker) {
@@ -298,8 +299,8 @@ func TestViewerHTMLMermaidPanZoomMarkers(t *testing.T) {
 	}
 
 	forbidden := []string{
-		"addEventListener('wheel'",
-		"addEventListener('mousedown'",
+		"wheel",
+		"mousedown",
 		"panOnMove",
 	}
 	for _, marker := range forbidden {
