@@ -13,7 +13,7 @@ READ (in this order):
 (1) Task spec at {{.file_path}} for goal, scope, and file list
 (2) Feature spec.md for architecture and requirements (referenced in task spec)
 (3) Feature test-plan.md for test cases (referenced in task spec)
-(4) CLAUDE.md for coding standards and patterns
+(4) docs/architecture/coding-standards.md for coding standards and patterns
 (5) Existing code in files listed in task scope
 
 IMPLEMENT using TDD:
@@ -30,7 +30,7 @@ Step 2 — IMPLEMENT MINIMUM CODE:
 
 Step 3 — REFACTOR:
 - Clean up while keeping tests green
-- Ensure code follows CLAUDE.md patterns
+- Ensure code follows docs/architecture/coding-standards.md patterns
 
 Step 4 — QUALITY GATE (MANDATORY):
 make fmt && make lint && make test
