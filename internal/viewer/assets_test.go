@@ -288,10 +288,24 @@ func TestViewerHTMLMermaidPanZoomMarkers(t *testing.T) {
 		"toggleMermaidCollapse",
 		"ResizeObserver",
 		"resizeMermaidObserver",
+		"onPan:",
+		"onZoom:",
+		"scheduleMermaidZoomStateSync",
 	}
 	for _, marker := range required {
 		if !strings.Contains(content, marker) {
 			t.Errorf("viewer.html missing Mermaid pan/zoom marker: %q", marker)
+		}
+	}
+
+	forbidden := []string{
+		"wheel",
+		"mousedown",
+		"panOnMove",
+	}
+	for _, marker := range forbidden {
+		if strings.Contains(content, marker) {
+			t.Errorf("viewer.html still contains custom Mermaid pan/zoom handler: %q", marker)
 		}
 	}
 }

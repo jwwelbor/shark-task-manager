@@ -5473,7 +5473,9 @@ function initMermaidPanZoom(viewer) {
     fit: true,
     center: true,
     minZoom: 0.2,
-    maxZoom: 20
+    maxZoom: 20,
+    onPan: () => scheduleMermaidZoomStateSync(viewer),
+    onZoom: () => scheduleMermaidZoomStateSync(viewer)
   });
   mermaidPanZoomRegistry.set(viewerId, instance);
   viewer.dataset.panZoomReady = 'true';
@@ -5481,41 +5483,8 @@ function initMermaidPanZoom(viewer) {
   resetMermaidZoom(viewer);
 
   const viewport = viewer.querySelector('.mermaid-viewport');
-  if (viewport) {
-    const handleWheelZoom = (event) => {
-      event.preventDefault();
-      if (event.deltaY < 0) {
-        if (instance.zoomBy) instance.zoomBy(1.15);
-        else instance.zoomIn();
-      } else {
-        if (instance.zoomBy) instance.zoomBy(0.85);
-        else instance.zoomOut();
-      }
-      syncMermaidZoomState(viewer);
-    };
-    viewport.addEventListener('wheel', handleWheelZoom, { passive: false });
-    viewport.addEventListener('mousedown', (event) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      let lastX = event.clientX;
-      let lastY = event.clientY;
-      const panOnMove = (moveEvent) => {
-        const dx = moveEvent.clientX - lastX;
-        const dy = moveEvent.clientY - lastY;
-        lastX = moveEvent.clientX;
-        lastY = moveEvent.clientY;
-        if (instance.panBy) instance.panBy({ x: dx, y: dy });
-        syncMermaidZoomState(viewer);
-      };
-      const stop = () => {
-        syncMermaidZoomState(viewer);
-        document.removeEventListener('mousemove', panOnMove);
-        document.removeEventListener('mouseup', stop);
-      };
-      document.addEventListener('mousemove', panOnMove);
-      document.addEventListener('mouseup', stop);
-    });
-    if (resizeMermaidObserver) resizeMermaidObserver.observe(viewport);
+  if (viewport && resizeMermaidObserver) {
+    resizeMermaidObserver.observe(viewport);
   }
 }
 
