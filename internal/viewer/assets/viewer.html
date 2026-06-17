@@ -6,6 +6,7 @@
   <title>Shark Status Viewer</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
   <style>
     /* ============================================================
        CSS CUSTOM PROPERTIES — Dark Slate Palette
@@ -1493,15 +1494,154 @@
       background: var(--bg-2);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 12px;
       margin-bottom: 14px;
-      overflow-x: auto;
-      text-align: center;
+    }
+
+    .mermaid-viewer {
+      display: flex;
+      flex-direction: column;
+      height: 420px;
+      min-height: 240px;
+      max-height: 80vh;
+      overflow: hidden;
+      resize: vertical;
+    }
+
+    .mermaid-toolbar {
+      align-items: center;
+      background: var(--bg-3);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 4px;
+      justify-content: flex-end;
+      min-height: 34px;
+      padding: 4px 6px;
+    }
+
+    .mermaid-toolbar-btn {
+      align-items: center;
+      background: transparent;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      color: var(--fg-muted);
+      cursor: pointer;
+      display: inline-flex;
+      font-size: 14px;
+      height: 26px;
+      justify-content: center;
+      line-height: 1;
+      min-width: 28px;
+      padding: 0 8px;
+      transition: background var(--transition), color var(--transition), border-color var(--transition);
+    }
+
+    .mermaid-toolbar-btn:hover:not(:disabled) {
+      background: var(--bg-4);
+      border-color: var(--accent);
+      color: var(--fg);
+    }
+
+    .mermaid-toolbar-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    .mermaid-viewport {
+      cursor: grab;
+      flex: 1;
+      min-height: 180px;
+      overflow: hidden;
+      padding: 12px;
+      touch-action: none;
+      width: 100%;
+    }
+
+    .mermaid-viewport:active {
+      cursor: grabbing;
+    }
+
+    .mermaid-viewer.is-collapsed {
+      height: auto;
+      min-height: 0;
+      resize: none;
+    }
+
+    .mermaid-viewer.is-collapsed .mermaid-viewport {
+      display: none;
     }
 
     .mermaid-render-container svg {
-      max-width: 100%;
+      display: block;
+      height: 100%;
+      max-width: none;
+      width: 100%;
+    }
+
+    .mermaid-overlay {
+      align-items: stretch;
+      background: rgba(0,0,0,0.72);
+      display: flex;
+      inset: 0;
+      padding: 28px;
+      position: fixed;
+      z-index: 320;
+    }
+
+    .mermaid-overlay-shell {
+      background: var(--bg-2);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .mermaid-overlay-header {
+      align-items: center;
+      background: var(--bg-3);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      min-height: 40px;
+      padding: 6px 8px;
+    }
+
+    .mermaid-overlay-close {
+      background: transparent;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      color: var(--fg-muted);
+      cursor: pointer;
+      font-size: 12px;
+      height: 28px;
+      padding: 0 10px;
+    }
+
+    .mermaid-overlay-close:hover {
+      background: var(--bg-4);
+      border-color: var(--accent);
+      color: var(--fg);
+    }
+
+    .mermaid-overlay-body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      padding: 0;
+    }
+
+    .mermaid-overlay .mermaid-viewer {
+      border: 0;
+      border-radius: 0;
+      flex: 1;
       height: auto;
+      margin: 0;
+      max-height: none;
+      min-height: 0;
+      resize: none;
     }
 
     .mermaid-error-banner {
@@ -5124,12 +5264,12 @@ async function renderMarkdownPane(key, paneEl) {
 
   if (!response) {
     specBody.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
-    return;
+    return null;
   }
 
   if (!response.exists) {
     specBody.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
-    return;
+    return response;
   }
 
   const rawContent = response.content || '';
@@ -5140,6 +5280,7 @@ async function renderMarkdownPane(key, paneEl) {
   editPaneEl = specBody;
 
   renderMarkdownFromString(rawContent, specBody);
+  return response;
 }
 
 /**
@@ -5211,6 +5352,25 @@ function renderFrontmatterTable(entries) {
 // ============================================================
 
 let __mermaidInitialized = false;
+const mermaidPanZoomRegistry = new Map();
+const mermaidViewerRegistry = new Map();
+let activeMermaidOverlayId = '';
+const resizeMermaidObserver = (typeof ResizeObserver !== 'undefined')
+  ? new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const viewer = entry.target && entry.target.closest
+          ? entry.target.closest('.mermaid-viewer')
+          : null;
+        if (!viewer || viewer.classList.contains('is-collapsed')) continue;
+        const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+        if (!instance) continue;
+        instance.resize();
+        instance.fit();
+        instance.center();
+        syncMermaidZoomState(viewer);
+      }
+    })
+  : null;
 
 /**
  * One-time Mermaid initialization. Idempotent. Safe to call repeatedly.
@@ -5237,6 +5397,244 @@ function initMermaid() {
   __mermaidInitialized = true;
 }
 
+function destroyMermaidPanZoom(viewerId) {
+  const instance = mermaidPanZoomRegistry.get(viewerId);
+  if (instance && typeof instance.destroy === 'function') {
+    instance.destroy();
+  }
+  mermaidPanZoomRegistry.delete(viewerId);
+}
+
+function setMermaidPanZoomControlsEnabled(viewer, enabled) {
+  if (!viewer) return;
+  viewer.querySelectorAll('[data-requires-panzoom="true"]').forEach((button) => {
+    button.disabled = !enabled;
+  });
+}
+
+function syncMermaidZoomState(viewer) {
+  if (!viewer) return;
+  const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+  if (!instance) return;
+  const pan = instance.getPan ? instance.getPan() : { x: 0, y: 0 };
+  const zoom = instance.getZoom ? instance.getZoom() : 0;
+  viewer.dataset.zoom = String(zoom);
+  viewer.dataset.panX = String(pan.x || 0);
+  viewer.dataset.panY = String(pan.y || 0);
+}
+
+function scheduleMermaidZoomStateSync(viewer) {
+  if (!viewer || viewer.__mermaidSyncScheduled) return;
+  viewer.__mermaidSyncScheduled = true;
+  window.requestAnimationFrame(() => {
+    viewer.__mermaidSyncScheduled = false;
+    syncMermaidZoomState(viewer);
+  });
+}
+
+function resetMermaidZoom(viewerOrId) {
+  const viewer = typeof viewerOrId === 'string'
+    ? document.querySelector(`.mermaid-viewer[data-mermaid-id="${viewerOrId}"]`)
+    : viewerOrId;
+  if (!viewer) return;
+  const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+  if (!instance) return;
+  instance.resize();
+  instance.fit();
+  instance.center();
+  syncMermaidZoomState(viewer);
+}
+
+function initMermaidPanZoom(viewer) {
+  if (!viewer) return;
+  const viewerId = viewer.dataset.mermaidId || '';
+  const svg = viewer.querySelector('.mermaid-viewport svg');
+  if (!viewerId || !svg) return;
+
+  destroyMermaidPanZoom(viewerId);
+
+  if (typeof svgPanZoom === 'undefined') {
+    viewer.dataset.panZoomReady = 'false';
+    setMermaidPanZoomControlsEnabled(viewer, false);
+    return;
+  }
+
+  svg.removeAttribute('height');
+  svg.removeAttribute('width');
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+
+  const instance = svgPanZoom(svg, {
+    panEnabled: true,
+    zoomEnabled: true,
+    mouseWheelZoomEnabled: true,
+    controlIconsEnabled: false,
+    dblClickZoomEnabled: true,
+    fit: true,
+    center: true,
+    minZoom: 0.2,
+    maxZoom: 20
+  });
+  mermaidPanZoomRegistry.set(viewerId, instance);
+  viewer.dataset.panZoomReady = 'true';
+  setMermaidPanZoomControlsEnabled(viewer, true);
+  resetMermaidZoom(viewer);
+
+  const viewport = viewer.querySelector('.mermaid-viewport');
+  if (viewport) {
+    const handleWheelZoom = (event) => {
+      event.preventDefault();
+      if (event.deltaY < 0) {
+        if (instance.zoomBy) instance.zoomBy(1.15);
+        else instance.zoomIn();
+      } else {
+        if (instance.zoomBy) instance.zoomBy(0.85);
+        else instance.zoomOut();
+      }
+      syncMermaidZoomState(viewer);
+    };
+    viewport.addEventListener('wheel', handleWheelZoom, { passive: false });
+    viewport.addEventListener('mousedown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      let lastX = event.clientX;
+      let lastY = event.clientY;
+      const panOnMove = (moveEvent) => {
+        const dx = moveEvent.clientX - lastX;
+        const dy = moveEvent.clientY - lastY;
+        lastX = moveEvent.clientX;
+        lastY = moveEvent.clientY;
+        if (instance.panBy) instance.panBy({ x: dx, y: dy });
+        syncMermaidZoomState(viewer);
+      };
+      const stop = () => {
+        syncMermaidZoomState(viewer);
+        document.removeEventListener('mousemove', panOnMove);
+        document.removeEventListener('mouseup', stop);
+      };
+      document.addEventListener('mousemove', panOnMove);
+      document.addEventListener('mouseup', stop);
+    });
+    if (resizeMermaidObserver) resizeMermaidObserver.observe(viewport);
+  }
+}
+
+function createMermaidViewer(viewerId, source, svg, options = {}) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'mermaid-render-container mermaid-viewer' + (options.overlay ? ' mermaid-viewer-overlay' : '');
+  wrapper.dataset.mermaidId = viewerId;
+  wrapper.dataset.zoom = '0';
+  wrapper.dataset.panX = '0';
+  wrapper.dataset.panY = '0';
+  wrapper.dataset.panZoomReady = 'false';
+  mermaidViewerRegistry.set(viewerId, { source, svg, overlay: !!options.overlay });
+
+  const overlayControls = options.overlay
+    ? ''
+    : `
+        <button class="mermaid-toolbar-btn mermaid-maximize" type="button" data-mermaid-action="maximize" aria-label="Maximize diagram" title="Maximize diagram">⛶</button>
+        <button class="mermaid-toolbar-btn mermaid-collapse" type="button" data-mermaid-action="collapse" aria-label="Collapse diagram" title="Collapse diagram" aria-expanded="true">▾</button>
+      `;
+  wrapper.innerHTML = `
+    <div class="mermaid-toolbar" role="toolbar" aria-label="Mermaid diagram controls">
+      <button class="mermaid-toolbar-btn mermaid-zoom-in" type="button" data-mermaid-action="zoom-in" data-requires-panzoom="true" aria-label="Zoom in" title="Zoom in">+</button>
+      <button class="mermaid-toolbar-btn mermaid-zoom-out" type="button" data-mermaid-action="zoom-out" data-requires-panzoom="true" aria-label="Zoom out" title="Zoom out">−</button>
+      <button class="mermaid-toolbar-btn mermaid-reset" type="button" data-mermaid-action="reset" data-requires-panzoom="true" aria-label="Reset zoom" title="Reset zoom">⟲</button>
+      ${overlayControls}
+    </div>
+    <div class="mermaid-viewport" data-mermaid-viewport></div>
+  `;
+  const viewport = wrapper.querySelector('.mermaid-viewport');
+  if (viewport) viewport.innerHTML = svg;
+  wireMermaidViewerControls(wrapper);
+  return wrapper;
+}
+
+function wireMermaidViewerControls(viewer) {
+  if (!viewer) return;
+  viewer.querySelectorAll('[data-mermaid-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.getAttribute('data-mermaid-action');
+      const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+      if (action === 'zoom-in' && instance) {
+        instance.zoomIn();
+        syncMermaidZoomState(viewer);
+      } else if (action === 'zoom-out' && instance) {
+        instance.zoomOut();
+        syncMermaidZoomState(viewer);
+      } else if (action === 'reset') {
+        resetMermaidZoom(viewer);
+      } else if (action === 'maximize') {
+        openMermaidOverlay(viewer);
+      } else if (action === 'collapse') {
+        toggleMermaidCollapse(viewer);
+      }
+    });
+  });
+}
+
+function toggleMermaidCollapse(viewer) {
+  if (!viewer) return;
+  const collapsed = !viewer.classList.contains('is-collapsed');
+  viewer.classList.toggle('is-collapsed', collapsed);
+  const button = viewer.querySelector('[data-mermaid-action="collapse"]');
+  if (button) {
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    button.setAttribute('aria-label', collapsed ? 'Expand diagram' : 'Collapse diagram');
+    button.setAttribute('title', collapsed ? 'Expand diagram' : 'Collapse diagram');
+    button.textContent = collapsed ? '▸' : '▾';
+  }
+  if (!collapsed) resetMermaidZoom(viewer);
+}
+
+function openMermaidOverlay(viewerOrId) {
+  const viewer = typeof viewerOrId === 'string'
+    ? document.querySelector(`.mermaid-viewer[data-mermaid-id="${viewerOrId}"]`)
+    : viewerOrId;
+  if (!viewer) return;
+  const sourceId = viewer.dataset.mermaidId || '';
+  const meta = mermaidViewerRegistry.get(sourceId);
+  if (!meta) return;
+
+  closeMermaidOverlay();
+  const overlayId = sourceId + '-overlay';
+  activeMermaidOverlayId = overlayId;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'mermaid-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="mermaid-overlay-shell">
+      <div class="mermaid-overlay-header">
+        <button class="mermaid-overlay-close" type="button" aria-label="Close maximized diagram">Close</button>
+      </div>
+      <div class="mermaid-overlay-body"></div>
+    </div>
+  `;
+
+  const overlayBody = overlay.querySelector('.mermaid-overlay-body');
+  const overlayViewer = createMermaidViewer(overlayId, meta.source, meta.svg, { overlay: true });
+  if (overlayBody) overlayBody.appendChild(overlayViewer);
+  document.body.appendChild(overlay);
+  overlay.querySelector('.mermaid-overlay-close')?.addEventListener('click', closeMermaidOverlay);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeMermaidOverlay();
+  });
+  initMermaidPanZoom(overlayViewer);
+}
+
+function closeMermaidOverlay() {
+  const overlay = document.querySelector('.mermaid-overlay');
+  if (!overlay) return;
+  if (activeMermaidOverlayId) {
+    destroyMermaidPanZoom(activeMermaidOverlayId);
+    mermaidViewerRegistry.delete(activeMermaidOverlayId);
+    activeMermaidOverlayId = '';
+  }
+  overlay.remove();
+}
+
 /**
  * Post-processes all <pre><code class="language-mermaid"> blocks inside rootEl,
  * replacing each with a rendered SVG in a .mermaid-render-container div.
@@ -5253,21 +5651,23 @@ async function renderMermaidIn(rootEl) {
   for (const codeEl of codeBlocks) {
     const preEl = codeEl.parentElement;
     const source = codeEl.textContent || '';
-    const wrapper = document.createElement('div');
-    wrapper.className = 'mermaid-render-container';
-    preEl.parentElement.replaceChild(wrapper, preEl);
 
     try {
       const id = 'mmd-' + Math.random().toString(36).slice(2, 10);
       const { svg } = await mermaid.render(id, source);
-      wrapper.innerHTML = svg;
+      const wrapper = createMermaidViewer(id, source, svg);
+      preEl.parentElement.replaceChild(wrapper, preEl);
+      initMermaidPanZoom(wrapper);
     } catch (err) {
       // REQ-F-003: per-block fallback — show escaped raw source + error banner
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mermaid-render-container';
       wrapper.innerHTML =
         '<div class="mermaid-error-banner">Mermaid render failed: ' +
           escapeHtml(String(err && err.message || err)) +
         '</div>' +
         '<pre style="white-space:pre-wrap">' + escapeHtml(source) + '</pre>';
+      preEl.parentElement.replaceChild(wrapper, preEl);
     }
   }
 }
@@ -7475,11 +7875,16 @@ function renderDocView() {
   const docEditBtn = document.getElementById('ev-edit-btn');
   if (docEditBtn) {
     docEditBtn.addEventListener('click', () => {
-      enterEditMode(pane);
+      enterEditMode(pane.querySelector('#spec-body') || pane);
     });
   }
 
-  renderMarkdownPane(docKey, pane);
+  renderMarkdownPane(docKey, pane).then((response) => {
+    if (!docEditBtn) return;
+    const canEditDocFile = !!(response && response.exists && response.path);
+    docEditBtn.disabled = !canEditDocFile;
+    docEditBtn.title = canEditDocFile ? 'Edit file' : 'This file cannot be edited';
+  });
 }
 
 // ============================================================
