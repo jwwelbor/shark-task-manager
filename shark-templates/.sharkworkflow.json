@@ -966,7 +966,6 @@
           "action": "spawn_agent",
           "agent_type": "product-manager",
           "skills": [
-            "build",
             "shark"
           ],
           "instruction_template": "feature_short/ready_to_build.tmpl"
