@@ -34,9 +34,8 @@ Examples:
 }
 
 var unclaimCmd = &cobra.Command{
-	Use:     "release <key>",
-	Aliases: []string{"unclaim", "release-claim"},
-	Short:   "Release an entity's claim (lease)",
+	Use:   "release <key>",
+	Short: "Release an entity's claim (lease)",
 	Long: `Release the lease on an entity. With --session the release is session-scoped
 (a safe sync-release that will not steal a lease re-issued to another agent);
 without --session it is an unconditional administrative release.
@@ -44,9 +43,24 @@ without --session it is an unconditional administrative release.
 Examples:
   shark release E07-F01-001                      Administrative release
   shark release E07-F01-001 --session=$SID        Safe session-scoped release
-  shark unclaim E07-F01-001                       Alias for 'release'`,
+
+Hidden aliases (functional, omitted from help): unclaim, release-claim.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runUnclaim,
+}
+
+// newReleaseAlias builds a hidden alias command for `release`. Hidden commands
+// stay fully functional but are omitted from help listings, so `unclaim` and
+// `release-claim` keep working without cluttering the CLI help (E35-F03).
+func newReleaseAlias(name string) *cobra.Command {
+	c := &cobra.Command{
+		Use:    name + " <key>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE:   runUnclaim,
+	}
+	c.Flags().String("session", "", "Session id for a safe session-scoped release")
+	return c
 }
 
 var heartbeatCmd = &cobra.Command{
@@ -86,6 +100,9 @@ func init() {
 	cli.RootCmd.AddCommand(unclaimCmd)
 	cli.RootCmd.AddCommand(heartbeatCmd)
 	cli.RootCmd.AddCommand(claimsCmd)
+	// Hidden aliases for `release` — functional, omitted from help.
+	cli.RootCmd.AddCommand(newReleaseAlias("unclaim"))
+	cli.RootCmd.AddCommand(newReleaseAlias("release-claim"))
 }
 
 func runClaim(cmd *cobra.Command, args []string) error {
