@@ -83,6 +83,107 @@ type WorkflowConfig struct {
 	// Default: true (enabled)
 	// Stored in config as "require_rejection_reason": true/false
 	RequireRejectionReason bool `json:"require_rejection_reason"`
+
+	// --- Shark 2.x route-based schema (E35-F01) ---
+	//
+	// Start names the entry step for the consolidated per-step schema. It is the
+	// route-based analogue of special_statuses._start_[0]. Only meaningful when
+	// Steps is populated.
+	Start string `json:"start,omitempty"`
+
+	// Steps is the consolidated per-step workflow definition (E35 D5). Each step
+	// merges what used to be split across status_flow (its transition graph, now
+	// expressed as outcomes) and status_metadata (color/phase/weight/action).
+	//
+	// When Steps is non-empty, deriveLegacyFromSteps() projects it back onto
+	// StatusFlow/StatusMetadata/SpecialStatuses so every existing reader keeps
+	// working unchanged. Steps therefore becomes the source of truth while the
+	// two legacy maps become a derived compatibility view.
+	Steps map[string]*Step `json:"steps,omitempty"`
+}
+
+// Step is one node in the consolidated route-based workflow schema (E35-F01,
+// decision D5). It replaces the status_flow + status_metadata split: a step
+// carries both its display/agent metadata and its routing (outcomes) in a
+// single block.
+//
+// All fields are optional except that non-terminal, non-parking steps are
+// expected to define an Outcomes map (validated separately).
+type Step struct {
+	// Phase groups the step for ordering/filtering (planning, development,
+	// review, qa, approval, done, blocked, paused, …).
+	Phase string `json:"phase,omitempty"`
+
+	// Color is the display color for the step's status (red, green, cyan, …).
+	Color string `json:"color,omitempty"`
+
+	// Description is human-readable help text for the step.
+	Description string `json:"description,omitempty"`
+
+	// ProgressWeight is the step's contribution to weighted progress (0.0-1.0).
+	ProgressWeight float64 `json:"progress_weight,omitempty"`
+
+	// Responsibility records who owns work at this step (agent, human, qa_team,
+	// none).
+	Responsibility string `json:"responsibility,omitempty"`
+
+	// AgentTypes lists agent types that should see entities parked at this step.
+	// When empty and Agent is set, Agent is used as the single agent type.
+	AgentTypes []string `json:"agent_types,omitempty"`
+
+	// Action is the orchestrator action for this step (spawn_agent,
+	// advance_status, check_or_resume, pause, archive, cascade,
+	// wait_for_triage).
+	Action string `json:"action,omitempty"`
+
+	// Agent is the agent type to spawn (for spawn_agent). Route-based analogue
+	// of orchestrator_action.agent_type.
+	Agent string `json:"agent,omitempty"`
+
+	// Provider is the AI provider for the dispatched agent (anthropic, openai).
+	Provider string `json:"provider,omitempty"`
+
+	// Model is the model override for the dispatched agent.
+	Model string `json:"model,omitempty"`
+
+	// Skills lists the skills the dispatched agent should load.
+	Skills []string `json:"skills,omitempty"`
+
+	// Prompt is the instruction template path/string for the step's agent.
+	// Route-based rename of orchestrator_action.instruction_template (D5).
+	Prompt string `json:"prompt,omitempty"`
+
+	// Outcomes maps a semantic outcome name (pass, fail, blocked, plus extras)
+	// to the target step the engine should route to. Replaces status_flow (D2).
+	Outcomes map[string]string `json:"outcomes,omitempty"`
+
+	// Aliases lists old status names that collapse into this step. Drives the
+	// one-shot status migration, input compat shim, and history-read resolution
+	// (E35-F05, §7).
+	Aliases []string `json:"aliases,omitempty"`
+
+	// Parking marks a step whose resume target is computed from history rather
+	// than a static outcome (e.g. blocked, on_hold).
+	Parking bool `json:"parking,omitempty"`
+
+	// Terminal marks an end state with no outcomes (e.g. completed, cancelled).
+	Terminal bool `json:"terminal,omitempty"`
+
+	// BlocksFeature indicates entities at this step block parent feature/epic
+	// progress.
+	BlocksFeature bool `json:"blocks_feature,omitempty"`
+
+	// IsPlanning indicates this step is a planning-phase step (the entity tracks
+	// its own status rather than aggregating children).
+	IsPlanning bool `json:"is_planning,omitempty"`
+
+	// AggregatesFrom indicates this step derives progress from children
+	// ("features", "tasks", or "").
+	AggregatesFrom string `json:"aggregates_from,omitempty"`
+
+	// ExcludeFromProgress indicates entities at this step are omitted from
+	// progress calculations (e.g. cancelled).
+	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
 }
 
 // StatusMetadata provides UI and agent-targeting metadata for a status

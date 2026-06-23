@@ -190,6 +190,11 @@ func parseWorkflowYAML(yamlData []byte, sourcePath string) (*WorkflowConfig, err
 	if cfg.Version == "" {
 		cfg.Version = "1.0"
 	}
+
+	// Route-based schema (E35-F01): when the YAML uses the consolidated steps:
+	// shape, project it onto the legacy maps so every existing reader works.
+	deriveLegacyFromSteps(&cfg)
+
 	return &cfg, nil
 }
 

@@ -77,9 +77,11 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 		return nil, fmt.Errorf("failed to parse JSON in %s: %w", configPath, err)
 	}
 
-	// Check if status_flow section exists
+	// Check if a workflow section exists in either the legacy (status_flow) or
+	// route-based (steps) shape. Absence of both means "use default workflow".
 	_, hasStatusFlow := rawConfig["status_flow"]
-	if !hasStatusFlow {
+	_, hasSteps := rawConfig["steps"]
+	if !hasStatusFlow && !hasSteps {
 		// No workflow config defined - return nil, no error
 		// Caller will use default workflow
 		return nil, nil
@@ -93,6 +95,8 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 		"status_metadata":          rawConfig["status_metadata"],
 		"special_statuses":         rawConfig["special_statuses"],
 		"require_rejection_reason": rawConfig["require_rejection_reason"],
+		"start":                    rawConfig["start"],
+		"steps":                    rawConfig["steps"],
 	}
 
 	workflowJSON, err := json.Marshal(workflowData)
@@ -104,6 +108,9 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	if err := json.Unmarshal(workflowJSON, &workflow); err != nil {
 		return nil, fmt.Errorf("failed to parse workflow config: %w", err)
 	}
+
+	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
+	deriveLegacyFromSteps(&workflow)
 
 	// Set default version if not specified
 	if workflow.Version == "" {
@@ -532,6 +539,10 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 		return nil, fmt.Errorf("failed to parse %s: %w", sectionName, err)
 	}
 
+	// Route-based schema (E35-F01): project consolidated steps: onto the legacy
+	// maps before the emptiness check so a steps-only block is recognized.
+	deriveLegacyFromSteps(&wf)
+
 	// Check if it has any meaningful content
 	if len(wf.StatusFlow) == 0 {
 		return nil, nil
@@ -556,14 +567,16 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 // parseTopLevelTaskWorkflow extracts the task workflow from top-level config fields.
 // Returns nil if no top-level status_flow is defined.
 func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowConfig, error) {
-	// Check if status_flow section exists at the top level
-	if _, ok := rawConfig["status_flow"]; !ok {
+	// Check if a top-level workflow section exists in either shape.
+	_, hasStatusFlow := rawConfig["status_flow"]
+	_, hasSteps := rawConfig["steps"]
+	if !hasStatusFlow && !hasSteps {
 		return nil, nil
 	}
 
 	// Build a workflow-only JSON object from top-level fields
 	workflowData := make(map[string]json.RawMessage)
-	for _, key := range []string{"status_flow_version", "status_flow", "status_metadata", "special_statuses", "require_rejection_reason"} {
+	for _, key := range []string{"status_flow_version", "status_flow", "status_metadata", "special_statuses", "require_rejection_reason", "start", "steps"} {
 		if val, ok := rawConfig[key]; ok {
 			workflowData[key] = val
 		}
@@ -578,6 +591,9 @@ func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowC
 	if err := json.Unmarshal(workflowJSON, &wf); err != nil {
 		return nil, fmt.Errorf("failed to parse task workflow config: %w", err)
 	}
+
+	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
+	deriveLegacyFromSteps(&wf)
 
 	// Set defaults
 	if wf.Version == "" {
