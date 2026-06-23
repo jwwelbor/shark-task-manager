@@ -178,6 +178,22 @@ outside that directory alone.
 > [Workflow Configuration Guide](docs/guides/workflow-profiles.md) for the
 > migration table.
 
+### Route-Based Workflows (Shark 2.x — E35)
+
+A consolidated route-based workflow schema is supported alongside the legacy
+two-map shape. It merges `status_flow` + `status_metadata` into one per-step
+block (`steps:`), replaces the transition graph with a per-step `outcomes:` map
+(skills release a semantic `pass`/`fail`/`blocked` outcome and the engine
+routes), collapses `ready_for_X`/`in_X` into a phase + a claim/session lease,
+and supports a master index file mapping each entity to its workflow.
+
+Both shapes coexist: the loader derives the legacy maps from `steps:`, so every
+existing reader keeps working and the default shipped workflows remain on the
+legacy shape until explicitly switched. New CLI surface: `shark status advance
+--outcome <name>`, `shark claim/unclaim/heartbeat/claims`, and `shark admin
+migrate statuses` (gated). See
+[Route-Based Workflow Guide](docs/guides/route-based-workflow.md).
+
 ### Project Root Auto-Detection
 
 Shark automatically finds the project root by walking up directories looking for:
@@ -194,6 +210,7 @@ You can run shark commands from any subdirectory.
 - **Architecture Details**: @.claude/rules/architecture.md
 - **CLI Reference (Unified)**: @docs/cli-reference/README.md
 - **Workflow Profiles Guide**: @docs/guides/workflow-profiles.md
+- **Route-Based Workflow (Shark 2.x)**: @docs/guides/route-based-workflow.md
 - **Turso Cloud Setup**: @docs/TURSO_QUICKSTART.md
 - **Turso Migration Guide**: @docs/TURSO_MIGRATION.md
 

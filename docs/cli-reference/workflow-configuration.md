@@ -2,6 +2,13 @@
 
 Deep dive into Shark's workflow system - status flows, metadata, orchestrator actions, and lifecycle management.
 
+> **Shark 2.x route-based schema (E35):** A consolidated per-step schema
+> (`steps:` with `outcomes:`, `aliases:`, a claim/session lease, and a master
+> index file) is supported alongside everything documented below. The two
+> shapes coexist — the loader derives the legacy `status_flow`/`status_metadata`
+> maps from `steps:`. See the
+> [Route-Based Workflow Guide](../guides/route-based-workflow.md).
+
 ## Overview
 
 Shark's workflow system enables AI-driven, multi-stage development workflows through:
