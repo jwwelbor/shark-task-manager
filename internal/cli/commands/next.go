@@ -432,7 +432,16 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 	if err != nil {
 		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
 	}
+	// E35-F03: hand out only unclaimed entities. A child held by a live lease
+	// (claim within TTL) is skipped like any other non-dispatchable sibling;
+	// unclaimed and expired-lease children pass through. Fail-soft: if the
+	// claim lookup errors, the child is treated as claimable (no skip), so the
+	// claim layer can never wedge dispatch.
+	claimSvc := cli.GetClaimService()
 	for _, child := range children {
+		if claimable, cerr := claimSvc.IsClaimable(ctx, string(child.EntityType), child.Key); cerr == nil && !claimable {
+			continue
+		}
 		childResp, err := resolveNext(ctx, cache, string(child.EntityType), child.Key, depth+1)
 		if err != nil {
 			return NextResponse{}, err
