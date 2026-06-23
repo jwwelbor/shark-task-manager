@@ -1,0 +1,101 @@
+version: '1.0'
+status_flow:
+  identified:
+  - triaged
+  - wont_fix
+  - cancelled
+  triaged:
+  - in_progress
+  - wont_fix
+  - cancelled
+  in_progress:
+  - resolved
+  - wont_fix
+  - cancelled
+  resolved: []
+  wont_fix: []
+  cancelled: []
+status_metadata:
+  identified:
+    description: Tech debt identified, not yet triaged
+    phase: planning
+    color: gray
+    progress_weight: 0
+    is_planning: true
+    responsibility: none
+    orchestrator_action:
+      action: advance_status
+      instruction_template: tech_debt/identified.md
+  triaged:
+    description: Triaged and ready for resolution
+    phase: development
+    color: yellow
+    progress_weight: 0.1
+    is_planning: false
+    responsibility: agent
+    agent_types:
+    - developer
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: developer
+      provider: anthropic
+      model: sonnet
+      skills:
+      - implementation
+      - test-driven-development
+      instruction_template: tech_debt/triaged.md
+  in_progress:
+    description: Tech debt resolution in progress
+    phase: development
+    color: yellow
+    progress_weight: 0.5
+    is_planning: false
+    responsibility: agent
+    orchestrator_action:
+      action: check_or_resume
+      agent_type: developer
+      provider: anthropic
+      model: sonnet
+      skills:
+      - implementation
+      - test-driven-development
+      instruction_template: tech_debt/in_progress.md
+  resolved:
+    description: Tech debt resolved and verified
+    phase: done
+    color: green
+    progress_weight: 1.0
+    is_planning: false
+    responsibility: none
+    orchestrator_action:
+      action: archive
+      instruction_template: tech_debt/resolved.md
+  wont_fix:
+    description: Tech debt acknowledged but will not be fixed
+    phase: done
+    color: red
+    progress_weight: 0
+    is_planning: false
+    responsibility: none
+    exclude_from_progress: true
+    orchestrator_action:
+      action: archive
+      instruction_template: tech_debt/wont_fix.md
+  cancelled:
+    description: Tech debt no longer relevant
+    phase: done
+    color: red
+    progress_weight: 0
+    is_planning: false
+    responsibility: none
+    exclude_from_progress: true
+    orchestrator_action:
+      action: archive
+      instruction_template: tech_debt/cancelled.md
+special_statuses:
+  _start_:
+  - identified
+  _complete_:
+  - resolved
+  - wont_fix
+  - cancelled
