@@ -11,6 +11,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
@@ -697,4 +698,16 @@ func ResetServices() {
 
 	// Reset observability state for test isolation
 	ResetObservability()
+}
+
+// GetClaimService returns a ClaimService backed by the global DB connection.
+// Creates a new instance per call (the underlying repo is stateless); the TTL
+// is read from SHARK_CLAIM_TTL_SECONDS or defaults to services.DefaultClaimTTL.
+// Panics on DB failure (fail-fast, matching the other CLI accessors).
+func GetClaimService() *services.ClaimService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	return services.NewClaimService(claimrepo.NewRepository(db), 0)
 }

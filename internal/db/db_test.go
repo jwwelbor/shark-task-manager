@@ -479,12 +479,12 @@ func TestMigration_SchemaVersion(t *testing.T) {
 	// reads the maximum stored value.
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.GreaterOrEqual(t, version, 20,
-		"schema version should be at least 20 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
+	assert.GreaterOrEqual(t, version, 21,
+		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 20, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 20 (B027 — expand entity_notes.note_type CHECK to include 'review' and 'requirement')")
+	assert.Equal(t, 21, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 21 (E35-F03 — entity_claims table for the claim/session lease)")
 }
 
 // ---------------------------------------------------------------------------

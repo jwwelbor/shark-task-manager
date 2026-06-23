@@ -443,9 +443,11 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	19 — E19-F03 (sprint_completions table for carryover transaction and velocity analytics)
 //	20 — B027   (expand entity_notes.note_type CHECK to include 'review' and
 //	             'requirement', syncing the DB CHECK with models.ValidateNoteType)
+//	21 — E35-F03 (entity_claims table: claim/session lease for route-based
+//	             dispatch — status becomes a pure phase, the claim is the lease)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 20
+const CurrentSchemaVersion = 21
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -876,6 +878,56 @@ func runMigrations(db *sql.DB) error {
 	// the Go validator allowlist.
 	if err := migrateEntityNotesExpandNoteTypes(db); err != nil {
 		return fmt.Errorf("failed to expand entity_notes note_type CHECK: %w", err)
+	}
+
+	// E35-F03: entity_claims table — the claim/session lease that lets status
+	// collapse to a pure phase. An agent claims an entity (one claim per
+	// entity, enforced by UNIQUE); `shark next` hands out only unclaimed
+	// entities; heartbeats renew the lease; a TTL backstop reclaims dead leases.
+	if err := migrateEntityClaimsTable(db); err != nil {
+		return fmt.Errorf("failed to migrate entity_claims table: %w", err)
+	}
+
+	return nil
+}
+
+// migrateEntityClaimsTable creates the entity_claims table (E35-F03). The table
+// is keyed by (entity_type, entity_key) with a UNIQUE constraint so that
+// claiming is an atomic single-grab: a second claim on the same entity fails on
+// the constraint. It is entity-agnostic (works for every entity type without
+// per-table columns) and purely additive.
+//
+// CREATE TABLE/INDEX IF NOT EXISTS make this idempotent and safe to rerun.
+func migrateEntityClaimsTable(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS entity_claims (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type    TEXT NOT NULL,
+			entity_key     TEXT NOT NULL,
+			claimed_by     TEXT NOT NULL,
+			session_id     TEXT NOT NULL,
+			claimed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			progress       REAL,
+			note           TEXT,
+			UNIQUE(entity_type, entity_key)
+		);
+	`); err != nil {
+		return fmt.Errorf("failed to create entity_claims table: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_entity_claims_key
+			ON entity_claims(entity_type, entity_key);
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_entity_claims_key: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_entity_claims_heartbeat
+			ON entity_claims(last_heartbeat);
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_entity_claims_heartbeat: %w", err)
 	}
 
 	return nil
