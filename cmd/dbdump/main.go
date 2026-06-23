@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 )
@@ -99,6 +100,16 @@ func sqlLiteral(v interface{}) string {
 		return fmt.Sprintf("%d", x)
 	case float64:
 		return fmt.Sprintf("%g", x)
+	case bool:
+		if x {
+			return "1"
+		}
+		return "0"
+	case time.Time:
+		// SQLite/shark store timestamps as "2006-01-02 15:04:05" (UTC). The
+		// libsql driver hands TIMESTAMP columns back as time.Time; format them
+		// in that exact layout so a reinsert reads back into *time.Time.
+		return "'" + x.UTC().Format("2006-01-02 15:04:05") + "'"
 	case []byte:
 		return "'" + strings.ReplaceAll(string(x), "'", "''") + "'"
 	case string:

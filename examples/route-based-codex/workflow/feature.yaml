@@ -1,0 +1,217 @@
+version: "1.0"
+start: draft
+steps:
+  active:
+    phase: execution
+    color: yellow
+    description: "Tasks in progress, progress aggregated from children"
+    progress_weight: 0.65
+    responsibility: agent
+    aggregates_from: tasks
+    action: cascade
+    prompt: feature_short/active.tmpl
+    outcomes:
+      blocked: blocked
+      fail: code_review
+      on_hold: on_hold
+      pass: active
+  approval:
+    phase: approval
+    color: cyan
+    description: Code review passed — ready for UAT red-team review
+    progress_weight: 0.9
+    responsibility: agent
+    action: spawn_agent
+    agent: uat-agent
+    model: codex
+    skills: [quality, uat]
+    prompt: feature_short/ready_for_approval.tmpl
+    outcomes:
+      active: active
+      blocked: blocked
+      fail: draft
+      on_hold: on_hold
+      pass: completed
+    aliases: [in_approval, ready_for_approval]
+  assessment:
+    phase: triage
+    color: orange
+    description: Ready for scope validation and complexity triage
+    progress_weight: 0.02
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: researcher
+    model: sonnet
+    skills: [assessment, research]
+    prompt: feature_short/ready_for_assessment.tmpl
+    outcomes:
+      blocked: blocked
+      cancelled: cancelled
+      fail: draft
+      on_hold: on_hold
+      pass: research
+      specification: specification
+      task_generation: task_generation
+    aliases: [in_assessment, ready_for_assessment]
+  blocked:
+    phase: blocked
+    color: red
+    description: External blocker preventing progress
+    progress_weight: 0
+    responsibility: human
+    action: pause
+    parking: true
+    prompt: feature_short/blocked.tmpl
+  cancelled:
+    phase: done
+    color: red
+    description: Feature abandoned or converted to task
+    progress_weight: 0
+    responsibility: none
+    exclude_from_progress: true
+    action: archive
+    terminal: true
+    prompt: feature_short/cancelled.tmpl
+  code_review:
+    phase: code_review
+    color: magenta
+    description: All tasks developed — ready for feature-level code review
+    progress_weight: 0.7
+    responsibility: agent
+    action: spawn_agent
+    agent: tech-lead
+    model: opus
+    skills: [code-review, codex-exec]
+    prompt: feature_codex/ready_for_code_review.tmpl
+    outcomes:
+      active: active
+      blocked: blocked
+      fail: draft
+      on_hold: on_hold
+      pass: approval
+    aliases: [in_code_review, ready_for_code_review]
+  completed:
+    phase: done
+    color: green
+    description: "All tasks done, feature delivered"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+    prompt: feature_short/completed.tmpl
+  draft:
+    phase: planning
+    color: gray
+    description: Feature created from epic decomposition
+    progress_weight: 0
+    responsibility: none
+    is_planning: true
+    action: advance_status
+    prompt: feature_short/draft.tmpl
+    outcomes:
+      active: active
+      blocked: blocked
+      cancelled: cancelled
+      fail: draft
+      pass: assessment
+  on_hold:
+    phase: paused
+    color: gray
+    description: "Intentionally paused, awaiting product decision"
+    progress_weight: 0
+    responsibility: human
+    action: pause
+    parking: true
+    prompt: feature_short/on_hold.tmpl
+  research:
+    phase: research
+    color: purple
+    description: "COMPLEX features: ready for tactical codebase research"
+    progress_weight: 0.1
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: researcher
+    model: sonnet
+    skills: [research, brownfield-analysis]
+    prompt: feature_short/ready_for_research.tmpl
+    outcomes:
+      blocked: blocked
+      fail: assessment
+      on_hold: on_hold
+      pass: specification
+    aliases: [in_research, ready_for_research]
+  specification:
+    phase: specification
+    color: cyan
+    description: Ready for combined requirements + architecture spec
+    progress_weight: 0.2
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: architect
+    model: opus
+    skills: [architecture, specification-writing]
+    prompt: feature_short/ready_for_specification.tmpl
+    outcomes:
+      blocked: blocked
+      fail: research
+      on_hold: on_hold
+      pass: test_planning
+    aliases: [in_specification, ready_for_specification]
+  task_generation:
+    phase: decomposition
+    color: blue
+    description: Ready to generate thin task specs
+    progress_weight: 0.45
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: product-manager
+    model: sonnet
+    skills: [specification-writing, task]
+    prompt: feature_short/ready_for_task_generation.tmpl
+    outcomes:
+      blocked: blocked
+      fail: draft
+      on_hold: on_hold
+      pass: task_review
+    aliases: [in_task_generation, ready_for_task_generation]
+  task_review:
+    phase: review
+    color: magenta
+    description: Ready for codex review of tasks against feature spec
+    progress_weight: 0.55
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: uat-agent
+    model: codex
+    skills: [quality, specification-writing]
+    prompt: feature_short/ready_for_task_review.tmpl
+    outcomes:
+      blocked: blocked
+      fail: task_generation
+      on_hold: on_hold
+      pass: active
+    aliases: [in_task_review, ready_for_task_review]
+  test_planning:
+    phase: test_planning
+    color: blue
+    description: Ready for feature test strategy
+    progress_weight: 0.35
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: qa
+    model: sonnet
+    skills: [quality, test-driven-development]
+    prompt: feature_short/ready_for_test_planning.tmpl
+    outcomes:
+      blocked: blocked
+      fail: specification
+      on_hold: on_hold
+      pass: test_planning
+      task_generation: task_generation
+    aliases: [in_test_planning, ready_for_test_planning]
