@@ -272,6 +272,23 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		}
 	}
 
+	// E35-F04: workflow_config may point at a master index file that maps each
+	// entity to its workflow file, rooted at the index's bundle directory. This
+	// is detected before the directory/JSON-file handling because a YAML index
+	// would fail the JSON parse in loadWorkflowFile.
+	if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
+		idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
+		if idxErr != nil {
+			return nil, idxErr
+		}
+		if isIndex {
+			applyIndexResult(result, idxMLW, workflowFilePath)
+			fillDefaultSources(result)
+			cacheMultiLevel(result, configPath)
+			return result, nil
+		}
+	}
+
 	workflowFileData, err := loadWorkflowFile(workflowFilePath)
 	if err != nil {
 		return nil, err
@@ -493,6 +510,58 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 	multiLevelCachePath = configPath
 
 	return result, nil
+}
+
+// applyIndexResult copies the entity slots, sources, and bundle template
+// directory from a master-index load (E35-F04) into the result being built.
+func applyIndexResult(result, idx *MultiLevelWorkflow, sourcePath string) {
+	if idx == nil {
+		return
+	}
+	set := func(dst **WorkflowConfig, src *WorkflowConfig, slot string) {
+		if src != nil {
+			*dst = src
+			result.Sources[slot] = sourcePath
+		}
+	}
+	set(&result.Epic, idx.Epic, "epic")
+	set(&result.Feature, idx.Feature, "feature")
+	set(&result.Task, idx.Task, "task")
+	set(&result.Bug, idx.Bug, "bug")
+	set(&result.Change, idx.Change, "change")
+	set(&result.TechDebt, idx.TechDebt, "tech_debt")
+	set(&result.Sprint, idx.Sprint, "sprint")
+	if idx.TemplateDirectory != nil {
+		result.TemplateDirectory = idx.TemplateDirectory
+	}
+	// Prefer the per-entity source paths the index recorded (more precise than
+	// the index path itself) when available.
+	for slot, src := range idx.Sources {
+		result.Sources[slot] = src
+	}
+}
+
+// fillDefaultSources marks any entity slot not loaded from a file as "default".
+func fillDefaultSources(result *MultiLevelWorkflow) {
+	for _, level := range []string{"epic", "feature", "task", "bug", "change", "tech_debt"} {
+		if _, ok := result.Sources[level]; !ok {
+			result.Sources[level] = "default"
+		}
+	}
+}
+
+// cacheMultiLevel updates the legacy single-level cache and the multi-level
+// cache. The caller MUST already hold multiLevelCacheLock (write).
+func cacheMultiLevel(result *MultiLevelWorkflow, configPath string) {
+	workflowCacheLock.Lock()
+	if result.Task != nil {
+		workflowCache = result.Task
+	}
+	workflowCachePath = configPath
+	workflowCacheLock.Unlock()
+
+	multiLevelCache = result
+	multiLevelCachePath = configPath
 }
 
 // LoadMultiLevelWorkflowOrDefault loads configs or returns defaults for missing sections.
