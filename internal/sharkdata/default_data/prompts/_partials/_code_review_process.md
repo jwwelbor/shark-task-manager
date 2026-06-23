@@ -1,4 +1,4 @@
-{{define "_code_review_process"}}LOAD: quality skill workflow review-code.md.
+{{define "_code_review_process"}}{{include: skills/quality/workflows/review-code.md}}
 
 READ:
 (1) Task spec at {{.file_path}} for acceptance criteria

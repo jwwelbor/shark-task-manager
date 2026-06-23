@@ -1,4 +1,4 @@
-{{define "_qa_process"}}LOAD: quality skill.
+{{define "_qa_process"}}{{include: skills/quality/SKILL.md}}
 
 READ:
 (1) Task spec at {{.file_path}} for acceptance criteria and **Scope file list**

@@ -283,3 +283,44 @@ func TestBuildResource_CustomServiceName(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res)
 }
+
+func TestInitProviderWithRoot_FileJSONLExporter_InitSucceeds(t *testing.T) {
+	// Create a temp dir to act as the project root so the exporter has a real
+	// path to write to, without polluting the working directory.
+	tmpDir := t.TempDir()
+
+	cfg := config.ObservabilityConfig{
+		Enabled:        true,
+		TracingEnabled: true,
+		Exporter:       "file_jsonl",
+		ServiceName:    "test-service",
+	}
+
+	shutdown, err := InitProviderWithRoot(cfg, tmpDir)
+	require.NoError(t, err, "InitProviderWithRoot with file_jsonl exporter must not return an error")
+	require.NotNil(t, shutdown, "InitProviderWithRoot must return a non-nil shutdown function")
+
+	// Verify the tracer provider is functional: creating and ending a span must not panic.
+	tracer := otel.Tracer("test")
+	_, span := tracer.Start(context.Background(), "test-file-jsonl-span")
+	span.End()
+
+	assert.NoError(t, shutdown(context.Background()))
+}
+
+func TestInitProviderWithRoot_FileJSONLExporter_EmptyRootSucceeds(t *testing.T) {
+	// When projectRoot is empty the exporter silently skips writes; initialization
+	// must still succeed (fail-soft contract from NewFileJSONLExporter).
+	cfg := config.ObservabilityConfig{
+		Enabled:        true,
+		TracingEnabled: true,
+		Exporter:       "file_jsonl",
+		ServiceName:    "test-service",
+	}
+
+	shutdown, err := InitProviderWithRoot(cfg, "")
+	require.NoError(t, err, "InitProviderWithRoot with empty projectRoot must not return an error")
+	require.NotNil(t, shutdown)
+
+	assert.NoError(t, shutdown(context.Background()))
+}

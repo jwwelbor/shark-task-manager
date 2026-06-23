@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -257,6 +258,166 @@ func TestGetWorkflowForLevel_UsesYAMLWhenLoaded(t *testing.T) {
 	cfg := mlw.GetWorkflowForLevel("task")
 	require.NotNil(t, cfg)
 	assert.ElementsMatch(t, []string{"in_development", "blocked"}, cfg.StatusFlow["todo"])
+}
+
+// canonicalTaskYAMLDir resolves the embedded canonical workflow directory by
+// walking up from this test file to the repository root, then descending into
+// internal/sharkdata/default_data/workflow. This is the same path used by
+// canonical_provider_test.go and mirrors what shark-data/workflow/ holds in
+// the project root (the two trees are identical after `shark upgrade`).
+func canonicalTaskYAMLDir(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	// thisFile: <repo>/internal/config/workflow/yaml_loader_test.go
+	// target:   <repo>/internal/sharkdata/default_data/workflow
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
+	return filepath.Join(repoRoot, "internal", "sharkdata", "default_data", "workflow")
+}
+
+// TestLoadCanonicalTaskYAML_RoundTripParity is the E2 proof-entity test.
+//
+// It loads the canonical shark-data/workflow/task.yaml via
+// LoadMultiLevelWorkflowFromYAMLDir and verifies:
+//  1. Load succeeds without error.
+//  2. All statuses declared in status_flow are also present in status_metadata
+//     (semantic self-consistency — no orphan transitions).
+//  3. All statuses declared in status_metadata are reachable from status_flow
+//     or listed as start/complete in special_statuses.
+//  4. Every status_metadata entry carries the minimum required fields:
+//     color, phase, progress_weight (≥ 0), and responsibility.
+//  5. special_statuses._start_ and ._complete_ are non-empty.
+//  6. Per-file error accumulation: loading the workflow directory (which
+//     contains epic.yaml, feature.yaml, etc.) does not abort even when one
+//     entity file is not the focus of this test.  The task slot is populated
+//     and the other loaded slots are non-nil (or nil only when absent from the
+//     dir) — no error returned.
+//
+// This test intentionally does NOT assert that the YAML status set matches the
+// legacy .sharkworkflow.json task_workflow statuses: task.yaml represents the
+// Shark 2.0 simplified task workflow (7 statuses: draft, ready_for_development,
+// in_development, completed, cancelled, blocked, on_hold), whereas the legacy
+// JSON carries the full TDD pipeline (16 statuses). They are different workflow
+// profiles. The YAML loader's job is to faithfully reproduce the YAML file's
+// content in the in-memory model — that is what this test verifies.
+func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
+	workflowDir := canonicalTaskYAMLDir(t)
+	if _, err := os.Stat(workflowDir); os.IsNotExist(err) {
+		t.Skipf("canonical workflow dir not found at %s; skipping E2 round-trip test", workflowDir)
+	}
+
+	mlw, err := LoadMultiLevelWorkflowFromYAMLDir(workflowDir, "")
+	require.NoError(t, err, "loading canonical task.yaml must not return an error")
+	require.NotNil(t, mlw, "LoadMultiLevelWorkflowFromYAMLDir must return a non-nil MultiLevelWorkflow")
+
+	// ── 1. task slot is populated ──────────────────────────────────────────
+	require.NotNil(t, mlw.Task, "task slot must be non-nil after loading canonical task.yaml")
+	cfg := mlw.Task
+
+	// ── 2. status_flow self-consistency ───────────────────────────────────
+	// Every status that appears as a source in status_flow must have metadata.
+	for src, targets := range cfg.StatusFlow {
+		assert.Contains(t, cfg.StatusMetadata, src,
+			"status %q appears in status_flow but has no entry in status_metadata", src)
+		for _, tgt := range targets {
+			assert.Contains(t, cfg.StatusMetadata, tgt,
+				"transition target %q (from %q) has no entry in status_metadata", tgt, src)
+		}
+	}
+
+	// ── 3. status_metadata reachability ───────────────────────────────────
+	// Every status in metadata must be reachable: either it's a source in
+	// status_flow, or it's listed in special_statuses (_start_ / _complete_).
+	reachable := make(map[string]bool)
+	for src := range cfg.StatusFlow {
+		reachable[src] = true
+	}
+	for _, statuses := range cfg.SpecialStatuses {
+		for _, s := range statuses {
+			reachable[s] = true
+		}
+	}
+	for status := range cfg.StatusMetadata {
+		assert.True(t, reachable[status],
+			"status %q has metadata but is not reachable from status_flow or special_statuses", status)
+	}
+
+	// ── 4. minimum required metadata fields ───────────────────────────────
+	for status, meta := range cfg.StatusMetadata {
+		assert.NotEmpty(t, meta.Color,
+			"status %q metadata missing color", status)
+		assert.NotEmpty(t, meta.Phase,
+			"status %q metadata missing phase", status)
+		// progress_weight is a float64 default zero value is valid (planning statuses),
+		// so only assert it is in the expected [0, 1] range.
+		assert.GreaterOrEqual(t, meta.ProgressWeight, float64(0),
+			"status %q progress_weight must be >= 0", status)
+		assert.LessOrEqual(t, meta.ProgressWeight, float64(1),
+			"status %q progress_weight must be <= 1.0", status)
+		assert.NotEmpty(t, meta.Responsibility,
+			"status %q metadata missing responsibility", status)
+	}
+
+	// ── 5. special_statuses are non-empty ─────────────────────────────────
+	startStatuses, hasStart := cfg.SpecialStatuses[StartStatusKey]
+	assert.True(t, hasStart, "task.yaml must declare _start_ in special_statuses")
+	assert.NotEmpty(t, startStatuses, "task.yaml _start_ must be non-empty")
+
+	completeStatuses, hasComplete := cfg.SpecialStatuses[CompleteStatusKey]
+	assert.True(t, hasComplete, "task.yaml must declare _complete_ in special_statuses")
+	assert.NotEmpty(t, completeStatuses, "task.yaml _complete_ must be non-empty")
+
+	// ── 5a. specific values from the canonical task.yaml ──────────────────
+	// These assertions encode the expected content of the canonical file and
+	// serve as a regression guard: if task.yaml is accidentally edited in
+	// a breaking way (e.g., draft → ready_for_development transition removed),
+	// this test fails fast.
+	expectedStatuses := []string{
+		"draft", "ready_for_development", "in_development",
+		"completed", "cancelled", "blocked", "on_hold",
+	}
+	for _, s := range expectedStatuses {
+		assert.Contains(t, cfg.StatusFlow, s,
+			"expected status %q in canonical task.yaml status_flow", s)
+		assert.Contains(t, cfg.StatusMetadata, s,
+			"expected status %q in canonical task.yaml status_metadata", s)
+	}
+
+	// draft → ready_for_development transition must exist.
+	assert.Contains(t, cfg.StatusFlow["draft"], "ready_for_development",
+		"draft must have ready_for_development as a valid transition")
+
+	// completed can transition back to ready_for_development (re-open mechanism).
+	// It is a _complete_ status but not a hard terminal (the canonical task.yaml
+	// allows reopening a completed task).
+	assert.Contains(t, cfg.StatusFlow["completed"], "ready_for_development",
+		"completed must allow re-opening to ready_for_development")
+
+	// _start_ must include draft.
+	assert.Contains(t, cfg.SpecialStatuses[StartStatusKey], "draft",
+		"_start_ must include draft")
+
+	// _complete_ must include completed and cancelled.
+	assert.Contains(t, cfg.SpecialStatuses[CompleteStatusKey], "completed",
+		"_complete_ must include completed")
+	assert.Contains(t, cfg.SpecialStatuses[CompleteStatusKey], "cancelled",
+		"_complete_ must include cancelled")
+
+	// ── 6. per-file error accumulation ────────────────────────────────────
+	// The canonical workflow dir also contains epic.yaml, feature.yaml, etc.
+	// Loading should populate multiple slots without error.
+	assert.NotNil(t, mlw.Epic, "epic slot should be populated from the canonical dir")
+	assert.NotNil(t, mlw.Feature, "feature slot should be populated from the canonical dir")
+	assert.NotNil(t, mlw.Bug, "bug slot should be populated from the canonical dir")
+	assert.NotNil(t, mlw.Change, "change slot should be populated from the canonical dir")
+
+	// Source tracking: task slot must record the file it was loaded from.
+	taskSrc, hasSrc := mlw.Sources["task"]
+	assert.True(t, hasSrc, "Sources map must have an entry for 'task'")
+	assert.True(t, strings.HasSuffix(taskSrc, "task.yaml"),
+		"task source path must end in task.yaml, got %q", taskSrc)
 }
 
 // TestLoadMultiLevelWorkflowFromYAML_LogsDebugWhenFileMissing exercises the

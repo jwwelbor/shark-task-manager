@@ -132,16 +132,20 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 
 	if alreadyInitialized {
 		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
+			_ = cli.OutputJSON(map[string]interface{}{
 				"status":         "already_initialized",
 				"path":           dest,
 				"config_updated": configUpdated,
 				"migrated_from":  migratedFrom,
 			})
+		} else {
+			fmt.Printf("shark-data/ already exists at %s. Run 'shark upgrade' to refresh.\n", dest)
+			printConfigUpdateMessage(configUpdated, migratedFrom)
 		}
-		fmt.Printf("shark-data/ already exists at %s. Run 'shark upgrade' to refresh.\n", dest)
-		printConfigUpdateMessage(configUpdated, migratedFrom)
-		return nil
+		// Return a non-zero exit so callers (scripts, CI) can distinguish
+		// fresh init from no-op. The "exit code 1:" prefix is the project
+		// convention used by main.go to map error strings to shell exit codes.
+		return fmt.Errorf("exit code 1: %w", sharkdata.ErrAlreadyInitialized)
 	}
 
 	if cli.GlobalConfig.JSON {

@@ -68,11 +68,33 @@ Six concrete moves:
 - Move in-scope agents from `~/.claude/agents/` → `shark-data/agents/`.
 - The original `~/.claude/skills/` and `~/.claude/agents/` paths stay untouched in F4 — F5 deletes them.
 
+### Supplemental skill-library migration
+
+The jaunty-panda plan expands the skill library beyond E32's original shark-coupled scope. Treat this as a supplemental track:
+
+- Batch A supplemental skills are present: `brownfield-analysis`, `frontend-design`, `product-design`.
+- Batch B is partially present: `clarification`, `breakdown-test`, `cross-artifact-analysis`.
+- Remaining Batch B skills (`org-standards`, `content-validation`, `overconfidence-prevention`, `status-tracker`) are follow-on work unless a canonical prompt or workflow starts depending on them.
+
+These supplemental skills may live under `shark-data/skills/`, but they do not expand F4's required migration gate unless referenced by shipped prompts/workflows.
+
 ### Partials materialization
 
 - Take `_partials_inventory.md` from F1.c.
 - For each recurring pattern (e.g., `_read_parent_context`, `_codex_gate`, `_advance`), create a partial file under `shark-data/prompts/_partials/`.
 - Update the converted prompt files to reference these partials via `{{template "_name" .}}`.
+
+### `_extracted/` sidecar disposition
+
+`_extracted/` sidecars are scaffolding capture files. They are useful during F1/F4, but they are not canonical skill craft.
+
+Before F4 is accepted, choose one disposition:
+
+- Consume sidecar content into `shark-data/prompts/_partials/`, prompt files, or workflow YAML.
+- Move sidecars out of `shark-data/skills/` into a non-shipped migration/audit location.
+- Explicitly mark sidecars as non-shipped and exclude them from skill-purity validation.
+
+Do not let a final skill-purity audit fail because transient scaffolding sidecars are still counted as skill methodology.
 
 ### Embedded FS update
 
@@ -108,6 +130,9 @@ F4 moves agents to `shark-data/agents/`, but Claude Code's `Agent` tool reads `~
 5. All `LOAD: <skill>` references in prompts replaced with `{{include:}}`.
 6. `shark-templates/` audit complete: no external scripts hardcoding the directory name (or replacements identified).
 7. Agent dispatch routing decision recorded in epic.md.
+8. Canonical workflow coverage is complete for every shipped prompt entity. If `shark-data/prompts/tech_debt/` ships, `shark-data/workflow/tech-debt.yaml` ships too.
+9. The acceptance audit uses the rebuilt local binary. A stale installed `~/go/bin/shark` missing `shark next` is not valid UAT evidence.
+10. `_extracted/` sidecars are consumed, moved, or explicitly excluded from shipped skill-purity gates.
 
 ---
 
@@ -134,4 +159,4 @@ F4 moves agents to `shark-data/agents/`, but Claude Code's `Agent` tool reads `~
 
 ---
 
-*Last Updated*: 2026-05-10
+*Last Updated*: 2026-06-22

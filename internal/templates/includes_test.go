@@ -74,6 +74,24 @@ func TestIncludeResolver_OverrideWinsOverDefault(t *testing.T) {
 	assert.Equal(t, "OVERRIDE review-code", got, "override under overrides/ must fully replace the default")
 }
 
+func TestIncludeResolver_NoOverrideFallsBackToDefault(t *testing.T) {
+	// When overrides/<path> does NOT exist, resolvePath must return the default
+	// path content. This is the complement of TestIncludeResolver_OverrideWinsOverDefault
+	// and pins the no-override-fallback contract (ADR-3 §2).
+	dataRoot := setupSharkDataRoot(t)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dataRoot, "skills", "quality", "workflows", "review-code.md"),
+		[]byte("DEFAULT review-code"),
+		0644,
+	))
+	// No override file placed under overrides/ — the default must be returned.
+
+	r := NewIncludeResolver(dataRoot)
+	got, err := r.Resolve("{{include: skills/quality/workflows/review-code.md}}")
+	require.NoError(t, err)
+	assert.Equal(t, "DEFAULT review-code", got, "when no override exists, default path content must be returned")
+}
+
 func TestIncludeResolver_AugmentSameAsIncludeForNow(t *testing.T) {
 	// {{augment:}} accepts the same path syntax. Per F2 design, the divergent
 	// semantics of augment vs include are TBD; for now both inline the file.
@@ -235,6 +253,40 @@ func TestIncludeResolver_SizeWarningFires(t *testing.T) {
 	_, err := r.Resolve("{{include: skills/tdd/SKILL.md}}")
 	require.NoError(t, err)
 	assert.True(t, warned, "size warning should fire when included file exceeds threshold")
+}
+
+func TestIncludeResolver_FirstErrStopsSubsequentMatches(t *testing.T) {
+	// When two directives appear in the same content and the first fails, the
+	// error from the first must propagate and the second must not mask it.
+	dataRoot := setupSharkDataRoot(t)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dataRoot, "skills", "tdd", "SKILL.md"),
+		[]byte("TDD body"),
+		0644,
+	))
+
+	r := NewIncludeResolver(dataRoot)
+	// First include is missing; second include exists. Error from the first
+	// must win — this exercises the `if firstErr != nil { return match }` guard.
+	_, err := r.Resolve("{{include: skills/missing/gone.md}} {{include: skills/tdd/SKILL.md}}")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "skills/missing/gone.md", "error should identify the failing include")
+}
+
+func TestIncludeResolver_ReadFileFails(t *testing.T) {
+	// Verify the os.ReadFile error path (lines 121-124) by making the resolved
+	// path a directory — os.Stat succeeds but os.ReadFile fails on a directory.
+	dataRoot := t.TempDir()
+	// Create a directory where a file is expected. The override lookup will find
+	// no override; the default lookup resolves to a directory that exists.
+	dirPath := filepath.Join(dataRoot, "skills")
+	require.NoError(t, os.MkdirAll(dirPath, 0755))
+
+	r := NewIncludeResolver(dataRoot)
+	// "skills" is a directory — stat will succeed, ReadFile will fail.
+	_, err := r.Resolve("{{include: skills}}")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read include", "read error must surface with context")
 }
 
 // ============================================================================

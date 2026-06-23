@@ -118,6 +118,38 @@ Also in this sub-pass:
 
 ---
 
+## Supplemental Batch A Extraction (2026-06-22)
+
+The jaunty-panda extraction plan added a broader Batch A beyond the original E32-F01 in-scope shark-coupled skills.
+
+Batch A is now complete and present in `shark-data/skills/`:
+
+- `brownfield-analysis`
+- `frontend-design`
+- `product-design`
+
+These skills were originally listed as out of scope for E32 because they were not shark-coupled workflow skills. Treat them as **supplemental skill-library content**, not as new blockers for the original F1 exit gate.
+
+F1 acceptance still applies to the original shark-coupled skills:
+
+- `specification-writing`
+- `architecture`
+- `research`
+- `quality`
+- `implementation`
+- `test-driven-development`
+- `debugging`
+- `assessment`
+- `uat`
+
+Supplemental Batch A skills must follow the same layer rule before being treated as canonical shipped content:
+
+- Methodology belongs in `shark-data/skills/`.
+- Workflow scaffolding belongs in `shark-data/prompts/` or `shark-data/workflow/`.
+- Skill purity audits should not count transient `_extracted/` sidecars as craft, but F4 must either consume or relocate those sidecars before final E32 acceptance.
+
+---
+
 ## Inputs contract format
 
 Every craft skill workflow declares its inputs in frontmatter:
@@ -191,4 +223,4 @@ Prompts (in F4) promise to provide these inputs; skills promise to operate on th
 
 ---
 
-*Last Updated*: 2026-05-10
+*Last Updated*: 2026-06-22

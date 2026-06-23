@@ -108,13 +108,6 @@ All tasks for a feature live in:
 └── T-E##-F##-003.md
 ```
 
-**Status Management**:
-Task status is managed via `shark` CLI:
-- `shark list` - List epics
-- `shark status advance E01-F01-001` - Advance task to next workflow status
-- `shark status set E01-F01-001 <status>` - Set task status directly
-- `shark get E01-F01-001` - View task details
-
 ## Epic Files
 
 Epic files use simple, descriptive names without numbering:

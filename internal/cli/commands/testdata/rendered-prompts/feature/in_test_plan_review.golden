@@ -1,0 +1,10 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME test plan review for feature E07-F01: "Sample feature for golden test".
+
+Check for existing test plan review report at docs/review/{epic-folder}/{feature-folder}/test_plan_review/E07-F01-test-plan-review.md.
+(Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_test_planning.
+
+Otherwise, continue the test plan review following the ready_for_test_plan_review instructions.

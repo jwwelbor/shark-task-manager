@@ -35,7 +35,18 @@ const (
 // no network connections are made, and the returned ShutdownFunc is a no-op.
 // Must be called once during application startup (before any span/metric creation).
 // Returns a ShutdownFunc that must be deferred or called before process exit.
+//
+// For callers that know the project root (e.g. the CLI), use InitProviderWithRoot
+// so that the "file_jsonl" exporter can resolve the output path correctly.
 func InitProvider(cfg config.ObservabilityConfig) (ShutdownFunc, error) {
+	return InitProviderWithRoot(cfg, "")
+}
+
+// InitProviderWithRoot is like InitProvider but accepts a projectRoot string that
+// is forwarded to the "file_jsonl" exporter so it can resolve its output path
+// without importing the cli package (which would create a circular dependency).
+// When projectRoot is empty, the file_jsonl exporter silently skips writes.
+func InitProviderWithRoot(cfg config.ObservabilityConfig, projectRoot string) (ShutdownFunc, error) {
 	if !cfg.Enabled {
 		return NoopProvider(), nil
 	}
@@ -47,7 +58,7 @@ func InitProvider(cfg config.ObservabilityConfig) (ShutdownFunc, error) {
 
 	var tp *sdktrace.TracerProvider
 	if cfg.TracingEnabled {
-		tp, err = buildTracerProvider(cfg, res)
+		tp, err = buildTracerProvider(cfg, res, projectRoot)
 		if err != nil {
 			return NoopProvider(), fmt.Errorf("failed to create tracer provider: %w", err)
 		}
@@ -161,7 +172,7 @@ func resolveOTLPEndpoint(endpoint string) string {
 	return endpoint
 }
 
-func buildTracerProvider(cfg config.ObservabilityConfig, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+func buildTracerProvider(cfg config.ObservabilityConfig, res *resource.Resource, projectRoot string) (*sdktrace.TracerProvider, error) {
 	exporter := resolveExporter(cfg.Exporter)
 
 	var opts []sdktrace.TracerProviderOption
@@ -196,8 +207,16 @@ func buildTracerProvider(cfg config.ObservabilityConfig, res *resource.Resource)
 		}
 		opts = append(opts, sdktrace.WithBatcher(exp))
 
+	case "file_jsonl":
+		// Append one JSON line per span to <projectRoot>/shark-data/.stats/events.jsonl.
+		// Uses SimpleSpanProcessor (immediate flush, no batching) — correct for low-volume
+		// per-CLI-call telemetry where batching would defer writes past process exit.
+		// When projectRoot is empty, the exporter silently skips writes (fail-soft).
+		exp := NewFileJSONLExporter(projectRoot)
+		opts = append(opts, sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(exp)))
+
 	default:
-		return nil, fmt.Errorf("unsupported exporter type: %q (expected \"stdout\" or \"otlp\")", exporter)
+		return nil, fmt.Errorf("unsupported exporter type: %q (expected \"stdout\", \"otlp\", or \"file_jsonl\")", exporter)
 	}
 
 	return sdktrace.NewTracerProvider(opts...), nil

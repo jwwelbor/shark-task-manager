@@ -22,5 +22,5 @@
     "tracing_enabled": false
   },
   "require_rejection_reason": true,
-  "workflow_config": "shark-data/workflow/"
+  "workflow_config": "shark-templates/.sharkworkflow-codex.json"
 }

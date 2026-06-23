@@ -22,9 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
@@ -32,6 +35,20 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
+
+// unresolvedPlaceholderRe matches HTML-style angle-bracket tokens of the form
+// <letter(letters|digits|hyphens|underscores)*>, which are the placeholder
+// syntax used by shark prompt templates. Any surviving token after rendering
+// indicates a missing variable substitution.
+var unresolvedPlaceholderRe = regexp.MustCompile(`<[a-zA-Z][a-zA-Z0-9_-]*>`)
+
+// countUnresolvedPlaceholders returns the number of unresolved placeholder
+// tokens (e.g. <task-id>, <entity_key>) remaining in s after template
+// rendering. A count > 0 indicates the rendered prompt has unfilled slots
+// that the receiving agent will see as literal text rather than data.
+func countUnresolvedPlaceholders(s string) int {
+	return len(unresolvedPlaceholderRe.FindAllString(s, -1))
+}
 
 // nextAdapters bundles the three per-entity-type adapters resolveNext needs
 // (transitioner, placeholder generator, narrowed action service). Constructing
@@ -179,9 +196,18 @@ func init() {
 func runNext(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
+	// Start a span for this dispatch step so harness-side operators can
+	// trace prompt rendering latency and catch unresolved placeholder leaks
+	// per-dispatch. When OTel is disabled the tracer is a noop and all span
+	// calls compile away to sub-microsecond stubs.
+	tracer := cli.GetTracer("shark.cli")
+	ctx, span := tracer.Start(ctx, "shark.next")
+	defer span.End()
+
 	// Step 1: Parse and detect entity type.
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("invalid entity key %q: %w", args[0], err)
 	}
 
@@ -191,6 +217,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 	// it's reset for each subsequent `shark next` invocation.
 	adapters, err := newNextAdapterCache(ctx)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -205,10 +232,45 @@ func runNext(cmd *cobra.Command, args []string) error {
 		// needs the loudness guarantee.
 		var tokErr *templates.UnrenderedTokenError
 		if errors.As(err, &tokErr) {
+			span.SetStatus(codes.Error, err.Error())
+			span.SetAttributes(
+				attribute.String("entity_key", normalizedKey),
+				attribute.String("entity_type", entityType),
+				attribute.String("exit_status", "error"),
+			)
 			fmt.Fprintf(os.Stderr, "[shark next] %s (entity %s)\n", tokErr.Error(), normalizedKey)
 			os.Exit(3)
 		}
+		span.SetStatus(codes.Error, err.Error())
+		span.SetAttributes(
+			attribute.String("entity_key", normalizedKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("exit_status", "error"),
+		)
 		return err
+	}
+
+	// Record per-dispatch span attributes so traces capture the full
+	// dispatch decision for this entity step.
+	unresolvedCount := countUnresolvedPlaceholders(resp.Prompt)
+	span.SetAttributes(
+		attribute.String("entity_key", resp.EntityKey),
+		attribute.String("entity_type", resp.EntityType),
+		attribute.String("status", resp.Status),
+		attribute.String("action", resp.Action),
+		attribute.String("agent_type", resp.AgentType),
+		attribute.String("model", resp.Model),
+		attribute.Int("prompt_bytes", len(resp.Prompt)),
+		attribute.Int("unresolved_placeholders", unresolvedCount),
+		attribute.String("exit_status", "ok"),
+	)
+
+	// Warn operators when the rendered prompt still contains unfilled slots.
+	// A count > 0 means the agent will receive literal placeholder text
+	// instead of the real data value — usually indicates a missing variable
+	// in the placeholder map or an authoring bug in the template.
+	if unresolvedCount > 0 {
+		fmt.Fprintf(os.Stderr, "[shark-stats] WARN: %s has %d unresolved placeholders\n", resp.EntityKey, unresolvedCount)
 	}
 
 	return outputNextJSON(resp)

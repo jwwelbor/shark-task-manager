@@ -84,7 +84,7 @@ func InitObservability(cfg config.ObservabilityConfig) error {
 		// Capture the io.Closer so ShutdownObservability can close the log file.
 		c.logFile = observability.InitLoggerWithRoot(cfg, projectRoot)
 
-		shutdown, err := observability.InitProvider(cfg)
+		shutdown, err := observability.InitProviderWithRoot(cfg, projectRoot)
 		if err != nil {
 			// Fall back to noop; record error for caller
 			c.shutdown = observability.NoopProvider()

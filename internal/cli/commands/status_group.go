@@ -12,6 +12,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // --- Result types for JSON output ---
@@ -310,24 +312,45 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Start OTel span for this advance operation. The tracer returns a no-op
+	// span when OTel is disabled, so no guard is needed.
+	tracer := cli.GetTracer("shark.cli")
+	ctx, span := tracer.Start(ctx, "shark.advance")
+	defer span.End()
+
 	// Step 1: Parse arguments
 	entityType, key, err := ParseGetArgs(args)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
 	// Step 2: Get current status info
 	info, err := dispatchNextStatus(ctx, entityType, key)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		handleStatusTransitionError(entityType, key, err)
 		return fmt.Errorf("failed to get %s status: %w", entityType, err)
 	}
 
+	// Capture from_status before the transition.
+	fromStatus := info.CurrentStatus
+	entityKey := info.EntityKey
+
 	// Build result for JSON output
 	result := buildNextStatusResult(entityType, info)
 
-	// Handle terminal status
+	// Handle terminal status — no transition happens; still record span.
 	if info.IsTerminal {
+		span.SetAttributes(
+			attribute.String("entity_key", entityKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("from_status", fromStatus),
+			attribute.String("to_status", fromStatus), // no transition
+			attribute.String("actor", advanceActor()),
+			attribute.Bool("forced", false),
+			attribute.Bool("had_rejection_note", false),
+		)
 		result.Message = fmt.Sprintf("%s is in terminal status '%s' - no transitions available", displayEntityTypeName(entityType), info.CurrentStatus)
 
 		if cli.GlobalConfig.JSON {
@@ -338,8 +361,17 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Handle no transitions
+	// Handle no transitions — still record span.
 	if len(info.AvailableTransitions) == 0 {
+		span.SetAttributes(
+			attribute.String("entity_key", entityKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("from_status", fromStatus),
+			attribute.String("to_status", fromStatus), // no transition
+			attribute.String("actor", advanceActor()),
+			attribute.Bool("forced", false),
+			attribute.Bool("had_rejection_note", false),
+		)
 		result.Message = fmt.Sprintf("No valid transitions from status '%s'", info.CurrentStatus)
 
 		if cli.GlobalConfig.JSON {
@@ -350,8 +382,22 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Auto-select first (default) transition
+	// Auto-select first (default) transition.
 	autoTarget := info.AvailableTransitions[0].TargetStatus
+
+	// Check whether the entity has a rejection note before transitioning.
+	hadRejectionNote := checkRejectionNote(ctx, entityType, entityKey)
+
+	// Set span attributes now that we have all values.
+	span.SetAttributes(
+		attribute.String("entity_key", entityKey),
+		attribute.String("entity_type", entityType),
+		attribute.String("from_status", fromStatus),
+		attribute.String("to_status", autoTarget),
+		attribute.String("actor", advanceActor()),
+		attribute.Bool("forced", false), // statusAdvanceCmd has no --force flag
+		attribute.Bool("had_rejection_note", hadRejectionNote),
+	)
 
 	// Create adapter to satisfy entityTransitioner interface
 	svc := entityTransitionerFunc(func(ctx context.Context, k string, ts string, opts services.TransitionOptions) (*services.TransitionResult, error) {
@@ -359,7 +405,50 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	})
 
 	opts := services.TransitionOptions{}
-	return performEntityTransition(ctx, svc, info.EntityKey, autoTarget, opts, result)
+	if err := performEntityTransition(ctx, svc, entityKey, autoTarget, opts, result); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
+}
+
+// advanceActor returns the actor identity for the shark.advance span.
+// It reads the SHARK_ACTOR environment variable, defaulting to "cli".
+func advanceActor() string {
+	if actor := os.Getenv("SHARK_ACTOR"); actor != "" {
+		return actor
+	}
+	return "cli"
+}
+
+// checkRejectionNote returns true when the entity has at least one note of
+// type "rejection". It is fail-soft: any error (DB unavailable, entity not
+// found, etc.) returns false so the span is never blocked.
+func checkRejectionNote(ctx context.Context, entityType, entityKey string) bool {
+	// Only epic / feature / task entity types carry EntityNote records.
+	// For bugs, change-cards, tech-debt, etc., fall back to false.
+	var modelType models.EntityType
+	switch entityType {
+	case "epic":
+		modelType = models.EntityTypeEpic
+	case "feature":
+		modelType = models.EntityTypeFeature
+	case "task":
+		modelType = models.EntityTypeTask
+	default:
+		return false
+	}
+
+	noteSvc, err := cli.GetNoteService(ctx)
+	if err != nil {
+		return false
+	}
+
+	notes, err := noteSvc.ListNotes(ctx, modelType, entityKey, []string{"rejection"})
+	if err != nil {
+		return false
+	}
+	return len(notes) > 0
 }
 
 // runStatusTransitions implements the `shark status transitions <key>` command.

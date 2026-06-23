@@ -195,17 +195,19 @@ func (c *Config) GetObservability() ObservabilityConfig {
 // When Enabled is false, no OTel SDK is initialized and no network connections
 // are made. Existing users without this key in their config are unaffected.
 type ObservabilityConfig struct {
-	Enabled        bool    `json:"enabled"`
-	TracingEnabled bool    `json:"tracing_enabled"`
-	MetricsEnabled bool    `json:"metrics_enabled"`
-	LogLevel       string  `json:"log_level"`
-	LogFormat      string  `json:"log_format"`
-	LogFile        string  `json:"log_file,omitempty"`
-	Exporter       string  `json:"exporter"`
-	OTLPEndpoint   string  `json:"otlp_endpoint"`
-	OTLPProtocol   string  `json:"otlp_protocol"`
-	ServiceName    string  `json:"service_name"`
-	SampleRate     float64 `json:"sample_rate,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	TracingEnabled bool   `json:"tracing_enabled"`
+	MetricsEnabled bool   `json:"metrics_enabled"`
+	LogLevel       string `json:"log_level"`
+	LogFormat      string `json:"log_format"`
+	LogFile        string `json:"log_file,omitempty"`
+	// Exporter is the OTel span exporter backend. Valid values: "stdout", "otlp", "file_jsonl".
+	// "file_jsonl" appends one JSON line per span to <project>/shark-data/.stats/events.jsonl.
+	Exporter     string  `json:"exporter"`
+	OTLPEndpoint string  `json:"otlp_endpoint"`
+	OTLPProtocol string  `json:"otlp_protocol"`
+	ServiceName  string  `json:"service_name"`
+	SampleRate   float64 `json:"sample_rate,omitempty"`
 
 	// CaptureAgentTranscripts controls whether full agent stdout/stderr is written
 	// to per-dispatch transcript files under .shark/runs/{run_id}/. Default: false.
