@@ -45,7 +45,7 @@ pairs collapsed into one step with `aliases:` for the old names, a per-step
    shark status advance <key> --outcome pass|fail|blocked
    shark claim <key> --by <agent>        # prints a session id
    shark heartbeat <key> --session <sid> --progress 0.5
-   shark unclaim <key> --session <sid>
+   shark release <key> --session <sid>   # (alias: unclaim)
    ```
 
 ## Known limitation: task lifecycle fidelity

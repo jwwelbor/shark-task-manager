@@ -190,7 +190,7 @@ and supports a master index file mapping each entity to its workflow.
 Both shapes coexist: the loader derives the legacy maps from `steps:`, so every
 existing reader keeps working and the default shipped workflows remain on the
 legacy shape until explicitly switched. New CLI surface: `shark status advance
---outcome <name>`, `shark claim/unclaim/heartbeat/claims`, and `shark admin
+--outcome <name>`, `shark claim/release/heartbeat/claims`, and `shark admin
 migrate statuses` (gated). See
 [Route-Based Workflow Guide](docs/guides/route-based-workflow.md).
 

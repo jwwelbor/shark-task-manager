@@ -34,16 +34,17 @@ Examples:
 }
 
 var unclaimCmd = &cobra.Command{
-	Use:     "unclaim <key>",
-	Aliases: []string{"release-claim"},
-	Short:   "Release an entity's claim",
+	Use:     "release <key>",
+	Aliases: []string{"unclaim", "release-claim"},
+	Short:   "Release an entity's claim (lease)",
 	Long: `Release the lease on an entity. With --session the release is session-scoped
 (a safe sync-release that will not steal a lease re-issued to another agent);
 without --session it is an unconditional administrative release.
 
 Examples:
-  shark unclaim E07-F01-001                      Administrative release
-  shark unclaim E07-F01-001 --session=$SID        Safe session-scoped release`,
+  shark release E07-F01-001                      Administrative release
+  shark release E07-F01-001 --session=$SID        Safe session-scoped release
+  shark unclaim E07-F01-001                       Alias for 'release'`,
 	Args: cobra.ExactArgs(1),
 	RunE: runUnclaim,
 }

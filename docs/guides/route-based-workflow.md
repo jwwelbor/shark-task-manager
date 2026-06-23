@@ -127,7 +127,7 @@ renew the lease; a TTL backstop reclaims dead leases.
 ```bash
 shark claim E07-F01-001 --by dev-agent          # prints a session id
 shark heartbeat E07-F01-001 --session $SID --progress 0.5 --note "tests passing"
-shark unclaim E07-F01-001 --session $SID         # safe session-scoped release
+shark release E07-F01-001 --session $SID         # safe session-scoped release (alias: unclaim)
 shark claims                                     # list active claims
 ```
 
@@ -147,7 +147,7 @@ loop:
   ... run the agent for the step ...
   shark heartbeat <entity> --session <sid> --progress <p>   # periodically
   shark status advance <entity> --outcome <pass|fail|blocked>   # release outcome
-  shark unclaim <entity> --session <sid>                    # release the lease
+  shark release <entity> --session <sid>                    # release the lease
   goto loop
 ```
 
