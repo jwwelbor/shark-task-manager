@@ -72,6 +72,12 @@ type NextStatusInfo struct {
 	CurrentPhase         string                     `json:"current_phase,omitempty"`
 	AvailableTransitions []TransitionInfoWithAction `json:"available_transitions"`
 	IsTerminal           bool                       `json:"is_terminal"`
+
+	// Outcomes is the route-based outcome→target map for the current step
+	// (E35-F02). Empty for legacy (status_flow) workflows and for
+	// terminal/parking steps. When present, callers may release a semantic
+	// outcome (pass/fail/blocked/…) instead of naming a target status.
+	Outcomes map[string]string `json:"outcomes,omitempty"`
 }
 
 // TargetStatuses returns the list of target status strings from AvailableTransitions.

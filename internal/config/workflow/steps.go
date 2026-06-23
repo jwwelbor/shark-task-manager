@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -65,6 +66,52 @@ func (w *WorkflowConfig) ResolveOutcome(fromStep, outcome string) (string, bool)
 		}
 	}
 	return "", false
+}
+
+// CoreOutcomeError describes a step that is missing one or more core outcomes.
+type CoreOutcomeError struct {
+	Step    string
+	Missing []string
+}
+
+func (e *CoreOutcomeError) Error() string {
+	return "step \"" + e.Step + "\" is missing required outcome(s): " + strings.Join(e.Missing, ", ")
+}
+
+// ValidateCoreOutcomes checks that every workable step (non-terminal,
+// non-parking) defines the core outcome vocabulary (pass/fail/blocked) per
+// decision D7. Returns one error per offending step; empty when the config is
+// not route-based or all workable steps are complete.
+//
+// It also verifies that every outcome target names a real step.
+func (w *WorkflowConfig) ValidateCoreOutcomes() []error {
+	if w == nil || len(w.Steps) == 0 {
+		return nil
+	}
+	var errs []error
+	for name, st := range w.Steps {
+		if st == nil || st.Terminal || st.Parking {
+			continue
+		}
+		var missing []string
+		for _, core := range CoreOutcomes {
+			if _, ok := st.Outcomes[core]; !ok {
+				missing = append(missing, core)
+			}
+		}
+		if len(missing) > 0 {
+			errs = append(errs, &CoreOutcomeError{Step: name, Missing: missing})
+		}
+		// Every outcome target must resolve to a defined step.
+		for outcome, target := range st.Outcomes {
+			if _, ok := w.Steps[target]; !ok {
+				errs = append(errs, fmt.Errorf("step %q outcome %q targets unknown step %q", name, outcome, target))
+			}
+		}
+	}
+	// Deterministic ordering for stable validate output.
+	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
+	return errs
 }
 
 // deriveLegacyFromSteps projects a route-based Steps map back onto the legacy

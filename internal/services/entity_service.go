@@ -363,6 +363,7 @@ func (s *EntityService) GetNextStatus(
 		CurrentPhase:         currentMeta.Phase,
 		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
+		Outcomes:             s.workflowSvc.GetOutcomes(currentStatus),
 	}, nil
 }
 
@@ -397,5 +398,6 @@ func (s *EntityService) GetNextStatusForEntity(
 		CurrentPhase:         currentMeta.Phase,
 		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
+		Outcomes:             s.workflowSvc.GetOutcomes(currentStatus),
 	}
 }

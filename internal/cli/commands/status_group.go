@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -158,7 +159,11 @@ func init() {
 	statusSetCmd.Flags().Bool("force", false, "Bypass workflow validation")
 	statusSetCmd.Flags().String("notes", "", "Transition notes")
 
-	// statusAdvanceCmd has no flags — just advances to the default next status.
+	// statusAdvanceCmd: route-based release. Without --outcome it advances to the
+	// default next status (legacy behavior). With --outcome it resolves
+	// step.outcomes[outcome] and routes there (E35-F02).
+	statusAdvanceCmd.Flags().String("outcome", "", "Release a semantic outcome (pass|fail|blocked|…) and route via the workflow's outcomes map")
+	statusAdvanceCmd.Flags().String("reason", "", "Reason recorded with the transition")
 
 	// statusHistoryCmd flags
 	statusHistoryCmd.Flags().Int("limit", 50, "Maximum number of history entries to show")
@@ -382,8 +387,47 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Auto-select first (default) transition.
+	// Determine the target. With --outcome, resolve via the route-based outcomes
+	// map (release semantics, D4). Without it, auto-select the default transition.
+	// cmd may be nil in unit tests that call runStatusAdvance directly.
+	var outcome, reason string
+	if cmd != nil {
+		outcome, _ = cmd.Flags().GetString("outcome")
+		reason, _ = cmd.Flags().GetString("reason")
+	}
+
 	autoTarget := info.AvailableTransitions[0].TargetStatus
+	opts := services.TransitionOptions{Reason: reason}
+
+	if strings.TrimSpace(outcome) != "" {
+		outcome = strings.TrimSpace(strings.ToLower(outcome))
+		target, ok := info.Outcomes[outcome]
+		if !ok {
+			// Case-insensitive match against defined outcomes.
+			for k, v := range info.Outcomes {
+				if strings.EqualFold(k, outcome) {
+					target, ok = v, true
+					break
+				}
+			}
+		}
+		if !ok {
+			span.SetStatus(codes.Error, "unknown outcome")
+			if len(info.Outcomes) == 0 {
+				cli.Error(fmt.Sprintf("Status '%s' has no outcomes (route-based workflow required, or terminal/parking step). Use 'shark status set' to target a status directly.", fromStatus))
+			} else {
+				cli.Error(fmt.Sprintf("Unknown outcome '%s' for status '%s'. Valid outcomes: %s", outcome, fromStatus, strings.Join(sortedOutcomeKeys(info.Outcomes), ", ")))
+			}
+			return fmt.Errorf("unknown outcome %q", outcome)
+		}
+		autoTarget = target
+		// The resolved route is authoritative; record the outcome as the reason
+		// so backward routes (e.g. fail) pass the backward-transition guard
+		// without requiring --force.
+		if opts.Reason == "" {
+			opts.Reason = "release outcome: " + outcome
+		}
+	}
 
 	// Check whether the entity has a rejection note before transitioning.
 	hadRejectionNote := checkRejectionNote(ctx, entityType, entityKey)
@@ -398,18 +442,30 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		attribute.Bool("forced", false), // statusAdvanceCmd has no --force flag
 		attribute.Bool("had_rejection_note", hadRejectionNote),
 	)
+	if outcome != "" {
+		span.SetAttributes(attribute.String("outcome", outcome))
+	}
 
 	// Create adapter to satisfy entityTransitioner interface
 	svc := entityTransitionerFunc(func(ctx context.Context, k string, ts string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 		return dispatchTransition(ctx, entityType, k, ts, opts)
 	})
 
-	opts := services.TransitionOptions{}
 	if err := performEntityTransition(ctx, svc, entityKey, autoTarget, opts, result); err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	return nil
+}
+
+// sortedOutcomeKeys returns the outcome names sorted for stable error output.
+func sortedOutcomeKeys(outcomes map[string]string) []string {
+	keys := make([]string, 0, len(outcomes))
+	for k := range outcomes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // advanceActor returns the actor identity for the shark.advance span.

@@ -37,6 +37,9 @@ type WorkflowConfig = workflow.WorkflowConfig
 // StatusMetadata is an alias for workflow.StatusMetadata.
 type StatusMetadata = workflow.StatusMetadata
 
+// Step is an alias for workflow.Step (Shark 2.x route-based schema, E35-F01).
+type Step = workflow.Step
+
 // MultiLevelWorkflow is an alias for workflow.MultiLevelWorkflow.
 type MultiLevelWorkflow = workflow.MultiLevelWorkflow
 

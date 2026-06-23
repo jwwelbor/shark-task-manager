@@ -506,3 +506,62 @@ func (s *Service) IsBackwardTransition(fromStatus, toStatus string) (bool, error
 func (s *Service) GetDefaultStatus() string {
 	return string(s.GetInitialStatus())
 }
+
+// --- Route-based outcome routing (E35-F02, decisions D2/D4) ---
+
+// IsRouteBased reports whether the active workflow uses the consolidated
+// per-step (steps:) schema with outcome routing.
+func (s *Service) IsRouteBased() bool {
+	return s.workflow != nil && s.workflow.HasSteps()
+}
+
+// GetOutcomes returns the outcome→target map for the given step/status.
+// Returns nil when the workflow is not route-based or the step has no outcomes
+// (terminal/parking steps).
+func (s *Service) GetOutcomes(status string) map[string]string {
+	if s.workflow == nil {
+		return nil
+	}
+	st, ok := s.workflow.GetStep(status)
+	if !ok || st == nil {
+		return nil
+	}
+	return st.Outcomes
+}
+
+// GetValidOutcomes returns the sorted outcome names defined for a step/status.
+func (s *Service) GetValidOutcomes(status string) []string {
+	outcomes := s.GetOutcomes(status)
+	if len(outcomes) == 0 {
+		return []string{}
+	}
+	keys := make([]string, 0, len(outcomes))
+	for k := range outcomes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Release resolves a semantic outcome to its target status using the
+// route-based outcomes map (decision D4: `advance` becomes `release(outcome)`).
+// The caller emits an outcome (pass/fail/blocked/…); the engine resolves
+// step.outcomes[outcome] and returns the target status. The caller then
+// performs the transition.
+//
+// Returns an error when the workflow is not route-based, the step is unknown,
+// or the outcome is not defined for the step.
+func (s *Service) Release(fromStatus, outcome string) (string, error) {
+	if !s.IsRouteBased() {
+		return "", fmt.Errorf("outcome routing requires a route-based (steps:) workflow; use --status to set a target directly")
+	}
+	target, ok := s.workflow.ResolveOutcome(fromStatus, outcome)
+	if !ok {
+		valid := s.GetValidOutcomes(fromStatus)
+		if len(valid) == 0 {
+			return "", fmt.Errorf("step %q defines no outcomes (terminal or parking step)", fromStatus)
+		}
+		return "", fmt.Errorf("no outcome %q defined for step %q (valid outcomes: %s)", outcome, fromStatus, strings.Join(valid, ", "))
+	}
+	return target, nil
+}
