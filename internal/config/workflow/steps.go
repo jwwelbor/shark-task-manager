@@ -68,6 +68,65 @@ func (w *WorkflowConfig) ResolveOutcome(fromStep, outcome string) (string, bool)
 	return "", false
 }
 
+// AliasMap returns a map from old status name -> new step name, built from each
+// step's Aliases list (E35-F05, §7). The map drives the three alias duties:
+// one-shot migration, input compat shim, and history-read resolution.
+//
+// The second return value collects collisions — an old name claimed by more
+// than one step — so validate can surface them. On collision the first step
+// (in sorted order, for determinism) wins in the returned map.
+func (w *WorkflowConfig) AliasMap() (map[string]string, []error) {
+	if w == nil || len(w.Steps) == 0 {
+		return map[string]string{}, nil
+	}
+	names := make([]string, 0, len(w.Steps))
+	for name := range w.Steps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make(map[string]string)
+	var errs []error
+	for _, step := range names {
+		st := w.Steps[step]
+		if st == nil {
+			continue
+		}
+		for _, old := range st.Aliases {
+			if existing, ok := out[old]; ok && existing != step {
+				errs = append(errs, fmt.Errorf("alias %q is claimed by both %q and %q", old, existing, step))
+				continue
+			}
+			out[old] = step
+		}
+	}
+	return out, errs
+}
+
+// ResolveAlias maps an old status name to its new step name. If status is
+// already a step name it is returned unchanged; if it is a known alias the
+// target step is returned; otherwise the input is returned unchanged (the
+// caller decides whether an unknown status is an error).
+func (w *WorkflowConfig) ResolveAlias(status string) string {
+	if w == nil {
+		return status
+	}
+	if _, ok := w.GetStep(status); ok {
+		return status
+	}
+	aliases, _ := w.AliasMap()
+	if target, ok := aliases[status]; ok {
+		return target
+	}
+	// Case-insensitive alias match.
+	for old, target := range aliases {
+		if strings.EqualFold(old, status) {
+			return target
+		}
+	}
+	return status
+}
+
 // CoreOutcomeError describes a step that is missing one or more core outcomes.
 type CoreOutcomeError struct {
 	Step    string
@@ -112,6 +171,14 @@ func (w *WorkflowConfig) ValidateCoreOutcomes() []error {
 	// Deterministic ordering for stable validate output.
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
 	return errs
+}
+
+// DeriveLegacy projects the route-based Steps map onto the legacy
+// StatusFlow/StatusMetadata/SpecialStatuses maps. The loader calls this
+// automatically; it is exported so callers that construct a WorkflowConfig
+// in-memory (e.g. tests) can populate the legacy compatibility view.
+func (w *WorkflowConfig) DeriveLegacy() {
+	deriveLegacyFromSteps(w)
 }
 
 // deriveLegacyFromSteps projects a route-based Steps map back onto the legacy

@@ -299,7 +299,10 @@ func (s *Service) GetTransitionInfo(currentStatus string) []TransitionInfo {
 }
 
 // IsValidTransition checks if transitioning from current to target status is valid.
+// For route-based workflows, old status aliases are resolved first (E35-F05).
 func (s *Service) IsValidTransition(currentStatus, targetStatus string) bool {
+	currentStatus = s.aliasResolve(currentStatus)
+	targetStatus = s.aliasResolve(targetStatus)
 	transitions := s.GetValidTransitions(currentStatus)
 	for _, valid := range transitions {
 		if strings.EqualFold(valid, targetStatus) {
@@ -310,7 +313,9 @@ func (s *Service) IsValidTransition(currentStatus, targetStatus string) bool {
 }
 
 // IsValidStatus checks if a status is defined in the workflow.
+// For route-based workflows, an old status alias counts as valid (input shim).
 func (s *Service) IsValidStatus(status string) bool {
+	status = s.aliasResolve(status)
 	// Check if status is in status_flow keys
 	for key := range s.workflow.StatusFlow {
 		if strings.EqualFold(key, status) {
@@ -328,15 +333,56 @@ func (s *Service) IsValidStatus(status string) bool {
 	return false
 }
 
+// aliasResolve resolves an old status alias to its new step for route-based
+// workflows; for legacy workflows it returns the input unchanged.
+func (s *Service) aliasResolve(status string) string {
+	if s.workflow != nil && s.workflow.HasSteps() {
+		return s.workflow.ResolveAlias(status)
+	}
+	return status
+}
+
 // NormalizeStatus returns the canonical case for a status name.
 // Returns the input unchanged if status is not found.
+//
+// For route-based workflows it also applies the alias compat shim (E35-F05):
+// an old status name (e.g. "ready_for_qa") is resolved to its new step (e.g.
+// "qa") so hooks, scripts, and muscle memory keep working during the
+// deprecation window.
 func (s *Service) NormalizeStatus(status string) string {
+	if s.workflow != nil && s.workflow.HasSteps() {
+		resolved := s.workflow.ResolveAlias(status)
+		if resolved != status {
+			return resolved
+		}
+	}
 	for key := range s.workflow.StatusFlow {
 		if strings.EqualFold(key, status) {
 			return key
 		}
 	}
 	return status
+}
+
+// ResolveAlias maps an old status name to its new step via the route-based
+// alias map, or returns the input unchanged. Exposed for history-read
+// resolution (E35-F05, §7) where an entity parked under an old status name is
+// read after migration.
+func (s *Service) ResolveAlias(status string) string {
+	if s.workflow == nil {
+		return status
+	}
+	return s.workflow.ResolveAlias(status)
+}
+
+// StatusAliasMap returns the old-status -> new-step map for the active workflow
+// (empty for legacy workflows). Used by the one-shot status migration.
+func (s *Service) StatusAliasMap() map[string]string {
+	if s.workflow == nil {
+		return map[string]string{}
+	}
+	m, _ := s.workflow.AliasMap()
+	return m
 }
 
 // GetPhases returns all unique phases from status metadata, in workflow order.
