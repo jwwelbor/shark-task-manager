@@ -297,6 +297,48 @@ func TestValidate_WorkflowYAMLMissingRequiredKey(t *testing.T) {
 	assert.True(t, found)
 }
 
+// TestValidate_MissingAgentRef verifies that shark validate exits with an
+// error-level issue when a workflow YAML references an agent_type that has no
+// corresponding file under shark-data/agents/. This covers E9 AC6.
+func TestValidate_MissingAgentRef(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Overwrite task.yaml to reference a nonexistent agent.
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workflowDir, "task.yaml"),
+		[]byte(`version: '1.0'
+status_flow:
+  todo:
+  - done
+  done: []
+special_statuses:
+  terminal: [done]
+status_metadata:
+  todo:
+    responsibility: agent
+    orchestrator_action:
+      action: spawn_agent
+      agent_type: nonexistent_agent_xyz
+`),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	require.True(t, report.HasErrors(), "missing agent file should be flagged as error")
+
+	var found bool
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError && strings.Contains(issue.Message, "nonexistent_agent_xyz") {
+			found = true
+		}
+	}
+	assert.True(t, found, "report should mention the missing agent_type; got issues: %+v", report.Issues)
+}
+
 // TestValidate_MissingWorkflowYAML_SingleFile verifies that when one of the
 // expected per-entity workflow YAML files is absent from shark-data/workflow/,
 // shark validate surfaces an error-level issue (not silently falls back to
@@ -355,6 +397,66 @@ func TestValidate_MissingWorkflowYAML_MultipleFiles(t *testing.T) {
 	}
 	for name, found := range missing {
 		assert.True(t, found, "expected error issue for missing %s; got issues: %+v", name, report.Issues)
+	}
+}
+
+// TestValidate_SkipsExtractedSidecars verifies that shark validate does not
+// inspect SKILL.md (or any other) files under a skill's _extracted/ directory.
+// Those sidecars are F1 migration scaffolding, not canonical skill methodology,
+// so they must be excluded from the skill-purity gate (E32-F04 AC-10). A
+// scaffolding sidecar with malformed frontmatter must produce no issue.
+func TestValidate_SkipsExtractedSidecars(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Drop a scaffolding sidecar whose frontmatter is NOT strict YAML. If the
+	// validator walked _extracted/, this would surface a warning referencing
+	// the file. It must not.
+	extractedDir := filepath.Join(root, SharkDataDirName, "skills", "assessment", "_extracted")
+	require.NoError(t, os.MkdirAll(extractedDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(extractedDir, "SKILL.md"),
+		[]byte("---\n: this is not valid yaml : at all :\n---\n# scaffolding capture\n"),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	require.NotNil(t, report)
+
+	for _, issue := range report.Issues {
+		assert.NotContains(t, issue.Path, "_extracted",
+			"validate must skip _extracted/ sidecars; got issue: %+v", issue)
+	}
+}
+
+// TestValidate_SkipsExtractedInclude verifies that prompt-include validation
+// also skips _extracted/ sidecars: a broken {{include:}} inside a scaffolding
+// file must not fail the gate, since these files are never rendered.
+func TestValidate_SkipsExtractedInclude(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Sidecars live under skills/, but the include scan walks prompts/. Place a
+	// scaffolding _extracted/ tree under prompts/ to prove the walk skips it
+	// regardless of which subtree it appears in.
+	extractedDir := filepath.Join(root, SharkDataDirName, "prompts", "_extracted")
+	require.NoError(t, os.MkdirAll(extractedDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(extractedDir, "capture.md"),
+		[]byte("{{include: skills/does-not-exist/whatever.md}}"),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	require.NotNil(t, report)
+
+	for _, issue := range report.Issues {
+		assert.NotContains(t, issue.Path, "_extracted",
+			"validate must skip _extracted/ in prompt-include scan; got issue: %+v", issue)
 	}
 }
 

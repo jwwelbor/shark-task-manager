@@ -265,6 +265,10 @@ func Validate(projectRoot string) (*ValidationReport, error) {
 	}
 
 	validateWorkflowYAML(filepath.Join(dest, "workflow"), report)
+	// E9 AC6: verify that agent_type and instruction_template references in
+	// workflow YAML resolve to real files under shark-data/agents/ and
+	// shark-data/prompts/ respectively.
+	validateWorkflowAgentRefs(filepath.Join(dest, "workflow"), dest, report)
 	// Prompt include validation requires the engine's IncludeResolver; we
 	// avoid a hard import cycle by re-implementing the include scan here as
 	// a lightweight regex pass against the same syntax. The engine's
@@ -390,6 +394,105 @@ func validateWorkflowYAML(workflowDir string, report *ValidationReport) {
 	}
 }
 
+// validateWorkflowAgentRefs walks all workflow YAML files and cross-checks
+// every agent_type and instruction_template reference against the agents/ and
+// prompts/ directories in the data root. A reference to a file that does not
+// exist is reported as an error (E9 AC6).
+func validateWorkflowAgentRefs(workflowDir, dataRoot string, report *ValidationReport) {
+	if _, err := os.Stat(workflowDir); err != nil {
+		return
+	}
+
+	entries, err := os.ReadDir(workflowDir)
+	if err != nil {
+		return
+	}
+
+	agentsDir := filepath.Join(dataRoot, "agents")
+	promptsDir := filepath.Join(dataRoot, "prompts")
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			continue
+		}
+		full := filepath.Join(workflowDir, name)
+		data, err := os.ReadFile(full)
+		if err != nil {
+			continue // already reported by validateWorkflowYAML
+		}
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			continue // already reported by validateWorkflowYAML
+		}
+		yamlPath := "workflow/" + name
+		extractWorkflowRefs(raw, yamlPath, agentsDir, promptsDir, report)
+	}
+}
+
+// extractWorkflowRefs recursively walks a decoded YAML map and checks every
+// "agent_type" string value against <agentsDir>/<value>.md and every
+// "instruction_template" string value against <promptsDir>/<value>.
+func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir string, report *ValidationReport) {
+	switch node := v.(type) {
+	case map[string]interface{}:
+		for key, val := range node {
+			switch key {
+			case "agent_type":
+				agentType, ok := val.(string)
+				if !ok || agentType == "" {
+					break
+				}
+				agentFile := filepath.Join(agentsDir, agentType+".md")
+				if !fileExists(agentFile) {
+					report.AddIssue(
+						IssueLevelError,
+						yamlPath,
+						fmt.Sprintf("workflow references agent_type %q but %s does not exist", agentType, filepath.ToSlash(agentFile)),
+					)
+				}
+			case "instruction_template":
+				tmpl, ok := val.(string)
+				if !ok || tmpl == "" {
+					break
+				}
+				promptFile := filepath.Join(promptsDir, filepath.FromSlash(tmpl))
+				overrideFile := filepath.Join(filepath.Dir(promptsDir), "overrides", "prompts", filepath.FromSlash(tmpl))
+				if !fileExists(promptFile) && !fileExists(overrideFile) {
+					report.AddIssue(
+						IssueLevelError,
+						yamlPath,
+						fmt.Sprintf("workflow references instruction_template %q but %s does not exist", tmpl, filepath.ToSlash(promptFile)),
+					)
+				}
+			default:
+				extractWorkflowRefs(val, yamlPath, agentsDir, promptsDir, report)
+			}
+		}
+	case []interface{}:
+		for _, item := range node {
+			extractWorkflowRefs(item, yamlPath, agentsDir, promptsDir, report)
+		}
+	}
+}
+
+// isExtractedSidecar reports whether path lies inside an `_extracted/`
+// directory. These directories hold F1 migration scaffolding (capture notes
+// of the original skill craft) — they are kept for reference but are NOT
+// canonical, shipped content. The skill-purity gate must skip them so a
+// malformed scaffolding sidecar never fails validation (E32-F04 AC-10).
+func isExtractedSidecar(path string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if seg == "_extracted" {
+			return true
+		}
+	}
+	return false
+}
+
 func validatePromptIncludes(dataRoot string, report *ValidationReport) {
 	promptsDir := filepath.Join(dataRoot, "prompts")
 	if _, err := os.Stat(promptsDir); err != nil {
@@ -400,6 +503,9 @@ func validatePromptIncludes(dataRoot string, report *ValidationReport) {
 	_ = filepath.Walk(promptsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
+		}
+		if isExtractedSidecar(path) {
+			return nil
 		}
 		ext := filepath.Ext(path)
 		if ext != ".md" && ext != ".tmpl" {
@@ -460,6 +566,9 @@ func validateSkillFrontmatter(skillsDir string, report *ValidationReport) {
 	_ = filepath.Walk(skillsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
+		}
+		if isExtractedSidecar(path) {
+			return nil
 		}
 		if filepath.Base(path) != "SKILL.md" {
 			return nil
