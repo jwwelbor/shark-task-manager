@@ -1,0 +1,6 @@
+entities:
+  bug: workflow/bug.yaml
+  change: workflow/change.yaml
+  epic: workflow/epic.yaml
+  feature: workflow/feature.yaml
+  task: workflow/task.yaml
