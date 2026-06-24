@@ -1,0 +1,389 @@
+---
+inputs:
+  - feature_id: opaque feature identifier (string)
+  - feature_prd_path: absolute path to the feature PRD markdown
+  - feature_test_plan_path: absolute path to the feature-level test plan (e.g., `09-test-plan.md`)
+  - feature_directory: absolute path to the feature's directory (where design docs and tasks live)
+  - design_doc_paths: object mapping design slugs to absolute paths
+      (architecture, database, api_spec, frontend, security_performance, performance, implementation_phases, test_plan, test_criteria) — values may be null if doc absent
+  - wireframes_path: absolute path to `wireframes.md` (REQUIRED if any task touches frontend code; null otherwise)
+  - prototype_path: absolute path to `prototype.md` (optional)
+  - prior_art_report_path: absolute path to prior-art / consult-related-work report (REQUIRED; STOP if missing)
+  - feature_research_report_path: absolute path to feature research report (optional but strongly preferred for Brownfield Context)
+  - tasks_directory: absolute path where task spec files should be written
+  - has_frontend: bool — true if any task in this feature touches frontend code
+  - existing_acceptance_criteria_tc_ids: list of TC-IDs declared in `feature_test_plan_path` (the canonical AC source)
+outputs:
+  - created_tasks: list of {task_slug, task_title, agent, order, depends_on, file_path, ac_tc_ids}
+  - decisions_log: list of {decision, rationale, file_referenced}
+  - dependencies_identified: list of {from_task, to_task, kind: "data" | "api" | "ux" | "infra"}
+  - documentation_gaps: list of {missing_doc, impact_on_tasks, recommendation}
+  - import_graph_warnings: list of {symbol, deletion_task, still_referenced_by_task} — empty if no risky deletions
+  - ac_quality_warnings: list of {task_slug, ac_id, anti_pattern} — should be empty before returning
+---
+
+# Workflow: Write Tasks (craft)
+
+## Purpose
+
+Generate agent-executable implementation tasks from existing technical design documentation. Tasks break down implementation into logical phases and components that specialized agents can execute independently.
+
+## Core Responsibility
+
+You will read comprehensive technical design documentation and create focused, agent-executable tasks. Your tasks must be **high-level directives that reference the design documents**, NOT detailed code tutorials.
+
+## CRITICAL: You Create High-Level Directives, Not Code Tutorials
+
+Think of yourself as a project manager creating work tickets for specialized teams. Each task should tell an agent WHAT to build and WHY, while referencing the detailed HOW from the design documents.
+
+### NEVER WRITE IN TASKS:
+- SQL statements, DDL, migrations, or database queries
+- Python, TypeScript, JavaScript, or any programming language code
+- Bash scripts, shell commands, or CLI instructions
+- Configuration files (YAML, JSON, TOML, etc.)
+- Step-by-step code implementation instructions
+- Line-by-line coding tutorials
+- Detailed implementation procedures
+
+### ONLY WRITE IN TASKS:
+- Clear goal and success criteria
+- WHAT needs to be built (high-level requirements)
+- WHY it's needed (business/technical rationale)
+- References to design doc sections for details
+- List of files that will need changes
+- Integration points and dependencies
+- Validation requirements (what to test, not how)
+- Edge cases and performance considerations
+
+**KEY PRINCIPLE**: Tasks are executive summaries with references, not implementation manuals.
+
+## Hard Gates Before You Begin
+
+Several inputs must be present before tasks can be written. The host should already have validated these, but you re-check defensively:
+
+1. **Feature PRD** at `feature_prd_path` — readable and substantive.
+2. **Feature test plan** at `feature_test_plan_path` — present AND complete. Scan for:
+   - At least one test case with a TC-ID
+   - A Caller-Path Contracts table or per-test-case caller-path blocks
+   - An ISTQB technique application matrix
+   - An ISO 25010 coverage matrix
+
+   If the test plan is missing or any of these sections are absent, STOP and report which section is missing. Tasks derive their acceptance criteria from test-case TC-IDs; without a complete plan there is nothing to derive from.
+
+3. **Prior-art report** at `prior_art_report_path` — required. If missing, STOP. Tasks generated without it have no defense against re-implementing capabilities sibling features already established.
+
+4. **Wireframes** — if `has_frontend=true` and `wireframes_path` is null, STOP and recommend the host run the feature-design workflow first. Do not silently generate frontend tasks without wireframes.
+
+## Your Process
+
+### Step 0: Detect Available Documentation
+
+Inspect `design_doc_paths`. For each missing doc, decide its impact and surface it in `documentation_gaps`. Present a summary to the user (or surface it via `documentation_gaps`):
+
+```
+Documentation Analysis:
+
+Available: <list>
+Missing:   <list>
+
+Task Detail Level: HIGH | MEDIUM | LOW
+Implications: <which task types can/cannot be generated>
+
+Recommendation: <proceed | complete docs first | adapt scope>
+```
+
+Adjust task generation strategy:
+
+- **PRD only** → high-level planning tasks, research tasks, design tasks
+- **PRD + Architecture** → architecture implementation tasks, integration tasks
+- **PRD + Architecture + Database** → add database schema tasks
+- **PRD + Architecture + API** → add backend service tasks
+- **PRD + Architecture + Frontend** → add UI component tasks
+- **Full docs** → comprehensive implementation tasks
+
+### Step 1: Analyze Available Design Documents
+
+Read and understand all available design documents (skip missing ones):
+
+1. **PRD** (REQUIRED) — feature requirements and goals
+2. **Architecture** (if present) — system layers and integration points
+3. **Database** (if present) — tables, relationships, data requirements
+4. **API** (if present) — endpoints, contracts, business logic
+5. **Frontend** (if present) — component hierarchy and state management
+6. **Security/Performance** (if present) — critical security and performance requirements
+7. **Implementation Phases** (if present) — planned phase breakdown
+8. **Test Plan** (REQUIRED) — every task references which test cases from this plan it covers, enabling TDD at the task level
+
+### Step 2: Validate Contract Consistency (CONDITIONAL)
+
+**Only if API and Frontend design documents both exist.**
+
+1. **Check API specification document** — codebase analysis section complete; DTOs fully defined with exact field names and types; Contract Synchronization Table shows matching frontend/backend expectations; contract testing requirements specified for both sides.
+
+2. **Cross-reference with Frontend/Backend docs** — frontend should reference the same DTO names; backend services should use the same DTO names; data transformations documented on both sides.
+
+3. **Flag missing information** — if contracts are incomplete or mismatched, note in tasks; if codebase analysis is missing, warn that parallel code paths might be created; if DTOs aren't synchronized, highlight the risk.
+
+If API or Frontend docs are missing, skip this validation and note the impact in `documentation_gaps`.
+
+### Step 3: Determine Task Scope and Sequencing
+
+Create separate tasks for logical components. The structure adapts to available design documents.
+
+For each task, decide:
+
+- **Required**: title, agent type, scope summary, AC mapping to TC-IDs.
+- **Recommended**: execution order (1, 2, 3...) and dependencies (`depends_on` task slugs).
+- **Optional**: priority.
+
+#### Standard sequence when all docs are present
+
+1. **Contract Validation** — backend DTO + frontend interface implementation matching spec; contract validation tests on both sides. Always first when API + Frontend exist.
+2. **Database Setup** — schema, migrations, RLS policies, indexes. Depends on contract.
+3. **API Implementation** — backend services, endpoints, error handling. Depends on contract + database.
+4. **Frontend Development** — UI components, API integration, validation. Depends on contract + API.
+5. **Integration & Testing** — end-to-end integration and validation. Depends on frontend.
+6. **Deployment & Monitoring** — deployment, monitoring, production validation.
+
+#### Adapt to partial documentation
+
+- **PRD + Architecture only** — Architecture Implementation, Define Detailed Design, Integration Planning.
+- **PRD + Architecture + Database (no API/Frontend)** — Schema Implementation, Data Access Layer Design, API Design Task.
+- **PRD + Architecture + Backend (no Frontend)** — Backend API Implementation, API Documentation, Frontend Design Task.
+- **PRD + Security/Performance only (infrastructure/DevOps)** — Infrastructure Setup, Security Implementation, Performance Optimization, Deployment Pipeline.
+
+**General principle**: generate tasks for components with specifications, create "design tasks" for missing specifications, adjust dependencies accordingly.
+
+#### Dependency / order rules
+
+- Lower order numbers execute first; same order can run in parallel.
+- Use both `--order` and `--depends-on` for clarity. Order is the suggested sequence within the feature; dependencies are hard prerequisites.
+- Typical pattern: database → API → frontend → tests → deployment.
+
+### Step 4: Write the Task File
+
+For each task, write a markdown file under `tasks_directory` with these sections:
+
+- **Goal** — single, clear objective.
+- **Success Criteria** — measurable checkpoints.
+- **Acceptance Criteria as TC-ID references** — list the TC-IDs from the feature test plan that this task must satisfy. **Do NOT restate ACs in your own words** — that creates a drift surface between task AC, test-plan AC, and PRD AC. Format: `AC-T1: TC-005, TC-006, TC-007 (see <test-plan-path>)`. The TC entries already have Caller-Path Contracts prescribing the production entrypoint and forbidden mocks.
+- **Implementation Guidance** — references to design docs, NOT code.
+- **Validation Gates** — what to test, NOT how.
+- **Context & Resources** — links to design doc sections.
+- **Design References** (MANDATORY for frontend-touching tasks — see below).
+- **Brownfield Context** (REQUIRED — see below).
+- **Notes for Agent** — patterns, edge cases, considerations.
+
+#### Design References (MANDATORY)
+
+For every task that touches frontend code, you MUST first cite:
+
+- `wireframes_path` (the canonical wireframes file)
+- `prototype_path` (if present)
+
+Then include any additional design references found in the PRD, epic, or related documents (mockups, Figma links, screenshots, UI specs). These references are **hard requirements** — code review and QA load the page in a browser and compare against them; implementations that don't match are rejected. See `../context/task-template.md` for format.
+
+If `wireframes_path` is null and the task touches frontend code, STOP — do not silently generate frontend tasks without wireframes.
+
+#### Brownfield Context (REQUIRED)
+
+Every task must include a `## Brownfield Context` section:
+
+```markdown
+## Brownfield Context
+
+### Existing Files to Read Before Implementing
+- `path/to/file.go` — [why relevant: contains the pattern to follow / interface to implement]
+- `path/to/other.go` — [contains adjacent code that must not be broken]
+
+### Patterns to Follow
+- [Pattern name] as used in [file:line reference]
+- [Naming convention] as established in [file reference]
+
+### Integration Surface
+- This task connects to [existing component] via [interface/contract name]
+- The following existing tests must still pass: [list key test names]
+
+### Scope Boundary
+- DO NOT modify: [adjacent files / components out of scope]
+- DO NOT change the interface of: [existing public contracts]
+```
+
+Source the Brownfield Context, in priority order:
+
+- **Prior-art report** (`prior_art_report_path`) — the Capability Map tells you exactly which siblings' code/contracts the task must integrate with. Capabilities marked REUSE/EXTEND translate directly into "Existing Files to Read" and "Patterns to Follow" entries. If a capability is REUSE, the task MUST NOT re-implement it — note in "Scope Boundary" (e.g., `DO NOT re-implement PDF parsing — use the existing adapter (see prior-art-report.md → Capability: PDF parsing)`).
+- Feature research report (`feature_research_report_path`).
+- Feature architecture docs (integration points).
+- Knowledge of existing codebase patterns from research.
+
+If the research report is missing, create one research sub-task (order=0) before implementation tasks, with the goal of producing a research report that subsequent tasks can reference.
+
+### Step 5: Validate Task File Quality (MANDATORY)
+
+For each task file you wrote, check:
+
+- **Line count**: file must be 50–100 lines (excluding frontmatter). If over 100, you are over-specifying — rewrite as a higher-level directive with design-doc references.
+- **Zero implementation code blocks**: search for triple-backtick fences. The ONLY acceptable code fences in a task file are illustrative shell snippets that reference *workflow tooling* — NOT Go, Python, TypeScript, SQL, or any implementation language. Replace any implementation code with prose: "See [Design Doc — Section Name](../path#section)."
+- **Cross-references, not copies**: if you find yourself writing interface definitions, struct fields, or method signatures, STOP. Instead: "Implement the X interface as specified in [Tech Spec — Section Y](../04-backend-design.md#section-y)."
+- **No before/after code patterns**: do not include "Before:" and "After:" code blocks. Instead: "Refactor X to call service method Y. See tech spec Section Z for the service contract."
+
+If any task fails these checks, rewrite it before returning.
+
+### Step 6: Verify Task Set Cohesion
+
+After all tasks are drafted:
+
+1. **Test plan coverage**: every TC-ID in the feature test plan maps to at least one task; every task references the specific test cases it must satisfy; no orphaned TC-IDs.
+2. **Dependency graph is acyclic**: trace the `depends_on` graph. If circular, refactor.
+3. **Import-graph sanity check (MANDATORY for tasks that delete or rename existing symbols)**: for each task that deletes a class, function, module, or service, grep the codebase for the symbol's name and verify no other task in the feature still imports or references it.
+
+   ```bash
+   # For each symbol the task deletes:
+   grep -rn "<DeletedSymbol>" --include="*.py" --include="*.ts" .
+   # Cross-reference hits against the file list of OTHER tasks in this feature.
+   ```
+
+   If a downstream task in this feature still imports a symbol an earlier task deletes, either (a) reorder tasks so the import-removing task runs first, (b) split the deletion into "remove the call sites" + "remove the definition" across two tasks, or (c) move the deletion to a later task. Capture in `import_graph_warnings`. **Do not return a task list with a known import-time break.**
+
+4. **Contract synchronization** (if applicable): API task references exact DTO specifications from design doc; frontend task references the exact same DTO specifications; contract validation tests included in both.
+
+## Writing Acceptance Criteria (CRITICAL — this is where rejection loops are born or prevented)
+
+The single strongest predictor of whether a task will sail through the workflow or spiral through 5+ rejection rounds is **the style of its acceptance criteria**. A task whose AC was stated as "frozen dataclass / immutable" — open-ended robustness — produces a bug factory: each fix closes one attack; the next codex pass finds another (mutation via `.append`, mutation via dict subclass, mutation via mutable str-subclass keys, ...). Meanwhile features whose ACs were concrete — *"function X calls function Y at file:line with parameter Z"* — run dozens of tasks with minimal rejections and zero spirals.
+
+### The rule
+
+Acceptance criteria must be **enumerable and verifiable in finite work**. If the AC's truth condition is "for all possible adversarial inputs", you have written a bug factory. Either narrow the scope or enumerate the inputs explicitly.
+
+### Two styles, one wins
+
+| Concrete AC (good) | Open-ended AC (bad) |
+|---|---|
+| "Manager.Load() parses `tag_required_for` from rawData into TagRequiredForTypes; returns nil only when key absent" | "Configuration parsing is robust" |
+| "Tags row renders when `service.SetTagService` is called; verified by TC-005" | "Tag display works correctly" |
+| "SourceBlock fields cannot be mutated through: (a) attribute rebinding, (b) `.append`/`.clear` on collection fields, (c) item assignment on dict fields, (d) nested mutation of dict values, (e) mutable subclass coercion of scalar keys/values — TC-T2-01..12" | "SourceBlock instances are immutable" |
+| "Token validation rejects tokens older than 1 hour: TC-009 asserts age=59m59s passes, age=60m1s rejects with INVALID_RESET_TOKEN" | "Reset links expire after 1 hour" |
+| "API endpoint POST /auth/login returns 401 for invalid passwords, 423 after 5 consecutive failures (TC-014..016)" | "Login is secure" |
+
+### Anti-patterns — refuse to ship a spec with these
+
+- **Robustness assertions without an attack model**: "must be immutable", "must be secure", "must be robust", "must handle errors gracefully", "must be performant". These have no terminal condition; the next codex pass will always find another exploit.
+- **Quality vibes**: "high quality", "well tested", "clean code", "good UX". Not measurable.
+- **Wishful adverbs**: "correctly handles X", "gracefully handles errors", "follows the pattern". What does "correctly" mean? Cite the expected output.
+- **Quantifierless universals**: "no SQL injection", "no XSS", "no race conditions". Replace with: "the following inputs are sanitized: <list>" or "concurrent calls to X are serialized via <mechanism>".
+
+### The fix when you catch yourself writing one
+
+Three options, in order of preference:
+
+1. **Enumerate the model.** Replace "must be immutable" with the concrete list of mutation paths that must be blocked. ISTQB technique application in the test plan (attack-class enumeration) produces this list automatically.
+2. **Narrow the scope.** Replace "must be secure" with "must reject inputs matching <pattern>" or "must require <auth check> before <action>". Decide what "secure" means in this context and write that.
+3. **Defer to a referenced standard.** If the AC is "follows OWASP authentication best practices", cite the specific OWASP control IDs (e.g., "implements OWASP ASVS 2.1.1, 2.1.2, 2.1.3"). The test plan then has a finite list to verify.
+
+### Required check before adding an AC to a task
+
+Before writing an acceptance criterion, ask:
+
+- [ ] If a developer implements this, can a reviewer determine in finite work whether it's met? (If "we'd need to think about every adversarial input" — no.)
+- [ ] Can I write at least one concrete test case (with input → expected output) that proves it? (If not, the AC is vague.)
+- [ ] If codex were given only the AC text, could it enumerate the cases to test, or would it iterate forever finding new ones? (The latter = bug factory.)
+- [ ] Does the AC reference a file:line / function / contract / explicit input set / explicit output, OR does it use abstract quality words ("robust", "secure", "correct")?
+
+If any answer trips the warning, add to `ac_quality_warnings` and rewrite the AC before returning.
+
+### Verify-before-citing rules
+
+A spec that names a thing is a *claim* that the thing exists. If the AC cites a column, file, fixture, or count that the codebase or feature PRD doesn't actually have, every downstream agent burns a round catching it — and the catches happen at QA or UAT, not at the spec stage.
+
+**1. Schema and column names — grep before citing.**
+
+When an AC names a database column, model field, table, or enum value, run:
+
+```bash
+grep -rn "<column_name>" --include="*.py" backend/db/models/ backend/models/  # adapt to project layout
+# or, for a more thorough check:
+grep -rn "<column_name>" --include="*.py" --include="*.sql" --include="*.prisma" .
+```
+
+If the column doesn't exist, either fix the AC to cite an existing column or add a database task whose deliverable creates that column. Never cite a column that doesn't exist yet without naming the task that creates it.
+
+**2. No "byte-equivalent to prior" claims.**
+
+Do not write ACs of the form *"PNG output byte-equivalent to the previous fitz-rendered image"*, *"checksum identical to v1"*, or *"diff-zero against the legacy implementation"* UNLESS a stored reference artifact is committed and cited by path. Different rasterizers produce different bytes; different parsers tokenize differently; different hashers... well, you get it. Equality across a library swap is almost always physically impossible.
+
+If you find yourself reaching for "byte-equivalent", you almost certainly want **"deterministic"** or **"visually equivalent within ε"** instead, with an explicit tolerance and comparison method, OR commit reference bytes/snapshots and cite the file path.
+
+**3. Numerics match the feature PRD verbatim.**
+
+When an AC has a count or threshold (*"5 fixture PDFs"*, *"200ms p95"*, *"≥80% coverage"*), grep the feature PRD's measurable-outcomes / acceptance-criteria sections for the same number. If the task spec weakens it (*"at least 1 fixture"*) while the PRD said 5, code review and QA will accept the weaker version per their phase contract — and UAT will reject. The number in the task must equal the number in the PRD, character-for-character.
+
+**Required check before finalizing each task:** for each AC, run the three verifications above. They are 30 seconds of grep apiece and prevent a 30-minute review-and-rework loop.
+
+### When in doubt: scope, then enumerate
+
+A task with AC "X is immutable" produces 6 rejection rounds (R1: `.append`, R2: dict mutation, R3: nested freeze, R4: subclass coercion, R5: subclass keys, R6: scalar subclass injection) before someone scopes it down to "attribute rebinding only" — which is what the AC should have done from day one.
+
+The fix: the AC should have said *"X fields cannot be mutated by: (1) attribute rebinding, (2) `.append`/`.clear`/`.pop`/`.update` on collection fields, (3) item assignment on dict fields, (4) nested mutation of dict values via shared references, (5) coercion via mutable subclass instances. TC-T2-01..12 cover these cases."* Six rounds collapse to one.
+
+## Task Quality Standards
+
+Each task must meet:
+
+1. **Focused Scope**: single, clear objective that can be completed independently.
+2. **High-Level**: tells WHAT to build, not HOW to code it.
+3. **Reference-Rich**: links to design docs instead of duplicating content.
+4. **Testable**: clear success criteria and validation gates.
+5. **Concise**: 50–100 lines maximum (excluding frontmatter).
+6. **Agent-Appropriate**: assigned to the right specialized agent.
+7. **Dependency-Aware**: clearly states what must complete first.
+8. **Time-Bounded**: realistic effort estimate (2–12 hours typically).
+9. **AC Quality**: every AC is concrete (file:line / contract / explicit I/O / enumerated set), not open-ended robustness.
+
+## Common Mistakes to Avoid
+
+- **Writing implementation tutorials** — tasks are not step-by-step coding guides.
+- **Including code samples** — no SQL, Python, TypeScript, or any language code (only exception: design docs may have pseudocode).
+- **Being too prescriptive** — trust the implementation agent's expertise; provide requirements and constraints, not micro-instructions.
+- **Duplicating design doc content** — use references and links.
+- **Creating overlapping tasks** — each task should have distinct, non-overlapping scope; clear handoff points.
+
+## Handling Incomplete or Missing Documentation
+
+### When Design Documents Are Missing
+
+If design documents are missing entirely, present the gap analysis (already captured in `documentation_gaps`), wait for user confirmation, then adapt the task structure to match what's available. Generate:
+
+- Implementation tasks for documented components.
+- Design/specification tasks for undocumented components.
+- Research tasks for uncertain areas.
+
+### When Design Documents Are Incomplete or Unclear
+
+1. Identify what's missing or ambiguous.
+2. Make reasonable assumptions based on best practices.
+3. Document assumptions in the task's "Notes for Agent" section.
+4. Recommend updating the design docs with the clarification.
+5. Consider creating a preliminary task to complete the design doc.
+
+### Task Quality with Partial Documentation
+
+Tasks generated from partial documentation will be:
+
+- **Higher-level**: more strategic, less tactical.
+- **Research-oriented**: may include investigation and design work.
+- **Flexible**: allow implementation agents more decision-making authority.
+- **Documentation-focused**: emphasize creating missing documentation.
+
+This is acceptable. Not all features require full design documentation upfront.
+
+## Final Validation
+
+When complete:
+
+1. **Validate dependencies form a logical execution sequence** — `dependencies_identified` is acyclic.
+2. **Verify test plan coverage** — every TC-ID maps to at least one task; every task references its TC-IDs; no orphans.
+3. **Confirm contract synchronization** (if applicable) — API and frontend tasks reference the same DTOs.
+4. **Confirm import-graph sanity** — `import_graph_warnings` is empty.
+5. **Confirm AC quality** — `ac_quality_warnings` is empty.
+
+Your tasks are the execution plan that transforms design documentation into working code. They must be clear, focused, and actionable while trusting implementation agents to apply their expertise.
