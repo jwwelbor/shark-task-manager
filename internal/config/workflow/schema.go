@@ -184,6 +184,17 @@ type Step struct {
 	// ExcludeFromProgress indicates entities at this step are omitted from
 	// progress calculations (e.g. cancelled).
 	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
+
+	// DisplayToken is a short, human-chosen status abbreviation for dense CLI
+	// tables (e.g., "IP", "REV", "BLK"). Route-based analogue of
+	// StatusMetadata.DisplayToken. When omitted, callers may derive a fallback.
+	DisplayToken string `json:"display_token,omitempty"`
+
+	// SprintBucket defines which sprint display bucket this step's status belongs
+	// to ("ready", "in_progress", "blocked", "done", or "" to omit from the
+	// sprint view). Route-based analogue of StatusMetadata.SprintBucket. When
+	// nil, the sprint planner derives a bucket from the phase name.
+	SprintBucket *string `json:"sprint_bucket,omitempty"`
 }
 
 // StatusMetadata provides UI and agent-targeting metadata for a status

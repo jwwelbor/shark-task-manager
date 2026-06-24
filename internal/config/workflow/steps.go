@@ -231,6 +231,7 @@ func deriveLegacyFromSteps(cfg *WorkflowConfig) {
 		}
 		meta := StatusMetadata{
 			Color:               st.Color,
+			DisplayToken:        st.DisplayToken,
 			Description:         st.Description,
 			Phase:               st.Phase,
 			AgentTypes:          st.AgentTypes,
@@ -240,6 +241,7 @@ func deriveLegacyFromSteps(cfg *WorkflowConfig) {
 			IsPlanning:          st.IsPlanning,
 			AggregatesFrom:      st.AggregatesFrom,
 			ExcludeFromProgress: st.ExcludeFromProgress,
+			SprintBucket:        st.SprintBucket,
 		}
 		// Build orchestrator action from the consolidated step fields.
 		if st.Action != "" || st.Prompt != "" {

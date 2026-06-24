@@ -90,6 +90,8 @@ def convert_entity(entity, wf):
             st["phase"] = m["phase"]
         if m.get("color"):
             st["color"] = m["color"]
+        if m.get("display_token"):
+            st["display_token"] = m["display_token"]
         if m.get("description"):
             st["description"] = m["description"]
         if m.get("progress_weight") is not None:
@@ -104,6 +106,8 @@ def convert_entity(entity, wf):
             st["blocks_feature"] = True
         if m.get("exclude_from_progress"):
             st["exclude_from_progress"] = True
+        if m.get("sprint_bucket") is not None:
+            st["sprint_bucket"] = m["sprint_bucket"]
 
         oa = m.get("orchestrator_action") or {}
         if oa.get("action"):
@@ -196,10 +200,11 @@ def emit_yaml(doc):
     for name in sorted(doc["steps"]):
         st = doc["steps"][name]
         lines.append(f"  {name}:")
-        for key in ("phase", "color", "description", "progress_weight",
-                    "responsibility", "is_planning", "aggregates_from",
-                    "blocks_feature", "exclude_from_progress", "action",
-                    "agent", "provider", "model", "terminal", "parking"):
+        for key in ("phase", "color", "display_token", "description",
+                    "progress_weight", "responsibility", "is_planning",
+                    "aggregates_from", "blocks_feature", "exclude_from_progress",
+                    "sprint_bucket", "action", "agent", "provider", "model",
+                    "terminal", "parking"):
             if key in st:
                 v = st[key]
                 if isinstance(v, bool):

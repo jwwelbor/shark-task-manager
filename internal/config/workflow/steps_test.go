@@ -10,6 +10,8 @@ import (
 // sampleStepsConfig returns a small route-based config exercising the four step
 // kinds: auto (advance_status), agent (spawn_agent with outcomes), parking, and
 // terminal.
+func strPtr(s string) *string { return &s }
+
 func sampleStepsConfig() *WorkflowConfig {
 	return &WorkflowConfig{
 		Version: "1.0",
@@ -25,6 +27,8 @@ func sampleStepsConfig() *WorkflowConfig {
 			"qa": {
 				Phase:          "qa",
 				Color:          "cyan",
+				DisplayToken:   "QA",
+				SprintBucket:   strPtr("in_progress"),
 				ProgressWeight: 0.85,
 				Responsibility: "agent",
 				Action:         action.ActionSpawnAgent,
@@ -97,6 +101,14 @@ func TestDeriveLegacyFromSteps_Metadata(t *testing.T) {
 	}
 	if meta.Responsibility != "agent" {
 		t.Errorf("qa responsibility = %q, want agent", meta.Responsibility)
+	}
+	// display_token and sprint_bucket must survive the steps->legacy projection
+	// so route-based workflows can drive dense CLI tables and sprint bucketing.
+	if meta.DisplayToken != "QA" {
+		t.Errorf("qa display_token = %q, want QA", meta.DisplayToken)
+	}
+	if meta.SprintBucket == nil || *meta.SprintBucket != "in_progress" {
+		t.Errorf("qa sprint_bucket = %v, want in_progress", meta.SprintBucket)
 	}
 	// agent should surface as an agent type for --agent targeting
 	if len(meta.AgentTypes) != 1 || meta.AgentTypes[0] != "qa" {
