@@ -93,7 +93,7 @@ func init() {
 	unclaimCmd.Flags().String("session", "", "Session id for a safe session-scoped release")
 
 	heartbeatCmd.Flags().String("session", "", "Session id that holds the claim (required)")
-	heartbeatCmd.Flags().Float64("progress", -1, "Progress fraction 0.0-1.0 to record")
+	heartbeatCmd.Flags().Float64("progress", 0, "Progress fraction 0.0-1.0 to record")
 	heartbeatCmd.Flags().String("note", "", "Progress note to record")
 
 	cli.RootCmd.AddCommand(claimCmd)
@@ -106,7 +106,7 @@ func init() {
 }
 
 func runClaim(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	key := strings.ToUpper(strings.TrimSpace(args[0]))
@@ -141,7 +141,7 @@ func runClaim(cmd *cobra.Command, args []string) error {
 }
 
 func runUnclaim(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	key := strings.ToUpper(strings.TrimSpace(args[0]))
@@ -166,7 +166,7 @@ func runUnclaim(cmd *cobra.Command, args []string) error {
 }
 
 func runHeartbeat(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	key := strings.ToUpper(strings.TrimSpace(args[0]))
@@ -180,10 +180,13 @@ func runHeartbeat(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("missing --session")
 	}
 	note, _ := cmd.Flags().GetString("note")
-	progFlag, _ := cmd.Flags().GetFloat64("progress")
 	var progress *float64
-	if progFlag >= 0 {
-		p := progFlag
+	if cmd.Flags().Changed("progress") {
+		p, _ := cmd.Flags().GetFloat64("progress")
+		if p < 0.0 || p > 1.0 {
+			cli.Error("--progress must be between 0.0 and 1.0")
+			return fmt.Errorf("progress out of range: %v", p)
+		}
 		progress = &p
 	}
 
@@ -197,7 +200,7 @@ func runHeartbeat(cmd *cobra.Command, args []string) error {
 }
 
 func runClaims(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	svc := cli.GetClaimService()
