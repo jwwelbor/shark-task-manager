@@ -79,13 +79,18 @@ func validateRouteBased(workflow *WorkflowConfig) error {
 		return nil
 	}
 
-	// Start step must be defined.
-	if workflow.Start != "" {
-		if _, ok := workflow.GetStep(workflow.Start); !ok {
-			return &WorkflowValidationError{
-				Message: fmt.Sprintf("start step %q is not defined in steps", workflow.Start),
-				Fix:     fmt.Sprintf("add a %q step or point start: at an existing step", workflow.Start),
-			}
+	// Start step is mandatory for route-based workflows (guide §6) and must
+	// point at a defined step.
+	if workflow.Start == "" {
+		return &WorkflowValidationError{
+			Message: "route-based workflow (steps:) is missing a start: step",
+			Fix:     "add a start: field naming the initial step (e.g. start: draft)",
+		}
+	}
+	if _, ok := workflow.GetStep(workflow.Start); !ok {
+		return &WorkflowValidationError{
+			Message: fmt.Sprintf("start step %q is not defined in steps", workflow.Start),
+			Fix:     fmt.Sprintf("add a %q step or point start: at an existing step", workflow.Start),
 		}
 	}
 

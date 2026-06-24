@@ -1,10 +1,13 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -70,6 +73,27 @@ func runMigrateStatuses(cmd *cobra.Command, args []string) error {
 	}
 	wfSvc := cli.GetWorkflowService()
 
+	planned, err := collectStatusRewrites(cmd.Context(), repoDb, wfSvc)
+	if err != nil {
+		return err
+	}
+
+	if !apply {
+		return reportStatusMigration(planned, false)
+	}
+
+	if err := applyStatusRewrites(cmd.Context(), repoDb, planned); err != nil {
+		return err
+	}
+
+	return reportStatusMigration(planned, true)
+}
+
+// collectStatusRewrites computes the planned old->new status rewrites across all
+// entity tables, using each level's alias map. Identity aliases (old == new) and
+// statuses with no matching rows are skipped. Extracted from the command so it
+// can be exercised against a real test DB (B1-F4).
+func collectStatusRewrites(ctx context.Context, repoDb *repository.DB, wfSvc *workflow.Service) ([]statusRewrite, error) {
 	var planned []statusRewrite
 	for _, tgt := range statusMigrationTargets {
 		aliasMap := wfSvc.ForLevel(tgt.level).StatusAliasMap()
@@ -90,37 +114,44 @@ func runMigrateStatuses(cmd *cobra.Command, args []string) error {
 			}
 			var count int
 			countQ := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = ?", tgt.table) //nolint:gosec // table from fixed allowlist
-			if err := repoDb.QueryRowContext(cmd.Context(), countQ, old).Scan(&count); err != nil {
-				return fmt.Errorf("count %s.status=%q: %w", tgt.table, old, err)
+			if err := repoDb.QueryRowContext(ctx, countQ, old).Scan(&count); err != nil {
+				return nil, fmt.Errorf("count %s.status=%q: %w", tgt.table, old, err)
 			}
 			if count > 0 {
 				planned = append(planned, statusRewrite{Table: tgt.table, Level: tgt.level, Old: old, New: newStep, Count: count})
 			}
 		}
 	}
+	return planned, nil
+}
 
-	if !apply {
-		return reportStatusMigration(planned, false)
-	}
-
-	// Apply in a single transaction.
+// applyStatusRewrites executes the planned rewrites in a single transaction,
+// updating each entry's Count to the rows actually affected. task_history is
+// never touched. Extracted from the command for testability (B1-F4).
+func applyStatusRewrites(ctx context.Context, repoDb *repository.DB, planned []statusRewrite) error {
 	tx, err := repoDb.BeginTx()
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, r := range planned {
+	for i := range planned {
+		r := &planned[i]
 		updQ := fmt.Sprintf("UPDATE %s SET status = ? WHERE status = ?", r.Table) //nolint:gosec // table from fixed allowlist
-		if _, err := tx.ExecContext(cmd.Context(), updQ, r.New, r.Old); err != nil {
+		res, err := tx.ExecContext(ctx, updQ, r.New, r.Old)
+		if err != nil {
 			return fmt.Errorf("rewrite %s %q->%q: %w", r.Table, r.Old, r.New, err)
+		}
+		// Report the rows actually rewritten, not the pre-flight COUNT(*) plan
+		// (which can drift if the data changed between planning and apply).
+		if affected, aerr := res.RowsAffected(); aerr == nil {
+			r.Count = int(affected)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
-
-	return reportStatusMigration(planned, true)
+	return nil
 }
 
 func reportStatusMigration(planned []statusRewrite, applied bool) error {

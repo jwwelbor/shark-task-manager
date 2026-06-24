@@ -165,12 +165,15 @@ func (r *IncludeResolver) resolvePath(includePath string) (string, error) {
 	if filepath.IsAbs(cleanedPath) {
 		return "", fmt.Errorf("include path must be relative to data root: %q", cleanedPath)
 	}
-	// Reject .. traversal both unix-style and OS-native.
-	if strings.Contains(cleanedPath, "..") {
-		return "", fmt.Errorf("include path must not contain '..': %q", cleanedPath)
-	}
 	// Convert any forward slashes to OS-native separators.
 	osPath := filepath.FromSlash(cleanedPath)
+	// Reject upward traversal, but only on a real leading ".." segment — a
+	// substring check over-matches legitimate names like "notes..draft.md".
+	// filepath.Clean collapses any interior ".." so an escaping path surfaces
+	// as a leading "..".
+	if cleaned := filepath.Clean(osPath); cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("include path must not escape the data root: %q", cleanedPath)
+	}
 
 	// Override wins.
 	overridePath := filepath.Join(r.dataRoot, "overrides", osPath)

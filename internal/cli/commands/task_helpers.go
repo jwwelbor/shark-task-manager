@@ -97,20 +97,9 @@ func buildTaskGetJSON(
 	if len(task.Metadata) > 0 {
 		result["metadata"] = task.Metadata
 	}
-	// B032: always emit size and size_label keys so `shark get <key> --json` is
-	// consistent across entity types. Values are null when Size is unset.
-	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
-	if task.Size != nil {
-		result["size"] = *task.Size
-		if label, err := models.SizeLabel(*task.Size); err == nil {
-			result["size_label"] = label
-		} else {
-			result["size_label"] = nil
-		}
-	} else {
-		result["size"] = nil
-		result["size_label"] = nil
-	}
+	// B032 / E07-F42 REQ-F-006/007: always emit size and size_label keys (null
+	// when unset) so `shark get <key> --json` is consistent across entity types.
+	ensureSizeFieldsAlwaysPresent(result, task)
 
 	// Enrichment fields (matching human-readable view)
 	result["dependencies"] = deps

@@ -1325,8 +1325,28 @@ func TestSaveRaw_AtomicWriteNoTempLeaked(t *testing.T) {
 		t.Fatalf("SaveRaw(): %v", err)
 	}
 
-	if _, err := os.Stat(configPath + ".tmp"); err == nil {
-		t.Error("temp file leaked after successful SaveRaw")
+	// SaveRaw uses os.CreateTemp(dir, base+".tmp-*"), so the real temp pattern
+	// is "<base>.tmp-<random>", not "<base>.tmp". Glob the actual pattern;
+	// matching the wrong literal made the original assertion vacuous (B2-F6).
+	leaked, err := filepath.Glob(configPath + ".tmp-*")
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(leaked) != 0 {
+		t.Errorf("temp file(s) leaked after successful SaveRaw: %v", leaked)
+	}
+
+	// The committed file must be valid JSON with the written content.
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read committed config: %v", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("committed config is not valid JSON: %v", err)
+	}
+	if got["k"] != "v" {
+		t.Errorf("committed config = %v, want k=v", got)
 	}
 }
 

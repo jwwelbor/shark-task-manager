@@ -105,6 +105,11 @@ func TestB028_TerminalStatusDelegation(t *testing.T) {
 // isArchivedStatus consults workflow.Service for the canonical terminal
 // set rather than a hardcoded literal list, while still preserving the
 // loose `_archived` suffix match.
+// NOTE: This test MUST run serially (no t.Parallel()). It os.Chdir()s into a
+// temp project and mutates the global workflow-service singleton via
+// cli.ResetWorkflowService(); running it concurrently with any other test that
+// depends on the current working directory or the global workflow service would
+// race. The whole package therefore relies on the default serial test execution.
 func TestB028_IsArchivedStatus_DelegatesToWorkflowService(t *testing.T) {
 	tmp := writeB028Config(t)
 

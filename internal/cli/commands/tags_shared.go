@@ -100,6 +100,14 @@ func handleEntityServiceError(
 		return handleVocabularyErrorWithSnippet(cmd, tagSvc, "", err)
 	}
 
+	// Non-tag errors propagate, enriched with which entity operation failed so
+	// the caller (and exit-code mapping) keeps the error chain but gains context.
+	if entityType != "" {
+		if key != "" {
+			return fmt.Errorf("%s %s: %w", entityType, key, err)
+		}
+		return fmt.Errorf("%s: %w", entityType, err)
+	}
 	return err
 }
 

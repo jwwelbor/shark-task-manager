@@ -9,6 +9,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -343,8 +344,15 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	}
 
 	// Pass 1: per-entity YAML at the configured workflow_config directory.
+	// A malformed sibling YAML must not discard the entity slots that parsed
+	// successfully (B026): the loader returns every parsed entity regardless of
+	// err, so we gate on mlw != nil and only log the partial-failure detail.
 	if workflowDir != "" {
-		if mlw, err := workflow.LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir); err == nil && mlw != nil {
+		if mlw, err := workflow.LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir); mlw != nil {
+			if err != nil {
+				slog.Warn("action loader: workflow YAML dir partially loaded; using successfully-parsed entities",
+					"dir", workflowDir, "error", err)
+			}
 			for _, entityType := range entityTypes {
 				if wf := mlw.GetByType(entityType); wf != nil {
 					out[entityType] = workflowToStatusActionData(wf)

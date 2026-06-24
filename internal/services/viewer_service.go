@@ -1368,9 +1368,11 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 			for id := range taskMatchSet {
 				matchedTaskIDs = append(matchedTaskIDs, id)
 			}
-			if featureIDs, err := s.taskRepo.FeatureIDsForTaskIDs(ctx, matchedTaskIDs); err == nil {
-				featuresWithTaggedTasks = featureIDs
+			featureIDs, err := s.taskRepo.FeatureIDsForTaskIDs(ctx, matchedTaskIDs)
+			if err != nil {
+				return nil, fmt.Errorf("viewer hierarchy: map tagged tasks to features: %w", err)
 			}
+			featuresWithTaggedTasks = featureIDs
 		}
 		pruneHierarchy(result, idSets, featuresWithTaggedTasks)
 	}

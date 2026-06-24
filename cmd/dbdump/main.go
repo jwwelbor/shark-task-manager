@@ -55,25 +55,43 @@ func main() {
 		}
 		tables = append(tables, t)
 	}
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "list tables (row iteration): %v\n", err)
+		os.Exit(1)
+	}
 	rows.Close()
 
 	fmt.Println("PRAGMA foreign_keys=OFF;")
 	fmt.Println("BEGIN TRANSACTION;")
 	for _, t := range tables {
 		fmt.Printf("%s;\n", t.ddl)
-		dumpTable(db, t.name)
+		if err := dumpTable(db, t.name); err != nil {
+			// Fail loudly: a partial dump that silently drops rows is a
+			// corrupt backup, which is worse than no backup.
+			fmt.Fprintf(os.Stderr, "dump table %s: %v\n", t.name, err)
+			os.Exit(1)
+		}
 	}
 	fmt.Println("COMMIT;")
 }
 
-func dumpTable(db *sql.DB, name string) {
-	rows, err := db.Query("SELECT * FROM " + name)
+// quoteIdent wraps a SQL identifier in double quotes, escaping embedded quotes,
+// so an unexpected table name can never break out of the identifier position.
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func dumpTable(db *sql.DB, name string) error {
+	ident := quoteIdent(name)
+	rows, err := db.Query("SELECT * FROM " + ident)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "query %s: %v\n", name, err)
-		return
+		return fmt.Errorf("query: %w", err)
 	}
 	defer rows.Close()
-	cols, _ := rows.Columns()
+	cols, err := rows.Columns()
+	if err != nil {
+		return fmt.Errorf("columns: %w", err)
+	}
 	for rows.Next() {
 		vals := make([]interface{}, len(cols))
 		ptrs := make([]interface{}, len(cols))
@@ -81,15 +99,18 @@ func dumpTable(db *sql.DB, name string) {
 			ptrs[i] = &vals[i]
 		}
 		if err := rows.Scan(ptrs...); err != nil {
-			fmt.Fprintf(os.Stderr, "scan %s: %v\n", name, err)
-			return
+			return fmt.Errorf("scan: %w", err)
 		}
 		parts := make([]string, len(cols))
 		for i, v := range vals {
 			parts[i] = sqlLiteral(v)
 		}
-		fmt.Printf("INSERT INTO %s VALUES(%s);\n", name, strings.Join(parts, ","))
+		fmt.Printf("INSERT INTO %s VALUES(%s);\n", ident, strings.Join(parts, ","))
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("row iteration: %w", err)
+	}
+	return nil
 }
 
 func sqlLiteral(v interface{}) string {

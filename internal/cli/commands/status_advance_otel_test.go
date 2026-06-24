@@ -92,6 +92,11 @@ const minimalSharkConfig = `{
 // TestRunStatusAdvance_EmitsSharkAdvanceSpan is the primary acceptance test for
 // T-E32-F07-004. It drives runStatusAdvance end-to-end and verifies that the
 // "shark.advance" span is written to events.jsonl with the expected attributes.
+//
+// NOTE: This test MUST run serially (no t.Parallel()). It os.Chdir()s into a
+// temp project root and drives the global cli.GetDB()/workflow singletons;
+// running concurrently with any cwd- or singleton-dependent test would race.
+// The package relies on the default serial test execution for this.
 func TestRunStatusAdvance_EmitsSharkAdvanceSpan(t *testing.T) {
 	// ── 1. Set up the isolated project root ───────────────────────────────────
 

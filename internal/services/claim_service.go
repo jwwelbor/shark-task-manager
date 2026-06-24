@@ -95,6 +95,9 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 	}
 	// Already claimed and not expired.
 	if !in.Force {
+		// A Get error here only costs us the richer "claimed by …" detail; fall
+		// back to the bare ErrAlreadyClaimed sentinel rather than masking the
+		// original conflict with a lookup error.
 		existing, _ := s.repo.Get(ctx, in.EntityType, in.EntityKey)
 		if existing != nil {
 			return nil, fmt.Errorf("%s %s is already claimed by %s (session %s) since %s; use --force to steal",
@@ -102,11 +105,19 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 		}
 		return nil, claimrepo.ErrAlreadyClaimed
 	}
-	// Force: release the existing claim and re-claim.
+	// Force: release the existing claim and re-claim. The release+claim pair is
+	// not atomic, so a concurrent claimant can grab the lease in the gap; wrap
+	// that loss with race context so the caller gets an actionable message
+	// instead of a bare ErrAlreadyClaimed.
 	if _, err := s.repo.Release(ctx, in.EntityType, in.EntityKey); err != nil {
 		return nil, fmt.Errorf("force-release existing claim: %w", err)
 	}
-	return s.repo.Claim(ctx, c)
+	claimed, err = s.repo.Claim(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("lost steal race after releasing existing claim on %s %s: %w",
+			in.EntityType, in.EntityKey, err)
+	}
+	return claimed, nil
 }
 
 // Release frees the lease on an entity. When sessionID is non-empty the release

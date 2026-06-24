@@ -2723,7 +2723,6 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 // REQ-F-002: full task data is NOT embedded in the hierarchy payload. Only
 // task_count and blocked_count survive on each feature.
 func TestViewerService_Hierarchy_DoesNotEmbedTasks(t *testing.T) {
-	reason := "blocked"
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{
 			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
@@ -2760,7 +2759,6 @@ func TestViewerService_Hierarchy_DoesNotEmbedTasks(t *testing.T) {
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{},
 	)
-	_ = reason
 
 	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
 	if err != nil {

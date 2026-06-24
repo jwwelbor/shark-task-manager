@@ -35,6 +35,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
@@ -970,7 +971,7 @@ func (r *TaskRepository) updateRowDirect(ctx context.Context, task *models.Task)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("task not found with id %d", task.ID)
+		return fmt.Errorf("task not found with id %d: %w", task.ID, repoerr.ErrNotFound)
 	}
 
 	return nil

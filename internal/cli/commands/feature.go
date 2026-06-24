@@ -298,23 +298,11 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
-			// B032: always surface size and size_label so `shark get <feature> --json`
-			// is consistent across entity types (null when unset).
-			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
-			// that --field size and --field size_label work for planning-mode features.
-			// The struct marshals size inside the nested "feature" key; we mirror
-			// the aggregation-mode pattern by also surfacing them at the top level.
-			if feature.Size != nil {
-				infoMap["size"] = *feature.Size
-				if label, err := models.SizeLabel(*feature.Size); err == nil {
-					infoMap["size_label"] = label
-				} else {
-					infoMap["size_label"] = nil
-				}
-			} else {
-				infoMap["size"] = nil
-				infoMap["size_label"] = nil
-			}
+			// B032 / E07-F42 REQ-F-006/007: always surface size and size_label at
+			// the top level (null when unset) so `--field size` / `--field
+			// size_label` work for planning-mode features and JSON is consistent
+			// across entity types.
+			ensureSizeFieldsAlwaysPresent(infoMap, feature)
 			return cli.OutputJSON(infoMap)
 		}
 		renderFeaturePlanningWithTags(info, tags)

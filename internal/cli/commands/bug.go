@@ -284,6 +284,13 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	linkedType, _ := cmd.Flags().GetString("linked-type")
 	linkedKey, _ := cmd.Flags().GetString("linked-key")
 
+	// --linked-type and --linked-key only mean something as a pair; a lone flag
+	// would otherwise be silently dropped, leaving the bug unlinked with no
+	// signal to the user.
+	if (linkedType == "") != (linkedKey == "") {
+		return fmt.Errorf("--linked-type and --linked-key must be used together")
+	}
+
 	input := services.CreateBugInput{
 		Title:       args[0],
 		Description: description,

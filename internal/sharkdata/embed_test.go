@@ -10,6 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// readEmbeddedAll is a test-only convenience for reading a file from the
+// embedded tree by its path relative to embedRootDir.
+func readEmbeddedAll(rel string) ([]byte, error) {
+	return embeddedFS.ReadFile(filepath.Join(embedRootDir, rel))
+}
+
 // ============================================================================
 // E6 — shark init
 // ============================================================================
@@ -263,12 +269,14 @@ func TestValidate_BadWorkflowYAML(t *testing.T) {
 
 	report, err := Validate(root)
 	require.NoError(t, err)
-	// The decode succeeds (it's still YAML), but it's structurally weak.
-	// The presence checks should NOT fire because both top-level keys exist.
-	// A future tightening would do schema-level validation; we accept this
-	// gap explicitly here.
+	// The decode succeeds (it's still YAML) and both required top-level keys are
+	// present, so the presence checks must NOT report status_flow as missing.
+	// This documents the explicit gap: validation is presence-level, not
+	// schema-level (a future tightening would catch "not-a-map"). Assert the
+	// gap concretely rather than leaving the loop assertion-free.
 	for _, issue := range report.Issues {
-		_ = issue
+		assert.NotContains(t, issue.Message, "missing required key \"status_flow\"",
+			"weak-but-present status_flow must not be flagged as missing")
 	}
 }
 

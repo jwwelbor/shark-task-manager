@@ -490,8 +490,10 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		}
 	}
 
-	// Set "default" source for entities not found in any file
-	for _, level := range []string{"epic", "feature", "task", "bug", "change", "tech_debt"} {
+	// Set "default" source for entities not found in any file. Derive the list
+	// from EntityTypes() so a new entity type is covered automatically (this
+	// previously omitted "sprint").
+	for _, level := range EntityTypes() {
 		if _, ok := result.Sources[level]; !ok {
 			result.Sources[level] = "default"
 		}

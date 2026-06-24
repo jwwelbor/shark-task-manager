@@ -554,20 +554,9 @@ func buildEpicGetJSON(epic *models.Epic, data *EpicGetData, orchestratorAction i
 		"orchestrator_action":    orchestratorAction,
 		"valid_transitions":      validTransitions,
 	}
-	// B032: always emit size and size_label keys so `shark get <key> --json` is
-	// consistent across entity types. Values are null when Size is unset.
-	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
-	if epic.Size != nil {
-		epicJSON["size"] = *epic.Size
-		if label, err := models.SizeLabel(*epic.Size); err == nil {
-			epicJSON["size_label"] = label
-		} else {
-			epicJSON["size_label"] = nil
-		}
-	} else {
-		epicJSON["size"] = nil
-		epicJSON["size_label"] = nil
-	}
+	// B032 / E07-F42 REQ-F-006/007: always emit size and size_label keys (null
+	// when unset) so `shark get <key> --json` is consistent across entity types.
+	ensureSizeFieldsAlwaysPresent(epicJSON, epic)
 	return epicJSON
 }
 

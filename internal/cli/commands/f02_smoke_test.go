@@ -298,8 +298,13 @@ func TestF02_AC2_TaskPromptInlinesSkill(t *testing.T) {
 
 	// task/ready_for_development.md includes skills/implementation/SKILL.md and
 	// skills/test-driven-development/SKILL.md. Both should be inlined.
-	// We assert on content that is stable and present in those skill files.
 	assert.NotEmpty(t, out, "AC2 (task): rendered task prompt must not be empty")
 	assert.NotContains(t, out, "{{include:",
 		"AC2 (task): all {{include:}} directives must be resolved in the rendered task prompt")
+	// Positive proof the skill *bodies* were inlined: assert the stable H1 from
+	// each included skill is present (mirrors the feature AC2 test).
+	assert.Contains(t, out, "# Implementation Skill",
+		"AC2 (task): rendered prompt must contain inlined implementation skill body")
+	assert.Contains(t, out, "# Test-Driven Development (TDD)",
+		"AC2 (task): rendered prompt must contain inlined TDD skill body")
 }

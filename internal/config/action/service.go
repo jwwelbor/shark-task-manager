@@ -158,13 +158,8 @@ func (s *DefaultActionService) getStatusActionFor(entityType, status string) (*O
 
 	entityMap, ok := s.statusData[entityType]
 	if !ok {
-		// Entity not loaded — fall back to default-entity lookup for back-compat,
-		// but only when the asked-for entity is itself the default. Otherwise
-		// surface NotFound so callers can distinguish "no workflow for this
-		// entity" from "no action for this status".
-		if entityType == DefaultEntityType {
-			return nil, &StatusNotFoundError{Status: status}
-		}
+		// Entity not loaded — no workflow for this entity type, so the status
+		// cannot resolve. Surface NotFound either way.
 		return nil, &StatusNotFoundError{Status: status}
 	}
 

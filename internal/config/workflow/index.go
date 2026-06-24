@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -79,6 +80,12 @@ func LoadWorkflowIndexFile(indexPath string) (*MultiLevelWorkflow, bool, error) 
 		}
 		entityPath := relPath
 		if !filepath.IsAbs(entityPath) {
+			// Reject a relative entry that escapes the bundle root via "..".
+			// filepath.Clean collapses interior ".." so an escaping path
+			// surfaces as a leading ".." segment (mirrors the includes guard).
+			if cleaned := filepath.Clean(filepath.FromSlash(relPath)); cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+				return nil, true, fmt.Errorf("workflow index %s: entity %q path %q must not escape the bundle root", indexPath, rawEntity, relPath)
+			}
 			entityPath = filepath.Join(bundleRoot, relPath)
 		}
 

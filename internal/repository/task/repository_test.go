@@ -428,25 +428,16 @@ func TestTaskRepository_UpdateNoResequence_SkipsDependencyValidation(t *testing.
 	assert.Equal(t, 2, *got.ExecutionOrder, "execution_order should have been updated")
 }
 
-// TestTaskRepository_UpdateNoResequence_NoTransaction verifies that the
-// --parallel update path does NOT open a database transaction. This locks the
-// TD-008 optimization where forceSkipCascade=true short-circuits to a single
-// db.ExecContext.
+// TestTaskRepository_UpdateNoResequence_FastPath verifies the TD-008 fast path:
+// when forceSkipCascade short-circuits, the update lands the new row state and
+// leaves no connection in use afterwards.
 //
-// We assert this by observing the connection pool: if a transaction were opened
-// and held during the update, the InUse count would be non-zero mid-call. We
-// instead verify that the operation completes without leaving any transaction
-// state behind, by running the update concurrently with a check that no
-// in-flight transactions are present. The simpler, deterministic assertion is:
-// after UpdateNoResequence returns, the row is updated AND we can immediately
-// open + commit a fresh transaction on the same DB without contention
-// (transactions on the same SQLite connection serialize).
-//
-// More directly: we wrap the DB so we can count BeginTx invocations via a
-// driver hook is heavy. Instead we exercise the path and inspect db.Stats()
-// before/after to confirm no lingering open transactions, and use a
-// concurrent quick-write to confirm no lock was held.
-func TestTaskRepository_UpdateNoResequence_NoTransaction(t *testing.T) {
+// NOTE: this test does NOT prove a transaction was never opened — db.Stats()
+// returns InUse==0 after completion for both the tx and non-tx paths, so it
+// cannot distinguish them. Counting BeginTx invocations would require a driver
+// wrapper, which is out of scope here; we deliberately scope this test to the
+// observable post-conditions (row updated, pool drained) rather than overclaim.
+func TestTaskRepository_UpdateNoResequence_FastPath(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := dbconn.NewDB(database)
@@ -492,13 +483,9 @@ func TestTaskRepository_UpdateNoResequence_NoTransaction(t *testing.T) {
 
 	statsAfter := database.Stats()
 
-	// Cumulative transaction count must not have advanced. database/sql counts
-	// transactions in WaitCount only on contention, so the most reliable
-	// indicator is InUse going to 0 (no held transactions) and the row update
-	// landing without ever holding a connection in tx mode beyond a single Exec.
-	// We assert InUse returned to 0, which is true for both tx and non-tx
-	// paths after completion; the stronger assertion is that the row is updated
-	// in a single ExecContext call rather than a BEGIN/UPDATE/COMMIT triple.
+	// Post-condition: the connection pool is drained (no connection left in use).
+	// This holds for both the tx and non-tx paths, so it is a leak check, not a
+	// proof that no transaction was opened — see the function doc.
 	assert.Equal(t, 0, statsAfter.InUse, "no connection should be in-use after UpdateNoResequence returns")
 	// Sanity: the call must have actually done some database work.
 	assert.GreaterOrEqual(t, statsAfter.OpenConnections, statsBefore.OpenConnections,

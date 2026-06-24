@@ -57,22 +57,6 @@ func TestAttachAgentBody_GracefulDegradation(t *testing.T) {
 	}
 }
 
-// TestHelperFunctionsCallable is a compile-time check that the three
-// helpers introduced in TD-017 (tryCascade, applyWireAction,
-// attachAgentBody) remain in scope and accept their documented signatures.
-// If a future refactor renames or removes a helper, this test fails to
-// compile — the loudest possible signal that the TD-017 contract was
-// broken.
-func TestHelperFunctionsCallable(t *testing.T) {
-	// Reference the functions; non-nil assignments force the compiler to
-	// resolve their identifiers. We don't invoke them — that would require
-	// fully-wired adapter caches and transitioners, which is the job of
-	// the existing integration-style tests.
-	_ = tryCascade
-	_ = applyWireAction
-	_ = attachAgentBody
-}
-
 // ─── maxCascadeDepth guard ────────────────────────────────────────────────────
 
 // TestResolveNext_CascadeDepthGuardFires verifies that resolveNext returns an

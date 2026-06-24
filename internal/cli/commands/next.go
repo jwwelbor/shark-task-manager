@@ -424,7 +424,13 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 	// claim layer can never wedge dispatch.
 	claimSvc := cli.GetClaimService()
 	for _, child := range children {
-		if claimable, cerr := claimSvc.IsClaimable(ctx, string(child.EntityType), child.Key); cerr == nil && !claimable {
+		claimable, cerr := claimSvc.IsClaimable(ctx, string(child.EntityType), child.Key)
+		if cerr != nil {
+			// Fail-soft: treat as claimable so the claim layer can never wedge
+			// dispatch, but surface the lookup failure so it isn't silent.
+			fmt.Fprintf(os.Stderr, "[shark next] claim lookup failed for %s %s; treating as claimable: %v\n",
+				child.EntityType, child.Key, cerr)
+		} else if !claimable {
 			continue
 		}
 		childResp, err := resolveNext(ctx, cache, string(child.EntityType), child.Key, depth+1)
@@ -616,10 +622,6 @@ func isArchivedStatus(entityType, status string) bool {
 	return wf.IsTerminalStatus(status)
 }
 
-// Compile-time check that buildTransitioner / buildPlaceholderGenerator
-// remain in scope. These are defined in run.go; we reuse them.
-var _ = context.Background
-
 // normalizeWireAction maps an internal YAML verb (the orchestrator_action.action
 // field as authored by workflow YAMLs) onto the wire vocabulary the harness
 // understands: spawn_agent, pause, archive. Two additional internal returns
@@ -692,8 +694,13 @@ func isStatusNotFoundError(err error) bool {
 // auto-advance status. Workflow authors who use `advance_status` without
 // an agent_type implicitly declare the status is a no-op placeholder with
 // exactly one productive forward path. We filter out the obviously
-// non-productive transitions (back-to-draft, blocked, cancelled, on_hold)
-// and take the first remaining option.
+// non-productive transitions (a self-loop back to the current status, a
+// terminal/abandonment state, a parking step, or any step in the blocked
+// phase) and take the first remaining option.
+//
+// Classification is derived from the workflow step metadata via the
+// workflow.Service, not from hardcoded status names (B028) — so custom
+// workflows that rename "completed"/"blocked"/etc. still route correctly.
 //
 // Returns "" when there is no safe forward transition — the caller treats
 // that as "pause" so a misconfigured workflow is surfaced to the user
@@ -702,9 +709,19 @@ func pickAutoAdvanceTarget(nextInfo *services.NextStatusInfo) string {
 	if nextInfo == nil {
 		return ""
 	}
+	wf := cli.GetWorkflowService()
+	if nextInfo.EntityType != "" {
+		wf = wf.ForLevel(string(nextInfo.EntityType))
+	}
 	for _, t := range nextInfo.AvailableTransitions {
-		switch t.TargetStatus {
-		case "draft", "blocked", "cancelled", "on_hold", "archived":
+		// A transition back to the current status (e.g. a fail self-loop) is
+		// never a forward move.
+		if strings.EqualFold(t.TargetStatus, nextInfo.CurrentStatus) {
+			continue
+		}
+		if wf.IsTerminalStatus(t.TargetStatus) ||
+			wf.IsParkingStatus(t.TargetStatus) ||
+			wf.IsBlockedStatus(t.TargetStatus) {
 			continue
 		}
 		return t.TargetStatus

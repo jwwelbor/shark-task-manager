@@ -158,6 +158,35 @@ func (s *Service) IsTerminalStatus(status string) bool {
 	return false
 }
 
+// IsParkingStatus reports whether the given status is a parking step (e.g.
+// blocked, on_hold) whose resume target is computed from history rather than a
+// static outcome (route-based schema: the step's parking flag). Old status
+// aliases are resolved first. Returns false for legacy workflows that do not
+// define steps, or for unknown statuses (graceful nil-workflow degradation,
+// mirroring IsTerminalStatus).
+func (s *Service) IsParkingStatus(status string) bool {
+	if s.workflow == nil {
+		return false
+	}
+	status = s.aliasResolve(status)
+	if st, ok := s.workflow.GetStep(status); ok && st != nil {
+		return st.Parking
+	}
+	return false
+}
+
+// IsBlockedStatus reports whether the given status sits in the "blocked" phase
+// (the cross-vocabulary signal for an entity halted by an external blocker).
+// It reads the phase from status metadata, which is populated for both
+// route-based (derived) and legacy workflows. Returns false for a nil workflow
+// or unknown status.
+func (s *Service) IsBlockedStatus(status string) bool {
+	if s.workflow == nil {
+		return false
+	}
+	return strings.EqualFold(s.getStatusPhase(s.aliasResolve(status)), "blocked")
+}
+
 // GetAllStatuses returns all defined statuses ordered by workflow phase.
 // Phase order: planning -> development -> review -> qa -> approval -> done -> any
 func (s *Service) GetAllStatuses() []string {
@@ -591,6 +620,7 @@ func (s *Service) GetOutcomes(status string) map[string]string {
 	if s.workflow == nil {
 		return nil
 	}
+	status = s.aliasResolve(status)
 	st, ok := s.workflow.GetStep(status)
 	if !ok || st == nil {
 		return nil
@@ -624,6 +654,7 @@ func (s *Service) Release(fromStatus, outcome string) (string, error) {
 	if !s.IsRouteBased() {
 		return "", fmt.Errorf("outcome routing requires a route-based (steps:) workflow; use --status to set a target directly")
 	}
+	fromStatus = s.aliasResolve(fromStatus)
 	target, ok := s.workflow.ResolveOutcome(fromStatus, outcome)
 	if !ok {
 		valid := s.GetValidOutcomes(fromStatus)

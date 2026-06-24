@@ -47,7 +47,10 @@ func (r *Repository) Claim(ctx context.Context, c *models.EntityClaim) (*models.
 		}
 		return nil, fmt.Errorf("claim %s/%s: %w", c.EntityType, c.EntityKey, err)
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("claim %s/%s: last insert id: %w", c.EntityType, c.EntityKey, err)
+	}
 	return r.getByID(ctx, id)
 }
 
@@ -68,7 +71,10 @@ func (r *Repository) Release(ctx context.Context, entityType, entityKey string) 
 	if err != nil {
 		return false, fmt.Errorf("release %s/%s: %w", entityType, entityKey, err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("release %s/%s: rows affected: %w", entityType, entityKey, err)
+	}
 	return n > 0, nil
 }
 
@@ -82,7 +88,10 @@ func (r *Repository) ReleaseSession(ctx context.Context, entityType, entityKey, 
 	if err != nil {
 		return false, fmt.Errorf("release session %s/%s: %w", entityType, entityKey, err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("release session %s/%s: rows affected: %w", entityType, entityKey, err)
+	}
 	return n > 0, nil
 }
 
@@ -101,7 +110,10 @@ func (r *Repository) Renew(ctx context.Context, entityType, entityKey, sessionID
 	if err != nil {
 		return false, fmt.Errorf("renew %s/%s: %w", entityType, entityKey, err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("renew %s/%s: rows affected: %w", entityType, entityKey, err)
+	}
 	return n > 0, nil
 }
 
@@ -119,7 +131,10 @@ func (r *Repository) ReclaimExpired(ctx context.Context, ttl time.Duration) (int
 	if err != nil {
 		return 0, fmt.Errorf("reclaim expired: %w", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("reclaim expired: rows affected: %w", err)
+	}
 	return n, nil
 }
 
@@ -190,8 +205,14 @@ func nullString(s string) interface{} {
 }
 
 // isUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
-// Matched on message substring to stay driver-agnostic across the modernc
-// sqlite and libsql/turso drivers.
+//
+// This is the acknowledged portable-fallback exception to the "prefer errors.As
+// over string matching" rule: shark runs against two drivers — modernc/sqlite
+// (local) and libsql/turso (cloud) — which surface constraint failures as
+// different, unexported error types with no shared typed surface to assert on.
+// A message-substring match against the three observed phrasings is the only
+// representation common to both, so we match on the message and accept the
+// coupling deliberately rather than depending on a single driver's internals.
 func isUniqueViolation(err error) bool {
 	if err == nil {
 		return false

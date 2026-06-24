@@ -17,7 +17,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -69,7 +68,7 @@ func Init(projectRoot string) (string, error) {
 		return dest, ErrAlreadyInitialized
 	}
 
-	if err := copyEmbedded(dest, false); err != nil {
+	if err := copyEmbedded(dest); err != nil {
 		return "", fmt.Errorf("shark init: %w", err)
 	}
 	return dest, nil
@@ -105,8 +104,10 @@ func Upgrade(projectRoot string, dryRun bool) (*DiffSummary, error) {
 
 	summary := &DiffSummary{}
 	err = walkEmbedded(func(relPath string, data []byte, isDir bool) error {
-		// Skip the overrides/ subtree entirely.
-		if relPath == "overrides" || strings.HasPrefix(relPath, "overrides"+string(filepath.Separator)) || strings.HasPrefix(relPath, "overrides/") {
+		// Skip the overrides/ subtree entirely. walkEmbedded always reports
+		// POSIX (forward-slash) relative paths, so a single "overrides/" prefix
+		// check is sufficient.
+		if relPath == "overrides" || strings.HasPrefix(relPath, "overrides/") {
 			summary.SkippedOverrides = append(summary.SkippedOverrides, relPath)
 			return nil
 		}
@@ -164,16 +165,11 @@ type DiffSummary struct {
 // and Init declined to overwrite it.
 var ErrAlreadyInitialized = errors.New("shark-data/ already exists at project root (use 'shark upgrade' to refresh)")
 
-// copyEmbedded materializes the embedded tree under dest. mergeMode=true
-// allows existing files to be overwritten; false errors on collision (only
-// happens when called from Init, where the destination must not already
-// exist).
-func copyEmbedded(dest string, mergeMode bool) error {
-	if !mergeMode {
-		// Init path — destination must not exist (caller checked).
-		if err := os.MkdirAll(dest, 0755); err != nil {
-			return fmt.Errorf("mkdir dest: %w", err)
-		}
+// copyEmbedded materializes the embedded tree under dest. Only called from
+// Init, where the caller has already verified the destination does not exist.
+func copyEmbedded(dest string) error {
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		return fmt.Errorf("mkdir dest: %w", err)
 	}
 
 	return walkEmbedded(func(relPath string, data []byte, isDir bool) error {
@@ -656,15 +652,3 @@ func CopyEmbeddedTreeForTest() ([]string, error) {
 	})
 	return paths, err
 }
-
-// readEmbeddedAll is a convenience used by tests; not part of the public API.
-func readEmbeddedAll(rel string) ([]byte, error) {
-	return embeddedFS.ReadFile(filepath.Join(embedRootDir, rel))
-}
-
-// io.Closer compile-time check unused — kept for future stream APIs.
-var _ io.Closer = (*nopCloser)(nil)
-
-type nopCloser struct{}
-
-func (nopCloser) Close() error { return nil }

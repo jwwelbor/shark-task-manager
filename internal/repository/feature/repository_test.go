@@ -612,11 +612,14 @@ func TestFeatureRepository_UpdateNoResequence_PreservesDuplicateOrders(t *testin
 	assert.Equal(t, 1, featureOrders["Feature C"], "Feature C should be at order 1 alongside Feature A")
 }
 
-// TestFeatureRepository_UpdateNoResequence_NoTransaction verifies that the
-// --parallel feature update path does NOT open a database transaction. This
-// locks the TD-008 optimization where forceSkipCascade=true short-circuits to
-// a single db.ExecContext.
-func TestFeatureRepository_UpdateNoResequence_NoTransaction(t *testing.T) {
+// TestFeatureRepository_UpdateNoResequence_FastPath verifies the TD-008 fast
+// path: the --parallel feature update lands the new row state and drains the
+// connection pool.
+//
+// NOTE: db.Stats().InUse==0 holds for both the tx and non-tx paths, so this
+// does not prove a transaction was never opened — it is a leak/post-condition
+// check. Proving "no BeginTx" would require a driver wrapper (out of scope).
+func TestFeatureRepository_UpdateNoResequence_FastPath(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := dbconn.NewDB(database)
@@ -651,9 +654,8 @@ func TestFeatureRepository_UpdateNoResequence_NoTransaction(t *testing.T) {
 
 	statsAfter := database.Stats()
 
-	// No connection should be in-use after the fast path returns (true for
-	// any clean exit; combined with the row-was-updated assertion below, this
-	// verifies the BEGIN/COMMIT trip is gone).
+	// Post-condition: no connection left in use (true for any clean exit, tx or
+	// not — a leak check, not a proof that BEGIN/COMMIT is gone; see the doc).
 	assert.Equal(t, 0, statsAfter.InUse, "no connection should be in-use after UpdateNoResequence returns")
 	assert.GreaterOrEqual(t, statsAfter.OpenConnections, statsBefore.OpenConnections,
 		"OpenConnections should not have decreased")

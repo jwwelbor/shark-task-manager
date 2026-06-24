@@ -79,6 +79,62 @@ func TestService_Release(t *testing.T) {
 	}
 }
 
+// aliasedRouteService builds a route-based config where the "review" step
+// collapses the legacy "in_review"/"ready_for_review" names via aliases.
+func aliasedRouteService() *Service {
+	cfg := &config.WorkflowConfig{
+		Version: "1.0",
+		Start:   "draft",
+		Steps: map[string]*config.Step{
+			"draft": {
+				Phase:    "planning",
+				Action:   "advance_status",
+				Outcomes: map[string]string{"pass": "review"},
+			},
+			"review": {
+				Phase:   "review",
+				Action:  "spawn_agent",
+				Agent:   "reviewer",
+				Aliases: []string{"in_review", "ready_for_review"},
+				Outcomes: map[string]string{
+					"pass":    "done",
+					"fail":    "draft",
+					"blocked": "on_hold",
+				},
+			},
+			"on_hold": {Phase: "paused", Parking: true},
+			"done":    {Phase: "done", Terminal: true},
+		},
+	}
+	cfg.DeriveLegacy()
+	return &Service{workflow: cfg, level: LevelTask}
+}
+
+// TestService_Release_ResolvesAlias verifies that an aliased (pre-migration)
+// status routes its outcomes correctly: Release and GetOutcomes must resolve
+// the old name to its new step before consulting the outcomes map (WS1-B).
+func TestService_Release_ResolvesAlias(t *testing.T) {
+	svc := aliasedRouteService()
+
+	// Outcome routing from the old status name.
+	got, err := svc.Release("in_review", "pass")
+	if err != nil {
+		t.Fatalf("Release(in_review, pass) err = %v", err)
+	}
+	if got != "done" {
+		t.Errorf("Release(in_review, pass) = %q, want done", got)
+	}
+	if got, err := svc.Release("ready_for_review", "fail"); err != nil || got != "draft" {
+		t.Errorf("Release(ready_for_review, fail) = %q, %v; want draft, nil", got, err)
+	}
+
+	// GetOutcomes for the old status name returns the new step's outcomes.
+	outcomes := svc.GetOutcomes("in_review")
+	if outcomes["pass"] != "done" || outcomes["blocked"] != "on_hold" {
+		t.Errorf("GetOutcomes(in_review) = %v, want review step's outcomes", outcomes)
+	}
+}
+
 func TestService_Release_LegacyError(t *testing.T) {
 	legacy := &Service{workflow: &config.WorkflowConfig{
 		StatusFlow: map[string][]string{"todo": {"in_progress"}},

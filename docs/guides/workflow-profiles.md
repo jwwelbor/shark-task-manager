@@ -3,8 +3,12 @@
 > **Note:** The basic/advanced workflow "profiles" subsystem
 > (`shark init update --workflow=...`, `shark init merge ...`, the
 > `internal/init/profiles/` package) was **removed**. Workflows are now
-> defined as JSON files inside `shark-templates/` and selected via the
-> `workflow_config` field in `.sharkconfig.json`.
+> defined as **per-entity YAML files** under `shark-data/workflow/` and
+> selected via the `workflow_config` field in `.sharkconfig.json`.
+>
+> A bare Shark 1.x JSON workflow file (e.g. `.sharkworkflow.json`) is no
+> longer a valid `workflow_config` target — the loader rejects it with a
+> migration hint. Run `shark init` to materialize the `shark-data/` tree.
 >
 > This page explains the current model. If you came here looking for the
 > old `--workflow=basic|advanced` flags, see the
@@ -12,70 +16,59 @@
 
 ## Overview
 
-Shark loads its workflow definition (status list, status flow, agent
-routing, orchestrator actions) from a single JSON file. The path to that
-file is configured in `.sharkconfig.json`:
+Shark loads its workflow definitions (status list, status flow / outcome
+routing, agent routing, orchestrator actions) from per-entity YAML files.
+`workflow_config` in `.sharkconfig.json` points at either a **directory**
+of per-entity YAML (the default) or a **master index file**:
 
 ```json
 {
-  "workflow_config": "shark-templates/.sharkworkflow-short.json"
+  "workflow_config": "shark-data/workflow"
 }
 ```
 
-The two workflow files shipped with `shark` live inside the embedded
-`shark-templates/` tree and are copied into your project on
-`shark admin init`:
+```
+shark-data/workflow/
+├── task.yaml
+├── feature.yaml
+├── epic.yaml
+├── bug.yaml
+├── change.yaml
+└── tech-debt.yaml
+```
 
-| File | Description |
-|---|---|
-| `shark-templates/.sharkworkflow-short.json` | **Default.** Compact workflow suitable for solo developers and small teams. |
-| `shark-templates/.sharkworkflow.json` | Long-form workflow with the full multi-stage TDD/refinement/QA pipeline and per-status agent routing. |
+`shark admin init` materializes the `shark-data/` tree (workflows, prompts,
+skills, agents). The `shark-data/overrides/` subtree layers on top of the
+bundled defaults and is never overwritten by `shark admin init`.
 
-To switch workflows, edit `workflow_config` in `.sharkconfig.json`.
+See the [Route-Based Workflow Guide](route-based-workflow.md) for the
+consolidated `steps:` schema, outcome routing, and master-index resolution.
 
 ## Customizing a workflow
 
-1. Copy one of the shipped files to a new path (anywhere in your project).
-2. Edit it.
-3. Set `workflow_config` in `.sharkconfig.json` to point at your copy.
+1. Edit the per-entity YAML under `shark-data/workflow/` directly, **or**
+2. Place an override at `shark-data/overrides/workflow/<entity>.yaml`, **or**
+3. Point `workflow_config` at your own directory or master index file.
 
-`shark admin init` will leave your custom file alone — it only re-syncs
-files inside `shark-templates/`.
-
-> **Tip:** If you edit a file *inside* `shark-templates/` directly, the
-> next `shark admin init` will detect the drift and warn you, but it will
-> not overwrite your changes unless you re-run with `--force`. See
-> [Templates re-sync behavior](../cli-reference/initialization.md#templates-re-sync-behavior).
+Overrides and files outside the bundled tree are left untouched by
+`shark admin init`.
 
 ## Migration from the old profile system
 
 | Old command | New approach |
 |---|---|
-| `shark init update --workflow=basic` | Set `"workflow_config": "shark-templates/.sharkworkflow-short.json"` in `.sharkconfig.json` |
-| `shark init update --workflow=advanced` | Set `"workflow_config": "shark-templates/.sharkworkflow.json"` in `.sharkconfig.json` |
-| `shark init merge --workflow=advanced --force` | Same as above — edit `workflow_config` directly |
-| `shark init update --workflow=advanced --dry-run` | Inspect the workflow file with any text editor before changing `workflow_config` |
+| `shark init update --workflow=basic` | Edit `shark-data/workflow/*.yaml` (or supply overrides) for a compact flow |
+| `shark init update --workflow=advanced` | Edit `shark-data/workflow/*.yaml` (or supply overrides) for the multi-stage flow |
+| `shark init merge --workflow=advanced --force` | Edit the per-entity YAML / overrides directly |
+| `shark init update --workflow=advanced --dry-run` | Inspect the YAML with any text editor before editing |
 | `shark init update` (add missing fields) | No replacement — there are no profile-specific fields to merge anymore |
-
-## Choosing a workflow
-
-### Use `.sharkworkflow-short.json` (default) if:
-- You're working solo or with a small team (1-2 people)
-- Your workflow is simple and flexible
-- You don't need formal review processes
-- You're prototyping or exploring
-
-### Use `.sharkworkflow.json` (long form) if:
-- You have a team with defined roles (3+ people)
-- You practice test-driven development with discrete refinement, code
-  review, and QA phases
-- You need agent routing per status (BA, tech_lead, developer, qa,
-  product_owner)
 
 ## Schema
 
 The structure of a workflow file is documented in
-[Workflow Configuration](../cli-reference/workflow-configuration.md).
+[Workflow Configuration](../cli-reference/workflow-configuration.md) and the
+route-based `steps:` schema in the
+[Route-Based Workflow Guide](route-based-workflow.md).
 
 ## Related Documentation
 
