@@ -2,7 +2,7 @@
 
 **Feature**: Service Layer Completion and CLI Integration
 **Epic**: E15 - Service Layer Architecture Refactoring
-**Score**: 15/27
+**Score**: 12/27
 **Tier**: STANDARD (borderline COMPLEX)
 **Date**: 2026-02-17
 **Re-triaged**: Yes (originally scored 5/18 under old 6-dimension system)
@@ -94,7 +94,7 @@
 |----------|-------|-----|
 | **Technical Complexity** | 5 | 18 |
 | **Execution Complexity** | 7 | 9 |
-| **Overall Total** | **15** | **27** |
+| **Overall Total** | **12** | **27** |
 
 **Score Distribution**:
 - Technical novelty: Very low (0 for most dimensions)
@@ -107,9 +107,9 @@
 
 ## Tier Assignment
 
-**Assigned Tier**: STANDARD (score: 15/27)
+**Assigned Tier**: STANDARD (score: 12/27)
 
-**Tier Range**: STANDARD is 7-15 points, so 15/27 is at the upper bound.
+**Tier Range**: STANDARD is 7-15 points, so 12/27 sits in the upper half of the STANDARD band.
 
 **CRITICAL**: Despite falling within STANDARD range, this feature exhibits characteristics typically associated with COMPLEX tier:
 - 12 tasks (exceeds STANDARD threshold of 7)
@@ -271,8 +271,8 @@ Based on research of existing codebase:
 ## Metadata Storage Command
 
 ```bash
-shark feature note E15-F12 'COMPLEXITY_TIER: STANDARD (score: 15/27, borderline COMPLEX) - Service layer completion with 12 tasks, 3-4 weeks, behavior-preserving. Recommend splitting into 3 STANDARD features for autonomous build feasibility.' \
-  --metadata complexity_tier=STANDARD complexity_score=15
+shark feature note E15-F12 'COMPLEXITY_TIER: STANDARD (score: 12/27, borderline COMPLEX) - Service layer completion with 12 tasks, 3-4 weeks, behavior-preserving. Recommend splitting into 3 STANDARD features for autonomous build feasibility.' \
+  --metadata complexity_tier=STANDARD complexity_score=12
 ```
 
 ---
@@ -301,7 +301,7 @@ shark feature note E15-F12 'COMPLEXITY_TIER: STANDARD (score: 15/27, borderline 
 | Task Estimation | 3 | 12 tasks |
 | Regression Risk | 2 | Behavior-preserving |
 | Execution Effort | 2 | 3-4 weeks |
-| **TOTAL** | **15/27** | **STANDARD (borderline COMPLEX)** |
+| **TOTAL** | **12/27** | **STANDARD (borderline COMPLEX)** |
 
 **Fix**: Execution dimensions capture true complexity, recommend split or manual execution.
 
@@ -312,7 +312,7 @@ shark feature note E15-F12 'COMPLEXITY_TIER: STANDARD (score: 15/27, borderline 
 This triage demonstrates:
 1. **Technical novelty ≠ Complexity**: Low pattern novelty but high execution complexity
 2. **Execution dimensions critical**: Task count, risk, and effort drive feasibility
-3. **Tier boundaries matter**: 15/27 (high STANDARD) very different from 7/27 (low STANDARD)
+3. **Tier boundaries matter**: 12/27 (upper STANDARD) very different from 7/27 (low STANDARD)
 4. **Splitting recommended**: Large features better split for autonomous build
 5. **Old system failed**: 6 dimensions missed execution complexity entirely
 
