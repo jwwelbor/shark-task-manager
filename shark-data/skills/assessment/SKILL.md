@@ -1,0 +1,543 @@
+---
+name: assessment
+description: Workflow decision-making assessments for project management. Use when evaluating feature complexity (SIMPLE/STANDARD/COMPLEX tier assignment), validating scope (feature vs task classification), checking phase readiness (gate validation), or estimating implementation effort. Invoked during feature triage, scope validation, phase transitions, or when complexity/effort estimates are needed for planning.
+inputs:
+  # The assessment skill exposes four distinct activities (modes). Each has its own input/output
+  # contract. The host (shark prompt) selects mode and supplies inputs accordingly.
+  - mode: one of "complexity_triage" | "scope_validation" | "readiness_check" | "effort_estimation"
+
+  # mode = complexity_triage
+  - feature_title: short title of the feature being triaged (string)
+  - feature_description: feature description / scope text (string)
+  - epic_context: parent epic business context (string or path to epic PRD)
+  - codebase_summary: existing-pattern summary, file counts, integration points (string, optional — produced upstream by research)
+  - existing_task_count: integer count of already-decomposed tasks if any (optional)
+
+  # mode = scope_validation
+  - work_item_description: text describing the candidate work (string)
+  - estimated_task_count: integer (optional, if known)
+  - estimated_loc: integer lines of code (optional)
+  - estimated_duration_days: number (optional)
+  - is_user_visible: bool (optional — caller may pre-classify)
+
+  # mode = readiness_check
+  - gate_id: gate identifier from the readiness-gates reference (e.g. "G1_triage", "G3_ba_refinement", "G4_tech_refinement", "G5_task_generation", "G6_autonomous_build", "G7_uat", "T1_development", "T2_code_review", "T3_qa", "T4_approval")
+  - phase_artifacts: map of artifact_name → path or content for deliverables produced in the current phase
+  - upstream_state: structured summary of upstream phase outputs (e.g. complexity_tier, prd_path, arch_path, task_list, test_results)
+
+  # mode = effort_estimation
+  - file_impact_score: 0-3 (from triage)
+  - task_count: integer
+  - pattern_novelty_score: 0-3 (from triage)
+  - regression_risk_score: 0-3 (from triage)
+  - context_multiplier_reason: optional adjustment rationale (e.g. "team learning new tech")
+
+outputs:
+  # mode = complexity_triage
+  - complexity_score: integer 0-27
+  - tier: SIMPLE | STANDARD | COMPLEX
+  - dimension_scores: map of 9 dimensions → score + rationale
+  - triage_report: structured markdown report
+  - autonomous_build_feasible: bool (with rationale)
+  - tier_rationale: 1-2 sentence explanation
+
+  # mode = scope_validation
+  - classification: FEATURE | TASK | SPLIT | CONSOLIDATE
+  - decision_rationale: structured analysis text
+  - recommended_action: text describing next step (create as feature/task, split into N, consolidate)
+
+  # mode = readiness_check
+  - verdict: PASS | FAIL
+  - entry_criteria_results: list of {criterion, status, note}
+  - deliverables_results: list of {deliverable, status, note}
+  - exit_criteria_results: list of {criterion, status, note}
+  - blocking_issues: list of strings (empty on PASS)
+  - required_actions: list of strings (empty on PASS)
+  - readiness_report: structured markdown
+
+  # mode = effort_estimation
+  - base_effort_days: number
+  - adjusted_effort_days: number
+  - confidence_level: HIGH | MEDIUM | LOW
+  - assumptions: list of strings
+  - risks: list of strings
+  - estimate_report: structured markdown
+---
+
+# Assessment Skill (craft)
+
+Standardized assessment workflows for workflow routing, scope validation, quality gates, and effort estimation. This skill is the **craft layer** — it provides the methodology for each decision activity. The host (shark workflow prompt) selects a mode, supplies the inputs above, receives the structured outputs, and is responsible for translating those outputs into workflow state changes.
+
+## Overview
+
+The assessment skill provides four distinct decision-making activities, each invoked independently via `mode`:
+
+1. **Complexity Triage** — Score features across 9 dimensions to assign SIMPLE/STANDARD/COMPLEX tier.
+2. **Scope Validation** — Determine if work belongs at feature or task level (or should be split/consolidated).
+3. **Readiness Check** — Validate phase transition requirements (entry criteria, deliverables, exit criteria).
+4. **Effort Estimation** — Size work items for planning and capacity allocation.
+
+Each activity produces a structured output. The host decides what to do with that output (advance status, store metadata, route through workflow, etc.).
+
+---
+
+## Mode 1: Complexity Triage
+
+**Purpose**: Assign complexity tier (SIMPLE/STANDARD/COMPLEX) to inform workflow routing decisions.
+
+**When to use**: Whenever a feature's complexity needs to be assessed — at intake, after scope changes, or when planning autonomous build feasibility.
+
+### Step 1: Gather Context
+
+From inputs, you should have: `feature_title`, `feature_description`, `epic_context`, optionally `codebase_summary` and `existing_task_count`. If the codebase summary is missing and you need it for accurate scoring, request it from the host (the host is responsible for invoking research upstream when needed).
+
+You should leave this step with: a clear understanding of what the feature is, why it exists, and rough sense of where it fits in the codebase.
+
+### Step 2: Score Across 9 Dimensions
+
+Score each dimension 0-3 points. See `references/complexity-dimensions.md` for the complete rubric and worked examples.
+
+**Technical Complexity (6 dimensions):**
+
+1. **File Impact** — How many files touched? (1-3=0, 4-10=2, 10+=3)
+2. **Pattern Novelty** — How new is the approach? (existing=0, adapt=1, minor new=2, major=3)
+3. **Data Model** — Schema changes? (no change=0, modify=2, new tables=3)
+4. **API Surface** — Public API changes? (no change=0, modify=2, new endpoints=3)
+5. **Cross-Feature Dependencies** — Integration complexity? (isolated=0, 1-2 deps=1, 3+=2, circular=3)
+6. **UI Complexity** — User interface work? (modify=0, simple new=1, complex=2, interactive=3)
+
+**Execution Complexity (3 dimensions):**
+
+7. **Task Estimation** — How many tasks? (1-3=0, 4-7=2, 8+=3)
+8. **Regression Risk** — Quality burden? (additive=0, behavior-preserving=2, breaking=3)
+9. **Execution Effort** — Time estimate? (<1 week=0, 1-2 weeks=1, 3-4 weeks=2, 4+=3)
+
+### Step 3: Calculate Total Score
+
+```
+Total Score = Sum of all 9 dimensions (max 27 points)
+```
+
+### Step 4: Assign Tier
+
+Based on total score:
+
+- **0-6 points**: SIMPLE tier
+- **7-15 points**: STANDARD tier
+- **16+ points**: COMPLEX tier
+
+See `references/tier-thresholds.md` for tier characterization and customization guidance.
+
+### Step 5: Assess Autonomous Build Feasibility
+
+Even STANDARD features may not be suitable for autonomous build. Flag `autonomous_build_feasible = false` when ANY of these hold:
+
+- Task count > 10 (context window limits)
+- Regression risk ≥ 2 (needs human oversight)
+- Execution effort ≥ 2 (too long for single session)
+- Circular dependencies present
+- Novel patterns combined with behavior-preserving requirement
+
+### Step 6: Generate Triage Report
+
+Produce structured markdown with: feature key/title, total score, tier, per-dimension scores with rationale, technical and execution subtotals, tier rationale, autonomous build feasibility verdict, and recommendations (e.g. "consider splitting" if score ≥16 or if task count >10).
+
+Format:
+
+```markdown
+# Complexity Triage Report — {feature_title}
+
+**Score**: {total}/27
+**Tier**: {SIMPLE|STANDARD|COMPLEX}
+
+## Dimension Scores
+
+### Technical Complexity (6 dimensions)
+1. File Impact: {score}/3 — {rationale}
+2. Pattern Novelty: {score}/3 — {rationale}
+3. Data Model: {score}/3 — {rationale}
+4. API Surface: {score}/3 — {rationale}
+5. Cross-Feature Dependencies: {score}/3 — {rationale}
+6. UI Complexity: {score}/3 — {rationale}
+
+### Execution Complexity (3 dimensions)
+7. Task Estimation: {score}/3 — {count} tasks
+8. Regression Risk: {score}/3 — {additive|behavior-preserving|breaking}
+9. Execution Effort: {score}/3 — {time estimate}
+
+**Technical Total**: {sum}/18
+**Execution Total**: {sum}/9
+**Overall Total**: {sum}/27
+
+## Tier Assignment
+
+**Assigned Tier**: {tier}
+**Rationale**: {1-2 sentence explanation}
+
+## Autonomous Build Feasibility
+
+- Task count: {count} (threshold ≤10)
+- Regression risk: {score} (threshold ≤1)
+- Execution effort: {score} (threshold ≤1)
+- Circular dependencies: {yes|no}
+
+**Recommendation**: {feasible | manual execution recommended | consider splitting}
+```
+
+### Step 7: Return Structured Output
+
+Return: `complexity_score`, `tier`, `dimension_scores` (full breakdown), `triage_report`, `autonomous_build_feasible`, `tier_rationale`.
+
+---
+
+## Mode 2: Scope Validation
+
+**Purpose**: Determine if a candidate work item belongs at feature level or task level (or whether existing work should be split/consolidated).
+
+### Step 1: Apply Classification Decision Tree
+
+Use the decision tree from `references/scope-criteria.md`:
+
+```
+Is the work...
+│
+├─ User-visible or stakeholder-visible?
+│  └─ YES → Likely a FEATURE
+│
+├─ Requires multiple implementation steps?
+│  └─ YES → Likely a FEATURE
+│
+├─ Crosses multiple domains/layers?
+│  └─ YES → Likely a FEATURE
+│
+├─ A single technical operation?
+│  └─ YES → Likely a TASK
+│
+└─ Part of implementing a larger feature?
+   └─ YES → Likely a TASK
+```
+
+### Step 2: Check Size Thresholds
+
+**Feature thresholds**:
+
+- Implementation tasks: 2-15 (1 → make it a task; 15+ → split)
+- Lines of code (new): 100-2000
+- Lines of code (refactor): 500-5000
+- Time estimate: 1-10 days
+
+**Task thresholds**:
+
+- Lines of code: 20-500
+- Time estimate: 2 hours - 2 days
+- Acceptance criteria: 2-5
+
+### Step 3: Make Classification Decision
+
+**Classify as FEATURE if**:
+
+- Delivers standalone user/stakeholder value
+- Requires 2+ meaningful implementation steps
+- Crosses multiple system layers
+- Estimated 1-10 days of work
+
+**Classify as TASK if**:
+
+- Atomic unit of work
+- Single cohesive purpose
+- Completable in <2 days
+- Part of a larger feature
+
+**Classify as CONSOLIDATE if**:
+
+- Multiple tasks share same user goal
+- Tasks must be deployed together
+- Individually have no stakeholder value
+
+**Classify as SPLIT if**:
+
+- Feature has 15+ tasks
+- Estimated >10 days
+- Can deliver value incrementally
+- Multiple independent user benefits
+
+### Step 4: Document Decision
+
+```markdown
+# Scope Validation — {work_item_description}
+
+**Classification**: {FEATURE|TASK|SPLIT|CONSOLIDATE}
+
+**Analysis**:
+- User-visible: {yes|no}
+- Multi-step: {yes|no}
+- Integration: {yes|no}
+- Estimated tasks: {count}
+- Estimated time: {duration}
+
+**Decision Rationale**: {explanation}
+
+**Recommended Action**: {create as feature | create as task | split into N features | consolidate into feature X}
+```
+
+### Step 5: Return Structured Output
+
+Return: `classification`, `decision_rationale`, `recommended_action`.
+
+---
+
+## Mode 3: Readiness Check
+
+**Purpose**: Validate that a work item meets the entry criteria, deliverables, and exit criteria for a given phase gate.
+
+**Key principle**: Gates protect downstream phases from incomplete work. Better to catch issues early than discover them mid-implementation.
+
+### Step 1: Resolve Gate Criteria
+
+Look up the gate by `gate_id` in `references/readiness-gates.md`. Each gate defines:
+
+- **Entry criteria** — what must be true to enter this phase
+- **Phase deliverables** — what must be produced during this phase
+- **Exit criteria** — what must be true to advance from this phase
+
+### Step 2: Validate Entry Criteria
+
+Walk each entry criterion. For each, check the supplied `phase_artifacts` and `upstream_state`. Mark each PASS / FAIL with a note explaining the evidence.
+
+### Step 3: Validate Deliverables
+
+Walk each phase deliverable. For each, check whether the artifact exists, is complete, and meets the structural requirements (e.g. PRD has all required sections, architecture defines API contracts, tasks have acceptance criteria).
+
+### Step 4: Validate Exit Criteria
+
+Walk each exit criterion. Mark each PASS / FAIL.
+
+### Step 5: Compute Verdict
+
+- All entry criteria PASS + all deliverables PASS + all exit criteria PASS → **PASS**.
+- Any FAIL → **FAIL**, with the failures populated into `blocking_issues` and remediation steps populated into `required_actions`.
+
+**Verdict rules — be strict**:
+
+- "Almost complete" is FAIL.
+- "Could fix later" is FAIL.
+- "Conditional pass" is not a valid verdict — gates either pass or fail. (Same principle as QA gatekeeping: don't approve incomplete work.)
+
+### Step 6: Generate Readiness Report
+
+```markdown
+# Readiness Check — {gate_id}
+
+**Date**: {date}
+
+## Entry Criteria
+- [x|✗] {criterion} — {note}
+
+## Phase Deliverables
+- [x|✗] {deliverable} — {note}
+
+## Exit Criteria
+- [x|✗] {criterion} — {note}
+
+## Validation Result
+
+**Verdict**: {PASS|FAIL}
+
+{If FAIL}
+**Blocking Issues**:
+- {issue 1}
+- {issue 2}
+
+**Required Actions**:
+- {action 1}
+- {action 2}
+```
+
+### Step 7: Return Structured Output
+
+Return: `verdict`, `entry_criteria_results`, `deliverables_results`, `exit_criteria_results`, `blocking_issues`, `required_actions`, `readiness_report`.
+
+---
+
+## Mode 4: Effort Estimation
+
+**Purpose**: Estimate implementation effort for planning and capacity allocation.
+
+### Step 1: Apply Heuristic Formula
+
+```
+Effort (days) ≈ (file_impact_score × 2) + (task_count × 1.5) + (pattern_novelty_score × 3)
+
+If regression_risk_score == 2 (behavior-preserving): multiply by 1.5
+```
+
+**Worked example**:
+
+- File Impact: 3 (10+ files) → 6 days
+- Task Count: 12 → 18 days
+- Pattern Novelty: 0 (existing) → 0 days
+- Base: 24 days
+- Regression Risk: 2 → multiply by 1.5
+- **Total: 36 days (5-7 weeks)**
+
+### Step 2: Validate Against Tier Thresholds
+
+Compare estimate to tier expectations:
+
+- SIMPLE: <1 week
+- STANDARD: 1-2 weeks
+- COMPLEX: 3+ weeks
+
+If estimate doesn't match the assigned tier, flag this — either tier is wrong or estimate is wrong. Reconsider both.
+
+### Step 3: Apply Context Adjustments
+
+Multiply base estimate by:
+
+- **1.2-1.5×** for teams learning new technology
+- **0.8-0.9×** for teams with deep domain expertise
+- **1.3-1.8×** for refactoring work (hidden complexity)
+- **2.0+×** for greenfield architecture (unknowns)
+
+Document the multiplier and the reason.
+
+### Step 4: State Confidence Level
+
+- **HIGH**: similar features exist, team has done this kind of work, low novelty
+- **MEDIUM**: some unknowns, mix of familiar and novel patterns
+- **LOW**: greenfield, behavior-preserving refactor, novel architecture, or all three
+
+### Step 5: Document Estimate
+
+```markdown
+# Effort Estimate
+
+**Complexity Score**: {score}/27 (tier: {tier})
+
+## Estimation Inputs
+- File Impact: {score}
+- Task Count: {count}
+- Pattern Novelty: {score}
+- Regression Risk: {score}
+
+## Calculation
+Base Effort: {days} days
+Adjustment: {factor}× ({reason})
+**Total Effort**: {days} days ({weeks} weeks)
+
+## Confidence Level
+{HIGH|MEDIUM|LOW} — {rationale}
+
+## Assumptions
+- {assumption 1}
+
+## Risks to Estimate
+- {risk 1}
+```
+
+### Step 6: Return Structured Output
+
+Return: `base_effort_days`, `adjusted_effort_days`, `confidence_level`, `assumptions`, `risks`, `estimate_report`.
+
+---
+
+## Resources
+
+### Reference Files
+
+These contain the detailed methodology — load as needed:
+
+- **`references/complexity-dimensions.md`** — Complete 9-dimension scoring rubric with examples
+- **`references/scope-criteria.md`** — Feature vs task classification with decision trees and worked scenarios
+- **`references/tier-thresholds.md`** — Default tier definitions and customization guidance
+- **`references/readiness-gates.md`** — Phase transition criteria (entry/deliverables/exit) for each gate
+
+---
+
+## Best Practices
+
+### Complexity Triage
+
+1. **Be objective** — use examples in `complexity-dimensions.md` for calibration.
+2. **Count actual tasks** — don't guess; list them.
+3. **Research codebase** — accurate file impact requires looking at the actual code.
+4. **Document reasoning** — show dimension scores and rationale in the report.
+5. **Re-triage when scope changes** — complexity isn't fixed.
+
+### Scope Validation
+
+1. **Think user value first** — features deliver value, tasks implement.
+2. **Check thresholds** — use size guidelines, not just intuition.
+3. **Consider splitting large features** — 15+ tasks is too many.
+4. **Consolidate related tasks** — if they share a user goal.
+5. **Be consistent** — similar work should classify similarly.
+
+### Readiness Checks
+
+1. **Use checklists** — don't rely on memory.
+2. **Fail fast** — catch missing deliverables early.
+3. **Document blocking issues** — be specific about what's missing.
+4. **No conditional passes** — either it passes or it doesn't.
+5. **Update criteria over time** — learn from past gate failures.
+
+### Effort Estimation
+
+1. **Use formula as baseline** — then adjust based on context.
+2. **Include adjustment rationale** — explain multipliers.
+3. **State confidence level** — HIGH/MEDIUM/LOW with reasoning.
+4. **Document assumptions** — what could invalidate the estimate.
+5. **Track actuals** — compare estimates to actual effort for calibration.
+
+---
+
+## Troubleshooting
+
+### Feature scores SIMPLE but feels complex
+
+**Likely cause**: Execution dimensions underestimated.
+
+- Re-count tasks (include testing, review, deployment).
+- Re-assess regression risk (behavior-preserving = 2 points, not 0).
+- Re-estimate effort (include rework, unknowns).
+
+### Feature scores COMPLEX but seems straightforward
+
+**Likely cause**: Technical dimensions overestimated.
+
+- Pattern Novelty: using existing patterns = 0, not 2.
+- File Impact: count actual files, not potential files.
+- Dependencies: direct dependencies only, not transitive.
+
+### Tier doesn't match team consensus
+
+- **Option 1**: Recalibrate scoring (review examples, adjust dimension scores).
+- **Option 2**: Adjust tier thresholds (customize for project — see `tier-thresholds.md`).
+- **Option 3**: Override tier (document reason — strategic importance, learning opportunity, risk mismatch).
+
+### Readiness check keeps failing
+
+**Root cause**: upstream phase incomplete or criteria too strict.
+
+- Review gate entry criteria (are they achievable?).
+- Check upstream deliverables (are they actually complete?).
+- Validate exit criteria (are they measurable?).
+
+---
+
+## Summary
+
+The assessment skill provides four standardized decision-making activities:
+
+1. **Complexity Triage** — assigns SIMPLE/STANDARD/COMPLEX based on 9-dimension scoring.
+2. **Scope Validation** — classifies work as FEATURE/TASK/SPLIT/CONSOLIDATE.
+3. **Readiness Check** — validates entry/deliverables/exit criteria for any gate.
+4. **Effort Estimation** — produces day-level estimates with confidence and adjustments.
+
+Each mode produces structured output. The host workflow is responsible for translating those outputs into state changes, routing decisions, metadata storage, and downstream invocations.
+
+**Key principles**:
+
+- Gates protect quality — no conditional passes.
+- Complexity drives routing — tier determines workflow path.
+- Scope drives sizing — features deliver value, tasks implement.
+- Estimates drive planning — formula + context adjustment + confidence.

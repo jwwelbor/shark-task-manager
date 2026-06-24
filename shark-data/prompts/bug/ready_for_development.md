@@ -1,0 +1,40 @@
+{{template "_resume_preamble" .}}
+{{template "advance_preamble" .}}
+
+Fix bug {{.id}}: "{{.title}}".
+
+Check for existing fix: review git diff and test files. If fix exists with regression test and quality gate passes, advance immediately.
+
+---
+
+BUG FIX WITH REGRESSION TEST
+
+{{include: skills/debugging/SKILL.md}}
+
+{{include: skills/test-driven-development/SKILL.md}}
+
+READ:
+(1) Bug description at {{.file_path}}
+(2) CLAUDE.md for coding standards and test patterns
+(3) Related code areas (grep for affected components)
+
+IMPLEMENT:
+
+Step 1 — REPRODUCE:
+- Write a failing test that demonstrates the bug
+- Confirm test fails: `go test -v ./path/to/package -run TestName`
+
+Step 2 — FIX:
+- Implement minimum fix to make the test pass
+- Follow existing patterns in the codebase
+
+Step 3 — QUALITY GATE (MANDATORY):
+```bash
+make fmt && make lint && make test
+```
+Fix ALL failures before advancing. No exceptions.
+
+EXIT GATE:
+- Regression test proves the bug is fixed
+- Quality gate passes
+- No unrelated changes

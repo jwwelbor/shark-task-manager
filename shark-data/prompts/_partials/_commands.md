@@ -1,0 +1,42 @@
+{{/* ===== Status Commands ===== */}}
+{{define "advance"}}shark status advance {{.id}}{{end}}
+{{define "advance_preamble"}}After completing ALL work below, exit with: {{template "advance" .}}{{end}}
+{{define "status_set"}}shark status set {{.id}}{{end}}
+{{define "status_set_task"}}shark status set {{.task_id}}{{end}}
+
+{{/* ===== List Commands ===== */}}
+{{define "list"}}shark list {{.id}}{{end}}
+{{define "list_json"}}shark list {{.id}} --json{{end}}
+{{define "list_epic"}}shark list {{.epic_id}}{{end}}
+
+{{/* ===== Get Commands (auto-detects entity type from key) ===== */}}
+{{define "get_json"}}shark get {{.id}} --json{{end}}
+{{define "get_json_epic"}}shark get {{.epic_id}} --json{{end}}
+{{define "get_json_task"}}shark get {{.task_id}} --json{{end}}
+
+{{/* ===== Create Commands =====
+     The base forms emit the prefix; callers append `"<title>" --size=<S> [other flags]`.
+     Size scale: 1|2|3|5|8|13 (or XS|S|M|L|XL|XXL). See partials/_sizing.tmpl.
+*/}}
+{{define "create_feature"}}shark create feature {{.id}}{{end}}
+{{define "create_feature_epic"}}shark create feature {{.epic_id}}{{end}}
+{{define "create_task"}}shark create task {{.id}}{{end}}
+{{define "create_task_epic"}}shark create task {{.epic_id}}{{end}}
+
+{{/* Size-annotated example forms — use in instructions to remind agents to pass --size. */}}
+{{define "create_feature_sized"}}{{template "create_feature" .}} "<title>" --size=<1|2|3|5|8|13>{{end}}
+{{define "create_task_sized"}}{{template "create_task" .}} "<title>" --size=<1|2|3|5|8|13>{{end}}
+
+{{/* ===== Context Commands (auto-detects entity type from key) ===== */}}
+{{define "context_json"}}shark context {{.id}} --json{{end}}
+{{define "context_set"}}shark context set {{.id}}{{end}}
+{{define "context_set_epic"}}shark context set {{.epic_id}}{{end}}
+
+{{/* ===== Notes Commands (auto-detects entity type from key) ===== */}}
+{{define "create_note"}}shark create note {{.id}}{{end}}
+{{define "create_note_task"}}shark create note {{.task_id}}{{end}}
+{{define "notes_list"}}shark task notes {{.id}}{{end}}
+
+{{/* ===== Related Docs Commands ===== */}}
+{{define "related_docs_list_epic"}}shark related-docs list --epic={{.id}}{{end}}
+{{define "related_docs_list_feature"}}shark related-docs list --feature={{.id}}{{end}}
