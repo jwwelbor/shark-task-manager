@@ -130,7 +130,10 @@ func TestBuildTaskGetJSON_SizeIncludedWhenNonNil(t *testing.T) {
 }
 
 func TestBuildTaskGetJSON_SizeAbsentWhenNil(t *testing.T) {
-	// TC-F006-B: nil Size should not appear in the JSON map.
+	// TC-F006-B + B032: when Size is nil the JSON map must still expose
+	// "size" with a nil value (and "size_label" likewise) so JSON consumers
+	// can rely on `--field size` / `jq has("size")` like they can for sized
+	// tasks.
 	task := &models.Task{
 		BaseEntity: models.BaseEntity{
 			ID:    2,
@@ -144,13 +147,13 @@ func TestBuildTaskGetJSON_SizeAbsentWhenNil(t *testing.T) {
 
 	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	if v, ok := result["size"]; ok {
-		// size should be absent or nil when task.Size == nil
-		if v != nil {
-			t.Errorf("buildTaskGetJSON: expected 'size' absent or nil when Size=nil, got %v (%T)", v, v)
-		}
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("buildTaskGetJSON (B032): expected 'size' key to be present even when Size=nil")
 	}
-	// Acceptable: key absent OR key present with nil value.
+	if v != nil {
+		t.Errorf("buildTaskGetJSON (B032): expected 'size' nil when Size=nil, got %v (%T)", v, v)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +189,8 @@ func TestBuildEpicGetJSON_SizeIncludedWhenNonNil(t *testing.T) {
 }
 
 func TestBuildEpicGetJSON_SizeAbsentWhenNil(t *testing.T) {
+	// B032: 'size' (and 'size_label') must be present even when unset so
+	// `--field size` / `jq has("size")` are reliable across entity types.
 	epic := &models.Epic{
 		BaseEntity: models.BaseEntity{
 			ID:    2,
@@ -201,8 +206,12 @@ func TestBuildEpicGetJSON_SizeAbsentWhenNil(t *testing.T) {
 	}
 	result := buildEpicGetJSON(epic, data, nil)
 
-	if v, ok := result["size"]; ok && v != nil {
-		t.Errorf("buildEpicGetJSON: expected 'size' absent or nil when Size=nil, got %v", v)
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("buildEpicGetJSON (B032): expected 'size' key to be present even when Size=nil")
+	}
+	if v != nil {
+		t.Errorf("buildEpicGetJSON (B032): expected 'size' nil when Size=nil, got %v", v)
 	}
 }
 
@@ -232,6 +241,8 @@ func TestBuildFeatureGetJSON_SizeIncludedWhenNonNil(t *testing.T) {
 }
 
 func TestBuildFeatureGetJSON_SizeAbsentWhenNil(t *testing.T) {
+	// B032: 'size' (and 'size_label') must be present even when unset so
+	// `--field size` / `jq has("size")` are reliable across entity types.
 	feature := &models.Feature{
 		BaseEntity: models.BaseEntity{
 			ID:    2,
@@ -244,8 +255,12 @@ func TestBuildFeatureGetJSON_SizeAbsentWhenNil(t *testing.T) {
 	data := &FeatureGetData{}
 	result := buildFeatureGetJSON(feature, data, nil)
 
-	if v, ok := result["size"]; ok && v != nil {
-		t.Errorf("buildFeatureGetJSON: expected 'size' absent or nil when Size=nil, got %v", v)
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("buildFeatureGetJSON (B032): expected 'size' key to be present even when Size=nil")
+	}
+	if v != nil {
+		t.Errorf("buildFeatureGetJSON (B032): expected 'size' nil when Size=nil, got %v", v)
 	}
 }
 
@@ -383,6 +398,8 @@ func TestBuildTaskGetJSON_SizeLabelIncludedWhenNonNil(t *testing.T) {
 }
 
 func TestBuildTaskGetJSON_SizeLabelAbsentWhenNil(t *testing.T) {
+	// B032: 'size_label' must be present (nil) when Size=nil so callers can
+	// rely on `--field size_label` across entity types.
 	task := &models.Task{
 		BaseEntity: models.BaseEntity{
 			ID:    4,
@@ -396,8 +413,12 @@ func TestBuildTaskGetJSON_SizeLabelAbsentWhenNil(t *testing.T) {
 
 	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	if v, ok := result["size_label"]; ok && v != nil {
-		t.Errorf("buildTaskGetJSON: expected 'size_label' absent or nil when Size=nil, got %v", v)
+	v, ok := result["size_label"]
+	if !ok {
+		t.Fatal("buildTaskGetJSON (B032): expected 'size_label' key to be present even when Size=nil")
+	}
+	if v != nil {
+		t.Errorf("buildTaskGetJSON (B032): expected 'size_label' nil when Size=nil, got %v", v)
 	}
 }
 
@@ -595,6 +616,125 @@ func TestIdeaGetJSON_SizeLabelAbsentWhenNil(t *testing.T) {
 
 	if v, ok := result["size_label"]; ok && v != nil {
 		t.Errorf("buildIdeaGetJSON: expected 'size_label' absent or nil when Size=nil, got %v", v)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// B032 — `shark get <key> --json` must always expose size and size_label
+// for epic, feature, task, bug, and change-card (null when unset). These
+// tests exercise the bug/change-card path which composes buildEnrichedJSON
+// with ensureSizeFieldsAlwaysPresent (epic/feature/task have their own
+// dedicated tests above).
+// ---------------------------------------------------------------------------
+
+// b032AssembleBugJSON mirrors the bug get JSON pipeline used in runBugGet.
+func b032AssembleBugJSON(t *testing.T, bug *models.Bug) map[string]interface{} {
+	t.Helper()
+	result, err := buildEnrichedJSON(bug, nil, nil)
+	if err != nil {
+		t.Fatalf("buildEnrichedJSON(bug): unexpected error: %v", err)
+	}
+	ensureSizeFieldsAlwaysPresent(result, bug)
+	return result
+}
+
+// b032AssembleChangeJSON mirrors the change-card get JSON pipeline used in runChangeGet.
+func b032AssembleChangeJSON(t *testing.T, card *models.ChangeCard) map[string]interface{} {
+	t.Helper()
+	result, err := buildEnrichedJSON(card, nil, nil)
+	if err != nil {
+		t.Fatalf("buildEnrichedJSON(change): unexpected error: %v", err)
+	}
+	ensureSizeFieldsAlwaysPresent(result, card)
+	return result
+}
+
+func TestB032_BugGetJSON_SizePresentWhenNonNil(t *testing.T) {
+	n := 5
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Sized Bug", Size: &n},
+		Status:     models.BugStatus("reported"),
+		Severity:   models.BugSeverity("medium"),
+	}
+	result := b032AssembleBugJSON(t, bug)
+
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("B032 bug: expected 'size' key when Size=5")
+	}
+	// json.Unmarshal in buildEnrichedJSON yields float64; assertSizeValue handles both.
+	assertSizeValue(t, "B032 bug get", v, 5)
+
+	if label, ok := result["size_label"]; !ok || label != "L" {
+		t.Errorf("B032 bug: expected size_label='L', got %v (present=%v)", label, ok)
+	}
+}
+
+func TestB032_BugGetJSON_SizePresentAsNullWhenNil(t *testing.T) {
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{ID: 2, Key: "B002", Title: "Unsized Bug", Size: nil},
+		Status:     models.BugStatus("reported"),
+		Severity:   models.BugSeverity("low"),
+	}
+	result := b032AssembleBugJSON(t, bug)
+
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("B032 bug: expected 'size' key to be present even when Size=nil (regression: bug was omitting the key)")
+	}
+	if v != nil {
+		t.Errorf("B032 bug: expected 'size' nil when Size=nil, got %v (%T)", v, v)
+	}
+	label, ok := result["size_label"]
+	if !ok {
+		t.Fatal("B032 bug: expected 'size_label' key to be present even when Size=nil")
+	}
+	if label != nil {
+		t.Errorf("B032 bug: expected 'size_label' nil when Size=nil, got %v", label)
+	}
+}
+
+func TestB032_ChangeCardGetJSON_SizePresentWhenNonNil(t *testing.T) {
+	n := 3
+	card := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Sized Change", Size: &n},
+		Status:     models.ChangeCardStatus("draft"),
+		Priority:   2,
+	}
+	result := b032AssembleChangeJSON(t, card)
+
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("B032 change: expected 'size' key when Size=3")
+	}
+	assertSizeValue(t, "B032 change get", v, 3)
+
+	if label, ok := result["size_label"]; !ok || label != "M" {
+		t.Errorf("B032 change: expected size_label='M', got %v (present=%v)", label, ok)
+	}
+}
+
+func TestB032_ChangeCardGetJSON_SizePresentAsNullWhenNil(t *testing.T) {
+	card := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{ID: 2, Key: "CC-002", Title: "Unsized Change", Size: nil},
+		Status:     models.ChangeCardStatus("draft"),
+		Priority:   3,
+	}
+	result := b032AssembleChangeJSON(t, card)
+
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("B032 change: expected 'size' key to be present even when Size=nil (regression: change-card was omitting the key)")
+	}
+	if v != nil {
+		t.Errorf("B032 change: expected 'size' nil when Size=nil, got %v (%T)", v, v)
+	}
+	label, ok := result["size_label"]
+	if !ok {
+		t.Fatal("B032 change: expected 'size_label' key to be present even when Size=nil")
+	}
+	if label != nil {
+		t.Errorf("B032 change: expected 'size_label' nil when Size=nil, got %v", label)
 	}
 }
 
@@ -937,12 +1077,17 @@ func simulateEpicPlanningModeJSON(info *services.EpicDisplayInfo, epic *models.E
 		jsonTags = []string{}
 	}
 	infoMap["tags"] = jsonTags
-	// Mirror the production injection from the F-UAT-1 fix.
+	// Mirror the production injection from the F-UAT-1 fix + B032 (always present).
 	if epic.Size != nil {
 		infoMap["size"] = *epic.Size
 		if label, labelErr := models.SizeLabel(*epic.Size); labelErr == nil {
 			infoMap["size_label"] = label
+		} else {
+			infoMap["size_label"] = nil
 		}
+	} else {
+		infoMap["size"] = nil
+		infoMap["size_label"] = nil
 	}
 	return infoMap, nil
 }
@@ -963,12 +1108,17 @@ func simulateFeaturePlanningModeJSON(info *services.FeatureDisplayInfo, feature 
 		jsonTags = []string{}
 	}
 	infoMap["tags"] = jsonTags
-	// Mirror the production injection from the F-UAT-2 fix.
+	// Mirror the production injection from the F-UAT-2 fix + B032 (always present).
 	if feature.Size != nil {
 		infoMap["size"] = *feature.Size
 		if label, labelErr := models.SizeLabel(*feature.Size); labelErr == nil {
 			infoMap["size_label"] = label
+		} else {
+			infoMap["size_label"] = nil
 		}
+	} else {
+		infoMap["size"] = nil
+		infoMap["size_label"] = nil
 	}
 	return infoMap, nil
 }
@@ -1024,7 +1174,9 @@ func TestEpicPlanningModeJSON_SizeAtTopLevel(t *testing.T) {
 }
 
 // TestEpicPlanningModeJSON_SizeAbsentWhenNil verifies that when Size is nil,
-// no "size" or "size_label" keys appear at the top level (AC-T1 / omitempty).
+// "size" and "size_label" are present as null at the top level (B032 — keys
+// are always exposed so callers can rely on `--field size` and
+// `jq has("size")`).
 func TestEpicPlanningModeJSON_SizeAbsentWhenNil(t *testing.T) {
 	epic := &models.Epic{
 		BaseEntity: models.BaseEntity{
@@ -1047,11 +1199,19 @@ func TestEpicPlanningModeJSON_SizeAbsentWhenNil(t *testing.T) {
 		t.Fatalf("simulateEpicPlanningModeJSON: unexpected error: %v", err)
 	}
 
-	if v, ok := result["size"]; ok && v != nil {
-		t.Errorf("planning-mode epic JSON: expected 'size' absent when nil, got %v", v)
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("planning-mode epic JSON (B032): expected 'size' key to be present even when Size=nil")
 	}
-	if v, ok := result["size_label"]; ok && v != nil {
-		t.Errorf("planning-mode epic JSON: expected 'size_label' absent when nil, got %v", v)
+	if v != nil {
+		t.Errorf("planning-mode epic JSON (B032): expected 'size' nil when Size=nil, got %v", v)
+	}
+	label, ok := result["size_label"]
+	if !ok {
+		t.Fatal("planning-mode epic JSON (B032): expected 'size_label' key to be present even when Size=nil")
+	}
+	if label != nil {
+		t.Errorf("planning-mode epic JSON (B032): expected 'size_label' nil when Size=nil, got %v", label)
 	}
 }
 
@@ -1105,7 +1265,7 @@ func TestFeaturePlanningModeJSON_SizeAtTopLevel(t *testing.T) {
 }
 
 // TestFeaturePlanningModeJSON_SizeAbsentWhenNil verifies that when Size is nil,
-// no "size" or "size_label" keys appear at the top level.
+// "size" and "size_label" are present as null at the top level (B032).
 func TestFeaturePlanningModeJSON_SizeAbsentWhenNil(t *testing.T) {
 	feature := &models.Feature{
 		BaseEntity: models.BaseEntity{
@@ -1128,11 +1288,19 @@ func TestFeaturePlanningModeJSON_SizeAbsentWhenNil(t *testing.T) {
 		t.Fatalf("simulateFeaturePlanningModeJSON: unexpected error: %v", err)
 	}
 
-	if v, ok := result["size"]; ok && v != nil {
-		t.Errorf("planning-mode feature JSON: expected 'size' absent when nil, got %v", v)
+	v, ok := result["size"]
+	if !ok {
+		t.Fatal("planning-mode feature JSON (B032): expected 'size' key to be present even when Size=nil")
 	}
-	if v, ok := result["size_label"]; ok && v != nil {
-		t.Errorf("planning-mode feature JSON: expected 'size_label' absent when nil, got %v", v)
+	if v != nil {
+		t.Errorf("planning-mode feature JSON (B032): expected 'size' nil when Size=nil, got %v", v)
+	}
+	label, ok := result["size_label"]
+	if !ok {
+		t.Fatal("planning-mode feature JSON (B032): expected 'size_label' key to be present even when Size=nil")
+	}
+	if label != nil {
+		t.Errorf("planning-mode feature JSON (B032): expected 'size_label' nil when Size=nil, got %v", label)
 	}
 }
 

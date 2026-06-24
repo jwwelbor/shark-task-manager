@@ -578,3 +578,78 @@ func TestStatusMetadata_IsPlanningOmittedDefaults(t *testing.T) {
 		t.Errorf("expected AggregatesFrom='' when omitted, got %q", meta.AggregatesFrom)
 	}
 }
+
+// TestGetByType_AllSlotsAndUnknown verifies GetByType returns the slot pointer
+// for each of the seven recognized entity types (without falling back to
+// defaults) and nil for an unknown type. This locks in GetByType as the
+// single dispatcher source so aliases.go and other call sites can rely on it.
+func TestGetByType_AllSlotsAndUnknown(t *testing.T) {
+	// Construct an MLW where every slot has a uniquely identifiable value.
+	mark := func(label string) *WorkflowConfig {
+		return &WorkflowConfig{
+			Version: label,
+			StatusFlow: map[string][]string{
+				label: {},
+			},
+		}
+	}
+	m := &MultiLevelWorkflow{
+		Epic:     mark("epic-cfg"),
+		Feature:  mark("feature-cfg"),
+		Task:     mark("task-cfg"),
+		Sprint:   mark("sprint-cfg"),
+		Bug:      mark("bug-cfg"),
+		Change:   mark("change-cfg"),
+		TechDebt: mark("tech_debt-cfg"),
+	}
+
+	tests := []struct {
+		entityType string
+		wantLabel  string // empty means expect nil
+	}{
+		{"epic", "epic-cfg"},
+		{"feature", "feature-cfg"},
+		{"task", "task-cfg"},
+		{"sprint", "sprint-cfg"},
+		{"bug", "bug-cfg"},
+		{"change", "change-cfg"},
+		{"tech_debt", "tech_debt-cfg"},
+		{"unknown", ""},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.entityType, func(t *testing.T) {
+			got := m.GetByType(tt.entityType)
+			if tt.wantLabel == "" {
+				if got != nil {
+					t.Fatalf("GetByType(%q) = %+v, want nil", tt.entityType, got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("GetByType(%q) = nil, want slot with version %q", tt.entityType, tt.wantLabel)
+			}
+			if got.Version != tt.wantLabel {
+				t.Errorf("GetByType(%q).Version = %q, want %q", tt.entityType, got.Version, tt.wantLabel)
+			}
+		})
+	}
+
+	// Nil slot should return nil (no fallback). Use a fresh empty MLW so
+	// every slot is unset.
+	empty := &MultiLevelWorkflow{}
+	for _, et := range EntityTypes() {
+		if got := empty.GetByType(et); got != nil {
+			t.Errorf("empty MLW: GetByType(%q) = %+v, want nil (no fallback)", et, got)
+		}
+	}
+
+	// EntityTypes must cover every slot GetByType recognizes. Verify by
+	// ensuring every entry resolves to a non-nil slot on the marked MLW.
+	for _, et := range EntityTypes() {
+		if got := m.GetByType(et); got == nil {
+			t.Errorf("EntityTypes() lists %q but GetByType returned nil for marked MLW", et)
+		}
+	}
+}

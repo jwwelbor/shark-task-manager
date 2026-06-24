@@ -149,6 +149,10 @@ func TestValidateNoteType_EnumAllowlist(t *testing.T) {
 		"comment", "decision", "blocker", "solution",
 		"reference", "implementation", "testing", "future",
 		"question", "rejection", "requirement",
+		// B027: "review" must be accepted so the canonical code-review
+		// workflow (which emits --type=review at PASS verdicts) works
+		// across all entity types — including bugs.
+		"review",
 	}
 
 	for _, validType := range validTypes {
@@ -184,6 +188,48 @@ func TestValidateNoteType_EnumAllowlist(t *testing.T) {
 				t.Errorf("ValidateNoteType(%q) returned wrong error type: got %v, want ErrInvalidNoteType", tt.input, err)
 			}
 		})
+	}
+}
+
+// TestValidateNoteType_ErrorMessageLocksAllowlist guards against drift
+// between the validNoteTypes allowlist and the user-facing error
+// message rendered by ValidateNoteType. Both must be sourced from the
+// same slice so that adding a new note type automatically updates the
+// error hint. TD-015 was filed precisely because they had drifted
+// ("review" was accepted by the validator but missing from the
+// sentinel message); this test makes that drift impossible to
+// reintroduce.
+func TestValidateNoteType_ErrorMessageLocksAllowlist(t *testing.T) {
+	err := ValidateNoteType("definitely-not-a-real-note-type")
+	if err == nil {
+		t.Fatal("ValidateNoteType returned nil for invalid input")
+	}
+	msg := err.Error()
+
+	for _, nt := range ValidNoteTypes() {
+		if !strings.Contains(msg, nt) {
+			t.Errorf("error message missing note type %q (drift from allowlist); full message: %s", nt, msg)
+		}
+	}
+
+	// Sanity: ValidNoteTypes() must match the test's own expectations
+	// for the canonical set. If a new type is added, update the list
+	// here too — this is an intentional cross-check that catches both
+	// silent removals from validNoteTypes and accidental additions.
+	want := map[string]bool{
+		"comment": true, "decision": true, "blocker": true, "solution": true,
+		"reference": true, "implementation": true, "testing": true,
+		"future": true, "question": true, "rejection": true,
+		"requirement": true, "review": true,
+	}
+	got := ValidNoteTypes()
+	if len(got) != len(want) {
+		t.Errorf("ValidNoteTypes() length = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for _, nt := range got {
+		if !want[nt] {
+			t.Errorf("ValidNoteTypes() returned unexpected type %q — update the test if this is intentional", nt)
+		}
 	}
 }
 

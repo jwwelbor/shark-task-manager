@@ -356,6 +356,148 @@ func TestTaskRepository_UpdateNoResequence_PreservesDuplicateOrders(t *testing.T
 	assert.Equal(t, 1, taskOrders["Task C"], "Task C should be at order 1 alongside Task A")
 }
 
+// TestTaskRepository_UpdateNoResequence_SkipsDependencyValidation verifies that
+// the --parallel update path (UpdateNoResequence / forceSkipCascade=true) bypasses
+// ValidateTaskDependencies. This locks the TD-008 optimization: the fast path
+// renumber-only update must NOT issue dependency-checking SELECTs since DependsOn
+// is unchanged.
+//
+// We assert this behaviorally: write a depends_on value pointing to a non-existent
+// key. Update() rejects this (validation runs), but UpdateNoResequence() succeeds
+// (validation is bypassed) — proving the fast path skipped dependency validation.
+func TestTaskRepository_UpdateNoResequence_SkipsDependencyValidation(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	taskRepo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E93-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E93-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E93'")
+
+	// Create test epic + feature
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E93",
+		Title: "Test Epic TD-008"}, Status: models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E93-F01",
+		Title: "Test Feature TD-008"}, EpicID: testEpic.ID,
+		Status: models.FeatureStatusDraft,
+	}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	order1 := 1
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E93-F01-001", Title: "Task X"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order1,
+	}
+	require.NoError(t, taskRepo.Create(ctx, task))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
+
+	// Inject a depends_on pointing to a well-formed but non-existent task key.
+	// Update() should reject this via ValidateTaskDependencies (which calls
+	// ListByFeature and checks existence); UpdateNoResequence must accept it
+	// because the fast path skips dependency validation entirely.
+	bogusDeps := `["T-E93-F01-999"]`
+	task.DependsOn = &bogusDeps
+
+	// Sanity check: regular Update() rejects.
+	err := taskRepo.Update(ctx, task)
+	require.Error(t, err, "regular Update should reject depends_on with non-existent key")
+	assert.Contains(t, err.Error(), "dependency", "error should mention dependency validation")
+
+	// The fast path must succeed despite the same invalid depends_on.
+	newOrder := 2
+	task.ExecutionOrder = &newOrder
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task),
+		"UpdateNoResequence must skip dependency validation (TD-008)")
+
+	// Verify the row was actually updated.
+	got, err := taskRepo.GetByKey(ctx, "T-E93-F01-001")
+	require.NoError(t, err)
+	require.NotNil(t, got.ExecutionOrder)
+	assert.Equal(t, 2, *got.ExecutionOrder, "execution_order should have been updated")
+}
+
+// TestTaskRepository_UpdateNoResequence_FastPath verifies the TD-008 fast path:
+// when forceSkipCascade short-circuits, the update lands the new row state and
+// leaves no connection in use afterwards.
+//
+// NOTE: this test does NOT prove a transaction was never opened — db.Stats()
+// returns InUse==0 after completion for both the tx and non-tx paths, so it
+// cannot distinguish them. Counting BeginTx invocations would require a driver
+// wrapper, which is out of scope here; we deliberately scope this test to the
+// observable post-conditions (row updated, pool drained) rather than overclaim.
+func TestTaskRepository_UpdateNoResequence_FastPath(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	taskRepo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E92-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E92-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E92'")
+
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E92",
+		Title: "Test Epic TD-008 NoTx"}, Status: models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E92-F01",
+		Title: "Test Feature TD-008 NoTx"}, EpicID: testEpic.ID,
+		Status: models.FeatureStatusDraft,
+	}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	order1 := 1
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E92-F01-001", Title: "Task NoTx"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order1,
+	}
+	require.NoError(t, taskRepo.Create(ctx, task))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
+
+	statsBefore := database.Stats()
+
+	// Exercise the fast path.
+	newOrder := 7
+	task.ExecutionOrder = &newOrder
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task))
+
+	statsAfter := database.Stats()
+
+	// Post-condition: the connection pool is drained (no connection left in use).
+	// This holds for both the tx and non-tx paths, so it is a leak check, not a
+	// proof that no transaction was opened — see the function doc.
+	assert.Equal(t, 0, statsAfter.InUse, "no connection should be in-use after UpdateNoResequence returns")
+	// Sanity: the call must have actually done some database work.
+	assert.GreaterOrEqual(t, statsAfter.OpenConnections, statsBefore.OpenConnections,
+		"OpenConnections should not have decreased")
+
+	// Verify the row was actually updated.
+	got, err := taskRepo.GetByKey(ctx, "T-E92-F01-001")
+	require.NoError(t, err)
+	require.NotNil(t, got.ExecutionOrder)
+	assert.Equal(t, 7, *got.ExecutionOrder)
+}
+
 // TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason tests rejection reason validation
 func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing.T) {
 	ctx := context.Background()

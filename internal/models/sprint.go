@@ -72,6 +72,68 @@ type SprintCapacity struct {
 	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
 }
 
+// ----------------------------------------------------------------------------
+// Entity interface implementation (B030).
+//
+// Sprint pre-dates the polymorphic BaseEntity refactor and does not embed
+// BaseEntity (it uses Name rather than Title, has no Description, and lacks
+// a context_data column). The methods below adapt the Sprint fields to the
+// shared models.Entity interface so that cross-cutting services (NoteService,
+// EntityRegistry, etc.) can treat sprints polymorphically.
+//
+// For fields the sprint table does not carry (Description, ContextData,
+// Size), the accessors return zero values and the setters are no-ops -- the
+// underlying storage simply has nowhere to persist those fields.
+// ----------------------------------------------------------------------------
+
+// GetID returns the sprint database ID.
+func (s *Sprint) GetID() int64 { return s.ID }
+
+// GetKey returns the sprint key (e.g., "S001").
+func (s *Sprint) GetKey() string { return s.Key }
+
+// GetTitle returns the sprint Name field. Sprints use Name rather than Title;
+// this accessor adapts that to the shared Entity contract.
+func (s *Sprint) GetTitle() string { return s.Name }
+
+// GetSlug returns the sprint slug.
+func (s *Sprint) GetSlug() string { return s.Slug }
+
+// GetEntityType returns EntityTypeSprint.
+func (s *Sprint) GetEntityType() EntityType { return EntityTypeSprint }
+
+// GetStatus returns the sprint status as a string.
+func (s *Sprint) GetStatus() string { return string(s.Status) }
+
+// SetStatus updates the sprint status from a string value.
+func (s *Sprint) SetStatus(status string) { s.Status = SprintStatus(status) }
+
+// GetDescription returns the sprint goal (sprints have no Description field;
+// Goal is the closest semantic equivalent).
+func (s *Sprint) GetDescription() string { return s.Goal }
+
+// GetFilePath returns the sprint file_path.
+func (s *Sprint) GetFilePath() string { return s.FilePath }
+
+// GetContextData returns nil; sprints do not carry context_data.
+func (s *Sprint) GetContextData() *string { return nil }
+
+// SetContextData is a no-op; sprints do not carry context_data.
+func (s *Sprint) SetContextData(_ *string) {}
+
+// GetCreatedAt returns the sprint creation timestamp.
+func (s *Sprint) GetCreatedAt() time.Time { return s.CreatedAt }
+
+// GetUpdatedAt returns the sprint last-updated timestamp.
+func (s *Sprint) GetUpdatedAt() time.Time { return s.UpdatedAt }
+
+// GetSize returns nil; sprints are not sized in the canonical Fibonacci sense
+// (capacity and velocity are derived from their assignment rows instead).
+func (s *Sprint) GetSize() *int { return nil }
+
+// SetSize is a no-op; sprints do not carry a Size field.
+func (s *Sprint) SetSize(_ *int) {}
+
 // Validate performs structural validation on the Sprint model.
 //
 // It does NOT check workflow status validity — that is the service layer's

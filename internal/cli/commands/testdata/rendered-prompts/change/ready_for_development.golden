@@ -1,0 +1,19 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+Implement change E07-F01: "Sample feature for golden test".
+
+Check for existing implementation. If changes exist and quality gate passes, advance immediately.
+
+---
+
+READ:
+(1) Change card description at docs/plan/E07/E07-F01/E07-F01.md
+(2) CLAUDE.md for coding standards
+
+IMPLEMENT the change with appropriate testing. Run quality gate: make fmt && make lint && make test
+
+EXIT GATE:
+- Change implemented per description
+- Tests pass
+- Quality gate passes

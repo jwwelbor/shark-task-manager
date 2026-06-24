@@ -612,6 +612,60 @@ func TestFeatureRepository_UpdateNoResequence_PreservesDuplicateOrders(t *testin
 	assert.Equal(t, 1, featureOrders["Feature C"], "Feature C should be at order 1 alongside Feature A")
 }
 
+// TestFeatureRepository_UpdateNoResequence_FastPath verifies the TD-008 fast
+// path: the --parallel feature update lands the new row state and drains the
+// connection pool.
+//
+// NOTE: db.Stats().InUse==0 holds for both the tx and non-tx paths, so this
+// does not prove a transaction was never opened — it is a leak/post-condition
+// check. Proving "no BeginTx" would require a driver wrapper (out of scope).
+func TestFeatureRepository_UpdateNoResequence_FastPath(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	featureRepo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E94-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E94'")
+
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E94",
+		Title: "Test Epic Feature TD-008 NoTx"}, Status: models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	order1 := 1
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E94-F01", Title: "Feature NoTx"},
+		EpicID: testEpic.ID, Status: models.FeatureStatusDraft, ExecutionOrder: &order1}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	statsBefore := database.Stats()
+
+	// Exercise the fast path.
+	newOrder := 7
+	testFeature.ExecutionOrder = &newOrder
+	require.NoError(t, featureRepo.UpdateNoResequence(ctx, testFeature))
+
+	statsAfter := database.Stats()
+
+	// Post-condition: no connection left in use (true for any clean exit, tx or
+	// not — a leak check, not a proof that BEGIN/COMMIT is gone; see the doc).
+	assert.Equal(t, 0, statsAfter.InUse, "no connection should be in-use after UpdateNoResequence returns")
+	assert.GreaterOrEqual(t, statsAfter.OpenConnections, statsBefore.OpenConnections,
+		"OpenConnections should not have decreased")
+
+	got, err := featureRepo.GetByKey(ctx, "E94-F01")
+	require.NoError(t, err)
+	require.NotNil(t, got.ExecutionOrder)
+	assert.Equal(t, 7, *got.ExecutionOrder)
+}
+
 // TestFeatureRepository_UpdateStatusTx tests the transactional status update method.
 func TestFeatureRepository_UpdateStatusTx(t *testing.T) {
 	ctx := context.Background()

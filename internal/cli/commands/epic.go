@@ -221,7 +221,7 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 	}
 	epics, err := cli.GetEpicService().ListEpics(ctx, services.EpicFilters{Status: statusFilter, Tags: tagFilter})
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "epic", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeEpic, "")
 	}
 
 	if len(epics) == 0 {
@@ -290,16 +290,11 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
-			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
-			// that --field size and --field size_label work for planning-mode epics.
-			// The struct marshals size inside the nested "epic" key; we mirror
-			// the aggregation-mode pattern by also surfacing them at the top level.
-			if epic.Size != nil {
-				infoMap["size"] = *epic.Size
-				if label, err := models.SizeLabel(*epic.Size); err == nil {
-					infoMap["size_label"] = label
-				}
-			}
+			// B032 / E07-F42 REQ-F-006/007: always surface size and size_label at
+			// the top level (null when unset) so `--field size` / `--field
+			// size_label` work for planning-mode epics and JSON is consistent
+			// across entity types.
+			ensureSizeFieldsAlwaysPresent(infoMap, epic)
 			return cli.OutputJSON(infoMap)
 		}
 		renderEpicPlanningWithTags(info, tags)

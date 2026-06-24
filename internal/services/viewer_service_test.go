@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
 	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -81,6 +82,8 @@ type mockViewerTaskRepo struct {
 	CountBlockedFunc                         func(ctx context.Context) (int, error)
 	ListWithViewerRelationshipsFunc          func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
 	ListByFeatureWithViewerRelationshipsFunc func(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error)
+	CountsByFeatureFunc                      func(ctx context.Context) (map[int64]task.FeatureTaskCounts, error)
+	FeatureIDsForTaskIDsFunc                 func(ctx context.Context, taskIDs []int64) (map[int64]struct{}, error)
 }
 
 func (m *mockViewerTaskRepo) List(ctx context.Context) ([]*models.Task, error) {
@@ -154,6 +157,93 @@ func (m *mockViewerTaskRepo) ListByFeatureWithViewerRelationships(ctx context.Co
 		return result, nil
 	}
 	return []*models.ViewerTaskWithRelationships{}, nil
+}
+
+// CountsByFeature returns total + blocked task counts per feature. When no
+// CountsByFeatureFunc is configured, derives counts from ListFunc or
+// ListWithViewerRelationshipsFunc so existing tests that seed task fixtures
+// through either path continue to work (B017).
+func (m *mockViewerTaskRepo) CountsByFeature(ctx context.Context) (map[int64]task.FeatureTaskCounts, error) {
+	if m.CountsByFeatureFunc != nil {
+		return m.CountsByFeatureFunc(ctx)
+	}
+	counts := make(map[int64]task.FeatureTaskCounts)
+	if m.ListFunc != nil {
+		tasks, err := m.ListFunc(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tasks {
+			c := counts[t.FeatureID]
+			c.Total++
+			if t.BlockedReason != nil {
+				c.Blocked++
+			}
+			counts[t.FeatureID] = c
+		}
+		return counts, nil
+	}
+	if m.ListWithViewerRelationshipsFunc != nil {
+		tasks, err := m.ListWithViewerRelationshipsFunc(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tasks {
+			if t == nil || t.Task == nil {
+				continue
+			}
+			c := counts[t.FeatureID]
+			c.Total++
+			if t.BlockedReason != nil {
+				c.Blocked++
+			}
+			counts[t.FeatureID] = c
+		}
+	}
+	return counts, nil
+}
+
+// FeatureIDsForTaskIDs maps tag-matched task IDs back to their parent feature
+// IDs. Defaults to deriving from ListFunc or ListWithViewerRelationshipsFunc (B017).
+func (m *mockViewerTaskRepo) FeatureIDsForTaskIDs(ctx context.Context, taskIDs []int64) (map[int64]struct{}, error) {
+	if m.FeatureIDsForTaskIDsFunc != nil {
+		return m.FeatureIDsForTaskIDsFunc(ctx, taskIDs)
+	}
+	if len(taskIDs) == 0 {
+		return map[int64]struct{}{}, nil
+	}
+	idSet := make(map[int64]struct{}, len(taskIDs))
+	for _, id := range taskIDs {
+		idSet[id] = struct{}{}
+	}
+	result := make(map[int64]struct{})
+	if m.ListFunc != nil {
+		tasks, err := m.ListFunc(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tasks {
+			if _, ok := idSet[t.ID]; ok {
+				result[t.FeatureID] = struct{}{}
+			}
+		}
+		return result, nil
+	}
+	if m.ListWithViewerRelationshipsFunc != nil {
+		tasks, err := m.ListWithViewerRelationshipsFunc(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tasks {
+			if t == nil || t.Task == nil {
+				continue
+			}
+			if _, ok := idSet[t.ID]; ok {
+				result[t.FeatureID] = struct{}{}
+			}
+		}
+	}
+	return result, nil
 }
 
 type mockViewerBugRepo struct {
@@ -2560,38 +2650,10 @@ func TestViewerTask_RelationshipsFieldExists(t *testing.T) {
 	var _ []ViewerRelatedEntity = task.Relationships // must compile
 }
 
-// TestViewerService_Hierarchy_RelationshipsEmptyWhenNone verifies that a task
-// with no relationships returns an empty (non-nil) Relationships slice.
-func TestViewerService_Hierarchy_RelationshipsEmptyWhenNone(t *testing.T) {
-	svc := buildViewerService(t,
-		&mockViewerEpicRepo{},
-		&mockViewerFeatureRepo{},
-		&mockViewerTaskRepo{},
-		&mockViewerBugRepo{},
-		&mockViewerChangeCardRepo{},
-		&mockViewerHistoryRepo{},
-	)
-
-	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(resp.Epics) == 0 {
-		return // no epics → no tasks to check
-	}
-	for _, epic := range resp.Epics {
-		for _, feature := range epic.Features {
-			for _, task := range feature.Tasks {
-				if task.Relationships == nil {
-					t.Errorf("task %s: Relationships should be non-nil empty slice, got nil", task.Key)
-				}
-			}
-		}
-	}
-}
-
-// TestViewerService_Hierarchy_RelationshipsPopulated verifies that when the task
-// repository returns relationship JSON, it is surfaced on ViewerTask.Relationships.
+// TestViewerService_Hierarchy_RelationshipsPopulated verifies that the hierarchy
+// endpoint surfaces relationship data on tasks via FeatureTasks (lazy load) —
+// the hierarchy itself does NOT carry task rows after B017. Relationships are
+// fetched lazily through /api/v1/viewer/features/{key}/tasks instead.
 func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 	const taskID = int64(7)
 	const relatedTaskKey = "E01-F01-002"
@@ -2599,22 +2661,13 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 	// The view-based approach: task repo returns pre-resolved relationship JSON.
 	relsJSON := `[{"direction":"outgoing","relationship_type":"depends_on","entity_type":"task","entity_key":"E01-F01-002"}]`
 
-	epicRepo := &mockViewerEpicRepo{
-		ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
-			return []*models.Epic{
-				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}},
-			}, nil
-		},
-	}
 	featureRepo := &mockViewerFeatureRepo{
-		ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
-			return []*models.Feature{
-				{BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01"}, EpicID: 1},
-			}, nil
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 10, Key: key}}, nil
 		},
 	}
 	taskRepo := &mockViewerTaskRepo{
-		ListWithViewerRelationshipsFunc: func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+		ListByFeatureWithViewerRelationshipsFunc: func(ctx context.Context, _ int64) ([]*models.ViewerTaskWithRelationships, error) {
 			return []*models.ViewerTaskWithRelationships{
 				{
 					Task:              &models.Task{BaseEntity: models.BaseEntity{ID: taskID, Key: "E01-F01-001"}, FeatureID: 10, Status: "todo"},
@@ -2625,7 +2678,7 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 	}
 
 	svc := NewViewerService(
-		epicRepo,
+		&mockViewerEpicRepo{},
 		featureRepo,
 		taskRepo,
 		&mockViewerBugRepo{},
@@ -2638,15 +2691,15 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 		nil,
 	)
 
-	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	ftResp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Epics) == 0 || len(resp.Epics[0].Features) == 0 || len(resp.Epics[0].Features[0].Tasks) == 0 {
-		t.Fatal("expected hierarchy to contain at least one task")
+	if len(ftResp.Tasks) == 0 {
+		t.Fatal("expected FeatureTasks to return at least one task")
 	}
 
-	task := resp.Epics[0].Features[0].Tasks[0]
+	task := ftResp.Tasks[0]
 	if len(task.Relationships) == 0 {
 		t.Fatal("expected Relationships to be populated but got empty slice")
 	}
@@ -2663,6 +2716,92 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 	}
 	if rel.EntityKey != relatedTaskKey {
 		t.Errorf("expected entity_key=%q, got %q", relatedTaskKey, rel.EntityKey)
+	}
+}
+
+// TestViewerService_Hierarchy_DoesNotEmbedTasks verifies B017 / E27-F02
+// REQ-F-002: full task data is NOT embedded in the hierarchy payload. Only
+// task_count and blocked_count survive on each feature.
+func TestViewerService_Hierarchy_DoesNotEmbedTasks(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			// Force the test to flag any call that would bulk-load task rows.
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				t.Errorf("Hierarchy must not bulk-load task rows (B017 lazy-load contract)")
+				return nil, nil
+			},
+			ListWithViewerRelationshipsFunc: func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+				t.Errorf("Hierarchy must not call ListWithViewerRelationships (B017 lazy-load contract)")
+				return nil, nil
+			},
+			// Counts only — this is the spec-compliant path.
+			CountsByFeatureFunc: func(ctx context.Context) (map[int64]task.FeatureTaskCounts, error) {
+				return map[int64]task.FeatureTaskCounts{
+					20: {Total: 3, Blocked: 1},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Epics) != 1 || len(resp.Epics[0].Features) != 1 {
+		t.Fatalf("expected 1 epic with 1 feature; got %+v", resp.Epics)
+	}
+	feature := resp.Epics[0].Features[0]
+	if feature.TaskCount != 3 {
+		t.Errorf("expected TaskCount=3, got %d", feature.TaskCount)
+	}
+	if feature.BlockedCount != 1 {
+		t.Errorf("expected BlockedCount=1, got %d", feature.BlockedCount)
+	}
+
+	// JSON contract check: serialise the response and confirm no "tasks" field
+	// appears under any feature. (Catches accidental reintroduction of the
+	// field on HierarchyFeature.)
+	jsonBytes, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal hierarchy response: %v", err)
+	}
+	// Probe: the literal `"tasks":` substring under a feature should never appear.
+	// The bugs/change_cards/ideas sections live at the top level and never use a
+	// "tasks" key, so any match here is a regression.
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal hierarchy response: %v", err)
+	}
+	epics, ok := parsed["epics"].([]interface{})
+	if !ok {
+		t.Fatalf("expected epics array in response")
+	}
+	for _, ei := range epics {
+		em := ei.(map[string]interface{})
+		features, _ := em["features"].([]interface{})
+		for _, fi := range features {
+			fm := fi.(map[string]interface{})
+			if _, has := fm["tasks"]; has {
+				t.Errorf("HierarchyFeature must NOT serialise a 'tasks' field (B017); got: %v", fm)
+			}
+		}
 	}
 }
 
@@ -3950,15 +4089,10 @@ func TestViewerService_Hierarchy_NilTagSvc_TagsAlwaysNonNil(t *testing.T) {
 		t.Errorf("TC-AC04-1: expected empty Tags on feature, got %v", feature.Tags)
 	}
 
-	if len(feature.Tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(feature.Tasks))
-	}
-	task := feature.Tasks[0]
-	if task.Tags == nil {
-		t.Error("TC-AC04-1: ViewerTask.Tags must be non-nil (got nil) — ADR-F06-2")
-	}
-	if len(task.Tags) != 0 {
-		t.Errorf("TC-AC04-1: expected empty Tags on task, got %v", task.Tags)
+	// B017 / E27-F02 REQ-F-002: hierarchy no longer carries task data; task-level
+	// Tags invariants are exercised by the FeatureTasks endpoint tests.
+	if feature.TaskCount < 1 {
+		t.Errorf("TC-AC04-1: expected feature.TaskCount >= 1, got %d", feature.TaskCount)
 	}
 
 	// Flat bugs
@@ -4029,9 +4163,8 @@ func TestViewerService_Hierarchy_TagSvcWired_UntaggedEntities(t *testing.T) {
 	if epic.Features[0].Tags == nil {
 		t.Error("TC-AC04-2: HierarchyFeature.Tags must be non-nil — ADR-F06-2")
 	}
-	if epic.Features[0].Tasks[0].Tags == nil {
-		t.Error("TC-AC04-2: ViewerTask.Tags must be non-nil — ADR-F06-2")
-	}
+	// B017 / E27-F02 REQ-F-002: task-level Tags non-nil invariant is now exercised
+	// by the FeatureTasks endpoint, not the hierarchy payload.
 }
 
 // TC-AC05-1: Single entity (epic) tagged; others untagged.
@@ -4848,9 +4981,8 @@ func TestViewerService_Hierarchy_NilTagSvc_NoTagFilter_EmptyTags(t *testing.T) {
 	if resp.Epics[0].Features[0].Tags == nil {
 		t.Error("TC-AC14-2: feature.Tags must be non-nil — ADR-F06-2")
 	}
-	if resp.Epics[0].Features[0].Tasks[0].Tags == nil {
-		t.Error("TC-AC14-2: task.Tags must be non-nil — ADR-F06-2")
-	}
+	// B017 / E27-F02 REQ-F-002: hierarchy no longer carries task data; task-level
+	// Tags invariant is exercised by the FeatureTasks endpoint tests.
 }
 
 // TC-AC14-4: FeatureTasks with nil tagSvc and opts.Tags set → silently ignored, no panic.

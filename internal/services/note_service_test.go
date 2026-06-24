@@ -133,6 +133,24 @@ func newNoteTestRegistry() *EntityRegistry {
 			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: id, Key: "CC-001", Title: "Test Change"}}, nil
 		},
 	})
+	// B030: sprints and ideas join the registry so polymorphic note
+	// operations on S### / I-YYYY-MM-DD-## keys resolve correctly.
+	reg.Register(models.EntityTypeSprint, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Sprint{ID: 6, Key: key, Name: "Test Sprint", Status: "planning"}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.Sprint{ID: id, Key: "S001", Name: "Test Sprint", Status: "planning"}, nil
+		},
+	})
+	reg.Register(models.EntityTypeIdea, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Idea{ID: 7, Key: key, Title: "Test Idea", Status: models.IdeaStatusNew}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.Idea{ID: id, Key: "I-2026-05-11-01", Title: "Test Idea", Status: models.IdeaStatusNew}, nil
+		},
+	})
 	return reg
 }
 
@@ -234,6 +252,10 @@ func TestNoteService_AddNote_AllEntityTypes(t *testing.T) {
 		{models.EntityTypeTask, "E01-F01-001", 3},
 		{models.EntityTypeBug, "B001", 4},
 		{models.EntityTypeChange, "CC-001", 5},
+		// B030: sprint and idea note operations must succeed end-to-end
+		// (registry resolution -> repo.GetByKey -> note.Create).
+		{models.EntityTypeSprint, "S001", 6},
+		{models.EntityTypeIdea, "I-2026-05-11-01", 7},
 	}
 
 	for _, et := range entityTypes {
@@ -282,6 +304,10 @@ func TestNoteService_GetEntityDetails_AllEntityTypes(t *testing.T) {
 		{models.EntityTypeTask, 3},
 		{models.EntityTypeBug, 4},
 		{models.EntityTypeChange, 5},
+		// B030: sprint and idea entities expose their key/title via the
+		// new Entity interface accessors -- GetEntityDetails must succeed.
+		{models.EntityTypeSprint, 6},
+		{models.EntityTypeIdea, 7},
 	}
 
 	for _, tt := range tests {
@@ -295,6 +321,51 @@ func TestNoteService_GetEntityDetails_AllEntityTypes(t *testing.T) {
 			}
 			if details.Name == "" {
 				t.Error("expected non-empty name")
+			}
+		})
+	}
+}
+
+// TestNoteService_AddNote_B030_SprintAndIdea is a focused regression for
+// B030: before the fix, sprint and idea entity types could not be the
+// target of `shark create note` -- the key parser rejected S### outright,
+// and the registry rejected I-* with "no repository registered for entity
+// type 'idea'". This test pins both code paths to "succeed" via the
+// registered mock adapters.
+func TestNoteService_AddNote_B030_SprintAndIdea(t *testing.T) {
+	cases := []struct {
+		name       string
+		entityType models.EntityType
+		key        string
+		wantID     int64
+	}{
+		{"sprint S001", models.EntityTypeSprint, "S001", 6},
+		{"idea I-2026-05-11-01", models.EntityTypeIdea, "I-2026-05-11-01", 7},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			noteRepo := &mockNoteEntityNoteRepo{
+				createFunc: func(_ context.Context, n *models.EntityNote) error {
+					if n.EntityType != tc.entityType {
+						t.Errorf("note.EntityType = %q, want %q", n.EntityType, tc.entityType)
+					}
+					if n.EntityID != tc.wantID {
+						t.Errorf("note.EntityID = %d, want %d", n.EntityID, tc.wantID)
+					}
+					n.ID = 1234
+					return nil
+				},
+			}
+			svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+			if err != nil {
+				t.Fatalf("NewNoteService error: %v", err)
+			}
+			note, err := svc.AddNote(context.Background(), tc.entityType, tc.key, "comment", "B030 fix verified", "tester")
+			if err != nil {
+				t.Fatalf("AddNote(%s, %s) error = %v (B030 regression)", tc.entityType, tc.key, err)
+			}
+			if note.ID != 1234 {
+				t.Errorf("note.ID = %d, want 1234", note.ID)
 			}
 		})
 	}

@@ -35,79 +35,6 @@ func mapEntityHistoryToEntries(history []*models.EntityHistory) []StatusHistoryE
 	return entries
 }
 
-// --- Test truncateString ---
-
-func TestTruncateString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{
-			name:     "short string no truncation",
-			input:    "hello",
-			maxLen:   10,
-			expected: "hello",
-		},
-		{
-			name:     "exact length string",
-			input:    "hello",
-			maxLen:   5,
-			expected: "hello",
-		},
-		{
-			name:     "long string truncated with ellipsis",
-			input:    "this is a very long string",
-			maxLen:   10,
-			expected: "this is...",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			maxLen:   10,
-			expected: "",
-		},
-		{
-			name:     "maxLen equals 3",
-			input:    "abcdef",
-			maxLen:   3,
-			expected: "abc",
-		},
-		{
-			name:     "maxLen less than 3",
-			input:    "abcdef",
-			maxLen:   2,
-			expected: "ab",
-		},
-		{
-			name:     "maxLen of 1",
-			input:    "abcdef",
-			maxLen:   1,
-			expected: "a",
-		},
-		{
-			name:     "maxLen of 4 with long string",
-			input:    "abcdef",
-			maxLen:   4,
-			expected: "a...",
-		},
-		{
-			name:     "maxLen of 0",
-			input:    "abc",
-			maxLen:   0,
-			expected: "", // len("abc") > 0, maxLen <= 3, so s[:0] = ""
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateString(tt.input, tt.maxLen)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // --- Test entityTransitionerFunc adapter ---
 
 func TestEntityTransitionerFunc(t *testing.T) {
@@ -730,7 +657,7 @@ func TestStatusHistoryFormatter_AutoReopenLabel(t *testing.T) {
 				oldStatus,
 				e.NewStatus,
 				e.Agent,
-				truncateString(formatHistoryNotesForDisplay(e.Notes), 60),
+				truncateToWidth(formatHistoryNotesForDisplay(e.Notes), 60),
 			})
 		}
 

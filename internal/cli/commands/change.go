@@ -289,7 +289,7 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, fileWasLinked, err := svc.CreateChangeCard(cmd.Context(), input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", input.Title)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, input.Title)
 	}
 
 	// Step 3: Format output
@@ -347,6 +347,10 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 			tags = []string{}
 		}
 		result["tags"] = tags
+		// B032: size/size_label keys are always present (null when unset) so JSON
+		// consumers can rely on `--field size` and `jq has("size")` like they can
+		// for epics.
+		ensureSizeFieldsAlwaysPresent(result, card)
 		return cli.OutputJSON(result)
 	}
 
@@ -390,7 +394,7 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	cards, err := svc.ListChangeCards(cmd.Context(), filters)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "change", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeChange, "")
 	}
 
 	// Step 3: Format output
@@ -413,7 +417,7 @@ func runChangeUpdate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, err := svc.UpdateChangeCard(cmd.Context(), key, updates)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "change", key)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, key)
 	}
 
 	// Step 3: Format output
@@ -516,22 +520,40 @@ func buildCreateChangeCardInput(title string) services.CreateChangeCardInput {
 }
 
 // buildChangeCardUpdates constructs a ChangeCardUpdates from changed flags.
+//
+// Reads values via cmd.Flags().Get* (not package-level globals) so the
+// function works correctly whether invoked from the entity-first
+// `shark change update` command or the unified `shark update <KEY>`
+// dispatch (B031). The dispatch registers its own flag set on `updateCmd`
+// and the entity-first vars (changeTitle, changePriority, ...) would be
+// stale when dispatch passes through.
 func buildChangeCardUpdates(cmd *cobra.Command) (services.ChangeCardUpdates, error) {
 	updates := services.ChangeCardUpdates{}
 	if cmd.Flags().Changed("title") {
-		updates.Title = &changeTitle
+		title, _ := cmd.Flags().GetString("title")
+		updates.Title = &title
 	}
 	if cmd.Flags().Changed("description") {
-		updates.Description = &changeDescription
+		desc, _ := cmd.Flags().GetString("description")
+		updates.Description = &desc
 	}
 	if cmd.Flags().Changed("priority") {
-		updates.Priority = &changePriority
+		// Priority is Int on the entity-first changeUpdateCmd but String on
+		// the unified updateCmd. Honour whichever type is registered on the
+		// invoking command so dispatch flows through cleanly.
+		pri, err := readPriorityIntFromFlag(cmd)
+		if err != nil {
+			return updates, err
+		}
+		updates.Priority = &pri
 	}
 	if cmd.Flags().Changed("requested-by") {
-		updates.RequestedBy = &changeRequestedBy
+		v, _ := cmd.Flags().GetString("requested-by")
+		updates.RequestedBy = &v
 	}
 	if cmd.Flags().Changed("assigned-to") {
-		updates.AssignedTo = &changeAssignedTo
+		v, _ := cmd.Flags().GetString("assigned-to")
+		updates.AssignedTo = &v
 	}
 	if v := getFileFlagValue(cmd); v != "" {
 		updates.FilePath = &v
@@ -571,9 +593,7 @@ const changeCardListTitleColIdx = 1
 
 // buildChangeCardListRows converts a slice of change-cards to table rows for list display.
 // Extracted for testability (E07-F42 F4 coverage requirement).
-//
-// The title column is sized from the actual rendered widths of the other
-// columns so the table fills the configured console_width.
+// Columns: Key, Title (sized via availableTitleWidth), Status, Linked Entity, Created, Size.
 func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
 	rows := make([][]string, 0, len(cards))
 	for _, c := range cards {

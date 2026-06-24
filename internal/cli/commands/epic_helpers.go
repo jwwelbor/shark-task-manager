@@ -554,13 +554,9 @@ func buildEpicGetJSON(epic *models.Epic, data *EpicGetData, orchestratorAction i
 		"orchestrator_action":    orchestratorAction,
 		"valid_transitions":      validTransitions,
 	}
-	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
-	if epic.Size != nil {
-		epicJSON["size"] = *epic.Size
-		if label, err := models.SizeLabel(*epic.Size); err == nil {
-			epicJSON["size_label"] = label
-		}
-	}
+	// B032 / E07-F42 REQ-F-006/007: always emit size and size_label keys (null
+	// when unset) so `shark get <key> --json` is consistent across entity types.
+	ensureSizeFieldsAlwaysPresent(epicJSON, epic)
 	return epicJSON
 }
 
@@ -682,7 +678,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	epicSvc := cli.GetEpicService()
 	epic, err := epicSvc.CreateEpic(ctx, input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicTitle)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeEpic, epicTitle)
 	}
 
 	nextKey := epic.Key
@@ -1010,7 +1006,7 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 
 	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0 || updates.Size != nil || updates.ClearSize) {
 		if _, err := epicSvc.UpdateEpic(ctx, epicKey, updates); err != nil {
-			return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicKey)
+			return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeEpic, epicKey)
 		}
 	}
 

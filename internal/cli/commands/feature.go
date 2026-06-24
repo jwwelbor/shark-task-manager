@@ -232,7 +232,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 
 	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll, tagFilter)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "feature", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeFeature, "")
 	}
 
 	if len(featuresWithTaskCount) == 0 {
@@ -298,16 +298,11 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 				return unmarshalErr
 			}
 			infoMap["tags"] = jsonTags
-			// E07-F42 REQ-F-006/007: inject size and size_label at the top level so
-			// that --field size and --field size_label work for planning-mode features.
-			// The struct marshals size inside the nested "feature" key; we mirror
-			// the aggregation-mode pattern by also surfacing them at the top level.
-			if feature.Size != nil {
-				infoMap["size"] = *feature.Size
-				if label, err := models.SizeLabel(*feature.Size); err == nil {
-					infoMap["size_label"] = label
-				}
-			}
+			// B032 / E07-F42 REQ-F-006/007: always surface size and size_label at
+			// the top level (null when unset) so `--field size` / `--field
+			// size_label` work for planning-mode features and JSON is consistent
+			// across entity types.
+			ensureSizeFieldsAlwaysPresent(infoMap, feature)
 			return cli.OutputJSON(infoMap)
 		}
 		renderFeaturePlanningWithTags(info, tags)
@@ -344,7 +339,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	featureSvc := cli.GetFeatureService()
 	feature, err := featureSvc.CreateFeature(ctx, input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", input.EpicKey)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeFeature, input.EpicKey)
 	}
 
 	featureFilePath := resolveFeatureFilePath(feature, input.EpicKey, projectRoot)

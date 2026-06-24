@@ -185,7 +185,7 @@ func TestHandleEntityServiceError_UnregisteredTag(t *testing.T) {
 
 	svc := newTagSvcWithVocab(threeTagVocab())
 	err := &services.UnregisteredTagError{Name: "ghost"}
-	got := handleEntityServiceError(cmd, svc, err, "task", "T-E01-F01-001")
+	got := handleEntityServiceError(cmd, svc, err, models.EntityTypeTask, "T-E01-F01-001")
 
 	if got == nil {
 		t.Fatal("expected non-nil error")
@@ -217,7 +217,7 @@ func TestHandleEntityServiceError_TagRequired(t *testing.T) {
 
 	svc := newTagSvcWithVocab(threeTagVocab())
 	err := &services.TagRequiredError{EntityType: "bug"}
-	got := handleEntityServiceError(cmd, svc, err, "bug", "B001")
+	got := handleEntityServiceError(cmd, svc, err, models.EntityTypeBug, "B001")
 
 	if got == nil {
 		t.Fatal("expected non-nil error")
@@ -243,7 +243,7 @@ func TestHandleEntityServiceError_NilIsNoop(t *testing.T) {
 	cmd := buildTestCmd(t, false)
 	svc := &mockEntityTagService{}
 
-	got := handleEntityServiceError(cmd, svc, nil, "bug", "B001")
+	got := handleEntityServiceError(cmd, svc, nil, models.EntityTypeBug, "B001")
 	if got != nil {
 		t.Errorf("expected nil for nil input, got: %v", got)
 	}
@@ -260,7 +260,7 @@ func TestHandleEntityServiceError_JSONMode(t *testing.T) {
 
 	svc := newTagSvcWithVocab(threeTagVocab())
 	err := &services.UnregisteredTagError{Name: "ghost"}
-	got := handleEntityServiceError(cmd, svc, err, "task", "T-E01-F01-001")
+	got := handleEntityServiceError(cmd, svc, err, models.EntityTypeTask, "T-E01-F01-001")
 
 	if got == nil {
 		t.Fatal("expected non-nil error")
@@ -303,7 +303,14 @@ func TestEntityCreateUpdate_UnregisteredTag_Table(t *testing.T) {
 		},
 	}
 
-	entities := []string{"task", "feature", "epic", "bug", "change", "idea"}
+	entities := []models.EntityType{
+		models.EntityTypeTask,
+		models.EntityTypeFeature,
+		models.EntityTypeEpic,
+		models.EntityTypeBug,
+		models.EntityTypeChange,
+		models.EntityTypeIdea,
+	}
 	verbs := []string{"create", "update"}
 
 	for _, entity := range entities {

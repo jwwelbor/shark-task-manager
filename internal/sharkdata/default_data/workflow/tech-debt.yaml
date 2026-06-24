@@ -1,0 +1,90 @@
+version: "1.0"
+start: identified
+steps:
+  cancelled:
+    phase: done
+    color: red
+    display_token: CXL
+    description: Tech debt no longer relevant
+    progress_weight: 0
+    responsibility: none
+    exclude_from_progress: true
+    action: archive
+    terminal: true
+    prompt: tech_debt/cancelled.md
+  identified:
+    phase: planning
+    color: gray
+    display_token: IDN
+    description: "Tech debt identified, not yet triaged"
+    progress_weight: 0
+    responsibility: none
+    is_planning: true
+    action: advance_status
+    prompt: tech_debt/identified.md
+    outcomes:
+      blocked: identified
+      cancelled: cancelled
+      fail: identified
+      pass: triaged
+      wont_fix: wont_fix
+  progress:
+    phase: development
+    color: yellow
+    display_token: IP
+    description: Tech debt resolution in progress
+    progress_weight: 0.5
+    responsibility: agent
+    action: check_or_resume
+    agent: developer
+    provider: anthropic
+    model: sonnet
+    skills: [implementation, test-driven-development]
+    prompt: tech_debt/in_progress.md
+    outcomes:
+      blocked: identified
+      cancelled: cancelled
+      fail: identified
+      pass: resolved
+      wont_fix: wont_fix
+    aliases: [in_progress]
+  resolved:
+    phase: done
+    color: green
+    display_token: RSD
+    description: Tech debt resolved and verified
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+    prompt: tech_debt/resolved.md
+  triaged:
+    phase: development
+    color: yellow
+    display_token: TRI
+    description: Triaged and ready for resolution
+    progress_weight: 0.1
+    responsibility: agent
+    action: spawn_agent
+    agent: developer
+    provider: anthropic
+    model: sonnet
+    skills: [implementation, test-driven-development]
+    prompt: tech_debt/triaged.md
+    outcomes:
+      blocked: identified
+      cancelled: cancelled
+      fail: identified
+      pass: progress
+      wont_fix: wont_fix
+  wont_fix:
+    phase: done
+    color: red
+    display_token: WNF
+    description: Tech debt acknowledged but will not be fixed
+    progress_weight: 0
+    responsibility: none
+    exclude_from_progress: true
+    action: archive
+    terminal: true
+    prompt: tech_debt/wont_fix.md

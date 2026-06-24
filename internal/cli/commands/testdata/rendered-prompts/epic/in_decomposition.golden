@@ -1,0 +1,8 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME feature decomposition for epic E07-F01: "Sample feature for golden test".
+
+Check for existing features: shark list E07-F01. If features exist covering all epic requirements with proper ordering, advance immediately.
+
+Otherwise, continue decomposing the epic into features following the ready_for_decomposition instructions.

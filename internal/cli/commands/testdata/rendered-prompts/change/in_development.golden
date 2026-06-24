@@ -1,0 +1,8 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME implementation for change E07-F01: "Sample feature for golden test".
+
+Check for existing implementation. If changes exist and quality gate passes, advance immediately.
+
+Otherwise, continue with implementation per ready_for_development instructions.

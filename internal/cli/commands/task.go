@@ -133,7 +133,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		Tags: tagFilter, HasRejections: hasRejections,
 	})
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "task", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeTask, "")
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(tasks)
@@ -325,7 +325,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	svc := getTaskCreateService()
 	task, fileWasLinked, err := svc.CreateTask(cmd.Context(), input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", "")
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeTask, "")
 	}
 	projectRoot, _ := cli.FindProjectRoot()
 	filePath := derefString(task.FilePath)
@@ -376,7 +376,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetTaskService()
 	task, err := svc.UpdateTask(cmd.Context(), taskKey, updates)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", taskKey)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeTask, taskKey)
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(task)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // --- Result types for JSON output ---
@@ -156,7 +159,11 @@ func init() {
 	statusSetCmd.Flags().Bool("force", false, "Bypass workflow validation")
 	statusSetCmd.Flags().String("notes", "", "Transition notes")
 
-	// statusAdvanceCmd has no flags — just advances to the default next status.
+	// statusAdvanceCmd: route-based release. Without --outcome it advances to the
+	// default next status (legacy behavior). With --outcome it resolves
+	// step.outcomes[outcome] and routes there (E35-F02).
+	statusAdvanceCmd.Flags().String("outcome", "", "Release a semantic outcome (pass|fail|blocked|…) and route via the workflow's outcomes map")
+	statusAdvanceCmd.Flags().String("reason", "", "Reason recorded with the transition")
 
 	// statusHistoryCmd flags
 	statusHistoryCmd.Flags().Int("limit", 50, "Maximum number of history entries to show")
@@ -310,24 +317,45 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Start OTel span for this advance operation. The tracer returns a no-op
+	// span when OTel is disabled, so no guard is needed.
+	tracer := cli.GetTracer("shark.cli")
+	ctx, span := tracer.Start(ctx, "shark.advance")
+	defer span.End()
+
 	// Step 1: Parse arguments
 	entityType, key, err := ParseGetArgs(args)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
 	// Step 2: Get current status info
 	info, err := dispatchNextStatus(ctx, entityType, key)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		handleStatusTransitionError(entityType, key, err)
 		return fmt.Errorf("failed to get %s status: %w", entityType, err)
 	}
 
+	// Capture from_status before the transition.
+	fromStatus := info.CurrentStatus
+	entityKey := info.EntityKey
+
 	// Build result for JSON output
 	result := buildNextStatusResult(entityType, info)
 
-	// Handle terminal status
+	// Handle terminal status — no transition happens; still record span.
 	if info.IsTerminal {
+		span.SetAttributes(
+			attribute.String("entity_key", entityKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("from_status", fromStatus),
+			attribute.String("to_status", fromStatus), // no transition
+			attribute.String("actor", advanceActor()),
+			attribute.Bool("forced", false),
+			attribute.Bool("had_rejection_note", false),
+		)
 		result.Message = fmt.Sprintf("%s is in terminal status '%s' - no transitions available", displayEntityTypeName(entityType), info.CurrentStatus)
 
 		if cli.GlobalConfig.JSON {
@@ -338,8 +366,17 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Handle no transitions
+	// Handle no transitions — still record span.
 	if len(info.AvailableTransitions) == 0 {
+		span.SetAttributes(
+			attribute.String("entity_key", entityKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("from_status", fromStatus),
+			attribute.String("to_status", fromStatus), // no transition
+			attribute.String("actor", advanceActor()),
+			attribute.Bool("forced", false),
+			attribute.Bool("had_rejection_note", false),
+		)
 		result.Message = fmt.Sprintf("No valid transitions from status '%s'", info.CurrentStatus)
 
 		if cli.GlobalConfig.JSON {
@@ -350,16 +387,124 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Auto-select first (default) transition
+	// Determine the target. With --outcome, resolve via the route-based outcomes
+	// map (release semantics, D4). Without it, auto-select the default transition.
+	// cmd may be nil in unit tests that call runStatusAdvance directly.
+	var outcome, reason string
+	if cmd != nil {
+		outcome, _ = cmd.Flags().GetString("outcome")
+		reason, _ = cmd.Flags().GetString("reason")
+	}
+
 	autoTarget := info.AvailableTransitions[0].TargetStatus
+	opts := services.TransitionOptions{Reason: reason}
+
+	if strings.TrimSpace(outcome) != "" {
+		outcome = strings.TrimSpace(strings.ToLower(outcome))
+		target, ok := info.Outcomes[outcome]
+		if !ok {
+			// Case-insensitive match against defined outcomes.
+			for k, v := range info.Outcomes {
+				if strings.EqualFold(k, outcome) {
+					target, ok = v, true
+					break
+				}
+			}
+		}
+		if !ok {
+			span.SetStatus(codes.Error, "unknown outcome")
+			if len(info.Outcomes) == 0 {
+				cli.Error(fmt.Sprintf("Status '%s' has no outcomes (route-based workflow required, or terminal/parking step). Use 'shark status set' to target a status directly.", fromStatus))
+			} else {
+				cli.Error(fmt.Sprintf("Unknown outcome '%s' for status '%s'. Valid outcomes: %s", outcome, fromStatus, strings.Join(sortedOutcomeKeys(info.Outcomes), ", ")))
+			}
+			return fmt.Errorf("unknown outcome %q", outcome)
+		}
+		autoTarget = target
+		// The resolved route is authoritative; record the outcome as the reason
+		// so backward routes (e.g. fail) pass the backward-transition guard
+		// without requiring --force.
+		if opts.Reason == "" {
+			opts.Reason = "release outcome: " + outcome
+		}
+	}
+
+	// Check whether the entity has a rejection note before transitioning.
+	hadRejectionNote := checkRejectionNote(ctx, entityType, entityKey)
+
+	// Set span attributes now that we have all values.
+	span.SetAttributes(
+		attribute.String("entity_key", entityKey),
+		attribute.String("entity_type", entityType),
+		attribute.String("from_status", fromStatus),
+		attribute.String("to_status", autoTarget),
+		attribute.String("actor", advanceActor()),
+		attribute.Bool("forced", false), // statusAdvanceCmd has no --force flag
+		attribute.Bool("had_rejection_note", hadRejectionNote),
+	)
+	if outcome != "" {
+		span.SetAttributes(attribute.String("outcome", outcome))
+	}
 
 	// Create adapter to satisfy entityTransitioner interface
 	svc := entityTransitionerFunc(func(ctx context.Context, k string, ts string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 		return dispatchTransition(ctx, entityType, k, ts, opts)
 	})
 
-	opts := services.TransitionOptions{}
-	return performEntityTransition(ctx, svc, info.EntityKey, autoTarget, opts, result)
+	if err := performEntityTransition(ctx, svc, entityKey, autoTarget, opts, result); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
+}
+
+// sortedOutcomeKeys returns the outcome names sorted for stable error output.
+func sortedOutcomeKeys(outcomes map[string]string) []string {
+	keys := make([]string, 0, len(outcomes))
+	for k := range outcomes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// advanceActor returns the actor identity for the shark.advance span.
+// It reads the SHARK_ACTOR environment variable, defaulting to "cli".
+func advanceActor() string {
+	if actor := os.Getenv("SHARK_ACTOR"); actor != "" {
+		return actor
+	}
+	return "cli"
+}
+
+// checkRejectionNote returns true when the entity has at least one note of
+// type "rejection". It is fail-soft: any error (DB unavailable, entity not
+// found, etc.) returns false so the span is never blocked.
+func checkRejectionNote(ctx context.Context, entityType, entityKey string) bool {
+	// Only epic / feature / task entity types carry EntityNote records.
+	// For bugs, change-cards, tech-debt, etc., fall back to false.
+	var modelType models.EntityType
+	switch entityType {
+	case "epic":
+		modelType = models.EntityTypeEpic
+	case "feature":
+		modelType = models.EntityTypeFeature
+	case "task":
+		modelType = models.EntityTypeTask
+	default:
+		return false
+	}
+
+	noteSvc, err := cli.GetNoteService(ctx)
+	if err != nil {
+		return false
+	}
+
+	notes, err := noteSvc.ListNotes(ctx, modelType, entityKey, []string{"rejection"})
+	if err != nil {
+		return false
+	}
+	return len(notes) > 0
 }
 
 // runStatusTransitions implements the `shark status transitions <key>` command.
@@ -521,17 +666,6 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 
 	cli.OutputTable(headers, rows)
 	return nil
-}
-
-// truncateString truncates a string to maxLen characters, adding "..." if truncated.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // formatHistoryNotesForDisplay returns the notes string for human-readable table output.

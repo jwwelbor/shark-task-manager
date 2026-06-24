@@ -26,6 +26,7 @@ Key format detection:
   C### or CC-###     Change card
   TD-###             Tech-debt
   I-YYYY-MM-DD-##    Idea
+  S###               Sprint
 
 Note Types:
   comment        - General observation

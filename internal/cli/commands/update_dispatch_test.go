@@ -198,7 +198,109 @@ func buildIsolatedDispatchCmd(t *testing.T) *cobra.Command {
 	var tags []string
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "tag")
 	cmd.Flags().String("size", "", "size")
+
+	// B031: entity-specific update flags must also be reachable from the
+	// unified `shark update <KEY>` form. Mirror the real updateCmd
+	// registration so dispatch tests catch regressions.
+	cmd.Flags().String("category", "", "category (tech-debt)")
+	cmd.Flags().String("effort-estimate", "", "effort-estimate (tech-debt)")
+	cmd.Flags().String("requested-by", "", "requested-by (change)")
+	cmd.Flags().String("assigned-to", "", "assigned-to (change)")
+	cmd.Flags().String("notes", "", "notes (idea)")
+	cmd.Flags().StringSlice("related-docs", nil, "related-docs (idea)")
 	return cmd
+}
+
+// TestUpdateDispatch_FlagParity_AllEntityUpdateFlagsRegistered is the B031
+// regression test. It asserts that every flag exposed on per-entity update
+// commands (bug/change/td/idea) is also reachable from the unified
+// `shark update <KEY>` dispatch. Without these flags, invocations like
+// `shark update B030 --severity=medium` fail with `unknown flag: --severity`.
+//
+// `--status` is intentionally excluded — the dispatch reserves status
+// transitions for `shark status set`. `execution-order` is a deprecated
+// alias and not part of the parity contract.
+func TestUpdateDispatch_FlagParity_AllEntityUpdateFlagsRegistered(t *testing.T) {
+	requiredFlags := []string{
+		// Bug + tech-debt
+		"severity",
+		// Tech-debt-only
+		"category",
+		"effort-estimate",
+		// Change-card-only
+		"requested-by",
+		"assigned-to",
+		// Idea-only
+		"notes",
+		"related-docs",
+		// All entities (already supported pre-B031, retained as a guard)
+		"tag",
+	}
+	for _, name := range requiredFlags {
+		t.Run(name, func(t *testing.T) {
+			if flag := updateCmd.Flags().Lookup(name); flag == nil {
+				t.Fatalf("--%s flag not registered on unified updateCmd; needed for entity-first parity (B031)", name)
+			}
+		})
+	}
+}
+
+// TestUpdateDispatch_BugSeverityFlow is the B031 regression test for the
+// specific bug reported: `shark update B030 --severity=medium`. It runs the
+// dispatch path for a bug key with --severity=medium and verifies the bug
+// service receives the new severity in its updates struct.
+func TestUpdateDispatch_BugSeverityFlow(t *testing.T) {
+	var capturedUpdates services.BugUpdates
+	stub := &mockBugServiceForTags{
+		updateBugFn: func(_ context.Context, key string, updates services.BugUpdates) (*models.Bug, error) {
+			capturedUpdates = updates
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "ok"}}, nil
+		},
+	}
+	withBugSvcOverride(t, stub)
+
+	cmd := buildIsolatedDispatchCmd(t)
+	cmd.SetArgs([]string{"B030", "--severity=medium"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dispatch execute error: %v", err)
+	}
+
+	if capturedUpdates.Severity == nil {
+		t.Fatal("expected BugUpdates.Severity to be set after --severity=medium via dispatch")
+	}
+	if string(*capturedUpdates.Severity) != "medium" {
+		t.Errorf("expected Severity=medium, got %q", string(*capturedUpdates.Severity))
+	}
+}
+
+// TestUpdateDispatch_BugSeverityHigh exercises another severity value to
+// rule out the dispatch hardcoding any specific value.
+func TestUpdateDispatch_BugSeverityHigh(t *testing.T) {
+	var capturedUpdates services.BugUpdates
+	stub := &mockBugServiceForTags{
+		updateBugFn: func(_ context.Context, key string, updates services.BugUpdates) (*models.Bug, error) {
+			capturedUpdates = updates
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "ok"}}, nil
+		},
+	}
+	withBugSvcOverride(t, stub)
+
+	cmd := buildIsolatedDispatchCmd(t)
+	cmd.SetArgs([]string{"B030", "--severity=high"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dispatch execute error: %v", err)
+	}
+
+	if capturedUpdates.Severity == nil {
+		t.Fatal("expected BugUpdates.Severity to be set after --severity=high via dispatch")
+	}
+	if string(*capturedUpdates.Severity) != "high" {
+		t.Errorf("expected Severity=high, got %q", string(*capturedUpdates.Severity))
+	}
 }
 
 // containsAll is a tiny helper that returns true iff `haystack` contains every

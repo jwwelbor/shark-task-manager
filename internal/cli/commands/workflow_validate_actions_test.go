@@ -15,6 +15,7 @@ func TestValidateWorkflowActions_AllValid(t *testing.T) {
 				OrchestratorAction: &config.OrchestratorAction{
 					Action:              config.ActionSpawnAgent,
 					AgentType:           "developer",
+					Provider:            "anthropic",
 					Skills:              []string{"implementation", "test-driven-development"},
 					InstructionTemplate: "Implement task {task_id}",
 				},
@@ -128,6 +129,7 @@ func TestValidateStatusAction_ValidSpawnAgent(t *testing.T) {
 		OrchestratorAction: &config.OrchestratorAction{
 			Action:              config.ActionSpawnAgent,
 			AgentType:           "developer",
+			Provider:            "anthropic",
 			Skills:              []string{"implementation"},
 			InstructionTemplate: "Implement {task_id}",
 		},
@@ -175,6 +177,54 @@ func TestValidateStatusAction_NonActionableMissingAction(t *testing.T) {
 	}
 }
 
+// Phase 3 regression: spawn_agent without provider should surface as a warning
+// (not error) — the run controller may still default, but operators should be
+// told to set it in their workflow YAML.
+func TestValidateStatusAction_SpawnAgentWithoutProvider_Warns(t *testing.T) {
+	metadata := &config.StatusMetadata{
+		Phase: "development",
+		OrchestratorAction: &config.OrchestratorAction{
+			Action:              config.ActionSpawnAgent,
+			AgentType:           "developer",
+			Skills:              []string{"implementation"},
+			InstructionTemplate: "Implement {task_id}",
+		},
+	}
+
+	result := validateStatusAction("ready_for_development", metadata, false)
+
+	if result.Valid {
+		t.Errorf("Expected invalid (warning) result for spawn_agent without provider")
+	}
+	if result.Severity != "warning" {
+		t.Errorf("Expected warning severity, got %q", result.Severity)
+	}
+	if result.ActionType != config.ActionSpawnAgent {
+		t.Errorf("Expected ActionType to be populated for diagnostics, got %q", result.ActionType)
+	}
+}
+
+func TestValidateStatusAction_CheckOrResumeWithoutProvider_Warns(t *testing.T) {
+	metadata := &config.StatusMetadata{
+		Phase: "development",
+		OrchestratorAction: &config.OrchestratorAction{
+			Action:              config.ActionCheckOrResume,
+			AgentType:           "developer",
+			Skills:              []string{"implementation"},
+			InstructionTemplate: "Resume {task_id}",
+		},
+	}
+
+	result := validateStatusAction("in_development", metadata, false)
+
+	if result.Valid {
+		t.Errorf("Expected invalid (warning) result for check_or_resume without provider")
+	}
+	if result.Severity != "warning" {
+		t.Errorf("Expected warning severity, got %q", result.Severity)
+	}
+}
+
 func TestValidateStatusAction_MissingAgentType(t *testing.T) {
 	metadata := &config.StatusMetadata{
 		Phase: "development",
@@ -205,6 +255,7 @@ func TestValidateWorkflowActions_MixedValidity(t *testing.T) {
 				OrchestratorAction: &config.OrchestratorAction{
 					Action:              config.ActionSpawnAgent,
 					AgentType:           "developer",
+					Provider:            "anthropic",
 					Skills:              []string{"implementation"},
 					InstructionTemplate: "Implement {task_id}",
 				},

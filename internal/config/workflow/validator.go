@@ -60,6 +60,56 @@ func ValidateWorkflow(workflow *WorkflowConfig) error {
 		return err
 	}
 
+	// Rule 5: Route-based (steps:) specific checks (E35-F06). The legacy-map
+	// rules above already cover reachability/terminal-paths via the derived
+	// maps; these add the checks only the route-based schema can express.
+	if err := validateRouteBased(workflow); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateRouteBased runs the checks specific to the consolidated steps: schema
+// (E35-F06): the start step exists, every workable step defines the core
+// outcome vocabulary with targets that resolve to real steps (D7), and no old
+// status alias is claimed by two steps. It is a no-op for legacy workflows.
+func validateRouteBased(workflow *WorkflowConfig) error {
+	if !workflow.HasSteps() {
+		return nil
+	}
+
+	// Start step is mandatory for route-based workflows (guide §6) and must
+	// point at a defined step.
+	if workflow.Start == "" {
+		return &WorkflowValidationError{
+			Message: "route-based workflow (steps:) is missing a start: step",
+			Fix:     "add a start: field naming the initial step (e.g. start: draft)",
+		}
+	}
+	if _, ok := workflow.GetStep(workflow.Start); !ok {
+		return &WorkflowValidationError{
+			Message: fmt.Sprintf("start step %q is not defined in steps", workflow.Start),
+			Fix:     fmt.Sprintf("add a %q step or point start: at an existing step", workflow.Start),
+		}
+	}
+
+	// Core outcomes present + outcome targets resolve to real steps (D7).
+	if errs := workflow.ValidateCoreOutcomes(); len(errs) > 0 {
+		return &WorkflowValidationError{
+			Message: errs[0].Error(),
+			Fix:     "every non-terminal, non-parking step must define pass/fail/blocked outcomes, each targeting a defined step",
+		}
+	}
+
+	// No old-status alias may be claimed by two steps.
+	if _, aliasErrs := workflow.AliasMap(); len(aliasErrs) > 0 {
+		return &WorkflowValidationError{
+			Message: aliasErrs[0].Error(),
+			Fix:     "give each old status name a single alias home (one step's aliases: list)",
+		}
+	}
+
 	return nil
 }
 

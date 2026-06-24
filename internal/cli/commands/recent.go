@@ -154,11 +154,7 @@ func renderRecentTable(items []services.RecentItem) error {
 
 // buildRecentRows converts recent items to table rows for list display.
 // Extracted for testability (CC-036 follow-up: console_width coverage).
-//
-// The title column is sized from the actual rendered widths of the other
-// columns so the table fills the configured console_width even when keys
-// and statuses are short (e.g., "TD-052"/"identified") rather than
-// reserving worst-case space for them.
+// Columns: Type, Key, Title (sized via availableTitleWidth), Created, Status.
 func buildRecentRows(items []services.RecentItem) [][]string {
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {

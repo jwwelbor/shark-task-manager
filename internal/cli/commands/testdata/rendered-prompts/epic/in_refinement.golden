@@ -1,0 +1,8 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME epic refinement for E07-F01: "Sample feature for golden test".
+
+Check for existing epic PRD at docs/plan/E07/E07-F01/E07-F01.md. If PRD exists with all 6 required sections populated, advance immediately.
+
+Otherwise, continue writing the epic PRD following the ready_for_refinement instructions.

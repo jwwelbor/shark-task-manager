@@ -133,50 +133,62 @@ Slugs are auto-generated from titles and both formats work in all commands.
 
 ### Task Lifecycle
 
-Shark loads its task workflow (statuses, transitions, agent routing) from
-a JSON file referenced by `workflow_config` in `.sharkconfig.json`. Two
-workflow files ship inside the embedded `shark-templates/` tree:
+Shark loads its workflow definitions (statuses, transitions, agent routing)
+from per-entity YAML files referenced by `workflow_config` in
+`.sharkconfig.json`. `workflow_config` may point at:
 
-| File | Description |
-|---|---|
-| `shark-templates/.sharkworkflow-short.json` | **Default.** Compact workflow for solo developers and small teams. |
-| `shark-templates/.sharkworkflow.json` | Long-form multi-stage TDD/refinement/QA pipeline with per-status agent routing. |
+- a **directory** of per-entity YAML files (the default, `shark-data/workflow/`
+  with `task.yaml`, `feature.yaml`, `epic.yaml`, …), or
+- a **master index file** that maps each entity to its workflow file (see
+  [Route-Based Workflow Guide](docs/guides/route-based-workflow.md) §3).
 
-Compact workflow at a glance:
+`shark admin init` materializes the `shark-data/` tree (workflows, prompts,
+skills, agents) and leaves your `shark-data/overrides/` subtree untouched.
+
+> A bare Shark 1.x JSON workflow file (e.g. `.sharkworkflow.json`) is **no
+> longer a valid `workflow_config` target** — the loader rejects it with a
+> migration hint. Run `shark init` to materialize the `shark-data/` tree.
+
+Task lifecycle at a glance (default route-based task workflow):
 ```
-todo → in_progress → ready_for_review → completed
-                  ↘ blocked ↗
+draft → development → completed
+   ↘ blocked / on_hold (parking)   ↘ cancelled (terminal)
 ```
-
-The long-form workflow covers planning, development, code review, QA, and
-approval phases with agent routing per status (ba, tech_lead, developer,
-qa, product_owner).
 
 Commands:
 - `shark task next-status <task>` / `shark status advance <task>` — Advance to next workflow status
+- `shark status advance <task> --outcome <pass|fail|blocked>` — Release a semantic outcome (route-based)
 - `shark status set <task> <status>` / `shark task set-status <task> <status>` — Set status directly
 - `shark task approve <task>` — Final approval/completion
 - `shark task reopen <task>` — Move back to in-progress
 
-### Switching workflows
+### Switching / customizing workflows
 
-To switch workflows, edit `workflow_config` in `.sharkconfig.json`:
-
-```json
-{
-  "workflow_config": "shark-templates/.sharkworkflow.json"
-}
-```
-
-To use a custom workflow, copy one of the shipped files to your own path,
-edit it, and point `workflow_config` at your copy. `shark admin init`
-re-syncs files inside `shark-templates/` on every run but leaves files
-outside that directory alone.
+Edit the per-entity YAML under `shark-data/workflow/` directly, or point
+`workflow_config` at your own directory or master index file. Files under
+`shark-data/overrides/` layer on top of the bundled defaults and are never
+overwritten by `shark admin init`.
 
 > The basic/advanced "profile" subsystem (`shark init update --workflow=...`,
 > `shark init merge ...`) was removed. See
 > [Workflow Configuration Guide](docs/guides/workflow-profiles.md) for the
 > migration table.
+
+### Route-Based Workflows (Shark 2.x — E35)
+
+A consolidated route-based workflow schema is supported alongside the legacy
+two-map shape. It merges `status_flow` + `status_metadata` into one per-step
+block (`steps:`), replaces the transition graph with a per-step `outcomes:` map
+(skills release a semantic `pass`/`fail`/`blocked` outcome and the engine
+routes), collapses `ready_for_X`/`in_X` into a phase + a claim/session lease,
+and supports a master index file mapping each entity to its workflow.
+
+Both shapes coexist: the loader derives the legacy maps from `steps:`, so every
+existing reader keeps working and the default shipped workflows remain on the
+legacy shape until explicitly switched. New CLI surface: `shark status advance
+--outcome <name>`, `shark claim/release/heartbeat/claims`, and `shark admin
+migrate statuses` (gated). See
+[Route-Based Workflow Guide](docs/guides/route-based-workflow.md).
 
 ### Project Root Auto-Detection
 
@@ -194,6 +206,7 @@ You can run shark commands from any subdirectory.
 - **Architecture Details**: @.claude/rules/architecture.md
 - **CLI Reference (Unified)**: @docs/cli-reference/README.md
 - **Workflow Profiles Guide**: @docs/guides/workflow-profiles.md
+- **Route-Based Workflow (Shark 2.x)**: @docs/guides/route-based-workflow.md
 - **Turso Cloud Setup**: @docs/TURSO_QUICKSTART.md
 - **Turso Migration Guide**: @docs/TURSO_MIGRATION.md
 

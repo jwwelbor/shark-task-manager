@@ -7,6 +7,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/auth/maintainer"
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -81,7 +82,7 @@ func handleEntityServiceError(
 	cmd *cobra.Command,
 	tagSvc tagServiceIface,
 	err error,
-	entityType string,
+	entityType models.EntityType,
 	key string,
 ) error {
 	if err == nil {
@@ -99,6 +100,14 @@ func handleEntityServiceError(
 		return handleVocabularyErrorWithSnippet(cmd, tagSvc, "", err)
 	}
 
+	// Non-tag errors propagate, enriched with which entity operation failed so
+	// the caller (and exit-code mapping) keeps the error chain but gains context.
+	if entityType != "" {
+		if key != "" {
+			return fmt.Errorf("%s %s: %w", entityType, key, err)
+		}
+		return fmt.Errorf("%s: %w", entityType, err)
+	}
 	return err
 }
 

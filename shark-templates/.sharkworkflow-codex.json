@@ -487,15 +487,6 @@
         "on_hold"
       ],
       "in_code_review": [
-        "ready_for_qa",
-        "active",
-        "on_hold"
-      ],
-      "ready_for_qa": [
-        "in_qa",
-        "on_hold"
-      ],
-      "in_qa": [
         "ready_for_approval",
         "active",
         "on_hold"
@@ -538,7 +529,7 @@
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "model": "haiku",
+          "model": "sonnet",
           "skills": [
             "assessment",
             "research"
@@ -557,7 +548,7 @@
         "orchestrator_action": {
           "action": "check_or_resume",
           "agent_type": "researcher",
-          "model": "haiku",
+          "model": "sonnet",
           "skills": [
             "assessment",
             "research"
@@ -877,49 +868,8 @@
           "instruction_template": "feature_short/in_code_review.tmpl"
         }
       },
-      "ready_for_qa": {
-        "description": "Code review passed \u2014 ready for feature-level QA",
-        "phase": "qa",
-        "color": "blue",
-        "display_token": "QA",
-        "progress_weight": 0.8,
-        "is_planning": false,
-        "responsibility": "agent",
-        "agent_types": [
-          "qa"
-        ],
-        "orchestrator_action": {
-          "action": "spawn_agent",
-          "agent_type": "qa",
-          "model": "sonnet",
-          "skills": [
-            "quality",
-            "test-driven-development"
-          ],
-          "instruction_template": "feature_short/ready_for_qa.tmpl"
-        }
-      },
-      "in_qa": {
-        "description": "Feature-level QA testing in progress",
-        "phase": "qa",
-        "color": "blue",
-        "display_token": "IQA",
-        "progress_weight": 0.85,
-        "is_planning": false,
-        "responsibility": "agent",
-        "orchestrator_action": {
-          "action": "check_or_resume",
-          "agent_type": "qa",
-          "model": "sonnet",
-          "skills": [
-            "quality",
-            "test-driven-development"
-          ],
-          "instruction_template": "feature_short/in_qa.tmpl"
-        }
-      },
       "ready_for_approval": {
-        "description": "QA passed \u2014 ready for UAT red-team review",
+        "description": "Code review passed \u2014 ready for UAT red-team review",
         "phase": "approval",
         "color": "cyan",
         "display_token": "APR",
@@ -1703,7 +1653,7 @@
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "model": "haiku",
+          "model": "sonnet",
           "skills": [
             "triage",
             "assessment"

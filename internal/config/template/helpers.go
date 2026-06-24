@@ -5,81 +5,188 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// epicKeyPattern matches an epic key segment like E07 or E12.
-var epicKeyPattern = regexp.MustCompile(`^E\d+$`)
+// keyParser is the package-level KeyService used by parseEpicKeyFromEntityKey
+// and parseFeatureKeyFromTaskKey. KeyService is stateless and the centralized
+// source of truth for shark key parsing (slug-stripping, T- prefix handling,
+// case-insensitivity). TD-021 replaced the local regex-based parsers in this
+// file with calls into it to eliminate parser drift.
+var keyParser = keys.NewKeyService()
 
-// featureKeyPattern matches a feature key segment like E07-F01 or E12-F03.
-var featureKeyPattern = regexp.MustCompile(`^E\d+-F\d+$`)
-
-// ParseEpicKeyFromEntityKey extracts the epic key (E##) from a task or feature key.
-// E.g., "T-E07-F01-001" -> "E07", "E07-F01" -> "E07", "E07" -> "E07"
-// Returns empty string if no epic key can be extracted.
-func ParseEpicKeyFromEntityKey(entityKey string) string {
-	return parseEpicKeyFromEntityKey(entityKey)
-}
-
+// parseEpicKeyFromEntityKey extracts the canonical epic key (E##) from any
+// entity key supported by keys.KeyService: epic, feature, or task keys with
+// or without slugs, in any case, with or without the T- prefix.
+//
+// Examples:
+//
+//	"T-E07-F01-001"            -> "E07"
+//	"E07-F01-001"              -> "E07"
+//	"e07-f01-001-some-slug"    -> "E07"
+//	"E07-F01"                  -> "E07"
+//	"E07-user-management"      -> "E07"
+//	"E07"                      -> "E07"
+//	"F01"                      -> ""    (no epic component)
+//	"B001"                     -> ""    (bug — no epic component)
+//	""                         -> ""
 func parseEpicKeyFromEntityKey(entityKey string) string {
-	if entityKey == "" {
+	parsed := keyParser.Parse(entityKey)
+	if parsed.EpicNum == "" {
 		return ""
 	}
-
-	// Strip "T-" prefix if present
-	key := entityKey
-	if strings.HasPrefix(strings.ToUpper(key), "T-") {
-		key = key[2:]
-	}
-
-	// Split on "-" and find the first segment matching E\d+
-	parts := strings.Split(key, "-")
-	for _, part := range parts {
-		upper := strings.ToUpper(part)
-		if epicKeyPattern.MatchString(upper) {
-			return upper
-		}
-	}
-
-	return ""
+	return "E" + parsed.EpicNum
 }
 
-// ParseFeatureKeyFromTaskKey extracts the feature key (E##-F##) from a task key.
-// E.g., "T-E07-F01-001" -> "E07-F01", "E07-F01-001" -> "E07-F01"
-// Returns empty string if no feature key can be extracted.
-func ParseFeatureKeyFromTaskKey(taskKey string) string {
-	return parseFeatureKeyFromTaskKey(taskKey)
-}
-
+// parseFeatureKeyFromTaskKey extracts the canonical feature key (E##-F##)
+// from any entity key whose ParsedKey carries both an epic and a feature
+// number — i.e. full feature keys (E##-F##) and any task key, including
+// slugged and mixed-case variants. The feature-suffix-only form (F##) is
+// intentionally not promoted because it lacks an epic component and the
+// helper's name implies a fully-qualified feature key.
+//
+// Examples:
+//
+//	"T-E07-F01-001"            -> "E07-F01"
+//	"E07-F01-001"              -> "E07-F01"
+//	"e07-f01-001-some-slug"    -> "E07-F01"
+//	"E07-F01"                  -> "E07-F01"
+//	"E07-F01-user-management"  -> "E07-F01"
+//	"E07"                      -> ""    (epic only — no feature component)
+//	"F01"                      -> ""    (no epic component)
+//	""                         -> ""
 func parseFeatureKeyFromTaskKey(taskKey string) string {
-	if taskKey == "" {
+	parsed := keyParser.Parse(taskKey)
+	if parsed.EpicNum == "" || parsed.FeatureNum == "" {
+		return ""
+	}
+	return "E" + parsed.EpicNum + "-F" + parsed.FeatureNum
+}
+
+// deriveReviewBase computes the review-base directory for an entity from its
+// file_path, matching the convention documented in the code-review / QA /
+// UAT process partials: replace the leading "docs/plan/" with "docs/review/",
+// drop the entity's filename, and strip a trailing "tasks/" segment if
+// present (so a task's review base lives alongside its feature's, not under
+// a per-task tasks/ subdirectory).
+//
+// Examples:
+//
+//	docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md
+//	  → docs/review/E19-sprint/E19-F04-analytics/
+//	docs/plan/E19-sprint/E19-F04-analytics/feature.md
+//	  → docs/review/E19-sprint/E19-F04-analytics/
+//	docs/plan/bugs/B025.md
+//	  → docs/review/bugs/
+//
+// Returns the empty string if filePath is empty so callers can decide
+// whether to omit the placeholder entirely. The result always ends with a
+// trailing slash when non-empty, matching the partials' usage as a
+// path prefix (e.g. <review-base>/code_review/...).
+func deriveReviewBase(filePath string) string {
+	if filePath == "" {
 		return ""
 	}
 
-	// Strip "T-" prefix if present
-	key := taskKey
-	if strings.HasPrefix(strings.ToUpper(key), "T-") {
-		key = key[2:]
+	p := strings.TrimPrefix(filePath, "./")
+	// Rewrite the plan-tree root to the review-tree root. We only rewrite the
+	// leading occurrence — paths that don't live under docs/plan/ pass through
+	// unchanged so callers see the original prefix in the result (useful for
+	// custom layouts and for surfacing misconfiguration).
+	if strings.HasPrefix(p, "docs/plan/") {
+		p = "docs/review/" + strings.TrimPrefix(p, "docs/plan/")
 	}
 
-	// Split on "-" and look for E##-F## pattern in the first segments
-	parts := strings.Split(key, "-")
-	if len(parts) < 2 {
+	// Drop the filename.
+	if idx := strings.LastIndex(p, "/"); idx >= 0 {
+		p = p[:idx+1]
+	}
+
+	// Collapse a trailing "tasks/" segment so task reviews live in the
+	// feature's review directory (the partials' convention).
+	if strings.HasSuffix(p, "/tasks/") {
+		p = strings.TrimSuffix(p, "tasks/")
+	}
+
+	return p
+}
+
+// deriveEpicDir computes the epic-level directory from a `file_path` value.
+// It preserves whatever convention the path uses (slug-suffixed or key-only)
+// because file_path is the authoritative on-disk location — this helper
+// exists so templates can reference the actual parent directory rather than
+// concatenating bare entity keys, which is the bug B021 fixed.
+//
+// Layout assumption: `docs/plan/<epic-dir>/[<feature-dir>/[tasks/]<file>]`.
+// We return the epic directory portion (always two segments below the root):
+//
+//	docs/plan/E07-enhancements/E07-F40-file-logging/feature.md
+//	  → docs/plan/E07-enhancements
+//	docs/plan/E07-enhancements/epic.md
+//	  → docs/plan/E07-enhancements
+//	docs/plan/E07-enhancements/E07-F40-file-logging/tasks/T-E07-F40-001.md
+//	  → docs/plan/E07-enhancements
+//	docs/plan/bugs/B021.md
+//	  → docs/plan/bugs       (for standalone entities — same shape)
+//
+// Returns the empty string if filePath is empty or doesn't have at least three
+// path segments (`<root>/<plan>/<epic-dir>/...`), so callers can decide whether
+// to omit the placeholder. Result has no trailing slash so partials can append
+// `/foo` predictably.
+func deriveEpicDir(filePath string) string {
+	if filePath == "" {
 		return ""
 	}
-
-	// Try combining first two parts to form E##-F##
-	candidate := strings.ToUpper(parts[0]) + "-" + strings.ToUpper(parts[1])
-	if featureKeyPattern.MatchString(candidate) {
-		return candidate
+	p := strings.TrimPrefix(filePath, "./")
+	parts := strings.Split(p, "/")
+	// Need at least: <root>/<plan>/<epic-dir>/<file>
+	if len(parts) < 3 {
+		return ""
 	}
+	// First three segments are the docs root + plan dir + epic dir. Anything
+	// deeper is either feature/tasks/file, which we drop here.
+	return parts[0] + "/" + parts[1] + "/" + parts[2]
+}
 
-	return ""
+// deriveFeatureDir computes the feature-level directory from a `file_path`
+// value. Like deriveEpicDir, it preserves the on-disk convention and returns
+// the empty string when the path doesn't have a feature segment (epic specs,
+// standalone entities). Bug B021 fix.
+//
+// Layout assumption: `docs/plan/<epic-dir>/<feature-dir>/[tasks/]<file>`.
+// The feature directory is the third segment when present:
+//
+//	docs/plan/E07-enhancements/E07-F40-file-logging/feature.md
+//	  → docs/plan/E07-enhancements/E07-F40-file-logging
+//	docs/plan/E07-enhancements/E07-F40-file-logging/tasks/T-E07-F40-001.md
+//	  → docs/plan/E07-enhancements/E07-F40-file-logging
+//	docs/plan/E07-enhancements/epic.md
+//	  → ""    (no feature segment — only epic + filename)
+//	docs/plan/bugs/B021.md
+//	  → ""    (standalone bug — no feature segment)
+//
+// Returns the empty string if filePath has fewer than five segments (which
+// means there is no feature directory between the epic and the filename) so
+// callers can detect "no feature parent" cleanly.
+func deriveFeatureDir(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	p := strings.TrimPrefix(filePath, "./")
+	parts := strings.Split(p, "/")
+	// Need at least: <root>/<plan>/<epic>/<feature>/<file>
+	if len(parts) < 5 {
+		return ""
+	}
+	// First four segments form the feature directory. We deliberately do
+	// NOT special-case "tasks/" here — the fourth segment is always the
+	// feature dir whether the fifth is the file (feature.md) or "tasks".
+	return parts[0] + "/" + parts[1] + "/" + parts[2] + "/" + parts[3]
 }
 
 // applySizePlaceholders populates the "size" and "size_label" keys in the
@@ -145,6 +252,19 @@ func EntityPlaceholders(entity models.Entity) map[string]string {
 	}
 	if fp := entity.GetFilePath(); fp != "" {
 		m["file_path"] = fp
+		if rb := deriveReviewBase(fp); rb != "" {
+			m["review_base"] = rb
+		}
+		// epic_dir / feature_dir feed the _resolve_spec_paths partial so it
+		// can reference the actual on-disk parent directories (slug-suffixed
+		// or otherwise) rather than concatenating bare entity keys, which
+		// produced the wrong path in B021.
+		if ed := deriveEpicDir(fp); ed != "" {
+			m["epic_dir"] = ed
+		}
+		if fd := deriveFeatureDir(fp); fd != "" {
+			m["feature_dir"] = fd
+		}
 	}
 
 	return m

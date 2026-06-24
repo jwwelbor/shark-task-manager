@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	cfgworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
@@ -2027,6 +2029,150 @@ func TestAddEntityToSprint_AllowsPlanningAndActiveSprints(t *testing.T) {
 
 			assert.NoError(t, err, "sprint in %q status must be accepted", tt.status)
 			assert.NotNil(t, assignment)
+		})
+	}
+}
+
+// TestAddEntityToSprint_CustomWorkflowStatuses verifies TD-011: the
+// AddEntityToSprint guard delegates phase membership to workflow.Service
+// instead of hardcoding "planning"/"active" strings. A custom sprint
+// workflow that renames the planning-phase status to "draft" and the
+// execution-phase status to "running" must still be accepted by the guard,
+// while statuses in non-assignable phases (e.g. "wrap_up" -> review) must
+// still be rejected.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.AddEntityToSprint(ctx, AddEntityInput{...})
+//   - Lowest mock seam: SprintRepository interface; the workflow.Service is
+//     real and reads a custom YAML sprint workflow from a temp project root.
+//   - Forbidden mocks: Do NOT mock workflow.Service — the whole point is to
+//     verify the guard reads phases through it.
+//   - Counter-factual: a buggy impl that still checks
+//     `status == "planning" || status == "active"` would reject the "draft"
+//     and "running" rows even though both statuses live in the planning and
+//     execution phases of the custom workflow.
+func TestAddEntityToSprint_CustomWorkflowStatuses(t *testing.T) {
+	ctx := context.Background()
+
+	// Build a temp project root with a Shark 2.0 per-entity YAML sprint
+	// workflow that renames the canonical statuses but preserves the
+	// "planning" and "execution" phase labels that the guard keys off of.
+	projectRoot := t.TempDir()
+	workflowDir := filepath.Join(projectRoot, "shark-data", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+
+	sprintYAML := `version: "1.0"
+status_flow:
+  draft: ["running", "cancelled"]
+  running: ["wrap_up", "cancelled"]
+  wrap_up: ["completed", "cancelled"]
+  completed: []
+  cancelled: []
+status_metadata:
+  draft:
+    color: gray
+    description: Sprint planned but not yet started
+    phase: planning
+    is_planning: true
+    progress_weight: 0.0
+  running:
+    color: blue
+    description: Sprint is currently active
+    phase: execution
+    progress_weight: 0.5
+  wrap_up:
+    color: cyan
+    description: Sprint is closing
+    phase: review
+    progress_weight: 0.75
+  completed:
+    color: green
+    description: Sprint complete
+    phase: done
+    progress_weight: 1.0
+  cancelled:
+    color: gray
+    description: Sprint cancelled
+    phase: done
+    progress_weight: 1.0
+special_statuses:
+  _start_: ["draft"]
+  _complete_: ["completed", "cancelled"]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(workflowDir, "sprint.yaml"), []byte(sprintYAML), 0o644))
+
+	// Point .sharkconfig.json at the per-entity YAML directory.
+	configJSON := `{"workflow_config": "shark-data/workflow"}`
+	require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(configJSON), 0o644))
+
+	// Workflow config is cached globally; clear before and after to avoid
+	// cross-test contamination.
+	cfgworkflow.ClearWorkflowCache()
+	defer cfgworkflow.ClearWorkflowCache()
+
+	workflowSvc := workflow.NewService(projectRoot)
+
+	// Sanity-check: the custom workflow is what we wrote, not the default.
+	sprintLevelSvc := workflowSvc.ForLevel(workflow.LevelSprint)
+	require.ElementsMatch(t, []string{"draft"}, sprintLevelSvc.GetStatusesByPhase("planning"),
+		"custom sprint workflow's planning phase should contain only 'draft'")
+	require.ElementsMatch(t, []string{"running"}, sprintLevelSvc.GetStatusesByPhase("execution"),
+		"custom sprint workflow's execution phase should contain only 'running'")
+
+	tests := []struct {
+		name        string
+		status      string
+		expectError bool
+	}{
+		{"draft (custom planning-phase status) accepted", "draft", false},
+		{"running (custom execution-phase status) accepted", "running", false},
+		{"wrap_up (review phase) rejected", "wrap_up", true},
+		{"completed (done phase) rejected", "completed", true},
+		{"cancelled (done phase) rejected", "cancelled", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testSprint := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: models.SprintStatus(tt.status)}
+
+			addAssignmentCalled := false
+
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+					return testSprint, nil
+				},
+				GetTaskIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+					return 1001, nil
+				},
+				GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+					return nil, nil
+				},
+				AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+					addAssignmentCalled = true
+					assignment.ID = 1
+					return nil
+				},
+			}
+
+			svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+			assignment, _, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+				SprintKey: "S024",
+				EntityKey: "E07-F01-001",
+			})
+
+			if tt.expectError {
+				require.Error(t, err, "sprint in %q status (non-assignable phase) must be rejected", tt.status)
+				assert.Contains(t, err.Error(), tt.status, "error must mention the invalid sprint status")
+				assert.Nil(t, assignment)
+				assert.False(t, addAssignmentCalled,
+					"AddAssignment must NOT be called when sprint phase rejects assignments")
+			} else {
+				require.NoError(t, err, "sprint in %q status (planning or execution phase) must be accepted", tt.status)
+				assert.NotNil(t, assignment)
+				assert.True(t, addAssignmentCalled,
+					"AddAssignment must be called when sprint phase accepts assignments")
+			}
 		})
 	}
 }

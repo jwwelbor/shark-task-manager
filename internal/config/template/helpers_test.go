@@ -277,6 +277,233 @@ func TestEpicPlaceholders_AllFields(t *testing.T) {
 	}
 }
 
+// TestDeriveReviewBase covers the file_path → review_base derivation that
+// feeds the <review-base> placeholder consumed by the code-review / QA / UAT
+// partials. Regression for B025: shark next was exiting 3 on
+// ready_for_code_review because no key populated <review-base>.
+func TestDeriveReviewBase(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{
+			"task under feature",
+			"docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md",
+			"docs/review/E19-sprint/E19-F04-analytics/",
+		},
+		{
+			"feature spec",
+			"docs/plan/E19-sprint/E19-F04-analytics/feature.md",
+			"docs/review/E19-sprint/E19-F04-analytics/",
+		},
+		{
+			"bug under docs/plan/bugs",
+			"docs/plan/bugs/B025.md",
+			"docs/review/bugs/",
+		},
+		{
+			"epic top-level file",
+			"docs/plan/E19-sprint/epic.md",
+			"docs/review/E19-sprint/",
+		},
+		{
+			"non-plan path passes through with trailing slash",
+			"custom/E07-F01/tasks/T-E07-F01-001.md",
+			"custom/E07-F01/",
+		},
+		{
+			"leading ./ stripped",
+			"./docs/plan/bugs/B025.md",
+			"docs/review/bugs/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveReviewBase(tt.in); got != tt.want {
+				t.Errorf("deriveReviewBase(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEntityPlaceholders_PopulatesReviewBase ensures the EntityPlaceholders
+// shared builder injects review_base whenever file_path is present, so the
+// agent-body renderer can substitute <review-base> via the dash-to-underscore
+// alias path. Regression for B025.
+func TestEntityPlaceholders_PopulatesReviewBase(t *testing.T) {
+	filePath := "docs/plan/E07-feat/E07-F01-impl/tasks/T-E07-F01-001.md"
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-001",
+			Title:     "Test task",
+			FilePath:  &filePath,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "ready_for_code_review",
+		Priority: 5,
+	}
+	m := EntityPlaceholders(task)
+	if m["review_base"] != "docs/review/E07-feat/E07-F01-impl/" {
+		t.Errorf("review_base = %q, want docs/review/E07-feat/E07-F01-impl/", m["review_base"])
+	}
+}
+
+// TestEntityPlaceholders_NoReviewBaseWithoutFilePath confirms review_base is
+// omitted (not set to empty) when file_path is absent, so callers can detect
+// "unknown" cleanly rather than rendering a stray bare slash.
+func TestEntityPlaceholders_NoReviewBaseWithoutFilePath(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-001",
+			Title:     "Test task",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "draft",
+		Priority: 5,
+	}
+	m := EntityPlaceholders(task)
+	if _, ok := m["review_base"]; ok {
+		t.Errorf("review_base should not be set when file_path is empty, got %q", m["review_base"])
+	}
+}
+
+// TestDerivePlanDirs covers the file_path → epic_dir / feature_dir derivation
+// that feeds the {{.epic_dir}} / {{.feature_dir}} placeholders consumed by the
+// _resolve_spec_paths partial. Regression for B021: shark next was rendering
+// docs/plan/E01/E01-F41/ (key-only) instead of the actual slug-suffixed
+// docs/plan/E01-content-ingestion/E01-F41-lexicon-observation-staging.../
+// because the partial concatenated EPIC_ID/FEATURE_ID (which are entity keys)
+// instead of using the on-disk parent directories from file_path.
+//
+// Both helpers operate on file_path (the authoritative on-disk location) and
+// preserve whatever convention that path uses — slug-suffixed or key-only.
+func TestDerivePlanDirs(t *testing.T) {
+	tests := []struct {
+		name           string
+		in             string
+		wantEpicDir    string
+		wantFeatureDir string
+	}{
+		{
+			name:           "empty",
+			in:             "",
+			wantEpicDir:    "",
+			wantFeatureDir: "",
+		},
+		{
+			name:           "task under slug-suffixed feature",
+			in:             "docs/plan/E01-content-ingestion/E01-F41-lexicon-observation/tasks/T-E01-F41-001.md",
+			wantEpicDir:    "docs/plan/E01-content-ingestion",
+			wantFeatureDir: "docs/plan/E01-content-ingestion/E01-F41-lexicon-observation",
+		},
+		{
+			name:           "feature spec at slug-suffixed dir",
+			in:             "docs/plan/E07-enhancements/E07-F40-file-logging/feature.md",
+			wantEpicDir:    "docs/plan/E07-enhancements",
+			wantFeatureDir: "docs/plan/E07-enhancements/E07-F40-file-logging",
+		},
+		{
+			name:           "epic spec yields its own dir; feature_dir empty",
+			in:             "docs/plan/E07-enhancements/epic.md",
+			wantEpicDir:    "docs/plan/E07-enhancements",
+			wantFeatureDir: "",
+		},
+		{
+			name:           "key-only layout passes through unchanged",
+			in:             "docs/plan/E07/E07-F02/feature.md",
+			wantEpicDir:    "docs/plan/E07",
+			wantFeatureDir: "docs/plan/E07/E07-F02",
+		},
+		{
+			name:           "task under key-only feature",
+			in:             "docs/plan/E07/E07-F02/tasks/T-E07-F02-001.md",
+			wantEpicDir:    "docs/plan/E07",
+			wantFeatureDir: "docs/plan/E07/E07-F02",
+		},
+		{
+			name:           "leading ./ stripped",
+			in:             "./docs/plan/E07-feat/E07-F01-impl/feature.md",
+			wantEpicDir:    "docs/plan/E07-feat",
+			wantFeatureDir: "docs/plan/E07-feat/E07-F01-impl",
+		},
+		{
+			name:           "standalone bug under docs/plan/bugs",
+			in:             "docs/plan/bugs/B021.md",
+			wantEpicDir:    "docs/plan/bugs",
+			wantFeatureDir: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveEpicDir(tt.in); got != tt.wantEpicDir {
+				t.Errorf("deriveEpicDir(%q) = %q, want %q", tt.in, got, tt.wantEpicDir)
+			}
+			if got := deriveFeatureDir(tt.in); got != tt.wantFeatureDir {
+				t.Errorf("deriveFeatureDir(%q) = %q, want %q", tt.in, got, tt.wantFeatureDir)
+			}
+		})
+	}
+}
+
+// TestEntityPlaceholders_PopulatesPlanDirs ensures EntityPlaceholders emits
+// epic_dir and feature_dir whenever file_path resolves to them, so the
+// _resolve_spec_paths partial can render slug-suffixed paths instead of
+// concatenating bare entity keys. Regression for B021.
+func TestEntityPlaceholders_PopulatesPlanDirs(t *testing.T) {
+	filePath := "docs/plan/E01-content-ingestion/E01-F41-lexicon-observation/tasks/T-E01-F41-001.md"
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E01-F41-001",
+			Title:     "Test task",
+			FilePath:  &filePath,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "in_development",
+		Priority: 5,
+	}
+	m := EntityPlaceholders(task)
+	wantEpic := "docs/plan/E01-content-ingestion"
+	wantFeature := "docs/plan/E01-content-ingestion/E01-F41-lexicon-observation"
+	if m["epic_dir"] != wantEpic {
+		t.Errorf("epic_dir = %q, want %q", m["epic_dir"], wantEpic)
+	}
+	if m["feature_dir"] != wantFeature {
+		t.Errorf("feature_dir = %q, want %q", m["feature_dir"], wantFeature)
+	}
+}
+
+// TestEntityPlaceholders_NoPlanDirsWithoutFilePath confirms epic_dir and
+// feature_dir are omitted (not set to empty) when file_path is absent, so the
+// post-render guard in `shark next` can still distinguish "unknown" from
+// "explicitly blank". Regression-companion for B021 mirroring the B025
+// review_base behavior.
+func TestEntityPlaceholders_NoPlanDirsWithoutFilePath(t *testing.T) {
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:       "T-E07-F01-001",
+			Title:     "Test task",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "draft",
+		Priority: 5,
+	}
+	m := EntityPlaceholders(task)
+	if _, ok := m["epic_dir"]; ok {
+		t.Errorf("epic_dir should not be set when file_path is empty, got %q", m["epic_dir"])
+	}
+	if _, ok := m["feature_dir"]; ok {
+		t.Errorf("feature_dir should not be set when file_path is empty, got %q", m["feature_dir"])
+	}
+}
+
 // TestFormatDocPathsAsCSV_NilSlice tests formatting nil document slice (TC-FMT-01)
 func TestFormatDocPathsAsCSV_NilSlice(t *testing.T) {
 	result := formatDocPathsAsCSV(nil)
@@ -1437,6 +1664,16 @@ func TestParseEpicKeyFromEntityKey(t *testing.T) {
 		{"empty string", "", ""},
 		{"malformed no epic", "F01-001", ""},
 		{"malformed gibberish", "xyz", ""},
+		// TD-021: locks in slugged-key + case-variant behavior via KeyService.Parse.
+		{"slugged epic", "E07-user-management", "E07"},
+		{"slugged feature", "E07-F01-auth-module", "E07"},
+		{"slugged task", "T-E07-F01-001-impl-jwt", "E07"},
+		{"slugged short task", "E07-F01-001-impl-jwt", "E07"},
+		{"mixed-case slugged task", "t-E07-f01-001-Impl-JWT", "E07"},
+		{"feature suffix only (no epic)", "F01", ""},
+		{"slugged feature suffix only (no epic)", "F01-some-feature", ""},
+		{"bug key (no epic component)", "B001", ""},
+		{"change-card key (no epic component)", "C001", ""},
 	}
 
 	for _, tt := range tests {
@@ -1464,6 +1701,14 @@ func TestParseFeatureKeyFromTaskKey(t *testing.T) {
 		{"epic only", "E07", ""},
 		{"malformed", "xyz-abc", ""},
 		{"single segment", "E07", ""},
+		// TD-021: locks in slugged-key + case-variant behavior via KeyService.Parse.
+		{"slugged task with T- prefix", "T-E07-F01-001-impl-jwt", "E07-F01"},
+		{"slugged short task", "E07-F01-001-impl-jwt", "E07-F01"},
+		{"slugged feature", "E07-F01-auth-module", "E07-F01"},
+		{"mixed-case slugged task", "t-E07-f01-001-Impl-JWT", "E07-F01"},
+		{"slugged epic (no feature)", "E07-user-management", ""},
+		{"feature suffix only (no epic)", "F01", ""},
+		{"bug key (no feature component)", "B001", ""},
 	}
 
 	for _, tt := range tests {

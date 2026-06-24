@@ -1,0 +1,8 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME test planning for feature E07-F01: "Sample feature for golden test".
+
+Check for existing test-plan.md in feature directory. If test plan exists with AC test matrix and integration scenarios, advance immediately.
+
+Otherwise, continue with full test planning per ready_for_test_planning instructions.

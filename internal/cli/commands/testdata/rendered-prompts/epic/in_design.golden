@@ -1,0 +1,8 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+RESUME architecture design for epic E07-F01: "Sample feature for golden test".
+
+Check for existing architecture.md and uat-plan.md in epic directory. If both exist and meet exit gate criteria, advance immediately.
+
+Otherwise, continue architecture and UAT design following the ready_for_design instructions.

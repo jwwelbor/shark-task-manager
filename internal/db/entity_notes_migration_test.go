@@ -287,3 +287,93 @@ func TestEntityNotesCascadeDeleteChangeCard(t *testing.T) {
 		t.Errorf("Expected 0 notes after change_card deletion (cascade delete), got %d", noteCount)
 	}
 }
+
+// TestEntityNotesAcceptsReviewAndRequirementNoteTypes verifies that the
+// entity_notes.note_type CHECK constraint accepts 'review' and 'requirement'
+// (B027 round 2). Round 1 added these to the Go validator
+// (models.ValidateNoteType) but left the DB CHECK rejecting them, causing
+// shark create note B027 "..." --type=review to fail end-to-end at the
+// SQLite layer. This regression test exercises the DB layer directly via
+// raw INSERTs so the constraint mismatch is caught without going through
+// the CLI or repository.
+//
+// Per the project rule documented in
+// .claude/rules/database-critical.md and the recorded memory rule
+// "feedback_entity_type_check_constraints.md", DB CHECKs and Go validators
+// must stay in sync.
+func TestEntityNotesAcceptsReviewAndRequirementNoteTypes(t *testing.T) {
+	tmpFile := "test_entity_notes_review_requirement.db"
+	defer os.Remove(tmpFile)
+	defer os.Remove(tmpFile + "-shm")
+	defer os.Remove(tmpFile + "-wal")
+
+	db, err := InitDB(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	// Insert a bug so we have a valid entity_id to reference (matches the
+	// canonical end-to-end scenario from B027 — code-review note on a bug).
+	_, err = db.Exec(`INSERT INTO bugs (key, title) VALUES (?, ?)`,
+		"BUG-REVIEW-001", "Bug for review note type test")
+	if err != nil {
+		t.Fatalf("Failed to insert bug: %v", err)
+	}
+	var bugID int64
+	if err := db.QueryRow("SELECT id FROM bugs WHERE key = 'BUG-REVIEW-001'").Scan(&bugID); err != nil {
+		t.Fatalf("Failed to get bug ID: %v", err)
+	}
+
+	// Each of these note types must be accepted by the DB CHECK to match
+	// the Go validator in internal/models/validation.go.
+	noteTypes := []string{"review", "requirement"}
+	for _, nt := range noteTypes {
+		_, err := db.Exec(`
+			INSERT INTO entity_notes (entity_type, entity_id, note_type, content)
+			VALUES (?, ?, ?, ?)
+		`, "bug", bugID, nt, "Note of type "+nt)
+		if err != nil {
+			t.Errorf("Expected entity_notes to accept note_type=%q (Go validator "+
+				"allows it; DB CHECK must agree), got error: %v", nt, err)
+		}
+	}
+}
+
+// TestEntityNotesNoteTypeCheckListsAllValidatorTypes verifies that the
+// note_type CHECK clause in the entity_notes schema enumerates every type
+// allowed by models.ValidateNoteType. This guards against future drift
+// between the Go validator allowlist and the DB CHECK (B027).
+func TestEntityNotesNoteTypeCheckListsAllValidatorTypes(t *testing.T) {
+	tmpFile := "test_entity_notes_note_type_check_listing.db"
+	defer os.Remove(tmpFile)
+	defer os.Remove(tmpFile + "-shm")
+	defer os.Remove(tmpFile + "-wal")
+
+	db, err := InitDB(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	var tableSQL string
+	if err := db.QueryRow(
+		"SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_notes'",
+	).Scan(&tableSQL); err != nil {
+		t.Fatalf("Failed to read entity_notes schema: %v", err)
+	}
+
+	// Mirror models.ValidateNoteType allowlist; any new entry added there
+	// must also appear in the DB CHECK.
+	required := []string{
+		"comment", "decision", "blocker", "solution", "reference",
+		"implementation", "testing", "future", "question", "rejection",
+		"requirement", "review",
+	}
+	for _, nt := range required {
+		needle := "'" + nt + "'"
+		if !strings.Contains(tableSQL, needle) {
+			t.Errorf("Expected entity_notes.note_type CHECK to include %s, but it is missing from schema:\n%s", needle, tableSQL)
+		}
+	}
+}

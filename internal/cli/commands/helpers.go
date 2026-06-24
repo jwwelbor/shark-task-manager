@@ -92,6 +92,7 @@ func IsIdeaKey(s string) bool {
 
 // IsSprintKey validates if a string is a valid sprint key format (S###).
 // Sprint keys are strict 3-digit zero-padded: S001, S024, S999.
+// Case insensitive: s001 is normalized to S001 before validation.
 // Delegates to keys.IsSprintKey for implementation.
 func IsSprintKey(s string) bool {
 	return keys.IsSprintKey(s)
@@ -762,7 +763,9 @@ func DetectEntityType(key string) string {
 		return "tech_debt"
 	}
 
-	// Check sprint key (S###)
+	// Check sprint key (S###) — strict 3-digit format. Must be checked
+	// here so notes/links/etc. resolve sprint keys via DetectEntityType
+	// (B030).
 	if IsSprintKey(normalized) {
 		return "sprint"
 	}
@@ -847,6 +850,39 @@ func applySizeLabelToMap(result map[string]interface{}, sizable interface{}) {
 	}
 	if label, err := models.SizeLabel(*size); err == nil {
 		result["size_label"] = label
+	}
+}
+
+// ensureSizeFieldsAlwaysPresent guarantees both "size" and "size_label" keys
+// exist in the JSON map, with null values when Size is unset. B032 (shark get
+// JSON omits size for bug/feature/change-card): every entity that carries Size
+// in its schema must expose the field consistently so callers can rely on
+// `--field size` / `--field size_label` and on `jq has("size")`.
+//
+// Used by bug and change-card get handlers after buildEnrichedJSON. Epic,
+// feature, and task have their own builders that handle this inline.
+//
+// sizable is any value whose concrete type implements GetSize() *int. When the
+// type does not satisfy that interface, the function is a no-op.
+func ensureSizeFieldsAlwaysPresent(result map[string]interface{}, sizable interface{}) {
+	type sizeGetter interface {
+		GetSize() *int
+	}
+	sg, ok := sizable.(sizeGetter)
+	if !ok || sg == nil {
+		return
+	}
+	size := sg.GetSize()
+	if size == nil {
+		result["size"] = nil
+		result["size_label"] = nil
+		return
+	}
+	result["size"] = *size
+	if label, err := models.SizeLabel(*size); err == nil {
+		result["size_label"] = label
+	} else {
+		result["size_label"] = nil
 	}
 }
 

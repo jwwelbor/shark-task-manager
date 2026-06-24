@@ -1,0 +1,136 @@
+RESUME feature-level QA for E07-F01: "Sample feature for golden test".
+
+Check for an existing QA report at docs/review/{epic-folder}/{feature-folder}/qa/*-E07-F01-qa.md.
+(Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+- If QA report exists with PASS verdict → shark status advance E07-F01
+- If QA report exists with FAIL verdict → verify whether kicked-back tasks have since been fixed; if so, re-run QA; otherwise report to user and STOP
+- If NO report exists → perform the full feature QA below. Do NOT advance without a written report.
+
+---
+
+Feature code review passed for E07-F01 ("Sample feature for golden test"). Perform feature-level QA testing.
+
+
+# Quality Skill
+
+This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
+
+## Workflow Selection
+
+Based on what needs validation, invoke the appropriate workflow:
+
+### Design Document Validation
+**When**: Validating feature design documentation before task generation
+**Invoke**: `workflows/validate-design.md`
+**Output**: Validation report for design documents
+**Use case**: Ensure all required design docs exist and are complete
+
+### Task Readiness Validation
+**When**: Validating tasks are complete and ready for implementation
+**Invoke**: `workflows/validate-tasks.md`
+**Output**: Task readiness report with dependency analysis
+**Use case**: Verify tasks are properly structured and sequenced
+
+### Code Review
+**When**: Reviewing code implementation against requirements and standards
+**Invoke**: `workflows/review-code.md`
+**Output**: Comprehensive code review report
+**Use case**: Assess code quality, PRD alignment, and engineering standards
+
+### Test Planning (Shift-Left QA)
+**When**: Reviewing task specifications BEFORE development begins
+**Invoke**: `workflows/test-planning.md`
+**Output**: Spec drift analysis + concrete acceptance test cases
+**Use case**: Compare task spec against feature PRD for drift, write test plan that becomes the developer's source of truth. This is the quality gate between planning and development.
+
+### QA Testing (Post-Development)
+**When**: Validating implementation after code review
+**Invoke**: `workflows/qa-testing.md`
+**Output**: QA test results and exploratory findings
+**Use case**: Validate implementation against pre-written test plan and acceptance criteria
+
+## Quality Resources
+
+All workflows reference these quality criteria files:
+
+- `context/design-validation-criteria.md` - Design document requirements
+- `context/task-validation-criteria.md` - Task completeness checks
+- `context/review-rubric.md` - Code review standards
+- `context/quality-gates.md` - General quality standards
+
+## Usage Pattern
+
+Commands and agents reference this skill using:
+
+```markdown
+## Your Process
+1. Analyze what needs validation
+2. Invoke quality skill: quality/workflows/validate-{type}.md
+3. Apply criteria from quality/context/{criteria-name}.md
+4. Generate validation report with actionable feedback
+```
+
+## Quality Standards
+
+All validation activities must:
+- Be objective and measurable
+- Provide clear pass/fail criteria
+- Include actionable feedback for failures
+- Reference specific standards and requirements
+- Generate consistent, structured reports
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
+
+READ:
+(1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria and scope
+(2) Feature test-plan.md for all test cases and expected coverage
+(3) Code review report from docs/review/{epic-folder}/{feature-folder}/code_review/*-E07-F01-review.md for scope of changes
+(4) All task specs: `shark list E07-F01 --json` → collect every task's Scope file list
+(5) `git diff $(git merge-base HEAD main)..HEAD` to derive all touched paths
+
+SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
+
+1. Quality gates (always run, fast):
+   - `cd backend && make fmt && make lint`
+
+2. Targeted unit tests:
+   - Union all changed source files from git diff AND from all task Scope sections
+   - Map each to its test counterpart(s) under backend/tests/unit/
+     - backend/app/services/X.py → backend/tests/unit/services/test_X.py
+     - backend/app/api/X.py → backend/tests/unit/api/test_X.py
+     - backend/app/db/models/X.py → backend/tests/unit/db/
+   - Add any tests explicitly named in the feature test-plan ACs
+   - Run: `cd backend && uv run pytest <all-paths> -x --tb=short`
+
+3. Targeted integration tests (only if changeset crosses an integration seam):
+   - DB migration / schema change → backend/tests/integration/db/ + tests using the changed table
+   - API endpoint change → backend/tests/integration/api/ for that route
+   - Service contract change → tests for the consumer
+   - Pure intra-service or doc-only changes → skip
+
+4. Sanity spot-check (only if changes are broad across a shared module):
+   - `cd backend && uv run pytest tests/unit -x --tb=short`
+
+DO NOT RUN: make test / full integration suite / codex red-team (UAT owns red-team)
+
+VALIDATE:
+- Quality gates pass (fmt, lint)
+- All targeted tests pass — zero failures introduced by this feature
+- Every AC from the feature test-plan is exercised by a named test
+- No regressions in targeted scope
+
+PRODUCE QA report to docs/review/{epic-folder}/{feature-folder}/qa/<timestamp>-E07-F01-qa.md:
+(Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+- Verdict: PASS or FAIL
+- Test scope rationale
+- Test results summary
+- AC verification: name the test that proves each AC
+- Any pre-existing failures encountered
+
+ON PASS → shark status advance E07-F01
+ON FAIL:
+- For each failing task, kick back: `shark status set <task-id> ready_for_development --reason "<specific failures>"`
+- Set feature back: `shark status set E07-F01 active --reason "QA failed — see report, tasks kicked back"`

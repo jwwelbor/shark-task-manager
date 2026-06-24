@@ -1,0 +1,256 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+Write specification for feature E07-F01: "Sample feature for golden test".
+
+Check for existing spec.md in feature directory. If spec exists meeting exit gate criteria, advance immediately.
+
+---
+
+COMBINED REQUIREMENTS + ARCHITECTURE SPECIFICATION
+
+This is a SINGLE document (spec.md) that covers both what to build and how to build it. In brownfield development, the architect who understands the codebase is best positioned to write both.
+
+
+# Architecture Skill
+
+This skill provides software architecture capabilities including system design, backend architecture, frontend architecture, data modeling, and security design. It delivers standardized workflows, patterns, and templates for creating comprehensive architecture documentation.
+
+For task-level architecture work, also refer to `specification-writing/workflows/refine-task-requirements.md` for the architect-specific workflow.
+
+## Workflow Selection
+
+Based on what the user needs, invoke the appropriate workflow:
+
+### System Architecture
+**When**: User needs high-level system architecture design across all components
+**Invoke**: `workflows/design-system.md`
+**Output**: System architecture document (02-architecture.md)
+**Used by**: principal-architect agent
+
+### Backend Architecture
+**When**: User needs API, service layer, or backend component design
+**Invoke**: `workflows/design-backend.md`
+**Output**: Backend design documents (02-architecture.md, 04-backend-design.md)
+**Used by**: backend-architect agent
+
+### Frontend Architecture
+**When**: User needs frontend component, state management, or UI architecture design
+**Invoke**: `workflows/design-frontend.md`
+**Output**: Frontend design document (05-frontend-design.md)
+**Used by**: frontend-architect agent
+**References**: frontend-design skill for UI component aesthetics
+
+### Database Architecture
+**When**: User needs data modeling, schema design, or persistence strategy
+**Invoke**: `workflows/design-database.md`
+**Output**: Data design document (03-data-design.md)
+**Used by**: db-admin agent
+
+### Security Architecture
+**When**: User needs security, authentication, authorization, or compliance design
+**Invoke**: `workflows/design-security.md`
+**Output**: Security design document (06-security-design.md)
+**Used by**: security-architect agent
+
+## Pattern Resources
+
+Common architectural patterns are documented in `context/patterns/`:
+
+- `api-patterns.md` - REST API design, GraphQL patterns, versioning
+- `data-patterns.md` - Data modeling, schema design, migration strategies
+- `security-patterns.md` - Authentication, authorization, RLS, encryption
+- `integration-patterns.md` - Service integration, event-driven, messaging
+
+## Template Resources
+
+All workflows reference these templates for consistent document structure:
+
+- `architecture-doc.md` - System architecture document template (02-architecture.md)
+- `api-spec-doc.md` - API/Backend specification template (04-backend-design.md)
+- `frontend-doc.md` - Frontend design template (05-frontend-design.md)
+- `database-doc.md` - Data design template (03-data-design.md)
+- `security-doc.md` - Security design template (06-security-design.md)
+
+## Integration Points
+
+### Depends On
+- **specification-writing skill**: Uses document generation patterns and naming conventions
+- **frontend-design skill**: Referenced by frontend workflow for UI component design
+
+### Used By
+- **feature-architect**: Orchestrates multiple architecture workflows for complete feature design
+- **backend-architect**: Uses design-backend workflow
+- **frontend-architect**: Uses design-frontend workflow
+- **db-admin**: Uses design-database workflow
+- **security-architect**: Uses design-security workflow
+- **principal-architect**: Uses design-system workflow
+
+## Usage Pattern
+
+Agents reference this skill using:
+
+```markdown
+## Your Process
+1. Analyze feature requirements from PRD
+2. Review project research report (00-research-report.md)
+3. Invoke architecture skill workflow: architecture/workflows/design-{domain}.md
+4. Apply patterns from: architecture/context/patterns/{pattern-type}.md
+5. Use template: architecture/context/templates/{template-name}.md
+6. Generate documentation at /docs/plan/{epic-key}/{feature-key}/
+```
+
+## Quality Standards
+
+All architecture documents must:
+- Be design specifications, NOT implementation code
+- Use prose descriptions and Mermaid diagrams, not code blocks
+- Follow the NO CODE principle (describe interfaces, don't implement them)
+- Align with existing project patterns from research reports
+- Include concrete specifications (field names, types, validation rules)
+- Consider all WAF pillars: Security, Reliability, Performance, Cost, Operations
+- Document trade-offs and design decisions explicitly
+- Cross-reference related architecture documents
+
+## Architecture Principles
+
+1. **Contract-First**: Define interfaces before implementation
+2. **Consistency**: Follow patterns from project research reports
+3. **Completeness**: All required sections must be documented
+4. **Clarity**: Specifications must be unambiguous and actionable
+5. **Integration**: Backend, frontend, data, and security designs must align
+6. **Scalability**: Consider growth and evolution from the start
+7. **Security**: Security is not an afterthought, it's built into design
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
+
+
+# Specification Writing Skill
+
+This skill provides technical product management and specification writing capabilities with standardized workflows and templates for creating three types of specification documents:
+
+1. **Epic PRDs** — High-level product requirements for major initiatives
+2. **Feature PRDs** — Detailed requirements for individual features within epics
+3. **Implementation Tasks** — Agent-executable work items that implement features
+
+## Suggested Upstream Input
+
+An epic or feature PRD entering this skill should typically be grounded in upstream discovery/design artifacts (vision, success criteria, personas, journey maps, friction findings, validation verdicts). When such artifacts exist, every spec produced here should cite them so the SDLC inherits the validated scope and success bar.
+
+If upstream artifacts are missing, **suggest** the user produce them first — but do not block. Some initiatives (small fixes, internal tooling, mid-stream pivots) legitimately enter the SDLC without a full discovery trail, and the user is the one who decides whether the upstream artifacts are needed for this piece of work.
+
+## Feature-Level Sequence
+
+The canonical SDLC feature sequence is:
+
+```
+feature.md (PRD)  →  wireframes.md  →  [prototype.md — optional]  →  architecture (02-…07-)  →  tasks  →  build
+```
+
+- **Feature PRD** is produced by `write-feature-prd.md` in this skill (business-analyst). User stories live as a section inside this file.
+- **Wireframes** and **prototype** are produced by the **`feature-design` skill** (ux-designer, with cx-designer reviewing). Invoked **after the PRD is approved** and **before architecture/tasks** so wireframes shape downstream design.
+- **Tasks** are produced by `write-task.md` (business-analyst). They MUST cite the wireframes (and prototype if present) by canonical path in their Design References sections — see `context/task-template.md`.
+
+If a feature touches frontend code and wireframes are missing, `write-task.md` will stop and recommend running the feature-design workflow first.
+
+## Workflow Selection
+
+Based on what the user needs, invoke the appropriate workflow:
+
+### Task-Level Refinement
+**When**: A task needs BA or technical refinement.
+**Invoke**: `workflows/refine-task-requirements.md`
+**Output**: Updated PRD sections or design docs for the task.
+
+### Epic Creation
+**When**: User wants to document a new epic or major initiative.
+**Invoke**: `workflows/write-epic.md`
+**Output**: Multi-file epic documentation.
+
+### Feature PRD Creation
+**When**: User wants to document a feature within an existing epic.
+**Invoke**: `workflows/write-feature-prd.md`
+**Output**: Feature PRD.
+
+### Plan-Gated Refinement (PLAN/ACT/CHECK pattern)
+**When**: Called automatically from refinement templates via PLAN GATE instruction.
+**Workflows** (in `workflows/plan/`):
+- `epic-ba-plan.md` — Epic BA document selection decision tree
+- `epic-tech-plan.md` — Epic tech document selection decision tree
+- `feature-ba-plan.md` — Feature BA document selection (tier-aware, epic-incremental)
+- `feature-tech-plan.md` — Feature tech document selection (contract-first)
+- `check-ba-docs.md` — Shared BA validator: depth rules, pass/fail logic
+- `check-tech-docs.md` — Shared tech validator: schema completeness, pass/fail logic
+
+### Epic Decomposition
+**When**: A refined epic must be broken into features.
+**Invoke**: `workflows/decompose-epic.md`
+**Output**: Feature set with dependency ordering and traceability matrix.
+
+### Task Generation
+**When**: Feature has completed architecture phase and needs implementation tasks.
+**Invoke**: `workflows/write-task.md`
+**Output**: A set of agent-executable task specs.
+
+## Template Resources
+
+All workflows reference these template files for consistent structure:
+
+- `context/epic-template.md` — Epic document structure and sections
+- `context/prd-template.md` — Feature PRD structure and sections
+- `context/task-template.md` — Task structure and frontmatter
+- `context/naming-conventions.md` — File and directory naming standards
+
+## Quality Standards
+
+All specification documents must:
+- Be specific and actionable, avoiding vague language
+- Include concrete examples where helpful
+- Anticipate edge cases and error scenarios
+- Define clear success metrics that are measurable
+- Establish explicit boundaries to prevent scope creep
+- Maintain consistent cross-references between files
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
+
+READ:
+(1) Parent epic PRD for business context and scope (DO NOT restate — reference by section)
+(2) Parent epic architecture doc for system-level decisions
+(3) Feature research report (if exists, for COMPLEX features)
+(4) Feature description at docs/plan/E07/E07-F01/E07-F01.md
+(5) CLAUDE.md for coding standards and patterns
+(6) Existing code in affected areas (grep for related services, models, repos)
+
+PRODUCE spec.md with these sections:
+
+**Requirements** (INCREMENTAL over epic — only what this feature adds):
+(1) Functional requirements with IDs (REQ-F-001, etc.)
+(2) Non-functional requirements (performance, security)
+(3) Acceptance criteria (testable, specific)
+(4) Out of scope for this feature
+
+**Architecture** (detailed design for this feature):
+(1) Component changes: what files to modify/create
+(2) Data model changes (schemas, migrations)
+(3) API/interface contracts (if applicable)
+(4) Key technical decisions with rationale
+(5) Integration with existing code (specific file paths, function signatures)
+
+CRITICAL RULES:
+- DO NOT restate epic-level business context. Say "See epic PRD Section X" instead.
+- DO NOT restate existing architecture. Say "Follows pattern in internal/services/task_service.go" instead.
+- Requirements MUST trace to epic PRD requirements.
+- Architecture MUST align with CLAUDE.md patterns.
+- Include file paths for ALL code that will be modified.
+
+EXIT GATE:
+- Every requirement is testable
+- Every architecture decision references existing patterns or explains deviation
+- File paths listed for all changes
+- No TBDs in critical sections

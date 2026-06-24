@@ -9,6 +9,7 @@ type MockActionService struct {
 	GetAllActionsFunc            func(ctx context.Context) (map[string]*OrchestratorAction, error)
 	ValidateActionsFunc          func(ctx context.Context) (*ValidationResult, error)
 	ReloadFunc                   func(ctx context.Context) error
+	ForEntityFunc                func(entityType string) ActionService
 }
 
 // GetStatusAction implements ActionService
@@ -49,4 +50,14 @@ func (m *MockActionService) Reload(ctx context.Context) error {
 		return m.ReloadFunc(ctx)
 	}
 	return nil
+}
+
+// ForEntity implements ActionService. By default returns the mock itself so
+// tests that don't care about entity scoping see the same behavior. Override
+// ForEntityFunc to assert callers pick the correct entity type.
+func (m *MockActionService) ForEntity(entityType string) ActionService {
+	if m.ForEntityFunc != nil {
+		return m.ForEntityFunc(entityType)
+	}
+	return m
 }

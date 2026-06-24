@@ -479,12 +479,12 @@ func TestMigration_SchemaVersion(t *testing.T) {
 	// reads the maximum stored value.
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.GreaterOrEqual(t, version, 19,
-		"schema version should be at least 19 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
+	assert.GreaterOrEqual(t, version, 21,
+		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
-	// Also confirm the constant itself is at least 20 (E19-F07 bumped from 19 → 20).
-	assert.GreaterOrEqual(t, CurrentSchemaVersion, 20,
-		"CurrentSchemaVersion should be >= 20 after E19-F07 (sprint_order migration)")
+	// Also confirm the constant itself is set to the expected current value.
+	assert.Equal(t, 22, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 22 (E19-F07 sprint_order, after E35-F03 entity_claims)")
 }
 
 // ---------------------------------------------------------------------------
@@ -516,12 +516,11 @@ func TestMigration_SprintCompletions_SchemaVersion(t *testing.T) {
 	require.NoError(t, err, "InitDB should succeed")
 	defer db.Close()
 
-	// Step 2: Assert schema version >= 19 (E19-F03 established version 19;
-	// subsequent features such as E19-F07 may bump further).
+	// Step 2: Assert schema version == CurrentSchemaVersion after a full apply.
 	version, err := getSchemaVersion(db)
 	require.NoError(t, err, "getSchemaVersion should succeed")
-	assert.GreaterOrEqual(t, version, 19,
-		"schema version must be >= 19 after E19-F03 migration (got %d)", version)
+	assert.Equal(t, CurrentSchemaVersion, version,
+		"schema version must equal CurrentSchemaVersion (%d) after migration (got %d)", CurrentSchemaVersion, version)
 
 	// Step 3: Assert sprint_completions table exists.
 	var tableCount int
@@ -554,14 +553,11 @@ func TestMigration_SprintCompletions_SchemaVersion(t *testing.T) {
 	err = migrateSprintCompletionsTable(db)
 	require.NoError(t, err, "migrateSprintCompletionsTable should be idempotent (no error on second run)")
 
-	// Step 7: Confirm version is still >= 19 after idempotent re-run.
-	// The schema version is set by setSchemaVersion at the end of ApplySchemaAndMigrations,
-	// not by individual migration functions — so re-running migrateSprintCompletionsTable
-	// alone does not change the stored version.
+	// Step 7: Confirm version is still CurrentSchemaVersion (no regression from idempotent run).
 	versionAfter, err := getSchemaVersion(db)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, versionAfter, 19,
-		"schema version should remain >= 19 after idempotent re-run of migrateSprintCompletionsTable")
+	assert.Equal(t, CurrentSchemaVersion, versionAfter,
+		"schema version should remain CurrentSchemaVersion (%d) after idempotent re-run of migrateSprintCompletionsTable", CurrentSchemaVersion)
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,13 @@
 
 Deep dive into Shark's workflow system - status flows, metadata, orchestrator actions, and lifecycle management.
 
+> **Shark 2.x route-based schema (E35):** A consolidated per-step schema
+> (`steps:` with `outcomes:`, `aliases:`, a claim/session lease, and a master
+> index file) is supported alongside everything documented below. The two
+> shapes coexist — the loader derives the legacy `status_flow`/`status_metadata`
+> maps from `steps:`. See the
+> [Route-Based Workflow Guide](../guides/route-based-workflow.md).
+
 ## Overview
 
 Shark's workflow system enables AI-driven, multi-stage development workflows through:
@@ -427,6 +434,8 @@ Defines what happens when an entity enters a status.
   "orchestrator_action": {
     "action": "spawn_agent | advance_status | pause | archive",
     "agent_type": "agent-type",
+    "provider": "anthropic | openai",
+    "model": "opus | sonnet | haiku | codex",
     "skills": ["skill-1", "skill-2"],
     "instruction_template": "path/to/template.tmpl"
   }
@@ -443,6 +452,10 @@ Spawn an agent to perform work.
 - `agent_type` - Agent to spawn (e.g., "researcher", "developer")
 - `instruction_template` - Path to template file (e.g., "task/ready_for_development.tmpl")
 
+**Recommended fields:**
+- `provider` - AI provider for dispatch (e.g., `anthropic`, `openai`). Surfaced verbatim in `shark next` output. Empty is legal — the run controller may default — but `shark admin workflow validate-actions` warns when missing on `spawn_agent` / `check_or_resume`, since downstream tooling expects it populated.
+- `model` - Model identifier (e.g., `opus`, `sonnet`, `haiku`, `codex`). Should match the provider (anthropic models for `anthropic`, codex for `openai`).
+
 **Optional fields:**
 - `skills` - Skills/tools to load (e.g., ["test-driven-development", "implementation"])
 
@@ -452,6 +465,8 @@ Spawn an agent to perform work.
   "orchestrator_action": {
     "action": "spawn_agent",
     "agent_type": "developer",
+    "provider": "anthropic",
+    "model": "sonnet",
     "skills": ["test-driven-development", "implementation"],
     "instruction_template": "task/ready_for_development.tmpl"
   }

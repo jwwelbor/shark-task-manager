@@ -602,14 +602,3 @@ func confirmTdDelete(td *models.TechDebt) bool {
 	_, _ = fmt.Scanln(&response)
 	return strings.ToLower(response) == "y"
 }
-
-// truncateTdString truncates a string to maxLen characters, appending "..." if truncated.
-func truncateTdString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}

@@ -441,10 +441,14 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	            entity_notes, entity_relationships, entity_tags)
 //	18 — E19-F01 (sprints, sprint_assignments, sprint_capacity)
 //	19 — E19-F03 (sprint_completions table for carryover transaction and velocity analytics)
-//	20 — E19-F07 (sprint_order column + partial unique index + backfill on sprint_assignments)
+//	20 — B027   (expand entity_notes.note_type CHECK to include 'review' and
+//	             'requirement', syncing the DB CHECK with models.ValidateNoteType)
+//	21 — E35-F03 (entity_claims table: claim/session lease for route-based
+//	             dispatch — status becomes a pure phase, the claim is the lease)
+//	22 — E19-F07 (sprint_order column + partial unique index + backfill on sprint_assignments)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 20
+const CurrentSchemaVersion = 22
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -867,10 +871,70 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to drop polymorphic entity_type CHECK constraints: %w", err)
 	}
 
+	// B027 round 2: Expand entity_notes.note_type CHECK to include 'review'
+	// and 'requirement'. Round 1 added these to models.ValidateNoteType but
+	// left the SQLite CHECK enforcing only the original 10 types, causing
+	// `shark create note <key> "..." --type=review` to fail end-to-end with
+	// a CHECK constraint error. This brings the DB CHECK back in sync with
+	// the Go validator allowlist.
+	if err := migrateEntityNotesExpandNoteTypes(db); err != nil {
+		return fmt.Errorf("failed to expand entity_notes note_type CHECK: %w", err)
+	}
+
+	// E35-F03: entity_claims table — the claim/session lease that lets status
+	// collapse to a pure phase. An agent claims an entity (one claim per
+	// entity, enforced by UNIQUE); `shark next` hands out only unclaimed
+	// entities; heartbeats renew the lease; a TTL backstop reclaims dead leases.
+	if err := migrateEntityClaimsTable(db); err != nil {
+		return fmt.Errorf("failed to migrate entity_claims table: %w", err)
+	}
+
 	// Add sprint_order column to sprint_assignments, create the partial unique
 	// index, and backfill planning/active sprints (E19-F07).
 	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
 		return fmt.Errorf("sprint_order migration: %w", err)
+	}
+
+	return nil
+}
+
+// migrateEntityClaimsTable creates the entity_claims table (E35-F03). The table
+// is keyed by (entity_type, entity_key) with a UNIQUE constraint so that
+// claiming is an atomic single-grab: a second claim on the same entity fails on
+// the constraint. It is entity-agnostic (works for every entity type without
+// per-table columns) and purely additive.
+//
+// CREATE TABLE/INDEX IF NOT EXISTS make this idempotent and safe to rerun.
+func migrateEntityClaimsTable(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS entity_claims (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type    TEXT NOT NULL,
+			entity_key     TEXT NOT NULL,
+			claimed_by     TEXT NOT NULL,
+			session_id     TEXT NOT NULL,
+			claimed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			progress       REAL,
+			note           TEXT,
+			UNIQUE(entity_type, entity_key)
+		);
+	`); err != nil {
+		return fmt.Errorf("failed to create entity_claims table: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_entity_claims_key
+			ON entity_claims(entity_type, entity_key);
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_entity_claims_key: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_entity_claims_heartbeat
+			ON entity_claims(last_heartbeat);
+	`); err != nil {
+		return fmt.Errorf("failed to create idx_entity_claims_heartbeat: %w", err)
 	}
 
 	return nil
@@ -4026,6 +4090,172 @@ func migrateDropPolymorphicEntityTypeChecks(db *sql.DB) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit: %w", err)
+	}
+	return nil
+}
+
+// migrateEntityNotesExpandNoteTypes expands the entity_notes.note_type CHECK
+// constraint to include 'review' and 'requirement'.
+//
+// SQLite cannot ALTER a CHECK in place, so we recreate the table using the
+// CREATE _new → INSERT SELECT → DROP → RENAME pattern (mirrors
+// rebuildEntityNotesTx and migrateEntityNotesExpandEntityTypes).
+//
+// The DB CHECK and the Go validator allowlist (models.ValidateNoteType)
+// must be kept in sync — if a new note type is added to ValidateNoteType,
+// the CHECK here must be extended (or a follow-on migration added). The
+// regression tests TestEntityNotesAcceptsReviewAndRequirementNoteTypes and
+// TestEntityNotesNoteTypeCheckListsAllValidatorTypes guard against drift.
+//
+// Idempotent: a no-op if 'review' is already in the CHECK or no
+// note_type CHECK is present.
+func migrateEntityNotesExpandNoteTypes(db *sql.DB) error {
+	tableSQL, err := readTableSQL(db, "entity_notes")
+	if err != nil {
+		return fmt.Errorf("failed to read entity_notes schema: %w", err)
+	}
+	if tableSQL == "" {
+		// Table doesn't exist yet; migrateEntityNotes will create it. The
+		// fresh-DB path in ApplySchemaAndMigrations always runs
+		// migrateEntityNotes BEFORE this migration in runMigrations, but
+		// be defensive in case the function is invoked out of order.
+		return nil
+	}
+
+	// Idempotency: skip if the CHECK already enumerates 'review', or if no
+	// note_type CHECK is present (someone might drop it in the future).
+	if strings.Contains(tableSQL, "'review'") {
+		return nil
+	}
+	if !strings.Contains(tableSQL, "note_type IN") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Drop dependent views up front. SQLite re-validates view definitions
+	// during ALTER TABLE ... RENAME, so we drop them and recreate them
+	// inside the same transaction (mirrors migrateDropPolymorphicEntityTypeChecks).
+	dropViewSteps := []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+	}
+	for _, step := range dropViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop view failed: %w (step: %s)", err, step)
+		}
+	}
+
+	steps := []string{
+		// Build the rebuilt table with the expanded note_type CHECK. The
+		// entity_type column has no CHECK (matches post-B018 schema; see
+		// rebuildEntityNotesTx).
+		`CREATE TABLE entity_notes_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			note_type TEXT CHECK (note_type IN (
+				'comment', 'decision', 'blocker', 'solution', 'reference',
+				'implementation', 'testing', 'future', 'question', 'rejection',
+				'requirement', 'review'
+			)) NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT
+		);`,
+		`INSERT INTO entity_notes_new (id, entity_type, entity_id, note_type, content, created_by, created_at, metadata)
+			SELECT id, entity_type, entity_id, note_type, content, created_by, created_at, metadata FROM entity_notes;`,
+		// Cascade-delete triggers reference entity_notes by name — drop them
+		// so they don't keep a dangling reference to the about-to-be-renamed
+		// table. They are recreated immediately below against the new table.
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_task;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_feature;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_epic;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_bug;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_change;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_idea;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_tech_debt;`,
+		`DROP TABLE entity_notes;`,
+		`ALTER TABLE entity_notes_new RENAME TO entity_notes;`,
+		// Recreate indexes (mirrors migrateEntityNotes / rebuildEntityNotesTx).
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type_entity ON entity_notes(note_type, entity_type, entity_id);`,
+		// Recreate cascade-delete triggers for every entity type that owns notes.
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_change
+			AFTER DELETE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'change' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_idea
+			AFTER DELETE ON ideas
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'idea' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_tech_debt
+			AFTER DELETE ON tech_debts
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'tech_debt' AND entity_id = OLD.id;
+			END;`,
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("expand entity_notes note_type CHECK failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	// Recreate views inside the same transaction so the schema is fully
+	// consistent on commit.
+	recreateViewSteps := []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+	}
+	for _, step := range recreateViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("recreate view failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit entity_notes note_type expansion: %w", err)
 	}
 	return nil
 }

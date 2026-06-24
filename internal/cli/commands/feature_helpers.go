@@ -240,10 +240,9 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		slog.Warn("Failed to load config", "error", cfgErr)
 	}
 
-	// First pass: build rows with empty title cells so the title width can
-	// be derived from the actual rendered widths of the other columns
-	// (key, progress, status incl. ANSI color, size). Titles are then
-	// fitted/padded so pterm renders the table at full console width.
+	// First pass: build rows with empty title cells. Title widths are
+	// computed below via availableTitleWidth from the other columns
+	// (key, progress, status incl. ANSI color, size).
 	titles := make([]string, len(features))
 	rows := make([][]string, 0, len(features))
 	worstLevel := healthHealthy
@@ -1163,7 +1162,7 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
-			return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", featureKey)
+			return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeFeature, featureKey)
 		}
 	}
 
@@ -1265,13 +1264,9 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 	if feature.ExecutionOrder != nil {
 		result["execution_order"] = *feature.ExecutionOrder
 	}
-	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
-	if feature.Size != nil {
-		result["size"] = *feature.Size
-		if label, err := models.SizeLabel(*feature.Size); err == nil {
-			result["size_label"] = label
-		}
-	}
+	// B032 / E07-F42 REQ-F-006/007: always emit size and size_label keys (null
+	// when unset) so `shark get <key> --json` is consistent across entity types.
+	ensureSizeFieldsAlwaysPresent(result, feature)
 
 	return result
 }

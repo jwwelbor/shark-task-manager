@@ -77,9 +77,11 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 		return nil, fmt.Errorf("failed to parse JSON in %s: %w", configPath, err)
 	}
 
-	// Check if status_flow section exists
+	// Check if a workflow section exists in either the legacy (status_flow) or
+	// route-based (steps) shape. Absence of both means "use default workflow".
 	_, hasStatusFlow := rawConfig["status_flow"]
-	if !hasStatusFlow {
+	_, hasSteps := rawConfig["steps"]
+	if !hasStatusFlow && !hasSteps {
 		// No workflow config defined - return nil, no error
 		// Caller will use default workflow
 		return nil, nil
@@ -93,6 +95,8 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 		"status_metadata":          rawConfig["status_metadata"],
 		"special_statuses":         rawConfig["special_statuses"],
 		"require_rejection_reason": rawConfig["require_rejection_reason"],
+		"start":                    rawConfig["start"],
+		"steps":                    rawConfig["steps"],
 	}
 
 	workflowJSON, err := json.Marshal(workflowData)
@@ -104,6 +108,9 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	if err := json.Unmarshal(workflowJSON, &workflow); err != nil {
 		return nil, fmt.Errorf("failed to parse workflow config: %w", err)
 	}
+
+	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
+	deriveLegacyFromSteps(&workflow)
 
 	// Set default version if not specified
 	if workflow.Version == "" {
@@ -165,6 +172,11 @@ func GetWorkflowOrDefault(configPath string) *WorkflowConfig {
 // Missing config file returns (&MultiLevelWorkflow{}, nil).
 // Missing sections within the file result in nil for that level (will use default).
 // Empty sections (e.g., "epic_workflow": {}) are treated as unconfigured (nil).
+//
+// This is a thin wrapper around LoadMultiLevelWorkflowFromBytes that handles
+// the os.ReadFile call. Callers that have already read .sharkconfig.json
+// (e.g. defaultWorkflowDataLoader) should call LoadMultiLevelWorkflowFromBytes
+// directly to avoid re-reading the file (see TD-023).
 func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	// Check cache first (fast path)
 	multiLevelCacheLock.RLock()
@@ -174,7 +186,48 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	}
 	multiLevelCacheLock.RUnlock()
 
-	// Slow path: load from file
+	// Read config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			multiLevelCacheLock.Lock()
+			defer multiLevelCacheLock.Unlock()
+			// Double-check cache (another goroutine may have populated it).
+			if multiLevelCache != nil && multiLevelCachePath == configPath {
+				return multiLevelCache, nil
+			}
+			result := &MultiLevelWorkflow{}
+			multiLevelCache = result
+			multiLevelCachePath = configPath
+			return result, nil
+		}
+		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	return LoadMultiLevelWorkflowFromBytes(configPath, data)
+}
+
+// LoadMultiLevelWorkflowFromBytes is the same as LoadMultiLevelWorkflow except
+// it accepts the raw .sharkconfig.json bytes that the caller has already read.
+// This avoids redundant os.ReadFile calls on the hot startup path (TD-023).
+//
+// configPath is still required for:
+//   - Resolving relative paths in workflow_config
+//   - Cache keying (so subsequent LoadMultiLevelWorkflow calls hit cache)
+//   - Source tracking ("source": configPath strings on the returned MultiLevelWorkflow)
+//
+// If data is empty, behaves the same as LoadMultiLevelWorkflow when the file
+// is missing: returns an empty MultiLevelWorkflow.
+func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLevelWorkflow, error) {
+	// Check cache first (fast path) — callers may have already populated it.
+	multiLevelCacheLock.RLock()
+	if multiLevelCache != nil && multiLevelCachePath == configPath {
+		defer multiLevelCacheLock.RUnlock()
+		return multiLevelCache, nil
+	}
+	multiLevelCacheLock.RUnlock()
+
+	// Slow path: parse from bytes
 	multiLevelCacheLock.Lock()
 	defer multiLevelCacheLock.Unlock()
 
@@ -183,16 +236,12 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		return multiLevelCache, nil
 	}
 
-	// Read config file
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			result := &MultiLevelWorkflow{}
-			multiLevelCache = result
-			multiLevelCachePath = configPath
-			return result, nil
-		}
-		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	// Empty data => no config file present. Cache the empty result.
+	if len(data) == 0 {
+		result := &MultiLevelWorkflow{}
+		multiLevelCache = result
+		multiLevelCachePath = configPath
+		return result, nil
 	}
 
 	// Parse full config as raw JSON
@@ -223,9 +272,70 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		}
 	}
 
+	// E35-F04: workflow_config may point at a master index file that maps each
+	// entity to its workflow file, rooted at the index's bundle directory. This
+	// is detected before the directory/JSON-file handling because a YAML index
+	// would fail the JSON parse in loadWorkflowFile.
+	if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
+		idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
+		if idxErr != nil {
+			return nil, idxErr
+		}
+		if isIndex {
+			applyIndexResult(result, idxMLW, workflowFilePath)
+			fillDefaultSources(result)
+			cacheMultiLevel(result, configPath)
+			return result, nil
+		}
+	}
+
 	workflowFileData, err := loadWorkflowFile(workflowFilePath)
 	if err != nil {
 		return nil, err
+	}
+
+	// If workflow_config points at a directory, treat it as the Shark 2.0
+	// per-entity YAML layout. Load each entity workflow from its YAML file
+	// and overlay overrides from <parent>/overrides/workflow/. YAML-dir
+	// entries take precedence over inline definitions, matching JSON-file
+	// precedence below.
+	if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
+		overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
+		// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
+		// a non-nil error (e.g. one sibling YAML is malformed), the returned
+		// MultiLevelWorkflow may carry slots that loaded successfully. Consume
+		// those partial results so a single bad file doesn't silently reset
+		// every entity workflow to its hardcoded default.
+		if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
+			if mlw.Epic != nil {
+				result.Epic = mlw.Epic
+				result.Sources["epic"] = workflowFilePath
+			}
+			if mlw.Feature != nil {
+				result.Feature = mlw.Feature
+				result.Sources["feature"] = workflowFilePath
+			}
+			if mlw.Task != nil {
+				result.Task = mlw.Task
+				result.Sources["task"] = workflowFilePath
+			}
+			if mlw.Bug != nil {
+				result.Bug = mlw.Bug
+				result.Sources["bug"] = workflowFilePath
+			}
+			if mlw.Change != nil {
+				result.Change = mlw.Change
+				result.Sources["change"] = workflowFilePath
+			}
+			if mlw.TechDebt != nil {
+				result.TechDebt = mlw.TechDebt
+				result.Sources["tech_debt"] = workflowFilePath
+			}
+			if mlw.Sprint != nil {
+				result.Sprint = mlw.Sprint
+				result.Sources["sprint"] = workflowFilePath
+			}
+		}
 	}
 
 	// Map workflow keys to entity level names for source tracking
@@ -380,8 +490,10 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		}
 	}
 
-	// Set "default" source for entities not found in any file
-	for _, level := range []string{"epic", "feature", "task", "bug", "change", "tech_debt"} {
+	// Set "default" source for entities not found in any file. Derive the list
+	// from EntityTypes() so a new entity type is covered automatically (this
+	// previously omitted "sprint").
+	for _, level := range EntityTypes() {
 		if _, ok := result.Sources[level]; !ok {
 			result.Sources[level] = "default"
 		}
@@ -402,10 +514,78 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	return result, nil
 }
 
+// applyIndexResult copies the entity slots, sources, and bundle template
+// directory from a master-index load (E35-F04) into the result being built.
+func applyIndexResult(result, idx *MultiLevelWorkflow, sourcePath string) {
+	if idx == nil {
+		return
+	}
+	set := func(dst **WorkflowConfig, src *WorkflowConfig, slot string) {
+		if src != nil {
+			*dst = src
+			result.Sources[slot] = sourcePath
+		}
+	}
+	set(&result.Epic, idx.Epic, "epic")
+	set(&result.Feature, idx.Feature, "feature")
+	set(&result.Task, idx.Task, "task")
+	set(&result.Bug, idx.Bug, "bug")
+	set(&result.Change, idx.Change, "change")
+	set(&result.TechDebt, idx.TechDebt, "tech_debt")
+	set(&result.Sprint, idx.Sprint, "sprint")
+	if idx.TemplateDirectory != nil {
+		result.TemplateDirectory = idx.TemplateDirectory
+	}
+	// Prefer the per-entity source paths the index recorded (more precise than
+	// the index path itself) when available.
+	for slot, src := range idx.Sources {
+		result.Sources[slot] = src
+	}
+}
+
+// fillDefaultSources marks any entity slot not loaded from a file as "default".
+func fillDefaultSources(result *MultiLevelWorkflow) {
+	for _, level := range []string{"epic", "feature", "task", "bug", "change", "tech_debt"} {
+		if _, ok := result.Sources[level]; !ok {
+			result.Sources[level] = "default"
+		}
+	}
+}
+
+// cacheMultiLevel updates the legacy single-level cache and the multi-level
+// cache. The caller MUST already hold multiLevelCacheLock (write).
+func cacheMultiLevel(result *MultiLevelWorkflow, configPath string) {
+	workflowCacheLock.Lock()
+	if result.Task != nil {
+		workflowCache = result.Task
+	}
+	workflowCachePath = configPath
+	workflowCacheLock.Unlock()
+
+	multiLevelCache = result
+	multiLevelCachePath = configPath
+}
+
 // LoadMultiLevelWorkflowOrDefault loads configs or returns defaults for missing sections.
 // Never returns nil, never returns an error (falls back to defaults on any failure).
 func LoadMultiLevelWorkflowOrDefault(configPath string) *MultiLevelWorkflow {
 	multi, err := LoadMultiLevelWorkflow(configPath)
+	if err != nil {
+		slog.Warn("Failed to load workflow config", "error", err)
+		return &MultiLevelWorkflow{}
+	}
+	if multi == nil {
+		return &MultiLevelWorkflow{}
+	}
+	return multi
+}
+
+// LoadMultiLevelWorkflowOrDefaultFromBytes is the bytes-accepting variant of
+// LoadMultiLevelWorkflowOrDefault. Callers that have already read
+// .sharkconfig.json should use this to avoid redundant os.ReadFile calls
+// (see TD-023).
+func LoadMultiLevelWorkflowOrDefaultFromBytes(configPath string, data []byte) *MultiLevelWorkflow {
+	multi, err := LoadMultiLevelWorkflowFromBytes(configPath, data)
 	if err != nil {
 		slog.Warn("Failed to load workflow config", "error", err)
 		return &MultiLevelWorkflow{}
@@ -429,6 +609,10 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 	if err := json.Unmarshal(raw, &wf); err != nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", sectionName, err)
 	}
+
+	// Route-based schema (E35-F01): project consolidated steps: onto the legacy
+	// maps before the emptiness check so a steps-only block is recognized.
+	deriveLegacyFromSteps(&wf)
 
 	// Check if it has any meaningful content
 	if len(wf.StatusFlow) == 0 {
@@ -454,14 +638,16 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 // parseTopLevelTaskWorkflow extracts the task workflow from top-level config fields.
 // Returns nil if no top-level status_flow is defined.
 func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowConfig, error) {
-	// Check if status_flow section exists at the top level
-	if _, ok := rawConfig["status_flow"]; !ok {
+	// Check if a top-level workflow section exists in either shape.
+	_, hasStatusFlow := rawConfig["status_flow"]
+	_, hasSteps := rawConfig["steps"]
+	if !hasStatusFlow && !hasSteps {
 		return nil, nil
 	}
 
 	// Build a workflow-only JSON object from top-level fields
 	workflowData := make(map[string]json.RawMessage)
-	for _, key := range []string{"status_flow_version", "status_flow", "status_metadata", "special_statuses", "require_rejection_reason"} {
+	for _, key := range []string{"status_flow_version", "status_flow", "status_metadata", "special_statuses", "require_rejection_reason", "start", "steps"} {
 		if val, ok := rawConfig[key]; ok {
 			workflowData[key] = val
 		}
@@ -476,6 +662,9 @@ func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowC
 	if err := json.Unmarshal(workflowJSON, &wf); err != nil {
 		return nil, fmt.Errorf("failed to parse task workflow config: %w", err)
 	}
+
+	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
+	deriveLegacyFromSteps(&wf)
 
 	// Set defaults
 	if wf.Version == "" {
@@ -562,10 +751,19 @@ func expandHome(path string) string {
 
 // loadWorkflowFile reads and parses the workflow file at the given path.
 // Returns (nil, nil) if the file does not exist (silent fallback).
+// Returns (nil, nil) if the path resolves to a directory — this is the
+// Shark 2.0 case where `workflow_config` points at a per-entity YAML folder
+// rather than a single JSON file. The legacy JSON loader silently no-ops so
+// the new YAML-loading path can take over without spamming warnings.
 // Returns (nil, error) if the file exists but cannot be parsed.
 // Returns (data, nil) if the file is successfully parsed.
 // An empty file (0 bytes) is treated as {} (empty JSON object, all entities nil).
 func loadWorkflowFile(path string) (map[string]json.RawMessage, error) {
+	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+		// Shark 2.0 layout — let the YAML loader handle it.
+		return nil, nil
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

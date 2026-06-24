@@ -101,4 +101,6 @@ var (
 	_ Entity = (*Bug)(nil)
 	_ Entity = (*ChangeCard)(nil)
 	_ Entity = (*TechDebt)(nil)
+	_ Entity = (*Sprint)(nil) // B030: enable polymorphic note operations on sprints
+	_ Entity = (*Idea)(nil)   // B030: enable polymorphic note operations on ideas
 )

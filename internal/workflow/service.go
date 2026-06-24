@@ -158,6 +158,35 @@ func (s *Service) IsTerminalStatus(status string) bool {
 	return false
 }
 
+// IsParkingStatus reports whether the given status is a parking step (e.g.
+// blocked, on_hold) whose resume target is computed from history rather than a
+// static outcome (route-based schema: the step's parking flag). Old status
+// aliases are resolved first. Returns false for legacy workflows that do not
+// define steps, or for unknown statuses (graceful nil-workflow degradation,
+// mirroring IsTerminalStatus).
+func (s *Service) IsParkingStatus(status string) bool {
+	if s.workflow == nil {
+		return false
+	}
+	status = s.aliasResolve(status)
+	if st, ok := s.workflow.GetStep(status); ok && st != nil {
+		return st.Parking
+	}
+	return false
+}
+
+// IsBlockedStatus reports whether the given status sits in the "blocked" phase
+// (the cross-vocabulary signal for an entity halted by an external blocker).
+// It reads the phase from status metadata, which is populated for both
+// route-based (derived) and legacy workflows. Returns false for a nil workflow
+// or unknown status.
+func (s *Service) IsBlockedStatus(status string) bool {
+	if s.workflow == nil {
+		return false
+	}
+	return strings.EqualFold(s.getStatusPhase(s.aliasResolve(status)), "blocked")
+}
+
 // GetAllStatuses returns all defined statuses ordered by workflow phase.
 // Phase order: planning -> development -> review -> qa -> approval -> done -> any
 func (s *Service) GetAllStatuses() []string {
@@ -322,7 +351,10 @@ func (s *Service) GetTransitionInfo(currentStatus string) []TransitionInfo {
 }
 
 // IsValidTransition checks if transitioning from current to target status is valid.
+// For route-based workflows, old status aliases are resolved first (E35-F05).
 func (s *Service) IsValidTransition(currentStatus, targetStatus string) bool {
+	currentStatus = s.aliasResolve(currentStatus)
+	targetStatus = s.aliasResolve(targetStatus)
 	transitions := s.GetValidTransitions(currentStatus)
 	for _, valid := range transitions {
 		if strings.EqualFold(valid, targetStatus) {
@@ -333,7 +365,9 @@ func (s *Service) IsValidTransition(currentStatus, targetStatus string) bool {
 }
 
 // IsValidStatus checks if a status is defined in the workflow.
+// For route-based workflows, an old status alias counts as valid (input shim).
 func (s *Service) IsValidStatus(status string) bool {
+	status = s.aliasResolve(status)
 	// Check if status is in status_flow keys
 	for key := range s.workflow.StatusFlow {
 		if strings.EqualFold(key, status) {
@@ -351,15 +385,56 @@ func (s *Service) IsValidStatus(status string) bool {
 	return false
 }
 
+// aliasResolve resolves an old status alias to its new step for route-based
+// workflows; for legacy workflows it returns the input unchanged.
+func (s *Service) aliasResolve(status string) string {
+	if s.workflow != nil && s.workflow.HasSteps() {
+		return s.workflow.ResolveAlias(status)
+	}
+	return status
+}
+
 // NormalizeStatus returns the canonical case for a status name.
 // Returns the input unchanged if status is not found.
+//
+// For route-based workflows it also applies the alias compat shim (E35-F05):
+// an old status name (e.g. "ready_for_qa") is resolved to its new step (e.g.
+// "qa") so hooks, scripts, and muscle memory keep working during the
+// deprecation window.
 func (s *Service) NormalizeStatus(status string) string {
+	if s.workflow != nil && s.workflow.HasSteps() {
+		resolved := s.workflow.ResolveAlias(status)
+		if resolved != status {
+			return resolved
+		}
+	}
 	for key := range s.workflow.StatusFlow {
 		if strings.EqualFold(key, status) {
 			return key
 		}
 	}
 	return status
+}
+
+// ResolveAlias maps an old status name to its new step via the route-based
+// alias map, or returns the input unchanged. Exposed for history-read
+// resolution (E35-F05, §7) where an entity parked under an old status name is
+// read after migration.
+func (s *Service) ResolveAlias(status string) string {
+	if s.workflow == nil {
+		return status
+	}
+	return s.workflow.ResolveAlias(status)
+}
+
+// StatusAliasMap returns the old-status -> new-step map for the active workflow
+// (empty for legacy workflows). Used by the one-shot status migration.
+func (s *Service) StatusAliasMap() map[string]string {
+	if s.workflow == nil {
+		return map[string]string{}
+	}
+	m, _ := s.workflow.AliasMap()
+	return m
 }
 
 // GetPhases returns all unique phases from status metadata, in workflow order.
@@ -528,4 +603,65 @@ func (s *Service) IsBackwardTransition(fromStatus, toStatus string) (bool, error
 // instead of models.TaskStatus.
 func (s *Service) GetDefaultStatus() string {
 	return string(s.GetInitialStatus())
+}
+
+// --- Route-based outcome routing (E35-F02, decisions D2/D4) ---
+
+// IsRouteBased reports whether the active workflow uses the consolidated
+// per-step (steps:) schema with outcome routing.
+func (s *Service) IsRouteBased() bool {
+	return s.workflow != nil && s.workflow.HasSteps()
+}
+
+// GetOutcomes returns the outcome→target map for the given step/status.
+// Returns nil when the workflow is not route-based or the step has no outcomes
+// (terminal/parking steps).
+func (s *Service) GetOutcomes(status string) map[string]string {
+	if s.workflow == nil {
+		return nil
+	}
+	status = s.aliasResolve(status)
+	st, ok := s.workflow.GetStep(status)
+	if !ok || st == nil {
+		return nil
+	}
+	return st.Outcomes
+}
+
+// GetValidOutcomes returns the sorted outcome names defined for a step/status.
+func (s *Service) GetValidOutcomes(status string) []string {
+	outcomes := s.GetOutcomes(status)
+	if len(outcomes) == 0 {
+		return []string{}
+	}
+	keys := make([]string, 0, len(outcomes))
+	for k := range outcomes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Release resolves a semantic outcome to its target status using the
+// route-based outcomes map (decision D4: `advance` becomes `release(outcome)`).
+// The caller emits an outcome (pass/fail/blocked/…); the engine resolves
+// step.outcomes[outcome] and returns the target status. The caller then
+// performs the transition.
+//
+// Returns an error when the workflow is not route-based, the step is unknown,
+// or the outcome is not defined for the step.
+func (s *Service) Release(fromStatus, outcome string) (string, error) {
+	if !s.IsRouteBased() {
+		return "", fmt.Errorf("outcome routing requires a route-based (steps:) workflow; use --status to set a target directly")
+	}
+	fromStatus = s.aliasResolve(fromStatus)
+	target, ok := s.workflow.ResolveOutcome(fromStatus, outcome)
+	if !ok {
+		valid := s.GetValidOutcomes(fromStatus)
+		if len(valid) == 0 {
+			return "", fmt.Errorf("step %q defines no outcomes (terminal or parking step)", fromStatus)
+		}
+		return "", fmt.Errorf("no outcome %q defined for step %q (valid outcomes: %s)", outcome, fromStatus, strings.Join(valid, ", "))
+	}
+	return target, nil
 }

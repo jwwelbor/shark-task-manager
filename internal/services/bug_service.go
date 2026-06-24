@@ -125,11 +125,22 @@ func NewBugService(
 
 // CreateBug creates a new bug with auto-generated key and slug.
 //
+// If input.Severity is empty, it defaults to BugSeverityMedium (B008).
+// This aligns with the bug-report-then-triage workflow where the reporter
+// captures the title and an optional initial classification; `bug triage`
+// sets the real severity once the bug has been investigated.
+//
 // Returns the created bug, a boolean indicating whether an existing markdown
 // file was linked (vs. a fresh placeholder being written), and any error.
 func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*models.Bug, bool, error) {
 	if strings.TrimSpace(input.Title) == "" {
 		return nil, false, fmt.Errorf("bug title cannot be empty")
+	}
+
+	// B008: default omitted severity to medium so `shark bug create "<title>"`
+	// succeeds without forcing the reporter to classify before investigation.
+	if strings.TrimSpace(string(input.Severity)) == "" {
+		input.Severity = models.BugSeverityMedium
 	}
 
 	if !models.ValidBugSeverities[input.Severity] {

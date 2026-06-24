@@ -1217,3 +1217,192 @@ func TestSetSprintCapacityDefault_UpdatesExistingEntry(t *testing.T) {
 		t.Errorf("capacity.backend = %v, want 21 after update", capacity["backend"])
 	}
 }
+
+// --- TD-016: SaveRaw round-trip helper ---
+
+// TestSaveRaw_CreatesNewFile verifies SaveRaw can write to a path that does
+// not yet exist. This is the "fresh init" code path for ensureWorkflowConfigField.
+func TestSaveRaw_CreatesNewFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	mgr := NewManager(configPath)
+	raw := map[string]interface{}{
+		"workflow_config": "shark-data/workflow/",
+	}
+	if err := mgr.SaveRaw(configPath, raw); err != nil {
+		t.Fatalf("SaveRaw() error = %v", err)
+	}
+
+	// File must now exist and be valid JSON.
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read after SaveRaw: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("file is not valid JSON: %v", err)
+	}
+	if parsed["workflow_config"] != "shark-data/workflow/" {
+		t.Errorf("workflow_config = %v, want %q", parsed["workflow_config"], "shark-data/workflow/")
+	}
+}
+
+// TestSaveRaw_PreservesUnknownKeys ensures that round-tripping arbitrary
+// top-level keys through SaveRaw does not drop them. The whole motivation
+// for TD-016 was that the old inline path used a generic map and so did
+// the round-trip in Manager.Load — this test pins that the new helper
+// keeps that property.
+func TestSaveRaw_PreservesUnknownKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	// Seed with a mix of known and unknown top-level keys.
+	seed := map[string]interface{}{
+		"color_enabled":           true,
+		"workflow_config":         "shark-data/workflow/",
+		"some_third_party_plugin": map[string]interface{}{"version": "1.2.3"},
+		"opaque_string":           "carry this through verbatim",
+	}
+	seedBytes, err := json.MarshalIndent(seed, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal seed: %v", err)
+	}
+	if err := os.WriteFile(configPath, seedBytes, 0644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	// Load → mutate → SaveRaw.
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	cfg.RawData["workflow_config"] = "shark-data/workflow-v2/"
+	if err := mgr.SaveRaw(configPath, cfg.RawData); err != nil {
+		t.Fatalf("SaveRaw() error = %v", err)
+	}
+
+	// Read back from disk; all original keys must survive, with workflow_config
+	// updated.
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read after SaveRaw: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("re-parse failed: %v", err)
+	}
+	if parsed["color_enabled"] != true {
+		t.Errorf("color_enabled lost or wrong: got %v", parsed["color_enabled"])
+	}
+	if parsed["workflow_config"] != "shark-data/workflow-v2/" {
+		t.Errorf("workflow_config = %v, want %q", parsed["workflow_config"], "shark-data/workflow-v2/")
+	}
+	plug, ok := parsed["some_third_party_plugin"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("some_third_party_plugin lost or wrong type: %v", parsed["some_third_party_plugin"])
+	}
+	if plug["version"] != "1.2.3" {
+		t.Errorf("plugin.version = %v, want %q", plug["version"], "1.2.3")
+	}
+	if parsed["opaque_string"] != "carry this through verbatim" {
+		t.Errorf("opaque_string = %v, want unchanged", parsed["opaque_string"])
+	}
+}
+
+// TestSaveRaw_AtomicWriteNoTempLeaked verifies SaveRaw uses the temp-then-rename
+// pattern and does not leave a .tmp sibling behind on success. Counter-factual:
+// a naive os.WriteFile path would never produce a .tmp file in the first place,
+// but it would also be vulnerable to torn writes on crash. The .tmp absence
+// after success is the on-disk proof we took the atomic path.
+func TestSaveRaw_AtomicWriteNoTempLeaked(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	mgr := NewManager(configPath)
+	if err := mgr.SaveRaw(configPath, map[string]interface{}{"k": "v"}); err != nil {
+		t.Fatalf("SaveRaw(): %v", err)
+	}
+
+	// SaveRaw uses os.CreateTemp(dir, base+".tmp-*"), so the real temp pattern
+	// is "<base>.tmp-<random>", not "<base>.tmp". Glob the actual pattern;
+	// matching the wrong literal made the original assertion vacuous (B2-F6).
+	leaked, err := filepath.Glob(configPath + ".tmp-*")
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(leaked) != 0 {
+		t.Errorf("temp file(s) leaked after successful SaveRaw: %v", leaked)
+	}
+
+	// The committed file must be valid JSON with the written content.
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read committed config: %v", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("committed config is not valid JSON: %v", err)
+	}
+	if got["k"] != "v" {
+		t.Errorf("committed config = %v, want k=v", got)
+	}
+}
+
+// TestSaveRaw_PreservesFilePermissions verifies that SaveRaw retains the
+// existing file's permission bits on rewrite. Matches the behavior of
+// UpdateLastSyncTime so config files keep their mode across mutations.
+func TestSaveRaw_PreservesFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	// Write with a non-default mode so we can detect whether SaveRaw drops it.
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0600); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat seed: %v", err)
+	}
+	initialPerms := info.Mode().Perm()
+
+	mgr := NewManager(configPath)
+	if err := mgr.SaveRaw(configPath, map[string]interface{}{"k": "v"}); err != nil {
+		t.Fatalf("SaveRaw(): %v", err)
+	}
+
+	info, err = os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat after SaveRaw: %v", err)
+	}
+	if got := info.Mode().Perm(); got != initialPerms {
+		t.Errorf("perms = %o, want %o (SaveRaw must preserve existing permissions)", got, initialPerms)
+	}
+}
+
+// TestSaveRaw_NilRawDataWritesEmptyObject verifies SaveRaw treats a nil
+// rawData map as an empty JSON object, matching the defensive
+// initialization in writeRawConfig. Prevents NPE-style failures from
+// callers that pass cfg.RawData before any keys have been added.
+func TestSaveRaw_NilRawDataWritesEmptyObject(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	mgr := NewManager(configPath)
+	if err := mgr.SaveRaw(configPath, nil); err != nil {
+		t.Fatalf("SaveRaw(nil) error = %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read after SaveRaw: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("file not valid JSON after SaveRaw(nil): %v", err)
+	}
+	if len(parsed) != 0 {
+		t.Errorf("SaveRaw(nil) wrote %d keys, want 0 (empty object)", len(parsed))
+	}
+}

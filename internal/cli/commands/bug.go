@@ -202,7 +202,7 @@ func init() {
 	bugCmd.AddCommand(makeEntityTagCmd(models.EntityTypeBug, resolveBugID, nil))
 
 	// Create flags
-	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low)")
+	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low; default: medium)")
 	bugCreateCmd.Flags().StringVar(&bugLink, "link", "", "Entity key to link (E07, E07-F01, E07-F01-001)")
 	bugCreateCmd.Flags().StringVar(&bugFilePath, "file", "", "Custom file path for bug markdown file")
 	bugCreateCmd.Flags().BoolVar(&bugForce, "force", false, "Overwrite existing file at target path")
@@ -216,6 +216,9 @@ func init() {
 	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
 	bugCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 	bugCreateCmd.Flags().String("content", "", "Pre-populate file body (stdin pipe also accepted)")
+	bugCreateCmd.Flags().String("description", "", "Bug description (optional)")
+	bugCreateCmd.Flags().String("linked-type", "", "Linked entity type: epic, feature, or task (optional)")
+	bugCreateCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
 
 	// List flags
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
@@ -277,21 +280,38 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	description, _ := cmd.Flags().GetString("description")
+	linkedType, _ := cmd.Flags().GetString("linked-type")
+	linkedKey, _ := cmd.Flags().GetString("linked-key")
+
+	// --linked-type and --linked-key only mean something as a pair; a lone flag
+	// would otherwise be silently dropped, leaving the bug unlinked with no
+	// signal to the user.
+	if (linkedType == "") != (linkedKey == "") {
+		return fmt.Errorf("--linked-type and --linked-key must be used together")
+	}
+
 	input := services.CreateBugInput{
-		Title:    args[0],
-		Severity: models.BugSeverity(severity),
-		Force:    force,
-		Tags:     tags,
-		Size:     sizePtr,
-		Body:     body,
+		Title:       args[0],
+		Description: description,
+		Severity:    models.BugSeverity(severity),
+		Force:       force,
+		Tags:        tags,
+		Size:        sizePtr,
+		Body:        body,
 	}
 
 	if filePath != "" {
 		input.FilePath = &filePath
 	}
 
-	// Parse --link into linked entity type and key
-	if link != "" {
+	// The explicit pair takes precedence; partial pairs fall through to
+	// --link so the service still gets a complete linkage instead of an
+	// empty key paired with a non-empty type.
+	if linkedType != "" && linkedKey != "" {
+		input.LinkedEntityType = linkedType
+		input.LinkedEntityKey = linkedKey
+	} else if link != "" {
 		entityType, entityKey := parseBugLinkFlag(link)
 		input.LinkedEntityType = entityType
 		input.LinkedEntityKey = entityKey
@@ -301,7 +321,7 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bug, fileWasLinked, err := svc.CreateBug(cmd.Context(), input)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", input.Title)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeBug, input.Title)
 	}
 
 	// Step 3: Format output
@@ -359,6 +379,10 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 			tags = []string{}
 		}
 		result["tags"] = tags
+		// B032: size/size_label keys are always present (null when unset) so JSON
+		// consumers can rely on `--field size` and `jq has("size")` like they can
+		// for epics.
+		ensureSizeFieldsAlwaysPresent(result, bug)
 		return cli.OutputJSON(result)
 	}
 
@@ -408,7 +432,7 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bugs, err := svc.ListBugs(cmd.Context(), filters)
 	if err != nil {
-		return handleEntityServiceError(cmd, cli.GetTagService(), err, "bug", "")
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeBug, "")
 	}
 
 	// Step 3: Format output
@@ -470,7 +494,7 @@ func runBugUpdate(cmd *cobra.Command, args []string) error {
 	svc := getBugService()
 	bug, err := svc.UpdateBug(cmd.Context(), key, updates)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, "bug", key)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeBug, key)
 	}
 
 	// Step 3: Format output
@@ -629,15 +653,4 @@ func confirmBugDelete(bug *models.Bug) bool {
 	var response string
 	_, _ = fmt.Scanln(&response)
 	return strings.ToLower(response) == "y"
-}
-
-// truncateBugString truncates a string to maxLen characters, appending "..." if truncated.
-func truncateBugString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }

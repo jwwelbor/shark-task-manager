@@ -500,6 +500,63 @@ func TestTruncateRunes(t *testing.T) {
 	}
 }
 
+// Test Suite TD-005: truncateToWidth() - rune-safe replacement for the byte-based
+// truncate helpers (truncateString, truncateBugString, truncateTdString) that
+// were removed when consolidating around fitColumn/truncateRunes. These cases
+// lock in the "fit within maxLen runes total, with '...' ellipsis" semantic
+// the byte helpers had, plus the new guarantee of safe multi-byte handling.
+func TestTruncateToWidth(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		// Parity with the old byte-based helpers (ASCII inputs).
+		{name: "short string no truncation", input: "hi", maxLen: 10, want: "hi"},
+		{name: "exact length no truncation", input: "hello", maxLen: 5, want: "hello"},
+		{name: "one over max", input: "hello!", maxLen: 5, want: "he..."},
+		{name: "long string truncated with ellipsis", input: "this is a very long string", maxLen: 10, want: "this is..."},
+		{name: "maxLen 1", input: "abc", maxLen: 1, want: "a"},
+		{name: "maxLen 2", input: "abc", maxLen: 2, want: "ab"},
+		{name: "maxLen 3", input: "abc", maxLen: 3, want: "abc"},
+		{name: "maxLen 4 with truncation", input: "abcde", maxLen: 4, want: "a..."},
+		{name: "empty string", input: "", maxLen: 10, want: ""},
+		{name: "maxLen 0", input: "abc", maxLen: 0, want: ""},
+
+		// Regression: non-ASCII inputs must truncate on a rune boundary, not a
+		// byte boundary. The old byte-based helpers would slice mid-codepoint
+		// and corrupt the trailing rune.
+		{
+			name:   "CJK truncation lands on rune boundary",
+			input:  "世界人上海平", // 6 CJK runes (18 bytes)
+			maxLen: 5,
+			want:   "世界...",
+		},
+		{
+			name:   "emoji truncation lands on rune boundary",
+			input:  "\U0001F600\U0001F601\U0001F602\U0001F603\U0001F604", // 5 emoji (20 bytes)
+			maxLen: 4,
+			want:   "\U0001F600...",
+		},
+		{
+			name:   "non-ASCII string at exact rune count not truncated",
+			input:  "世界人", // 3 CJK runes
+			maxLen: 3,
+			want:   "世界人",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateToWidth(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("truncateToWidth(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}
+
 // Test capitalize helper function
 func TestCapitalize(t *testing.T) {
 	tests := []struct {

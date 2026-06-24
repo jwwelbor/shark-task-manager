@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -74,11 +75,19 @@ type ViewerTaskRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 	CountByStatus(ctx context.Context) (map[string]int, error)
 	CountBlocked(ctx context.Context) (int, error)
-	// ListWithViewerRelationships returns all tasks with pre-resolved relationship JSON
-	// from the viewer_task_relationships view. One DB round-trip replaces N+1 per-task calls.
-	ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
 	// ListByFeatureWithViewerRelationships returns tasks for a feature with pre-resolved relationship JSON.
+	// Used by FeatureTasks (the lazy-load endpoint that replaced inline embedding in Hierarchy — see B017).
 	ListByFeatureWithViewerRelationships(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error)
+	// CountsByFeature returns total and blocked task counts per feature in a single
+	// aggregate query. Used by the hierarchy endpoint (B017) so full task rows are
+	// never embedded in the hierarchy payload (E27-F02 REQ-F-002 lazy-load contract).
+	CountsByFeature(ctx context.Context) (map[int64]task.FeatureTaskCounts, error)
+	// FeatureIDsForTaskIDs returns the distinct feature IDs containing any of
+	// the given task IDs. Used by the hierarchy tag-filter prune logic (B017):
+	// when tasks are not embedded in the hierarchy, this maps tag-matched task
+	// IDs back to their parent features so feature-level prune decisions can
+	// still honor task-level tag matches.
+	FeatureIDsForTaskIDs(ctx context.Context, taskIDs []int64) (map[int64]struct{}, error)
 }
 
 // ViewerBugRepository is the minimal bug repository interface used by ViewerService.
@@ -257,14 +266,19 @@ type HierarchyDoc struct {
 	Path  string `json:"path"`
 }
 
-// HierarchyFeature is a feature with its tasks and linked docs embedded.
+// HierarchyFeature is a feature with task counts and linked docs.
+//
+// Per E27-F02 REQ-F-002 / B017, full task data is NOT embedded in the hierarchy
+// payload. Clients fetch tasks lazily via `GET /api/v1/viewer/features/{key}/tasks`
+// when a feature is expanded. The hierarchy carries only `task_count` and
+// `blocked_count` so the sidebar can render summary stats without bulk-loading
+// every task on initial page load.
 type HierarchyFeature struct {
 	*models.Feature
 	TaskCount    int             `json:"task_count"`
 	BlockedCount int             `json:"blocked_count"`
 	StatusColor  string          `json:"status_color"`
 	StatusPhase  string          `json:"status_phase"`
-	Tasks        []*ViewerTask   `json:"tasks"`
 	Docs         []*HierarchyDoc `json:"docs"`
 	Tags         []string        `json:"tags"` // NEW (REQ-F-003); always non-nil (ADR-F06-2)
 }
@@ -1121,9 +1135,12 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		return nil, fmt.Errorf("viewer hierarchy: failed to list features: %w", err)
 	}
 
-	allTasksWithRels, err := s.taskRepo.ListWithViewerRelationships(ctx)
+	// B017 / E27-F02 REQ-F-002: hierarchy is lazy-load — only counts are returned
+	// per feature, never full task rows. Tasks are fetched via the
+	// /features/{key}/tasks endpoint on demand.
+	taskCountsByFeature, err := s.taskRepo.CountsByFeature(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("viewer hierarchy: failed to list tasks with relationships: %w", err)
+		return nil, fmt.Errorf("viewer hierarchy: failed to count tasks by feature: %w", err)
 	}
 
 	var techDebts []*models.TechDebt
@@ -1149,12 +1166,6 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		featuresByEpic[f.EpicID] = append(featuresByEpic[f.EpicID], f)
 	}
 
-	// Index tasks by feature ID.
-	tasksByFeature := make(map[int64][]*models.ViewerTaskWithRelationships, len(allTasksWithRels))
-	for _, t := range allTasksWithRels {
-		tasksByFeature[t.FeatureID] = append(tasksByFeature[t.FeatureID], t)
-	}
-
 	// Sort epics by key ASC (epics have no execution_order; key is already ordered E01, E02, …).
 	sort.Slice(epics, func(i, j int) bool {
 		return epics[i].Key < epics[j].Key
@@ -1162,7 +1173,6 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 
 	epicSvc := s.workflowSvc.ForLevel(workflow.LevelEpic)
 	featureSvc := s.workflowSvc.ForLevel(workflow.LevelFeature)
-	taskSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
 	techDebtSvc := s.workflowSvc.ForLevel(workflow.LevelTechDebt)
 
 	// Bulk-load linked docs (optional — skipped when entityDocRepo is nil).
@@ -1233,32 +1243,10 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		})
 
 		for _, f := range features {
-			rawTasks := tasksByFeature[f.ID]
-
-			taskCount := len(rawTasks)
-			blockedCount := 0
-			for _, t := range rawTasks {
-				if t.BlockedReason != nil {
-					blockedCount++
-				}
-			}
-
-			// Build ViewerTask slice with status color/phase metadata and relationship data.
-			// Relationships are pre-resolved from the viewer_task_relationships SQL view —
-			// zero additional DB calls per task.
-			viewerTasks := make([]*ViewerTask, 0, len(rawTasks))
-			for _, t := range rawTasks {
-				meta := taskSvc.GetStatusMetadata(string(t.Status))
-				rels := parseViewerRelationships(t.RelationshipsJSON)
-				vt := &ViewerTask{
-					Task:          t.Task,
-					StatusColor:   colorOrGray(meta.Color),
-					StatusPhase:   phaseOrUnknown(meta.Phase),
-					Relationships: rels,
-					Tags:          []string{}, // ADR-F06-2: always non-nil
-				}
-				viewerTasks = append(viewerTasks, vt)
-			}
+			// B017 / E27-F02 REQ-F-002: only counts, never full task data, in the
+			// hierarchy payload. Frontend fetches tasks lazily via
+			// /api/v1/viewer/features/{key}/tasks when a feature is expanded.
+			counts := taskCountsByFeature[f.ID]
 
 			fDocs := docsByFeature[f.ID]
 			if fDocs == nil {
@@ -1268,11 +1256,10 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 			fMeta := featureSvc.GetStatusMetadata(string(f.Status))
 			he.Features = append(he.Features, &HierarchyFeature{
 				Feature:      f,
-				TaskCount:    taskCount,
-				BlockedCount: blockedCount,
+				TaskCount:    counts.Total,
+				BlockedCount: counts.Blocked,
 				StatusColor:  colorOrGray(fMeta.Color),
 				StatusPhase:  phaseOrUnknown(fMeta.Phase),
-				Tasks:        viewerTasks,
 				Docs:         fDocs,
 				Tags:         []string{}, // ADR-F06-2: always non-nil
 			})
@@ -1371,7 +1358,23 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 
 	// ── Step 6: If filter requested, prune (ADR-F06-4) ──
 	if idSets != nil {
-		pruneHierarchy(result, idSets)
+		// B017 / E27-F02 REQ-F-002: since tasks are no longer in the hierarchy,
+		// we resolve task-tag matches back to their parent feature IDs so the
+		// prune step can keep features that have a tag-matching task even when
+		// the feature itself isn't directly tagged.
+		featuresWithTaggedTasks := make(map[int64]struct{})
+		if taskMatchSet, ok := idSets[models.EntityTypeTask]; ok && len(taskMatchSet) > 0 {
+			matchedTaskIDs := make([]int64, 0, len(taskMatchSet))
+			for id := range taskMatchSet {
+				matchedTaskIDs = append(matchedTaskIDs, id)
+			}
+			featureIDs, err := s.taskRepo.FeatureIDsForTaskIDs(ctx, matchedTaskIDs)
+			if err != nil {
+				return nil, fmt.Errorf("viewer hierarchy: map tagged tasks to features: %w", err)
+			}
+			featuresWithTaggedTasks = featureIDs
+		}
+		pruneHierarchy(result, idSets, featuresWithTaggedTasks)
 	}
 
 	return result, nil
@@ -1425,20 +1428,19 @@ func (s *ViewerService) fetchTagsForHierarchy(ctx context.Context, resp *Hierarc
 	}
 
 	// Hierarchical entities — IDs come from embedded model pointers.
+	// B017 / E27-F02 REQ-F-002: hierarchy no longer carries task data, so task
+	// tags are not decorated here; they are fetched alongside task rows by the
+	// lazy /features/{key}/tasks endpoint.
 	epicIDs := make([]int64, 0, len(resp.Epics))
-	var featureIDs, taskIDs []int64
+	var featureIDs []int64
 	for _, e := range resp.Epics {
 		epicIDs = append(epicIDs, e.Epic.ID)
 		for _, f := range e.Features {
 			featureIDs = append(featureIDs, f.Feature.ID)
-			for _, t := range f.Tasks {
-				taskIDs = append(taskIDs, t.Task.ID)
-			}
 		}
 	}
 	fetch(models.EntityTypeEpic, epicIDs)
 	fetch(models.EntityTypeFeature, featureIDs)
-	fetch(models.EntityTypeTask, taskIDs)
 
 	// Flat entities — IDs come from the unexported dbID field set during construction.
 	bugIDs := make([]int64, 0, len(resp.Bugs))
@@ -1482,7 +1484,6 @@ func (s *ViewerService) fetchTagsForHierarchy(ctx context.Context, resp *Hierarc
 func applyTagsToHierarchy(resp *HierarchyResponse, tagsByEntity map[models.EntityType]map[int64][]string) {
 	epicMap := tagsByEntity[models.EntityTypeEpic]
 	featureMap := tagsByEntity[models.EntityTypeFeature]
-	taskMap := tagsByEntity[models.EntityTypeTask]
 
 	for _, e := range resp.Epics {
 		if tags, ok := epicMap[e.Epic.ID]; ok {
@@ -1498,14 +1499,8 @@ func applyTagsToHierarchy(resp *HierarchyResponse, tagsByEntity map[models.Entit
 			if f.Tags == nil {
 				f.Tags = []string{}
 			}
-			for _, t := range f.Tasks {
-				if tags, ok := taskMap[t.Task.ID]; ok {
-					t.Tags = tags
-				}
-				if t.Tags == nil {
-					t.Tags = []string{}
-				}
-			}
+			// B017 / E27-F02 REQ-F-002: tasks are not embedded in the hierarchy,
+			// so task tag decoration happens in the lazy FeatureTasks endpoint.
 		}
 	}
 
@@ -1558,31 +1553,31 @@ func applyTagsToHierarchy(resp *HierarchyResponse, tagsByEntity map[models.Entit
 
 // pruneHierarchy removes from resp all entities that are not in idSets.
 // Epics are pruned if they have no directly matching tag AND no surviving features.
-// Features are pruned if they have no directly matching tag AND no surviving tasks.
-// Flat entities are independently filtered using their unexported dbID.
+// Features are pruned if they have no directly matching tag AND no task in the
+// feature matches the tag filter. Flat entities are independently filtered using
+// their unexported dbID.
+//
+// B017 / E27-F02 REQ-F-002: since tasks are no longer embedded in the hierarchy,
+// task-level prune decisions are surfaced via the precomputed
+// featuresWithTaggedTasks set (mapping task-tag matches back to parent
+// features). Task task_count/blocked_count are NOT recomputed from the filter
+// — they remain the unfiltered counts for the feature, and the lazy
+// /features/{key}/tasks endpoint applies the same tag filter when fetching
+// task rows.
 // (ADR-F06-4, REQ-F-010, TC-AC06-1 through TC-AC06-5)
-func pruneHierarchy(resp *HierarchyResponse, idSets map[models.EntityType]map[int64]struct{}) {
+func pruneHierarchy(resp *HierarchyResponse, idSets map[models.EntityType]map[int64]struct{}, featuresWithTaggedTasks map[int64]struct{}) {
 	epicMatchIDs := idSets[models.EntityTypeEpic]
 	featureMatchIDs := idSets[models.EntityTypeFeature]
-	taskMatchIDs := idSets[models.EntityTypeTask]
 
 	prunedEpics := make([]*HierarchyEpic, 0, len(resp.Epics))
 	for _, e := range resp.Epics {
-		// Prune features (and their tasks) first.
+		// Prune features first.
 		prunedFeatures := make([]*HierarchyFeature, 0, len(e.Features))
 		for _, f := range e.Features {
-			// Prune tasks within feature.
-			prunedTasks := make([]*ViewerTask, 0, len(f.Tasks))
-			for _, t := range f.Tasks {
-				if _, ok := taskMatchIDs[t.Task.ID]; ok {
-					prunedTasks = append(prunedTasks, t)
-				}
-			}
-			// Feature survives if directly tagged OR has surviving tasks.
+			// Feature survives if directly tagged OR has any tag-matching task.
 			_, featureDirectly := featureMatchIDs[f.Feature.ID]
-			if featureDirectly || len(prunedTasks) > 0 {
-				f.Tasks = prunedTasks
-				f.TaskCount = len(prunedTasks)
+			_, hasMatchingTask := featuresWithTaggedTasks[f.Feature.ID]
+			if featureDirectly || hasMatchingTask {
 				prunedFeatures = append(prunedFeatures, f)
 			}
 		}

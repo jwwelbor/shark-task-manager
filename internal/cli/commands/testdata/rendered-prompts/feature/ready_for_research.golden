@@ -1,0 +1,35 @@
+
+After completing ALL work below, exit with: shark status advance E07-F01
+
+Research feature E07-F01: "Sample feature for golden test".
+
+Check for existing research report in feature directory. If report exists with all sections populated and file paths cited, advance immediately.
+
+---
+
+TACTICAL CODEBASE RESEARCH — this feature was rated COMPLEX. Deep analysis needed.
+
+Load skills from `shark-data/skills/research/`:
+  - `workflows/analyze-codebase.md`
+  - `workflows/trace-dependencies.md`
+
+READ:
+(1) Parent epic research report for strategic context
+(2) Parent epic PRD for scope boundaries
+(3) Feature description at docs/plan/E07/E07-F01/E07-F01.md
+(4) Sibling features: shark list E07
+(5) CLAUDE.md for architecture patterns
+
+PRODUCE feature research report:
+(1) Existing implementations with file paths (what can be extended)
+(2) Integration points (services, repositories, CLI commands, tables)
+(3) Inter-feature dependency map within this epic
+(4) Extension-vs-new analysis for each component
+(5) Recommended implementation approach
+
+CRITICAL: Start from what EXISTS. The primary question is "what can we extend?" not "what do we build?"
+
+EXIT GATE:
+- All existing related code identified with file paths
+- Extension points documented
+- Actionable for architect in specify step
