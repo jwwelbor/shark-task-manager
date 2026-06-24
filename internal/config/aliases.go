@@ -292,25 +292,51 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 
 	workflowDir, overridesDir, isLegacyFile := resolveWorkflowDir(projectRoot, configBytes)
 
-	// Reject explicitly-configured legacy JSON workflow files. resolveWorkflowDir
-	// signals this case with isLegacyFile=true AND workflowDir=="". The
-	// alternate isLegacyFile=true case (no workflow_config set, default dir
-	// missing) leaves workflowDir non-empty and falls through to Pass 1/2/3
-	// so fresh projects and inline-config tests keep working.
-	if isLegacyFile && workflowDir == "" {
-		configured := readWorkflowConfigField(configBytes)
-		return nil, fmt.Errorf(
-			".sharkconfig.json field \"workflow_config\" = %q is a Shark 1.x "+
-				"JSON workflow file; Shark 2.0 uses per-entity YAML in "+
-				"shark-data/workflow/. Run `shark init` to materialize the "+
-				"shark-data/ tree and migrate the field.",
-			configured,
-		)
-	}
-
 	out := map[string]map[string]action.StatusActionData{}
 
 	entityTypes := entityTypesForLoader()
+
+	// resolveWorkflowDir signals an explicitly-configured regular file with
+	// isLegacyFile=true AND workflowDir=="". Two sub-cases live here:
+	//
+	//   1. Master index file (E35-F04): workflow_config points at a YAML file
+	//      with a top-level `entities:` map. This is a first-class Shark 2.0
+	//      target (see docs/guides/route-based-workflow.md §3) — load every
+	//      referenced entity workflow rooted at the index's bundle directory.
+	//   2. Genuine Shark 1.x JSON workflow file: reject with a migration hint.
+	//
+	// (The alternate isLegacyFile=true case — no workflow_config set, default
+	// dir missing — leaves workflowDir non-empty and falls through to Pass
+	// 1/2/3 so fresh projects and inline-config tests keep working.)
+	if isLegacyFile && workflowDir == "" {
+		configured := readWorkflowConfigField(configBytes)
+		indexPath := configured
+		if !filepath.IsAbs(indexPath) {
+			indexPath = filepath.Join(projectRoot, configured)
+		}
+
+		idxMLW, isIndex, idxErr := workflow.LoadWorkflowIndexFile(indexPath)
+		if idxErr != nil {
+			return nil, idxErr
+		}
+		if !isIndex {
+			return nil, fmt.Errorf(
+				".sharkconfig.json field \"workflow_config\" = %q is a Shark 1.x "+
+					"JSON workflow file; Shark 2.0 uses per-entity YAML in "+
+					"shark-data/workflow/ or a master index file. Run `shark init` "+
+					"to materialize the shark-data/ tree and migrate the field.",
+				configured,
+			)
+		}
+
+		// Master index: project each entity slot it populated. Any slot the
+		// index did not cover is filled by Pass 3 (hardcoded defaults) below.
+		for _, entityType := range entityTypes {
+			if wf := idxMLW.GetByType(entityType); wf != nil {
+				out[entityType] = workflowToStatusActionData(wf)
+			}
+		}
+	}
 
 	// Pass 1: per-entity YAML at the configured workflow_config directory.
 	if workflowDir != "" {
