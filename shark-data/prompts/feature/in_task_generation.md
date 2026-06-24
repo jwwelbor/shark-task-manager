@@ -1,0 +1,8 @@
+{{template "_resume_preamble" .}}
+{{template "advance_preamble" .}}
+
+RESUME task generation for feature {{.id}}: "{{.title}}".
+
+Check for existing tasks: {{template "list_json" .}}. If tasks exist covering all feature requirements, advance immediately.
+
+Otherwise, continue with full task generation per ready_for_task_generation instructions.
