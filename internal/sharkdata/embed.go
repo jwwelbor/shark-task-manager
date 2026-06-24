@@ -385,11 +385,31 @@ func validateWorkflowYAML(workflowDir string, report *ValidationReport) {
 			report.AddIssue(IssueLevelError, "workflow/"+name, fmt.Sprintf("invalid YAML: %v", err))
 			continue
 		}
-		if _, ok := raw["status_flow"]; !ok {
-			report.AddIssue(IssueLevelError, "workflow/"+name, "missing required key 'status_flow'")
-		}
-		if _, ok := raw["special_statuses"]; !ok {
-			report.AddIssue(IssueLevelWarning, "workflow/"+name, "missing 'special_statuses' (engine will use defaults)")
+		// Route-based (steps:) vs legacy (status_flow:) shape. The route-based
+		// schema (E35) merges status_flow + status_metadata + special_statuses
+		// into a single steps: block; the loader derives the legacy maps at load
+		// time, so steps-only files carry neither legacy map on disk. Branch on
+		// the shape and apply the matching shape-level checks. Deep route-based
+		// validation (core outcomes, alias collisions, reachability) lives in the
+		// config/workflow validator; keeping this pass raw-map/shape-level avoids
+		// a sharkdata -> config/workflow import edge.
+		_, hasSteps := raw["steps"]
+		_, hasFlow := raw["status_flow"]
+		switch {
+		case hasSteps:
+			steps, ok := raw["steps"].(map[string]interface{})
+			if !ok || len(steps) == 0 {
+				report.AddIssue(IssueLevelError, "workflow/"+name, "route-based workflow has an empty or malformed 'steps' block")
+			}
+			if _, ok := raw["start"]; !ok {
+				report.AddIssue(IssueLevelWarning, "workflow/"+name, "route-based workflow missing 'start' (engine cannot determine the entry step)")
+			}
+		case hasFlow:
+			if _, ok := raw["special_statuses"]; !ok {
+				report.AddIssue(IssueLevelWarning, "workflow/"+name, "missing 'special_statuses' (engine will use defaults)")
+			}
+		default:
+			report.AddIssue(IssueLevelError, "workflow/"+name, "missing required key 'steps' (route-based) or 'status_flow' (legacy)")
 		}
 	}
 }
@@ -433,15 +453,18 @@ func validateWorkflowAgentRefs(workflowDir, dataRoot string, report *ValidationR
 	}
 }
 
-// extractWorkflowRefs recursively walks a decoded YAML map and checks every
-// "agent_type" string value against <agentsDir>/<value>.md and every
-// "instruction_template" string value against <promptsDir>/<value>.
+// extractWorkflowRefs recursively walks a decoded YAML map and checks agent and
+// prompt references against the agents/ and prompts/ directories. It resolves
+// both the legacy keys ("agent_type", "instruction_template") and the
+// route-based step keys ("agent", "prompt") introduced by the consolidated
+// steps: schema (E35) — without the route-based keys, ref validation goes dark
+// for migrated workflow files.
 func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir string, report *ValidationReport) {
 	switch node := v.(type) {
 	case map[string]interface{}:
 		for key, val := range node {
 			switch key {
-			case "agent_type":
+			case "agent_type", "agent":
 				agentType, ok := val.(string)
 				if !ok || agentType == "" {
 					break
@@ -451,10 +474,10 @@ func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir string, 
 					report.AddIssue(
 						IssueLevelError,
 						yamlPath,
-						fmt.Sprintf("workflow references agent_type %q but %s does not exist", agentType, filepath.ToSlash(agentFile)),
+						fmt.Sprintf("workflow references %s %q but %s does not exist", key, agentType, filepath.ToSlash(agentFile)),
 					)
 				}
-			case "instruction_template":
+			case "instruction_template", "prompt":
 				tmpl, ok := val.(string)
 				if !ok || tmpl == "" {
 					break
@@ -465,7 +488,7 @@ func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir string, 
 					report.AddIssue(
 						IssueLevelError,
 						yamlPath,
-						fmt.Sprintf("workflow references instruction_template %q but %s does not exist", tmpl, filepath.ToSlash(promptFile)),
+						fmt.Sprintf("workflow references %s %q but %s does not exist", key, tmpl, filepath.ToSlash(promptFile)),
 					)
 				}
 			default:

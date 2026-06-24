@@ -4,6 +4,7 @@ steps:
   active:
     phase: execution
     color: yellow
+    display_token: ACT
     description: "Tasks in progress, progress aggregated from children"
     progress_weight: 0.65
     responsibility: agent
@@ -12,12 +13,13 @@ steps:
     prompt: feature_short/active.tmpl
     outcomes:
       blocked: blocked
-      fail: code_review
+      fail: task_review
       on_hold: on_hold
-      pass: active
+      pass: code_review
   approval:
     phase: approval
     color: cyan
+    display_token: APR
     description: Code review passed — ready for UAT red-team review
     progress_weight: 0.9
     responsibility: agent
@@ -27,15 +29,15 @@ steps:
     skills: [quality, uat]
     prompt: feature_short/ready_for_approval.tmpl
     outcomes:
-      active: active
       blocked: blocked
-      fail: draft
+      fail: active
       on_hold: on_hold
       pass: completed
     aliases: [in_approval, ready_for_approval]
   assessment:
     phase: triage
     color: orange
+    display_token: RFA
     description: Ready for scope validation and complexity triage
     progress_weight: 0.02
     responsibility: agent
@@ -57,6 +59,7 @@ steps:
   blocked:
     phase: blocked
     color: red
+    display_token: BLK
     description: External blocker preventing progress
     progress_weight: 0
     responsibility: human
@@ -66,6 +69,7 @@ steps:
   cancelled:
     phase: done
     color: red
+    display_token: CXL
     description: Feature abandoned or converted to task
     progress_weight: 0
     responsibility: none
@@ -76,6 +80,7 @@ steps:
   code_review:
     phase: code_review
     color: magenta
+    display_token: CRV
     description: All tasks developed — ready for feature-level code review
     progress_weight: 0.7
     responsibility: agent
@@ -85,15 +90,15 @@ steps:
     skills: [code-review, codex-exec]
     prompt: feature_codex/ready_for_code_review.tmpl
     outcomes:
-      active: active
       blocked: blocked
-      fail: draft
+      fail: active
       on_hold: on_hold
       pass: approval
     aliases: [in_code_review, ready_for_code_review]
   completed:
     phase: done
     color: green
+    display_token: CMP
     description: "All tasks done, feature delivered"
     progress_weight: 1.0
     responsibility: none
@@ -103,6 +108,7 @@ steps:
   draft:
     phase: planning
     color: gray
+    display_token: DFT
     description: Feature created from epic decomposition
     progress_weight: 0
     responsibility: none
@@ -118,6 +124,7 @@ steps:
   on_hold:
     phase: paused
     color: gray
+    display_token: HLD
     description: "Intentionally paused, awaiting product decision"
     progress_weight: 0
     responsibility: human
@@ -127,6 +134,7 @@ steps:
   research:
     phase: research
     color: purple
+    display_token: RSR
     description: "COMPLEX features: ready for tactical codebase research"
     progress_weight: 0.1
     responsibility: agent
@@ -145,6 +153,7 @@ steps:
   specification:
     phase: specification
     color: cyan
+    display_token: RFS
     description: Ready for combined requirements + architecture spec
     progress_weight: 0.2
     responsibility: agent
@@ -163,6 +172,7 @@ steps:
   task_generation:
     phase: decomposition
     color: blue
+    display_token: RTG
     description: Ready to generate thin task specs
     progress_weight: 0.45
     responsibility: agent
@@ -174,13 +184,14 @@ steps:
     prompt: feature_short/ready_for_task_generation.tmpl
     outcomes:
       blocked: blocked
-      fail: draft
+      fail: test_planning
       on_hold: on_hold
       pass: task_review
     aliases: [in_task_generation, ready_for_task_generation]
   task_review:
     phase: review
     color: magenta
+    display_token: RTR
     description: Ready for codex review of tasks against feature spec
     progress_weight: 0.55
     responsibility: agent
@@ -199,6 +210,7 @@ steps:
   test_planning:
     phase: test_planning
     color: blue
+    display_token: RTP
     description: Ready for feature test strategy
     progress_weight: 0.35
     responsibility: agent
@@ -212,6 +224,5 @@ steps:
       blocked: blocked
       fail: specification
       on_hold: on_hold
-      pass: test_planning
-      task_generation: task_generation
+      pass: task_generation
     aliases: [in_test_planning, ready_for_test_planning]

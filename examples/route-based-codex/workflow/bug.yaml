@@ -4,6 +4,7 @@ steps:
   blocked:
     phase: blocked
     color: red
+    display_token: BLK
     description: "Cannot proceed, awaiting external resolution"
     progress_weight: 0
     responsibility: human
@@ -13,6 +14,7 @@ steps:
   cancelled:
     phase: done
     color: red
+    display_token: CXL
     description: "Bug not reproducible or won't fix"
     progress_weight: 0
     responsibility: none
@@ -23,6 +25,7 @@ steps:
   code_review:
     phase: code_review
     color: magenta
+    display_token: CRV
     description: Ready for code review of bug fix
     progress_weight: 0.55
     responsibility: agent
@@ -40,6 +43,7 @@ steps:
   completed:
     phase: done
     color: green
+    display_token: CMP
     description: Bug fixed and verified
     progress_weight: 1.0
     responsibility: none
@@ -49,6 +53,7 @@ steps:
   development:
     phase: development
     color: yellow
+    display_token: RFD
     description: Ready for bug reproduction and fix
     progress_weight: 0.1
     responsibility: agent
@@ -66,6 +71,7 @@ steps:
   draft:
     phase: planning
     color: gray
+    display_token: DFT
     description: "Bug reported, not yet started"
     progress_weight: 0
     responsibility: none
@@ -81,6 +87,7 @@ steps:
   on_hold:
     phase: paused
     color: gray
+    display_token: HLD
     description: Intentionally deferred
     progress_weight: 0
     responsibility: human
@@ -90,6 +97,7 @@ steps:
   qa:
     phase: qa
     color: blue
+    display_token: QA
     description: Ready for QA verification of bug fix
     progress_weight: 0.8
     responsibility: agent
@@ -107,6 +115,7 @@ steps:
   reported:
     phase: planning
     color: gray
+    display_token: RPT
     description: "Bug reported, not yet started"
     progress_weight: 0
     responsibility: none

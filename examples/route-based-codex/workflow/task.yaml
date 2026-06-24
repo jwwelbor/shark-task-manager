@@ -4,6 +4,7 @@ steps:
   blocked:
     phase: blocked
     color: red
+    display_token: BLK
     description: External blocker preventing progress
     progress_weight: 0
     responsibility: human
@@ -13,6 +14,7 @@ steps:
   cancelled:
     phase: done
     color: red
+    display_token: CXL
     description: Task abandoned
     progress_weight: 0
     responsibility: none
@@ -23,6 +25,7 @@ steps:
   completed:
     phase: done
     color: green
+    display_token: CMP
     description: Task done and verified
     progress_weight: 1.0
     responsibility: none
@@ -32,6 +35,7 @@ steps:
   development:
     phase: development
     color: yellow
+    display_token: RFD
     description: Ready for TDD implementation
     progress_weight: 0.1
     responsibility: agent
@@ -49,6 +53,7 @@ steps:
   draft:
     phase: planning
     color: gray
+    display_token: DFT
     description: Task created from feature decomposition
     progress_weight: 0
     responsibility: none
@@ -65,6 +70,7 @@ steps:
   on_hold:
     phase: paused
     color: gray
+    display_token: HLD
     description: Intentionally paused
     progress_weight: 0
     responsibility: human

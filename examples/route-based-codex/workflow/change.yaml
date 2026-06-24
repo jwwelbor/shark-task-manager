@@ -4,6 +4,7 @@ steps:
   blocked:
     phase: blocked
     color: red
+    display_token: BLK
     description: "Cannot proceed, awaiting external resolution"
     progress_weight: 0
     responsibility: human
@@ -13,6 +14,7 @@ steps:
   cancelled:
     phase: done
     color: red
+    display_token: CXL
     description: Change no longer needed
     progress_weight: 0
     responsibility: none
@@ -20,9 +22,11 @@ steps:
     action: archive
     terminal: true
     prompt: change/cancelled.tmpl
+    aliases: [declined]
   code_review:
     phase: code_review
     color: magenta
+    display_token: CRV
     description: Ready for code review
     progress_weight: 0.55
     responsibility: agent
@@ -40,6 +44,7 @@ steps:
   completed:
     phase: done
     color: green
+    display_token: CMP
     description: Change implemented and verified
     progress_weight: 1.0
     responsibility: none
@@ -49,6 +54,7 @@ steps:
   development:
     phase: development
     color: yellow
+    display_token: RFD
     description: Ready for implementation
     progress_weight: 0.1
     responsibility: agent
@@ -66,6 +72,7 @@ steps:
   draft:
     phase: planning
     color: gray
+    display_token: DFT
     description: "Change card created, not yet started"
     progress_weight: 0
     responsibility: none
@@ -78,9 +85,11 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: development
+    aliases: [proposed]
   on_hold:
     phase: paused
     color: gray
+    display_token: HLD
     description: Intentionally deferred
     progress_weight: 0
     responsibility: human
@@ -90,6 +99,7 @@ steps:
   qa:
     phase: qa
     color: blue
+    display_token: QA
     description: Ready for QA verification
     progress_weight: 0.8
     responsibility: agent

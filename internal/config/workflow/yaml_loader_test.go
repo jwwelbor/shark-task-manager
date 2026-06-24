@@ -370,30 +370,46 @@ func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
 	assert.NotEmpty(t, completeStatuses, "task.yaml _complete_ must be non-empty")
 
 	// ── 5a. specific values from the canonical task.yaml ──────────────────
-	// These assertions encode the expected content of the canonical file and
-	// serve as a regression guard: if task.yaml is accidentally edited in
-	// a breaking way (e.g., draft → ready_for_development transition removed),
-	// this test fails fast.
+	// The canonical task.yaml is now route-based (E35): the legacy
+	// ready_for_development / in_development pair collapses into a single
+	// `development` step, with the old names preserved in its aliases:. These
+	// assertions encode the expected content of the collapsed file and serve as
+	// a regression guard against accidental breaking edits. The derived
+	// StatusFlow target sets must match the collapsed original targets.
+	require.True(t, cfg.HasSteps(), "canonical task.yaml must use the route-based steps: schema")
+	assert.Equal(t, "draft", cfg.Start, "canonical task.yaml start step must be draft")
+
 	expectedStatuses := []string{
-		"draft", "ready_for_development", "in_development",
-		"completed", "cancelled", "blocked", "on_hold",
+		"draft", "development", "completed", "cancelled", "blocked", "on_hold",
 	}
 	for _, s := range expectedStatuses {
 		assert.Contains(t, cfg.StatusFlow, s,
-			"expected status %q in canonical task.yaml status_flow", s)
+			"expected collapsed status %q in canonical task.yaml status_flow", s)
 		assert.Contains(t, cfg.StatusMetadata, s,
-			"expected status %q in canonical task.yaml status_metadata", s)
+			"expected collapsed status %q in canonical task.yaml status_metadata", s)
 	}
 
-	// draft → ready_for_development transition must exist.
-	assert.Contains(t, cfg.StatusFlow["draft"], "ready_for_development",
-		"draft must have ready_for_development as a valid transition")
+	// The old ready_for_development / in_development names must resolve to the
+	// collapsed `development` step via the alias map (input compat + migration).
+	aliasMap, aliasErrs := cfg.AliasMap()
+	assert.Empty(t, aliasErrs, "task.yaml alias map must be collision-free")
+	assert.Equal(t, "development", aliasMap["ready_for_development"],
+		"ready_for_development must alias to the collapsed development step")
+	assert.Equal(t, "development", aliasMap["in_development"],
+		"in_development must alias to the collapsed development step")
 
-	// completed can transition back to ready_for_development (re-open mechanism).
-	// It is a _complete_ status but not a hard terminal (the canonical task.yaml
-	// allows reopening a completed task).
-	assert.Contains(t, cfg.StatusFlow["completed"], "ready_for_development",
-		"completed must allow re-opening to ready_for_development")
+	// Derived transitions: draft advances to development (pass outcome), and
+	// development advances to completed (pass) and falls back to draft (fail).
+	assert.Contains(t, cfg.StatusFlow["draft"], "development",
+		"draft must have development as a derived transition")
+	assert.Contains(t, cfg.StatusFlow["development"], "completed",
+		"development must reach completed via its pass outcome")
+	assert.Contains(t, cfg.StatusFlow["development"], "draft",
+		"development must fall back to draft via its fail outcome")
+
+	// completed is a terminal step (no outgoing transitions in the derived map).
+	assert.Empty(t, cfg.StatusFlow["completed"],
+		"completed is terminal in the route-based task workflow")
 
 	// _start_ must include draft.
 	assert.Contains(t, cfg.SpecialStatuses[StartStatusKey], "draft",

@@ -4,6 +4,7 @@ steps:
   blocked:
     phase: blocked
     color: red
+    display_token: BLK
     description: "Cannot proceed, awaiting external resolution"
     progress_weight: 0
     responsibility: human
@@ -13,6 +14,7 @@ steps:
   cancelled:
     phase: done
     color: red
+    display_token: CXL
     description: "Tech debt abandoned (e.g. obsoleted, promoted to feature)"
     progress_weight: 0
     responsibility: none
@@ -23,6 +25,7 @@ steps:
   code_review:
     phase: code_review
     color: magenta
+    display_token: CRV
     description: Ready for code review (regression focus)
     progress_weight: 0.75
     responsibility: agent
@@ -40,6 +43,7 @@ steps:
   identified:
     phase: planning
     color: gray
+    display_token: IDN
     description: "Tech debt captured, awaiting triage"
     progress_weight: 0
     responsibility: none
@@ -59,6 +63,7 @@ steps:
   investigation:
     phase: investigation
     color: purple
+    display_token: RFI
     description: "Ready to investigate blast radius, affected code, and resolution approach"
     progress_weight: 0.2
     responsibility: agent
@@ -79,6 +84,7 @@ steps:
   on_hold:
     phase: paused
     color: gray
+    display_token: HLD
     description: Intentionally deferred
     progress_weight: 0
     responsibility: human
@@ -88,6 +94,7 @@ steps:
   progress:
     phase: development
     color: yellow
+    display_token: IP
     description: Refactor/cleanup in progress
     progress_weight: 0.55
     responsibility: agent
@@ -98,13 +105,14 @@ steps:
     prompt: tech_debt/in_progress.tmpl
     outcomes:
       blocked: blocked
-      fail: identified
+      fail: resolution
       on_hold: on_hold
       pass: code_review
     aliases: [in_progress]
   resolution:
     phase: development
     color: yellow
+    display_token: RSL
     description: Ready for refactor/cleanup implementation
     progress_weight: 0.4
     responsibility: agent
@@ -115,14 +123,14 @@ steps:
     prompt: tech_debt/ready_for_resolution.tmpl
     outcomes:
       blocked: blocked
-      fail: identified
+      fail: triaged
       on_hold: on_hold
-      pass: resolution
-      progress: progress
+      pass: progress
     aliases: [ready_for_resolution]
   resolved:
     phase: done
     color: green
+    display_token: RSD
     description: Tech debt resolved and verified
     progress_weight: 1.0
     responsibility: none
@@ -132,6 +140,7 @@ steps:
   triaged:
     phase: triage
     color: orange
+    display_token: TRI
     description: "Severity, category, and effort assessed"
     progress_weight: 0.1
     responsibility: agent
@@ -149,6 +158,7 @@ steps:
   wont_fix:
     phase: done
     color: gray
+    display_token: WNF
     description: Triaged as not worth fixing
     progress_weight: 0
     responsibility: none

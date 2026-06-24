@@ -1,309 +1,177 @@
-version: '1.0'
-status_flow:
-  draft:
-  - ready_for_refinement
-  - active
-  - cancelled
-  ready_for_refinement:
-  - in_refinement
-  - blocked
-  - on_hold
-  in_refinement:
-  - ready_for_research
-  - blocked
-  - on_hold
-  ready_for_research:
-  - in_research
-  - blocked
-  - on_hold
-  in_research:
-  - ready_for_design
-  - ready_for_refinement
-  - blocked
-  - on_hold
-  ready_for_design:
-  - in_design
-  - blocked
-  - on_hold
-  in_design:
-  - ready_for_decomposition
-  - ready_for_research
-  - ready_for_refinement
-  - blocked
-  - on_hold
-  - cancelled
-  ready_for_decomposition:
-  - in_decomposition
-  - blocked
-  - on_hold
-  in_decomposition:
-  - ready_for_feature_review
-  - blocked
-  - on_hold
-  ready_for_feature_review:
-  - in_feature_review
-  - blocked
-  - on_hold
-  in_feature_review:
-  - active
-  - ready_for_decomposition
-  - blocked
-  - on_hold
+version: "1.0"
+start: draft
+steps:
   active:
-  - completed
-  - on_hold
-  completed: []
-  cancelled: []
-  blocked:
-  - ready_for_refinement
-  - ready_for_research
-  - ready_for_design
-  - ready_for_decomposition
-  - ready_for_feature_review
-  on_hold:
-  - ready_for_refinement
-  - ready_for_research
-  - ready_for_design
-  - ready_for_decomposition
-  - ready_for_feature_review
-  - active
-  - cancelled
-status_metadata:
-  draft:
-    description: Epic captured, not yet refined
-    phase: planning
-    color: gray
-    progress_weight: 0
-    is_planning: true
-    responsibility: none
-    orchestrator_action:
-      action: advance_status
-      instruction_template: epic/draft.md
-  ready_for_refinement:
-    description: Ready for BA to write epic PRD
-    phase: refinement
-    color: orange
-    progress_weight: 0.05
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - business-analyst
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: business-analyst
-      provider: anthropic
-      model: opus
-      skills:
-      - specification-writing
-      - epic
-      instruction_template: epic/ready_for_refinement.md
-  in_refinement:
-    description: 'BA writing epic PRD: goals, scope, success criteria, constraints'
-    phase: refinement
-    color: orange
-    progress_weight: 0.1
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: business-analyst
-      provider: anthropic
-      model: opus
-      skills:
-      - specification-writing
-      - epic
-      instruction_template: epic/in_refinement.md
-  ready_for_research:
-    description: Ready for brownfield codebase analysis
-    phase: research
-    color: purple
-    progress_weight: 0.15
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - researcher
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: researcher
-      provider: anthropic
-      model: sonnet
-      skills:
-      - research
-      - brownfield-analysis
-      instruction_template: epic/ready_for_research.md
-  in_research:
-    description: Brownfield codebase analysis in progress
-    phase: research
-    color: purple
-    progress_weight: 0.25
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: researcher
-      provider: anthropic
-      model: sonnet
-      skills:
-      - research
-      - brownfield-analysis
-      instruction_template: epic/in_research.md
-  ready_for_design:
-    description: Ready for architecture decisions and UAT plan
-    phase: design
-    color: cyan
-    progress_weight: 0.3
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - architect
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: architect
-      provider: anthropic
-      model: opus
-      skills:
-      - architecture
-      - quality
-      instruction_template: epic/ready_for_design.md
-  in_design:
-    description: Architecture and UAT plan in progress
-    phase: design
-    color: cyan
-    progress_weight: 0.4
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: architect
-      provider: anthropic
-      model: opus
-      skills:
-      - architecture
-      - quality
-      instruction_template: epic/in_design.md
-  ready_for_decomposition:
-    description: Ready to break epic into features
-    phase: decomposition
-    color: blue
-    progress_weight: 0.45
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - product-manager
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: product-manager
-      provider: anthropic
-      model: sonnet
-      skills:
-      - specification-writing
-      - feature
-      instruction_template: epic/ready_for_decomposition.md
-  in_decomposition:
-    description: Breaking epic into features with ordering and dependencies
-    phase: decomposition
-    color: blue
-    progress_weight: 0.5
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: product-manager
-      provider: anthropic
-      model: sonnet
-      skills:
-      - specification-writing
-      - feature
-      instruction_template: epic/in_decomposition.md
-  ready_for_feature_review:
-    description: Ready for codex review of features against epic requirements
-    phase: review
-    color: magenta
-    progress_weight: 0.55
-    is_planning: true
-    responsibility: agent
-    agent_types:
-    - uat-agent
-    orchestrator_action:
-      action: spawn_agent
-      agent_type: uat-agent
-      provider: openai
-      model: codex
-      skills:
-      - quality
-      - specification-writing
-      instruction_template: epic/ready_for_feature_review.md
-  in_feature_review:
-    description: Codex reviewing features against epic requirements
-    phase: review
-    color: magenta
-    progress_weight: 0.6
-    is_planning: true
-    responsibility: agent
-    orchestrator_action:
-      action: check_or_resume
-      agent_type: uat-agent
-      provider: openai
-      model: codex
-      skills:
-      - quality
-      - specification-writing
-      instruction_template: epic/in_feature_review.md
-  active:
-    description: Features in progress, progress aggregated from children
     phase: execution
     color: yellow
+    display_token: ACT
+    description: "Features in progress, progress aggregated from children"
     progress_weight: 0.75
-    is_planning: false
     responsibility: agent
     aggregates_from: features
-    orchestrator_action:
-      action: cascade
-      instruction_template: epic/active.md
-  completed:
-    description: All features done, epic delivered
-    phase: done
-    color: green
-    progress_weight: 1.0
-    is_planning: false
-    responsibility: none
-    orchestrator_action:
-      action: archive
-      instruction_template: epic/completed.md
-  cancelled:
-    description: Epic abandoned
-    phase: done
-    color: red
-    progress_weight: 0
-    is_planning: false
-    responsibility: none
-    exclude_from_progress: true
-    orchestrator_action:
-      action: archive
-      instruction_template: epic/cancelled.md
+    action: cascade
+    prompt: epic/active.md
+    outcomes:
+      blocked: blocked
+      fail: feature_review
+      on_hold: on_hold
+      pass: completed
   blocked:
-    description: External blocker preventing progress
     phase: blocked
     color: red
+    display_token: BLK
+    description: External blocker preventing progress
     progress_weight: 0
-    is_planning: false
     responsibility: human
-    orchestrator_action:
-      action: pause
-      instruction_template: epic/blocked.md
+    action: pause
+    parking: true
+    prompt: epic/blocked.md
+  cancelled:
+    phase: done
+    color: red
+    display_token: CXL
+    description: Epic abandoned
+    progress_weight: 0
+    responsibility: none
+    exclude_from_progress: true
+    action: archive
+    terminal: true
+    prompt: epic/cancelled.md
+  completed:
+    phase: done
+    color: green
+    display_token: CMP
+    description: "All features done, epic delivered"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+    prompt: epic/completed.md
+  decomposition:
+    phase: decomposition
+    color: blue
+    display_token: RDC
+    description: Ready to break epic into features
+    progress_weight: 0.45
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: product-manager
+    provider: anthropic
+    model: sonnet
+    skills: [specification-writing, feature]
+    prompt: epic/ready_for_decomposition.md
+    outcomes:
+      blocked: blocked
+      fail: design
+      on_hold: on_hold
+      pass: feature_review
+    aliases: [in_decomposition, ready_for_decomposition]
+  design:
+    phase: design
+    color: cyan
+    display_token: RDS
+    description: Ready for architecture decisions and UAT plan
+    progress_weight: 0.3
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: architect
+    provider: anthropic
+    model: opus
+    skills: [architecture, quality]
+    prompt: epic/ready_for_design.md
+    outcomes:
+      blocked: blocked
+      cancelled: cancelled
+      fail: research
+      on_hold: on_hold
+      pass: decomposition
+      refinement: refinement
+    aliases: [in_design, ready_for_design]
+  draft:
+    phase: planning
+    color: gray
+    display_token: DFT
+    description: "Epic captured, not yet refined"
+    progress_weight: 0
+    responsibility: none
+    is_planning: true
+    action: advance_status
+    prompt: epic/draft.md
+    outcomes:
+      active: active
+      blocked: blocked
+      cancelled: cancelled
+      fail: draft
+      pass: refinement
+  feature_review:
+    phase: review
+    color: magenta
+    display_token: RFV
+    description: Ready for codex review of features against epic requirements
+    progress_weight: 0.55
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: uat-agent
+    provider: openai
+    model: codex
+    skills: [quality, specification-writing]
+    prompt: epic/ready_for_feature_review.md
+    outcomes:
+      blocked: blocked
+      fail: decomposition
+      on_hold: on_hold
+      pass: active
+    aliases: [in_feature_review, ready_for_feature_review]
   on_hold:
-    description: Intentionally paused, awaiting product decision
     phase: paused
     color: gray
+    display_token: HLD
+    description: "Intentionally paused, awaiting product decision"
     progress_weight: 0
-    is_planning: false
     responsibility: human
-    orchestrator_action:
-      action: pause
-      instruction_template: epic/on_hold.md
-special_statuses:
-  _start_:
-  - draft
-  _complete_:
-  - completed
-  - cancelled
+    action: pause
+    parking: true
+    prompt: epic/on_hold.md
+  refinement:
+    phase: refinement
+    color: orange
+    display_token: RFR
+    description: Ready for BA to write epic PRD
+    progress_weight: 0.05
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: business-analyst
+    provider: anthropic
+    model: opus
+    skills: [specification-writing, epic]
+    prompt: epic/ready_for_refinement.md
+    outcomes:
+      blocked: blocked
+      fail: draft
+      on_hold: on_hold
+      pass: research
+    aliases: [in_refinement, ready_for_refinement]
+  research:
+    phase: research
+    color: purple
+    display_token: RSR
+    description: Ready for brownfield codebase analysis
+    progress_weight: 0.15
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: researcher
+    provider: anthropic
+    model: sonnet
+    skills: [research, brownfield-analysis]
+    prompt: epic/ready_for_research.md
+    outcomes:
+      blocked: blocked
+      fail: refinement
+      on_hold: on_hold
+      pass: design
+    aliases: [in_research, ready_for_research]

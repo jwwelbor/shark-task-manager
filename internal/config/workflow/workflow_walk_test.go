@@ -324,19 +324,34 @@ func findConfigPath(t *testing.T) string {
 	return ""
 }
 
-// traceHappyPath follows the first transition from each status to build the
+// traceHappyPath follows the forward transition from each status to build the
 // happy path through the workflow. Stops at terminal statuses or cycles.
+//
+// For route-based (steps:) workflows it follows the semantic `pass` outcome:
+// the derived StatusFlow targets are sorted alphabetically for determinism, so
+// StatusFlow[current][0] is no longer the forward transition. For legacy
+// workflows it falls back to the first listed transition (authors order the
+// happy path first).
 func traceHappyPath(wf *WorkflowConfig, startStatus string) []string {
 	path := []string{startStatus}
 	visited := map[string]bool{startStatus: true}
 
 	current := startStatus
 	for {
-		targets, ok := wf.StatusFlow[current]
-		if !ok || len(targets) == 0 {
-			break // terminal status
+		var next string
+		if wf.HasSteps() {
+			target, ok := wf.ResolveOutcome(current, OutcomePass)
+			if !ok || target == "" {
+				break // terminal/parking step or no pass outcome
+			}
+			next = target
+		} else {
+			targets, ok := wf.StatusFlow[current]
+			if !ok || len(targets) == 0 {
+				break // terminal status
+			}
+			next = targets[0] // first transition = happy path
 		}
-		next := targets[0] // first transition = happy path
 		if visited[next] {
 			break // cycle detected
 		}

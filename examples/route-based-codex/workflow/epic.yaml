@@ -4,6 +4,7 @@ steps:
   active:
     phase: execution
     color: yellow
+    display_token: ACT
     description: "Features in progress, progress aggregated from children"
     progress_weight: 0.75
     responsibility: agent
@@ -12,12 +13,13 @@ steps:
     prompt: epic_short/active.tmpl
     outcomes:
       blocked: blocked
-      fail: draft
+      fail: feature_review
       on_hold: on_hold
       pass: completed
   blocked:
     phase: blocked
     color: red
+    display_token: BLK
     description: External blocker preventing progress
     progress_weight: 0
     responsibility: human
@@ -27,6 +29,7 @@ steps:
   cancelled:
     phase: done
     color: red
+    display_token: CXL
     description: Epic abandoned
     progress_weight: 0
     responsibility: none
@@ -37,6 +40,7 @@ steps:
   completed:
     phase: done
     color: green
+    display_token: CMP
     description: "All features done, epic delivered"
     progress_weight: 1.0
     responsibility: none
@@ -46,6 +50,7 @@ steps:
   decomposition:
     phase: decomposition
     color: blue
+    display_token: RDC
     description: Ready to break epic into features
     progress_weight: 0.45
     responsibility: agent
@@ -57,13 +62,14 @@ steps:
     prompt: epic_short/ready_for_decomposition.tmpl
     outcomes:
       blocked: blocked
-      fail: draft
+      fail: design
       on_hold: on_hold
       pass: feature_review
     aliases: [in_decomposition, ready_for_decomposition]
   design:
     phase: design
     color: cyan
+    display_token: RDS
     description: Ready for architecture decisions and UAT plan
     progress_weight: 0.3
     responsibility: agent
@@ -76,14 +82,15 @@ steps:
     outcomes:
       blocked: blocked
       cancelled: cancelled
-      fail: refinement
+      fail: research
       on_hold: on_hold
       pass: decomposition
-      research: research
+      refinement: refinement
     aliases: [in_design, ready_for_design]
   draft:
     phase: planning
     color: gray
+    display_token: DFT
     description: "Epic captured, not yet refined"
     progress_weight: 0
     responsibility: none
@@ -99,6 +106,7 @@ steps:
   feature_review:
     phase: review
     color: magenta
+    display_token: RFV
     description: Ready for codex review of features against epic requirements
     progress_weight: 0.55
     responsibility: agent
@@ -117,6 +125,7 @@ steps:
   on_hold:
     phase: paused
     color: gray
+    display_token: HLD
     description: "Intentionally paused, awaiting product decision"
     progress_weight: 0
     responsibility: human
@@ -126,6 +135,7 @@ steps:
   refinement:
     phase: refinement
     color: orange
+    display_token: RFR
     description: Ready for BA to write epic PRD
     progress_weight: 0.05
     responsibility: agent
@@ -144,6 +154,7 @@ steps:
   research:
     phase: research
     color: purple
+    display_token: RSR
     description: Ready for brownfield codebase analysis
     progress_weight: 0.15
     responsibility: agent
