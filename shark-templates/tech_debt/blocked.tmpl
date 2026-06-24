@@ -1,0 +1,13 @@
+Tech debt {{.id}} is blocked. Do not spawn agent — wait for human resolution.
+
+Common reasons tech debt gets blocked:
+- External dependency upgrade required before the refactor is safe
+- Breaking API change in a third-party library that must land first
+- Architecture decision pending (the right resolution depends on a direction not yet chosen)
+- Untestable seam — cannot write a regression test to make the refactor safe
+{{if .blocked_reason}}
+Blocked reason: {{.blocked_reason}}
+{{end}}
+See `shark td notes {{.id}}` for the `blocker`-type note explaining what is needed.
+
+Once the blocker is resolved, resume with: shark status advance {{.id}}

@@ -6,7 +6,7 @@
   <title>Shark Status Viewer</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
   <style>
     /* ============================================================
        CSS CUSTOM PROPERTIES — Dark Slate Palette
@@ -131,8 +131,25 @@
       flex-shrink: 0;
     }
 
+    #sidebar-resizer {
+      width: 6px;
+      flex-shrink: 0;
+      cursor: col-resize;
+      touch-action: none;
+      background: transparent;
+      border-right: 1px solid transparent;
+      transition: background var(--transition), border-color var(--transition);
+    }
+
+    #sidebar-resizer:hover,
+    body.is-resizing-sidebar #sidebar-resizer {
+      background: rgba(77, 119, 255, 0.12);
+      border-right-color: var(--accent-dim);
+    }
+
     #content {
       flex: 1;
+      min-width: 0;
       overflow-y: auto;
       background: var(--bg);
       padding: 20px 24px;
@@ -140,7 +157,8 @@
 
     /* Hide header/sidebar on pick_folder state */
     .state-pick-folder #header,
-    .state-pick-folder #body-row #sidebar {
+    .state-pick-folder #body-row #sidebar,
+    .state-pick-folder #body-row #sidebar-resizer {
       display: none;
     }
 
@@ -299,6 +317,126 @@
       gap: 12px;
     }
 
+    .sprint-plan-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .sprint-plan-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* T-E27-F14-009: "Assigned This Sprint" column — subtle tint + accent border
+       to visually distinguish it from "Candidate Backlog" at a glance. */
+    .sprint-plan-col-assigned {
+      background: rgba(77, 119, 255, 0.04);
+      border: 1px solid var(--accent-dim);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+
+    /* T-E27-F14-009: Plan column headers — slightly more prominent than the
+       default ov-section-header (12px vs 10px, fg-muted vs fg-dim). */
+    .sprint-plan-col-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-muted);
+      margin: 0 0 10px;
+    }
+    .sprint-plan-col-header::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* T-E27-F14-009: Candidate item row — 5-column grid:
+       [checkbox] [badge] [key] [title fills remaining] [meta].
+       Replaces the generic .sprint-item-row for Plan tab candidate rows. */
+    .sprint-plan-item-row {
+      display: grid;
+      grid-template-columns: 16px auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .sprint-plan-item-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+    .sprint-plan-item-row.selected {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent-dim);
+    }
+
+    /* T-E27-F14-009: Assigned item row — 4-column grid (no checkbox):
+       [badge] [key] [title fills remaining] [meta]. */
+    .sprint-plan-assigned-row {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .sprint-plan-assigned-row:hover {
+      background: var(--bg-3);
+      border-color: var(--accent-dim);
+    }
+
+    /* T-E27-F14-009: meta label — agent + size; fg-muted gives ~3.5:1 contrast
+       against bg-2 (vs fg-dim which was ~2.2:1 and too low). */
+    .sprint-item-meta {
+      font-size: 11px;
+      color: var(--fg-muted);
+      white-space: nowrap;
+    }
+
+    .sprint-health-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .sprint-health-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .capacity-indicator {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .capacity-indicator-ok   { background: rgba(56, 161, 105, 0.2); color: #68d391; }
+    .capacity-indicator-high { background: rgba(236, 153, 75, 0.2); color: #f6ad55; }
+    .capacity-indicator-over { background: rgba(229, 62, 62, 0.2); color: #fc8181; }
+
     .sprint-hero {
       display: grid;
       gap: 10px;
@@ -400,6 +538,40 @@
       color: var(--accent);
     }
 
+    .sprint-bucket-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-left: 16px;
+      padding-right: 10px;
+      min-height: 28px;
+    }
+    .sprint-bucket-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+    }
+    .sprint-bucket-meta {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .sprint-bucket-count {
+      font-size: 10px;
+      color: var(--fg-dim);
+      font-variant-numeric: tabular-nums;
+    }
+    .sprint-bucket-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      opacity: 0.75;
+      flex-shrink: 0;
+    }
+
     .sprint-drawer-panel {
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
@@ -421,6 +593,12 @@
       margin-bottom: 12px;
     }
 
+    .history-ts {
+      font-size: 11px;
+      color: var(--fg-dim);
+      white-space: nowrap;
+    }
+
     .sprint-drawer-actions {
       display: flex;
       gap: 8px;
@@ -432,8 +610,15 @@
        SIDEBAR TREE
        ============================================================ */
     .sidebar-filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       padding: 8px 12px 6px;
       border-bottom: 1px solid var(--border);
+    }
+    .sidebar-filter-main {
+      min-width: 0;
+      flex: 1;
     }
     .sidebar-filter-label {
       display: flex;
@@ -442,6 +627,13 @@
       font-size: 11px;
       color: var(--fg-dim);
       user-select: none;
+    }
+    .sidebar-filter-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
     }
     .sidebar-filter-inline {
       display: flex;
@@ -452,9 +644,10 @@
     .sidebar-filter-inline input[type="checkbox"] {
       cursor: pointer;
     }
+    .sidebar-section {
+      border-bottom: 1px solid var(--border);
+    }
     .sidebar-section-header {
-      position: sticky;
-      top: 0;
       background: var(--bg-2);
       padding: 10px 12px 6px;
       font-size: 10px;
@@ -462,11 +655,15 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--fg-dim);
-      border-bottom: 1px solid var(--border);
       z-index: 1;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 10px;
+    }
+    .sidebar-section-title {
+      min-width: 0;
+      flex: 1;
     }
     .sidebar-collapse-btn {
       width: 16px;
@@ -485,6 +682,12 @@
     .sidebar-collapse-btn:hover {
       background: var(--bg-3, var(--border));
       color: var(--fg);
+    }
+    .sidebar-section-body {
+      padding-bottom: 2px;
+    }
+    .sidebar-section.is-collapsed .sidebar-section-body {
+      display: none;
     }
 
     .tree-node {
@@ -606,6 +809,14 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 12px;
+      flex: 1;
+    }
+
+    .tree-node-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
       flex: 1;
     }
 
@@ -1283,50 +1494,154 @@
       background: var(--bg-2);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 12px;
       margin-bottom: 14px;
-      overflow-x: auto;
-      text-align: center;
+    }
+
+    .mermaid-viewer {
+      display: flex;
+      flex-direction: column;
+      height: 420px;
+      min-height: 240px;
+      max-height: 80vh;
+      overflow: hidden;
+      resize: vertical;
+    }
+
+    .mermaid-toolbar {
+      align-items: center;
+      background: var(--bg-3);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 4px;
+      justify-content: flex-end;
+      min-height: 34px;
+      padding: 4px 6px;
+    }
+
+    .mermaid-toolbar-btn {
+      align-items: center;
+      background: transparent;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      color: var(--fg-muted);
+      cursor: pointer;
+      display: inline-flex;
+      font-size: 14px;
+      height: 26px;
+      justify-content: center;
+      line-height: 1;
+      min-width: 28px;
+      padding: 0 8px;
+      transition: background var(--transition), color var(--transition), border-color var(--transition);
+    }
+
+    .mermaid-toolbar-btn:hover:not(:disabled) {
+      background: var(--bg-4);
+      border-color: var(--accent);
+      color: var(--fg);
+    }
+
+    .mermaid-toolbar-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    .mermaid-viewport {
+      cursor: grab;
+      flex: 1;
+      min-height: 180px;
+      overflow: hidden;
+      padding: 12px;
+      touch-action: none;
+      width: 100%;
+    }
+
+    .mermaid-viewport:active {
+      cursor: grabbing;
+    }
+
+    .mermaid-viewer.is-collapsed {
+      height: auto;
+      min-height: 0;
+      resize: none;
+    }
+
+    .mermaid-viewer.is-collapsed .mermaid-viewport {
+      display: none;
     }
 
     .mermaid-render-container svg {
-      max-width: 100%;
-      height: auto;
-    }
-
-    /* Pan/zoom mode — container becomes a fixed-size viewport;
-       wheel-zoom is gated on hover-activation to avoid hijacking page scroll. */
-    .mermaid-render-container.pan-zoom-enabled {
-      position: relative;
-      height: 520px;
-      max-height: 70vh;
-      overflow: hidden;
-      padding: 0;
-      text-align: left;
-      cursor: grab;
-    }
-    .mermaid-render-container.pan-zoom-enabled:active {
-      cursor: grabbing;
-    }
-    .mermaid-render-container.pan-zoom-enabled svg {
-      width: 100%;
+      display: block;
       height: 100%;
       max-width: none;
+      width: 100%;
     }
-    .mermaid-render-container.pan-zoom-enabled .mermaid-zoom-hint {
-      position: absolute;
-      top: 8px;
-      right: 10px;
-      font-size: 11px;
-      color: var(--fg-dim, #8a8f9e);
-      background: rgba(13, 15, 18, 0.7);
-      padding: 2px 8px;
-      border-radius: 4px;
-      pointer-events: none;
-      transition: opacity 0.2s;
+
+    .mermaid-overlay {
+      align-items: stretch;
+      background: rgba(0,0,0,0.72);
+      display: flex;
+      inset: 0;
+      padding: 28px;
+      position: fixed;
+      z-index: 320;
     }
-    .mermaid-render-container.pan-zoom-enabled.zoom-active .mermaid-zoom-hint {
-      opacity: 0;
+
+    .mermaid-overlay-shell {
+      background: var(--bg-2);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .mermaid-overlay-header {
+      align-items: center;
+      background: var(--bg-3);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      min-height: 40px;
+      padding: 6px 8px;
+    }
+
+    .mermaid-overlay-close {
+      background: transparent;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      color: var(--fg-muted);
+      cursor: pointer;
+      font-size: 12px;
+      height: 28px;
+      padding: 0 10px;
+    }
+
+    .mermaid-overlay-close:hover {
+      background: var(--bg-4);
+      border-color: var(--accent);
+      color: var(--fg);
+    }
+
+    .mermaid-overlay-body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      padding: 0;
+    }
+
+    .mermaid-overlay .mermaid-viewer {
+      border: 0;
+      border-radius: 0;
+      flex: 1;
+      height: auto;
+      margin: 0;
+      max-height: none;
+      min-height: 0;
+      resize: none;
     }
 
     .mermaid-error-banner {
@@ -1908,6 +2223,8 @@
       <div id="sidebar-content"></div>
     </aside>
 
+    <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
+
     <!-- Main content area -->
     <main id="content">
 
@@ -1933,6 +2250,14 @@
 
 <!-- Toast notifications -->
 <div id="toast-container"></div>
+
+<!-- Spec popup modal -->
+<div id="spec-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;overflow:auto">
+  <div id="spec-modal-inner" style="background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius-lg);max-width:820px;margin:40px auto;padding:24px 28px;position:relative;max-height:calc(100vh - 80px);overflow-y:auto">
+    <button id="spec-modal-close" class="header-btn" style="position:absolute;top:12px;right:12px">✕ Close</button>
+    <div id="spec-modal-body" style="margin-top:8px"></div>
+  </div>
+</div>
 
 <!-- ============================================================
      JAVASCRIPT
@@ -2103,6 +2428,7 @@ const HIDDEN_TERMINAL_BY_TYPE = {
   task:        new Set(['completed', 'done', 'cancelled', 'closed', 'wont_fix', 'rejected']),
   bug:         new Set(['completed', 'done', 'verified', 'closed', 'wont_fix', 'rejected']),
   change_card: new Set(['completed', 'done', 'approved', 'rejected', 'closed']),
+  tech_debt:   new Set(['completed', 'done', 'resolved', 'cancelled', 'closed', 'wont_fix', 'rejected', 'archived']),
   idea:        new Set(['converted', 'archived']),
 };
 
@@ -2113,7 +2439,7 @@ const HIDDEN_TERMINAL_BY_TYPE = {
  * entityType is unknown — defensive default that hides terminal items rather than leaking them.
  *
  * @param {string} status      e.g. 'completed', 'converted', 'cancelled'
- * @param {string} entityType  one of 'epic'|'feature'|'task'|'bug'|'change_card'|'idea'
+ * @param {string} entityType  one of 'epic'|'feature'|'task'|'bug'|'change_card'|'tech_debt'|'idea'
  * @returns {boolean}
  */
 function isHiddenTerminalStatus(status, entityType) {
@@ -2125,6 +2451,44 @@ function isHiddenTerminalStatus(status, entityType) {
 
 /** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
 const FOLDER_KEY_PREFIX = 'folder:';
+
+/**
+ * Formats an ISO date string (YYYY-MM-DD or ISO 8601 with time) as a short
+ * human-readable date, e.g. "May 8" or "May 8, 2025" if cross-year.
+ * Parses the date part directly from the ISO string (no Date object) to avoid
+ * local-timezone day-shift on midnight-UTC timestamps.
+ * @param {string} isoString
+ * @returns {string} e.g. "May 8" or "May 8, 2025" or "—" when absent
+ */
+function formatDateOnly(isoString) {
+  if (!isoString) return '—';
+  // Handle sql.NullTime object { Time: "...", Valid: bool }
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '—';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '—';
+  try {
+    // Parse date part directly from ISO string to avoid timezone day-shift.
+    // e.g. "2026-05-08T00:00:00Z" → "2026-05-08"
+    const datePart = String(isoString).split('T')[0];
+    const [yearStr, monStr, dayStr] = datePart.split('-');
+    const year = parseInt(yearStr, 10);
+    const mon  = parseInt(monStr, 10) - 1; // 0-based
+    const day  = parseInt(dayStr, 10);
+    if (isNaN(year) || isNaN(mon) || isNaN(day) || year < 2) return '—';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monLabel = months[mon];
+    const nowYear = new Date().getFullYear();
+    if (year !== nowYear) {
+      return `${monLabel} ${day}, ${year}`;
+    }
+    return `${monLabel} ${day}`;
+  } catch {
+    return '—';
+  }
+}
 
 /**
  * Formats an ISO timestamp to a short human-readable date.
@@ -2834,13 +3198,13 @@ async function applyTagFilter(selectedTags) {
  */
 function buildTagFilterControlHtml() {
   if (vocabulary.length === 0) {
-    return `<span class="tag-filter-label">Tags</span><div class="tag-filter-chips"><span class="chip-empty">No tags registered yet</span></div>`;
+    return `<div class="tag-filter-chips"><span class="chip-empty">No tags registered yet</span></div>`;
   }
   const chips = vocabulary.map(name => {
     const sel = activeTagFilter.has(name) ? ' selected' : '';
     return `<span class="chip${sel}" data-tag-filter-chip="${escapeHtml(name)}">${escapeHtml(name)}</span>`;
   }).join('');
-  return `<span class="tag-filter-label">Tags</span><div class="tag-filter-chips">${chips}</div>`;
+  return `<div class="tag-filter-chips">${chips}</div>`;
 }
 
 // ============================================================
@@ -3008,7 +3372,7 @@ let sprintPlanFilters = { status: '', agent: '', assignment: '' };
 let sprintPlanSelection = new Set();
 let cameFromSprint = false;          // jump-back path from Sprint drawer → entity view
 let treeData       = [];             // cached hierarchy epics array (hierarchy.epics)
-let hierarchyData  = null;           // full cached /hierarchy response (includes bugs, change_cards, ideas)
+let hierarchyData  = null;           // full cached /hierarchy response (includes bugs, change_cards, tech_debts, ideas)
 let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
@@ -3026,10 +3390,69 @@ let showAllFiles     = false;         // sidebar filter: show untracked folder f
 let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
+const SIDEBAR_SECTION_STORAGE_KEY = 'shark.viewer.sidebarSections';
+const SIDEBAR_SECTION_DEFAULTS = {
+  tags: true,
+  epics: true,
+  bugs: true,
+  change_cards: true,
+  tech_debt: true,
+  ideas: true,
+  docs: true,
+};
+let sidebarSectionState = loadSidebarSectionState();
+const SIDEBAR_WIDTH_STORAGE_KEY = 'shark.viewer.sidebarWidth';
+const SIDEBAR_WIDTH_DEFAULT = 320;
+const SIDEBAR_WIDTH_MIN = 240;
+const SIDEBAR_WIDTH_MAX = 720;
 
 // ── E28-F06 tag state ──
 let vocabulary       = [];           // cached tag vocabulary from GET /api/v1/viewer/tags
 let activeTagFilter  = new Set();    // currently selected tag names for hierarchy filter
+
+function loadSidebarSectionState() {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_SECTION_STORAGE_KEY);
+    if (!raw) return Object.assign({}, SIDEBAR_SECTION_DEFAULTS);
+    const parsed = JSON.parse(raw);
+    return Object.assign({}, SIDEBAR_SECTION_DEFAULTS, parsed && typeof parsed === 'object' ? parsed : {});
+  } catch (e) {
+    return Object.assign({}, SIDEBAR_SECTION_DEFAULTS);
+  }
+}
+
+function persistSidebarSectionState() {
+  try {
+    localStorage.setItem(SIDEBAR_SECTION_STORAGE_KEY, JSON.stringify(sidebarSectionState));
+  } catch (e) {}
+}
+
+function isSidebarSectionExpanded(sectionId) {
+  if (!sectionId) return true;
+  return sidebarSectionState[sectionId] !== false;
+}
+
+function setSidebarSectionExpanded(sectionId, expanded, persist = true) {
+  if (!sectionId) return;
+  sidebarSectionState[sectionId] = !!expanded;
+  if (persist) persistSidebarSectionState();
+}
+
+function toggleSidebarSection(sectionId) {
+  if (!sectionId) return;
+  setSidebarSectionExpanded(sectionId, !isSidebarSectionExpanded(sectionId));
+}
+
+function areAllSidebarSectionsExpanded() {
+  return Object.keys(SIDEBAR_SECTION_DEFAULTS).every(sectionId => isSidebarSectionExpanded(sectionId));
+}
+
+function setAllSidebarSectionsExpanded(expanded, persist = true) {
+  for (const sectionId of Object.keys(SIDEBAR_SECTION_DEFAULTS)) {
+    setSidebarSectionExpanded(sectionId, expanded, false);
+  }
+  if (persist) persistSidebarSectionState();
+}
 
 // ============================================================
 // SECTION: State Machine — render() Dispatcher
@@ -3252,7 +3675,7 @@ function navigateToEntity(key, fromSprint) {
 /**
  * Renders the Status Breakdown section.
  * Grid of cards — one per entity type that has items.
- * Data source: summaryData.{epics,features,tasks,bugs}.status_counts (project-wide),
+ * Data source: summaryData.{epics,features,tasks,bugs,tech_debts}.status_counts (project-wide),
  * or treeData filtered to epicKey (epic-scoped).
  * @param {string} [epicKey] - Optional. When provided, filters to that epic's entities.
  * @returns {string} HTML string
@@ -3332,6 +3755,7 @@ function renderStatusBreakdown(epicKey) {
     ['FEATURES',     summaryData?.features?.by_status],
     ['TASKS',        summaryData?.tasks?.by_status],
     ['BUGS',         summaryData?.bugs?.by_status],
+    ['TECH DEBT',    summaryData?.tech_debts?.by_status],
     ['IDEAS',        summaryData?.ideas?.by_status],
     ['CHANGE CARDS', summaryData?.change_cards?.by_status],
   ];
@@ -3576,6 +4000,24 @@ function renderStaleEntities(epicKey) {
     }
   }
 
+  if (!epicKey) {
+    const techDebts = Array.isArray(hierarchyData?.tech_debts) ? hierarchyData.tech_debts : [];
+    for (const td of techDebts) {
+      if (td?.updated_at && !isTerminalStatus(td.status || '')) {
+        const days = daysSince(td.updated_at);
+        if (days > 7) {
+          stale.push({
+            key:        td.key || '',
+            status:     td.status || '',
+            title:      td.title || '',
+            updated_at: td.updated_at,
+            days,
+          });
+        }
+      }
+    }
+  }
+
   if (stale.length === 0) {
     return `<div class="content-placeholder">No stale entities found</div>`;
   }
@@ -3647,7 +4089,7 @@ function buildDonutChart(byStatus, size = 100) {
 
 /**
  * Renders the Entity Charts section.
- * One donut chart per entity type (epics, features, tasks, bugs, ideas, change cards)
+ * One donut chart per entity type (epics, features, tasks, bugs, tech debt, ideas, change cards)
  * plus an overall "All Entities" chart showing type distribution.
  * @param {string} [epicKey] - Optional. When provided, builds charts from treeData for that epic.
  * @returns {string} HTML string, or '' if no data
@@ -3748,6 +4190,7 @@ function renderEntityCharts(epicKey) {
     { label: 'Features',     data: summaryData.features,     overallColor: '#22a362' },
     { label: 'Tasks',        data: summaryData.tasks,        overallColor: '#e7b30e' },
     { label: 'Bugs',         data: summaryData.bugs,         overallColor: '#c0392b' },
+    { label: 'Tech Debt',    data: summaryData.tech_debts,   overallColor: '#f97316' },
     { label: 'Ideas',        data: summaryData.ideas,        overallColor: '#60a5fa' },
     { label: 'Change Cards', data: summaryData.change_cards, overallColor: '#8c4dbb' },
   ];
@@ -3953,11 +4396,12 @@ function findEntityByKey(key) {
     }
   }
 
-  // Also search flat sections (bugs, change_cards, ideas) from hierarchy
+  // Also search flat sections (bugs, change_cards, tech_debts, ideas) from hierarchy
   if (hierarchyData) {
     const flatLists = [
       ['bug',         hierarchyData.bugs],
       ['change_card', hierarchyData.change_cards],
+      ['tech_debt',   hierarchyData.tech_debts],
       ['idea',        hierarchyData.ideas],
     ];
     for (const [type, items] of flatLists) {
@@ -4024,7 +4468,7 @@ function renderBreadcrumb(entity) {
       chain.push({ key: entity.key });
       break;
     default:
-      return ''; // bug / change-card / idea — no breadcrumb
+      return ''; // bug / change-card / tech-debt / idea — no breadcrumb
   }
   // Filter out segments with undefined/empty keys (guard for missing parent data)
   const validChain = chain.filter(seg => seg.key);
@@ -4208,6 +4652,18 @@ function appendChangeCardFields(rows, e) {
 }
 
 /**
+ * Appends tech-debt-specific fields to the rows array.
+ * @param {string[]} rows
+ * @param {Object} e - tech_debt entity
+ */
+function appendTechDebtFields(rows, e) {
+  if (e.category)         pushRow(rows, 'Category', escapeHtml(e.category));
+  if (e.severity)         pushRow(rows, 'Severity', escapeHtml(e.severity));
+  if (e.effort_estimate)  pushRow(rows, 'Effort Estimate', escapeHtml(e.effort_estimate));
+  if (e.size != null) pushRow(rows, 'Size', escapeHtml(formatSizeLabel(e.size)) + ' (' + escapeHtml(String(e.size)) + ')');
+}
+
+/**
  * Appends idea-specific fields to the rows array. (E27-F11 D5)
  * @param {string[]} rows
  * @param {Object} e - idea entity
@@ -4248,7 +4704,7 @@ function renderOrchestratorDetails(oa) {
  * @param {Object} entity - entity object from treeData / flat list
  * @returns {string} HTML string
  */
-function renderPropertiesPanel(entity) {
+function renderPropertiesPanel(entity, extraRows = []) {
   if (!entity) return '';
 
   // Helper: copy-to-clipboard button (uses data attribute + global delegation handler)
@@ -4271,6 +4727,7 @@ function renderPropertiesPanel(entity) {
     case 'task':        appendTaskFields(rows, entity);        break;
     case 'bug':         appendBugFields(rows, entity);         break;
     case 'change_card': appendChangeCardFields(rows, entity);  break;
+    case 'tech_debt':   appendTechDebtFields(rows, entity);    break;
     case 'idea':        appendIdeaFields(rows, entity);        break; // E27-F11 D5
   }
 
@@ -4291,8 +4748,9 @@ function renderPropertiesPanel(entity) {
     ? ` style="border-left:3px solid ${escapeHtml(statusColor)}" data-status-accent="${escapeHtml(entity.status)}"`
     : '';
 
-  const grid = rows.length
-    ? `<div class="props-grid"${accentStyle}>${rows.join('')}</div>`
+  const allRows = rows.concat(extraRows);
+  const grid = allRows.length
+    ? `<div class="props-grid"${accentStyle}>${allRows.join('')}</div>`
     : '';
   return grid + orchHtml;
 }
@@ -4791,6 +5249,25 @@ function showToast(message, type) {
   setTimeout(() => toast.remove(), 2500);
 }
 
+async function openSpecModal(key) {
+  const modal = document.getElementById('spec-modal');
+  const body  = document.getElementById('spec-modal-body');
+  if (!modal || !body) return;
+  body.innerHTML = '<div class="content-placeholder">Loading spec…</div>';
+  modal.style.display = 'block';
+  const resp = await apiGetFile(key);
+  if (!resp || !resp.exists) {
+    body.innerHTML = '<div class="content-placeholder">No spec file found for this entity.</div>';
+    return;
+  }
+  renderMarkdownFromString(resp.content || '', body);
+}
+
+function closeSpecModal() {
+  const modal = document.getElementById('spec-modal');
+  if (modal) modal.style.display = 'none';
+}
+
 /**
  * Renders the markdown content pane for an entity.
  * Calls apiGetFile(key), renders with Marked.js (or fallback <pre>).
@@ -4835,12 +5312,12 @@ async function renderMarkdownPane(key, paneEl) {
 
   if (!response) {
     specBody.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
-    return;
+    return null;
   }
 
   if (!response.exists) {
     specBody.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
-    return;
+    return response;
   }
 
   const rawContent = response.content || '';
@@ -4851,6 +5328,7 @@ async function renderMarkdownPane(key, paneEl) {
   editPaneEl = specBody;
 
   renderMarkdownFromString(rawContent, specBody);
+  return response;
 }
 
 /**
@@ -4922,6 +5400,25 @@ function renderFrontmatterTable(entries) {
 // ============================================================
 
 let __mermaidInitialized = false;
+const mermaidPanZoomRegistry = new Map();
+const mermaidViewerRegistry = new Map();
+let activeMermaidOverlayId = '';
+const resizeMermaidObserver = (typeof ResizeObserver !== 'undefined')
+  ? new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const viewer = entry.target && entry.target.closest
+          ? entry.target.closest('.mermaid-viewer')
+          : null;
+        if (!viewer || viewer.classList.contains('is-collapsed')) continue;
+        const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+        if (!instance) continue;
+        instance.resize();
+        instance.fit();
+        instance.center();
+        syncMermaidZoomState(viewer);
+      }
+    })
+  : null;
 
 /**
  * One-time Mermaid initialization. Idempotent. Safe to call repeatedly.
@@ -4948,6 +5445,213 @@ function initMermaid() {
   __mermaidInitialized = true;
 }
 
+function destroyMermaidPanZoom(viewerId) {
+  const instance = mermaidPanZoomRegistry.get(viewerId);
+  if (instance && typeof instance.destroy === 'function') {
+    instance.destroy();
+  }
+  mermaidPanZoomRegistry.delete(viewerId);
+}
+
+function setMermaidPanZoomControlsEnabled(viewer, enabled) {
+  if (!viewer) return;
+  viewer.querySelectorAll('[data-requires-panzoom="true"]').forEach((button) => {
+    button.disabled = !enabled;
+  });
+}
+
+function syncMermaidZoomState(viewer) {
+  if (!viewer) return;
+  const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+  if (!instance) return;
+  const pan = instance.getPan ? instance.getPan() : { x: 0, y: 0 };
+  const zoom = instance.getZoom ? instance.getZoom() : 0;
+  viewer.dataset.zoom = String(zoom);
+  viewer.dataset.panX = String(pan.x || 0);
+  viewer.dataset.panY = String(pan.y || 0);
+}
+
+function scheduleMermaidZoomStateSync(viewer) {
+  if (!viewer || viewer.__mermaidSyncScheduled) return;
+  viewer.__mermaidSyncScheduled = true;
+  window.requestAnimationFrame(() => {
+    viewer.__mermaidSyncScheduled = false;
+    syncMermaidZoomState(viewer);
+  });
+}
+
+function resetMermaidZoom(viewerOrId) {
+  const viewer = typeof viewerOrId === 'string'
+    ? document.querySelector(`.mermaid-viewer[data-mermaid-id="${viewerOrId}"]`)
+    : viewerOrId;
+  if (!viewer) return;
+  const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+  if (!instance) return;
+  instance.resize();
+  instance.fit();
+  instance.center();
+  syncMermaidZoomState(viewer);
+}
+
+function initMermaidPanZoom(viewer) {
+  if (!viewer) return;
+  const viewerId = viewer.dataset.mermaidId || '';
+  const svg = viewer.querySelector('.mermaid-viewport svg');
+  if (!viewerId || !svg) return;
+
+  destroyMermaidPanZoom(viewerId);
+
+  if (typeof svgPanZoom === 'undefined') {
+    viewer.dataset.panZoomReady = 'false';
+    setMermaidPanZoomControlsEnabled(viewer, false);
+    return;
+  }
+
+  svg.removeAttribute('height');
+  svg.removeAttribute('width');
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+
+  const instance = svgPanZoom(svg, {
+    panEnabled: true,
+    zoomEnabled: true,
+    mouseWheelZoomEnabled: true,
+    controlIconsEnabled: false,
+    dblClickZoomEnabled: true,
+    fit: true,
+    center: true,
+    minZoom: 0.2,
+    maxZoom: 20,
+    onPan: () => scheduleMermaidZoomStateSync(viewer),
+    onZoom: () => scheduleMermaidZoomStateSync(viewer)
+  });
+  mermaidPanZoomRegistry.set(viewerId, instance);
+  viewer.dataset.panZoomReady = 'true';
+  setMermaidPanZoomControlsEnabled(viewer, true);
+  resetMermaidZoom(viewer);
+
+  const viewport = viewer.querySelector('.mermaid-viewport');
+  if (viewport && resizeMermaidObserver) {
+    resizeMermaidObserver.observe(viewport);
+  }
+}
+
+function createMermaidViewer(viewerId, source, svg, options = {}) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'mermaid-render-container mermaid-viewer' + (options.overlay ? ' mermaid-viewer-overlay' : '');
+  wrapper.dataset.mermaidId = viewerId;
+  wrapper.dataset.zoom = '0';
+  wrapper.dataset.panX = '0';
+  wrapper.dataset.panY = '0';
+  wrapper.dataset.panZoomReady = 'false';
+  mermaidViewerRegistry.set(viewerId, { source, svg, overlay: !!options.overlay });
+
+  const overlayControls = options.overlay
+    ? ''
+    : `
+        <button class="mermaid-toolbar-btn mermaid-maximize" type="button" data-mermaid-action="maximize" aria-label="Maximize diagram" title="Maximize diagram">⛶</button>
+        <button class="mermaid-toolbar-btn mermaid-collapse" type="button" data-mermaid-action="collapse" aria-label="Collapse diagram" title="Collapse diagram" aria-expanded="true">▾</button>
+      `;
+  wrapper.innerHTML = `
+    <div class="mermaid-toolbar" role="toolbar" aria-label="Mermaid diagram controls">
+      <button class="mermaid-toolbar-btn mermaid-zoom-in" type="button" data-mermaid-action="zoom-in" data-requires-panzoom="true" aria-label="Zoom in" title="Zoom in">+</button>
+      <button class="mermaid-toolbar-btn mermaid-zoom-out" type="button" data-mermaid-action="zoom-out" data-requires-panzoom="true" aria-label="Zoom out" title="Zoom out">−</button>
+      <button class="mermaid-toolbar-btn mermaid-reset" type="button" data-mermaid-action="reset" data-requires-panzoom="true" aria-label="Reset zoom" title="Reset zoom">⟲</button>
+      ${overlayControls}
+    </div>
+    <div class="mermaid-viewport" data-mermaid-viewport></div>
+  `;
+  const viewport = wrapper.querySelector('.mermaid-viewport');
+  if (viewport) viewport.innerHTML = svg;
+  wireMermaidViewerControls(wrapper);
+  return wrapper;
+}
+
+function wireMermaidViewerControls(viewer) {
+  if (!viewer) return;
+  viewer.querySelectorAll('[data-mermaid-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.getAttribute('data-mermaid-action');
+      const instance = mermaidPanZoomRegistry.get(viewer.dataset.mermaidId || '');
+      if (action === 'zoom-in' && instance) {
+        instance.zoomIn();
+        syncMermaidZoomState(viewer);
+      } else if (action === 'zoom-out' && instance) {
+        instance.zoomOut();
+        syncMermaidZoomState(viewer);
+      } else if (action === 'reset') {
+        resetMermaidZoom(viewer);
+      } else if (action === 'maximize') {
+        openMermaidOverlay(viewer);
+      } else if (action === 'collapse') {
+        toggleMermaidCollapse(viewer);
+      }
+    });
+  });
+}
+
+function toggleMermaidCollapse(viewer) {
+  if (!viewer) return;
+  const collapsed = !viewer.classList.contains('is-collapsed');
+  viewer.classList.toggle('is-collapsed', collapsed);
+  const button = viewer.querySelector('[data-mermaid-action="collapse"]');
+  if (button) {
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    button.setAttribute('aria-label', collapsed ? 'Expand diagram' : 'Collapse diagram');
+    button.setAttribute('title', collapsed ? 'Expand diagram' : 'Collapse diagram');
+    button.textContent = collapsed ? '▸' : '▾';
+  }
+  if (!collapsed) resetMermaidZoom(viewer);
+}
+
+function openMermaidOverlay(viewerOrId) {
+  const viewer = typeof viewerOrId === 'string'
+    ? document.querySelector(`.mermaid-viewer[data-mermaid-id="${viewerOrId}"]`)
+    : viewerOrId;
+  if (!viewer) return;
+  const sourceId = viewer.dataset.mermaidId || '';
+  const meta = mermaidViewerRegistry.get(sourceId);
+  if (!meta) return;
+
+  closeMermaidOverlay();
+  const overlayId = sourceId + '-overlay';
+  activeMermaidOverlayId = overlayId;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'mermaid-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="mermaid-overlay-shell">
+      <div class="mermaid-overlay-header">
+        <button class="mermaid-overlay-close" type="button" aria-label="Close maximized diagram">Close</button>
+      </div>
+      <div class="mermaid-overlay-body"></div>
+    </div>
+  `;
+
+  const overlayBody = overlay.querySelector('.mermaid-overlay-body');
+  const overlayViewer = createMermaidViewer(overlayId, meta.source, meta.svg, { overlay: true });
+  if (overlayBody) overlayBody.appendChild(overlayViewer);
+  document.body.appendChild(overlay);
+  overlay.querySelector('.mermaid-overlay-close')?.addEventListener('click', closeMermaidOverlay);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeMermaidOverlay();
+  });
+  initMermaidPanZoom(overlayViewer);
+}
+
+function closeMermaidOverlay() {
+  const overlay = document.querySelector('.mermaid-overlay');
+  if (!overlay) return;
+  if (activeMermaidOverlayId) {
+    destroyMermaidPanZoom(activeMermaidOverlayId);
+    mermaidViewerRegistry.delete(activeMermaidOverlayId);
+    activeMermaidOverlayId = '';
+  }
+  overlay.remove();
+}
+
 /**
  * Post-processes all <pre><code class="language-mermaid"> blocks inside rootEl,
  * replacing each with a rendered SVG in a .mermaid-render-container div.
@@ -4964,79 +5668,25 @@ async function renderMermaidIn(rootEl) {
   for (const codeEl of codeBlocks) {
     const preEl = codeEl.parentElement;
     const source = codeEl.textContent || '';
-    const wrapper = document.createElement('div');
-    wrapper.className = 'mermaid-render-container';
-    preEl.parentElement.replaceChild(wrapper, preEl);
 
     try {
       const id = 'mmd-' + Math.random().toString(36).slice(2, 10);
       const { svg } = await mermaid.render(id, source);
-      wrapper.innerHTML = svg;
-      enableMermaidPanZoom(wrapper);
+      const wrapper = createMermaidViewer(id, source, svg);
+      preEl.parentElement.replaceChild(wrapper, preEl);
+      initMermaidPanZoom(wrapper);
     } catch (err) {
       // REQ-F-003: per-block fallback — show escaped raw source + error banner
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mermaid-render-container';
       wrapper.innerHTML =
         '<div class="mermaid-error-banner">Mermaid render failed: ' +
           escapeHtml(String(err && err.message || err)) +
         '</div>' +
         '<pre style="white-space:pre-wrap">' + escapeHtml(source) + '</pre>';
+      preEl.parentElement.replaceChild(wrapper, preEl);
     }
   }
-}
-
-/**
- * Attach svg-pan-zoom to a freshly-rendered mermaid SVG inside `wrapper`.
- * Wheel-zoom is disabled until the user clicks the diagram, so scrolling
- * the page doesn't get hijacked while passing over a diagram.
- * Silent no-op if svg-pan-zoom CDN failed to load.
- */
-function enableMermaidPanZoom(wrapper) {
-  if (typeof svgPanZoom === 'undefined') return;
-  const svg = wrapper.querySelector('svg');
-  if (!svg) return;
-
-  // Mermaid sets inline style="max-width:..." and a viewBox; strip the cap
-  // and let the SVG fill the fixed-height viewport so pan/zoom math is sane.
-  svg.style.maxWidth = 'none';
-  svg.style.width = '100%';
-  svg.style.height = '100%';
-
-  wrapper.classList.add('pan-zoom-enabled');
-
-  const hint = document.createElement('div');
-  hint.className = 'mermaid-zoom-hint';
-  hint.textContent = 'click to zoom · drag to pan';
-  wrapper.appendChild(hint);
-
-  let pz;
-  try {
-    pz = svgPanZoom(svg, {
-      zoomEnabled: true,
-      controlIconsEnabled: true,
-      fit: true,
-      center: true,
-      minZoom: 0.2,
-      maxZoom: 20,
-      mouseWheelZoomEnabled: false, // gated; activated on click
-    });
-  } catch (err) {
-    // If svg-pan-zoom can't initialize, leave the static SVG in place.
-    wrapper.classList.remove('pan-zoom-enabled');
-    hint.remove();
-    return;
-  }
-
-  // Activate wheel-zoom on first click; deactivate when focus leaves.
-  wrapper.addEventListener('click', () => {
-    if (wrapper.classList.contains('zoom-active')) return;
-    wrapper.classList.add('zoom-active');
-    pz.enableMouseWheelZoom();
-  });
-  wrapper.addEventListener('mouseleave', () => {
-    if (!wrapper.classList.contains('zoom-active')) return;
-    wrapper.classList.remove('zoom-active');
-    pz.disableMouseWheelZoom();
-  });
 }
 
 function renderMarkdownFromString(rawContent, paneEl) {
@@ -5858,12 +6508,39 @@ function sprintSummaryCard(label, value, note) {
   </div>`;
 }
 
-function sprintFormatRange(sprint) {
-  if (!sprint) return 'No sprint selected';
-  const start = formatDate(sprint.start_date || sprint.startDate || sprint.start || '');
-  const end = formatDate(sprint.end_date || sprint.endDate || sprint.end || '');
-  if (!start && !end) return 'Date range unavailable';
-  return `${escapeHtml(start || '—')} → ${escapeHtml(end || '—')}`;
+/**
+ * Formats a sprint date range from two ISO date strings (or falsy).
+ * Same-year:  "May 8 → May 22"
+ * Cross-year: "Dec 30, 2025 → Jan 13, 2026"
+ * Missing date renders as "—".
+ * @param {string|null|undefined} startISO
+ * @param {string|null|undefined} endISO
+ * @returns {string}
+ */
+function sprintFormatRange(startISO, endISO) {
+  const startStr = startISO ? String(startISO).split('T')[0] : null;
+  const endStr   = endISO   ? String(endISO).split('T')[0]   : null;
+  const startYear = startStr ? parseInt(startStr.split('-')[0], 10) : null;
+  const endYear   = endStr   ? parseInt(endStr.split('-')[0],   10) : null;
+  const crossYear = startYear !== null && endYear !== null && startYear !== endYear;
+
+  const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function fmt(dateStr, year) {
+    if (!dateStr) return '—';
+    const [, monStr, dayStr] = dateStr.split('-');
+    const mon = parseInt(monStr, 10) - 1;
+    const day = parseInt(dayStr, 10);
+    if (isNaN(mon) || isNaN(day)) return '—';
+    const monLabel = months[mon];
+    return crossYear ? `${monLabel} ${day}, ${year}` : `${monLabel} ${day}`;
+  }
+
+  const start = fmt(startStr, startYear);
+  const end   = fmt(endStr,   endYear);
+  if (start === '—' && end === '—') return 'Date range unavailable';
+  return `${escapeHtml(start)} → ${escapeHtml(end)}`;
 }
 
 function sprintCapacityStats(rows) {
@@ -5887,24 +6564,93 @@ function sprintRecentChanges(payload) {
   }).slice(0, 8);
 }
 
+// SPRINT_BUCKET_MAP is the single source of truth mapping API status_category
+// values to the four display buckets: ready, in_progress, blocked, done.
+// AC-005 (spec §1.3): ready_for_development maps to the 'ready' display bucket.
+// AC-006: in_development, ready_for_approval, in_progress map to 'in_progress'.
+const SPRINT_BUCKET_MAP = {
+  todo:                        'ready',
+  draft:                       'ready',
+  ready_for_development:       'ready',
+  in_development:              'in_progress',
+  ready_for_approval:          'in_progress',
+  in_progress:                 'in_progress',
+  in_review:                   'in_progress',
+  in_qa:                       'in_progress',
+  ready_for_refinement_tech:   'in_progress',
+  ready_for_refinement_ba:     'in_progress',
+  in_refinement:               'in_progress',
+  blocked:                     'blocked',
+  completed:                   'done',
+  resolved:                    'done',
+};
+
+// Returns the sprint display bucket for a status string.
+// Reads sprint_bucket directly from the workflowMeta loaded via /api/v1/viewer/workflow-meta.
+// Each status in the workflow JSON declares its own sprint_bucket value ("ready",
+// "in_progress", "blocked", "done", or absent to hide from the sprint board).
+// Falls back to the hardcoded SPRINT_BUCKET_MAP for workflows that predate this field.
+function getSprintBucketForStatus(status) {
+  if (!status) return undefined;
+  if (workflowMeta && workflowMeta.levels) {
+    for (const level of Object.values(workflowMeta.levels)) {
+      const meta = (level.statuses || []).find(s => s.name === status);
+      if (meta) {
+        // sprint_bucket present in workflow config — use it directly.
+        if (meta.sprint_bucket) return meta.sprint_bucket;
+        // sprint_bucket explicitly blank means "hide from sprint board".
+        // Only fall through to the legacy map when the field is absent entirely.
+        if (Object.prototype.hasOwnProperty.call(meta, 'sprint_bucket')) return undefined;
+      }
+    }
+  }
+  return SPRINT_BUCKET_MAP[status];
+}
+
+// Returns true if the status counts as "active work" in the sprint.
+// Active = maps to 'ready' or 'in_progress' bucket.
+function isActiveSprintStatus(status) {
+  if (!status) return false;
+  const bucket = getSprintBucketForStatus(status);
+  if (bucket !== undefined) return bucket === 'ready' || bucket === 'in_progress';
+  return ACTIVE_SPRINT_CATEGORIES.has(status);
+}
+
+// ACTIVE_SPRINT_CATEGORIES is kept as a fallback for when workflowMeta has not
+// yet loaded. The isActiveSprintStatus() function above is the preferred path.
+const ACTIVE_SPRINT_CATEGORIES = new Set([
+  'ready_for_development',
+  'in_development',
+  'ready_for_approval',
+  'in_progress',
+  'in_review',
+  'in_qa',
+  'ready_for_refinement_tech',
+  'ready_for_refinement_ba',
+  'in_refinement',
+]);
+
 const SPRINT_BUCKET_LABELS = {
-  ready: 'Ready',
+  ready:       'Ready',
   in_progress: 'In Progress',
-  blocked: 'Blocked',
-  done: 'Done',
+  blocked:     'Blocked',
+  done:        'Done',
 };
 
 function sprintBucketGroups(payload) {
-  const map = new Map();
+  // Aggregate items from all status_category groups into the four display buckets.
+  const bucketItems = { ready: [], in_progress: [], blocked: [], done: [] };
   for (const group of sprintBacklogGroups(payload)) {
-    if (group?.status_category) {
-      map.set(group.status_category, group);
+    const category = group?.status_category;
+    const bucket = getSprintBucketForStatus(category);
+    if (bucket && Array.isArray(group.items)) {
+      bucketItems[bucket].push(...group.items);
     }
   }
   return Object.keys(SPRINT_BUCKET_LABELS).map(key => ({
     key,
     label: SPRINT_BUCKET_LABELS[key],
-    items: Array.isArray(map.get(key)?.items) ? map.get(key).items : [],
+    items: bucketItems[key],
   }));
 }
 
@@ -5912,29 +6658,96 @@ function sprintTreeItemCount(payload) {
   return sprintBacklogItems(payload).length;
 }
 
+// renderScopeSnapshot renders the "Assigned Scope Snapshot" one-line bar.
+// assignedItems must be an array of sprint backlog items (from sprintBacklogItems).
+// Buckets with zero items are omitted from the rendered output (TC-018).
+// Returns an HTML string for a section element, or an empty string when
+// assignedItems is empty — callers must guard against rendering an empty section.
+function renderScopeSnapshot(assignedItems) {
+  if (!Array.isArray(assignedItems) || assignedItems.length === 0) {
+    return '';
+  }
+  // Tally items into display buckets using workflow-aware bucket lookup.
+  const tally = { ready: 0, in_progress: 0, blocked: 0, done: 0 };
+  for (const item of assignedItems) {
+    const category = item?.status_category || item?.status || '';
+    const bucket = getSprintBucketForStatus(category);
+    if (bucket && Object.prototype.hasOwnProperty.call(tally, bucket)) {
+      tally[bucket]++;
+    }
+  }
+  // Build pills for non-zero buckets only (TC-018: zero-count pills omitted).
+  const bucketOrder = ['ready', 'in_progress', 'blocked', 'done'];
+  const pills = bucketOrder
+    .filter(key => tally[key] > 0)
+    .map(key => `<span class="header-pill">${escapeHtml(SPRINT_BUCKET_LABELS[key])} ${escapeHtml(String(tally[key]))}</span>`)
+    .join(' ');
+  if (!pills) {
+    return '';
+  }
+  return `<section class="ov-section">
+      <div class="ov-section-header">Assigned Scope Snapshot</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 0;">${pills}</div>
+    </section>`;
+}
+
+function sprintCatalogRows(rows, currentKey) {
+  const list = Array.isArray(rows) ? rows : [];
+  return list.map(row => {
+    const key = escapeHtml(row?.key || '');
+    const name = escapeHtml(row?.name || row?.title || row?.key || 'Unnamed Sprint');
+    const status = escapeHtml(String(row?.status || '').replace(/_/g, ' '));
+    const selectedClass = row?.key && row.key === currentKey ? ' selected' : '';
+    const range = sprintFormatRange(row?.start_date || row?.startDate || row?.start, row?.end_date || row?.endDate || row?.end);
+    return `<div class="sprint-item-row${selectedClass}" style="cursor:default">
+      <span class="status-badge status-badge-sm">${status || 'sprint'}</span>
+      <span class="sprint-item-key">${key}</span>
+      <span class="sprint-item-title" title="${name}">${name}</span>
+      <span style="margin-left:auto;color:var(--fg-dim);font-size:11px">${escapeHtml(range)}</span>
+    </div>`;
+  }).join('');
+}
+
+function sprintCatalogRowsExcludingCurrent(rows, currentKey) {
+  const list = Array.isArray(rows) ? rows.filter(row => (row?.key || '') !== currentKey) : [];
+  return sprintCatalogRows(list, currentKey);
+}
+
 function renderSprintTree(payload) {
   const sprint = payload?.sprint || {};
+  const catalog = payload?.catalog || {};
   const activeExpanded = sprintTreeExpandedScopes.has('active');
   const upcomingExpanded = sprintTreeExpandedScopes.has('upcoming');
   const archiveExpanded = sprintTreeExpandedScopes.has('archive');
   const activeBuckets = sprintBucketGroups(payload);
+  const currentKey = sprint.key || '';
+  const activeRows = sprintCatalogRowsExcludingCurrent(catalog.active, currentKey);
+  const upcomingRows = sprintCatalogRows(catalog.upcoming, currentKey);
+  const archiveRows = sprintCatalogRows(catalog.archived, currentKey);
   const sprintKey = escapeHtml(sprint.key || 'Active Sprint');
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
-  const sprintRange = sprintFormatRange(sprint);
+  const sprintRange = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
 
-  const bucketHtml = activeBuckets.map(bucket => {
-    const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
-    return `<div class="sprint-tree-bucket">
-      <div class="tree-node tree-node-flat" style="padding-left:28px">
-        <span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(bucket.key))};color:${escapeHtml(getContrastColor(getStatusColor(bucket.key)))}">${escapeHtml(bucket.label)}</span>
-        <span style="margin-left:8px;color:var(--fg-dim)">${bucket.items.length}</span>
+  const bucketHtml = !payload
+    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0;color:var(--fg-dim)">Loading…</div>`
+    : activeBuckets.map(bucket => {
+        const rows = bucket.items.map(item => renderSprintItemRow(item, sprintSelectedKey)).join('');
+        const dotColor = escapeHtml(getStatusColor(bucket.key));
+        return `<div class="sprint-tree-bucket">
+      <div class="sprint-bucket-header">
+        <span class="sprint-bucket-label">${escapeHtml(bucket.label)}</span>
+        <span class="sprint-bucket-meta">
+          <span class="sprint-bucket-count">${bucket.items.length}</span>
+          <span class="sprint-bucket-dot" style="background:${dotColor}"></span>
+        </span>
       </div>
       ${rows ? `<div class="sprint-item-list" style="padding-left:16px">${rows}</div>` : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No items in this bucket.</div>'}
     </div>`;
-  }).join('');
+      }).join('');
 
   const activeBody = activeExpanded
-    ? `<div class="sprint-tree-active-body">
+       ? `<div class="sprint-tree-active-body">
+         ${activeRows ? `<div class="sprint-item-list" style="padding-left:16px;margin-bottom:6px">${activeRows}</div>` : ''}
          <div class="sprint-item-row" style="cursor:default">
            <span class="sprint-item-key">${sprintKey}</span>
            <span class="sprint-item-title" title="${sprintName}">${sprintName}</span>
@@ -5945,10 +6758,14 @@ function renderSprintTree(payload) {
     : `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Active sprint collapsed.</div>`;
 
   const upcomingBody = upcomingExpanded
-    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Upcoming sprint queue will appear here.</div>`
+    ? (upcomingRows
+        ? `<div class="sprint-item-list" style="padding-left:16px;margin:6px 0 0">${upcomingRows}</div>`
+        : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No upcoming sprints.</div>')
     : '';
   const archiveBody = archiveExpanded
-    ? `<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">Archived sprint history will appear here.</div>`
+    ? (archiveRows
+        ? `<div class="sprint-item-list" style="padding-left:16px;margin:6px 0 0">${archiveRows}</div>`
+        : '<div class="content-placeholder" style="padding:10px 12px;margin:6px 0 0">No archived sprints.</div>')
     : '';
 
   return `
@@ -6017,7 +6834,7 @@ function sprintPlanSelectableCount(items) {
   return items.length;
 }
 
-function renderSprintPlan(payload, filters) {
+function renderSprintPlan(payload, filters, overviewPayload) {
   const sprint = payload?.sprint || {};
   const items = sprintPlanItems(payload);
   const activeFilters = Object.assign({ status: '', agent: '', assignment: '' }, filters || sprintPlanFilters);
@@ -6030,16 +6847,17 @@ function renderSprintPlan(payload, filters) {
   const itemRows = filtered.map(item => {
     const key = escapeHtml(item.key || '');
     const title = escapeHtml(item.title || item.key || '');
-    const statusBadge = ovStatusBadge(item.status || 'unknown');
+    const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
     const checked = sprintPlanSelection.has(item.key) ? ' checked' : '';
     const agent = escapeHtml(item.agent_type || item.agent || '');
     const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
-    return `<div class="sprint-item-row" data-sprint-plan-key="${key}">
+    // T-E27-F14-009: use sprint-plan-item-row (5-column grid) and .sprint-item-meta for improved contrast
+    return `<div class="sprint-plan-item-row" data-sprint-plan-key="${key}">
       <input type="checkbox" class="sprint-plan-checkbox" data-sprint-plan-select-key="${key}"${checked}>
       ${statusBadge}
       <span class="sprint-item-key">${key}</span>
       <span class="sprint-item-title" title="${title}">${title}</span>
-      <span style="font-size:11px;color:var(--fg-dim)">${agent || 'unassigned'} · ${size}</span>
+      <span class="sprint-item-meta">${agent || 'unassigned'} · ${size}</span>
     </div>`;
   }).join('');
 
@@ -6069,12 +6887,33 @@ function renderSprintPlan(payload, filters) {
       <button class="header-btn header-btn-accent" id="sprint-plan-stage-btn">Stage selected</button>
       <button class="header-btn" id="sprint-plan-remove-btn">Remove selected</button>
       <button class="header-btn" id="sprint-plan-ready-btn">Mark ready</button>
-      <span style="align-self:center;color:var(--fg-dim);font-size:12px">${actionCount} selected</span>
+      <span style="align-self:center;color:var(--fg-muted);font-size:12px">${actionCount} selected</span>
     </div>`;
 
   const itemsHtml = filtered.length
     ? `<div class="sprint-item-list">${itemRows}</div>`
     : '<div class="content-placeholder">No candidate items match the current filters.</div>';
+
+  // Right column: Assigned This Sprint — items from sprintOverviewData (no new fetch).
+  const assignedItems = sprintBacklogItems(overviewPayload || null);
+  const assignedCount = assignedItems.length;
+  const assignedRows = assignedItems.map(item => {
+    const key = escapeHtml(item.key || '');
+    const title = escapeHtml(item.title || item.key || '');
+    const statusBadge = ovStatusBadge(item.status || item.status_category || 'unassigned');
+    const agent = escapeHtml(item.agent_type || item.agent || '');
+    const size = item.size != null ? escapeHtml(formatSizeLabel(item.size)) : '—';
+    // T-E27-F14-009: use sprint-plan-assigned-row (4-column grid, no checkbox) and .sprint-item-meta
+    return `<div class="sprint-plan-assigned-row" role="button" tabindex="0" data-sprint-item-key="${key}">
+      ${statusBadge}
+      <span class="sprint-item-key">${key}</span>
+      <span class="sprint-item-title" title="${title}">${title}</span>
+      <span class="sprint-item-meta">${agent || 'unassigned'} · ${size}</span>
+    </div>`;
+  }).join('');
+  const assignedHtml = assignedCount
+    ? `<div class="sprint-item-list">${assignedRows}</div>`
+    : '<div class="content-placeholder">No items assigned to this sprint.</div>';
 
   return `
     <div class="sprint-overview-grid">
@@ -6090,15 +6929,17 @@ function renderSprintPlan(payload, filters) {
         <div class="ov-section-header">Filters</div>
         ${filtersHtml}
       </section>
-      <section class="ov-section">
-        <div class="ov-section-header">Candidate Backlog</div>
-        ${actionButtons}
-        ${itemsHtml}
-      </section>
-      <section class="ov-section">
-        <div class="ov-section-header">Capacity by Agent Type</div>
-        ${capacityRowsHtml(capacity)}
-      </section>
+      <div class="sprint-plan-columns">
+        <section class="ov-section">
+          <div class="sprint-plan-col-header">Candidate Backlog</div>
+          ${actionButtons}
+          ${itemsHtml}
+        </section>
+        <section class="sprint-plan-col-assigned">
+          <div class="sprint-plan-col-header">Assigned This Sprint (${assignedCount})</div>
+          ${assignedHtml}
+        </section>
+      </div>
     </div>`;
 }
 
@@ -6226,10 +7067,8 @@ function toggleSprintTreeNode(scope) {
 function renderSprintItemRow(item, selectedKey) {
   const key = escapeHtml(item?.key || '');
   const title = escapeHtml(sprintItemLabel(item) || item?.key || '');
-  const badge = ovStatusBadge(sprintItemStatus(item));
   const selectedClass = item?.key && item.key === selectedKey ? ' selected' : '';
   return `<div class="sprint-item-row${selectedClass}" role="button" tabindex="0" data-sprint-item-key="${key}">
-    ${badge}
     <span class="sprint-item-key">${key}</span>
     <span class="sprint-item-title" title="${title}">${title}</span>
   </div>`;
@@ -6254,20 +7093,119 @@ function renderSprintBacklogSection(payload, selectedKey) {
   return `<div>${groupsHtml}</div>`;
 }
 
+/**
+ * Returns the CSS class suffix for a capacity indicator based on the
+ * allocated/total ratio. Thresholds (AC-T3):
+ *   >100% = OVER, 85–100% = HIGH, <85% = OK.
+ * When total is 0, returns 'ok' to avoid division-by-zero.
+ */
+function capacityIndicatorLevel(allocated, total) {
+  if (!total || total <= 0) return 'ok';
+  const pct = (allocated / total) * 100;
+  if (pct > 100) return 'over';
+  if (pct >= 85) return 'high';
+  return 'ok';
+}
+
+/**
+ * Renders the two-column health zone for the Sprint Overview tab.
+ * Left panel: per-agent Capacity rows with OK/HIGH/OVER indicator and
+ *             failing Readiness factors.
+ * Right panel: Blockers enumerated with days-blocked age and unsized-item
+ *              warning count.
+ *
+ * All data is read from payload.capacity, payload.readiness, and
+ * payload.backlog.groups — no additional fetch (AC-T1).
+ * Blocked item rows call selectSprintItem(key) on click (AC-T2).
+ */
+function renderSprintHealthColumns(payload) {
+  // --- Left panel: Capacity by Agent Type ---
+  const capacityRows = Array.isArray(payload?.capacity) ? payload.capacity : [];
+  const capacityRowsHtmlStr = capacityRows.length
+    ? capacityRows.map(row => {
+        const agent = escapeHtml(row.agent_type || 'unassigned');
+        const allocated = Number(row.allocated_points || 0);
+        const total = Number(row.capacity_points || 0);
+        const level = capacityIndicatorLevel(allocated, total);
+        const levelLabel = level.toUpperCase();
+        const pct = total > 0 ? Math.round((allocated / total) * 100) : 0;
+        return `<div class="sprint-item-row" style="cursor:default">
+          <span class="sprint-item-key">${agent}</span>
+          <span class="sprint-item-title">${escapeHtml(String(allocated))} / ${escapeHtml(String(total))} pts (${escapeHtml(String(pct))}%)</span>
+          <span class="capacity-indicator capacity-indicator-${level}">${levelLabel}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No capacity data available.</div>';
+
+  // Failing readiness factors: score < max_score
+  const readiness = payload?.readiness || {};
+  const factors = Array.isArray(readiness.factors) ? readiness.factors : [];
+  const failingFactors = factors.filter(f => (f.score || 0) < (f.max_score || 0));
+  const failingHtml = failingFactors.length
+    ? failingFactors.map(f => {
+        return `<div class="sprint-item-row" style="cursor:default">
+          <span class="sprint-item-key" style="color:var(--accent)">${escapeHtml(f.name || '')}</span>
+          <span class="sprint-item-title" style="color:var(--fg-muted)">${escapeHtml(f.detail || '')} (${escapeHtml(String(f.score || 0))}/${escapeHtml(String(f.max_score || 0))})</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder" style="font-size:12px">All readiness factors passing.</div>';
+
+  // --- Right panel: Blockers/Risks ---
+  // Find blocked items from backlog groups
+  const blockedItems = sprintBacklogGroups(payload)
+    .filter(group => getSprintBucketForStatus(group?.status_category || '') === 'blocked')
+    .flatMap(group => Array.isArray(group.items) ? group.items : []);
+
+  const blockerRowsHtml = blockedItems.length
+    ? blockedItems.map(item => {
+        const key = escapeHtml(item.key || '');
+        const title = escapeHtml(item.title || item.key || '');
+        const daysBlocked = item.days_blocked != null
+          ? ` · ${escapeHtml(String(item.days_blocked))}d blocked`
+          : '';
+        return `<div class="sprint-item-row" role="button" tabindex="0" data-sprint-item-key="${key}" onclick="selectSprintItem('${key}')">
+          <span class="sprint-item-key">${key}</span>
+          <span class="sprint-item-title" title="${title}">${title}</span>
+          <span style="font-size:11px;color:var(--accent)">${escapeHtml(daysBlocked)}</span>
+        </div>`;
+      }).join('')
+    : '<div class="content-placeholder">No blocked items.</div>';
+
+  // Unsized item warning count from readiness data (capacity rows don't carry unsized_assigned)
+  const unsizedCount = Array.isArray(payload?.readiness?.unsized_entities) ? payload.readiness.unsized_entities.length : 0;
+  const unsizedWarning = unsizedCount > 0
+    ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(236,153,75,0.12);border-radius:4px;font-size:12px;color:#f6ad55">⚠️ ${escapeHtml(String(unsizedCount))} item${unsizedCount !== 1 ? 's' : ''} unsized</div>`
+    : '';
+
+  return `
+    <div class="sprint-health-columns">
+      <section class="ov-section">
+        <div class="ov-section-header">Capacity by Agent Type</div>
+        <div class="sprint-item-list">${capacityRowsHtmlStr}</div>
+        ${failingFactors.length ? `<div class="ov-section-header" style="margin-top:12px">Readiness Factors</div><div class="sprint-item-list">${failingHtml}</div>` : ''}
+      </section>
+      <section class="ov-section">
+        <div class="ov-section-header">Blockers / Risks</div>
+        <div class="sprint-item-list">${blockerRowsHtml}</div>
+        ${unsizedWarning}
+      </section>
+    </div>`;
+}
+
 function renderSprintOverview(payload) {
   const sprint = payload?.sprint || {};
   const readiness = payload?.readiness || {};
   const capacity = sprintCapacityStats(payload?.capacity || []);
   const backlogItems = sprintBacklogItems(payload);
   const blockedCount = sprintBacklogGroups(payload)
-    .filter(group => (group?.status_category || '') === 'blocked')
+    .filter(group => getSprintBucketForStatus(group?.status_category || '') === 'blocked')
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
-  const wipCount = sprintBacklogGroups(payload)
-    .filter(group => ['in_progress', 'in_review', 'in_qa'].includes(group?.status_category || ''))
+  const activeCount = sprintBacklogGroups(payload)
+    .filter(group => isActiveSprintStatus(group?.status_category || ''))
     .reduce((acc, group) => acc + (Array.isArray(group.items) ? group.items.length : 0), 0);
   const sprintName = escapeHtml(sprint.name || sprint.title || sprint.key || 'Current Sprint');
   const keyLabel = escapeHtml(sprint.key || '');
-  const dateLabel = sprintFormatRange(sprint);
+  const dateLabel = sprintFormatRange(sprint?.start_date || sprint?.startDate || sprint?.start, sprint?.end_date || sprint?.endDate || sprint?.end);
   const summaryLabel = payload?.summary
     ? `Velocity ${escapeHtml(String(payload.summary.velocity_this_sprint ?? '—'))} · Completed ${escapeHtml(String(payload.summary.completed_count ?? '—'))}`
     : 'Read-first operational view';
@@ -6277,7 +7215,7 @@ function renderSprintOverview(payload) {
       ${sprintSummaryCard('Readiness', `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))};color:${getContrastColor(getStatusColor(readiness.overall_score >= 80 ? 'completed' : readiness.overall_score >= 60 ? 'in_progress' : 'blocked'))}">${escapeHtml(String(readiness.overall_score ?? 0))}</span>`, 'Overall readiness score')}
       ${sprintSummaryCard('Capacity', `${escapeHtml(String(capacity.pressure || 0))}%`, `${escapeHtml(String(capacity.allocated.toFixed ? capacity.allocated.toFixed(1) : capacity.allocated))} allocated / ${escapeHtml(String(capacity.capacity.toFixed ? capacity.capacity.toFixed(1) : capacity.capacity))} capacity`)}
       ${sprintSummaryCard('Blocked', escapeHtml(String(blockedCount)), 'Items blocked in the current sprint')}
-      ${sprintSummaryCard('WIP', escapeHtml(String(wipCount)), 'Items currently in progress')}
+      ${sprintSummaryCard('Active', escapeHtml(String(activeCount)), 'Items currently in active workflow states')}
     </div>`;
 
   const changes = sprintRecentChanges(payload);
@@ -6306,6 +7244,7 @@ function renderSprintOverview(payload) {
         </div>
       </section>
       <section>${metrics}</section>
+      <section>${renderSprintHealthColumns(payload)}</section>
       <section class="ov-section">
         <div class="ov-section-header">Sprint Backlog</div>
         ${renderSprintBacklogSection(payload, sprintSelectedKey)}
@@ -6331,6 +7270,7 @@ function renderSprintOverview(payload) {
           </div>
         </div>
       </section>` : ''}
+      ${renderScopeSnapshot(backlogItems)}
     </div>`;
 }
 
@@ -6345,26 +7285,16 @@ function renderSprintDetailDrawer(key, payload) {
   const statusColor = getStatusColor(status);
   const drawerTitle = entity ? escapeHtml(entity.title || entity.key || key) : escapeHtml(key);
   const drawerKey = escapeHtml(key);
-  const assignmentLines = [];
-  if (item?.status_category) assignmentLines.push(`<div class="props-label">Bucket</div><div class="props-value">${escapeHtml(item.status_category.replace(/_/g, ' '))}</div>`);
-  if (item?.agent_type) assignmentLines.push(`<div class="props-label">Agent</div><div class="props-value">${escapeHtml(item.agent_type)}</div>`);
-  if (item?.priority != null) assignmentLines.push(`<div class="props-label">Priority</div><div class="props-value">${escapeHtml(String(item.priority))}</div>`);
-  if (item?.size != null) assignmentLines.push(`<div class="props-label">Size</div><div class="props-value">${escapeHtml(formatSizeLabel(item.size))} (${escapeHtml(String(item.size))})</div>`);
-  if (item?.days_blocked != null) assignmentLines.push(`<div class="props-label">Days Blocked</div><div class="props-value">${escapeHtml(String(item.days_blocked))}</div>`);
-  if (assignmentLines.length === 0) assignmentLines.push('<div class="props-value">No sprint assignment details available.</div>');
+  const extraRows = [];
+  if (item?.agent_type)       extraRows.push(`<div class="props-label">Agent</div><div class="props-value">${escapeHtml(item.agent_type)}</div>`);
+  if (item?.priority != null) extraRows.push(`<div class="props-label">Priority</div><div class="props-value">${escapeHtml(String(item.priority))}</div>`);
+  if (item?.days_blocked != null) extraRows.push(`<div class="props-label">Days Blocked</div><div class="props-value">${escapeHtml(String(item.days_blocked))}</div>`);
 
   return `
     <div class="sprint-drawer-panel history-drawer" data-sprint-drawer-for="${drawerKey}">
       <div class="sprint-drawer-title">${drawerTitle}</div>
-      <div class="sprint-drawer-subtitle">
-        <span class="status-badge status-badge-sm" style="background:${escapeHtml(statusColor)};color:${escapeHtml(getContrastColor(statusColor))}">${escapeHtml(status.replace(/_/g, ' '))}</span>
-        <span style="margin-left:8px">${drawerKey}</span>
-      </div>
-      ${entity ? renderPropertiesPanel(entity) : '<div class="content-placeholder">Entity details unavailable.</div>'}
-      <div class="ov-section">
-        <div class="ov-section-header">Assignment History</div>
-        <div class="props-grid">${assignmentLines.join('')}</div>
-      </div>
+      <div class="sprint-drawer-subtitle">${drawerKey}</div>
+      ${entity ? renderPropertiesPanel(entity, extraRows) : '<div class="content-placeholder">Entity details unavailable.</div>'}
       <div class="ov-section" id="sprint-history-section">
         <div class="ov-section-header">Status History</div>
         <div class="content-placeholder">Loading history…</div>
@@ -6374,6 +7304,7 @@ function renderSprintDetailDrawer(key, payload) {
         <div class="content-placeholder">Loading related work…</div>
       </div>
       <div class="sprint-drawer-actions">
+        <button class="header-btn" id="sprint-spec-btn">Spec</button>
         <button class="header-btn header-btn-accent" id="sprint-open-entity-btn">Open Entity View</button>
       </div>
     </div>`;
@@ -6466,11 +7397,13 @@ function ensureSprintOverviewLoaded() {
       }
     }
     renderSprintMode();
+    renderSidebar();
   }).catch(() => {
     sprintOverviewLoading = false;
     sprintOverviewLoaded = true;
     sprintOverviewError = 'failed to load sprint overview';
     renderSprintMode();
+    renderSidebar();
   });
 }
 
@@ -6503,7 +7436,7 @@ function renderSprintModePanels() {
     }
   } else if (sprintViewTab === 'plan') {
     if (planPayload) {
-      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters);
+      mainPanel.innerHTML = renderSprintPlan(planPayload, sprintPlanFilters, overviewPayload);
     } else {
       mainPanel.innerHTML = `<div class="content-placeholder">${sprintPlanError ? escapeHtml(sprintPlanError) : 'Loading sprint plan…'}</div>`;
     }
@@ -6576,6 +7509,16 @@ function renderSprintModePanels() {
     if (stageBtn) stageBtn.addEventListener('click', () => explicitAction('Stage selected'));
     if (removeBtn) removeBtn.addEventListener('click', () => explicitAction('Remove selected'));
     if (readyBtn) readyBtn.addEventListener('click', () => explicitAction('Mark ready'));
+  }
+
+  const specModalClose = document.getElementById('spec-modal-close');
+  if (specModalClose) specModalClose.addEventListener('click', closeSpecModal);
+  const specModal = document.getElementById('spec-modal');
+  if (specModal) specModal.addEventListener('click', e => { if (e.target === specModal) closeSpecModal(); });
+
+  const specBtn = document.getElementById('sprint-spec-btn');
+  if (specBtn && sprintSelectedKey) {
+    specBtn.addEventListener('click', () => openSpecModal(sprintSelectedKey));
   }
 
   const openEntityBtn = document.getElementById('sprint-open-entity-btn');
@@ -6681,13 +7624,13 @@ function renderEntityView() {
 
   const entity = findEntityByKey(selectedKey);
   const isEpic = entity?.type === 'epic';
-  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'idea');
+  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'tech_debt' || entity.type === 'idea');
 
   // Guard: if history state restored 'dashboard' for a non-epic, coerce to 'overview' (AC-001.5)
   if (entityViewTab === 'dashboard' && !isEpic) {
     entityViewTab = 'overview';
   }
-  // Guard: bug/change-card/idea do not support 'overview' pane — coerce to 'info'
+  // Guard: bug/change-card/tech-debt/idea do not support 'overview' pane — coerce to 'info'
   if (entityViewTab === 'overview' && isSimpleEntity) {
     entityViewTab = 'info';
   }
@@ -6702,7 +7645,7 @@ function renderEntityView() {
   const transActive    = entityViewTab === 'transitions' ? ' active' : '';
   const filesActive    = entityViewTab === 'files'       ? ' active' : '';
 
-  // Overview button: shown for epic/feature/task, not for bug/change-card/idea (AC-001.2, AC-001.3)
+  // Overview button: shown for epic/feature/task, not for bug/change-card/tech-debt/idea (AC-001.2, AC-001.3)
   const overviewBtnHtml = !isSimpleEntity
     ? `<button class="toggle-btn${overviewActive}" id="ev-tab-overview">Overview</button>`
     : '';
@@ -6949,11 +7892,16 @@ function renderDocView() {
   const docEditBtn = document.getElementById('ev-edit-btn');
   if (docEditBtn) {
     docEditBtn.addEventListener('click', () => {
-      enterEditMode(pane);
+      enterEditMode(pane.querySelector('#spec-body') || pane);
     });
   }
 
-  renderMarkdownPane(docKey, pane);
+  renderMarkdownPane(docKey, pane).then((response) => {
+    if (!docEditBtn) return;
+    const canEditDocFile = !!(response && response.exists && response.path);
+    docEditBtn.disabled = !canEditDocFile;
+    docEditBtn.title = canEditDocFile ? 'Edit file' : 'This file cannot be edited';
+  });
 }
 
 // ============================================================
@@ -6998,6 +7946,99 @@ function buildArrowHtml(expandable, expanded, key) {
   return `<span class="tree-arrow" data-arrow-key="${escapeHtml(key)}">${symbol}</span>`;
 }
 
+function clampSidebarWidth(width) {
+  const numeric = parseInt(width, 10);
+  if (!Number.isFinite(numeric)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(numeric)));
+}
+
+function getStoredSidebarWidth() {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (!raw) return SIDEBAR_WIDTH_DEFAULT;
+    return clampSidebarWidth(raw);
+  } catch (e) {
+    return SIDEBAR_WIDTH_DEFAULT;
+  }
+}
+
+function applySidebarWidth(width, persist) {
+  const nextWidth = clampSidebarWidth(width);
+  document.documentElement.style.setProperty('--sidebar-width', `${nextWidth}px`);
+  const resizer = document.getElementById('sidebar-resizer');
+  if (resizer) {
+    resizer.setAttribute('aria-valuemin', String(SIDEBAR_WIDTH_MIN));
+    resizer.setAttribute('aria-valuemax', String(SIDEBAR_WIDTH_MAX));
+    resizer.setAttribute('aria-valuenow', String(nextWidth));
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(nextWidth));
+    } catch (e) {}
+  }
+  return nextWidth;
+}
+
+function toggleTreeNodeExpansion(nodeEl, key) {
+  if (!nodeEl || !key) return false;
+  if (nodeEl.classList.contains('tree-node-epic')) {
+    if (expandedEpics.has(key)) {
+      expandedEpics.delete(key);
+    } else {
+      expandedEpics.add(key);
+    }
+    return true;
+  }
+  if (nodeEl.classList.contains('tree-node-feature')) {
+    if (expandedFeatures.has(key)) {
+      expandedFeatures.delete(key);
+    } else {
+      expandedFeatures.add(key);
+    }
+    return true;
+  }
+  return false;
+}
+
+function initSidebarResizer() {
+  const resizer = document.getElementById('sidebar-resizer');
+  if (!resizer) return;
+
+  applySidebarWidth(getStoredSidebarWidth(), false);
+
+  resizer.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = clampSidebarWidth(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'));
+    document.body.classList.add('is-resizing-sidebar');
+
+    if (typeof resizer.setPointerCapture === 'function') {
+      try { resizer.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+
+    const handlePointerMove = moveEvent => {
+      const delta = moveEvent.clientX - startX;
+      applySidebarWidth(startWidth + delta, false);
+    };
+
+    const finishResize = finishEvent => {
+      document.body.classList.remove('is-resizing-sidebar');
+      applySidebarWidth(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10), true);
+      if (typeof resizer.releasePointerCapture === 'function') {
+        try { resizer.releasePointerCapture(finishEvent.pointerId); } catch (err) {}
+      }
+      resizer.removeEventListener('pointermove', handlePointerMove);
+      resizer.removeEventListener('pointerup', finishResize);
+      resizer.removeEventListener('pointercancel', finishResize);
+    };
+
+    resizer.addEventListener('pointermove', handlePointerMove);
+    resizer.addEventListener('pointerup', finishResize);
+    resizer.addEventListener('pointercancel', finishResize);
+  });
+}
+
 /**
  * Builds an HTML string for a single tree node row.
  * @param {Object} opts
@@ -7024,7 +8065,7 @@ function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bo
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
   const sizeHtml = buildSizeBadgeHtml(size); // E27-F11: size badge (empty string when absent)
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}${sizeHtml}</div>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}<span class="tree-node-label">${keyLabel}${titleHtml}${sizeHtml}</span></div>`;
 }
 
 /**
@@ -7056,7 +8097,7 @@ function buildDocNodeHtml(doc, level) {
   // Show only the filename portion of path-like keys (e.g. "docs/plan/E27/foo.md" → "foo.md")
   const displayKey = key.includes('/') ? key.split('/').pop() : key;
   const nodeClass = level === 'epic' ? 'tree-node-doc-epic' : 'tree-node-doc-feature';
-  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></div>`;
+  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-label"><span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></span></div>`;
 }
 
 /**
@@ -7146,17 +8187,17 @@ function buildEpicNodeHtml(epic) {
 }
 
 /**
- * Builds an HTML string for a flat section (Ideas, Change Cards, Tags, Tech Debt).
+ * Builds the inner HTML for a flat sidebar section.
  * Only called when items is a non-empty array.
- * @param {string} title - section title (shown as uppercase label)
  * @param {Array} items - array of items with .key/.title/.status
+ * @param {string} entityType
  * @returns {string} HTML string
  */
-function buildFlatSectionHtml(title, items, entityType) {
+function buildFlatSectionBodyHtml(items, entityType) {
   if (!Array.isArray(items) || items.length === 0) return '';
   const filtered = showCompleted ? items : items.filter(i => !isHiddenTerminalStatus(i.status, entityType));
   if (filtered.length === 0) return '';
-  let html = `<div class="sidebar-section-header">${escapeHtml(title)}</div>`;
+  let html = '';
   for (const item of filtered) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
@@ -7165,9 +8206,35 @@ function buildFlatSectionHtml(title, items, entityType) {
     const statusClass = isCancelledStatus(item.status) ? ' entity-cancelled'
       : (item.status || '') === 'completed' ? ' entity-completed'
       : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span>${buildSizeBadgeHtml(item.size)}</div>`; // E27-F11: size badge
+    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-label"><span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span>${buildSizeBadgeHtml(item.size)}</span></div>`; // E27-F11: size badge
   }
   return html;
+}
+
+function buildFlatSectionHtml(title, items, entityType) {
+  return buildFlatSectionBodyHtml(items, entityType);
+}
+
+function buildDocsBrowserBodyHtml() {
+  const folderKey = FOLDER_KEY_PREFIX + 'docs';
+  return `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="docs"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Browse docs/</span></div>`;
+}
+
+function renderSidebarSection(sectionId, title, bodyHtml, options = {}) {
+  if (!bodyHtml && !options.keepEmpty) return '';
+  const expanded = isSidebarSectionExpanded(sectionId);
+  const label = escapeHtml(title);
+  const buttonTitle = expanded ? `Collapse ${title}` : `Expand ${title}`;
+  const buttonLabel = expanded ? '−' : '+';
+  const bodyClass = options.bodyClass ? ` ${options.bodyClass}` : '';
+  return `
+    <div class="sidebar-section${expanded ? '' : ' is-collapsed'}" data-sidebar-section="${escapeHtml(sectionId)}">
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-title">${label}</span>
+        <button class="sidebar-collapse-btn" type="button" data-sidebar-section-toggle="${escapeHtml(sectionId)}" aria-expanded="${expanded ? 'true' : 'false'}" title="${escapeHtml(buttonTitle)}">${buttonLabel}</button>
+      </div>
+      <div class="sidebar-section-body${bodyClass}">${bodyHtml}</div>
+    </div>`;
 }
 
 /**
@@ -7175,57 +8242,66 @@ function buildFlatSectionHtml(title, items, entityType) {
  * and wires up expand/collapse and click-to-select via event delegation.
  *
  * Structure:
- * - "HIERARCHY" section header
- * - Epic nodes (start expanded) → Feature nodes (start collapsed) → Task nodes
+ * - Tags section
+ * - Docs browser entry
+ * - Epics section (Epic nodes → Feature nodes → Task nodes)
  * - Epic-level and feature-level doc nodes (italic, muted)
- * - Flat sections (Ideas, Change Cards, Tags, Tech Debt) — only if items exist
+ * - Flat sections (Bugs, Change Cards, Tech Debt, Ideas) — only if items exist
  */
 function renderSidebar() {
   const sidebarContent = document.getElementById('sidebar-content');
   if (!sidebarContent) return;
 
   let html = '';
+  const allSectionsExpanded = areAllSidebarSectionsExpanded();
+  const toggleAllTitle = allSectionsExpanded ? 'Collapse all sections' : 'Expand all sections';
+  const toggleAllLabel = allSectionsExpanded ? '−' : '+';
 
   // ── Filter bar ──
   html += `<div class="sidebar-filter-bar">
-    <span class="sidebar-filter-label">show all
-      <label class="sidebar-filter-inline"><input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}> items</label>
-      <label class="sidebar-filter-inline"><input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}> files</label>
-    </span>
+    <div class="sidebar-filter-main">
+      <span class="sidebar-filter-label">show all
+        <label class="sidebar-filter-inline"><input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}> items</label>
+        <label class="sidebar-filter-inline"><input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}> files</label>
+      </span>
+    </div>
+    <div class="sidebar-filter-actions">
+      <button class="sidebar-collapse-btn" id="collapse-all-btn" type="button" title="Collapse all epics and features" aria-label="Collapse all epics and features">↑</button>
+      <button class="sidebar-collapse-btn sidebar-filter-toggle-all" id="sidebar-toggle-all-btn" type="button" aria-label="${escapeHtml(toggleAllTitle)}" title="${escapeHtml(toggleAllTitle)}">${escapeHtml(toggleAllLabel)}</button>
+    </div>
   </div>`;
-
-  // ── Tag filter control (E28-F06 REQ-F-017, AC-12) ──
-  html += buildTagFilterControlHtml();
 
   // ── Sprint section (Sprint mode only) ──
   if (appState === 'sprint') {
     html += renderSprintTree(sprintOverviewData || sprintPlanData || sprintReportData || null);
   }
 
-  // ── Hierarchy section ──
-  const collapseSymbol = expandedEpics.size > 0 ? '−' : '+';
-  html += `<div class="sidebar-section-header">Hierarchy<button id="collapse-all-btn" class="sidebar-collapse-btn" type="button" title="${expandedEpics.size > 0 ? 'Collapse all' : 'Expand all'}">${collapseSymbol}</button></div>`;
+  // ── Tags section ──
+  html += renderSidebarSection('tags', 'Tags', buildTagFilterControlHtml(), { keepEmpty: true });
+
+  // ── Epics section ──
+  let epicBodyHtml = '';
   for (const epic of treeData) {
     if (!showCompleted && isHiddenTerminalStatus(epic.status, 'epic')) continue;
-    html += buildEpicNodeHtml(epic);
+    epicBodyHtml += buildEpicNodeHtml(epic);
   }
+  html += renderSidebarSection('epics', 'Epics', epicBodyHtml, { keepEmpty: true });
 
   // ── Flat sections — only render when data is present ──
-  if (treeData.length === 0 && !summaryData) {
-    // No data loaded yet — render nothing extra
-  }
-
-  // Bugs (from hierarchy flat section)
   const bugs = Array.isArray(hierarchyData?.bugs) ? hierarchyData.bugs : [];
-  html += buildFlatSectionHtml('Bugs', bugs, 'bug');
+  html += renderSidebarSection('bugs', 'Bugs', buildFlatSectionBodyHtml(bugs, 'bug'));
 
-  // Change Cards (from hierarchy flat section)
   const changeCards = Array.isArray(hierarchyData?.change_cards) ? hierarchyData.change_cards : [];
-  html += buildFlatSectionHtml('Change Cards', changeCards, 'change_card');
+  html += renderSidebarSection('change_cards', 'Change Cards', buildFlatSectionBodyHtml(changeCards, 'change_card'));
 
-  // Ideas (from hierarchy flat section)
+  const techDebts = Array.isArray(hierarchyData?.tech_debts) ? hierarchyData.tech_debts : [];
+  html += renderSidebarSection('tech_debt', 'Tech Debt', buildFlatSectionBodyHtml(techDebts, 'tech_debt'));
+
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
-  html += buildFlatSectionHtml('Ideas', ideas, 'idea');
+  html += renderSidebarSection('ideas', 'Ideas', buildFlatSectionHtml('Ideas', ideas, 'idea'));
+
+  // ── Docs browser ──
+  html += renderSidebarSection('docs', 'Docs', buildDocsBrowserBodyHtml(), { keepEmpty: true });
 
   sidebarContent.innerHTML = html;
 
@@ -7235,7 +8311,7 @@ function renderSidebar() {
     showCompletedCb.onchange = async function() {
       showCompleted = this.checked;
       try { localStorage.setItem('shark.viewer.showAllItems', String(this.checked)); } catch (e) {}
-      // Refetch hierarchy so terminal-status bugs/change cards are
+      // Refetch hierarchy so terminal-status bugs/change cards/tech debt are
       // included/excluded server-side (mirrors `bug list --all`).
       // Tree entities (epics/features/tasks) continue to be filtered
       // client-side via isHiddenTerminalStatus + showCompleted.
@@ -7266,21 +8342,32 @@ function renderSidebar() {
     };
   }
 
-  // ── Wire collapse/expand-all button (T-E27-F10-003 REQ-F-003) ──
-  const collapseAllBtn = document.getElementById('collapse-all-btn');
-  if (collapseAllBtn) {
-    collapseAllBtn.onclick = function() {
-      if (expandedEpics.size > 0) {
-        expandedEpics.clear();
-        expandedFeatures.clear();
-      } else {
-        for (const epic of (treeData || [])) {
-          expandedEpics.add(epic.key || '');
-        }
-      }
+  const sidebarToggleAllBtn = document.getElementById('sidebar-toggle-all-btn');
+  if (sidebarToggleAllBtn) {
+    sidebarToggleAllBtn.onclick = function() {
+      const expandAll = !areAllSidebarSectionsExpanded();
+      setAllSidebarSectionsExpanded(expandAll);
       renderSidebar();
     };
   }
+
+  const collapseAllBtn = document.getElementById('collapse-all-btn');
+  if (collapseAllBtn) {
+    collapseAllBtn.onclick = function() {
+      expandedEpics.clear();
+      expandedFeatures.clear();
+      renderSidebar();
+    };
+  }
+
+  sidebarContent.querySelectorAll('[data-sidebar-section-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sectionId = btn.getAttribute('data-sidebar-section-toggle');
+      if (!sectionId) return;
+      toggleSidebarSection(sectionId);
+      renderSidebar();
+    });
+  });
 
   // ── Wire tag filter chip clicks (E28-F06 REQ-F-017, AC-12, AC-T3) ──
   // No mutation controls — chip list is read-only selection only (AC-T5, REQ-F-018).
@@ -7323,25 +8410,12 @@ function renderSidebar() {
     if (arrowEl) {
       // Expand/collapse — do NOT select
       const key = arrowEl.getAttribute('data-arrow-key');
-      // Determine entity level from nearby node class
       const parentNode = arrowEl.closest('.tree-node');
-      if (parentNode && parentNode.classList.contains('tree-node-epic')) {
-        if (expandedEpics.has(key)) {
-          expandedEpics.delete(key);
-        } else {
-          expandedEpics.add(key);
-        }
-      } else {
-        // Feature
-        if (expandedFeatures.has(key)) {
-          expandedFeatures.delete(key);
-        } else {
-          expandedFeatures.add(key);
-        }
-      }
-      renderSidebar();
+      if (toggleTreeNodeExpansion(parentNode, key)) renderSidebar();
       return;
     }
+
+    // Selection is handled by the nodeEl click handler below
 
     // Node body click — select entity or doc
     const nodeEl = e.target.closest('[data-select-key]');
@@ -7375,6 +8449,8 @@ function renderSidebar() {
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+  initSidebarResizer();
+
   // Auto-load project data immediately — shark web is always pre-connected to
   // a single project, so no folder selection is needed.
   loadProjectData();

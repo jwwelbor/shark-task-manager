@@ -91,6 +91,7 @@ func IsIdeaKey(s string) bool {
 }
 
 // IsSprintKey validates if a string is a valid sprint key format (S###).
+// Sprint keys are strict 3-digit zero-padded: S001, S024, S999.
 // Case insensitive: s001 is normalized to S001 before validation.
 // Delegates to keys.IsSprintKey for implementation.
 func IsSprintKey(s string) bool {
@@ -255,6 +256,16 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 			return "tech_debt", nil, nil, nil
 		}
 
+		// Check if it's "sprint" or "sprints" keyword
+		if normalized == "SPRINT" || normalized == "SPRINTS" {
+			return "sprint", nil, nil, nil
+		}
+
+		// Check if it's a sprint key (S###) — list sprint backlog
+		if IsSprintKey(normalized) {
+			return "sprint", &normalized, nil, nil
+		}
+
 		// Check if it's a combined feature key (E##-F##)
 		if IsFeatureKey(normalized) {
 			epic, feature, err := ParseFeatureKey(normalized)
@@ -368,6 +379,7 @@ const (
 	scopeChangeCard scopeType = "change_card"
 	scopeTechDebt   scopeType = "tech_debt"
 	scopeIdea       scopeType = "idea"
+	scopeSprint     scopeType = "sprint"
 )
 
 // scopeInterpreterImpl implements scopeInterpreter using existing helper functions
@@ -434,6 +446,11 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 			return &parsedScope{Type: scopeEpic, Key: normalized}, nil
 		}
 
+		// Check if it's a sprint key (S###)
+		if IsSprintKey(normalized) {
+			return &parsedScope{Type: scopeSprint, Key: normalized}, nil
+		}
+
 		// Check if it looks like it was trying to be a tech-debt key (starts with TD)
 		if strings.HasPrefix(normalized, "TD") {
 			return nil, InvalidPositionalArgsError("get",
@@ -484,7 +501,7 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 
 		// Generic invalid format
 		return nil, InvalidPositionalArgsError("get",
-			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), or TD-### (tech debt)", args[0]),
+			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech debt), or S### (sprint)", args[0]),
 			[]string{
 				"shark get E07",
 				"shark get E07-F01",
@@ -492,6 +509,7 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 				"shark get B001",
 				"shark get C001",
 				"shark get TD-001",
+				"shark get S001",
 			})
 	}
 

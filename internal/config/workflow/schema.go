@@ -193,6 +193,10 @@ type StatusMetadata struct {
 	// Used for colored terminal output (unless --no-color)
 	Color string `json:"color,omitempty"`
 
+	// DisplayToken is a short, human-chosen status abbreviation for dense CLI tables
+	// (e.g., "IP", "REV", "BLK"). When omitted, callers may derive a fallback token.
+	DisplayToken string `json:"display_token,omitempty"`
+
 	// Human-readable description of what this status means
 	Description string `json:"description,omitempty"`
 
@@ -243,6 +247,13 @@ type StatusMetadata struct {
 	// of progress percentages (treated like a soft-delete for progress purposes).
 	// Typical use: "cancelled" statuses should not drag down progress percentages.
 	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
+
+	// SprintBucket defines which sprint display bucket this status belongs to.
+	// Values: "ready", "in_progress", "blocked", "done", or "" (omit from sprint view).
+	// When set, the sprint planner uses this value directly instead of deriving
+	// a bucket from the phase name. This allows each workflow to explicitly control
+	// how its statuses appear in the sprint board.
+	SprintBucket *string `json:"sprint_bucket,omitempty"`
 }
 
 // Special status keys used in SpecialStatuses map

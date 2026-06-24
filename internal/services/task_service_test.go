@@ -2302,6 +2302,19 @@ func newFeatureServiceForReopenTest(t *testing.T, featureStatus models.FeatureSt
 	return svc, &featureUpdated
 }
 
+func newTaskReopenWorkflowService(t *testing.T, configData string) *workflow.Service {
+	t.Helper()
+
+	config.ClearWorkflowCache()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0o644))
+
+	t.Cleanup(config.ClearWorkflowCache)
+	return workflow.NewService(tmpDir)
+}
+
 func TestTaskService_CreateTask_ReopensTerminalFeature(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
@@ -2370,6 +2383,131 @@ func TestTaskService_CreateTask_ReopenRecordsHistory(t *testing.T) {
 	assert.Equal(t, "active", h.ToStatus)
 	assert.NotNil(t, h.Notes)
 	assert.Contains(t, *h.Notes, "auto-reopened")
+}
+
+func TestTaskService_CreateTask_CascadeReopensForwardAdvancedFeatureToLastNonTerminalStatus(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	workflowSvc := newTaskReopenWorkflowService(t, `{
+		"task_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["todo"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"todo": ["completed"],
+				"completed": []
+			}
+		},
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed"],
+				"_aggregation_": ["active"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["ready_for_code_review"],
+				"ready_for_code_review": ["completed"],
+				"completed": []
+			},
+			"status_metadata": {
+				"draft": {"phase": "planning"},
+				"active": {"phase": "execution"},
+				"ready_for_code_review": {"phase": "review"},
+				"completed": {"phase": "done"}
+			}
+		},
+		"epic_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["completed"],
+				"completed": []
+			},
+			"status_metadata": {
+				"draft": {"phase": "planning"},
+				"active": {"phase": "execution"},
+				"completed": {"phase": "done"}
+			}
+		}
+	}`)
+
+	svc := NewTaskService(mockRepo, NewEntityService(workflowSvc), nil)
+
+	forwardAdvancedFeature := &models.Feature{
+		BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Forward Advanced Feature"},
+		EpicID:     1,
+		Status:     "completed",
+	}
+	featureLookupRepo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return forwardAdvancedFeature, nil
+		},
+	}
+	svc.SetFeatureService(NewFeatureService(
+		featureLookupRepo,
+		NewEntityService(workflowSvc),
+		featureRepoAsEntityRepo(featureLookupRepo),
+		nil,
+		nil,
+	))
+
+	txBeginner, _ := newMockTxBeginner()
+	cascadeFeatureRepo := &mockCascadeFeatureRepo{
+		GetByIDFunc: func(_ context.Context, _ int64) (*models.Feature, error) {
+			return forwardAdvancedFeature, nil
+		},
+		GetByIDTxFunc: func(_ context.Context, _ *sql.Tx, _ int64) (*models.Feature, error) {
+			return forwardAdvancedFeature, nil
+		},
+	}
+	cascadeEpicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, _ int64) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		GetByIDTxFunc: func(_ context.Context, _ *sql.Tx, _ int64) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+	}
+	histTx := &mockEntityHistoryTxRecorder{}
+	histQuerier := &mockParentReopenHistoryQuerier{
+		GetLastNonTerminalStatusFunc: func(_ context.Context, entityType models.EntityType, entityID int64, terminalStatuses []string) (string, bool, error) {
+			if entityType != models.EntityTypeFeature {
+				return "", false, fmt.Errorf("unexpected history lookup for %s", entityType)
+			}
+			return "ready_for_code_review", true, nil
+		},
+	}
+	svc.SetCascadeDeps(txBeginner, cascadeFeatureRepo, cascadeEpicRepo, histQuerier, histTx)
+
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task under forward-advanced completed feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.Equal(t, 1, cascadeFeatureRepo.updateStatusTxCalls)
+	assert.Equal(t, "ready_for_code_review", cascadeFeatureRepo.lastUpdateStatus)
+	require.Len(t, histTx.captured, 1)
+	assert.Equal(t, "ready_for_code_review", histTx.captured[0].ToStatus)
 }
 
 func TestTaskService_CreateTask_ReopensArchivedFeature(t *testing.T) {

@@ -14,16 +14,19 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/require"
 )
 
 // mockEpicRepo implements EpicRepository for testing.
 type mockEpicRepo struct {
 	getByKeyFn                        func(ctx context.Context, key string) (*models.Epic, error)
+	getByIDFn                         func(ctx context.Context, id int64) (*models.Epic, error)
 	updateFn                          func(ctx context.Context, epic *models.Epic) error
 	updateStatusFn                    func(ctx context.Context, epicID int64, status models.EpicStatus) error
 	listFn                            func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
 	getFeatureProgressDataByEpicFn    func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
 	getFeatureStatusBreakdownFn       func(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error)
+	getFeatureStatusBreakdownByIDFn   func(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error)
 	getFeatureStatusRollupFn          func(ctx context.Context, epicID int64) (map[string]int, error)
 	getTaskStatusRollupFn             func(ctx context.Context, epicID int64) (map[string]int, error)
 	createFn                          func(ctx context.Context, epic *models.Epic) error
@@ -108,10 +111,16 @@ func (m *mockEpicRepo) UpdateKey(ctx context.Context, oldKey string, newKey stri
 }
 
 func (m *mockEpicRepo) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
+	if m.getByIDFn != nil {
+		return m.getByIDFn(ctx, id)
+	}
 	return nil, nil
 }
 
 func (m *mockEpicRepo) GetFeatureStatusBreakdown(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error) {
+	if m.getFeatureStatusBreakdownByIDFn != nil {
+		return m.getFeatureStatusBreakdownByIDFn(ctx, epicID)
+	}
 	return nil, nil
 }
 
@@ -219,6 +228,296 @@ func newTestEpicWorkflowServiceWithActions(t *testing.T) *workflow.Service {
 	})
 
 	return workflow.NewService(tmpDir)
+}
+
+func newTestEpicWorkflowServiceWithCascade(t *testing.T, configJSON string) *workflow.Service {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(configJSON), 0o644))
+
+	config.ClearWorkflowCache()
+	t.Cleanup(func() {
+		config.ClearWorkflowCache()
+	})
+
+	return workflow.NewService(tmpDir)
+}
+
+func defaultEpicCascadeWorkflowConfig() string {
+	return `{
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed", "archived"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["completed"],
+				"completed": ["archived"],
+				"archived": []
+			},
+			"status_metadata": {
+				"draft": {"phase": "planning"},
+				"active": {"phase": "execution"},
+				"completed": {"phase": "done"},
+				"archived": {"phase": "done"}
+			}
+		},
+		"epic_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed", "archived"]
+			},
+			"status_flow": {
+				"draft": ["active", "archived"],
+				"active": ["completed"],
+				"completed": ["archived"],
+				"archived": []
+			},
+			"status_metadata": {
+				"draft": {"phase": "planning"},
+				"active": {
+					"phase": "execution",
+					"orchestrator_action": {
+						"action": "cascade",
+						"instruction_template": "Cascade from child features"
+					}
+				},
+				"completed": {"phase": "done"},
+				"archived": {"phase": "done"}
+			}
+		}
+	}`
+}
+
+func extendedEpicCascadeWorkflowConfig() string {
+	return `{
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["done", "cancelled"]
+			},
+			"status_flow": {
+				"draft": ["executing"],
+				"executing": ["done"],
+				"done": [],
+				"cancelled": []
+			},
+			"status_metadata": {
+				"draft": {"phase": "planning"},
+				"executing": {"phase": "execution"},
+				"done": {"phase": "done"},
+				"cancelled": {"phase": "done"}
+			}
+		},
+		"epic_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed", "archived"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["ready_for_code_review"],
+				"ready_for_code_review": ["completed"],
+				"completed": ["archived"],
+				"archived": []
+			},
+			"status_metadata": {
+				"draft": {"phase": "planning"},
+				"active": {
+					"phase": "execution",
+					"orchestrator_action": {
+						"action": "cascade",
+						"instruction_template": "Cascade from child features"
+					}
+				},
+				"ready_for_code_review": {"phase": "review"},
+				"completed": {"phase": "done"},
+				"archived": {"phase": "done"}
+			}
+		}
+	}`
+}
+
+func TestDeriveEpicStatusFromFeatures_CascadeVsNonCascade(t *testing.T) {
+	tests := []struct {
+		name           string
+		workflowConfig string
+		current        models.EpicStatus
+		featureCounts  map[models.FeatureStatus]int
+		want           models.EpicStatus
+	}{
+		{
+			name:           "cascade status stays put while any child feature is non terminal",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 1,
+				models.FeatureStatusActive:    1,
+			},
+			want: models.EpicStatusActive,
+		},
+		{
+			name:           "cascade status advances to terminal next step in simple workflow",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 1,
+				models.FeatureStatusArchived:  1,
+			},
+			want: models.EpicStatusCompleted,
+		},
+		{
+			name:           "cascade status advances to configured non terminal next step in extended workflow",
+			workflowConfig: extendedEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatus("done"):      1,
+				models.FeatureStatus("cancelled"): 1,
+			},
+			want: models.EpicStatus("ready_for_code_review"),
+		},
+		{
+			name:           "non cascade parent status is preserved even when all child features are terminal",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusDraft,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 2,
+			},
+			want: models.EpicStatusDraft,
+		},
+		{
+			name:           "no child features leaves the parent status unchanged",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts:  map[models.FeatureStatus]int{},
+			want:           models.EpicStatusActive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflowSvc := newTestEpicWorkflowServiceWithCascade(t, tt.workflowConfig)
+			got := deriveEpicStatusFromFeatures(tt.featureCounts, tt.current, workflowSvc)
+			if got != tt.want {
+				t.Fatalf("deriveEpicStatusFromFeatures() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEpicService_RecalculateStatus_CascadeAutoAdvance(t *testing.T) {
+	tests := []struct {
+		name           string
+		workflowConfig string
+		current        models.EpicStatus
+		featureCounts  map[models.FeatureStatus]int
+		wantStatus     models.EpicStatus
+		wantChanged    bool
+	}{
+		{
+			name:           "all terminal child features advance cascade epic one configured step",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 2,
+			},
+			wantStatus:  models.EpicStatusCompleted,
+			wantChanged: true,
+		},
+		{
+			name:           "extended workflow stops at review status instead of forcing completed",
+			workflowConfig: extendedEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatus("done"):      1,
+				models.FeatureStatus("cancelled"): 1,
+			},
+			wantStatus:  models.EpicStatus("ready_for_code_review"),
+			wantChanged: true,
+		},
+		{
+			name:           "non cascade status with all terminal child features is preserved",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusDraft,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 2,
+			},
+			wantStatus:  models.EpicStatusDraft,
+			wantChanged: false,
+		},
+		{
+			name:           "cascade status with incomplete child features is preserved",
+			workflowConfig: defaultEpicCascadeWorkflowConfig(),
+			current:        models.EpicStatusActive,
+			featureCounts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 1,
+				models.FeatureStatusActive:    1,
+			},
+			wantStatus:  models.EpicStatusActive,
+			wantChanged: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var updatedStatus models.EpicStatus
+			updateCalls := 0
+
+			repo := &mockEpicRepo{
+				getByIDFn: func(ctx context.Context, id int64) (*models.Epic, error) {
+					return &models.Epic{
+						BaseEntity: models.BaseEntity{ID: id, Key: "E44"},
+						Status:     tt.current,
+					}, nil
+				},
+				getFeatureStatusBreakdownByIDFn: func(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error) {
+					return tt.featureCounts, nil
+				},
+				updateStatusFn: func(ctx context.Context, epicID int64, status models.EpicStatus) error {
+					updateCalls++
+					updatedStatus = status
+					return nil
+				},
+			}
+
+			svc := NewEpicService(
+				repo,
+				NewEntityService(newTestEpicWorkflowServiceWithCascade(t, tt.workflowConfig)),
+				epicRepoAsEntityRepo(repo),
+				nil,
+				nil,
+			)
+
+			result, err := svc.RecalculateStatus(context.Background(), 44)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			if result.NewStatus != string(tt.wantStatus) {
+				t.Fatalf("RecalculateStatus() new status = %q, want %q", result.NewStatus, tt.wantStatus)
+			}
+			if result.WasChanged != tt.wantChanged {
+				t.Fatalf("RecalculateStatus() changed = %v, want %v", result.WasChanged, tt.wantChanged)
+			}
+			if tt.wantChanged {
+				if updateCalls != 1 {
+					t.Fatalf("expected UpdateStatus to be called once, got %d", updateCalls)
+				}
+				if updatedStatus != tt.wantStatus {
+					t.Fatalf("updated status = %q, want %q", updatedStatus, tt.wantStatus)
+				}
+				return
+			}
+			if updateCalls != 0 {
+				t.Fatalf("expected UpdateStatus to be skipped, got %d calls", updateCalls)
+			}
+		})
+	}
 }
 
 func TestEpicService_TransitionStatus_Valid(t *testing.T) {

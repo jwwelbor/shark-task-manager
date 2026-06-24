@@ -168,6 +168,15 @@ type ViewerChangeCardListRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
 }
 
+// ViewerTechDebtRepository lists tech-debt entities for the hierarchy sidebar and dashboard summary.
+// It is optional — ViewerService degrades gracefully if nil (tech-debt sections omitted).
+// Also used by resolveFilePath and resolveEntityID for tech-debt lookups.
+type ViewerTechDebtRepository interface {
+	ListAll(ctx context.Context) ([]*models.TechDebt, error)
+	GetByKey(ctx context.Context, key string) (*models.TechDebt, error)
+	CountByStatus(ctx context.Context) (map[string]int, error)
+}
+
 // TagReader is the narrow consumer contract that ViewerService needs from TagService.
 // *services.TagService satisfies it. Defined here so the viewer service can be tested
 // with an in-memory mock without importing the full tag package chain.
@@ -199,7 +208,7 @@ type HierarchyOptions struct {
 	IncludeTerminal bool     // mirror CLI --all: when false, hide terminal-status bugs/change cards at the repo layer
 }
 
-// FlatEntity is a lightweight summary of a non-hierarchical entity (bug, change card, idea)
+// FlatEntity is a lightweight summary of a non-hierarchical entity (bug, change card, tech debt, idea)
 // used in the hierarchy sidebar flat sections.
 type FlatEntity struct {
 	Key         string   `json:"key"`
@@ -247,6 +256,7 @@ type SummaryResponse struct {
 	Tasks       SummaryTaskCounts    `json:"tasks"`
 	Bugs        SummaryBugCounts     `json:"bugs"`
 	ChangeCards SummaryEntityCounts  `json:"change_cards"`
+	TechDebts   *SummaryEntityCounts `json:"tech_debts,omitempty"`
 	Ideas       *SummaryEntityCounts `json:"ideas,omitempty"`
 }
 
@@ -289,6 +299,7 @@ type HierarchyResponse struct {
 	Epics       []*HierarchyEpic `json:"epics"`
 	Bugs        []*FlatEntity    `json:"bugs,omitempty"`
 	ChangeCards []*FlatEntity    `json:"change_cards,omitempty"`
+	TechDebts   []*FlatEntity    `json:"tech_debts,omitempty"`
 	Ideas       []*FlatEntity    `json:"ideas,omitempty"`
 }
 
@@ -428,6 +439,7 @@ type WorkflowStatusMeta struct {
 	Color          string  `json:"color"`
 	Phase          string  `json:"phase"`
 	ProgressWeight float64 `json:"progress_weight"`
+	SprintBucket   *string `json:"sprint_bucket,omitempty"`
 }
 
 // WorkflowTransitionMeta describes one valid status transition.
@@ -457,6 +469,7 @@ type SprintOverviewResponse struct {
 	Backlog   *SprintBacklog       `json:"backlog"`
 	Readiness *SprintReadiness     `json:"readiness"`
 	Capacity  []CapacityRow        `json:"capacity"`
+	Catalog   *SprintCatalog       `json:"catalog,omitempty"`
 	Summary   *SprintSummaryResult `json:"summary,omitempty"`
 }
 
@@ -466,7 +479,15 @@ type SprintReportResponse struct {
 	Sprint   *models.Sprint       `json:"sprint"`
 	Burndown *BurndownResult      `json:"burndown"`
 	Velocity *VelocityResult      `json:"velocity"`
+	Catalog  *SprintCatalog       `json:"catalog,omitempty"`
 	Summary  *SprintSummaryResult `json:"summary"`
+}
+
+// SprintCatalog groups sprints for the viewer sidebar tree.
+type SprintCatalog struct {
+	Active   []*models.Sprint `json:"active"`
+	Upcoming []*models.Sprint `json:"upcoming"`
+	Archived []*models.Sprint `json:"archived"`
 }
 
 // ViewerSprintService is the narrow viewer-facing contract needed to compose sprint
@@ -513,6 +534,7 @@ type ViewerService struct {
 	ideaRepo           ViewerIdeaRepository              // optional; used by Summary and Hierarchy
 	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
 	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
+	techDebtRepo       ViewerTechDebtRepository          // optional; used by Summary and Hierarchy for tech-debt flat list
 	tagSvc             TagReader                         // optional; used by Tags, Hierarchy, FeatureTasks (REQ-F-015)
 	sprintSvc          ViewerSprintService               // optional; used by Sprint Overview and Plan
 	sprintAnalyticsSvc ViewerSprintAnalyticsService      // optional; used by Sprint Report
@@ -601,6 +623,12 @@ func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository)
 	s.changeCardListRepo = r
 }
 
+// WithTechDebtRepo wires the optional tech-debt repository used by Summary, Hierarchy,
+// History, File, and RelatedDocs. Call after NewViewerService; safe to skip.
+func (s *ViewerService) WithTechDebtRepo(r ViewerTechDebtRepository) {
+	s.techDebtRepo = r
+}
+
 // WithTagService wires the optional tag reader used by Tags, Hierarchy, and FeatureTasks.
 // Call after NewViewerService; safe to skip — the service degrades gracefully:
 // Tags() returns {tags: []}, all entity DTOs carry tags: [], tag filters are silently ignored.
@@ -685,6 +713,45 @@ func (s *ViewerService) resolveSprint(ctx context.Context, key string) (*models.
 	return nil, fmt.Errorf("sprint not found: no active or planning sprint found")
 }
 
+func (s *ViewerService) buildSprintCatalog(ctx context.Context) (*SprintCatalog, error) {
+	if s.sprintSvc == nil {
+		return nil, fmt.Errorf("viewer sprint: sprint service not wired")
+	}
+
+	activeStatuses := []string{"active", "closing"}
+	upcomingStatuses := []string{"planning"}
+	archivedStatuses := []string{"completed", "cancelled", "archived"}
+
+	catalog := &SprintCatalog{
+		Active:   []*models.Sprint{},
+		Upcoming: []*models.Sprint{},
+		Archived: []*models.Sprint{},
+	}
+
+	loadInto := func(statuses []string, target *[]*models.Sprint) error {
+		for _, status := range statuses {
+			sprints, err := s.sprintSvc.ListSprints(ctx, &SprintListFilters{Status: status})
+			if err != nil {
+				return fmt.Errorf("viewer sprint: failed to list %s sprints: %w", status, err)
+			}
+			*target = append(*target, sprints...)
+		}
+		return nil
+	}
+
+	if err := loadInto(activeStatuses, &catalog.Active); err != nil {
+		return nil, err
+	}
+	if err := loadInto(upcomingStatuses, &catalog.Upcoming); err != nil {
+		return nil, err
+	}
+	if err := loadInto(archivedStatuses, &catalog.Archived); err != nil {
+		return nil, err
+	}
+
+	return catalog, nil
+}
+
 // SprintOverview returns the current sprint's operational bundle for the Overview subview.
 // It composes the sprint identity, backlog/status buckets, readiness, capacity, and optional
 // analytics summary from the existing sprint services.
@@ -693,8 +760,17 @@ func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*Sprint
 	if err != nil {
 		return nil, err
 	}
+	catalog, err := s.buildSprintCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	backlog, err := s.sprintSvc.GetSprintBacklog(ctx, sprintEntity.Key, BacklogOptions{})
+	// View:"grouped" ensures backlog.groups is always populated so the viewer sidebar
+	// can aggregate items by status_category into the four display buckets (ready,
+	// in_progress, blocked, done) via SPRINT_BUCKET_MAP.  Without this, active sprints
+	// default to the "ordered" view which populates backlog.items instead of
+	// backlog.groups, leaving all sidebar bucket counts at zero.
+	backlog, err := s.sprintSvc.GetSprintBacklog(ctx, sprintEntity.Key, BacklogOptions{View: "grouped"})
 	if err != nil {
 		return nil, fmt.Errorf("viewer sprint overview: failed to load backlog: %w", err)
 	}
@@ -726,6 +802,7 @@ func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*Sprint
 		Backlog:   backlog,
 		Readiness: readiness,
 		Capacity:  capacity,
+		Catalog:   catalog,
 		Summary:   summary,
 	}, nil
 }
@@ -737,11 +814,16 @@ func (s *ViewerService) SprintPlan(ctx context.Context, key string) (*SprintPlan
 	if err != nil {
 		return nil, err
 	}
+	catalog, err := s.buildSprintCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	view, err := s.sprintSvc.PlanSprint(ctx, sprintEntity.Key)
 	if err != nil {
 		return nil, fmt.Errorf("viewer sprint plan: failed to load plan: %w", err)
 	}
+	view.Catalog = catalog
 	return view, nil
 }
 
@@ -749,6 +831,10 @@ func (s *ViewerService) SprintPlan(ctx context.Context, key string) (*SprintPlan
 // It composes burndown, velocity, and summary analytics from the sprint analytics service.
 func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintReportResponse, error) {
 	sprintEntity, err := s.resolveSprint(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := s.buildSprintCatalog(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -768,13 +854,17 @@ func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintRe
 
 	summary, err := s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
 	if err != nil {
-		return nil, fmt.Errorf("viewer sprint report: failed to load summary: %w", err)
+		if sprintEntity.Status == "completed" || sprintEntity.Status == "archived" {
+			return nil, fmt.Errorf("viewer sprint report: failed to load summary: %w", err)
+		}
+		summary = nil // summary not yet available for in-progress sprints
 	}
 
 	return &SprintReportResponse{
 		Sprint:   sprintEntity,
 		Burndown: burndown,
 		Velocity: velocity,
+		Catalog:  catalog,
 		Summary:  summary,
 	}, nil
 }
@@ -817,11 +907,20 @@ func (s *ViewerService) Summary(ctx context.Context) (*SummaryResponse, error) {
 		return nil, fmt.Errorf("viewer summary: failed to count change cards by status: %w", err)
 	}
 
+	var techDebtCounts map[string]int
+	if s.techDebtRepo != nil {
+		techDebtCounts, err = s.techDebtRepo.CountByStatus(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("viewer summary: failed to count tech debts by status: %w", err)
+		}
+	}
+
 	epicSvc := s.workflowSvc.ForLevel(workflow.LevelEpic)
 	featureSvc := s.workflowSvc.ForLevel(workflow.LevelFeature)
 	taskSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
 	bugSvc := s.workflowSvc.ForLevel(workflow.LevelBug)
 	ccSvc := s.workflowSvc.ForLevel(workflow.LevelChange)
+	techDebtSvc := s.workflowSvc.ForLevel(workflow.LevelTechDebt)
 
 	var ideaCounts *SummaryEntityCounts
 	if s.ideaRepo != nil {
@@ -849,7 +948,14 @@ func (s *ViewerService) Summary(ctx context.Context) (*SummaryResponse, error) {
 			BySeverity:          bugSeverity,
 		},
 		ChangeCards: enrichEntityCounts(ccCounts, ccSvc),
-		Ideas:       ideaCounts,
+		TechDebts: func() *SummaryEntityCounts {
+			if s.techDebtRepo == nil {
+				return nil
+			}
+			counts := enrichEntityCounts(techDebtCounts, techDebtSvc)
+			return &counts
+		}(),
+		Ideas: ideaCounts,
 	}, nil
 }
 
@@ -1011,8 +1117,8 @@ func parseViewerRelationships(jsonStr string) []ViewerRelatedEntity {
 // (ADR-F06-4, REQ-F-010).  When tagSvc is nil, opts.Tags is silently ignored
 // and every entity DTO carries Tags: []string{} (REQ-F-015, ADR-F06-2).
 //
-// Tag decoration (REQ-F-004): at most 6 calls to tagSvc.AttachedTagNamesByIDs,
-// one per entity type present (epic, feature, task, bug, change, idea).
+// Tag decoration (REQ-F-004): at most 7 calls to tagSvc.AttachedTagNamesByIDs,
+// one per entity type present (epic, feature, task, bug, change, tech debt, idea).
 func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*HierarchyResponse, error) {
 	// ── Step 1: Build the unfiltered tree and flat lists ──
 
@@ -1037,6 +1143,23 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		return nil, fmt.Errorf("viewer hierarchy: failed to count tasks by feature: %w", err)
 	}
 
+	var techDebts []*models.TechDebt
+	if s.techDebtRepo != nil {
+		techDebts, err = s.techDebtRepo.ListAll(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("viewer hierarchy: failed to list tech debts: %w", err)
+		}
+		sort.SliceStable(techDebts, func(i, j int) bool {
+			if !techDebts[i].CreatedAt.Equal(techDebts[j].CreatedAt) {
+				return techDebts[i].CreatedAt.After(techDebts[j].CreatedAt)
+			}
+			if !techDebts[i].UpdatedAt.Equal(techDebts[j].UpdatedAt) {
+				return techDebts[i].UpdatedAt.After(techDebts[j].UpdatedAt)
+			}
+			return techDebts[i].Key < techDebts[j].Key
+		})
+	}
+
 	// Index features by epic ID.
 	featuresByEpic := make(map[int64][]*models.Feature, len(allFeatures))
 	for _, f := range allFeatures {
@@ -1050,6 +1173,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 
 	epicSvc := s.workflowSvc.ForLevel(workflow.LevelEpic)
 	featureSvc := s.workflowSvc.ForLevel(workflow.LevelFeature)
+	techDebtSvc := s.workflowSvc.ForLevel(workflow.LevelTechDebt)
 
 	// Bulk-load linked docs (optional — skipped when entityDocRepo is nil).
 	docsByEpic := make(map[int64][]*HierarchyDoc)
@@ -1144,7 +1268,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		result.Epics = append(result.Epics, he)
 	}
 
-	// ── Flat sections: bugs, change cards, ideas ──
+	// ── Flat sections: bugs, change cards, tech debt, ideas ──
 	bugSvc := s.workflowSvc.ForLevel(workflow.LevelBug)
 	ccSvc := s.workflowSvc.ForLevel(workflow.LevelChange)
 
@@ -1186,6 +1310,22 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		}
 	}
 
+	if len(techDebts) > 0 {
+		result.TechDebts = make([]*FlatEntity, 0, len(techDebts))
+		for _, td := range techDebts {
+			meta := techDebtSvc.GetStatusMetadata(string(td.Status))
+			result.TechDebts = append(result.TechDebts, &FlatEntity{
+				Key:         td.Key,
+				Title:       td.Title,
+				Status:      string(td.Status),
+				StatusColor: colorOrGray(meta.Color),
+				Tags:        []string{}, // ADR-F06-2: always non-nil
+				Size:        td.Size,    // E27-F11: sourced from BaseEntity.Size
+				dbID:        td.ID,      // tracked for tag decoration / filter
+			})
+		}
+	}
+
 	if s.ideaRepo != nil {
 		allIdeas, err := s.ideaRepo.ListAll(ctx)
 		if err == nil {
@@ -1209,7 +1349,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 	}
 
 	// ── Step 3: Collect entity IDs per type for batch decoration ──
-	// ── Step 4: Fetch tag names per type (REQ-F-004: ≤ 6 calls) ──
+	// ── Step 4: Fetch tag names per type (REQ-F-004: ≤ 7 calls) ──
 	if s.tagSvc != nil {
 		tagsByEntity := s.fetchTagsForHierarchy(ctx, result)
 		// ── Step 5: Walk tree; assign Tags fields (ADR-F06-2) ──
@@ -1248,6 +1388,7 @@ func (s *ViewerService) computeHierarchyTagIDSets(ctx context.Context, tags []st
 		models.EntityTypeTask,
 		models.EntityTypeBug,
 		models.EntityTypeChange,
+		models.EntityTypeTechDebt,
 		models.EntityTypeIdea,
 	}
 	result := make(map[models.EntityType]map[int64]struct{}, len(entityTypes))
@@ -1266,7 +1407,7 @@ func (s *ViewerService) computeHierarchyTagIDSets(ctx context.Context, tags []st
 }
 
 // fetchTagsForHierarchy collects entity IDs from the result tree (using the unexported
-// dbID field on FlatEntity) and issues at most 6 batched AttachedTagNamesByIDs calls —
+// dbID field on FlatEntity) and issues at most 7 batched AttachedTagNamesByIDs calls —
 // one per entity type present in the response. Non-present types are skipped.
 // Returns a nested map[EntityType]map[ID][]string for O(1) per-entity lookup.
 // (REQ-F-004, AC-16, ADR-F06-1)
@@ -1315,6 +1456,14 @@ func (s *ViewerService) fetchTagsForHierarchy(ctx context.Context, resp *Hierarc
 		}
 	}
 	fetch(models.EntityTypeChange, ccIDs)
+
+	tdIDs := make([]int64, 0, len(resp.TechDebts))
+	for _, td := range resp.TechDebts {
+		if td.dbID != 0 {
+			tdIDs = append(tdIDs, td.dbID)
+		}
+	}
+	fetch(models.EntityTypeTechDebt, tdIDs)
 
 	ideaIDs := make([]int64, 0, len(resp.Ideas))
 	for _, idea := range resp.Ideas {
@@ -1374,6 +1523,17 @@ func applyTagsToHierarchy(resp *HierarchyResponse, tagsByEntity map[models.Entit
 		}
 		if cc.Tags == nil {
 			cc.Tags = []string{}
+		}
+	}
+	tdMap := tagsByEntity[models.EntityTypeTechDebt]
+	for _, td := range resp.TechDebts {
+		if td.dbID != 0 {
+			if tags, ok := tdMap[td.dbID]; ok {
+				td.Tags = tags
+			}
+		}
+		if td.Tags == nil {
+			td.Tags = []string{}
 		}
 	}
 	ideaMap := tagsByEntity[models.EntityTypeIdea]
@@ -1457,6 +1617,21 @@ func pruneHierarchy(resp *HierarchyResponse, idSets map[models.EntityType]map[in
 			}
 		}
 		resp.ChangeCards = prunedCC
+	}
+
+	tdMatchIDs := idSets[models.EntityTypeTechDebt]
+	if resp.TechDebts != nil {
+		prunedTechDebts := make([]*FlatEntity, 0, len(resp.TechDebts))
+		for _, td := range resp.TechDebts {
+			if td.dbID != 0 {
+				if _, ok := tdMatchIDs[td.dbID]; ok {
+					prunedTechDebts = append(prunedTechDebts, td)
+				}
+			} else {
+				prunedTechDebts = append(prunedTechDebts, td)
+			}
+		}
+		resp.TechDebts = prunedTechDebts
 	}
 
 	ideaMatchIDs := idSets[models.EntityTypeIdea]
@@ -1668,6 +1843,8 @@ func detectEntityType(key string) (models.EntityType, error) {
 		return models.EntityTypeBug, nil
 	case keys.IsChangeCardKey(upper):
 		return models.EntityTypeChange, nil
+	case keys.IsTechDebtKey(upper):
+		return models.EntityTypeTechDebt, nil
 	}
 	return "", fmt.Errorf("unrecognized entity key format: %q", key)
 }
@@ -1721,6 +1898,19 @@ func (s *ViewerService) resolveEntityID(ctx context.Context, entityType models.E
 			return 0, fmt.Errorf("failed to look up change card %q: %w", key, err)
 		}
 		return cc.ID, nil
+
+	case models.EntityTypeTechDebt:
+		if s.techDebtRepo == nil {
+			return 0, fmt.Errorf("tech debt history lookup not available")
+		}
+		td, err := s.techDebtRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up tech debt %q: %w", key, err)
+		}
+		if td == nil {
+			return 0, fmt.Errorf("tech debt %q not found", key)
+		}
+		return td.ID, nil
 
 	default:
 		return 0, fmt.Errorf("unsupported entity type for history lookup: %q", entityType)
@@ -1932,6 +2122,22 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 		}
 		return "", nil
 
+	case models.EntityTypeBug:
+		if s.bugListRepo == nil {
+			return "", nil
+		}
+		b, err := s.bugListRepo.GetByKey(ctx, key)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up bug %q: %w", key, err)
+		}
+		if b == nil {
+			return "", nil
+		}
+		if b.FilePath != nil {
+			return *b.FilePath, nil
+		}
+		return "", nil
+
 	case models.EntityTypeChange:
 		if s.changeCardListRepo == nil {
 			return "", nil
@@ -1942,6 +2148,22 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 		}
 		if cc.FilePath != nil {
 			return *cc.FilePath, nil
+		}
+		return "", nil
+
+	case models.EntityTypeTechDebt:
+		if s.techDebtRepo == nil {
+			return "", nil
+		}
+		td, err := s.techDebtRepo.GetByKey(ctx, key)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up tech debt %q: %w", key, err)
+		}
+		if td == nil {
+			return "", nil
+		}
+		if td.FilePath != nil {
+			return *td.FilePath, nil
 		}
 		return "", nil
 
@@ -2139,7 +2361,7 @@ func (s *ViewerService) RecentActivity(ctx context.Context, opts RecentActivityO
 	return &RecentActivityResponse{Records: result}, nil
 }
 
-// WorkflowMeta returns the status and transition metadata for all five entity levels.
+// WorkflowMeta returns the status and transition metadata for all entity levels.
 func (s *ViewerService) WorkflowMeta(_ context.Context) (*WorkflowMetaResponse, error) {
 	levels := []string{
 		workflow.LevelEpic,
@@ -2147,6 +2369,7 @@ func (s *ViewerService) WorkflowMeta(_ context.Context) (*WorkflowMetaResponse, 
 		workflow.LevelTask,
 		workflow.LevelBug,
 		workflow.LevelChange,
+		workflow.LevelTechDebt,
 	}
 
 	response := &WorkflowMetaResponse{
@@ -2172,6 +2395,7 @@ func (s *ViewerService) WorkflowMeta(_ context.Context) (*WorkflowMetaResponse, 
 				Color:          colorOrGray(meta.Color),
 				Phase:          phaseOrUnknown(meta.Phase),
 				ProgressWeight: pw,
+				SprintBucket:   meta.SprintBucket,
 			})
 		}
 

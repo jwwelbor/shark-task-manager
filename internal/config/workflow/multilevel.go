@@ -1,5 +1,19 @@
 package workflow
 
+// KnownLevels lists every entity workflow level shark supports, in the canonical
+// display order used by `shark admin workflow list/validate` and any other
+// consumer that needs to iterate all levels. Adding a new entity workflow
+// requires appending its level name here so every consumer picks it up.
+var KnownLevels = []string{
+	"epic",
+	"feature",
+	"task",
+	"sprint",
+	"bug",
+	"change",
+	"tech_debt",
+}
+
 // MultiLevelWorkflow holds workflow configurations for all entity levels.
 // Any level may be nil, meaning "use default workflow for that level."
 type MultiLevelWorkflow struct {
@@ -58,6 +72,16 @@ func (m *MultiLevelWorkflow) GetByType(entityType string) *WorkflowConfig {
 		return m.TechDebt
 	}
 	return nil
+}
+
+// RawForLevel returns the raw (possibly nil) workflow config for the given
+// level. Unlike GetWorkflowForLevel, it does NOT fall back to defaults — a nil
+// return means "no custom workflow configured for this level."
+//
+// Callers can use this to distinguish custom-vs-default sources when rendering
+// or validating the multi-level workflow. It is a thin alias for GetByType.
+func (m *MultiLevelWorkflow) RawForLevel(level string) *WorkflowConfig {
+	return m.GetByType(level)
 }
 
 // EntityTypes returns the list of entity-type keys recognized by GetByType.

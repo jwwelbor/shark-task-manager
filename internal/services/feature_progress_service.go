@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/progress"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -120,10 +121,9 @@ func (s *FeatureProgressService) calculateProgressForFeature(ctx context.Context
 }
 
 // RecalculateAndSetProgress recalculates the cached progress_pct for a feature
-// and persists it. Automatically sets feature status to "completed" when weighted
-// progress reaches 100% (unless the feature is already in a different terminal
-// status), and reopens completed features back to the aggregation status when
-// progress drops below 100%.
+// and persists it. When weighted progress reaches 100%, cascade statuses may
+// advance one workflow-configured step; when progress drops below 100%,
+// completed features reopen back to the aggregation status.
 func (s *FeatureProgressService) RecalculateAndSetProgress(ctx context.Context, featureID int64) error {
 	feature, err := s.repo.GetByID(ctx, featureID)
 	if err != nil {
@@ -167,7 +167,7 @@ func (s *FeatureProgressService) RecalculateAndSetProgressByKey(ctx context.Cont
 // Rules:
 //   - status_override=true: never touch the status
 //   - no tasks: leave the status unchanged
-//   - weighted progress >= 100%: complete non-terminal features
+//   - weighted progress >= 100%: advance one workflow step only from cascade statuses
 //   - weighted progress < 100%: reopen completed features to the aggregation status
 //   - other terminal statuses (e.g. archived) are preserved
 func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Feature, progressInfo *FeatureProgressInfo) models.FeatureStatus {
@@ -186,7 +186,13 @@ func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Fea
 		if featureWorkflow.IsTerminalStatus(string(feature.Status)) && feature.Status != models.FeatureStatusCompleted {
 			return feature.Status
 		}
-		return models.FeatureStatusCompleted
+		if !featureWorkflow.HasOrchestratorAction(string(feature.Status), config.ActionCascade) {
+			return feature.Status
+		}
+		if nextStatus, ok := featureWorkflow.GetSingleNextStatus(string(feature.Status)); ok {
+			return models.FeatureStatus(nextStatus)
+		}
+		return feature.Status
 	}
 
 	if feature.Status == models.FeatureStatusCompleted {

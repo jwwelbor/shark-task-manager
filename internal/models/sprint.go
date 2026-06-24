@@ -50,12 +50,13 @@ type Sprint struct {
 // removed_at IS NULL enforces the "one active sprint per entity" rule at
 // the database layer.
 type SprintAssignment struct {
-	ID         int64      `json:"id" db:"id"`
-	SprintID   int64      `json:"sprint_id" db:"sprint_id"`
-	EntityType string     `json:"entity_type" db:"entity_type"`
-	EntityID   int64      `json:"entity_id" db:"entity_id"`
-	AssignedAt time.Time  `json:"assigned_at" db:"assigned_at"`
-	RemovedAt  *time.Time `json:"removed_at,omitempty" db:"removed_at"`
+	ID          int64      `json:"id" db:"id"`
+	SprintID    int64      `json:"sprint_id" db:"sprint_id"`
+	EntityType  string     `json:"entity_type" db:"entity_type"`
+	EntityID    int64      `json:"entity_id" db:"entity_id"`
+	AssignedAt  time.Time  `json:"assigned_at" db:"assigned_at"`
+	RemovedAt   *time.Time `json:"removed_at,omitempty" db:"removed_at"`
+	SprintOrder *int       `json:"sprint_order,omitempty" db:"sprint_order"` // nullable; nil = unordered
 }
 
 // SprintCapacity records how many story points an agent type can deliver in

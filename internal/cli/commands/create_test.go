@@ -212,6 +212,45 @@ func TestCreateUnifiedSubcommands_SizeFlagRegistered(t *testing.T) {
 	}
 }
 
+// TestCreateUnifiedSubcommands_TagFlagRegistered verifies --tag is registered
+// on all unified create subcommands for taggable entity types.
+func TestCreateUnifiedSubcommands_TagFlagRegistered(t *testing.T) {
+	createCmd, _, err := cli.RootCmd.Find([]string{"create"})
+	if err != nil {
+		t.Fatalf("create command not found: %v", err)
+	}
+	if createCmd == nil {
+		t.Fatal("create command not found")
+	}
+
+	subcommandNames := []string{"epic", "feature", "task", "bug", "change", "tech-debt", "idea"}
+	for _, name := range subcommandNames {
+		t.Run(name, func(t *testing.T) {
+			var sub *cobra.Command
+			for _, c := range createCmd.Commands() {
+				if c.Name() == name {
+					sub = c
+					break
+				}
+			}
+			if sub == nil {
+				t.Fatalf("create %s subcommand not found", name)
+			}
+			flag := sub.Flags().Lookup("tag")
+			if flag == nil {
+				t.Errorf("--tag flag not registered on 'shark create %s'", name)
+				return
+			}
+			if flag.DefValue != "[]" {
+				t.Errorf("'shark create %s' --tag: expected default \"[]\", got %q", name, flag.DefValue)
+			}
+			if flag.Value.Type() != "stringSlice" {
+				t.Errorf("'shark create %s' --tag: expected stringSlice type, got %s", name, flag.Value.Type())
+			}
+		})
+	}
+}
+
 // TestCreateSubcommandsHaveCorrectArgsValidation verifies argument requirements
 func TestCreateSubcommandsHaveCorrectArgsValidation(t *testing.T) {
 	createCmd, _, err := cli.RootCmd.Find([]string{"create"})

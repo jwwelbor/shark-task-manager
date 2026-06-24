@@ -313,6 +313,7 @@ type BacklogItem struct {
 	ExecutionOrder *int      `json:"execution_order,omitempty"`
 	Size           *int      `json:"size,omitempty"`
 	AssignedAt     time.Time `json:"assigned_at,omitempty"`
+	SprintOrder    *int      `json:"sprint_order,omitempty"` // nullable; nil = unordered
 }
 
 // ---------------------------------------------------------------------------
@@ -323,20 +324,23 @@ type BacklogItem struct {
 // AddAssignment inserts a sprint_assignments row for the given entity.
 // Returns an error if the entity already has an active assignment (partial
 // unique index idx_sprint_assignments_active_one fires at DB level).
+// If assignment.SprintOrder is non-nil, its value is written to the
+// sprint_order column; otherwise the column is left NULL (unordered).
 func (r *SprintRepository) AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error {
 	if err := assignment.Validate(); err != nil {
 		return fmt.Errorf("invalid assignment: %w", err)
 	}
 
 	query := `
-		INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order)
+		VALUES (?, ?, ?, ?, ?)
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		assignment.SprintID,
 		assignment.EntityType,
 		assignment.EntityID,
 		time.Now().UTC(),
+		assignment.SprintOrder, // nil → SQL NULL
 	)
 	if err != nil {
 		return fmt.Errorf("failed to add assignment: %w", err)
@@ -378,19 +382,24 @@ func (r *SprintRepository) RemoveAssignment(ctx context.Context, sprintID int64,
 // or nil if no active assignment exists.
 func (r *SprintRepository) GetActiveAssignment(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
 	query := `
-		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at
+		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at, sprint_order
 		FROM sprint_assignments
 		WHERE entity_type = ? AND entity_id = ? AND removed_at IS NULL
 		LIMIT 1
 	`
 	row := r.db.QueryRowContext(ctx, query, entityType, entityID)
 	a := &models.SprintAssignment{}
-	err := row.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt})
+	var sprintOrder sql.NullInt64
+	err := row.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt}, &sprintOrder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active assignment: %w", err)
+	}
+	if sprintOrder.Valid {
+		v := int(sprintOrder.Int64)
+		a.SprintOrder = &v
 	}
 	return a, nil
 }
@@ -399,7 +408,7 @@ func (r *SprintRepository) GetActiveAssignment(ctx context.Context, entityType s
 // If entityType is non-nil, results are limited to that entity type.
 func (r *SprintRepository) ListAssignments(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
 	query := `
-		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at
+		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at, sprint_order
 		FROM sprint_assignments
 		WHERE sprint_id = ? AND removed_at IS NULL
 	`
@@ -419,8 +428,13 @@ func (r *SprintRepository) ListAssignments(ctx context.Context, sprintID int64, 
 	var assignments []*models.SprintAssignment
 	for rows.Next() {
 		a := &models.SprintAssignment{}
-		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt}); err != nil {
+		var sprintOrder sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt}, &sprintOrder); err != nil {
 			return nil, fmt.Errorf("failed to scan assignment: %w", err)
+		}
+		if sprintOrder.Valid {
+			v := int(sprintOrder.Int64)
+			a.SprintOrder = &v
 		}
 		assignments = append(assignments, a)
 	}
@@ -520,7 +534,8 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		part := fmt.Sprintf(`
 			SELECT sa.id, sa.sprint_id, '%s' AS entity_type, sa.entity_id,
 			       %s.key, %s.title, %s.status,
-			       %s AS agent_type, %s AS priority, %s AS execution_order, %s.size, sa.assigned_at
+			       %s AS agent_type, %s AS priority, %s AS execution_order, %s.size, sa.assigned_at,
+			       sa.sprint_order
 			FROM sprint_assignments sa
 			JOIN %s %s ON %s.id = sa.entity_id
 			WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = '%s'%s`,
@@ -563,6 +578,7 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		var priority sql.NullInt64
 		var execOrder sql.NullInt64
 		var size sql.NullInt64
+		var sprintOrder sql.NullInt64
 		if err := rows.Scan(
 			&item.AssignmentID,
 			&item.SprintID,
@@ -576,6 +592,7 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 			&execOrder,
 			&size,
 			&item.AssignedAt,
+			&sprintOrder,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan backlog item: %w", err)
 		}
@@ -594,6 +611,10 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 		if size.Valid {
 			s := int(size.Int64)
 			item.Size = &s
+		}
+		if sprintOrder.Valid {
+			v := int(sprintOrder.Int64)
+			item.SprintOrder = &v
 		}
 		items = append(items, item)
 	}
@@ -616,15 +637,6 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 // If completedStatuses is empty, ALL active assignments are returned (the
 // caller is responsible for passing a meaningful set).
 func (r *SprintRepository) ListAssignmentsForCarryover(ctx context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
-	// Default completed statuses when none are provided. This ensures that
-	// entities marked "completed" are always excluded from the carryover
-	// list even when the caller does not explicitly specify which statuses
-	// represent terminal/completed work. The service layer may pass a
-	// workflow-derived list for non-default workflows.
-	if len(completedStatuses) == 0 {
-		completedStatuses = []string{"completed"}
-	}
-
 	// Build NOT IN clause for completed statuses
 	var completedFilter string
 	var filterArgs []interface{}
@@ -662,7 +674,7 @@ func (r *SprintRepository) ListAssignmentsForCarryover(ctx context.Context, spri
 		}
 		//nolint:gosec // tbl fields come from the hardcoded tables slice; no user input
 		part := fmt.Sprintf(`
-			SELECT sa.id, sa.sprint_id, '%s' AS entity_type, sa.entity_id, sa.assigned_at
+			SELECT sa.id, sa.sprint_id, '%s' AS entity_type, sa.entity_id, sa.assigned_at, sa.sprint_order
 			FROM sprint_assignments sa
 			JOIN %s %s ON %s.id = sa.entity_id
 			WHERE sa.sprint_id = ? AND sa.removed_at IS NULL AND sa.entity_type = '%s'%s`,
@@ -689,8 +701,13 @@ func (r *SprintRepository) ListAssignmentsForCarryover(ctx context.Context, spri
 	var assignments []*models.SprintAssignment
 	for rows.Next() {
 		a := &models.SprintAssignment{}
-		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}); err != nil {
+		var sprintOrder sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID, flexTime{&a.AssignedAt}, &sprintOrder); err != nil {
 			return nil, fmt.Errorf("failed to scan carryover assignment: %w", err)
+		}
+		if sprintOrder.Valid {
+			v := int(sprintOrder.Int64)
+			a.SprintOrder = &v
 		}
 		assignments = append(assignments, a)
 	}
@@ -775,9 +792,10 @@ func (r *SprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (
 }
 
 // ReassignToSprintTx updates the sprint_id on a set of active sprint_assignments
-// rows to newSprintID. This is used by the carryover path in
-// SprintService.CloseSprintWithCarryover to move incomplete work to the next
-// sprint atomically.
+// rows to newSprintID. The move also clears sprint_order in the same UPDATE so
+// the reassigned rows cannot collide with existing ordered rows in the
+// receiving sprint before CloseSprintWithCarryover appends them at new dense
+// positions.
 //
 // The method accepts *sql.Tx so that the service layer owns the transaction
 // boundary (follows .claude/rules/go/patterns.md "Transaction ownership in
@@ -795,7 +813,7 @@ func (r *SprintRepository) ReassignToSprintTx(ctx context.Context, tx *sql.Tx, a
 	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
 
 	query := fmt.Sprintf(
-		`UPDATE sprint_assignments SET sprint_id = ? WHERE id IN (%s)`,
+		`UPDATE sprint_assignments SET sprint_id = ?, sprint_order = NULL WHERE id IN (%s)`,
 		placeholders,
 	)
 
@@ -814,8 +832,9 @@ func (r *SprintRepository) ReassignToSprintTx(ctx context.Context, tx *sql.Tx, a
 }
 
 // DropAssignmentsTx soft-deletes a set of sprint_assignments by setting
-// removed_at = NOW(). Used by the carryover-to-backlog path in
-// SprintService.CloseSprintWithCarryover.
+// removed_at = NOW() AND sprint_order = NULL in the same UPDATE statement (TC-023).
+// Clearing sprint_order atomically with removed_at ensures no orphaned ordering data
+// remains when entities are returned to the unassigned backlog.
 //
 // Like ReassignToSprintTx, this method operates within the caller-supplied
 // *sql.Tx so the service owns rollback/commit. An empty assignmentIDs slice
@@ -828,8 +847,9 @@ func (r *SprintRepository) DropAssignmentsTx(ctx context.Context, tx *sql.Tx, as
 	placeholders := strings.Repeat("?,", len(assignmentIDs))
 	placeholders = placeholders[:len(placeholders)-1]
 
+	// Set sprint_order = NULL in the same UPDATE as removed_at (atomically — TC-023).
 	query := fmt.Sprintf(
-		`UPDATE sprint_assignments SET removed_at = ? WHERE id IN (%s)`,
+		`UPDATE sprint_assignments SET removed_at = ?, sprint_order = NULL WHERE id IN (%s)`,
 		placeholders,
 	)
 
@@ -937,10 +957,11 @@ func (r *SprintRepository) BulkAssign(ctx context.Context, sprintID int64, assig
 	for _, a := range assignments {
 		// INSERT OR IGNORE skips rows that violate the partial unique index
 		// idx_sprint_assignments_active_one (entity_type, entity_id) WHERE removed_at IS NULL.
+		// sprint_order is included per-row so the service can auto-number bulk inserts.
 		result, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at)
-			 VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-			sprintID, a.EntityType, a.EntityID,
+			`INSERT OR IGNORE INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order)
+			 VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+			sprintID, a.EntityType, a.EntityID, a.SprintOrder, // nil → SQL NULL
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to insert sprint assignment for entity_type=%q entity_id=%d: %w",
@@ -1194,6 +1215,168 @@ func (r *SprintRepository) GetAssignmentsWithSize(ctx context.Context, sprintID 
 }
 
 // ─── End E19-F05-002 ──────────────────────────────────────────────────────────
+
+// ─── E19-F07-002: SprintOrder repository methods ─────────────────────────────
+
+// RenumberOp describes a single assignment → new-position mapping used by
+// RenumberAssignmentsTx. A nil NewPosition sets sprint_order to NULL
+// (used by the carryover-to-backlog path to clear ordering).
+type RenumberOp struct {
+	AssignmentID int64
+	NewPosition  *int // nil → set sprint_order = NULL
+}
+
+// SetSprintOrderTx assigns sprint_order = newPosition for the given assignment
+// ID within the caller-supplied transaction. Pass nil to clear (set NULL).
+// No sibling renumbering is performed — the caller is responsible for
+// ensuring the resulting state has no duplicate positions.
+func (r *SprintRepository) SetSprintOrderTx(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error {
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx,
+			`UPDATE sprint_assignments SET sprint_order = ? WHERE id = ?`,
+			newPosition, assignmentID,
+		)
+	} else {
+		_, err = r.db.ExecContext(ctx,
+			`UPDATE sprint_assignments SET sprint_order = ? WHERE id = ?`,
+			newPosition, assignmentID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to set sprint_order for assignment %d: %w", assignmentID, err)
+	}
+	return nil
+}
+
+// RenumberAssignmentsTx applies a slice of (assignment_id, new_position) pairs
+// in a single CASE WHEN UPDATE statement, satisfying AC-T2 (single statement,
+// not a loop). A nil NewPosition in any op sets that row's sprint_order to NULL.
+// If ops is empty, the function is a no-op (returns nil immediately).
+//
+// The sprintID parameter is used only to scope the UPDATE to a specific sprint,
+// which avoids accidentally mutating rows from other sprints that happen to share
+// an assignment ID via a cross-sprint race.
+func (r *SprintRepository) RenumberAssignmentsTx(ctx context.Context, tx *sql.Tx, sprintID int64, ops []RenumberOp) error {
+	if len(ops) == 0 {
+		return nil
+	}
+
+	// Build a single CASE WHEN … END UPDATE:
+	//   UPDATE sprint_assignments
+	//   SET sprint_order = CASE id
+	//       WHEN <id1> THEN <pos1>
+	//       WHEN <id2> THEN NULL
+	//       …
+	//   END
+	//   WHERE sprint_id = ? AND id IN (?, ?, …)
+	//
+	// Each WHEN branch uses a parameterized value (?, ?) — no string interpolation.
+	caseClause := strings.Builder{}
+	caseClause.WriteString("CASE id")
+
+	var args []interface{}
+	ids := make([]string, 0, len(ops))
+	for _, op := range ops {
+		caseClause.WriteString(" WHEN ? THEN ?")
+		args = append(args, op.AssignmentID, op.NewPosition) // nil NewPosition → SQL NULL
+		ids = append(ids, "?")
+	}
+	caseClause.WriteString(" END")
+
+	// Build IN clause for the WHERE predicate.
+	inClause := strings.Join(ids, ",")
+	query := fmt.Sprintf(
+		`UPDATE sprint_assignments SET sprint_order = %s WHERE sprint_id = ? AND id IN (%s)`,
+		caseClause.String(), inClause,
+	)
+
+	// Append sprintID then all assignment IDs for the WHERE clause.
+	args = append(args, sprintID)
+	for _, op := range ops {
+		args = append(args, op.AssignmentID)
+	}
+
+	_, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to renumber sprint_assignments for sprint %d: %w", sprintID, err)
+	}
+	return nil
+}
+
+// MaxSprintOrder returns the current maximum sprint_order value for active
+// (removed_at IS NULL) assignments in the sprint, or 0 if no ordered items
+// exist. Satisfies AC-T3 (returns 0, not error, when no ordered items exist).
+func (r *SprintRepository) MaxSprintOrder(ctx context.Context, sprintID int64) (int, error) {
+	var max sql.NullInt64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT MAX(sprint_order) FROM sprint_assignments
+		 WHERE sprint_id = ? AND removed_at IS NULL AND sprint_order IS NOT NULL`,
+		sprintID,
+	).Scan(&max)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get max sprint_order for sprint %d: %w", sprintID, err)
+	}
+	if !max.Valid {
+		return 0, nil // no ordered items — return 0 per AC-T3
+	}
+	return int(max.Int64), nil
+}
+
+// CountNullSprintOrder returns the count of active (removed_at IS NULL) assignments
+// for the sprint where sprint_order IS NULL. Used by StartSprint to surface the
+// REQ-F-009 soft warning without blocking the start transition.
+func (r *SprintRepository) CountNullSprintOrder(ctx context.Context, sprintID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sprint_assignments
+		 WHERE sprint_id = ? AND removed_at IS NULL AND sprint_order IS NULL`,
+		sprintID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count null sprint_order for sprint %d: %w", sprintID, err)
+	}
+	return count, nil
+}
+
+// ListOrderedAssignments returns all active assignments for a sprint sorted by
+// sprint_order ASC NULLS LAST, then assigned_at ASC. Used by ReorderAssignment
+// in the service layer to compute a renumber plan without re-running the full
+// backlog UNION query.
+func (r *SprintRepository) ListOrderedAssignments(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error) {
+	query := `
+		SELECT id, sprint_id, entity_type, entity_id, assigned_at, removed_at, sprint_order
+		FROM sprint_assignments
+		WHERE sprint_id = ? AND removed_at IS NULL
+		ORDER BY sprint_order ASC NULLS LAST, assigned_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, sprintID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list ordered assignments for sprint %d: %w", sprintID, err)
+	}
+	defer rows.Close()
+
+	var assignments []*models.SprintAssignment
+	for rows.Next() {
+		a := &models.SprintAssignment{}
+		var sprintOrder sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.SprintID, &a.EntityType, &a.EntityID,
+			flexTime{&a.AssignedAt}, flexNullTime{&a.RemovedAt}, &sprintOrder); err != nil {
+			return nil, fmt.Errorf("failed to scan ordered assignment: %w", err)
+		}
+		if sprintOrder.Valid {
+			v := int(sprintOrder.Int64)
+			a.SprintOrder = &v
+		}
+		assignments = append(assignments, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating ordered assignments: %w", err)
+	}
+	return assignments, nil
+}
+
+// ─── End E19-F07-002 ──────────────────────────────────────────────────────────
 
 // CreateCompletionTx inserts a sprint_completions row within the provided
 // transaction. On success, completion.ID is set to the newly inserted row's

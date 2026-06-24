@@ -118,6 +118,11 @@ Idea-specific flags:
   --notes          Update notes
   --related-docs   Update related document paths (comma-separated)
 
+Sprint-specific flags:
+  --name           New sprint name
+  --goal           New sprint goal
+  --end            New sprint end date (YYYY-MM-DD)
+
 Examples:
   shark update E07 --title="New Epic Title"
   shark update E07 --business-value=high
@@ -142,6 +147,7 @@ func init() {
 	updateCmd.Flags().StringP("description", "d", "", "New description")
 	updateCmd.Flags().Int("order", -1, "New execution order (-1=no change)")
 	updateCmd.Flags().Bool("parallel", false, "Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)")
+	updateCmd.Flags().StringSlice("tag", nil, "Tag to apply additively (repeatable). Empty = no change; detach via the entity-specific 'tag rm' command.")
 
 	// Key rename
 	updateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")
@@ -169,11 +175,6 @@ func init() {
 	updateCmd.Flags().String("size", "",
 		"New size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove)")
 
-	// Tag flag (bug/change/td/idea) — additive on update. Use
-	// `shark <entity> tag rm <key> <tag>` to detach.
-	updateCmd.Flags().StringSlice("tag", nil,
-		"Tag to apply additively (repeatable; bug/change/td/idea). Empty = no change; use 'shark <entity> tag rm' to detach.")
-
 	// Bug- and tech-debt-specific flags
 	updateCmd.Flags().String("severity", "",
 		"New severity: critical, high, medium, low (bug & tech-debt)")
@@ -195,6 +196,11 @@ func init() {
 		"Update notes (idea only)")
 	updateCmd.Flags().StringSlice("related-docs", nil,
 		"Update related document paths (idea only; comma-separated)")
+
+	// Sprint-specific flags
+	updateCmd.Flags().String("name", "", "New sprint name (sprint only)")
+	updateCmd.Flags().String("goal", "", "New sprint goal (sprint only)")
+	updateCmd.Flags().String("end", "", "New sprint end date YYYY-MM-DD (sprint only)")
 
 	// Deprecated aliases
 	updateCmd.Flags().Int("execution-order", -1, "New execution order (-1=no change)")
@@ -220,7 +226,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return runTdUpdate(cmd, args)
 	case "idea":
 		return runIdeaUpdate(cmd, args)
+	case "sprint":
+		return runSprintUpdate(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 	}
 }

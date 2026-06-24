@@ -16,6 +16,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// findLevel returns the LevelWorkflowDisplay for the named level, or nil if absent.
+func findLevel(display MultiLevelWorkflowDisplay, name string) *LevelWorkflowDisplay {
+	for _, l := range display.Levels {
+		if l != nil && l.Level == name {
+			return l
+		}
+	}
+	return nil
+}
+
 // TestWorkflowListCommand tests the workflow list command with multi-level output
 func TestWorkflowListCommand(t *testing.T) {
 	// Save original GlobalConfig
@@ -30,7 +40,7 @@ func TestWorkflowListCommand(t *testing.T) {
 		expectedOutput []string
 	}{
 		{
-			name: "all_defaults_shows_three_levels",
+			name: "all_defaults_shows_all_levels",
 			configContent: `{
 				"task_folder_base": "docs/plan"
 			}`,
@@ -41,6 +51,10 @@ func TestWorkflowListCommand(t *testing.T) {
 				"Epic Workflow (default)",
 				"Feature Workflow (default)",
 				"Task Workflow (default)",
+				"Sprint Workflow (default)",
+				"Bug Workflow (default)",
+				"Change Workflow (default)",
+				"Tech Debt Workflow (default)",
 				"todo",
 				"in_progress",
 				"ready_for_review",
@@ -71,6 +85,7 @@ func TestWorkflowListCommand(t *testing.T) {
 				"Epic Workflow (default)",
 				"Feature Workflow (default)",
 				"Task Workflow (custom)",
+				"Tech Debt Workflow (default)",
 				"todo",
 				"in_progress",
 				"done",
@@ -204,26 +219,20 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 				"task_folder_base": "docs/plan"
 			}`,
 			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
-				if display.EpicWorkflow == nil {
-					t.Fatal("Expected epic_workflow in JSON output")
+				// All levels in config.KnownWorkflowLevels should be present.
+				for _, lvl := range []string{"epic", "feature", "task", "sprint", "bug", "change", "tech_debt"} {
+					if findLevel(display, lvl) == nil {
+						t.Fatalf("Expected %s level in JSON output", lvl)
+					}
 				}
-				if display.FeatureWorkflow == nil {
-					t.Fatal("Expected feature_workflow in JSON output")
+				for _, lvl := range []string{"epic", "feature", "task"} {
+					ld := findLevel(display, lvl)
+					if ld.Source != "default" {
+						t.Errorf("Expected %s source 'default', got %q", lvl, ld.Source)
+					}
 				}
-				if display.TaskWorkflow == nil {
-					t.Fatal("Expected task_workflow in JSON output")
-				}
-				if display.EpicWorkflow.Source != "default" {
-					t.Errorf("Expected epic source 'default', got %q", display.EpicWorkflow.Source)
-				}
-				if display.FeatureWorkflow.Source != "default" {
-					t.Errorf("Expected feature source 'default', got %q", display.FeatureWorkflow.Source)
-				}
-				if display.TaskWorkflow.Source != "default" {
-					t.Errorf("Expected task source 'default', got %q", display.TaskWorkflow.Source)
-				}
-				if display.EpicWorkflow.Level != "epic" {
-					t.Errorf("Expected epic level 'epic', got %q", display.EpicWorkflow.Level)
+				if epic := findLevel(display, "epic"); epic.Level != "epic" {
+					t.Errorf("Expected epic level 'epic', got %q", epic.Level)
 				}
 			},
 		},
@@ -242,14 +251,16 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 				}
 			}`,
 			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
-				if display.TaskWorkflow.Source != "custom" {
-					t.Errorf("Expected task source 'custom', got %q", display.TaskWorkflow.Source)
+				task := findLevel(display, "task")
+				epic := findLevel(display, "epic")
+				if task.Source != "custom" {
+					t.Errorf("Expected task source 'custom', got %q", task.Source)
 				}
-				if display.EpicWorkflow.Source != "default" {
-					t.Errorf("Expected epic source 'default', got %q", display.EpicWorkflow.Source)
+				if epic.Source != "default" {
+					t.Errorf("Expected epic source 'default', got %q", epic.Source)
 				}
-				if display.TaskWorkflow.StatusCount != 2 {
-					t.Errorf("Expected 2 task statuses, got %d", display.TaskWorkflow.StatusCount)
+				if task.StatusCount != 2 {
+					t.Errorf("Expected 2 task statuses, got %d", task.StatusCount)
 				}
 			},
 		},
@@ -259,10 +270,13 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 				"task_folder_base": "docs/plan"
 			}`,
 			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
+				epic := findLevel(display, "epic")
+				feature := findLevel(display, "feature")
+
 				// Check epic workflow has planning and aggregation markers
 				foundPlanning := false
 				foundAggregation := false
-				for _, s := range display.EpicWorkflow.Statuses {
+				for _, s := range epic.Statuses {
 					if s.IsPlanning {
 						foundPlanning = true
 					}
@@ -282,7 +296,7 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 
 				// Check feature workflow aggregates tasks
 				foundTaskAgg := false
-				for _, s := range display.FeatureWorkflow.Statuses {
+				for _, s := range feature.Statuses {
 					if s.AggregatesFrom == "tasks" {
 						foundTaskAgg = true
 					}
@@ -586,7 +600,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     false,
 			expectValid:    true,
-			expectedLevels: 3,
+			expectedLevels: 7,
 		},
 		{
 			name: "custom_epic_workflow",
@@ -606,7 +620,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     false,
 			expectValid:    true,
-			expectedLevels: 3,
+			expectedLevels: 7,
 		},
 		{
 			name: "custom_feature_workflow",
@@ -626,7 +640,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     false,
 			expectValid:    true,
-			expectedLevels: 3,
+			expectedLevels: 7,
 		},
 		{
 			name: "invalid_epic_workflow_valid_others",
@@ -683,7 +697,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     true,
 			expectValid:    true,
-			expectedLevels: 5,
+			expectedLevels: 7,
 		},
 	}
 

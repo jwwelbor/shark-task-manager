@@ -90,6 +90,7 @@
         "description": "Epic captured, not yet refined",
         "phase": "planning",
         "color": "gray",
+        "display_token": "DFT",
         "progress_weight": 0,
         "is_planning": true,
         "responsibility": "none",
@@ -102,6 +103,7 @@
         "description": "Ready for BA to write epic PRD",
         "phase": "refinement",
         "color": "orange",
+        "display_token": "RFR",
         "progress_weight": 0.05,
         "is_planning": true,
         "responsibility": "agent",
@@ -123,6 +125,7 @@
         "description": "BA writing epic PRD: goals, scope, success criteria, constraints",
         "phase": "refinement",
         "color": "orange",
+        "display_token": "IRF",
         "progress_weight": 0.1,
         "is_planning": true,
         "responsibility": "agent",
@@ -141,6 +144,7 @@
         "description": "Ready for brownfield codebase analysis",
         "phase": "research",
         "color": "purple",
+        "display_token": "RSR",
         "progress_weight": 0.15,
         "is_planning": true,
         "responsibility": "agent",
@@ -162,6 +166,7 @@
         "description": "Brownfield codebase analysis in progress",
         "phase": "research",
         "color": "purple",
+        "display_token": "IRS",
         "progress_weight": 0.25,
         "is_planning": true,
         "responsibility": "agent",
@@ -180,6 +185,7 @@
         "description": "Ready for architecture decisions and UAT plan",
         "phase": "design",
         "color": "cyan",
+        "display_token": "RDS",
         "progress_weight": 0.3,
         "is_planning": true,
         "responsibility": "agent",
@@ -201,6 +207,7 @@
         "description": "Architecture and UAT plan in progress",
         "phase": "design",
         "color": "cyan",
+        "display_token": "IDS",
         "progress_weight": 0.4,
         "is_planning": true,
         "responsibility": "agent",
@@ -219,6 +226,7 @@
         "description": "Ready to break epic into features",
         "phase": "decomposition",
         "color": "blue",
+        "display_token": "RDC",
         "progress_weight": 0.45,
         "is_planning": true,
         "responsibility": "agent",
@@ -240,6 +248,7 @@
         "description": "Breaking epic into features with ordering and dependencies",
         "phase": "decomposition",
         "color": "blue",
+        "display_token": "IDC",
         "progress_weight": 0.5,
         "is_planning": true,
         "responsibility": "agent",
@@ -258,6 +267,7 @@
         "description": "Ready for codex review of features against epic requirements",
         "phase": "review",
         "color": "magenta",
+        "display_token": "RFV",
         "progress_weight": 0.55,
         "is_planning": true,
         "responsibility": "agent",
@@ -279,6 +289,7 @@
         "description": "Codex reviewing features against epic requirements",
         "phase": "review",
         "color": "magenta",
+        "display_token": "IFV",
         "progress_weight": 0.6,
         "is_planning": true,
         "responsibility": "agent",
@@ -297,6 +308,7 @@
         "description": "Features in progress, progress aggregated from children",
         "phase": "execution",
         "color": "yellow",
+        "display_token": "ACT",
         "progress_weight": 0.75,
         "is_planning": false,
         "responsibility": "agent",
@@ -310,6 +322,7 @@
         "description": "All features done, epic delivered",
         "phase": "done",
         "color": "green",
+        "display_token": "CMP",
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
@@ -322,6 +335,7 @@
         "description": "Epic abandoned",
         "phase": "done",
         "color": "red",
+        "display_token": "CXL",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
@@ -335,6 +349,7 @@
         "description": "External blocker preventing progress",
         "phase": "blocked",
         "color": "red",
+        "display_token": "BLK",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
@@ -347,6 +362,7 @@
         "description": "Intentionally paused, awaiting product decision",
         "phase": "paused",
         "color": "gray",
+        "display_token": "HLD",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
@@ -499,6 +515,7 @@
         "description": "Feature created from epic decomposition",
         "phase": "planning",
         "color": "gray",
+        "display_token": "DFT",
         "progress_weight": 0,
         "is_planning": true,
         "responsibility": "none",
@@ -511,6 +528,7 @@
         "description": "Ready for scope validation and complexity triage",
         "phase": "triage",
         "color": "orange",
+        "display_token": "RFA",
         "progress_weight": 0.02,
         "is_planning": true,
         "responsibility": "agent",
@@ -532,6 +550,7 @@
         "description": "Scope validation and complexity triage in progress",
         "phase": "triage",
         "color": "orange",
+        "display_token": "IAS",
         "progress_weight": 0.05,
         "is_planning": true,
         "responsibility": "agent",
@@ -550,6 +569,7 @@
         "description": "COMPLEX features: ready for tactical codebase research",
         "phase": "research",
         "color": "purple",
+        "display_token": "RSR",
         "progress_weight": 0.1,
         "is_planning": true,
         "responsibility": "agent",
@@ -571,6 +591,7 @@
         "description": "Tactical codebase research in progress",
         "phase": "research",
         "color": "purple",
+        "display_token": "IRS",
         "progress_weight": 0.15,
         "is_planning": true,
         "responsibility": "agent",
@@ -589,6 +610,7 @@
         "description": "Ready for combined requirements + architecture spec",
         "phase": "specification",
         "color": "cyan",
+        "display_token": "RFS",
         "progress_weight": 0.2,
         "is_planning": true,
         "responsibility": "agent",
@@ -610,6 +632,7 @@
         "description": "Writing combined requirements + architecture spec",
         "phase": "specification",
         "color": "cyan",
+        "display_token": "ISP",
         "progress_weight": 0.3,
         "is_planning": true,
         "responsibility": "agent",
@@ -628,6 +651,7 @@
         "description": "Ready for feature test strategy",
         "phase": "test_planning",
         "color": "blue",
+        "display_token": "RTP",
         "progress_weight": 0.35,
         "is_planning": true,
         "responsibility": "agent",
@@ -649,6 +673,7 @@
         "description": "Writing feature test strategy",
         "phase": "test_planning",
         "color": "blue",
+        "display_token": "ITP",
         "progress_weight": 0.4,
         "is_planning": true,
         "responsibility": "agent",
@@ -667,6 +692,7 @@
         "description": "Ready to generate thin task specs",
         "phase": "decomposition",
         "color": "blue",
+        "display_token": "RTG",
         "progress_weight": 0.45,
         "is_planning": true,
         "responsibility": "agent",
@@ -688,6 +714,7 @@
         "description": "Generating thin task specs",
         "phase": "decomposition",
         "color": "blue",
+        "display_token": "ITG",
         "progress_weight": 0.5,
         "is_planning": true,
         "responsibility": "agent",
@@ -706,6 +733,7 @@
         "description": "Ready for codex review of tasks against feature spec",
         "phase": "review",
         "color": "magenta",
+        "display_token": "RTR",
         "progress_weight": 0.55,
         "is_planning": true,
         "responsibility": "agent",
@@ -727,6 +755,7 @@
         "description": "Codex reviewing tasks against feature spec",
         "phase": "review",
         "color": "magenta",
+        "display_token": "ITR",
         "progress_weight": 0.6,
         "is_planning": true,
         "responsibility": "agent",
@@ -745,6 +774,7 @@
         "description": "Tasks in progress, progress aggregated from children",
         "phase": "execution",
         "color": "yellow",
+        "display_token": "ACT",
         "progress_weight": 0.65,
         "is_planning": false,
         "responsibility": "agent",
@@ -758,6 +788,7 @@
         "description": "All tasks done, feature delivered",
         "phase": "done",
         "color": "green",
+        "display_token": "CMP",
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
@@ -770,6 +801,7 @@
         "description": "Feature abandoned or converted to task",
         "phase": "done",
         "color": "red",
+        "display_token": "CXL",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
@@ -783,6 +815,7 @@
         "description": "External blocker preventing progress",
         "phase": "blocked",
         "color": "red",
+        "display_token": "BLK",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
@@ -795,6 +828,7 @@
         "description": "Intentionally paused, awaiting product decision",
         "phase": "paused",
         "color": "gray",
+        "display_token": "HLD",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
@@ -807,6 +841,7 @@
         "description": "All tasks developed \u2014 ready for feature-level code review",
         "phase": "code_review",
         "color": "magenta",
+        "display_token": "CRV",
         "progress_weight": 0.7,
         "is_planning": false,
         "responsibility": "agent",
@@ -827,6 +862,7 @@
         "description": "Feature-level code review in progress",
         "phase": "code_review",
         "color": "magenta",
+        "display_token": "ICR",
         "progress_weight": 0.75,
         "is_planning": false,
         "responsibility": "agent",
@@ -844,6 +880,7 @@
         "description": "Code review passed \u2014 ready for feature-level QA",
         "phase": "qa",
         "color": "blue",
+        "display_token": "QA",
         "progress_weight": 0.8,
         "is_planning": false,
         "responsibility": "agent",
@@ -865,6 +902,7 @@
         "description": "Feature-level QA testing in progress",
         "phase": "qa",
         "color": "blue",
+        "display_token": "IQA",
         "progress_weight": 0.85,
         "is_planning": false,
         "responsibility": "agent",
@@ -883,6 +921,7 @@
         "description": "QA passed \u2014 ready for UAT red-team review",
         "phase": "approval",
         "color": "cyan",
+        "display_token": "APR",
         "progress_weight": 0.9,
         "is_planning": false,
         "responsibility": "agent",
@@ -904,6 +943,7 @@
         "description": "Feature-level UAT red-team review in progress",
         "phase": "approval",
         "color": "cyan",
+        "display_token": "IAP",
         "progress_weight": 0.95,
         "is_planning": false,
         "responsibility": "agent",
@@ -967,18 +1007,21 @@
         "description": "Task created from feature decomposition",
         "phase": "planning",
         "color": "gray",
+        "display_token": "DFT",
         "progress_weight": 0,
         "is_planning": true,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "task_short/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_development": {
         "description": "Ready for TDD implementation",
         "phase": "development",
         "color": "yellow",
+        "display_token": "RFD",
         "progress_weight": 0.1,
         "is_planning": false,
         "responsibility": "agent",
@@ -994,12 +1037,14 @@
             "test-driven-development"
           ],
           "instruction_template": "task_short/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "description": "TDD implementation in progress",
         "phase": "development",
         "color": "yellow",
+        "display_token": "IDV",
         "progress_weight": 0.4,
         "is_planning": false,
         "responsibility": "agent",
@@ -1012,24 +1057,28 @@
             "test-driven-development"
           ],
           "instruction_template": "task_short/in_development.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "description": "Task done and verified",
         "phase": "done",
         "color": "green",
+        "display_token": "CMP",
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "task_short/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "description": "Task abandoned",
         "phase": "done",
         "color": "red",
+        "display_token": "CXL",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
@@ -1043,25 +1092,29 @@
         "description": "External blocker preventing progress",
         "phase": "blocked",
         "color": "red",
+        "display_token": "BLK",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "task_short/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally paused",
         "phase": "paused",
         "color": "gray",
+        "display_token": "HLD",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "task_short/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1131,30 +1184,35 @@
         "description": "Bug reported, not yet started",
         "phase": "planning",
         "color": "gray",
+        "display_token": "DFT",
         "progress_weight": 0,
         "is_planning": true,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "bug/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "reported": {
         "description": "Bug reported, not yet started",
         "phase": "planning",
         "color": "gray",
+        "display_token": "RPT",
         "progress_weight": 0,
         "is_planning": true,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "bug/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_development": {
         "description": "Ready for bug reproduction and fix",
         "phase": "development",
         "color": "yellow",
+        "display_token": "RFD",
         "progress_weight": 0.1,
         "is_planning": false,
         "responsibility": "agent",
@@ -1170,12 +1228,14 @@
             "test-driven-development"
           ],
           "instruction_template": "bug/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "description": "Bug fix in progress",
         "phase": "development",
         "color": "yellow",
+        "display_token": "IDV",
         "progress_weight": 0.4,
         "is_planning": false,
         "responsibility": "agent",
@@ -1188,12 +1248,14 @@
             "test-driven-development"
           ],
           "instruction_template": "bug/in_development.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_code_review": {
         "description": "Ready for code review of bug fix",
         "phase": "code_review",
         "color": "magenta",
+        "display_token": "CRV",
         "progress_weight": 0.55,
         "is_planning": false,
         "responsibility": "agent",
@@ -1208,12 +1270,14 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_code_review": {
         "description": "Code review of bug fix in progress",
         "phase": "code_review",
         "color": "magenta",
+        "display_token": "ICR",
         "progress_weight": 0.65,
         "is_planning": false,
         "responsibility": "agent",
@@ -1225,12 +1289,14 @@
             "quality"
           ],
           "instruction_template": "task_short/in_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_qa": {
         "description": "Ready for QA verification of bug fix",
         "phase": "qa",
         "color": "blue",
+        "display_token": "QA",
         "progress_weight": 0.8,
         "is_planning": false,
         "responsibility": "agent",
@@ -1245,12 +1311,14 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_qa": {
         "description": "QA verification of bug fix in progress",
         "phase": "qa",
         "color": "blue",
+        "display_token": "IQA",
         "progress_weight": 0.9,
         "is_planning": false,
         "responsibility": "agent",
@@ -1262,24 +1330,28 @@
             "quality"
           ],
           "instruction_template": "task_short/in_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "description": "Bug fixed and verified",
         "phase": "done",
         "color": "green",
+        "display_token": "CMP",
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "bug/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "description": "Bug not reproducible or won't fix",
         "phase": "done",
         "color": "red",
+        "display_token": "CXL",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
@@ -1293,25 +1365,29 @@
         "description": "Cannot proceed, awaiting external resolution",
         "phase": "blocked",
         "color": "red",
+        "display_token": "BLK",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally deferred",
         "phase": "paused",
         "color": "gray",
+        "display_token": "HLD",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1377,18 +1453,21 @@
         "description": "Change card created, not yet started",
         "phase": "planning",
         "color": "gray",
+        "display_token": "DFT",
         "progress_weight": 0,
         "is_planning": true,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "advance_status",
           "instruction_template": "change/draft.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "ready_for_development": {
         "description": "Ready for implementation",
         "phase": "development",
         "color": "yellow",
+        "display_token": "RFD",
         "progress_weight": 0.1,
         "is_planning": false,
         "responsibility": "agent",
@@ -1403,12 +1482,14 @@
             "implementation"
           ],
           "instruction_template": "change/ready_for_development.tmpl"
-        }
+        },
+        "sprint_bucket": "ready"
       },
       "in_development": {
         "description": "Implementation in progress",
         "phase": "development",
         "color": "yellow",
+        "display_token": "IDV",
         "progress_weight": 0.4,
         "is_planning": false,
         "responsibility": "agent",
@@ -1420,12 +1501,14 @@
             "implementation"
           ],
           "instruction_template": "change/in_development.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_code_review": {
         "description": "Ready for code review",
         "phase": "code_review",
         "color": "magenta",
+        "display_token": "CRV",
         "progress_weight": 0.55,
         "is_planning": false,
         "responsibility": "agent",
@@ -1440,12 +1523,14 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_code_review": {
         "description": "Code review in progress",
         "phase": "code_review",
         "color": "magenta",
+        "display_token": "ICR",
         "progress_weight": 0.65,
         "is_planning": false,
         "responsibility": "agent",
@@ -1457,12 +1542,14 @@
             "quality"
           ],
           "instruction_template": "task_short/in_code_review.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "ready_for_qa": {
         "description": "Ready for QA verification",
         "phase": "qa",
         "color": "blue",
+        "display_token": "QA",
         "progress_weight": 0.8,
         "is_planning": false,
         "responsibility": "agent",
@@ -1477,12 +1564,14 @@
             "quality"
           ],
           "instruction_template": "task_short/ready_for_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "in_qa": {
         "description": "QA verification in progress",
         "phase": "qa",
         "color": "blue",
+        "display_token": "IQA",
         "progress_weight": 0.9,
         "is_planning": false,
         "responsibility": "agent",
@@ -1494,24 +1583,28 @@
             "quality"
           ],
           "instruction_template": "task_short/in_qa.tmpl"
-        }
+        },
+        "sprint_bucket": "in_progress"
       },
       "completed": {
         "description": "Change implemented and verified",
         "phase": "done",
         "color": "green",
+        "display_token": "CMP",
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "change/completed.tmpl"
-        }
+        },
+        "sprint_bucket": "done"
       },
       "cancelled": {
         "description": "Change no longer needed",
         "phase": "done",
         "color": "red",
+        "display_token": "CXL",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
@@ -1525,25 +1618,29 @@
         "description": "Cannot proceed, awaiting external resolution",
         "phase": "blocked",
         "color": "red",
+        "display_token": "BLK",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/blocked.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       },
       "on_hold": {
         "description": "Intentionally deferred",
         "phase": "paused",
         "color": "gray",
+        "display_token": "HLD",
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
           "instruction_template": "bug/on_hold.tmpl"
-        }
+        },
+        "sprint_bucket": "blocked"
       }
     },
     "special_statuses": {
@@ -1552,6 +1649,319 @@
       ],
       "_complete_": [
         "completed",
+        "cancelled"
+      ]
+    }
+  },
+  "tech_debt_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "identified": [
+        "triaged",
+        "wont_fix",
+        "cancelled",
+        "on_hold"
+      ],
+      "triaged": [
+        "ready_for_investigation",
+        "ready_for_resolution",
+        "wont_fix",
+        "cancelled",
+        "on_hold"
+      ],
+      "ready_for_investigation": [
+        "in_investigation",
+        "blocked",
+        "on_hold"
+      ],
+      "in_investigation": [
+        "ready_for_resolution",
+        "triaged",
+        "wont_fix",
+        "cancelled",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_resolution": [
+        "in_progress",
+        "blocked",
+        "on_hold"
+      ],
+      "in_progress": [
+        "ready_for_code_review",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_code_review": [
+        "in_code_review",
+        "on_hold"
+      ],
+      "in_code_review": [
+        "resolved",
+        "ready_for_resolution",
+        "on_hold"
+      ],
+      "resolved": [],
+      "wont_fix": [],
+      "cancelled": [],
+      "blocked": [
+        "ready_for_investigation",
+        "ready_for_resolution",
+        "triaged",
+        "cancelled"
+      ],
+      "on_hold": [
+        "triaged",
+        "ready_for_investigation",
+        "ready_for_resolution",
+        "wont_fix",
+        "cancelled"
+      ]
+    },
+    "status_metadata": {
+      "identified": {
+        "description": "Tech debt captured, awaiting triage",
+        "phase": "planning",
+        "color": "gray",
+        "display_token": "IDN",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "haiku",
+          "skills": [
+            "triage",
+            "assessment"
+          ],
+          "instruction_template": "tech_debt/identified.tmpl"
+        },
+        "sprint_bucket": "ready"
+      },
+      "triaged": {
+        "description": "Severity, category, and effort assessed",
+        "phase": "triage",
+        "color": "orange",
+        "display_token": "TRI",
+        "progress_weight": 0.1,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "tech_debt/triaged.tmpl"
+        },
+        "sprint_bucket": "ready"
+      },
+      "ready_for_investigation": {
+        "description": "Ready to investigate blast radius, affected code, and resolution approach",
+        "phase": "investigation",
+        "color": "purple",
+        "display_token": "RFI",
+        "progress_weight": 0.2,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "researcher"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": [
+            "research",
+            "brownfield-analysis"
+          ],
+          "instruction_template": "tech_debt/ready_for_investigation.tmpl"
+        },
+        "sprint_bucket": "ready"
+      },
+      "in_investigation": {
+        "description": "Researcher analyzing blast radius, risks, and resolution approach",
+        "phase": "investigation",
+        "color": "purple",
+        "display_token": "INV",
+        "progress_weight": 0.3,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": [
+            "research",
+            "brownfield-analysis"
+          ],
+          "instruction_template": "tech_debt/in_investigation.tmpl"
+        },
+        "sprint_bucket": "in_progress"
+      },
+      "ready_for_resolution": {
+        "description": "Ready for refactor/cleanup implementation",
+        "phase": "development",
+        "color": "yellow",
+        "display_token": "RSL",
+        "progress_weight": 0.4,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": [
+          "developer"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": [
+            "implementation",
+            "refactoring",
+            "test-driven-development"
+          ],
+          "instruction_template": "tech_debt/ready_for_resolution.tmpl"
+        },
+        "sprint_bucket": "in_progress"
+      },
+      "in_progress": {
+        "description": "Refactor/cleanup in progress",
+        "phase": "development",
+        "color": "yellow",
+        "display_token": "IP",
+        "progress_weight": 0.55,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": [
+            "implementation",
+            "refactoring",
+            "test-driven-development"
+          ],
+          "instruction_template": "tech_debt/in_progress.tmpl"
+        },
+        "sprint_bucket": "in_progress"
+      },
+      "ready_for_code_review": {
+        "description": "Ready for code review (regression focus)",
+        "phase": "code_review",
+        "color": "magenta",
+        "display_token": "CRV",
+        "progress_weight": 0.75,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": [
+          "tech-lead"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "model": "opus",
+          "skills": [
+            "quality",
+            "refactoring"
+          ],
+          "instruction_template": "tech_debt/ready_for_code_review.tmpl"
+        },
+        "sprint_bucket": "in_progress"
+      },
+      "in_code_review": {
+        "description": "Tech-lead reviewing for regressions and refactor quality",
+        "phase": "code_review",
+        "color": "magenta",
+        "display_token": "ICR",
+        "progress_weight": 0.9,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "tech-lead",
+          "model": "opus",
+          "skills": [
+            "quality",
+            "refactoring"
+          ],
+          "instruction_template": "tech_debt/in_code_review.tmpl"
+        },
+        "sprint_bucket": "in_progress"
+      },
+      "resolved": {
+        "description": "Tech debt resolved and verified",
+        "phase": "done",
+        "color": "green",
+        "display_token": "RSD",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "tech_debt/resolved.tmpl"
+        },
+        "sprint_bucket": "done"
+      },
+      "wont_fix": {
+        "description": "Triaged as not worth fixing",
+        "phase": "done",
+        "color": "gray",
+        "display_token": "WNF",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "exclude_from_progress": true,
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "tech_debt/wont_fix.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Tech debt abandoned (e.g. obsoleted, promoted to feature)",
+        "phase": "done",
+        "color": "red",
+        "display_token": "CXL",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "exclude_from_progress": true,
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "tech_debt/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "Cannot proceed, awaiting external resolution",
+        "phase": "blocked",
+        "color": "red",
+        "display_token": "BLK",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "tech_debt/blocked.tmpl"
+        },
+        "sprint_bucket": "blocked"
+      },
+      "on_hold": {
+        "description": "Intentionally deferred",
+        "phase": "paused",
+        "color": "gray",
+        "display_token": "HLD",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "tech_debt/on_hold.tmpl"
+        },
+        "sprint_bucket": "blocked"
+      }
+    },
+    "special_statuses": {
+      "_start_": [
+        "identified"
+      ],
+      "_complete_": [
+        "resolved",
+        "wont_fix",
         "cancelled"
       ]
     }

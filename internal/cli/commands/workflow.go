@@ -14,13 +14,13 @@ import (
 )
 
 // MultiLevelWorkflowDisplay holds the display data for all workflow levels.
+//
+// Levels is ordered by config.KnownWorkflowLevels so adding a new entity
+// workflow there automatically flows through to `shark admin workflow list`
+// without further changes to this command.
 type MultiLevelWorkflowDisplay struct {
-	EpicWorkflow    *LevelWorkflowDisplay `json:"epic_workflow"`
-	FeatureWorkflow *LevelWorkflowDisplay `json:"feature_workflow"`
-	TaskWorkflow    *LevelWorkflowDisplay `json:"task_workflow"`
-	BugWorkflow     *LevelWorkflowDisplay `json:"bug_workflow"`
-	ChangeWorkflow  *LevelWorkflowDisplay `json:"change_workflow"`
-	ConfigPath      string                `json:"config_path"`
+	Levels     []*LevelWorkflowDisplay `json:"levels"`
+	ConfigPath string                  `json:"config_path"`
 }
 
 // LevelWorkflowDisplay holds the display data for a single workflow level.
@@ -136,13 +136,13 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 
 // buildMultiLevelWorkflowDisplay builds display structs for all workflow levels.
 func buildMultiLevelWorkflowDisplay(multi *config.MultiLevelWorkflow, configPath string) *MultiLevelWorkflowDisplay {
+	levels := make([]*LevelWorkflowDisplay, 0, len(config.KnownWorkflowLevels))
+	for _, lvl := range config.KnownWorkflowLevels {
+		levels = append(levels, buildLevelWorkflowDisplay(lvl, multi.RawForLevel(lvl), multi.GetWorkflowForLevel(lvl)))
+	}
 	return &MultiLevelWorkflowDisplay{
-		EpicWorkflow:    buildLevelWorkflowDisplay("epic", multi.Epic, multi.GetWorkflowForLevel("epic")),
-		FeatureWorkflow: buildLevelWorkflowDisplay("feature", multi.Feature, multi.GetWorkflowForLevel("feature")),
-		TaskWorkflow:    buildLevelWorkflowDisplay("task", multi.Task, multi.GetWorkflowForLevel("task")),
-		BugWorkflow:     buildLevelWorkflowDisplay("bug", multi.Bug, multi.GetWorkflowForLevel("bug")),
-		ChangeWorkflow:  buildLevelWorkflowDisplay("change", multi.Change, multi.GetWorkflowForLevel("change")),
-		ConfigPath:      configPath,
+		Levels:     levels,
+		ConfigPath: configPath,
 	}
 }
 
@@ -205,16 +205,14 @@ func buildLevelWorkflowDisplay(level string, raw *config.WorkflowConfig, resolve
 	}
 }
 
-// displayMultiLevelWorkflowHumanReadable renders all three workflow levels in human-readable format.
+// displayMultiLevelWorkflowHumanReadable renders all workflow levels in human-readable format.
 func displayMultiLevelWorkflowHumanReadable(display *MultiLevelWorkflowDisplay) error {
 	fmt.Println("Workflow Configuration")
 	fmt.Println("================================================================")
 
-	displayWorkflowLevelSection(display.EpicWorkflow)
-	displayWorkflowLevelSection(display.FeatureWorkflow)
-	displayWorkflowLevelSection(display.TaskWorkflow)
-	displayWorkflowLevelSection(display.BugWorkflow)
-	displayWorkflowLevelSection(display.ChangeWorkflow)
+	for _, level := range display.Levels {
+		displayWorkflowLevelSection(level)
+	}
 
 	// Legend
 	fmt.Println("Legend:")
@@ -226,10 +224,16 @@ func displayMultiLevelWorkflowHumanReadable(display *MultiLevelWorkflowDisplay) 
 	return nil
 }
 
+// levelDisplayLabel turns a level key like "tech_debt" into "Tech Debt" for
+// human-readable headers.
+func levelDisplayLabel(level string) string {
+	titleCase := cases.Title(language.English)
+	return titleCase.String(strings.ReplaceAll(level, "_", " "))
+}
+
 // displayWorkflowLevelSection renders a single workflow level section.
 func displayWorkflowLevelSection(level *LevelWorkflowDisplay) {
-	titleCase := cases.Title(language.English)
-	fmt.Printf("\n--- %s Workflow (%s) ---\n", titleCase.String(level.Level), level.Source)
+	fmt.Printf("\n--- %s Workflow (%s) ---\n", levelDisplayLabel(level.Level), level.Source)
 	fmt.Printf("  Version: %s\n\n", level.Version)
 
 	// Special statuses
@@ -348,17 +352,20 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load workflow config: %w", err)
 	}
 
-	// Validate each level
-	levels := []struct {
+	// Validate each level. The level set is driven by config.KnownWorkflowLevels
+	// so adding a new entity workflow there flows through automatically.
+	type levelEntry struct {
 		name     string
 		raw      *config.WorkflowConfig // nil means default
 		resolved *config.WorkflowConfig // always non-nil (with default fallback)
-	}{
-		{"epic", multi.Epic, multi.GetWorkflowForLevel("epic")},
-		{"feature", multi.Feature, multi.GetWorkflowForLevel("feature")},
-		{"task", multi.Task, multi.GetWorkflowForLevel("task")},
-		{"bug", multi.Bug, multi.GetWorkflowForLevel("bug")},
-		{"change", multi.Change, multi.GetWorkflowForLevel("change")},
+	}
+	levels := make([]levelEntry, 0, len(config.KnownWorkflowLevels))
+	for _, lvl := range config.KnownWorkflowLevels {
+		levels = append(levels, levelEntry{
+			name:     lvl,
+			raw:      multi.RawForLevel(lvl),
+			resolved: multi.GetWorkflowForLevel(lvl),
+		})
 	}
 
 	allValid := true
@@ -412,11 +419,10 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 	// Human-readable output
 	fmt.Println()
 	for _, lr := range results {
-		titleCase := cases.Title(language.English)
 		if lr.Valid {
-			fmt.Printf("  %s workflow: valid (%d statuses, %s)\n", titleCase.String(lr.Level), lr.Statuses, lr.Source)
+			fmt.Printf("  %s workflow: valid (%d statuses, %s)\n", levelDisplayLabel(lr.Level), lr.Statuses, lr.Source)
 		} else {
-			fmt.Printf("  %s workflow: INVALID (%s)\n", titleCase.String(lr.Level), lr.Source)
+			fmt.Printf("  %s workflow: INVALID (%s)\n", levelDisplayLabel(lr.Level), lr.Source)
 			fmt.Printf("    Error: %s\n", lr.Error)
 		}
 	}

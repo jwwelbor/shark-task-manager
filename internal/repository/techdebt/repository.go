@@ -308,6 +308,11 @@ func (r *TechDebtRepository) List(ctx context.Context) ([]*models.TechDebt, erro
 	return items, nil
 }
 
+// ListAll is the viewer-service-facing alias for List.
+func (r *TechDebtRepository) ListAll(ctx context.Context) ([]*models.TechDebt, error) {
+	return r.List(ctx)
+}
+
 // ListWithFilters retrieves tech-debt items matching the provided filters.
 func (r *TechDebtRepository) ListWithFilters(ctx context.Context, filters TechDebtFilters) ([]*models.TechDebt, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tech_debts`, techDebtSelectColumns)

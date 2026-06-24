@@ -83,6 +83,20 @@ go test -v ./internal/repository
 go test -v ./internal/cli/commands
 ```
 
+## Viewer HTML Testing
+
+The embedded web viewer (`internal/viewer/assets/viewer.html`) is tested through
+Go tests, not Playwright or npm-based browser tests.
+
+- Use `internal/viewer/assets_test.go` for embedded HTML structure, required
+  markers, CSS/JS contracts, and regression checks.
+- Use `internal/api/viewer/*_test.go` and `internal/services/*viewer*_test.go`
+  for viewer API and service behavior.
+- Do not add `package.json`, `package-lock.json`, Playwright specs, or
+  `node_modules/` for viewer testing. Browser runtime checks are handled as
+  manual/UAT verification when needed, while `make test` remains the automated
+  quality gate.
+
 ## Test Database
 
 - Location: `internal/repository/test-shark-tasks.db`

@@ -9,6 +9,9 @@ type StatusInfo struct {
 	// Color for CLI display (e.g., "yellow", "green", "red")
 	Color string `json:"color,omitempty"`
 
+	// DisplayToken is a compact status label for dense UI/CLI tables.
+	DisplayToken string `json:"display_token,omitempty"`
+
 	// Description is a human-readable explanation of the status
 	Description string `json:"description,omitempty"`
 
@@ -20,6 +23,10 @@ type StatusInfo struct {
 
 	// ExcludeFromProgress indicates this status should be excluded from progress calculations.
 	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
+
+	// SprintBucket defines which sprint display bucket this status belongs to.
+	// Values: "ready", "in_progress", "blocked", "done", or "" (omit from sprint view).
+	SprintBucket *string `json:"sprint_bucket,omitempty"`
 }
 
 // TransitionInfo describes a valid status transition.

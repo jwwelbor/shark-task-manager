@@ -253,67 +253,61 @@ Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
 Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
 `
 
-// FindProjectRoot walks up the directory tree to find the project root.
-// It looks for markers with different priorities:
-// 1. .sharkconfig.json (STRONGEST - always preferred)
-// 2. shark-tasks.db (STRONG - used if no .sharkconfig.json found)
-// 3. .git/ directory (WEAK - used if no stronger markers found)
-//
-// The search goes all the way to the filesystem root and returns the BEST marker found,
-// preferring .sharkconfig.json over everything else. This ensures that if .sharkconfig.json
-// exists in the project root but shark-tasks.db exists in a subdirectory (like /docs),
-// we correctly identify the project root.
-//
-// Returns the project root directory, or current directory if no markers found.
+// FindProjectRoot walks up the directory tree from the current working directory
+// to find the project root. See findProjectRootFrom for the search algorithm.
 func FindProjectRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
+	return findProjectRootFrom(wd, "")
+}
 
-	// Track the best marker found during search
-	var foundConfig string // .sharkconfig.json (highest priority)
-	var foundDB string     // shark-tasks.db (medium priority)
-	var foundGit string    // .git directory (lowest priority)
+// findProjectRootFrom walks up the directory tree from startDir looking for
+// project markers in priority order:
+// 1. .sharkconfig.json (highest)
+// 2. shark-tasks.db
+// 3. .git/
+//
+// The full tree is always scanned so that a .sharkconfig.json in a parent
+// directory wins over a .git in a closer ancestor. Returns startDir if no
+// markers are found anywhere in the tree.
+//
+// ceiling, when non-empty, stops the search at that directory (inclusive).
+// This is used in tests to prevent the walk from escaping the temp directory
+// tree and picking up markers from the host environment.
+func findProjectRootFrom(startDir, ceiling string) (string, error) {
+	var foundConfig, foundDB, foundGit string
 
-	currentDir := wd
-
-	// Search from current directory up to filesystem root
+	currentDir := startDir
 	for {
-		// Check for .sharkconfig.json (highest priority)
-		// Take the first (closest) one found
 		if foundConfig == "" {
 			if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
 				foundConfig = currentDir
 			}
 		}
-
-		// Check for shark-tasks.db (medium priority)
 		if foundDB == "" {
 			if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
 				foundDB = currentDir
 			}
 		}
-
-		// Check for .git directory (lowest priority)
 		if foundGit == "" {
 			if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
 				foundGit = currentDir
 			}
 		}
 
-		// Move up one directory
-		parentDir := filepath.Dir(currentDir)
-
-		// If we've reached the filesystem root, stop searching
-		if parentDir == currentDir {
+		if ceiling != "" && currentDir == ceiling {
 			break
 		}
 
-		currentDir = parentDir
+		parent := filepath.Dir(currentDir)
+		if parent == currentDir {
+			break
+		}
+		currentDir = parent
 	}
 
-	// Return the best marker found, in priority order
 	if foundConfig != "" {
 		return foundConfig, nil
 	}
@@ -323,9 +317,7 @@ func FindProjectRoot() (string, error) {
 	if foundGit != "" {
 		return foundGit, nil
 	}
-
-	// No markers found, use working directory
-	return wd, nil
+	return startDir, nil
 }
 
 // GetConfigPath returns the absolute path to .sharkconfig.json.

@@ -1,40 +1,18 @@
-{{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Resolve tech debt {{.id}}: "{{.title}}".
+Decision gate for tech debt {{.id}}: "{{.title}}".
 
-Category: {{.category}} | Severity: {{.severity}}
+Category: {{.category}} | Severity: {{.severity}}{{if .effort_estimate}} | Effort: {{.effort_estimate}}{{end}}
 
-Check for existing resolution: review recent git changes. If resolution exists and quality gate passes (make fmt && make lint && make test), advance immediately.
+Triage is complete. Choose a lane:
 
-Otherwise, continue with resolution per the plan below.
+- TRIVIAL (effort XS-S, severity low-medium, code path well-understood, no architectural questions) →
+  `shark status set {{.id}} ready_for_resolution` (skip investigation, go straight to fixing)
 
----
+- NON-TRIVIAL (anything else — unclear blast radius, refactor touches multiple modules, risk of regression, or you simply don't know enough yet) →
+  {{template "advance" .}} (goes to `ready_for_investigation`)
 
-TECH DEBT RESOLUTION
+- NOT WORTH IT →
+  `shark status set {{.id}} wont_fix --reason "<why>"` or `shark status set {{.id}} cancelled --reason "<why>"`
 
-READ:
-(1) Tech debt description at {{.file_path}}
-(2) CLAUDE.md for coding standards and patterns
-(3) Related code areas (grep for affected components)
-
-IMPLEMENT:
-
-Step 1 — ANALYZE:
-- Understand the scope and impact of the tech debt
-- Identify affected files and components
-
-Step 2 — RESOLVE:
-- Implement the resolution following existing patterns
-- Ensure no regressions are introduced
-
-Step 3 — QUALITY GATE (MANDATORY):
-```bash
-make fmt && make lint && make test
-```
-Fix ALL failures before advancing. No exceptions.
-
-EXIT GATE:
-- Tech debt is resolved
-- Quality gate passes
-- No unrelated changes
+If you cannot tell which lane this falls into, default to NON-TRIVIAL — investigation is cheap insurance.

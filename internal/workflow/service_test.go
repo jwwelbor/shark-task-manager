@@ -272,6 +272,89 @@ func TestService_GetAggregationStatuses_Empty(t *testing.T) {
 	assert.Equal(t, []string{"active"}, statuses)
 }
 
+func TestService_HasOrchestratorAction(t *testing.T) {
+	projectRoot := createTestConfig(t, map[string]interface{}{
+		"status_flow_version": "1.0",
+		"special_statuses": map[string][]string{
+			"_start_":    {"draft"},
+			"_complete_": {"completed"},
+		},
+		"status_flow": map[string][]string{
+			"draft":     {"active"},
+			"active":    {"completed"},
+			"completed": {},
+		},
+		"status_metadata": map[string]interface{}{
+			"draft": map[string]interface{}{
+				"phase": "planning",
+			},
+			"active": map[string]interface{}{
+				"phase": "development",
+				"orchestrator_action": map[string]interface{}{
+					"action":               "cascade",
+					"instruction_template": "cascade children",
+				},
+			},
+			"completed": map[string]interface{}{
+				"phase": "done",
+			},
+		},
+	})
+
+	defer config.ClearWorkflowCache()
+
+	svc := NewService(projectRoot)
+
+	assert.True(t, svc.HasOrchestratorAction("active", config.ActionCascade))
+	assert.False(t, svc.HasOrchestratorAction("draft", config.ActionCascade))
+	assert.False(t, svc.HasOrchestratorAction("missing", config.ActionCascade))
+	assert.False(t, svc.HasOrchestratorAction("active", config.ActionArchive))
+}
+
+func TestService_GetSingleNextStatus(t *testing.T) {
+	projectRoot := createTestConfig(t, map[string]interface{}{
+		"status_flow_version": "1.0",
+		"special_statuses": map[string][]string{
+			"_start_":    {"draft"},
+			"_complete_": {"completed", "cancelled"},
+		},
+		"status_flow": map[string][]string{
+			"draft":     {"active"},
+			"active":    {"ready_for_review"},
+			"branching": {"ready_for_review", "blocked"},
+			"completed": {},
+			"cancelled": {},
+			"blocked":   {},
+		},
+		"status_metadata": map[string]interface{}{
+			"draft":            map[string]interface{}{"phase": "planning"},
+			"active":           map[string]interface{}{"phase": "development"},
+			"branching":        map[string]interface{}{"phase": "development"},
+			"ready_for_review": map[string]interface{}{"phase": "review"},
+			"completed":        map[string]interface{}{"phase": "done"},
+			"cancelled":        map[string]interface{}{"phase": "done"},
+			"blocked":          map[string]interface{}{"phase": "blocked"},
+		},
+	})
+
+	defer config.ClearWorkflowCache()
+
+	svc := NewService(projectRoot)
+
+	next, ok := svc.GetSingleNextStatus("active")
+	require.True(t, ok)
+	assert.Equal(t, "ready_for_review", next)
+
+	_, ok = svc.GetSingleNextStatus("completed")
+	assert.False(t, ok)
+
+	_, ok = svc.GetSingleNextStatus("branching")
+	assert.False(t, ok)
+
+	_, ok = svc.GetSingleNextStatus("missing")
+	assert.False(t, ok)
+}
+
 func TestService_IsTerminalStatus(t *testing.T) {
 	projectRoot := createTestConfig(t, map[string]interface{}{
 		"status_flow_version": "1.0",
