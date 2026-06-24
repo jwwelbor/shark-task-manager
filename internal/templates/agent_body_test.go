@@ -286,3 +286,52 @@ func TestAugmentPlaceholderAliases_DoesNotClobberExisting(t *testing.T) {
 		t.Errorf("task_id should not be overwritten; got %q", vars["task_id"])
 	}
 }
+
+// TestCountUnrenderedTokens verifies the counter that feeds the shark.next
+// "unresolved_placeholders" span attribute and operator warning. It must share
+// FirstUnrenderedToken's code-aware definition of an exposed token: plain-prose
+// tokens count, but tokens inside inline-code spans or fenced code blocks do
+// not — those are documentation the agent is meant to read literally, not
+// unfilled data slots.
+func TestCountUnrenderedTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{"empty string", "", 0},
+		{"no placeholders", "This is a fully-rendered prompt with no placeholders.", 0},
+		{"single placeholder", "Task key is <task_id>.", 1},
+		{
+			"multiple placeholders",
+			"Entity <entity_key> is of type <entity_type> with status <status>.",
+			3,
+		},
+		{"kebab-case placeholder", "Use <task-id> and <entity-key> here.", 2},
+		{"mixed resolved and unresolved", "Hello world, task is <task_id> and done.", 1},
+		{"numeric-leading token not matched", "Token like <1invalid> should not match.", 0},
+		{"angle brackets with spaces are not placeholders", "See <section one> for details.", 0},
+		{"adjacent placeholders", "<a><b><c>", 3},
+		// Code-aware exclusions: these are the false positives the old naive
+		// counter flagged. The agent receives them as literal documentation.
+		{"inline-code span is skipped", "Run `git push origin <branch-name>` to push.", 0},
+		{
+			"fenced code block is skipped",
+			"Commit format:\n```\n<type>: <subject>\n\n<body>\n```\nFollow it.",
+			0,
+		},
+		{
+			"prose token outside code still counts",
+			"Fill <real_token> but ignore `<example>` in code.",
+			1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CountUnrenderedTokens(tt.input); got != tt.want {
+				t.Errorf("CountUnrenderedTokens(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}

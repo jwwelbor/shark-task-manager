@@ -109,6 +109,26 @@ func FirstUnrenderedToken(s string) (string, bool) {
 	return match, match != ""
 }
 
+// CountUnrenderedTokens returns the number of `<token>` placeholders still
+// present in s after all rendering passes, using the same code-aware scan as
+// FirstUnrenderedToken: tokens inside fenced code blocks (``` … ```) or inline
+// code spans (` … `) are skipped, since authors routinely write `<example>`
+// tokens as documentation prose.
+//
+// This is the canonical counter for the shark.next "unresolved_placeholders"
+// span attribute and operator warning. It shares FirstUnrenderedToken's
+// definition of an "exposed token" so the soft warning and the hard
+// RenderAndLintAgentBody guard never disagree about whether a prompt has
+// genuinely unfilled slots.
+func CountUnrenderedTokens(s string) int {
+	if !strings.ContainsRune(s, '<') {
+		return 0
+	}
+	scanned := stripFencedCodeBlocks(s)
+	scanned = inlineCodeRe.ReplaceAllString(scanned, "")
+	return len(agentBodyTokenRe.FindAllString(scanned, -1))
+}
+
 // stripFencedCodeBlocks returns s with all triple-backtick fenced code
 // blocks replaced by an equivalent number of newlines so line offsets are
 // preserved for any downstream diagnostics. Fences are opened by a line

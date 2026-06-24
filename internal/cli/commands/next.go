@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -35,20 +34,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
-
-// unresolvedPlaceholderRe matches HTML-style angle-bracket tokens of the form
-// <letter(letters|digits|hyphens|underscores)*>, which are the placeholder
-// syntax used by shark prompt templates. Any surviving token after rendering
-// indicates a missing variable substitution.
-var unresolvedPlaceholderRe = regexp.MustCompile(`<[a-zA-Z][a-zA-Z0-9_-]*>`)
-
-// countUnresolvedPlaceholders returns the number of unresolved placeholder
-// tokens (e.g. <task-id>, <entity_key>) remaining in s after template
-// rendering. A count > 0 indicates the rendered prompt has unfilled slots
-// that the receiving agent will see as literal text rather than data.
-func countUnresolvedPlaceholders(s string) int {
-	return len(unresolvedPlaceholderRe.FindAllString(s, -1))
-}
 
 // nextAdapters bundles the three per-entity-type adapters resolveNext needs
 // (transitioner, placeholder generator, narrowed action service). Constructing
@@ -252,7 +237,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	// Record per-dispatch span attributes so traces capture the full
 	// dispatch decision for this entity step.
-	unresolvedCount := countUnresolvedPlaceholders(resp.Prompt)
+	unresolvedCount := templates.CountUnrenderedTokens(resp.Prompt)
 	span.SetAttributes(
 		attribute.String("entity_key", resp.EntityKey),
 		attribute.String("entity_type", resp.EntityType),
