@@ -1,0 +1,51 @@
+{{template "_resume_preamble" .}}
+{{template "advance_preamble" .}}
+
+Develop task {{.id}}: "{{.title}}".
+
+Check for existing implementation: review git diff and test files. If implementation exists and passes quality gate, advance immediately.
+
+---
+
+TDD IMPLEMENTATION
+
+{{include: skills/implementation/SKILL.md}}
+
+{{include: skills/test-driven-development/SKILL.md}}
+
+READ (in this order):
+(1) Task spec at {{.file_path}} for goal, scope, and file list
+(2) Feature spec.md for architecture and requirements (referenced in task spec)
+(3) Feature test-plan.md for test cases (referenced in task spec)
+(4) CLAUDE.md for coding standards and patterns
+(5) Existing code in files listed in task scope
+
+IMPLEMENT using TDD:
+
+Step 1 — WRITE FAILING TESTS FIRST:
+- Write test cases from feature test-plan.md that apply to this task
+- Follow project test patterns: repo tests use real DB, service tests use mocks, CLI tests use mocks
+- Run tests to confirm they fail: `go test -v ./path/to/package -run TestName`
+
+Step 2 — IMPLEMENT MINIMUM CODE:
+- Write the minimum code to make tests pass
+- Follow patterns from existing code (identified in feature spec.md architecture section)
+- Do NOT add features beyond what the task spec requires
+
+Step 3 — REFACTOR:
+- Clean up while keeping tests green
+- Ensure code follows CLAUDE.md patterns
+
+Step 4 — QUALITY GATE (MANDATORY):
+```bash
+make fmt && make lint && make test
+```
+Fix ALL failures before advancing. No exceptions.
+
+EXIT GATE:
+- All test cases from feature test-plan.md (for this task) pass
+- Quality gate passes: make fmt && make lint && make test
+- Implementation follows patterns from feature spec.md
+- No unrelated changes included
+
+When done: {{template "advance" .}} (advances to completed — code review, QA, and UAT run at feature level once all tasks are done)
