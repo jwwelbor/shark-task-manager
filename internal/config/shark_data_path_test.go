@@ -90,6 +90,14 @@ func TestResolveSharkDataRoot(t *testing.T) {
 			want:        filepath.Join(root, "content", "bundle"),
 		},
 		{
+			// A leading-dots component is an in-project dir name, not an
+			// escape. Guards against the naive HasPrefix(rel, "..") check
+			// that would wrongly reject it.
+			name:        "in-project dir name with leading dots allowed",
+			configBytes: []byte(`{"shark_data_path": "..foo/bundle"}`),
+			want:        filepath.Join(root, "..foo", "bundle"),
+		},
+		{
 			name:        "absolute path honored verbatim",
 			configBytes: []byte(`{"shark_data_path": "` + absBundle + `"}`),
 			want:        absBundle,
