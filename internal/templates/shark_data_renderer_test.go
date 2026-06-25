@@ -229,6 +229,33 @@ func TestFindTemplateDir_FallsBackToSharkTemplates(t *testing.T) {
 		"findTemplateDir should fall back to shark-templates/ when shark-data/prompts/ is absent")
 }
 
+func TestFindTemplateDir_AbsoluteSharkDataPathUsedDirectly(t *testing.T) {
+	// Pass 0: an absolute shark_data_path bundle root resolves its prompts/
+	// directory directly, with no walk-up (the shared-bundle case).
+	bundle := t.TempDir() // absolute
+	promptsTask := filepath.Join(bundle, "prompts", "task")
+	require.NoError(t, os.MkdirAll(promptsTask, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(promptsTask, "in_qa.md"), []byte("MD"), 0644))
+
+	// Run from an unrelated cwd to prove no walk-up is involved.
+	other := t.TempDir()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(cwd) }()
+	require.NoError(t, os.Chdir(other))
+
+	prevConfigured := configuredTemplateDir
+	configuredTemplateDir = "" // keep dirName relative so the abs-dirName early return doesn't fire
+	defer func() { configuredTemplateDir = prevConfigured }()
+	prevSharkData := configuredSharkDataPath
+	configuredSharkDataPath = bundle // absolute bundle root
+	defer func() { configuredSharkDataPath = prevSharkData }()
+
+	got := findTemplateDir()
+	assert.Equal(t, filepath.Join(bundle, "prompts"), got,
+		"absolute shark_data_path should resolve <bundle>/prompts directly via Pass 0")
+}
+
 func TestFindTemplateDir_AbsoluteOverrideUsedDirectly(t *testing.T) {
 	// E5: absolute configured override skips the walk-up entirely.
 	root := t.TempDir()

@@ -109,7 +109,16 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("shark init: failed to locate project root: %w", err)
 	}
 
-	dest, sharkdataErr := sharkdata.Init(root)
+	// Materialize at the bundle root selected by shark_data_path (defaults to
+	// <root>/shark-data) so init writes to the same directory that
+	// validate/workflow/prompt resolution read from.
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
+	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
+	if err != nil {
+		return fmt.Errorf("shark init: %w", err)
+	}
+
+	dest, sharkdataErr := sharkdata.InitAt(dataRoot)
 	alreadyInitialized := errors.Is(sharkdataErr, sharkdata.ErrAlreadyInitialized)
 	if sharkdataErr != nil && !alreadyInitialized {
 		return sharkdataErr
@@ -275,7 +284,16 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("shark upgrade: failed to locate project root: %w", err)
 	}
 
-	summary, err := sharkdata.Upgrade(root, upgradeDryRun)
+	// Refresh the bundle root selected by shark_data_path (defaults to
+	// <root>/shark-data) so upgrade targets the same directory the rest of the
+	// CLI resolves.
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
+	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
+	if err != nil {
+		return fmt.Errorf("shark upgrade: %w", err)
+	}
+
+	summary, err := sharkdata.UpgradeAt(dataRoot, upgradeDryRun)
 	if err != nil {
 		return err
 	}
@@ -320,7 +338,7 @@ func runSharkValidate(cmd *cobra.Command, _ []string) error {
 	// Validate against the resolved content-bundle root selected by
 	// shark_data_path (defaults to <root>/shark-data). A relative path that
 	// escapes the project root is rejected by ResolveSharkDataRoot.
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json"))
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
 	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
 		return fmt.Errorf("shark validate: %w", err)

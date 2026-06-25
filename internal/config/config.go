@@ -359,18 +359,3 @@ func GetTemplateDirectoryFromConfig(configPath string) string {
 	}
 	return cfg.GetTemplateDirectory()
 }
-
-// GetSharkDataPathFromConfig loads the shark_data_path setting from the given
-// config file path. Returns "shark-data" if the config file doesn't exist, is
-// unreadable, or doesn't contain the field.
-func GetSharkDataPathFromConfig(configPath string) string {
-	if configPath == "" {
-		return DefaultSharkDataPath
-	}
-	mgr := NewManager(configPath)
-	cfg, err := mgr.Load()
-	if err != nil {
-		return DefaultSharkDataPath
-	}
-	return cfg.GetSharkDataPath()
-}

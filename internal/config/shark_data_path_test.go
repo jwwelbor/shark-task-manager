@@ -1,9 +1,9 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -112,8 +112,8 @@ func TestResolveSharkDataRoot(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error, got nil (resolved=%q)", got)
 				}
-				if !strings.Contains(err.Error(), "escapes the project root") {
-					t.Errorf("unexpected error: %v", err)
+				if !errors.Is(err, ErrSharkDataPathEscapes) {
+					t.Errorf("expected ErrSharkDataPathEscapes, got: %v", err)
 				}
 				return
 			}
@@ -210,5 +210,61 @@ func TestBundleSeparation_WorkflowConfigFileDoesNotDriveSharkDataRoot(t *testing
 	want := filepath.Join(tmp, DefaultSharkDataPath)
 	if dataRoot != want {
 		t.Errorf("bundle root = %q, want %q (workflow_config must not drive shark_data root)", dataRoot, want)
+	}
+}
+
+// TestResolveSharkDataRoot_ExpandsHomePrefix verifies a "~/"-prefixed
+// shark_data_path is expanded to the user's home directory (treated as an
+// absolute shared-bundle root) rather than joined literally under projectRoot.
+func TestResolveSharkDataRoot_ExpandsHomePrefix(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)        // unix: os.UserHomeDir() reads $HOME
+	t.Setenv("USERPROFILE", home) // windows parity
+	root := t.TempDir()
+
+	got, err := ResolveSharkDataRoot(root, []byte(`{"shark_data_path": "~/shared/bundle"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := filepath.Join(home, "shared", "bundle")
+	if got != want {
+		t.Errorf("ResolveSharkDataRoot() = %q, want %q (\"~/\" should expand to home, not %q)",
+			got, want, filepath.Join(root, "~", "shared", "bundle"))
+	}
+}
+
+// TestResolveSharkDataRoot_MalformedJSONFallsBackToDefault verifies that
+// unparseable config bytes fall back to <projectRoot>/shark-data without error,
+// so downstream path joins always get a usable bundle root.
+func TestResolveSharkDataRoot_MalformedJSONFallsBackToDefault(t *testing.T) {
+	root := t.TempDir()
+	got, err := ResolveSharkDataRoot(root, []byte(`{ this is not json`))
+	if err != nil {
+		t.Fatalf("unexpected error on malformed JSON: %v", err)
+	}
+	want := filepath.Join(root, DefaultSharkDataPath)
+	if got != want {
+		t.Errorf("ResolveSharkDataRoot() = %q, want %q", got, want)
+	}
+}
+
+// TestResolveWorkflowDir_AbsoluteSharkDataPath verifies the absolute-bundle
+// branch: an absolute shark_data_path yields <bundle>/workflow directly,
+// never joined under projectRoot.
+func TestResolveWorkflowDir_AbsoluteSharkDataPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	bundle := t.TempDir() // absolute, outside projectRoot
+	if err := os.MkdirAll(filepath.Join(bundle, "workflow"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"shark_data_path": "` + bundle + `"}`
+
+	dir, _, isFile := resolveWorkflowDir(projectRoot, []byte(cfg))
+	want := filepath.Join(bundle, "workflow")
+	if dir != want {
+		t.Errorf("workflowDir = %q, want %q (absolute bundle must not be joined under projectRoot)", dir, want)
+	}
+	if isFile {
+		t.Errorf("isLegacyFile = true; want false for an existing absolute workflow dir")
 	}
 }

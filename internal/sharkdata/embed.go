@@ -64,7 +64,15 @@ const SharkDataDirName = "shark-data"
 //   - Preserves embedded-file content byte-for-byte.
 //   - Returns the destination path on success.
 func Init(projectRoot string) (string, error) {
-	dest := filepath.Join(projectRoot, SharkDataDirName)
+	return InitAt(filepath.Join(projectRoot, SharkDataDirName))
+}
+
+// InitAt is the resolution-aware variant of Init: it materializes the embedded
+// tree at an explicit bundle root (dest) rather than assuming
+// <projectRoot>/shark-data. Callers pass the root selected by shark_data_path
+// so init writes to the same directory validate/workflow/prompt resolution read
+// from. Init delegates here with the default <projectRoot>/shark-data.
+func InitAt(dest string) (string, error) {
 	if _, err := os.Stat(dest); err == nil {
 		return dest, ErrAlreadyInitialized
 	}
@@ -91,7 +99,14 @@ func Init(projectRoot string) (string, error) {
 // dryRun=true returns a non-nil DiffSummary describing what would change
 // without writing anything.
 func Upgrade(projectRoot string, dryRun bool) (*DiffSummary, error) {
-	dest := filepath.Join(projectRoot, SharkDataDirName)
+	return UpgradeAt(filepath.Join(projectRoot, SharkDataDirName), dryRun)
+}
+
+// UpgradeAt is the resolution-aware variant of Upgrade: it refreshes an
+// explicit bundle root (dest) rather than assuming <projectRoot>/shark-data,
+// so it honors a custom shark_data_path. Upgrade delegates here with the
+// default <projectRoot>/shark-data. overrides/ is still never overwritten.
+func UpgradeAt(dest string, dryRun bool) (*DiffSummary, error) {
 	info, err := os.Stat(dest)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

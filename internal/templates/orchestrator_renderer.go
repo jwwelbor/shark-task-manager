@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+
+	"github.com/jwwelbor/shark-task-manager/internal/pathutil"
 )
 
 // defaultTemplateDir is the default template directory name (legacy layout).
@@ -84,11 +86,7 @@ func sharkDataPromptsSubdir() string {
 	if root == "" {
 		root = defaultSharkDataDirName
 	}
-	if strings.HasPrefix(root, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			root = filepath.Join(home, root[2:])
-		}
-	}
+	root = pathutil.ExpandHome(root)
 	return filepath.Join(root, sharkDataPromptsLeaf)
 }
 
@@ -101,11 +99,7 @@ func GetTemplateDirName() string {
 	if dir == "" {
 		return defaultTemplateDir
 	}
-	if strings.HasPrefix(dir, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			dir = filepath.Join(home, dir[2:])
-		}
-	}
+	dir = pathutil.ExpandHome(dir)
 	return dir
 }
 
