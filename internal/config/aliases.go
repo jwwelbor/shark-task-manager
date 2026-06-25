@@ -547,9 +547,13 @@ func ResolveSharkDataRoot(projectRoot string, configBytes []byte) (string, error
 
 	resolved := filepath.Clean(filepath.Join(absRoot, dataPath))
 
-	// Reject paths that escape the project root via `..`. A resolved path is
-	// in-bounds when it equals the root or sits under root + separator.
-	if resolved != absRoot && !strings.HasPrefix(resolved, absRoot+string(filepath.Separator)) {
+	// Reject paths that escape the project root via `..`. filepath.Rel gives a
+	// robust, cross-platform containment check: the resolved path is in-bounds
+	// only when its path relative to the root neither is ".." nor starts with
+	// "../". This avoids the string-prefix edge cases (root == "/" or "C:\",
+	// and sibling-prefix collisions like /foo/bar-evil vs /foo/bar).
+	rel, err := filepath.Rel(absRoot, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf(
 			"%w: %q (root %q); use an absolute path for shared bundles",
 			ErrSharkDataPathEscapes, dataPath, absRoot,

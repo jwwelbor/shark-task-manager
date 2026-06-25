@@ -64,7 +64,7 @@ The claim TTL is the backstop if the *parent* itself crashes mid-iteration.
 
 ```bash
 mkdir -p docs/workflow
-echo '{"ts":"'$(date -Iseconds)'","sid":"'$CLAUDE_SID'","event":"run_started","entity":"{KEY}","detail":{"command":"/shark run {KEY}","branch":"'$(git branch --show-current)'"}}' >> docs/workflow/activity.jsonl
+echo '{"ts":"'$(date +"%Y-%m-%dT%H:%M:%S%z")'","sid":"'$CLAUDE_SID'","event":"run_started","entity":"{KEY}","detail":{"command":"/shark run {KEY}","branch":"'$(git branch --show-current)'"}}' >> docs/workflow/activity.jsonl
 ```
 
 Check `git branch --show-current`:

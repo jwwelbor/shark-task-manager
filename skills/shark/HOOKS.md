@@ -29,7 +29,7 @@ Add this to your `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r 'if (.tool_input.command | contains(\"pytest\") or contains(\"go test\") or contains(\"npm test\") or contains(\"make test\")) and (.exit_code == 0) then \"\\nAll tests passed! Consider completing the task with: /task-complete <task-id>\\n\" else \"\" end'",
+            "command": "jq -r 'if ((.tool_input.command // \"\") | contains(\"pytest\") or contains(\"go test\") or contains(\"npm test\") or contains(\"make test\")) and (.exit_code == 0) then \"\\nAll tests passed! Consider completing the task with: /task-complete <task-id>\\n\" else \"\" end'",
             "timeout": 5
           }
         ]
@@ -75,7 +75,7 @@ Create the script at `.claude/hooks/auto-start-task.sh`:
 input=$(cat)
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty')
 
-if [[ "$file_path" =~ /tasks/(T-[A-Z0-9]+-[A-Z0-9]+-[0-9]+)\.md$ ]]; then
+if [[ "$file_path" =~ /tasks/((T-)?[A-Z0-9]+-[A-Z0-9]+-[0-9]+)\.md$ ]]; then
     task_id="${BASH_REMATCH[1]}"
     status=$(shark get "$task_id" --field status 2>/dev/null)
     if [[ "$status" == "todo" || "$status" == "ready_for_development" ]]; then
@@ -102,10 +102,25 @@ if [[ "$file_path" =~ ^(src/|internal/|cmd/|pkg/) ]]; then
     active_tasks=$(shark task list --status=in_progress --json 2>/dev/null | jq -r '.[] | .key')
     if [[ -z "$active_tasks" ]]; then
         echo "No active task found. Start a task with: shark status advance <task-key>"
-        exit 0
+        exit 0   # advisory: warn but allow the edit
     fi
 fi
 ```
+
+**Advisory vs. enforcing.** As written the hook is **advisory** — it prints the
+reminder and `exit 0` lets the edit proceed. To make it **enforcing**, change
+that line to `exit 1`:
+
+```bash
+        echo "No active task found. Start a task with: shark status advance <task-key>"
+        exit 1   # enforce: block the edit until a task is active
+```
+
+> **Warning:** a non-zero exit from a `PreToolUse` hook is a **hard block** — it
+> will refuse *every* `Edit`/`Write` to `src/`, `internal/`, `cmd/`, and `pkg/`
+> whenever no task is `in_progress`. That includes quick fixes and non-task
+> work. Only enable the enforcing variant if you genuinely want shark task
+> tracking to gate all implementation edits.
 
 Add to `.claude/settings.json`:
 
