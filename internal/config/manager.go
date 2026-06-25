@@ -84,6 +84,10 @@ func (m *Manager) Load() (*Config, error) {
 		config.WorkflowConfig = &workflowConfig
 	}
 
+	if sharkDataPath, ok := rawData["shark_data_path"].(string); ok && sharkDataPath != "" {
+		config.SharkDataPath = &sharkDataPath
+	}
+
 	// Parse console_width if present (CC-036). JSON numbers decode as float64.
 	// A zero or negative value means "auto-detect" (handled in GetConsoleWidth).
 	if consoleWidth, ok := rawData["console_width"].(float64); ok {

@@ -10,6 +10,13 @@ import (
 // custom template_directory is configured in .sharkconfig.json.
 const DefaultTemplateDir = "shark-templates"
 
+// DefaultSharkDataPath is the default content-bundle root directory name used
+// when no custom shark_data_path is configured in .sharkconfig.json. This is
+// the bundle root holding skills/, prompts/, agents/, and overrides/. It is
+// SEPARATE from workflow_config (which selects only the active workflow graph
+// / status routing).
+const DefaultSharkDataPath = "shark-data"
+
 // DefaultConsoleWidth is the fallback console width used by GetConsoleWidth
 // when (a) the config field is unset/zero AND (b) terminal-size detection by
 // the caller has failed. It is also the value returned by GetConsoleWidth on
@@ -56,6 +63,7 @@ type Config struct {
 	Viewer                 *string                `json:"viewer,omitempty"`                   // External viewer command for spec files (glow, nano, bat, less, cat, etc). Default: "cat"
 	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Template directory path relative to project root. Default: "shark-templates"
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow config file (default: .sharkworkflow.json). Read-only directive.
+	SharkDataPath          *string                `json:"shark_data_path,omitempty"`          // Content-bundle root (skills/, prompts/, agents/, overrides/) relative to project root. Default: "shark-data". SEPARATE from workflow_config.
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
@@ -152,6 +160,18 @@ func (c *Config) GetTemplateDirectory() string {
 		return DefaultTemplateDir
 	}
 	return *c.TemplateDirectory
+}
+
+// GetSharkDataPath returns the configured content-bundle root or the default
+// "shark-data". The path is relative to the project root (or may be absolute).
+// It selects the bundle holding skills/, prompts/, agents/, and overrides/ and
+// is SEPARATE from workflow_config. Nil-safe: returns the default on a nil
+// *Config or an absent/empty field.
+func (c *Config) GetSharkDataPath() string {
+	if c == nil || c.SharkDataPath == nil || *c.SharkDataPath == "" {
+		return DefaultSharkDataPath
+	}
+	return *c.SharkDataPath
 }
 
 // IsBackwardTransition determines whether a transition from oldStatus to newStatus is backward
@@ -338,4 +358,19 @@ func GetTemplateDirectoryFromConfig(configPath string) string {
 		return DefaultTemplateDir
 	}
 	return cfg.GetTemplateDirectory()
+}
+
+// GetSharkDataPathFromConfig loads the shark_data_path setting from the given
+// config file path. Returns "shark-data" if the config file doesn't exist, is
+// unreadable, or doesn't contain the field.
+func GetSharkDataPathFromConfig(configPath string) string {
+	if configPath == "" {
+		return DefaultSharkDataPath
+	}
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	if err != nil {
+		return DefaultSharkDataPath
+	}
+	return cfg.GetSharkDataPath()
 }

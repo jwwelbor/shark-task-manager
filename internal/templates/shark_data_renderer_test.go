@@ -183,7 +183,7 @@ func TestFindTemplateDir_PrefersSharkData(t *testing.T) {
 	// E5: when both shark-data/prompts/ and shark-templates/ exist, prefer
 	// shark-data/prompts/.
 	root := t.TempDir()
-	sharkData := filepath.Join(root, sharkDataPromptsSubdir, "task")
+	sharkData := filepath.Join(root, sharkDataPromptsSubdir(), "task")
 	sharkTemplates := filepath.Join(root, defaultTemplateDir, "task")
 	require.NoError(t, os.MkdirAll(sharkData, 0755))
 	require.NoError(t, os.MkdirAll(sharkTemplates, 0755))
@@ -199,9 +199,12 @@ func TestFindTemplateDir_PrefersSharkData(t *testing.T) {
 	prevConfigured := configuredTemplateDir
 	configuredTemplateDir = ""
 	defer func() { configuredTemplateDir = prevConfigured }()
+	prevSharkData := configuredSharkDataPath
+	configuredSharkDataPath = ""
+	defer func() { configuredSharkDataPath = prevSharkData }()
 
 	got := findTemplateDir()
-	assert.Equal(t, filepath.Join(root, sharkDataPromptsSubdir), got,
+	assert.Equal(t, filepath.Join(root, sharkDataPromptsSubdir()), got,
 		"findTemplateDir should prefer shark-data/prompts/ over shark-templates/")
 }
 

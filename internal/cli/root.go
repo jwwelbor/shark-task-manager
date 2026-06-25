@@ -60,8 +60,10 @@ Examples:
 		}
 		if loadedCfg != nil {
 			templates.SetConfiguredTemplateDir(loadedCfg.GetTemplateDirectory())
+			templates.SetConfiguredSharkDataPath(loadedCfg.GetSharkDataPath())
 		} else {
 			templates.SetConfiguredTemplateDir(config.DefaultTemplateDir)
+			templates.SetConfiguredSharkDataPath(config.DefaultSharkDataPath)
 		}
 
 		// Initialize observability (non-fatal on error)

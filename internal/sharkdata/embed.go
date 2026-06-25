@@ -35,10 +35,11 @@ func includeRegexp() *regexp.Regexp {
 }
 
 // embeddedFS holds the canonical default shark-data/ tree shipped in the
-// binary. The shark-data/ directory at the repo root (a sibling of cmd/) is
-// the source. Files under shark-data/overrides/ are intentionally embedded
-// too — `shark init` copies them so a fresh project starts with the
-// overrides/ skeleton already in place. `shark upgrade` skips overrides/.
+// binary. The internal/sharkdata/default_data/ directory is the source (it is
+// what ships with the tool); `shark init` materializes it to <project>/shark-data/.
+// Files under default_data/overrides/ are intentionally embedded too — `shark
+// init` copies them so a fresh project starts with the overrides/ skeleton
+// already in place. `shark upgrade` skips overrides/.
 //
 //go:embed all:default_data
 var embeddedFS embed.FS
@@ -249,7 +250,16 @@ func walkEmbedded(visit func(relPath string, data []byte, isDir bool) error) err
 //     baseline.
 //   - cross-check workflow YAML agent references against shark-data/agents/.
 func Validate(projectRoot string) (*ValidationReport, error) {
-	dest := filepath.Join(projectRoot, SharkDataDirName)
+	return ValidateAt(filepath.Join(projectRoot, SharkDataDirName))
+}
+
+// ValidateAt runs the same structural checks as Validate against an explicit
+// content-bundle root (dataRoot), rather than assuming <projectRoot>/shark-data.
+// This is the resolution-aware entry point used when shark_data_path selects a
+// non-default or absolute bundle root. Validate delegates here with the default
+// <projectRoot>/shark-data so existing behavior is unchanged.
+func ValidateAt(dataRoot string) (*ValidationReport, error) {
+	dest := dataRoot
 	report := &ValidationReport{Path: dest}
 
 	if info, err := os.Stat(dest); err != nil {

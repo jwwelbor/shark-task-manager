@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	cfgtemplate "github.com/jwwelbor/shark-task-manager/internal/config/template"
@@ -418,12 +419,21 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 // (default workflow dir). This signature change (was: configPath) is part of
 // TD-023's "read .sharkconfig.json once" pass.
 func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, overridesDir string, isLegacyFile bool) {
-	const defaultRel = "shark-data/workflow"
-
 	configured := readWorkflowConfigField(configBytes)
 
 	if configured == "" {
-		workflowDir = filepath.Join(projectRoot, defaultRel)
+		// No explicit workflow_config: derive the default workflow directory
+		// from the configured shark_data_path bundle root
+		// (<shark_data_path>/workflow). shark_data_path defaults to
+		// "shark-data", so this preserves the historical
+		// <projectRoot>/shark-data/workflow default. An explicit
+		// workflow_config always wins (handled in the else branch below).
+		dataPath := readSharkDataPathField(configBytes)
+		if filepath.IsAbs(dataPath) {
+			workflowDir = filepath.Join(dataPath, "workflow")
+		} else {
+			workflowDir = filepath.Join(projectRoot, dataPath, "workflow")
+		}
 	} else {
 		// Honor absolute paths verbatim; resolve relative paths against the
 		// project root (the directory holding .sharkconfig.json).
@@ -473,6 +483,69 @@ func readWorkflowConfigField(raw []byte) string {
 		return ""
 	}
 	return probe.WorkflowConfig
+}
+
+// readSharkDataPathField extracts the `shark_data_path` field from raw
+// .sharkconfig.json bytes without going through the full Manager. Mirrors
+// readWorkflowConfigField. Returns the configured value, or the default
+// "shark-data" when the file is missing, malformed, or the field is
+// absent/empty. The default is baked in here (rather than returning "") so
+// callers that combine this with path joins always get a usable bundle root.
+func readSharkDataPathField(raw []byte) string {
+	if len(raw) == 0 {
+		return DefaultSharkDataPath
+	}
+	var probe struct {
+		SharkDataPath string `json:"shark_data_path"`
+	}
+	if err := jsonUnmarshal(raw, &probe); err != nil {
+		return DefaultSharkDataPath
+	}
+	if probe.SharkDataPath == "" {
+		return DefaultSharkDataPath
+	}
+	return probe.SharkDataPath
+}
+
+// ResolveSharkDataRoot returns the absolute path to the content-bundle root
+// (skills/, prompts/, agents/, overrides/) selected by `shark_data_path` in
+// .sharkconfig.json, defaulting to <projectRoot>/shark-data.
+//
+// configBytes is the already-read contents of .sharkconfig.json (pass nil/
+// empty when absent — the default is used). projectRoot is the directory
+// holding .sharkconfig.json.
+//
+// Resolution rules:
+//   - Absolute shark_data_path: honored verbatim (shared-bundle parity with
+//     workflow_config trust).
+//   - Relative shark_data_path: resolved against projectRoot, then cleaned and
+//     verified to stay WITHIN projectRoot. A relative path that escapes the
+//     project root via `..` is rejected with an error.
+func ResolveSharkDataRoot(projectRoot string, configBytes []byte) (string, error) {
+	dataPath := readSharkDataPathField(configBytes)
+
+	if filepath.IsAbs(dataPath) {
+		return filepath.Clean(dataPath), nil
+	}
+
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve project root %q: %w", projectRoot, err)
+	}
+	absRoot = filepath.Clean(absRoot)
+
+	resolved := filepath.Clean(filepath.Join(absRoot, dataPath))
+
+	// Reject paths that escape the project root via `..`. A resolved path is
+	// in-bounds when it equals the root or sits under root + separator.
+	if resolved != absRoot && !strings.HasPrefix(resolved, absRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf(
+			"shark_data_path %q escapes the project root %q; relative bundle roots must stay within the project (use an absolute path for shared bundles)",
+			dataPath, absRoot,
+		)
+	}
+
+	return resolved, nil
 }
 
 // workflowToStatusActionData flattens a WorkflowConfig's StatusMetadata into the
