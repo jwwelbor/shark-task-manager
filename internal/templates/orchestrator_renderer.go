@@ -8,15 +8,25 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+
+	"github.com/jwwelbor/shark-task-manager/internal/pathutil"
 )
 
 // defaultTemplateDir is the default template directory name (legacy layout).
 // Shark 2.0 prefers shark-data/prompts/ — see findTemplateDir for resolution order.
 const defaultTemplateDir = "shark-templates"
 
-// sharkDataPromptsSubdir is the prompts subdirectory inside the shark-data layout.
-// Resolution prefers <project>/shark-data/prompts/ over <project>/shark-templates/.
-const sharkDataPromptsSubdir = "shark-data/prompts"
+// defaultSharkDataDirName is the default content-bundle root directory name.
+// It mirrors config.DefaultSharkDataPath; redeclared here to avoid a
+// templates -> config import edge. findTemplateDir derives the prompts
+// subdirectory from the configured shark_data_path (see
+// SetConfiguredSharkDataPath), defaulting to this value.
+const defaultSharkDataDirName = "shark-data"
+
+// sharkDataPromptsLeaf is the prompts subdirectory leaf inside the shark-data
+// bundle layout. Joined onto the configured bundle root to form the resolved
+// prompts directory (e.g. "shark-data/prompts" by default).
+const sharkDataPromptsLeaf = "prompts"
 
 // promptFileExtensions are the file extensions the engine recognizes as prompt
 // files. Shark 2.0 introduces .md alongside the legacy .tmpl. The engine reads
@@ -43,11 +53,41 @@ var (
 // When non-empty, findTemplateDir uses this name instead of the default "shark-templates".
 var configuredTemplateDir string
 
+// configuredSharkDataPath is an optional override set via
+// SetConfiguredSharkDataPath. When non-empty, findTemplateDir derives the
+// Shark 2.0 prompts directory from <configuredSharkDataPath>/prompts instead
+// of the default "shark-data/prompts". This is the bundle root selected by
+// `shark_data_path` in .sharkconfig.json.
+var configuredSharkDataPath string
+
 // SetConfiguredTemplateDir sets the template directory name from config.
 // This should be called early in CLI initialization with the value from
 // Config.GetTemplateDirectory(). Pass empty string to use the default.
 func SetConfiguredTemplateDir(dir string) {
 	configuredTemplateDir = dir
+}
+
+// SetConfiguredSharkDataPath sets the content-bundle root from config. Call
+// early in CLI initialization with the value from Config.GetSharkDataPath().
+// Pass empty string to use the default ("shark-data"). findTemplateDir derives
+// the prompts subdir (<root>/prompts) from this value.
+func SetConfiguredSharkDataPath(dir string) {
+	configuredSharkDataPath = dir
+}
+
+// sharkDataPromptsSubdir returns the prompts subdirectory derived from the
+// configured shark_data_path bundle root, defaulting to "shark-data/prompts".
+// A "~/"-prefixed root is expanded to the user's home directory so absolute
+// shared-bundle roots resolve. The returned path is used as a walk-up leaf
+// (relative) unless the configured root is absolute, in which case it is
+// returned as an absolute path.
+func sharkDataPromptsSubdir() string {
+	root := configuredSharkDataPath
+	if root == "" {
+		root = defaultSharkDataDirName
+	}
+	root = pathutil.ExpandHome(root)
+	return filepath.Join(root, sharkDataPromptsLeaf)
 }
 
 // GetTemplateDirName returns the configured template directory name, falling
@@ -59,11 +99,7 @@ func GetTemplateDirName() string {
 	if dir == "" {
 		return defaultTemplateDir
 	}
-	if strings.HasPrefix(dir, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			dir = filepath.Join(home, dir[2:])
-		}
-	}
+	dir = pathutil.ExpandHome(dir)
 	return dir
 }
 
@@ -92,22 +128,32 @@ func findTemplateDir() string {
 		return dirName
 	}
 
-	// Pass 1: prefer shark-data/prompts/ (Shark 2.0).
-	currentDir := wd
-	for {
-		candidate := filepath.Join(currentDir, sharkDataPromptsSubdir)
-		if hasPromptFiles(candidate) {
-			return candidate
+	promptsSubdir := sharkDataPromptsSubdir()
+
+	// Pass 0: an absolute shark_data_path bundle root resolves its prompts
+	// directory directly — no walk-up needed (shared-bundle parity).
+	if filepath.IsAbs(promptsSubdir) {
+		if hasPromptFiles(promptsSubdir) {
+			return promptsSubdir
 		}
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			break
+	} else {
+		// Pass 1: prefer <shark_data_path>/prompts/ (Shark 2.0), walking up.
+		currentDir := wd
+		for {
+			candidate := filepath.Join(currentDir, promptsSubdir)
+			if hasPromptFiles(candidate) {
+				return candidate
+			}
+			parentDir := filepath.Dir(currentDir)
+			if parentDir == currentDir {
+				break
+			}
+			currentDir = parentDir
 		}
-		currentDir = parentDir
 	}
 
 	// Pass 2: fall back to legacy shark-templates/.
-	currentDir = wd
+	currentDir := wd
 	for {
 		candidate := filepath.Join(currentDir, dirName)
 		if hasPromptFiles(candidate) {

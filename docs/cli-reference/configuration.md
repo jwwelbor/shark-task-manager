@@ -102,7 +102,42 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 | `require_rejection_reason` | bool | `true` | Require reason when rejecting tasks |
 | `viewer` | string | `"cat"` | External viewer for `shark view` (e.g., `"glow"`, `"nano"`) |
 | `template_directory` | string | `"shark-templates"` | Template directory path relative to project root for `.tmpl` files |
+| `shark_data_path` | string | `"shark-data"` | Content-bundle root holding `skills/`, `prompts/`, `agents/`, `workflow/`, and `overrides/`. See [Shark Data Path](#shark-data-path) below. |
 | `console_width` | int | `0` (auto-detect) | Override the console width used by list-view tables. See [Console Width](#console-width) below. |
+
+<a id="shark-data-path"></a>
+#### Shark Data Path
+
+`shark_data_path` selects the **content-bundle root** — the directory holding
+`skills/`, `prompts/`, `agents/`, `workflow/`, and `overrides/`. It is
+**independent of `workflow_config`** (which selects only the active workflow
+graph / status routing); `workflow_config` never drives the bundle root.
+
+All bundle-aware commands resolve this one value the same way — `shark init`,
+`shark upgrade`, and `shark validate` all materialize/refresh/validate the
+resolved root, and prompt + workflow resolution read from it:
+
+- **Default** (`"shark-data"`): resolves to `<project-root>/shark-data`,
+  preserving historical behavior.
+- **Relative path**: resolved against the project root. A path that escapes the
+  project root via `..` is **rejected** — use an absolute path for shared
+  bundles.
+- **Absolute path** (or a `~/`-prefixed path, expanded to your home directory):
+  honored verbatim. This is the shared-bundle case — point multiple projects at
+  one bundle on a shared mount, monorepo, or submodule.
+
+```json
+{
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow"
+}
+```
+
+```json
+{
+  "shark_data_path": "~/shared/shark-bundles/standard"
+}
+```
 
 <a id="console-width"></a>
 #### Console Width

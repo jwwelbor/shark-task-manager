@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/jwwelbor/shark-task-manager/internal/pathutil"
 )
 
 var (
@@ -739,14 +741,10 @@ func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMes
 	return filepath.Join(configDir, ".sharkworkflow.json"), false
 }
 
-// expandHome expands a leading "~/" to the user's home directory.
+// expandHome expands a leading "~/" to the user's home directory. It delegates
+// to pathutil.ExpandHome so "~/" handling stays identical across packages.
 func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
-		}
-	}
-	return path
+	return pathutil.ExpandHome(path)
 }
 
 // loadWorkflowFile reads and parses the workflow file at the given path.

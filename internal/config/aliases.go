@@ -8,16 +8,24 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	cfgtemplate "github.com/jwwelbor/shark-task-manager/internal/config/template"
 	"github.com/jwwelbor/shark-task-manager/internal/config/validation"
 	"github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/pathutil"
 )
+
+// ErrSharkDataPathEscapes is returned by ResolveSharkDataRoot when a relative
+// shark_data_path resolves outside the project root. Callers branch on it with
+// errors.Is rather than string-matching the message.
+var ErrSharkDataPathEscapes = errors.New("shark_data_path escapes the project root")
 
 // jsonUnmarshal is a tiny indirection so the workflow_config raw decode in
 // resolveWorkflowDir can be replaced in tests without dragging encoding/json
@@ -418,12 +426,19 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 // (default workflow dir). This signature change (was: configPath) is part of
 // TD-023's "read .sharkconfig.json once" pass.
 func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, overridesDir string, isLegacyFile bool) {
-	const defaultRel = "shark-data/workflow"
-
 	configured := readWorkflowConfigField(configBytes)
 
 	if configured == "" {
-		workflowDir = filepath.Join(projectRoot, defaultRel)
+		// No explicit workflow_config: derive the default workflow directory
+		// from the configured shark_data_path bundle root
+		// (<shark_data_path>/workflow). Routed through the single
+		// ResolveSharkDataRoot resolver so "~/" expansion, absolute-path
+		// honoring, and the in-project escape check are applied identically
+		// to `shark validate` and prompt resolution. shark_data_path defaults
+		// to "shark-data", preserving the historical
+		// <projectRoot>/shark-data/workflow default. An explicit
+		// workflow_config always wins (handled in the else branch below).
+		workflowDir = filepath.Join(resolveSharkDataRootOrDefault(projectRoot, configBytes), "workflow")
 	} else {
 		// Honor absolute paths verbatim; resolve relative paths against the
 		// project root (the directory holding .sharkconfig.json).
@@ -473,6 +488,91 @@ func readWorkflowConfigField(raw []byte) string {
 		return ""
 	}
 	return probe.WorkflowConfig
+}
+
+// readSharkDataPathField extracts the `shark_data_path` field from raw
+// .sharkconfig.json bytes without going through the full Manager. Mirrors
+// readWorkflowConfigField. Returns the configured value, or the default
+// "shark-data" when the file is missing, malformed, or the field is
+// absent/empty. The default is baked in here (rather than returning "") so
+// callers that combine this with path joins always get a usable bundle root.
+func readSharkDataPathField(raw []byte) string {
+	if len(raw) == 0 {
+		return DefaultSharkDataPath
+	}
+	var probe struct {
+		SharkDataPath string `json:"shark_data_path"`
+	}
+	if err := jsonUnmarshal(raw, &probe); err != nil {
+		return DefaultSharkDataPath
+	}
+	if probe.SharkDataPath == "" {
+		return DefaultSharkDataPath
+	}
+	return probe.SharkDataPath
+}
+
+// ResolveSharkDataRoot returns the absolute path to the content-bundle root
+// (skills/, prompts/, agents/, overrides/) selected by `shark_data_path` in
+// .sharkconfig.json, defaulting to <projectRoot>/shark-data.
+//
+// configBytes is the already-read contents of .sharkconfig.json (pass nil/
+// empty when absent — the default is used). projectRoot is the directory
+// holding .sharkconfig.json.
+//
+// Resolution rules:
+//   - A leading "~/" is expanded to the user's home directory (shared-bundle
+//     convention, matching template_directory resolution).
+//   - Absolute shark_data_path: honored verbatim (shared-bundle parity with
+//     workflow_config trust).
+//   - Relative shark_data_path: resolved against projectRoot, then cleaned and
+//     verified to stay WITHIN projectRoot. A relative path that escapes the
+//     project root via `..` is rejected with ErrSharkDataPathEscapes.
+//
+// This is the single source of truth for interpreting shark_data_path; the
+// workflow-dir and prompts-dir resolvers derive from it so all consumers agree
+// on one bundle root for any given config value.
+func ResolveSharkDataRoot(projectRoot string, configBytes []byte) (string, error) {
+	dataPath := pathutil.ExpandHome(readSharkDataPathField(configBytes))
+
+	if filepath.IsAbs(dataPath) {
+		return filepath.Clean(dataPath), nil
+	}
+
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve project root %q: %w", projectRoot, err)
+	}
+	absRoot = filepath.Clean(absRoot)
+
+	resolved := filepath.Clean(filepath.Join(absRoot, dataPath))
+
+	// Reject paths that escape the project root via `..`. A resolved path is
+	// in-bounds when it equals the root or sits under root + separator.
+	if resolved != absRoot && !strings.HasPrefix(resolved, absRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf(
+			"%w: %q (root %q); use an absolute path for shared bundles",
+			ErrSharkDataPathEscapes, dataPath, absRoot,
+		)
+	}
+
+	return resolved, nil
+}
+
+// resolveSharkDataRootOrDefault resolves the bundle root for internal callers
+// that have no error channel (e.g. workflow-dir resolution). On any resolution
+// failure — most notably an escaping relative shark_data_path — it logs a
+// warning and falls back to <projectRoot>/shark-data so resolution fails safe.
+// `shark validate` calls ResolveSharkDataRoot directly and surfaces the same
+// misconfiguration as a hard error, so the problem is never silently swallowed.
+func resolveSharkDataRootOrDefault(projectRoot string, configBytes []byte) string {
+	root, err := ResolveSharkDataRoot(projectRoot, configBytes)
+	if err != nil {
+		slog.Warn("invalid shark_data_path; falling back to default bundle root",
+			"error", err, "default", DefaultSharkDataPath)
+		return filepath.Join(projectRoot, DefaultSharkDataPath)
+	}
+	return root
 }
 
 // workflowToStatusActionData flattens a WorkflowConfig's StatusMetadata into the

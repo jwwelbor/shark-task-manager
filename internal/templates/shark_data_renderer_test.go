@@ -183,7 +183,7 @@ func TestFindTemplateDir_PrefersSharkData(t *testing.T) {
 	// E5: when both shark-data/prompts/ and shark-templates/ exist, prefer
 	// shark-data/prompts/.
 	root := t.TempDir()
-	sharkData := filepath.Join(root, sharkDataPromptsSubdir, "task")
+	sharkData := filepath.Join(root, sharkDataPromptsSubdir(), "task")
 	sharkTemplates := filepath.Join(root, defaultTemplateDir, "task")
 	require.NoError(t, os.MkdirAll(sharkData, 0755))
 	require.NoError(t, os.MkdirAll(sharkTemplates, 0755))
@@ -199,9 +199,12 @@ func TestFindTemplateDir_PrefersSharkData(t *testing.T) {
 	prevConfigured := configuredTemplateDir
 	configuredTemplateDir = ""
 	defer func() { configuredTemplateDir = prevConfigured }()
+	prevSharkData := configuredSharkDataPath
+	configuredSharkDataPath = ""
+	defer func() { configuredSharkDataPath = prevSharkData }()
 
 	got := findTemplateDir()
-	assert.Equal(t, filepath.Join(root, sharkDataPromptsSubdir), got,
+	assert.Equal(t, filepath.Join(root, sharkDataPromptsSubdir()), got,
 		"findTemplateDir should prefer shark-data/prompts/ over shark-templates/")
 }
 
@@ -224,6 +227,33 @@ func TestFindTemplateDir_FallsBackToSharkTemplates(t *testing.T) {
 	got := findTemplateDir()
 	assert.Equal(t, filepath.Join(root, defaultTemplateDir), got,
 		"findTemplateDir should fall back to shark-templates/ when shark-data/prompts/ is absent")
+}
+
+func TestFindTemplateDir_AbsoluteSharkDataPathUsedDirectly(t *testing.T) {
+	// Pass 0: an absolute shark_data_path bundle root resolves its prompts/
+	// directory directly, with no walk-up (the shared-bundle case).
+	bundle := t.TempDir() // absolute
+	promptsTask := filepath.Join(bundle, "prompts", "task")
+	require.NoError(t, os.MkdirAll(promptsTask, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(promptsTask, "in_qa.md"), []byte("MD"), 0644))
+
+	// Run from an unrelated cwd to prove no walk-up is involved.
+	other := t.TempDir()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(cwd) }()
+	require.NoError(t, os.Chdir(other))
+
+	prevConfigured := configuredTemplateDir
+	configuredTemplateDir = "" // keep dirName relative so the abs-dirName early return doesn't fire
+	defer func() { configuredTemplateDir = prevConfigured }()
+	prevSharkData := configuredSharkDataPath
+	configuredSharkDataPath = bundle // absolute bundle root
+	defer func() { configuredSharkDataPath = prevSharkData }()
+
+	got := findTemplateDir()
+	assert.Equal(t, filepath.Join(bundle, "prompts"), got,
+		"absolute shark_data_path should resolve <bundle>/prompts directly via Pass 0")
 }
 
 func TestFindTemplateDir_AbsoluteOverrideUsedDirectly(t *testing.T) {
