@@ -28,7 +28,7 @@ steps:
       fail: identified
       pass: triaged
       wont_fix: wont_fix
-  progress:
+  in_progress:
     phase: development
     color: yellow
     display_token: IP
@@ -47,7 +47,6 @@ steps:
       fail: identified
       pass: resolved
       wont_fix: wont_fix
-    aliases: [in_progress]
   resolved:
     phase: done
     color: green
@@ -75,7 +74,7 @@ steps:
       blocked: identified
       cancelled: cancelled
       fail: identified
-      pass: progress
+      pass: in_progress
       wont_fix: wont_fix
   wont_fix:
     phase: done

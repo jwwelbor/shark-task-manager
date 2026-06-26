@@ -370,12 +370,11 @@ func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
 	assert.NotEmpty(t, completeStatuses, "task.yaml _complete_ must be non-empty")
 
 	// ── 5a. specific values from the canonical task.yaml ──────────────────
-	// The canonical task.yaml is now route-based (E35): the legacy
-	// ready_for_development / in_development pair collapses into a single
-	// `development` step, with the old names preserved in its aliases:. These
-	// assertions encode the expected content of the collapsed file and serve as
-	// a regression guard against accidental breaking edits. The derived
-	// StatusFlow target sets must match the collapsed original targets.
+	// The canonical task.yaml is route-based (E35): the old
+	// ready_for_development / in_development pair is now the single
+	// `development` step. These assertions encode the expected content of the
+	// collapsed file and serve as a regression guard against accidental
+	// breaking edits.
 	require.True(t, cfg.HasSteps(), "canonical task.yaml must use the route-based steps: schema")
 	assert.Equal(t, "draft", cfg.Start, "canonical task.yaml start step must be draft")
 
@@ -389,14 +388,11 @@ func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
 			"expected collapsed status %q in canonical task.yaml status_metadata", s)
 	}
 
-	// The old ready_for_development / in_development names must resolve to the
-	// collapsed `development` step via the alias map (input compat + migration).
+	// Shipped workflows no longer carry legacy status aliases; migration uses
+	// the explicit repair map in the admin migration command instead.
 	aliasMap, aliasErrs := cfg.AliasMap()
 	assert.Empty(t, aliasErrs, "task.yaml alias map must be collision-free")
-	assert.Equal(t, "development", aliasMap["ready_for_development"],
-		"ready_for_development must alias to the collapsed development step")
-	assert.Equal(t, "development", aliasMap["in_development"],
-		"in_development must alias to the collapsed development step")
+	assert.Empty(t, aliasMap, "canonical task.yaml must not contain legacy aliases")
 
 	// Derived transitions: draft advances to development (pass outcome), and
 	// development advances to completed (pass) and falls back to draft (fail).

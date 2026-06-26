@@ -72,8 +72,8 @@ func TestF02_AC1_SharkDataWorkflowConfigLoads(t *testing.T) {
 			"this proves the shark-data/ layout is valid for the engine")
 
 	// Render one feature prompt to confirm the renderer is fully operational.
-	out, err := renderer.Render("feature/ready_for_assessment.md", standardVars())
-	require.NoError(t, err, "AC1: feature/ready_for_assessment.md must render without error")
+	out, err := renderer.Render("feature/assessment.md", standardVars())
+	require.NoError(t, err, "AC1: feature/assessment.md must render without error")
 	require.NotEmpty(t, out, "AC1: rendered prompt must not be empty")
 }
 
@@ -92,7 +92,7 @@ func TestF02_AC2_RenderedPromptInlinesSkillContent(t *testing.T) {
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
 	require.NoError(t, err)
 
-	out, err := renderer.Render("feature/ready_for_assessment.md", standardVars())
+	out, err := renderer.Render("feature/assessment.md", standardVars())
 	require.NoError(t, err)
 
 	// The assessment skill has a stable H1 that proves it was inlined.
@@ -115,8 +115,8 @@ func TestF02_AC2_RenderedPromptInlinesSkillContent(t *testing.T) {
 // is byte-for-byte identical to the stored golden file.
 //
 // This test deliberately exercises the two most important prompt types:
-//   - feature/ready_for_assessment.md (has {{include:}} skill inlining)
-//   - task/ready_for_development.md (exercises task workflow path)
+//   - feature/assessment.md (has {{include:}} skill inlining)
+//   - task/development.md (exercises task workflow path)
 func TestF02_AC3_OutputEqualsGoldenCorpus(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 
@@ -131,12 +131,12 @@ func TestF02_AC3_OutputEqualsGoldenCorpus(t *testing.T) {
 		goldenPath string
 	}{
 		{
-			tmplName:   "feature/ready_for_assessment.md",
-			goldenPath: filepath.Join(goldenRoot, "feature", "ready_for_assessment.golden"),
+			tmplName:   "feature/assessment.md",
+			goldenPath: filepath.Join(goldenRoot, "feature", "assessment.golden"),
 		},
 		{
-			tmplName:   "task/ready_for_development.md",
-			goldenPath: filepath.Join(goldenRoot, "task", "ready_for_development.golden"),
+			tmplName:   "task/development.md",
+			goldenPath: filepath.Join(goldenRoot, "task", "development.golden"),
 		},
 	}
 
@@ -286,17 +286,17 @@ func TestF02_AC6_OverrideResolutionWinsOverDefault(t *testing.T) {
 // ── AC2 extended: task prompt inlines skill via {{include:}} ─────────────────
 
 // TestF02_AC2_TaskPromptInlinesSkill extends AC2 with a second prompt type
-// (task/ready_for_development.md) to confirm {{include:}} works for tasks too.
+// (task/development.md) to confirm {{include:}} works for tasks too.
 func TestF02_AC2_TaskPromptInlinesSkill(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
 	require.NoError(t, err)
 
-	out, err := renderer.Render("task/ready_for_development.md", standardVars())
+	out, err := renderer.Render("task/development.md", standardVars())
 	require.NoError(t, err)
 
-	// task/ready_for_development.md includes skills/implementation/SKILL.md and
+	// task/development.md includes skills/implementation/SKILL.md and
 	// skills/test-driven-development/SKILL.md. Both should be inlined.
 	assert.NotEmpty(t, out, "AC2 (task): rendered task prompt must not be empty")
 	assert.NotContains(t, out, "{{include:",

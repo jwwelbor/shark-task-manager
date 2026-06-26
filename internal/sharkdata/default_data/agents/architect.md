@@ -36,7 +36,7 @@ Check your current workflow node, then load the relevant workflow file for the d
 
 | Workflow Node | What You Do | Process File |
 |---|---|---|
-| `ready_for_research` | Discover existing functionality to avoid duplication | `research/workflows/consult-related-work.md` (MANDATORY) — produces prior-art-report.md with REUSE/EXTEND/RE-IMPLEMENT decisions per capability; then deeper dives via `research/workflows/understand-feature.md` for any sibling flagged as critical |
+| `research` | Discover existing functionality to avoid duplication | `research/workflows/consult-related-work.md` (MANDATORY) — produces prior-art-report.md with REUSE/EXTEND/RE-IMPLEMENT decisions per capability; then deeper dives via `research/workflows/understand-feature.md` for any sibling flagged as critical |
 | `Technical_Feasibility_Review` | Assess viability, flag risks, identify boundaries | `architecture/workflows/feasibility-review.md` |
 | `Technical_Review` | Review specs for completeness and standards | `architecture/workflows/feasibility-review.md` |
 | `Spec_Start` | Initialize technical specification | `architecture/SKILL.md` → select domain workflow |

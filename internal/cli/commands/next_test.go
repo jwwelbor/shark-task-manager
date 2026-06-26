@@ -167,7 +167,7 @@ func isDirExist(path string) bool {
 }
 
 // TestRunNext_InlinesSkillContent is the F02 AC #2 end-to-end check: the
-// shipped feature/ready_for_assessment.md prompt must produce a rendered
+// shipped feature/assessment.md prompt must produce a rendered
 // output that contains the body of skills/assessment/SKILL.md inlined via
 // {{include:}}, not a path reference.
 func TestRunNext_InlinesSkillContent(t *testing.T) {
@@ -176,7 +176,7 @@ func TestRunNext_InlinesSkillContent(t *testing.T) {
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
 	require.NoError(t, err, "shipped prompts must parse with includes resolved")
 
-	out, err := renderer.Render("feature/ready_for_assessment.md", map[string]string{
+	out, err := renderer.Render("feature/assessment.md", map[string]string{
 		"id":        "E32-F02",
 		"title":     "Engine — includes",
 		"file_path": "docs/plan/E32/E32-F02/E32-F02.md",

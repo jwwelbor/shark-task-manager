@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	cfgworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
@@ -13,7 +14,8 @@ import (
 )
 
 // routeBasedTaskWorkflowSvc builds a workflow.Service from a temp project whose
-// task workflow renames "ready_for_development" -> "development" via an alias.
+// task workflow uses only canonical route step names. Legacy status migration
+// must use Shark's built-in repair map, not workflow aliases.
 func routeBasedTaskWorkflowSvc(t *testing.T) *workflow.Service {
 	t.Helper()
 	projectRoot := t.TempDir()
@@ -36,7 +38,6 @@ steps:
     phase: development
     action: spawn_agent
     agent: developer
-    aliases: [ready_for_development, in_development]
     outcomes:
       pass: completed
       fail: draft
@@ -152,5 +153,50 @@ func TestMigrateStatuses_DryRunAndApply(t *testing.T) {
 	}
 	if histNew != "ready_for_development" {
 		t.Errorf("task_history was rewritten: got %q, want ready_for_development", histNew)
+	}
+}
+
+func TestMigrateStatuses_UnmappedLegacyStatusFails(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	db := repository.NewDB(database)
+
+	epicRes, err := database.ExecContext(ctx,
+		`INSERT INTO epics (key, title, description, status, priority) VALUES (?, ?, ?, ?, ?)`,
+		"E98", "Migration Epic", "Migration test epic", "active", "high")
+	if err != nil {
+		t.Fatalf("insert epic: %v", err)
+	}
+	epicID, err := epicRes.LastInsertId()
+	if err != nil {
+		t.Fatalf("epic last insert id: %v", err)
+	}
+	featureRes, err := database.ExecContext(ctx,
+		`INSERT INTO features (epic_id, key, title, description, status) VALUES (?, ?, ?, ?, ?)`,
+		epicID, "E98-F01", "Migration Feature", "Migration test feature", "active")
+	if err != nil {
+		t.Fatalf("insert feature: %v", err)
+	}
+	featureID, err := featureRes.LastInsertId()
+	if err != nil {
+		t.Fatalf("feature last insert id: %v", err)
+	}
+	res, err := database.ExecContext(ctx,
+		`INSERT INTO tasks (key, title, status, feature_id) VALUES (?, ?, ?, ?)`,
+		"TEST-MIG-UNMAPPED-001", "Unmapped legacy status", "ready_for_unknown", featureID)
+	if err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+	if _, err := res.RowsAffected(); err != nil {
+		t.Fatalf("rows affected: %v", err)
+	}
+
+	wfSvc := routeBasedTaskWorkflowSvc(t)
+	_, err = collectStatusRewrites(ctx, db, wfSvc)
+	if err == nil {
+		t.Fatal("expected unmapped legacy status to fail")
+	}
+	if !strings.Contains(err.Error(), "ready_for_unknown") {
+		t.Fatalf("expected error to mention ready_for_unknown, got %v", err)
 	}
 }

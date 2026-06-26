@@ -1,0 +1,62 @@
+Review tasks for feature E07-F01: "Sample feature for golden test".
+
+Check for existing task review report at docs/review/{epic-folder}/{feature-folder}/task_review/E07-F01-task-review.md.
+(Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+If report exists with PASS verdict, advance immediately. If FAIL, send back to task_generation.
+
+---
+
+TASK DECOMPOSITION REVIEW
+
+This is a quality gate comparing the generated tasks against the feature specification. The goal is to catch gaps, ordering issues, or spec misalignment BEFORE development begins.
+
+READ:
+(1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for requirements, architecture decisions, and acceptance criteria
+(2) Feature test-plan.md (sibling of spec.md) for expected test cases
+(3) All task files: shark list E07-F01 --json, then read each task's file_path
+(4) Parent epic context for cross-feature dependency awareness
+
+VERIFY:
+
+## Requirements Coverage
+- [ ] Every requirement in spec.md is addressed by at least one task
+- [ ] Every acceptance criterion in spec.md maps to at least one task
+- [ ] No spec requirements are missing or only partially covered
+
+## Task Quality
+- [ ] Each task file is 50 lines or less (not counting frontmatter)
+- [ ] No code blocks in task files (references only)
+- [ ] Each task references spec.md and test-plan.md sections (not copy-pasted content)
+- [ ] Task scopes are coherent (each modifies a related set of files)
+- [ ] Task titles accurately reflect their content
+- [ ] TDD shape: no task is pure "write tests for X" following a preceding
+      "implement X" task. Each implementation task owns its own tests — its
+      Scope must list both implementation file(s) AND test file(s).
+      Exception: a single feature-level integration/e2e test suite that
+      spans multiple components may be its own task (goal must say so).
+      If this rule is violated, FAIL and send back with reason: "merge
+      test-only task(s) into their implementation task(s) for TDD."
+
+## Ordering & Dependencies
+- [ ] Execution order reflects actual dependencies
+- [ ] Dependencies form a valid DAG (no circular chains)
+- [ ] Foundation tasks (shared types, interfaces, DB schema) come first
+- [ ] Tasks can be worked on in the specified order without blocking
+
+## Scope Alignment
+- [ ] Tasks stay within feature scope (no scope creep beyond spec.md)
+- [ ] No unnecessary tasks that don't map to spec requirements
+- [ ] Task granularity is appropriate (each is a focused unit of work)
+
+PRODUCE task review report at docs/review/{epic-folder}/{feature-folder}/task_review/E07-F01-task-review.md:
+(Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+- Verdict: PASS or FAIL
+- Requirements coverage matrix (spec requirement -> task mapping)
+- Gaps identified (if any)
+- Ordering issues (if any)
+- Task quality issues (if any)
+- Recommendations
+
+DECISION:
+- ALL PASS -> shark status advance E07-F01
+- ANY FAIL -> shark status set E07-F01 task_generation --reason "<specific gaps or issues to fix>"

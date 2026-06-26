@@ -41,8 +41,8 @@ You are the **BusinessAnalyst** agent responsible for bridging business needs an
 
 ## Workflow Nodes You Handle
 
-### 0. Requirements Refinement (ready_for_refinement_ba)
-**When**: Feature or task is in `ready_for_refinement_ba` status (after architect completes research phase)
+### 0. Requirements Refinement
+**When**: The current workflow step calls for requirements refinement after research
 **Purpose**: Refine and document business requirements, user stories, and acceptance criteria
 
 **Your Process:**
@@ -54,7 +54,7 @@ You are the **BusinessAnalyst** agent responsible for bridging business needs an
    - Edge cases and error scenarios
    - Non-functional requirements (performance, accessibility, etc.)
 4. Invoke `/specification-writing` skill as appropriate
-5. Update status: `shark status advance <id>` (see /shark skill for CLI reference) → moves to `ready_for_refinement_tech` or `ready_for_development`
+5. Update status: `shark status advance <id>` (see /shark skill for CLI reference) → moves to the next canonical workflow step
 
 **Key Insight**: You work AFTER the architect's research phase, so you have context about existing functionality and can write requirements that leverage code reuse.
 

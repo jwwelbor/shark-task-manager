@@ -140,8 +140,8 @@ Use the `/shark` skill to: list all blockers in an epic, review agent activity h
 
 ### Monitor That Agents Are Advancing Status
 **CRITICAL:** Watch that tasks progress through workflow statuses:
-- If a task stays `in_development` for too long, developer may not have called `shark status advance`
-- If a task stays `in_qa` for too long, QA may not have called `shark status advance`
+- If a task stays in `development` for too long, developer may not have called `shark status advance`
+- If a task stays in `qa` for too long, QA may not have called `shark status advance`
 
 **The workflow requires agents to call `shark status advance` when done.** Nudge them if you see tasks stuck.
 

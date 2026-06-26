@@ -1,10 +1,84 @@
-{{define "_qa_process"}}{{include: skills/quality/SKILL.md}}
+QA testing for task E07-F01: "Sample feature for golden test".
+
+
+# Quality Skill
+
+This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
+
+## Workflow Selection
+
+Based on what needs validation, invoke the appropriate workflow:
+
+### Design Document Validation
+**When**: Validating feature design documentation before task generation
+**Invoke**: `workflows/validate-design.md`
+**Output**: Validation report for design documents
+**Use case**: Ensure all required design docs exist and are complete
+
+### Task Readiness Validation
+**When**: Validating tasks are complete and ready for implementation
+**Invoke**: `workflows/validate-tasks.md`
+**Output**: Task readiness report with dependency analysis
+**Use case**: Verify tasks are properly structured and sequenced
+
+### Code Review
+**When**: Reviewing code implementation against requirements and standards
+**Invoke**: `workflows/review-code.md`
+**Output**: Comprehensive code review report
+**Use case**: Assess code quality, PRD alignment, and engineering standards
+
+### Test Planning (Shift-Left QA)
+**When**: Reviewing task specifications BEFORE development begins
+**Invoke**: `workflows/test-planning.md`
+**Output**: Spec drift analysis + concrete acceptance test cases
+**Use case**: Compare task spec against feature PRD for drift, write test plan that becomes the developer's source of truth. This is the quality gate between planning and development.
+
+### QA Testing (Post-Development)
+**When**: Validating implementation after code review
+**Invoke**: `workflows/qa-testing.md`
+**Output**: QA test results and exploratory findings
+**Use case**: Validate implementation against pre-written test plan and acceptance criteria
+
+## Quality Resources
+
+All workflows reference these quality criteria files:
+
+- `context/design-validation-criteria.md` - Design document requirements
+- `context/task-validation-criteria.md` - Task completeness checks
+- `context/review-rubric.md` - Code review standards
+- `context/quality-gates.md` - General quality standards
+
+## Usage Pattern
+
+Commands and agents reference this skill using:
+
+```markdown
+## Your Process
+1. Analyze what needs validation
+2. Invoke quality skill: quality/workflows/validate-{type}.md
+3. Apply criteria from quality/context/{criteria-name}.md
+4. Generate validation report with actionable feedback
+```
+
+## Quality Standards
+
+All validation activities must:
+- Be objective and measurable
+- Provide clear pass/fail criteria
+- Include actionable feedback for failures
+- Reference specific standards and requirements
+- Generate consistent, structured reports
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
 
 READ:
-(1) Task spec at {{.file_path}} for acceptance criteria and **Scope file list**
+(1) Task spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria and **Scope file list**
 (2) Feature test-plan.md for test cases mapped to this task
 (3) Feature spec.md for feature-level intent
-(4) Code review report from {{.review_base}}code_review/
+(4) Code review report from maincode_review/
 (5) Implementation code and existing test results
 (6) `git diff` of the task's changes to derive the actual touched paths
 
@@ -47,7 +121,7 @@ DO NOT RUN:
 - Codex red-team (UAT owns red-team; running it here is redundant and costs ~5 min when it times out)
 - Manual `make test-performance` unless the task explicitly modifies code paths timed by performance tests
 
-PRODUCE QA report at {{.review_base}}qa/`<timestamp>`-{{.id}}-qa.md:
+PRODUCE QA report at mainqa/`<timestamp>`-E07-F01-qa.md:
 - Verdict: PASS or FAIL
 - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
 - Test results summary (counts, durations)
@@ -56,6 +130,5 @@ PRODUCE QA report at {{.review_base}}qa/`<timestamp>`-{{.id}}-qa.md:
 - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
 
 DECISION:
-- ALL PASS → {{template "advance" .}}
-- ANY FAIL → shark status set {{.id}} development --reason "<specific failures to fix>"
-{{end}}
+- ALL PASS → shark status advance E07-F01
+- ANY FAIL → shark status set E07-F01 development --reason "<specific failures to fix>"

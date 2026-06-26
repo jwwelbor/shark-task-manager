@@ -1,9 +1,11 @@
-{{define "_uat_redteam_review"}}This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
+UAT approval for task E07-F01: "Sample feature for golden test".
+
+This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
 READ:
-(1) Task spec at {{.file_path}} for acceptance criteria
-(2) Code review report from {{.review_base}}code_review/
-(3) QA report from {{.review_base}}qa/
+(1) Task spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria
+(2) Code review report from maincode_review/
+(3) QA report from mainqa/
 (4) Feature spec.md and test-plan.md for feature-level requirements
 (5) Implementation code — read the actual changed files
 
@@ -15,13 +17,12 @@ RED-TEAM REVIEW:
 - Check for security issues (injection, auth bypass, data leaks)
 - Verify the implementation integrates correctly with the broader feature
 
-PRODUCE UAT report at {{.review_base}}uat/`<timestamp>`-{{.id}}-uat.md:
+PRODUCE UAT report at mainuat/`<timestamp>`-E07-F01-uat.md:
 - Verdict: APPROVED or REJECTED
 - Independent findings (not just echoing prior reports)
 - Evidence for each acceptance criterion (cite specific code lines)
 - Red-team findings (if any)
 
 DECISION:
-- APPROVED → {{template "advance" .}}
-- REJECTED → shark status set {{.id}} development --reason "<specific rejection findings>"
-{{end}}
+- APPROVED → shark status advance E07-F01
+- REJECTED → shark status set E07-F01 development --reason "<specific rejection findings>"

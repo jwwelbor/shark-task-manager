@@ -28,13 +28,12 @@ steps:
     provider: openai
     model: codex
     skills: [quality, uat]
-    prompt: feature/ready_for_approval.md
+    prompt: feature/approval.md
     outcomes:
       blocked: blocked
       fail: active
       on_hold: on_hold
       pass: completed
-    aliases: [in_approval, ready_for_approval]
   assessment:
     phase: triage
     color: orange
@@ -48,7 +47,7 @@ steps:
     provider: anthropic
     model: haiku
     skills: [assessment, research]
-    prompt: feature/ready_for_assessment.md
+    prompt: feature/assessment.md
     outcomes:
       blocked: blocked
       cancelled: cancelled
@@ -57,7 +56,6 @@ steps:
       pass: research
       specification: specification
       task_generation: task_generation
-    aliases: [in_assessment, ready_for_assessment]
   blocked:
     phase: blocked
     color: red
@@ -91,13 +89,12 @@ steps:
     provider: anthropic
     model: opus
     skills: [quality]
-    prompt: feature/ready_for_code_review.md
+    prompt: feature/code_review.md
     outcomes:
       blocked: blocked
       fail: active
       on_hold: on_hold
       pass: qa
-    aliases: [in_code_review, ready_for_code_review]
   completed:
     phase: done
     color: green
@@ -146,13 +143,12 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality, test-driven-development]
-    prompt: feature/ready_for_qa.md
+    prompt: feature/qa.md
     outcomes:
       blocked: blocked
       fail: active
       on_hold: on_hold
       pass: approval
-    aliases: [in_qa, ready_for_qa]
   research:
     phase: research
     color: purple
@@ -166,13 +162,12 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [research, brownfield-analysis]
-    prompt: feature/ready_for_research.md
+    prompt: feature/research.md
     outcomes:
       blocked: blocked
       fail: assessment
       on_hold: on_hold
       pass: specification
-    aliases: [in_research, ready_for_research]
   specification:
     phase: specification
     color: cyan
@@ -186,13 +181,12 @@ steps:
     provider: anthropic
     model: opus
     skills: [architecture, specification-writing]
-    prompt: feature/ready_for_specification.md
+    prompt: feature/specification.md
     outcomes:
       blocked: blocked
       fail: research
       on_hold: on_hold
       pass: test_planning
-    aliases: [in_specification, ready_for_specification]
   task_generation:
     phase: decomposition
     color: blue
@@ -205,14 +199,13 @@ steps:
     agent: product-manager
     provider: anthropic
     model: sonnet
-    skills: [specification-writing, task]
-    prompt: feature/ready_for_task_generation.md
+    skills: [specification-writing]
+    prompt: feature/task_generation.md
     outcomes:
       blocked: blocked
       fail: test_planning
       on_hold: on_hold
       pass: task_review
-    aliases: [in_task_generation, ready_for_task_generation]
   task_review:
     phase: review
     color: magenta
@@ -226,13 +219,12 @@ steps:
     provider: openai
     model: codex
     skills: [quality, specification-writing]
-    prompt: feature/ready_for_task_review.md
+    prompt: feature/task_review.md
     outcomes:
       blocked: blocked
       fail: task_generation
       on_hold: on_hold
       pass: active
-    aliases: [in_task_review, ready_for_task_review]
   test_planning:
     phase: test_planning
     color: blue
@@ -246,10 +238,9 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality, test-driven-development]
-    prompt: feature/ready_for_test_planning.md
+    prompt: feature/test_planning.md
     outcomes:
       blocked: blocked
       fail: specification
       on_hold: on_hold
       pass: task_generation
-    aliases: [in_test_planning, ready_for_test_planning]

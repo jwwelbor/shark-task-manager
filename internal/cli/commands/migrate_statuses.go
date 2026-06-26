@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -26,6 +27,75 @@ var statusMigrationTargets = []statusMigrationTarget{
 	{"change_cards", "change"},
 	{"tech_debts", "tech_debt"},
 	{"sprints", "sprint"},
+}
+
+var legacyStatusRepairMaps = map[string]map[string]string{
+	"epic": {
+		"in_decomposition":         "decomposition",
+		"in_design":                "design",
+		"in_feature_review":        "feature_review",
+		"in_refinement":            "refinement",
+		"in_research":              "research",
+		"ready_for_decomposition":  "decomposition",
+		"ready_for_design":         "design",
+		"ready_for_feature_review": "feature_review",
+		"ready_for_refinement":     "refinement",
+		"ready_for_research":       "research",
+	},
+	"feature": {
+		"in_approval":               "approval",
+		"in_assessment":             "assessment",
+		"in_code_review":            "code_review",
+		"in_qa":                     "qa",
+		"in_research":               "research",
+		"in_specification":          "specification",
+		"in_task_generation":        "task_generation",
+		"in_task_review":            "task_review",
+		"in_test_planning":          "test_planning",
+		"ready_for_approval":        "approval",
+		"ready_for_assessment":      "assessment",
+		"ready_for_code_review":     "code_review",
+		"ready_for_qa":              "qa",
+		"ready_for_research":        "research",
+		"ready_for_specification":   "specification",
+		"ready_for_task_generation": "task_generation",
+		"ready_for_task_review":     "task_review",
+		"ready_for_test_planning":   "test_planning",
+	},
+	"task": {
+		"in_approval":             "development",
+		"in_code_review":          "development",
+		"in_development":          "development",
+		"in_progress":             "development",
+		"in_qa":                   "development",
+		"ready_for_approval":      "development",
+		"ready_for_code_review":   "development",
+		"ready_for_development":   "development",
+		"ready_for_qa":            "development",
+		"ready_for_refinement_ba": "draft",
+		"todo":                    "draft",
+	},
+	"bug": {
+		"in_code_review":        "code_review",
+		"in_development":        "development",
+		"in_qa":                 "qa",
+		"ready_for_code_review": "code_review",
+		"ready_for_development": "development",
+		"ready_for_qa":          "qa",
+	},
+	"change": {
+		"in_code_review":         "code_review",
+		"in_development":         "development",
+		"in_qa":                  "qa",
+		"in_verification":        "qa",
+		"ready_for_code_review":  "code_review",
+		"ready_for_development":  "development",
+		"ready_for_qa":           "qa",
+		"ready_for_verification": "qa",
+	},
+	"tech_debt": {
+		"progress": "in_progress",
+	},
 }
 
 var migrateStatusesCmd = &cobra.Command{
@@ -96,19 +166,19 @@ func runMigrateStatuses(cmd *cobra.Command, args []string) error {
 func collectStatusRewrites(ctx context.Context, repoDb *repository.DB, wfSvc *workflow.Service) ([]statusRewrite, error) {
 	var planned []statusRewrite
 	for _, tgt := range statusMigrationTargets {
-		aliasMap := wfSvc.ForLevel(tgt.level).StatusAliasMap()
-		if len(aliasMap) == 0 {
-			continue // not a route-based workflow for this level
+		repairMap := legacyStatusRepairMapForLevel(tgt.level, wfSvc)
+		if err := failOnUnmappedLegacyStatuses(ctx, repoDb, tgt, repairMap); err != nil {
+			return nil, err
 		}
 		// Deterministic ordering of old names.
-		olds := make([]string, 0, len(aliasMap))
-		for old := range aliasMap {
+		olds := make([]string, 0, len(repairMap))
+		for old := range repairMap {
 			olds = append(olds, old)
 		}
 		sort.Strings(olds)
 
 		for _, old := range olds {
-			newStep := aliasMap[old]
+			newStep := repairMap[old]
 			if old == newStep {
 				continue
 			}
@@ -123,6 +193,57 @@ func collectStatusRewrites(ctx context.Context, repoDb *repository.DB, wfSvc *wo
 		}
 	}
 	return planned, nil
+}
+
+func legacyStatusRepairMapForLevel(level string, wfSvc *workflow.Service) map[string]string {
+	out := map[string]string{}
+	for old, newStep := range legacyStatusRepairMaps[level] {
+		out[old] = newStep
+	}
+	if wfSvc != nil {
+		for old, newStep := range wfSvc.ForLevel(level).StatusAliasMap() {
+			out[old] = newStep
+		}
+	}
+	return out
+}
+
+func failOnUnmappedLegacyStatuses(ctx context.Context, repoDb *repository.DB, tgt statusMigrationTarget, repairMap map[string]string) error {
+	query := fmt.Sprintf("SELECT DISTINCT status FROM %s", tgt.table) //nolint:gosec // table from fixed allowlist
+	rows, err := repoDb.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("list distinct %s statuses: %w", tgt.table, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var unmapped []string
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			return fmt.Errorf("scan %s status: %w", tgt.table, err)
+		}
+		if _, ok := repairMap[status]; !ok && isLegacyStatusValue(status, tgt.level) {
+			unmapped = append(unmapped, status)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate %s statuses: %w", tgt.table, err)
+	}
+	if len(unmapped) > 0 {
+		sort.Strings(unmapped)
+		return fmt.Errorf("%s.status contains legacy status value(s) with no migration mapping: %s", tgt.table, strings.Join(unmapped, ", "))
+	}
+	return nil
+}
+
+func isLegacyStatusValue(status, level string) bool {
+	if strings.HasPrefix(status, "ready_for_") {
+		return true
+	}
+	if !strings.HasPrefix(status, "in_") {
+		return false
+	}
+	return !(level == "tech_debt" && status == "in_progress")
 }
 
 // applyStatusRewrites executes the planned rewrites in a single transaction,

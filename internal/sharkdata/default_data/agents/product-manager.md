@@ -65,23 +65,22 @@ For each task, determine:
 
 **Decision matrix:**
 ```
-Status: ready_for_research → Dispatch Architect to research existing functionality
-Status: ready_for_refinement_ba → Dispatch BA to refine requirements/PRD
-Status: ready_for_refinement_tech → Dispatch Architect to create architecture docs
-Status: ready_for_development → Dispatch Developer per priority
+Status: research → Dispatch Architect or Researcher to research existing functionality
+Status: refinement → Dispatch BA to refine requirements/PRD
+Status: specification or design → Dispatch Architect to create architecture docs
+Status: development → Dispatch Developer per priority
 Status: in_progress → Monitor, ensure progress
-Status: ready_for_code_review → Dispatch Tech Lead for review
-Status: ready_for_qa → Dispatch QA for testing
-Status: ready_for_approval → Generate UAT guide or mark complete
+Status: code_review → Dispatch Tech Lead for review
+Status: qa → Dispatch QA for testing
+Status: approval → Generate UAT guide or mark complete
 Status: blocked → Investigate blocker, route to appropriate agent
 ```
 
 **Key workflow sequence:**
-1. `ready_for_research` - Architect researches existing code (prevents duplication)
-2. `ready_for_refinement_ba` - BA refines PRD with knowledge of existing code
-3. `ready_for_refinement_tech` - Architect creates architecture docs
-4. `ready_for_development` - Developer implements
-5. Quality gates → code review → QA → approval
+1. `research` - Architect or Researcher researches existing code (prevents duplication)
+2. `refinement` or `specification` - BA/Architect refines requirements and design
+3. `development` - Developer implements
+4. Quality gates → code review → QA → approval
 
 ### When a sprint is active
 
@@ -101,32 +100,32 @@ in terms of "this iteration."
 ### 3. Dispatch Agents Per Priority
 Based on shark task priority and implementation plan:
 
-**If ready_for_research:**
+**If research:**
 ```
 Task(subagent_type="architect", description="Research existing functionality for task T-E10-F05-001", ...)
 ```
 
-**If ready_for_refinement_ba:**
+**If refinement:**
 ```
 Task(subagent_type="business-analyst", description="Refine PRD for task T-E10-F05-001", ...)
 ```
 
-**If ready_for_refinement_tech:**
+**If specification or design:**
 ```
 Task(subagent_type="architect", description="Create architecture docs for task T-E10-F05-001", ...)
 ```
 
-**If ready_for_development:**
+**If development:**
 ```
 Task(subagent_type="developer", description="Implement task T-E10-F05-001", ...)
 ```
 
-**If ready_for_code_review:**
+**If code_review:**
 ```
 Task(subagent_type="tech-lead", description="Review code for task T-E10-F05-001", ...)
 ```
 
-**If ready_for_qa:**
+**If qa:**
 ```
 Task(subagent_type="qa", description="Test task T-E10-F05-001", ...)
 ```
