@@ -16,7 +16,7 @@ All specification documents live under `/docs/plan/`:
 │   ├── success-metrics.md
 │   ├── scope.md
 │   ├── E01-F01-feature-slug/
-│   │   ├── feature.md          # Default filename from shark (may vary — always check shark get <feature-key> --json)
+│   │   ├── feature.md          # Default filename (may vary — verify with the project management system)
 │   │   ├── 02-architecture.md
 │   │   ├── 03-database-design.md
 │   │   ├── 04-api-specification.md
@@ -108,6 +108,9 @@ All tasks for a feature live in:
 └── T-E##-F##-003.md
 ```
 
+**Status Management**:
+Task status is managed via the project management system (advance, set, and query entities by key).
+
 ## Epic Files
 
 Epic files use simple, descriptive names without numbering:
@@ -123,7 +126,7 @@ Epic files use simple, descriptive names without numbering:
 
 Feature files use numbered prefixes to indicate reading order:
 
-- `feature.md` - Feature PRD (default filename from shark — always verify with `shark get <feature-key> --json`)
+- `feature.md` - Feature PRD (default filename — always verify the actual filename with the project management system)
 - `02-architecture.md` - System architecture
 - `03-database-design.md` - Database schema
 - `04-api-specification.md` - API contracts
@@ -131,7 +134,7 @@ Feature files use numbered prefixes to indicate reading order:
 - `06-security-performance.md` - Non-functional requirements
 - `07-implementation-phases.md` - Phasing and timeline
 
-**Note**: The feature PRD filename is determined by shark (typically `feature.md`). Always get the actual filename from `shark get <feature-key> --json` (`path` + `filename` fields). Design documents start at `02-` to indicate they come after the PRD.
+**Note**: The feature PRD filename is typically `feature.md` but may vary. Always verify the actual filename from the project management system (`path` + `filename` fields). Design documents start at `02-` to indicate they come after the PRD.
 
 ## Task Directory Structure
 
@@ -139,9 +142,9 @@ All implementation tasks live with their feature documentation:
 
 ```
 /docs/plan/{epic-key}/{feature-key}/
-├── feature.md              # Filename from shark (verify with shark get <feature-key> --json)
+├── feature.md              # Verify actual filename with the project management system
 ├── 02-architecture.md
-├── 03-data-design.md
+├── 03-database-design.md
 └── tasks/
     ├── README.md          # Task index and workflow
     ├── T-E##-F##-001.md

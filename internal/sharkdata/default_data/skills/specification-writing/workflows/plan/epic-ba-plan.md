@@ -111,7 +111,7 @@ Produce the structured outputs:
   specific entity-grounded reason from Step 2.
 - `decision_log` — single-line summary: `"PLAN: Will create N documents: [list]. Excluded: [doc — reason, doc — reason]."`
 
-The host stores these into shark `context_data` and advances to the ACT phase.
+The host stores these into `context_data` and advances to the ACT phase.
 
 ---
 

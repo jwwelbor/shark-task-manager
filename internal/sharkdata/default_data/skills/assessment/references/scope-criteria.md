@@ -6,7 +6,7 @@ inputs:
   #   - estimated_task_count (integer, optional)
   #   - estimated_loc (integer, optional)
   #   - estimated_duration_days (number, optional)
-  # No shark CLI is invoked from inside this reference.
+  # No CLI commands are invoked from inside this reference.
 outputs:
   # classification (FEATURE | TASK | SPLIT | CONSOLIDATE) with rationale.
 ---

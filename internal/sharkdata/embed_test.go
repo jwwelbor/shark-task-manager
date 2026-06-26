@@ -506,3 +506,56 @@ func firstN(paths []string, n int) []string {
 	}
 	return paths[:n]
 }
+
+// TestEmbedded_SkillsContainNoBareSharkCLIRefs enforces the skill-purity rule
+// (E32-F09 AC): no skill .md body outside _extracted/ sidecars may contain a
+// bare "shark <verb>" CLI invocation.  _extracted/ files are migration
+// scaffolding excluded by the same logic as TestValidate_SkipsExtractedSidecars.
+//
+// This turns the one-time acceptance-criterion grep into a permanent regression
+// gate: if a future edit re-introduces a CLI ref into a canonical skill file,
+// `make test` will fail here before the change can merge.
+func TestEmbedded_SkillsContainNoBareSharkCLIRefs(t *testing.T) {
+	const skillsPrefix = "skills/"
+	const extractedDir = "/_extracted/"
+
+	// Verbs that would constitute a bare CLI invocation.
+	cliVerbs := []string{
+		"shark status ", "shark get ", "shark task ", "shark feature ",
+		"shark epic ", "shark list ", "shark create ", "shark delete ",
+		"shark update ", "shark progress ", "shark analytics ", "shark cloud ",
+		"shark admin ", "shark config ", "shark search ", "shark view ",
+		"shark notes ", "shark idea ", "shark bug ", "shark td ",
+	}
+
+	var violations []string
+
+	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
+		if isDir {
+			return nil
+		}
+		if !strings.HasPrefix(relPath, skillsPrefix) {
+			return nil
+		}
+		if !strings.HasSuffix(relPath, ".md") {
+			return nil
+		}
+		// Skip _extracted/ sidecars — they are migration scaffolding, not
+		// canonical skill content (E32-F04 AC-10 / E32-F09 scope exclusion).
+		if strings.Contains(relPath, extractedDir) {
+			return nil
+		}
+		content := string(data)
+		for _, verb := range cliVerbs {
+			if strings.Contains(content, verb) {
+				violations = append(violations, relPath+": contains \""+verb+"\"")
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, violations,
+		"skill files must not contain bare shark CLI invocations; found:\n%s",
+		strings.Join(violations, "\n"))
+}

@@ -132,24 +132,38 @@ func TestLoadAgentBodyForInline_PrependFormatExample(t *testing.T) {
 	assert.True(t, strings.HasSuffix(combined, actionPrompt))
 }
 
-// findRepoPromptsDir walks up from the test working directory looking for
-// shark-data/prompts. Returns the absolute path or fails the test.
+// findRepoPromptsDir walks up from the test working directory looking for the
+// canonical prompts directory. It checks the deployed shark-data/prompts tree
+// first (present after `shark admin init`), then falls back to the embedded
+// canonical at internal/sharkdata/default_data/prompts (always present in the
+// repo). This lets the suite run in a clean checkout without a materialized
+// shark-data/ on disk.
 func findRepoPromptsDir(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	dir := wd
 	for {
-		candidate := filepath.Join(dir, "shark-data", "prompts")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		// Prefer the deployed copy (shark-data/prompts) when present.
+		if candidate := filepath.Join(dir, "shark-data", "prompts"); isDirExist(candidate) {
+			return candidate
+		}
+		// Fall back to the embedded canonical (always present in the repo).
+		if candidate := filepath.Join(dir, "internal", "sharkdata", "default_data", "prompts"); isDirExist(candidate) {
 			return candidate
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("could not locate shark-data/prompts walking up from %s", wd)
+			t.Fatalf("could not locate prompts directory (shark-data/prompts or internal/sharkdata/default_data/prompts) walking up from %s", wd)
 		}
 		dir = parent
 	}
+}
+
+// isDirExist returns true when path exists and is a directory.
+func isDirExist(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // TestRunNext_InlinesSkillContent is the F02 AC #2 end-to-end check: the

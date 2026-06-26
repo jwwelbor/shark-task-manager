@@ -162,7 +162,7 @@ Produce the structured outputs:
 - `decision_log` — single-line summary: `"TECH PLAN: Will create N docs: [list]. Excluded: [doc — reason]."`
 - `capability_map_summary` — REUSE/EXTEND/RE-IMPLEMENT trace from Step 1.
 
-The host stores these into shark `context_data` (under `tech_`-prefixed fields) and advances
+The host stores these into `context_data` (under `tech_`-prefixed fields) and advances
 to the ACT phase.
 
 ---

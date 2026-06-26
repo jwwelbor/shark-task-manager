@@ -29,9 +29,9 @@ Use this template structure when generating UAT documents. UAT validates that fe
 | {key} | {title} | {status} | {how it relates to this feature} |
 
 **Document Sources:**
-- Epic PRD: {path from shark or fallback}
-- Feature PRD: {path from shark or fallback}
-- Design Docs: {paths from shark related-docs}
+- Epic PRD: {path from project or fallback}
+- Feature PRD: {path from project or fallback}
+- Design Docs: {paths from related-docs}
 
 ---
 
@@ -342,19 +342,19 @@ python dev-artifacts/{feature-key}/interactive_{test}.py
 ## Appendix: Source Data
 
 <details>
-<summary>Epic Data from Shark (click to expand)</summary>
+<summary>Epic Data (click to expand)</summary>
 
 ```json
-{shark get output}
+{epic entity details}
 ```
 
 </details>
 
 <details>
-<summary>Feature Data from Shark (click to expand)</summary>
+<summary>Feature Data (click to expand)</summary>
 
 ```json
-{shark get output}
+{feature entity details}
 ```
 
 </details>
@@ -363,17 +363,17 @@ python dev-artifacts/{feature-key}/interactive_{test}.py
 <summary>Related Documents</summary>
 
 **Epic Documents:**
-{shark related-docs list --epic output}
+{epic related documents list}
 
 **Feature Documents:**
-{shark related-docs list --feature output}
+{feature related documents list}
 
 </details>
 
 <details>
 <summary>Sibling Features</summary>
 
-{shark list output with status}
+{sibling features list with status}
 
 </details>
 ```
@@ -388,7 +388,7 @@ python dev-artifacts/{feature-key}/interactive_{test}.py
 4. **Epic AC vs Feature AC** - Separate these clearly. Epic ACs are higher-level goals.
 5. **Issues Categories** - Categorize issues by type (epic alignment, integration, feature AC).
 6. **Last UAT Status** - Leave empty; UAT agent fills this with session results.
-7. **Document Sources** - Get paths from shark first, fall back to conventions.
+7. **Document Sources** - Get paths from the project management system first, fall back to conventions.
 
 ### Show/Tell Principle
 

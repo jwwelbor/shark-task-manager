@@ -94,9 +94,9 @@
 
 **Assigned Tier**: STANDARD
 
-**Rationale**: Despite low score (4/27), feature delivers standalone value (unified rendering) and requires multiple implementation steps (helpers + CLI updates + tests), qualifying it as a feature rather than a task. The score of 4 places it in STANDARD tier (7-15 range) when considering task decomposition and integration across display layer.
+**Rationale**: Score 4/27 falls in the SIMPLE tier (0-6 range) by algorithm. Tier overridden to STANDARD: feature delivers standalone value (unified rendering) and requires multiple implementation steps (helpers + CLI updates + tests), warranting a full workflow with architecture review to ensure consistent display patterns.
 
-**Note**: Could argue for SIMPLE tier based on score alone, but feature provides cohesive value unit across multiple CLI commands, warranting full workflow with architecture review to ensure consistent display patterns.
+**Override reason**: Feature provides cohesive value across multiple CLI commands; algorithmic SIMPLE tier would skip architecture review, risking inconsistent display patterns across the display layer.
 
 ---
 
@@ -181,11 +181,10 @@ Based on research of existing codebase:
 
 ---
 
-## Metadata Storage Command
+## Metadata to Store
 
-```bash
-shark feature note E07-F31 'COMPLEXITY_TIER: STANDARD (score: 4/27) - Unified rendering helpers with CLI integration, low technical complexity but cohesive feature value' \
-  --metadata complexity_tier=STANDARD complexity_score=4
+```
+Record a note on feature E07-F31: 'COMPLEXITY_TIER: STANDARD (score: 4/27) - Unified rendering helpers with CLI integration, low technical complexity but cohesive feature value'
 ```
 
 ---

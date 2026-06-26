@@ -5,7 +5,7 @@ inputs:
   #   - feature_description (string) — what the feature does
   #   - codebase_summary (string, optional) — file counts, existing patterns
   #   - existing_task_count (integer, optional) — if tasks already decomposed
-  # No shark CLI is invoked from inside this reference; "How to assess" sections
+  # No CLI commands are invoked from inside this reference; "How to assess" sections
   # describe what to look at, not how to fetch it.
 outputs:
   # Per-dimension score (0-3) with rationale, returned to caller for aggregation.
@@ -274,7 +274,7 @@ Max: 27 points (9 dimensions × 3 points each)
 
 ## Scoring Examples
 
-### Example 1: STANDARD-tier feature (score 4/27)
+### Example 1: SIMPLE-tier feature (score 4/27)
 
 **Feature**: Unified Entity Display Rendering (CLI rendering helpers)
 
@@ -291,7 +291,7 @@ Max: 27 points (9 dimensions × 3 points each)
 | Regression Risk | 0 | Additive changes (new helpers) |
 | Execution Effort | 0 | 5-7 days estimated |
 | **Execution Total** | **0** | |
-| **TOTAL** | **4/27** | **STANDARD** (7-15 range) — wait: this is 4, which is SIMPLE (0-6 range). Note: this example demonstrates how STANDARD can sit at the low end of the technical/execution mix even when intent is full-featured |
+| **TOTAL** | **4/27** | **SIMPLE** (0-6 range). Note: a feature can look full-featured by intent yet still score SIMPLE when its technical/execution mix is low — the tier is driven by the score, not the ambition |
 
 ### Example 2: Borderline COMPLEX feature (score 12/27)
 

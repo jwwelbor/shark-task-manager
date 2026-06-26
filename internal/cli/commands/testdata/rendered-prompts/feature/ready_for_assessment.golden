@@ -9,7 +9,7 @@ COMBINED SCOPE VALIDATION + COMPLEXITY TRIAGE
 
 # Assessment Skill (craft)
 
-Standardized assessment workflows for workflow routing, scope validation, quality gates, and effort estimation. This skill is the **craft layer** — it provides the methodology for each decision activity. The host (shark workflow prompt) selects a mode, supplies the inputs above, receives the structured outputs, and is responsible for translating those outputs into workflow state changes.
+Standardized assessment workflows for workflow routing, scope validation, quality gates, and effort estimation. This skill is the **craft layer** — it provides the methodology for each decision activity. The host selects a mode, supplies the inputs above, receives the structured outputs, and is responsible for translating those outputs into workflow state changes.
 
 ## Overview
 

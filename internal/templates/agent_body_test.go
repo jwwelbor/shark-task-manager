@@ -157,9 +157,21 @@ func TestRenderAgentBody_DeveloperBody_NoDoublePrefixedBranchRef(t *testing.T) {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 
-	paths := []string{
+	// shark-data/ is .gitignored (deployed copy); only include it when present
+	// so the suite runs in a clean checkout without a materialized shark-data/.
+	// The embedded canonical is always present and is the source of truth.
+	allPaths := []string{
 		filepath.Join(repoRoot, "shark-data", "agents", "developer.md"),
 		filepath.Join(repoRoot, "internal", "sharkdata", "default_data", "agents", "developer.md"),
+	}
+	var paths []string
+	for _, p := range allPaths {
+		if _, err := os.Stat(p); err == nil {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		t.Fatal("no developer.md found at either shark-data/ or internal/sharkdata/default_data/agents/developer.md")
 	}
 
 	vars := map[string]string{

@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Quick-capture and classify a work item discovered during development, routing it to the correct shark entity type (task, feature, bug, tech-debt, change-card, idea, or note) under the right parent. Searches existing entities first to avoid duplication, proposes a classification, and confirms before creating. Use when you encounter work that needs to be recorded for later, the user says "/triage", or something should be tracked but its home is unclear. This is a capture-and-classify tool, NOT a create-and-elaborate tool.
+description: Quick-capture and classify a work item discovered during development, routing it to the correct entity type (task, feature, bug, tech-debt, change-card, idea, or note) under the right parent. Searches existing entities first to avoid duplication, proposes a classification, and confirms before creating. Use when you encounter work that needs to be recorded for later, the user says "/triage", or something should be tracked but its home is unclear. This is a capture-and-classify tool, NOT a create-and-elaborate tool.
 ---
 
 # triage — Capture, Classify, and Route Work Items
@@ -25,15 +25,11 @@ description is too vague to classify, ask exactly one clarifying question.
 ## Step 2: Search Existing Entities (dedup)
 
 Before creating anything, search for existing coverage so you don't duplicate. Enumerate
-the relevant `shark list <type>` for each candidate classification, not just a keyword
-search:
+existing items of each candidate type, not just a keyword search:
 
-```bash
-shark status                       # project overview
-shark list --json                  # epics / structure
-shark list <epic-key> --json       # features under a likely epic
-shark notes search "<keywords>"    # related notes
-```
+- Check project status and existing epics/features for structure
+- List existing items of each candidate type (bugs, tasks, features, etc.) under the likely parent
+- Search notes for related observations
 
 If an entity already covers the work, prefer **adding a note** to it over creating a new one.
 
@@ -71,16 +67,16 @@ Create this? (or suggest changes)
 
 ## Step 5: Create
 
-```bash
-shark create bug "<title>" --severity=<level> [--linked-type=<t> --linked-key=<key>] --description="<context>"
-shark create tech-debt "<title>" --category=<code-quality|architecture|dependency|testing|performance|documentation> --severity=<level> --description="<context>"
-shark create task <epic> <feature> "<title>"
-shark create feature <epic> "<title>"
-shark create change "<title>" [--epic=<key>] --justification="<why>" --description="<context>"
-shark create idea "<title>" --description="<context>"
-shark create note <entity-key> "<observation>" --type=<comment|blocker|question|future>
-```
+Create the entity of the appropriate type with the minimum required fields:
+
+- **Bug**: title, severity level, optional link to parent entity, description with context
+- **Tech Debt**: title, category (code-quality/architecture/dependency/testing/performance/documentation), severity, description
+- **Task**: title, parent epic, parent feature
+- **Feature**: title, parent epic
+- **Change Card**: title, optional epic link, justification, description
+- **Idea**: title, description
+- **Note**: observation text, target entity key, type (comment/blocker/question/future)
 
 After creating, link the entity to whatever made it relevant (the parent epic/feature/task)
-using native link flags where available so it doesn't float unanchored in the backlog.
+so it doesn't float unanchored in the backlog.
 Capture the assigned key from the create response. Then **stop**.

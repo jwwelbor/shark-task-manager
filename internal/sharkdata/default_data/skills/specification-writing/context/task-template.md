@@ -274,7 +274,7 @@ Note: Status is managed via the `shark` CLI and tracked in database. Task files 
 
 **dependencies**: List of Task files that must complete before this one can start
 
-**size**: Story point estimate using Fibonacci (1/2/3/5/8/13) or T-shirt size (XS/S/M/L/XL/XXL). Set via `shark update <key> --size=M`. Typical task sizes: XS=1pt, S=2pt, M=3pt, L=5pt, XL=8pt, XXL=13pt.
+**size**: Story point estimate using Fibonacci (1/2/3/5/8/13) or T-shirt size (XS/S/M/L/XL/XXL). Typical task sizes: XS=1pt, S=2pt, M=3pt, L=5pt, XL=8pt, XXL=13pt.
 
 ## Quality Standards
 
