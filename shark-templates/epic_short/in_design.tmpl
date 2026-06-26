@@ -1,8 +1,0 @@
-{{template "_resume_preamble" .}}
-{{template "advance_preamble" .}}
-
-RESUME architecture design for epic {{.id}}: "{{.title}}".
-
-Check for existing architecture.md and uat-plan.md in epic directory. If both exist and meet exit gate criteria, advance immediately.
-
-Otherwise, continue architecture and UAT design following the ready_for_design instructions.
