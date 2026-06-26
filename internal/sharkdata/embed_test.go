@@ -47,6 +47,12 @@ func TestReadEmbedded_KnownFile(t *testing.T) {
 	assert.Contains(t, string(data), "shark-data")
 }
 
+func TestReadEmbedded_KnownEntityTemplateFile(t *testing.T) {
+	data, err := ReadEmbedded("templates/epic.md")
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "epic_key")
+}
+
 // ============================================================================
 // E6 — shark init
 // ============================================================================
@@ -62,12 +68,16 @@ func TestInit_FreshProject(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(readme), "shark-data")
 
-	// All five subdirectories are present.
-	for _, sub := range []string{"prompts", "skills", "agents", "workflow", "overrides"} {
+	// All six subdirectories are present.
+	for _, sub := range []string{"prompts", "templates", "skills", "agents", "workflow", "overrides"} {
 		info, err := os.Stat(filepath.Join(dest, sub))
 		require.NoError(t, err)
 		assert.True(t, info.IsDir(), "%s should be a directory", sub)
 	}
+
+	epicTemplate, err := os.ReadFile(filepath.Join(dest, "templates", "epic.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(epicTemplate), "epic_key")
 }
 
 func TestInit_AlreadyInitialized(t *testing.T) {
@@ -663,7 +673,7 @@ func TestEmbedded_AllExpectedDirectoriesPresent(t *testing.T) {
 	// or by a .gitkeep placeholder. Real content is preferred (means F4
 	// populated the directory); .gitkeep is fallback during the F3 skeleton
 	// phase.
-	requiredDirs := []string{"README.md", "prompts/", "skills/", "agents/", "workflow/", "overrides/"}
+	requiredDirs := []string{"README.md", "prompts/", "templates/", "skills/", "agents/", "workflow/", "overrides/"}
 	for _, want := range requiredDirs {
 		var found bool
 		for _, got := range paths {

@@ -13,6 +13,7 @@ populate it with real defaults.
 ```
 shark-data/
   prompts/                 # status prompts (.md, replaces shark-templates/*.tmpl)
+  templates/               # entity markdown skeletons for create commands
   skills/                  # decoupled craft skills (output of F1)
   agents/                  # in-scope agent definitions
   workflow/                # per-entity workflow YAML

@@ -4,7 +4,7 @@
 // Layout shipped (F3 — empty placeholders; F4 populates real content):
 //
 //	shark-data/
-//	  prompts/   skills/   agents/   workflow/   overrides/
+//	  prompts/   templates/   skills/   agents/   workflow/   overrides/
 //	  README.md
 //
 // All operations work against a project-local <root>/shark-data/ directory.
