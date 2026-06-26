@@ -34,21 +34,44 @@ var (
 
 var sharkInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize shark-data/ in the current project",
-	Long: `Lay down the canonical shark-data/ tree at the project root.
+	Short: "Idempotent config setup for shark (no-op if already initialized)",
+	Long: `Ensure shark is ready for use in the current project.
 
-shark init copies the embedded default shark-data/ directory (skills,
-prompts, agents, workflow YAML) into <project>/shark-data/. The operation
-is idempotent: if shark-data/ already exists, the command refuses to
-overwrite and tells you to run 'shark upgrade' instead.
+shark init is now a lightweight, idempotent operation:
+  - Writes shark_data_path and workflow_config into .sharkconfig.json if absent.
+  - Does NOT extract shark-data/ to disk — the binary serves content from its
+    embedded canonical tree by default (zero-config).
+  - If shark-data/ already exists, prints a status message and exits cleanly.
 
-This is the bootstrap step for any project adopting Shark 2.0.
+To explicitly extract the embedded content for local customization, use:
+  shark install-shark-data
 
 Examples:
-  shark init                       # Initialize at the current working directory
+  shark init                       # Idempotent config setup
   shark init --json                # Machine-readable output`,
 	Args: cobra.NoArgs,
 	RunE: runSharkInit,
+}
+
+var sharkInstallDataCmd = &cobra.Command{
+	Use:   "install-shark-data",
+	Short: "Extract embedded shark-data/ to disk for local customization",
+	Long: `Extract the embedded canonical shark-data/ tree to <project>/shark-data/.
+
+This is an explicit opt-in for authors and customizers who want to edit
+prompts, skills, workflow YAML, or agents without rebuilding the binary.
+After extraction, disk files take precedence over the embedded defaults
+on a per-file basis; the embed remains the backstop for any file absent
+from disk.
+
+To refresh an existing shark-data/ with the latest embedded defaults, run:
+  shark upgrade
+
+Examples:
+  shark install-shark-data           # Extract at current project root
+  shark install-shark-data --json    # Machine-readable output`,
+	Args: cobra.NoArgs,
+	RunE: runSharkInstallData,
 }
 
 var sharkUpgradeCmd = &cobra.Command{
@@ -99,6 +122,7 @@ Examples:
 func init() {
 	sharkUpgradeCmd.Flags().BoolVar(&upgradeDryRun, "dry-run", false, "Show diff without writing files")
 	cli.RootCmd.AddCommand(sharkInitCmd)
+	cli.RootCmd.AddCommand(sharkInstallDataCmd)
 	cli.RootCmd.AddCommand(sharkUpgradeCmd)
 	cli.RootCmd.AddCommand(sharkValidateCmd)
 }
@@ -109,13 +133,56 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("shark init: failed to locate project root: %w", err)
 	}
 
-	// Materialize at the bundle root selected by shark_data_path (defaults to
-	// <root>/shark-data) so init writes to the same directory that
-	// validate/workflow/prompt resolution read from.
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
+	// Ensure .sharkconfig.json's `workflow_config` and `shark_data_path`
+	// fields are present. This is the lightweight idempotent operation for
+	// CC-039: config setup only, no disk extraction required.
+	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, defaultWorkflowConfigDir)
+	if err != nil {
+		// Non-fatal: config couldn't be written, but the binary still works
+		// via embedded defaults. Report and continue.
+		fmt.Fprintf(os.Stderr, "warning: failed to update .sharkconfig.json: %v\n", err)
+	}
+
+	// Check whether shark-data/ already exists (informational only).
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json"))
+	dataRoot, resolveErr := config.ResolveSharkDataRoot(root, configBytes)
+	diskExists := resolveErr == nil && func() bool {
+		_, statErr := os.Stat(dataRoot)
+		return statErr == nil
+	}()
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{
+			"status":          "ready",
+			"config_updated":  configUpdated,
+			"migrated_from":   migratedFrom,
+			"shark_data_path": dataRoot,
+			"disk_exists":     diskExists,
+		})
+	}
+
+	printConfigUpdateMessage(configUpdated, migratedFrom)
+	if diskExists {
+		fmt.Printf("shark-data/ exists at %s (disk files take precedence over embedded defaults).\n", dataRoot)
+	} else {
+		fmt.Println("shark is ready. Content is served from the embedded bundle.")
+		fmt.Println("Run 'shark install-shark-data' to extract it for local customization.")
+	}
+	return nil
+}
+
+// runSharkInstallData implements `shark install-shark-data`: explicit extraction
+// of the embedded canonical tree to disk for local authoring.
+func runSharkInstallData(cmd *cobra.Command, _ []string) error {
+	root, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("shark install-shark-data: failed to locate project root: %w", err)
+	}
+
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json"))
 	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
-		return fmt.Errorf("shark init: %w", err)
+		return fmt.Errorf("shark install-shark-data: %w", err)
 	}
 
 	dest, sharkdataErr := sharkdata.InitAt(dataRoot)
@@ -124,25 +191,16 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 		return sharkdataErr
 	}
 
-	// Ensure .sharkconfig.json's `workflow_config` points at the
-	// `shark-data/workflow/` directory. We run this even when shark-data/
-	// was already present so a partial setup (shark-data exists but config
-	// lacks the field, or still points at the legacy JSON file) gets healed
-	// by a re-run of `shark init`.
-	//
-	// When the existing field already points at a custom directory the user
-	// configured, we leave it alone.
+	// Also ensure config fields are present.
 	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, defaultWorkflowConfigDir)
 	if err != nil {
-		// Non-fatal: shark-data/ is fine, we just couldn't update
-		// .sharkconfig.json. Report and continue.
-		fmt.Fprintf(os.Stderr, "warning: failed to update workflow_config in .sharkconfig.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: failed to update .sharkconfig.json: %v\n", err)
 	}
 
 	if alreadyInitialized {
 		if cli.GlobalConfig.JSON {
 			_ = cli.OutputJSON(map[string]interface{}{
-				"status":         "already_initialized",
+				"status":         "already_exists",
 				"path":           dest,
 				"config_updated": configUpdated,
 				"migrated_from":  migratedFrom,
@@ -151,21 +209,20 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 			fmt.Printf("shark-data/ already exists at %s. Run 'shark upgrade' to refresh.\n", dest)
 			printConfigUpdateMessage(configUpdated, migratedFrom)
 		}
-		// Return a non-zero exit so callers (scripts, CI) can distinguish
-		// fresh init from no-op. The "exit code 1:" prefix is the project
-		// convention used by main.go to map error strings to shell exit codes.
-		return fmt.Errorf("exit code 1: %w", sharkdata.ErrAlreadyInitialized)
+		// Idempotent — already extracted, report as success.
+		return nil
 	}
 
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status":         "initialized",
+			"status":         "extracted",
 			"path":           dest,
 			"config_updated": configUpdated,
 			"migrated_from":  migratedFrom,
 		})
 	}
-	fmt.Printf("Initialized shark-data/ at %s\n", dest)
+	fmt.Printf("Extracted shark-data/ to %s\n", dest)
+	fmt.Println("Disk files now take precedence over embedded defaults on a per-file basis.")
 	printConfigUpdateMessage(configUpdated, migratedFrom)
 	return nil
 }

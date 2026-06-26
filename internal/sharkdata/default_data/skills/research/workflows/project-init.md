@@ -194,7 +194,7 @@ Using `../context/stack-research-guide.md`, research authoritative coding standa
 
 ### Step 3.3: Generate Standards
 
-**Brownfield**: Invoke the existing coding-standards workflow (`~/.claude/skills/quality/workflows/generate-standards.md`) with additional context from:
+**Brownfield**: Invoke the existing coding-standards workflow (`skills/quality/workflows/generate-standards.md`) with additional context from:
 - Discovered patterns (from `patterns-catalog.md`)
 - Official standards (from web research)
 - Reconciliation using the augmentation pattern in `stack-research-guide.md`
@@ -306,4 +306,4 @@ Set `next_step_hint` based on track and (for greenfield) `idea_readiness`. The w
 - `map-filesystem.md` — File system mapping (Group A)
 - `../context/brownfield-detection.md` — Detection algorithm
 - `../context/stack-research-guide.md` — Stack research patterns
-- `~/.claude/skills/quality/workflows/generate-standards.md` — Coding standards generation
+- `skills/quality/workflows/generate-standards.md` — Coding standards generation

@@ -61,7 +61,7 @@ Bad tests:
 6. Repeat
 ```
 
-See: `~/.claude/skills/test-driven-development/SKILL.md`
+See: `skills/test-driven-development/SKILL.md`
 
 **If not using TDD:** Still write comprehensive tests immediately after implementation, before moving to next feature.
 

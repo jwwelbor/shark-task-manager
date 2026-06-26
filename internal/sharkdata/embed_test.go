@@ -483,10 +483,14 @@ func TestValidate_LegacyStatusLiteralRejectedInActiveInstructions(t *testing.T) 
 	promptPath := filepath.Join(root, SharkDataDirName, "prompts", "task", "development.md")
 	require.NoError(t, os.WriteFile(promptPath, []byte("Do not set in_development directly."), 0644))
 
+	skillPath := filepath.Join(root, SharkDataDirName, "skills", "quality", "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte("No embedded skill should mention in_progress task status."), 0644))
+
 	report, err := Validate(root)
 	require.NoError(t, err)
 	assertReportHasErrorContaining(t, report, "ready_for_development")
 	assertReportHasErrorContaining(t, report, "in_development")
+	assertReportHasErrorContaining(t, report, "in_progress")
 }
 
 // TestValidate_MissingWorkflowYAML_SingleFile verifies that when one of the

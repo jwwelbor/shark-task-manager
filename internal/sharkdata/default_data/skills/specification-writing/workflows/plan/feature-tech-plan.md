@@ -5,7 +5,7 @@ inputs:
   - feature_ba_doc_paths: list of absolute paths — feature-level BA docs (just validated)
   - parent_epic_id: opaque epic identifier (string)
   - parent_epic_tech_doc_paths: list of absolute paths — parent epic's tech docs (architecture, feasibility, risks, integration map)
-  - research_report_path: absolute path to the feature's research report (optional; from in_research)
+  - research_report_path: absolute path to the feature's research report (optional; from the research phase)
   - prior_art_report_path: absolute path to feature-level `prior-art-report.md` from consult-related-work workflow (REQUIRED — host must produce this before calling craft)
   - complexity_tier: "SIMPLE" | "STANDARD" | "COMPLEX" (optional; if not provided, craft assesses from feature)
 outputs:

@@ -6,7 +6,7 @@
 
 ## Overview
 
-The Architecture skill is the authoritative source for all technical design workflows in the Claude Code system. It consolidates architecture knowledge from multiple specialized domains (backend, frontend, database, security, system) into a unified framework that ensures consistent, comprehensive, and well-integrated architecture documentation.
+The Architecture skill is the authoritative source for all technical design workflows in the embedded skill system. It consolidates architecture knowledge from multiple specialized domains (backend, frontend, database, security, system) into a unified framework that ensures consistent, comprehensive, and well-integrated architecture documentation.
 
 ## What This Skill Provides
 

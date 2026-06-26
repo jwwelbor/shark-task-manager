@@ -1,4 +1,4 @@
-{{define "_resume_preamble"}}{{if eq .is_resume "true"}}RESUME CONTEXT: This entity is already in an in_progress status. A previous agent session may have been interrupted.
+{{define "_resume_preamble"}}{{if eq .is_resume "true"}}RESUME CONTEXT: This entity is already in an active workflow status. A previous agent session may have been interrupted.
 
 BEFORE STARTING WORK:
 1. Check for existing work artifacts (docs, code, reports) that a previous agent may have produced
