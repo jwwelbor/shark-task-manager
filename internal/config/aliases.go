@@ -20,6 +20,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config/validation"
 	"github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 	"github.com/jwwelbor/shark-task-manager/internal/pathutil"
+	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
 // ErrSharkDataPathEscapes is returned by ResolveSharkDataRoot when a relative
@@ -384,14 +385,37 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 		}
 	}
 
-	// Pass 3: hardcoded defaults for any entity still missing. Uses
-	// GetWorkflowForLevel as the single source of truth for entity-type →
-	// default mapping (it falls back through defaultForType internally).
+	// Pass 3: embedded canonical workflow YAMLs for any entity still missing.
+	// Reads from the binary's embedded sharkdata tree (internal/sharkdata/
+	// default_data/workflow/<entity>.yaml) so a zero-config project (no
+	// shark-data/ on disk, no inline config blocks) gets the same richer
+	// route-based workflows as an installed project that ran `shark init`.
+	// Falls back to the hardcoded Go defaults only when the embedded read
+	// itself fails — e.g. for entity types that don't yet have a shipped YAML
+	// (sprint) or for defensive robustness.
 	emptyMLW := &workflow.MultiLevelWorkflow{}
 	for _, entityType := range entityTypes {
 		if _, ok := out[entityType]; ok {
 			continue
 		}
+		filename := workflow.EmbeddedWorkflowFilename(entityType)
+		if filename != "" {
+			relPath := "workflow/" + filename
+			if embeddedBytes, readErr := sharkdata.ReadEmbedded(relPath); readErr == nil {
+				if wf, parseErr := workflow.ParseWorkflowYAMLBytes(embeddedBytes, "embedded:"+relPath); parseErr == nil {
+					out[entityType] = workflowToStatusActionData(wf)
+					continue
+				} else {
+					slog.Warn("action loader: failed to parse embedded workflow YAML; falling back to hardcoded default",
+						"entity_type", entityType, "path", relPath, "error", parseErr)
+				}
+			} else {
+				slog.Debug("action loader: embedded workflow YAML not found; falling back to hardcoded default",
+					"entity_type", entityType, "path", relPath, "error", readErr)
+			}
+		}
+		// Last-resort guard: hardcoded Go default (covers entity types without
+		// an embedded YAML such as sprint, and defensive failure paths above).
 		if wf := emptyMLW.GetWorkflowForLevel(entityType); wf != nil {
 			out[entityType] = workflowToStatusActionData(wf)
 		}
