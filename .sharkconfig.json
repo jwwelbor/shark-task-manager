@@ -1,6 +1,6 @@
 {
   "color_enabled": true,
-  "console_width": 95 ,
+  "console_width": 95,
   "database": {
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
     "backend": "$SHARK_DB_BACKEND",
