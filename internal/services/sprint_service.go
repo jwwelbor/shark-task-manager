@@ -409,7 +409,7 @@ func (s *SprintService) DeleteSprint(ctx context.Context, key string) error {
 	}
 
 	// Only allow deletion of sprints in planning status.
-	if string(sprint.Status) != "planning" {
+	if string(sprint.Status) != s.workflowSvc.GetInitialStatusString() {
 		return recordSpanError(span, fmt.Errorf("cannot delete sprint %s in status %s: only sprints in planning status can be deleted", key, sprint.Status))
 	}
 
@@ -450,20 +450,6 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	// Validate workflow transition
 	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "active"); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
-	}
-
-	// Check single-active constraint: no other sprint should be active.
-	activeSprints, err := s.ListSprints(ctx, &SprintListFilters{Status: "active"})
-	if err != nil {
-		return nil, recordSpanError(span, fmt.Errorf("failed to check active sprints for %s: %w", key, err))
-	}
-
-	if len(activeSprints) > 0 {
-		// There's already an active sprint
-		if activeSprints[0].Key == key {
-			return nil, recordSpanError(span, fmt.Errorf("sprint %s is already active", key))
-		}
-		return nil, recordSpanError(span, fmt.Errorf("cannot activate sprint %s: sprint %s is already active", key, activeSprints[0].Key))
 	}
 
 	// Update status
@@ -851,34 +837,24 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 	return assignment, warning, nil
 }
 
-// assignableSprintPhases returns the workflow phases whose sprint statuses
-// accept new entity assignments. Per spec §4.2.1 step 1, only sprints in the
-// planning or execution phases may receive new assignments. The default sprint
-// workflow maps "planning" -> phase "planning" and "active" -> phase
-// "execution"; custom workflows may rename the statuses but should preserve
-// the phase labels.
-func assignableSprintPhases() []string {
-	return []string{"planning", "execution"}
-}
-
 // assignableSprintStatuses returns the set of sprint statuses (from the
 // configured sprint workflow) that accept new entity assignments. Computed by
 // asking workflow.Service which statuses live in the planning and execution
 // phases. The result is deduplicated and ordered: planning phase first, then
 // execution phase, with within-phase order preserved from workflow.Service.
+// "planning" and "execution" are YAML phase labels, not status names.
 func (s *SprintService) assignableSprintStatuses() []string {
-	seen := make(map[string]struct{})
-	statuses := make([]string, 0, 4)
-	for _, phase := range assignableSprintPhases() {
+	seen := make(map[string]bool)
+	var result []string
+	for _, phase := range []string{"planning", "execution"} {
 		for _, status := range s.workflowSvc.GetStatusesByPhase(phase) {
-			if _, dup := seen[status]; dup {
-				continue
+			if !seen[status] {
+				seen[status] = true
+				result = append(result, status)
 			}
-			seen[status] = struct{}{}
-			statuses = append(statuses, status)
 		}
 	}
-	return statuses
+	return result
 }
 
 // sprintAcceptsAssignments reports whether a sprint in the given status may
@@ -1087,10 +1063,18 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 	}
 
 	// Step 2: Resolve effective view mode.
-	// Default: "ordered" for active sprints; "grouped" for all other statuses.
+	// Default: "ordered" for execution-phase sprints; "grouped" for all other statuses.
 	effectiveView := opts.View
 	if effectiveView == "" {
-		if string(sprintEntity.Status) == "active" {
+		executionStatuses := s.workflowSvc.GetStatusesByPhase("execution")
+		isExecution := false
+		for _, es := range executionStatuses {
+			if strings.EqualFold(string(sprintEntity.Status), es) {
+				isExecution = true
+				break
+			}
+		}
+		if isExecution {
 			effectiveView = "ordered"
 		} else {
 			effectiveView = "grouped"
@@ -1290,24 +1274,36 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 //
 // The returned BacklogItemView has SprintOrder, SprintKey, and SelectionReason populated.
 func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*BacklogItemView, error) {
-	// 1. Find the active sprint (must be exactly one for unambiguous selection)
-	filters := &SprintListFilters{Status: "active"}
-	activeSprints, err := s.ListSprints(ctx, filters)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list active sprints: %w", err)
+	// 1. Find all execution-phase sprints. Tolerate multiple active sprints by iterating
+	// through all execution statuses and collecting all sprints in any of them. The
+	// ListSprints ordering (from the repository) provides a deterministic first-match.
+	executionStatuses := s.workflowSvc.GetStatusesByPhase("execution")
+	if len(executionStatuses) == 0 {
+		// Fallback: use "active" as the default if the workflow has no "execution" phase
+		executionStatuses = []string{"active"}
 	}
-	if len(activeSprints) == 0 {
+
+	var executionSprints []*models.Sprint
+	seenSprintIDs := make(map[int64]bool)
+	for _, execStatus := range executionStatuses {
+		statusSprints, err := s.ListSprints(ctx, &SprintListFilters{Status: execStatus})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list sprints in execution phase: %w", err)
+		}
+		for _, sp := range statusSprints {
+			if !seenSprintIDs[sp.ID] {
+				seenSprintIDs[sp.ID] = true
+				executionSprints = append(executionSprints, sp)
+			}
+		}
+	}
+	if len(executionSprints) == 0 {
 		return nil, fmt.Errorf("no active sprint found (start a sprint first)")
 	}
-	activeSprint := activeSprints[0]
 
-	// 2. Fetch the backlog for the active sprint using grouped view so we can filter by status.
+	// 2. Collect candidates from all execution-phase sprints.
 	// GetNextTask does its own four-tier sort, so it needs all items regardless of sprint_order.
 	// Using View="grouped" explicitly avoids the active-sprint default of "ordered".
-	backlog, err := s.GetSprintBacklog(ctx, activeSprint.Key, BacklogOptions{View: "grouped"})
-	if err != nil {
-		return nil, err
-	}
 
 	// 3. Collect candidates whose status is non-terminal for their entity type.
 	// Sprint execution order is an explicit pull queue across assigned items, so selection
@@ -1320,18 +1316,33 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	}
 
 	var candidates []*BacklogItemView
-	for _, group := range backlog.Groups {
-		for _, item := range group.Items {
-			terminals, ok := terminalStatusesByEntityType[item.EntityType]
-			if !ok || terminals[item.Status] {
-				continue
-			}
-			// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
-			if agentType != "" && item.AgentType != agentType {
-				continue
-			}
-			candidates = append(candidates, item)
+	var activeSprint *models.Sprint // first sprint with a candidate (for SprintKey assignment)
+	for _, sp := range executionSprints {
+		backlog, err := s.GetSprintBacklog(ctx, sp.Key, BacklogOptions{View: "grouped"})
+		if err != nil {
+			return nil, err
 		}
+
+		for _, group := range backlog.Groups {
+			for _, item := range group.Items {
+				terminals, ok := terminalStatusesByEntityType[item.EntityType]
+				if !ok || terminals[item.Status] {
+					continue
+				}
+				// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
+				if agentType != "" && item.AgentType != agentType {
+					continue
+				}
+				if activeSprint == nil {
+					activeSprint = sp
+				}
+				candidates = append(candidates, item)
+			}
+		}
+	}
+	if activeSprint == nil && len(executionSprints) > 0 {
+		// No candidates found across any execution sprint; use first sprint for context
+		activeSprint = executionSprints[0]
 	}
 
 	if len(candidates) == 0 {
@@ -1461,7 +1472,14 @@ func (s *SprintService) ReorderAssignment(
 	}
 
 	status := string(sprintEntity.Status)
-	if status != "planning" && status != "active" {
+	reorderAllowed := false
+	for _, assignable := range s.assignableSprintStatuses() {
+		if strings.EqualFold(assignable, status) {
+			reorderAllowed = true
+			break
+		}
+	}
+	if !reorderAllowed {
 		return nil, nil, fmt.Errorf(
 			"cannot reorder: sprint %q is in status %q; only planning and active sprints can be reordered",
 			sprintKey, status,
@@ -2051,8 +2069,13 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 
 	switch resolvedMode {
 	case CarryoverNext:
-		// Find an existing planning sprint.
-		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr("planning")}
+		// Find an existing planning sprint. Use the first status from the planning phase
+		// so custom workflows with renamed statuses work without code changes.
+		planningStatusStr := "planning"
+		if planningStatuses := s.workflowSvc.GetStatusesByPhase("planning"); len(planningStatuses) > 0 {
+			planningStatusStr = planningStatuses[0]
+		}
+		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr(planningStatusStr)}
 		planningSprints, listErr := s.repo.List(ctx, planningFilter)
 		if listErr != nil {
 			return nil, fmt.Errorf("failed to find next planning sprint: %w", listErr)
@@ -2078,7 +2101,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 				Name:      "Sprint " + nextKey,
 				StartDate: newStart,
 				EndDate:   newEnd,
-				Status:    models.SprintStatus("planning"),
+				Status:    models.SprintStatus(s.workflowSvc.GetInitialStatusString()),
 				Slug:      utils.GenerateSlug("Sprint " + nextKey),
 			}
 			if createErr := s.repo.Create(ctx, autoSprint); createErr != nil {

@@ -1,0 +1,70 @@
+version: "1.0"
+start: planning
+steps:
+  planning:
+    phase: planning
+    color: gray
+    display_token: PLN
+    description: "Sprint scope being defined; entities assigned"
+    progress_weight: 0
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: product-manager
+    provider: anthropic
+    model: sonnet
+    skills: [sprint-planning]
+    prompt: sprint/planning.md
+    outcomes:
+      pass: active
+      blocked: on_hold
+  active:
+    phase: execution
+    color: yellow
+    display_token: ACT
+    description: "Sprint in progress; entities being pulled and worked"
+    progress_weight: 0.5
+    responsibility: agent
+    action: spawn_agent
+    agent: developer
+    provider: anthropic
+    model: sonnet
+    skills: [sprint-execution]
+    prompt: sprint/active.md
+    outcomes:
+      pass: closing
+      blocked: on_hold
+  closing:
+    phase: review
+    color: magenta
+    display_token: CLS
+    description: "Sprint wrapping up; retrospective and carryover review"
+    progress_weight: 0.9
+    responsibility: agent
+    action: spawn_agent
+    agent: researcher
+    provider: anthropic
+    model: sonnet
+    skills: [sprint-analytics]
+    prompt: sprint/closing.md
+    outcomes:
+      pass: archived
+      blocked: on_hold
+  archived:
+    phase: done
+    color: green
+    display_token: ARC
+    description: "Sprint closed and archived"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+  on_hold:
+    phase: paused
+    color: gray
+    display_token: HLD
+    description: "Sprint intentionally paused"
+    progress_weight: 0
+    responsibility: human
+    action: pause
+    parking: true

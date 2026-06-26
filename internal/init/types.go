@@ -5,20 +5,16 @@ type InitOptions struct {
 	DBPath         string // Database file path
 	ConfigPath     string // Config file path
 	NonInteractive bool   // Skip prompts
-	Force          bool   // Overwrite existing config and modified templates
-	TemplateDir    string // Template directory name (default: "shark-templates")
+	Force          bool   // Overwrite existing config
 }
 
 // InitResult contains initialization results
 type InitResult struct {
-	DatabaseCreated    bool     `json:"database_created"`
-	DatabasePath       string   `json:"database_path"`
-	FoldersCreated     []string `json:"folders_created"`
-	ConfigCreated      bool     `json:"config_created"`
-	ConfigPath         string   `json:"config_path"`
-	TemplatesCopied    int      `json:"templates_copied"`    // Files newly copied (didn't exist)
-	TemplatesRefreshed int      `json:"templates_refreshed"` // Files overwritten via --force
-	TemplatesDiffered  []string `json:"templates_differed"`  // Files skipped because local copy differs (need --force to overwrite)
+	DatabaseCreated bool     `json:"database_created"`
+	DatabasePath    string   `json:"database_path"`
+	FoldersCreated  []string `json:"folders_created"`
+	ConfigCreated   bool     `json:"config_created"`
+	ConfigPath      string   `json:"config_path"`
 }
 
 // ConfigDefaults is the JSON structure written by `shark admin init` when
@@ -30,6 +26,7 @@ type ConfigDefaults struct {
 	InteractiveMode        bool                        `json:"interactive_mode"`
 	RequireRejectionReason bool                        `json:"require_rejection_reason"`
 	Database               *DatabaseConfigDefault      `json:"database"`
+	SharkDataPath          string                      `json:"shark_data_path"`
 	WorkflowConfig         string                      `json:"workflow_config"`
 	Observability          *ObservabilityConfigDefault `json:"observability"`
 }

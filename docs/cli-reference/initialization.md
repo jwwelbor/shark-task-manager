@@ -8,7 +8,7 @@ Initialize Shark CLI infrastructure in the current project.
 
 **Flags:**
 - `--non-interactive` — Skip interactive prompts (recommended for automation)
-- `--force` — Overwrite existing config and locally-modified template files
+- `--force` — Overwrite existing config file
 
 **Examples:**
 
@@ -19,20 +19,24 @@ shark admin init
 # Non-interactive mode (for AI agents / CI)
 shark admin init --non-interactive
 
-# Force overwrite existing config and locally-modified templates
+# Force overwrite existing config
 shark admin init --force
 ```
 
 **Creates:**
 - SQLite database (`shark-tasks.db`)
-- Folder structure (`docs/plan/`, `shark-templates/`)
+- Folder structure (`docs/plan/`)
 - Configuration file (`.sharkconfig.json`) with sensible defaults
-- The full embedded `shark-templates/` tree (entity templates, orchestrator templates, partials, and the bundled workflow files)
+
+Content (workflows, prompts, skills, agents) is served from the embedded
+bundle by default — no `shark-data/` directory is required on disk. Run
+`shark admin install-shark-data` to extract the bundle to disk for local
+customization.
 
 ## Default `.sharkconfig.json`
 
-A fresh `shark admin init` writes a config that points at a workflow file
-inside `shark-templates/` rather than embedding status definitions inline:
+A fresh `shark admin init` writes a minimal config pointing at the
+`shark-data/` bundle for workflow and content:
 
 ```json
 {
@@ -40,41 +44,35 @@ inside `shark-templates/` rather than embedding status definitions inline:
   "json_output": false,
   "interactive_mode": false,
   "require_rejection_reason": true,
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow/",
   "database": {
     "backend": "local",
     "url": "./shark-tasks.db",
     "skip_migrations": false
   },
-  "workflow_config": "shark-templates/.sharkworkflow-short.json"
+  "observability": {
+    "enabled": false,
+    "tracing_enabled": false,
+    "metrics_enabled": false,
+    "log_level": "info",
+    "log_format": "json",
+    "service_name": "shark-task-manager",
+    "log_file": ""
+  }
 }
 ```
 
-To switch to the long-form workflow, edit `workflow_config` to point at
-`shark-templates/.sharkworkflow.json`. To use a custom workflow, point
-`workflow_config` at your own JSON file (anywhere in the project).
-
-## Templates re-sync behavior
-
-`shark admin init` is **idempotent and re-syncs templates on every run** so
-that template/workflow updates shipped with a new `shark` binary
-automatically flow through to your project. Per file:
-
-| Local state | Default behavior | With `--force` |
-|---|---|---|
-| File missing | Copy fresh | Copy fresh |
-| File matches shipped version | Skip silently | Skip silently |
-| File **differs** from shipped version | Skip + warn (your edits are preserved) | **Overwrite** |
-
-When local files differ from the shipped versions, init prints a warning
-listing each path so you can review the upstream changes and decide whether
-to accept them with `--force`.
+The `workflow_config` field points at the `shark-data/workflow/` directory,
+which is resolved from the embedded bundle when no `shark-data/` tree exists
+on disk. To customize workflows, run `shark admin install-shark-data` to
+extract the bundle, then edit `shark-data/workflow/*.yaml` directly.
 
 ## When to Use
 
 Run `shark admin init` when:
 - Starting a new project
 - Setting up Shark in an existing project
-- Picking up template/workflow updates after upgrading the `shark` binary
 - Recreating the database after deletion (see recovery procedures)
 
 ## Cautions
@@ -84,11 +82,21 @@ data unless you understand that `--force` is required to clobber an
 existing `.sharkconfig.json`. The database itself is never destroyed by
 init.
 
-⚠️ `--force` will overwrite locally-modified template files with the
-shipped versions. Review the warnings printed by a normal init run first.
-
 See [Database Critical](../../.claude/rules/database-critical.md) for
 recovery procedures if you accidentally delete the database.
+
+## Extracting content bundle to disk
+
+To customize workflows, prompts, skills, or agents, extract the embedded
+bundle to disk:
+
+```bash
+shark admin install-shark-data
+```
+
+This writes `shark-data/` to the project root. The `shark-data/overrides/`
+subtree is never overwritten by a subsequent `install-shark-data` or
+`upgrade` call, so your customizations are preserved.
 
 ## Migrating an existing project to v15 (E07 size field + E28 tagging)
 
@@ -122,20 +130,17 @@ detected — no manual toggle required. Simply upgrade the binary and run any
 
 ## Switching workflows
 
-The basic/advanced workflow "profiles" subsystem (`shark init update
---workflow=...` and `shark init merge ...`) was removed. Workflows now live
-as files inside `shark-templates/` and are selected by setting
-`workflow_config` in `.sharkconfig.json`:
+Workflows are defined as YAML files inside `shark-data/workflow/` and
+selected by the `workflow_config` field in `.sharkconfig.json`. To
+customize:
 
-| Old approach | New approach |
-|---|---|
-| `shark init update --workflow=basic` | Set `"workflow_config": "shark-templates/.sharkworkflow-short.json"` |
-| `shark init update --workflow=advanced` | Set `"workflow_config": "shark-templates/.sharkworkflow.json"` |
-| `shark init merge --workflow=advanced --force` | Same as above — edit `workflow_config` directly |
+1. Run `shark admin install-shark-data` to extract the bundle.
+2. Edit `shark-data/workflow/<entity>.yaml` (task, feature, epic, bug, etc.).
+3. Or place overrides under `shark-data/overrides/workflow/` — these layer
+   on top and are never overwritten.
 
-To customize a workflow, copy one of the shipped files to your own path,
-edit it, and point `workflow_config` at your copy. Init will leave your
-custom file alone (it only re-syncs files inside `shark-templates/`).
+See [Workflow Configuration Guide](../guides/workflow-profiles.md) for
+details.
 
 ## Related Documentation
 

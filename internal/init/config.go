@@ -33,9 +33,10 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		}
 	}
 
-	// Create default config. Workflow definitions live in the templates folder
-	// (shark-templates/.sharkworkflow-short.json) — referenced via WorkflowConfig
-	// rather than embedded inline so template upgrades automatically flow through.
+	// Create default config pointing at the shark-data/ content bundle. Workflow
+	// definitions are resolved from shark-data/workflow/ (or the embedded bundle
+	// when shark-data/ is absent from disk). Run 'shark admin install-shark-data'
+	// to materialize the bundle on disk for local customization.
 	config := ConfigDefaults{
 		ColorEnabled:           true,
 		JSONOutput:             false,
@@ -46,7 +47,8 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 			URL:            "./shark-tasks.db",
 			SkipMigrations: false,
 		},
-		WorkflowConfig: "shark-templates/.sharkworkflow-short.json",
+		SharkDataPath:  "shark-data",
+		WorkflowConfig: "shark-data/workflow/",
 		Observability: &ObservabilityConfigDefault{
 			Enabled:        false,
 			TracingEnabled: false,

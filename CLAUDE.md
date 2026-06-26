@@ -142,12 +142,14 @@ from per-entity YAML files referenced by `workflow_config` in
 - a **master index file** that maps each entity to its workflow file (see
   [Route-Based Workflow Guide](docs/guides/route-based-workflow.md) §3).
 
-`shark admin init` materializes the `shark-data/` tree (workflows, prompts,
-skills, agents) and leaves your `shark-data/overrides/` subtree untouched.
+`shark admin install-shark-data` materializes the `shark-data/` tree (workflows,
+prompts, skills, agents) and leaves your `shark-data/overrides/` subtree
+untouched. `shark admin init` only creates the database, `docs/plan/`, and
+`.sharkconfig.json` — content is served from the embedded bundle by default.
 
 > A bare Shark 1.x JSON workflow file (e.g. `.sharkworkflow.json`) is **no
 > longer a valid `workflow_config` target** — the loader rejects it with a
-> migration hint. Run `shark init` to materialize the `shark-data/` tree.
+> migration hint. Run `shark admin install-shark-data` to materialize the `shark-data/` tree.
 
 Task lifecycle at a glance (default route-based task workflow):
 ```
@@ -167,10 +169,11 @@ Commands:
 Edit the per-entity YAML under `shark-data/workflow/` directly, or point
 `workflow_config` at your own directory or master index file. Files under
 `shark-data/overrides/` layer on top of the bundled defaults and are never
-overwritten by `shark admin init`.
+overwritten by `shark admin install-shark-data` or `shark admin upgrade`.
 
 > The basic/advanced "profile" subsystem (`shark init update --workflow=...`,
-> `shark init merge ...`) was removed. See
+> `shark init merge ...`) was removed. Workflows are now edited directly under
+> `shark-data/workflow/`. See
 > [Workflow Configuration Guide](docs/guides/workflow-profiles.md) for the
 > migration table.
 

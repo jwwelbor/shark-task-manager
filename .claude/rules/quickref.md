@@ -153,11 +153,12 @@ shark related-docs add --feature=E07-F01 --path="docs/design.md"
 ## Configuration & Setup
 
 ```bash
-# Initialize / re-sync templates from embedded shark-templates/
+# Initialize project (DB + docs/plan/ + .sharkconfig.json)
 shark admin init --non-interactive
-shark admin init --force                   # Overwrite locally-modified template files
-# To switch workflows, edit workflow_config in .sharkconfig.json (point at
-# shark-templates/.sharkworkflow.json for the long-form workflow).
+shark admin init --force                   # Overwrite existing config
+# Content (workflows, prompts, skills) served from embedded bundle by default.
+# To customize, extract to disk: shark admin install-shark-data
+# Then edit shark-data/workflow/*.yaml and shark-data/overrides/ for local changes.
 
 # Configuration
 shark config show                          # Show full config

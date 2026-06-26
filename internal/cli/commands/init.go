@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	init_pkg "github.com/jwwelbor/shark-task-manager/internal/init"
 	"github.com/spf13/cobra"
@@ -23,14 +22,13 @@ var initCmd = &cobra.Command{
 	Short: "Initialize Shark CLI infrastructure",
 
 	Long: `Initialize Shark CLI infrastructure: create the database, the
-docs/plan/ and shark-templates/ folder structure, a default .sharkconfig.json,
-and copy the embedded shark-templates/ tree.
+docs/plan/ folder, and a default .sharkconfig.json configured to use
+shark-data/ for workflow and content.
 
-The shark-templates/ tree is re-synced from the embedded version on every run
-so template/workflow updates shipped with a new shark binary flow through
-automatically. Files you have modified locally are NOT overwritten — they are
-reported as differing from the shipped version, and you can re-run with
---force to accept the upstream version.
+Content (workflows, prompts, skills, agents) is served from the embedded
+bundle by default — no shark-data/ directory required. Run
+'shark admin install-shark-data' to extract the bundle to disk for
+local customization.
 
 This command is idempotent and safe to run multiple times.`,
 	Example: `  # Initialize with default settings
@@ -39,7 +37,7 @@ This command is idempotent and safe to run multiple times.`,
   # Initialize without prompts (for automation)
   shark admin init --non-interactive
 
-  # Force overwrite existing config and locally-modified templates
+  # Force overwrite existing config
   shark admin init --force`,
 	RunE: runInit,
 }
@@ -50,7 +48,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false,
 		"Skip all prompts (use defaults)")
 	initCmd.Flags().BoolVar(&initForce, "force", false,
-		"Overwrite existing config and locally-modified templates")
+		"Overwrite existing config")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -75,17 +73,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get template directory from existing config (if any)
-	configPath, _ := cli.GetConfigPath()
-	templateDir := config.GetTemplateDirectoryFromConfig(configPath)
-
 	// Create initializer options
 	opts := init_pkg.InitOptions{
 		DBPath:         dbPath,
 		ConfigPath:     ".sharkconfig.json", // Default
 		NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,
 		Force:          initForce,
-		TemplateDir:    templateDir,
 	}
 
 	// Create initializer
@@ -109,15 +102,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Output results
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status":              "success",
-			"database_created":    result.DatabaseCreated,
-			"database_path":       result.DatabasePath,
-			"folders_created":     result.FoldersCreated,
-			"config_created":      result.ConfigCreated,
-			"config_path":         result.ConfigPath,
-			"templates_copied":    result.TemplatesCopied,
-			"templates_refreshed": result.TemplatesRefreshed,
-			"templates_differed":  result.TemplatesDiffered,
+			"status":           "success",
+			"database_created": result.DatabaseCreated,
+			"database_path":    result.DatabasePath,
+			"folders_created":  result.FoldersCreated,
+			"config_created":   result.ConfigCreated,
+			"config_path":      result.ConfigPath,
 		})
 	}
 
@@ -140,7 +130,7 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 			fmt.Printf("✓ Folder created: %s\n", folder)
 		}
 	} else {
-		fmt.Println("✓ Folder structure exists: docs/plan/, shark-templates/")
+		fmt.Println("✓ Folder structure exists: docs/plan/")
 	}
 
 	if result.ConfigCreated {
@@ -149,31 +139,9 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 		fmt.Printf("✓ Config file exists: %s\n", result.ConfigPath)
 	}
 
-	switch {
-	case result.TemplatesCopied > 0 && result.TemplatesRefreshed > 0:
-		fmt.Printf("✓ Templates: %d copied, %d refreshed\n", result.TemplatesCopied, result.TemplatesRefreshed)
-	case result.TemplatesCopied > 0:
-		fmt.Printf("✓ Templates copied: %d files\n", result.TemplatesCopied)
-	case result.TemplatesRefreshed > 0:
-		fmt.Printf("✓ Templates refreshed: %d files\n", result.TemplatesRefreshed)
-	default:
-		fmt.Println("✓ Templates up to date")
-	}
-
-	// Surface locally-modified templates that diverge from the shipped version
-	// so the user knows an upgrade is available behind --force.
-	if len(result.TemplatesDiffered) > 0 {
-		fmt.Println()
-		cli.Warning(fmt.Sprintf("%d template file(s) differ from the shipped version and were left unchanged:", len(result.TemplatesDiffered)))
-		for _, p := range result.TemplatesDiffered {
-			fmt.Printf("  - %s\n", p)
-		}
-		fmt.Println("  Re-run with --force to overwrite local changes with the shipped version.")
-	}
-
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("1. Edit .sharkconfig.json to point at the workflow file you want (default: shark-templates/.sharkworkflow-short.json)")
-	fmt.Println("2. Create your first epic with: shark epic create \"Epic Title\"")
-	fmt.Println("3. Create your first task with: shark task create E01 F01 \"Task title\"")
+	fmt.Println("1. Create your first epic with: shark epic create \"Epic Title\"")
+	fmt.Println("2. Create your first task with: shark task create E01 F01 \"Task title\"")
+	fmt.Println("3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data")
 }
