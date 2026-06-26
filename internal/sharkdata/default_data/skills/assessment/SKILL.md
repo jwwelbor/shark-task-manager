@@ -3,7 +3,7 @@ name: assessment
 description: Workflow decision-making assessments for project management. Use when evaluating feature complexity (SIMPLE/STANDARD/COMPLEX tier assignment), validating scope (feature vs task classification), checking phase readiness (gate validation), or estimating implementation effort. Invoked during feature triage, scope validation, phase transitions, or when complexity/effort estimates are needed for planning.
 inputs:
   # The assessment skill exposes four distinct activities (modes). Each has its own input/output
-  # contract. The host (shark prompt) selects mode and supplies inputs accordingly.
+  # contract. The host selects mode and supplies inputs accordingly.
   - mode: one of "complexity_triage" | "scope_validation" | "readiness_check" | "effort_estimation"
 
   # mode = complexity_triage
@@ -66,7 +66,7 @@ outputs:
 
 # Assessment Skill (craft)
 
-Standardized assessment workflows for workflow routing, scope validation, quality gates, and effort estimation. This skill is the **craft layer** — it provides the methodology for each decision activity. The host (shark workflow prompt) selects a mode, supplies the inputs above, receives the structured outputs, and is responsible for translating those outputs into workflow state changes.
+Standardized assessment workflows for workflow routing, scope validation, quality gates, and effort estimation. This skill is the **craft layer** — it provides the methodology for each decision activity. The host selects a mode, supplies the inputs above, receives the structured outputs, and is responsible for translating those outputs into workflow state changes.
 
 ## Overview
 

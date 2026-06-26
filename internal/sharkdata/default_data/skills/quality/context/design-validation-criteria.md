@@ -7,7 +7,7 @@ This document defines the complete validation criteria for feature design docume
 All features must have these design documents in `/docs/plan/{epic}/{feature}/`:
 
 1. `README.md` - Navigation hub and overview
-2. Feature PRD file - Get the actual filename from `shark get <key> --json` (use `path` + `filename` fields; it may be `prd.md`, `feature.md`, or another name)
+2. Feature PRD file - Get the actual filename from the project management system (use `path` + `filename` fields; it may be `prd.md`, `feature.md`, or another name)
 3. `00-research-report.md` - Project research findings
 4. `02-architecture.md` - System design and integration
 5. `03-database-design.md` - Schema and data model
@@ -25,7 +25,7 @@ All features must have these design documents in `/docs/plan/{epic}/{feature}/`:
 - [ ] Contains "Implementation Status" table
 - [ ] Contains "Key Dependencies" section
 - [ ] Contains "Success Metrics" section
-- [ ] Links to the feature PRD file (get the actual filename from `shark get <key> --json`; do not assume `prd.md`)
+- [ ] Links to the feature PRD file (get the actual filename from the project management system; do not assume `prd.md`)
 
 ### 00-research-report.md
 - [ ] Contains "Executive Summary" section

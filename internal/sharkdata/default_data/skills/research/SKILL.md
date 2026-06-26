@@ -85,7 +85,7 @@ Use research workflows:
 10. **consult-related-work** - `workflows/consult-related-work.md`
     - Mechanically discover prior art (sibling features, related epics, ADRs) before starting any new feature, epic refinement, or task spec
     - Use for: MANDATORY first step at `ready_for_research`, `ready_for_refinement_ba`, `ready_for_refinement_tech`, and Step 1 of epic-tech-plan / feature-tech-plan
-    - Output: `prior-art-report.md` registered as a related-doc, with a Capability Map of REUSE / EXTEND / RE-IMPLEMENT decisions and `shark link` relationships for reused siblings
+    - Output: `prior-art-report.md` registered as a related-doc, with a Capability Map of REUSE / EXTEND / RE-IMPLEMENT decisions and link relationships for reused siblings
     - Prevents: Re-implementing capabilities a sibling feature already established (the F35→F30 duplication failure mode)
 
 ## Workflow Selection Guide

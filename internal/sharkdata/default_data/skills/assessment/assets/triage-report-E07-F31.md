@@ -181,11 +181,10 @@ Based on research of existing codebase:
 
 ---
 
-## Metadata Storage Command
+## Metadata to Store
 
-```bash
-shark feature note E07-F31 'COMPLEXITY_TIER: STANDARD (score: 4/27) - Unified rendering helpers with CLI integration, low technical complexity but cohesive feature value' \
-  --metadata complexity_tier=STANDARD complexity_score=4
+```
+Record a note on feature E07-F31: 'COMPLEXITY_TIER: STANDARD (score: 4/27) - Unified rendering helpers with CLI integration, low technical complexity but cohesive feature value'
 ```
 
 ---

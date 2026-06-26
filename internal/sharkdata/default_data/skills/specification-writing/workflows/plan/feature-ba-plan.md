@@ -117,7 +117,7 @@ Produce the structured outputs:
 - `excluded_docs` — one entry per optional doc whose decision was EXCLUDE.
 - `decision_log` — single-line summary: `"PLAN: {tier} tier. Will create N docs: [list]. Excluded: [doc — reason]."`
 
-The host stores these into shark `context_data` and advances to the ACT phase.
+The host stores these into `context_data` and advances to the ACT phase.
 
 ---
 

@@ -2,7 +2,7 @@
 inputs:
   - task_id: opaque task identifier (string)
   - task_title: task title (string)
-  - task_description: task description as captured in shark (string)
+  - task_description: task description as captured in the project management system (string)
   - task_acceptance_criteria: existing AC list (may be empty / partial — that's why refinement is needed)
   - blocker_notes: list of {type, message, created_by, created_at} — especially relevant: blocker notes from developers/QA explaining what's unclear
   - feature_id: opaque feature identifier (string)
