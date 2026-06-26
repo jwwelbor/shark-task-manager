@@ -144,7 +144,7 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Check whether shark-data/ already exists (informational only).
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json"))
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
 	dataRoot, resolveErr := config.ResolveSharkDataRoot(root, configBytes)
 	diskExists := resolveErr == nil && func() bool {
 		_, statErr := os.Stat(dataRoot)
@@ -179,7 +179,7 @@ func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("shark install-shark-data: failed to locate project root: %w", err)
 	}
 
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json"))
+	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
 	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
 		return fmt.Errorf("shark install-shark-data: %w", err)
@@ -199,7 +199,7 @@ func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 
 	if alreadyInitialized {
 		if cli.GlobalConfig.JSON {
-			_ = cli.OutputJSON(map[string]interface{}{
+			return cli.OutputJSON(map[string]interface{}{
 				"status":         "already_exists",
 				"path":           dest,
 				"config_updated": configUpdated,

@@ -1,6 +1,8 @@
 package sharkdata
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,35 @@ import (
 // embedded tree by its path relative to embedRootDir.
 func readEmbeddedAll(rel string) ([]byte, error) {
 	return embeddedFS.ReadFile(filepath.Join(embedRootDir, rel))
+}
+
+// ============================================================================
+// ReadEmbedded — security-rejection paths
+// ============================================================================
+
+func TestReadEmbedded_AbsolutePath(t *testing.T) {
+	_, err := ReadEmbedded("/etc/passwd")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be relative")
+}
+
+func TestReadEmbedded_ParentTraversal(t *testing.T) {
+	_, err := ReadEmbedded("../etc/passwd")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not escape")
+}
+
+func TestReadEmbedded_NotFound(t *testing.T) {
+	_, err := ReadEmbedded("prompts/nonexistent/file-that-does-not-exist.md")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, fs.ErrNotExist), "expected fs.ErrNotExist, got %v", err)
+}
+
+func TestReadEmbedded_KnownFile(t *testing.T) {
+	data, err := ReadEmbedded("README.md")
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+	assert.Contains(t, string(data), "shark-data")
 }
 
 // ============================================================================
