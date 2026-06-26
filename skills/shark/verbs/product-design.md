@@ -4,13 +4,13 @@ Delegates to the **content bundle's** product-design skill.
 
 ## Procedure
 
-1. Resolve the content bundle root (SKILL.md → *Content bundle resolution*).
-2. Read and follow:
+1. Read and follow:
    ```
-   <bundle>/skills/product-design/SKILL.md
+   shark skill get product-design
    ```
-3. If absent, print a clear unavailable message naming the resolved path and
-   suggest `shark init` / `shark upgrade` (or fixing `shark_data_path`), then stop.
+2. If the command fails because the skill is absent, print a clear unavailable
+   message naming `shark skill get product-design` and suggest checking the
+   installed shark version or `shark_data_path`, then stop.
 
 ## Notes
 

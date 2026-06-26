@@ -24,13 +24,13 @@ Emit a verdict: **READY** / **WARNINGS** / **NOT READY**, with the specific gaps
 
 ## 2. Optional enrichment (gated by preflight)
 
-Resolve the content bundle root. **Before** invoking a deep validator, confirm
-the file actually exists:
-- `<bundle>/skills/quality/workflows/validate-design.md`
-- `<bundle>/skills/quality/workflows/validate-tasks.md`
+**Before** invoking a deep validator, confirm the content can be retrieved:
+- `shark skill get quality workflows/validate-design.md`
+- `shark skill get quality workflows/validate-tasks.md`
 
-For each that exists, read and follow it and fold its findings into the verdict.
-If neither exists, run the inline audit only and append:
+For each command that succeeds, follow the returned validator instructions and
+fold its findings into the verdict. If neither succeeds, run the inline audit
+only and append:
 > Deep validators unavailable in this bundle — inline audit only.
 
 A missing validator is **never** a hard failure.
