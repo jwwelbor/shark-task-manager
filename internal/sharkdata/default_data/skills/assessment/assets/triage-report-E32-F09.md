@@ -7,7 +7,7 @@
 ## Dimension Scores
 
 ### Technical Complexity (6 dimensions)
-1. File Impact: 3/3 — 16 files across 6 skills touch by the purity pass (10+ threshold)
+1. File Impact: 3/3 — 16 files across 6 skills touched by the purity pass (10+ threshold)
 2. Pattern Novelty: 0/3 — Established text-rewriting pattern from earlier purity passes; no new approach
 3. Data Model: 0/3 — No schema changes; skill content files only
 4. API Surface: 0/3 — No public API changes

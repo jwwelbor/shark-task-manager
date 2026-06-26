@@ -7,7 +7,7 @@ inputs:
 outputs:
   - clarifying_questions: ordered questions, each tied to an ambiguity and the decision it unblocks
   - clarified_requirement: the rewritten requirement after answers are incorporated
-  - residual_assumptions: any ambiguity intentionally left as a documented assumption
+  - assumption_register: any ambiguity intentionally left as a documented assumption
 ---
 
 # Workflow: Question Ladder

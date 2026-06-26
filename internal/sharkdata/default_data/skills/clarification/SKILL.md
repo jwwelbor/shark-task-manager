@@ -12,7 +12,7 @@ inputs:
   - prior_clarifications: previously resolved questions to avoid re-asking (optional)
 outputs:
   - selected_workflow: one of {detect-ambiguity, question-ladder, surface-assumptions}
-  - ambiguity_report: structured list of {span, ambiguity_type, why_it_matters, severity}
+  - ambiguity_report: structured list of {span, ambiguity_type, interpretations, why_it_matters, severity}
   - clarifying_questions: ordered questions, each tied to a specific ambiguity and the decision it unblocks
   - assumption_register: explicit assumptions with {assumption, confidence, blast_radius, validation_method}
   - clarified_requirement: the rewritten requirement once questions are answered or assumptions are accepted

@@ -144,7 +144,7 @@ All implementation tasks live with their feature documentation:
 /docs/plan/{epic-key}/{feature-key}/
 ├── feature.md              # Verify actual filename with the project management system
 ├── 02-architecture.md
-├── 03-data-design.md
+├── 03-database-design.md
 └── tasks/
     ├── README.md          # Task index and workflow
     ├── T-E##-F##-001.md

@@ -13,7 +13,7 @@ inputs:
 outputs:
   - selected_workflow: one of {decompose-requirement, build-test-matrix}
   - acceptance_criteria: list of unambiguous, testable criteria derived from the requirement
-  - test_matrix: list of {condition_id, criterion_ref, precondition, input, expected_outcome, class}
+  - test_matrix: list of {condition_id, criterion_ref, technique, precondition, input, expected_outcome, class}
   - edge_cases: enumerated boundary, empty, and limit conditions per criterion
   - negative_cases: enumerated "this MUST NOT happen" conditions per criterion
   - open_questions: ambiguities or gaps surfaced during decomposition that need clarification

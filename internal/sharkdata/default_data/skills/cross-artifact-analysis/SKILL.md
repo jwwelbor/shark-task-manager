@@ -12,7 +12,9 @@ outputs:
   - consistency_report: structured markdown enumerating every mismatch found
   - mismatches: list of {dimension, layers_involved, description, evidence, severity, remediation}
   - traceability_matrix: parent requirement → child coverage mapping
-  - verdict: CONSISTENT | CONSISTENT_WITH_WARNINGS | DRIFTED
+  - verdict: CONSISTENT | CONSISTENT_WITH_WARNINGS | DRIFTED | COVERED | COVERED_WITH_WARNINGS | UNCOVERED
+  - cross_artifact_glossary: unified glossary of terms across all analyzed artifacts (from terminology-alignment workflow)
+  - terminology_mismatches: list of terms used differently across artifacts (from terminology-alignment workflow)
 ---
 
 # Cross-Artifact Analysis Skill
