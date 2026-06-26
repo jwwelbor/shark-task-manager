@@ -110,8 +110,11 @@ func TestCreateConfig(t *testing.T) {
 			if !cfg.RequireRejectionReason {
 				t.Errorf("RequireRejectionReason = false, want true")
 			}
-			if cfg.WorkflowConfig != "shark-templates/.sharkworkflow-short.json" {
-				t.Errorf("WorkflowConfig = %q, want %q", cfg.WorkflowConfig, "shark-templates/.sharkworkflow-short.json")
+			if cfg.WorkflowConfig != "shark-data/workflow/" {
+				t.Errorf("WorkflowConfig = %q, want %q", cfg.WorkflowConfig, "shark-data/workflow/")
+			}
+			if cfg.SharkDataPath != "shark-data" {
+				t.Errorf("SharkDataPath = %q, want %q", cfg.SharkDataPath, "shark-data")
 			}
 			if cfg.Database == nil {
 				t.Fatal("Database section missing")
@@ -237,6 +240,7 @@ func TestCreateConfigShape(t *testing.T) {
 		"interactive_mode",
 		"require_rejection_reason",
 		"database",
+		"shark_data_path",
 		"workflow_config",
 		"observability",
 	}

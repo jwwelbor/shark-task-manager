@@ -13,12 +13,16 @@ var adminCmd = &cobra.Command{
 cloud database, migrations, and validation.
 
 Subcommands:
-  init        Initialize Shark CLI infrastructure
-  config      Manage CLI configuration
-  cloud       Manage cloud database configuration
-  migrate     Database migration utilities
-  validate    Validate database integrity
-  workflow    Manage workflow configuration`,
+  init                Initialize Shark CLI infrastructure (DB, docs/plan/, config)
+  install-shark-data  Extract embedded content bundle to shark-data/ for customization
+  upgrade             Upgrade on-disk shark-data/ to the version in the current binary
+  validate-data       Validate on-disk shark-data/ content bundle
+  validate            Validate database integrity
+  config              Manage CLI configuration
+  cloud               Manage cloud database configuration
+  migrate             Database migration utilities
+  workflow            Manage workflow configuration
+  maintainer          Maintainer authorization commands`,
 	GroupID: "advanced",
 }
 

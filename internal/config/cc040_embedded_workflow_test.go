@@ -197,3 +197,52 @@ func TestDefaultWorkflowDataLoader_Pass3_AllEmbeddedEntitiesLoaded(t *testing.T)
 		}
 	}
 }
+
+// TestDefaultWorkflowDataLoader_Pass3_SprintWorkflow verifies that the
+// sprint workflow YAML is present in the embedded FS, loads correctly, and
+// exposes the expected statuses with planning as the start step.
+// This is the E19-F08 integration gate (T-E19-F08-006 ACs: AC-T1, AC-T2, AC-T3).
+func TestDefaultWorkflowDataLoader_Pass3_SprintWorkflow(t *testing.T) {
+	// AC-T1: sprint.yaml is present in the embedded FS.
+	embeddedBytes, err := sharkdata.ReadEmbedded("workflow/sprint.yaml")
+	if err != nil {
+		t.Fatalf("sprint.yaml missing from embedded FS: %v", err)
+	}
+
+	// AC-T2: start step is "planning".
+	embeddedCfg, err := workflow.ParseWorkflowYAMLBytes(embeddedBytes, "embedded:workflow/sprint.yaml")
+	if err != nil {
+		t.Fatalf("ParseWorkflowYAMLBytes(sprint.yaml): %v", err)
+	}
+	if embeddedCfg.Start != "planning" {
+		t.Errorf("sprint workflow start = %q; want \"planning\"", embeddedCfg.Start)
+	}
+
+	// AC-T3: all expected statuses are present.
+	expectedStatuses := []string{"planning", "active", "closing", "archived", "on_hold"}
+	for _, want := range expectedStatuses {
+		if _, ok := embeddedCfg.StatusMetadata[want]; !ok {
+			t.Errorf("sprint workflow missing expected status %q", want)
+		}
+	}
+
+	// Also verify the loader slot is populated consistently with the embedded YAML.
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	result, err := defaultWorkflowDataLoader(configPath)
+	if err != nil {
+		t.Fatalf("defaultWorkflowDataLoader: %v", err)
+	}
+	sprintSlot, ok := result["sprint"]
+	if !ok {
+		t.Fatal("sprint slot missing from loader result")
+	}
+	for _, want := range expectedStatuses {
+		if _, found := sprintSlot[want]; !found {
+			t.Errorf("sprint loader slot missing status %q", want)
+		}
+	}
+}

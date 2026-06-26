@@ -41,9 +41,9 @@ func TestInitialize(t *testing.T) {
 					t.Error("DatabasePath is not absolute")
 				}
 
-				// Verify folders were created
-				if len(result.FoldersCreated) != 2 {
-					t.Errorf("FoldersCreated count = %d, want 2", len(result.FoldersCreated))
+				// Verify folders were created (only docs/plan now)
+				if len(result.FoldersCreated) != 1 {
+					t.Errorf("FoldersCreated count = %d, want 1", len(result.FoldersCreated))
 				}
 
 				// Verify config was created
@@ -52,11 +52,6 @@ func TestInitialize(t *testing.T) {
 				}
 				if result.ConfigPath == "" {
 					t.Error("ConfigPath is empty")
-				}
-
-				// Verify templates were copied (count may be 0 if no templates embedded yet)
-				if result.TemplatesCopied < 0 {
-					t.Errorf("TemplatesCopied = %d, want >= 0", result.TemplatesCopied)
 				}
 			},
 		},
