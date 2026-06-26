@@ -26,6 +26,8 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+var legacyInstructionPattern = regexp.MustCompile(`\bready_for_[A-Za-z0-9_]+\b|\bin_(approval|assessment|code_review|decomposition|design|development|feature_review|qa|refinement|research|specification|task_generation|task_review|test_planning|verification)\b`)
+
 // includeRegexp returns the same syntactic pattern the engine resolver uses
 // to spot {{include: <path>}} / {{augment: <path>}} directives. We mirror
 // the pattern locally rather than importing the templates package to avoid
@@ -655,8 +657,7 @@ func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport
 }
 
 func legacyInstructionLiterals(content string) []string {
-	pattern := regexp.MustCompile(`\bready_for_[A-Za-z0-9_]+\b|\bin_(approval|assessment|code_review|decomposition|design|development|feature_review|qa|refinement|research|specification|task_generation|task_review|test_planning|verification)\b`)
-	matches := pattern.FindAllString(content, -1)
+	matches := legacyInstructionPattern.FindAllString(content, -1)
 	if len(matches) == 0 {
 		return nil
 	}
