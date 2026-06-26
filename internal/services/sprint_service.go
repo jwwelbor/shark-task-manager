@@ -408,9 +408,10 @@ func (s *SprintService) DeleteSprint(ctx context.Context, key string) error {
 		return recordSpanError(span, fmt.Errorf("failed to delete sprint %s: %w", key, err))
 	}
 
-	// Only allow deletion of sprints in planning status.
-	if string(sprint.Status) != s.workflowSvc.GetInitialStatusString() {
-		return recordSpanError(span, fmt.Errorf("cannot delete sprint %s in status %s: only sprints in planning status can be deleted", key, sprint.Status))
+	// Only allow deletion of sprints in the initial (planning) status.
+	initialStatus := s.workflowSvc.GetInitialStatusString()
+	if !strings.EqualFold(string(sprint.Status), initialStatus) {
+		return recordSpanError(span, fmt.Errorf("cannot delete sprint %s in status %s: only sprints in %s status can be deleted", key, sprint.Status, initialStatus))
 	}
 
 	if err := s.repo.Delete(ctx, sprint.ID); err != nil {
@@ -1473,8 +1474,8 @@ func (s *SprintService) ReorderAssignment(
 	}
 	if !reorderAllowed {
 		return nil, nil, fmt.Errorf(
-			"cannot reorder: sprint %q is in status %q; only planning and active sprints can be reordered",
-			sprintKey, status,
+			"cannot reorder: sprint %q is in status %q; only sprints in %s status can be reordered",
+			sprintKey, status, strings.Join(s.assignableSprintStatuses(), " or "),
 		)
 	}
 

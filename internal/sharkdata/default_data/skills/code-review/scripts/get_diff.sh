@@ -52,12 +52,16 @@ if [ -z "$coding_standards_path" ]; then
     2>/dev/null | head -1)
 fi
 
-python3 - <<PYEOF
-import json
-diff_path = "$diff_path"
-project_root = "$project_root"
-coding_standards_path = "$coding_standards_path"
-changed_files = """$changed_files_raw""".strip().split('\n')
+DIFF_PATH="$diff_path" \
+PROJECT_ROOT="$project_root" \
+CODING_STANDARDS_PATH="$coding_standards_path" \
+CHANGED_FILES="$changed_files_raw" \
+python3 - <<'PYEOF'
+import os, json
+diff_path = os.environ["DIFF_PATH"]
+project_root = os.environ["PROJECT_ROOT"]
+coding_standards_path = os.environ.get("CODING_STANDARDS_PATH", "")
+changed_files = os.environ.get("CHANGED_FILES", "").strip().split('\n')
 changed_files = [f for f in changed_files if f]
 print(json.dumps({
   "diff_path": diff_path,
