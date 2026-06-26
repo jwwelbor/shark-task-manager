@@ -289,16 +289,16 @@ When QA testing finds critical issues or test failures:
 1. **Create QA reports** with timestamped filenames including task ID in `qa_reports/`
 2. **Add task note** referencing the QA report using the `/shark` skill (type: blocker)
 3. **Set bug_fix context** using the `/shark` skill (see `shark/SKILL.md` → 'Context') — set field `bug_fix` to `true`
-4. **Transition task back:** Use the `/shark` skill to set status back to `ready_for_development` and add a note explaining the rejection (e.g., "Bug fix required — QA failed. Review qa_reports/...")
+4. **Transition task back:** Use the `/shark` skill to set status back to `development` and add a note explaining the rejection (e.g., "Bug fix required — QA failed. Review qa_reports/...")
 
-The orchestrator will see the task in `ready_for_development` with `bug_fix: true` context and notes pointing to the QA report.
+The orchestrator will see the task in `development` with `bug_fix: true` context and notes pointing to the QA report.
 
 ### Handle QA Success
 When all tests pass and quality gates are met:
 
 1. **Create QA reports** documenting the successful test run
 2. **Add task note** confirming QA approval using the `/shark` skill (type: testing)
-3. **Transition task to next status** according to workflow (typically `ready_for_approval` or `completed`)
+3. **Transition task to next status** according to workflow (typically `approval` or `completed`)
 
 ### Check Workflow State
 Read `docs/workflow/state.json` for current position and available inputs (if using workflow state machine).

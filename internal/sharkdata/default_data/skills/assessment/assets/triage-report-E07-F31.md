@@ -109,7 +109,7 @@ Based on STANDARD tier assignment:
 - **Research Phase**: SKIP - Patterns well-understood
 - **Autonomous Build**: FEASIBLE (pending task validation)
 
-**Next Status**: `ready_for_refinement_ba`
+**Next Status**: `refinement`
 
 ---
 

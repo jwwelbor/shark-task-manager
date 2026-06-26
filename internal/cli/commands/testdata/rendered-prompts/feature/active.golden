@@ -9,7 +9,7 @@ Feature E07-F01 ("Sample feature for golden test") is ACTIVE — tasks are in pr
    - **draft** -> run `/run {task-key}` to start
    - **blocked** -> skip, try next
 3. When ALL tasks are completed or cancelled: shark status advance E07-F01
-   (This advances the feature to ready_for_code_review for a single feature-level review pass.)
+   (This advances the feature to code_review for a single feature-level review pass.)
 4. If ALL remaining tasks are blocked: report to user and STOP
 
 Respect task dependencies — do not start a task whose dependencies are incomplete.

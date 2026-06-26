@@ -24,6 +24,6 @@ PRODUCE code review report at {{.review_base}}code_review/`<timestamp>`-{{.id}}-
 
 DECISION:
 - ALL PASS → {{template "advance" .}}
-- ANY FAIL → shark status set {{.id}} ready_for_development --reason "<specific findings to fix>"
+- ANY FAIL → shark status set {{.id}} development --reason "<specific findings to fix>"
   (Check report at {{.review_base}}code_review/ on resume)
 {{end}}

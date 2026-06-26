@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -53,6 +54,38 @@ const embedRootDir = "default_data"
 // root. It's a constant (not configurable) to keep harness/skill assumptions
 // stable; users override behavior via shark-data/overrides/, not by renaming.
 const SharkDataDirName = "shark-data"
+
+// ReadEmbedded reads a file from the embedded canonical shark-data/ tree using
+// a relative path (e.g. "prompts/task/draft.md"). This enables hybrid
+// embed/disk resolution: callers first check disk, then fall back to this
+// function when the file is absent on disk.
+//
+// The relPath must not be absolute and must not escape the bundle root via "..".
+// Returns (nil, fs.ErrNotExist) when the path does not exist in the embedded tree.
+func ReadEmbedded(relPath string) ([]byte, error) {
+	if filepath.IsAbs(relPath) {
+		return nil, fmt.Errorf("sharkdata.ReadEmbedded: path must be relative: %q", relPath)
+	}
+	// Convert OS-native separators to forward slashes (embed.FS always uses /).
+	fsPath := strings.ReplaceAll(relPath, string(filepath.Separator), "/")
+	// Reject upward traversal.
+	if cleaned := path.Clean(fsPath); cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return nil, fmt.Errorf("sharkdata.ReadEmbedded: path must not escape bundle root: %q", relPath)
+	}
+	data, err := embeddedFS.ReadFile(embedRootDir + "/" + fsPath)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// EmbeddedFS returns the raw embed.FS rooted at the default_data/ tree.
+// The FS root prefix is embedRootDir ("default_data"); callers accessing
+// individual files must include this prefix. Prefer ReadEmbedded for
+// single-file access.
+func EmbeddedFS() (fs.FS, string) {
+	return embeddedFS, embedRootDir
+}
 
 // Init copies the embedded canonical shark-data/ tree to <projectRoot>/shark-data/.
 //
@@ -287,9 +320,11 @@ func ValidateAt(dataRoot string) (*ValidationReport, error) {
 
 	validateWorkflowYAML(filepath.Join(dest, "workflow"), report)
 	// E9 AC6: verify that agent_type and instruction_template references in
-	// workflow YAML resolve to real files under shark-data/agents/ and
-	// shark-data/prompts/ respectively.
+	// workflow YAML resolve to real files under shark-data/agents/,
+	// shark-data/prompts/, and shark-data/skills/ respectively.
 	validateWorkflowAgentRefs(filepath.Join(dest, "workflow"), dest, report)
+	validateLegacyPromptNames(dest, report)
+	validateLegacyInstructionLiterals(dest, report)
 	// Prompt include validation requires the engine's IncludeResolver; we
 	// avoid a hard import cycle by re-implementing the include scan here as
 	// a lightweight regex pass against the same syntax. The engine's
@@ -436,9 +471,9 @@ func validateWorkflowYAML(workflowDir string, report *ValidationReport) {
 }
 
 // validateWorkflowAgentRefs walks all workflow YAML files and cross-checks
-// every agent_type and instruction_template reference against the agents/ and
-// prompts/ directories in the data root. A reference to a file that does not
-// exist is reported as an error (E9 AC6).
+// every agent_type, instruction_template, prompt, and skills reference against
+// the agents/, prompts/, and skills/ directories in the data root. It also
+// rejects legacy route aliases in shipped workflow content.
 func validateWorkflowAgentRefs(workflowDir, dataRoot string, report *ValidationReport) {
 	if _, err := os.Stat(workflowDir); err != nil {
 		return
@@ -451,6 +486,7 @@ func validateWorkflowAgentRefs(workflowDir, dataRoot string, report *ValidationR
 
 	agentsDir := filepath.Join(dataRoot, "agents")
 	promptsDir := filepath.Join(dataRoot, "prompts")
+	skillsDir := filepath.Join(dataRoot, "skills")
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -470,7 +506,7 @@ func validateWorkflowAgentRefs(workflowDir, dataRoot string, report *ValidationR
 			continue // already reported by validateWorkflowYAML
 		}
 		yamlPath := "workflow/" + name
-		extractWorkflowRefs(raw, yamlPath, agentsDir, promptsDir, report)
+		extractWorkflowRefs(raw, yamlPath, agentsDir, promptsDir, skillsDir, report)
 	}
 }
 
@@ -480,7 +516,7 @@ func validateWorkflowAgentRefs(workflowDir, dataRoot string, report *ValidationR
 // route-based step keys ("agent", "prompt") introduced by the consolidated
 // steps: schema (E35) — without the route-based keys, ref validation goes dark
 // for migrated workflow files.
-func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir string, report *ValidationReport) {
+func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir, skillsDir string, report *ValidationReport) {
 	switch node := v.(type) {
 	case map[string]interface{}:
 		for key, val := range node {
@@ -512,15 +548,165 @@ func extractWorkflowRefs(v interface{}, yamlPath, agentsDir, promptsDir string, 
 						fmt.Sprintf("workflow references %s %q but %s does not exist", key, tmpl, filepath.ToSlash(promptFile)),
 					)
 				}
+			case "skills":
+				validateWorkflowSkillRefs(val, yamlPath, skillsDir, report)
+			case "aliases":
+				validateWorkflowAliases(val, yamlPath, report)
 			default:
-				extractWorkflowRefs(val, yamlPath, agentsDir, promptsDir, report)
+				extractWorkflowRefs(val, yamlPath, agentsDir, promptsDir, skillsDir, report)
 			}
 		}
 	case []interface{}:
 		for _, item := range node {
-			extractWorkflowRefs(item, yamlPath, agentsDir, promptsDir, report)
+			extractWorkflowRefs(item, yamlPath, agentsDir, promptsDir, skillsDir, report)
 		}
 	}
+}
+
+func validateWorkflowSkillRefs(v interface{}, yamlPath, skillsDir string, report *ValidationReport) {
+	for _, skill := range stringList(v) {
+		if skill == "" {
+			continue
+		}
+		skillFile := filepath.Join(skillsDir, filepath.FromSlash(skill), "SKILL.md")
+		overrideFile := filepath.Join(filepath.Dir(skillsDir), "overrides", "skills", filepath.FromSlash(skill), "SKILL.md")
+		if !fileExists(skillFile) && !fileExists(overrideFile) {
+			report.AddIssue(
+				IssueLevelError,
+				yamlPath,
+				fmt.Sprintf("workflow references skill %q but %s does not exist", skill, filepath.ToSlash(skillFile)),
+			)
+		}
+	}
+}
+
+func validateWorkflowAliases(v interface{}, yamlPath string, report *ValidationReport) {
+	for _, alias := range stringList(v) {
+		if isLegacyWorkflowAlias(alias, yamlPath) {
+			report.AddIssue(
+				IssueLevelError,
+				yamlPath,
+				fmt.Sprintf("workflow alias %q uses removed legacy status language", alias),
+			)
+		}
+	}
+}
+
+func stringList(v interface{}) []string {
+	switch values := v.(type) {
+	case []string:
+		return values
+	case []interface{}:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if s, ok := value.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func isLegacyWorkflowAlias(alias, yamlPath string) bool {
+	if strings.HasPrefix(alias, "ready_for_") {
+		return true
+	}
+	if !strings.HasPrefix(alias, "in_") {
+		return false
+	}
+	// tech-debt uses in_progress as the canonical step name; it should not be
+	// an alias, but older extracted bundles may still carry it while migrating.
+	return !(alias == "in_progress" && strings.HasSuffix(yamlPath, "tech-debt.yaml"))
+}
+
+func validateLegacyPromptNames(dataRoot string, report *ValidationReport) {
+	promptsDir := filepath.Join(dataRoot, "prompts")
+	if _, err := os.Stat(promptsDir); err != nil {
+		return
+	}
+	_ = filepath.Walk(promptsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		if isExtractedSidecar(path) || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		rel := relTo(dataRoot, path)
+		base := filepath.Base(path)
+		if strings.HasPrefix(base, "ready_for_") || isLegacyPromptInFilename(rel, base) {
+			report.AddIssue(
+				IssueLevelError,
+				rel,
+				"prompt filename uses removed legacy status language",
+			)
+		}
+		return nil
+	})
+}
+
+func isLegacyPromptInFilename(rel, base string) bool {
+	if !strings.HasPrefix(base, "in_") {
+		return false
+	}
+	return filepath.ToSlash(rel) != "prompts/tech_debt/in_progress.md"
+}
+
+func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport) {
+	for _, subdir := range []string{"agents", "prompts", "skills"} {
+		root := filepath.Join(dataRoot, subdir)
+		if _, err := os.Stat(root); err != nil {
+			continue
+		}
+		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			if isExtractedSidecar(path) {
+				return nil
+			}
+			ext := filepath.Ext(path)
+			if ext != ".md" && ext != ".tmpl" {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				report.AddIssue(IssueLevelError, relTo(dataRoot, path), fmt.Sprintf("read: %v", err))
+				return nil
+			}
+			rel := relTo(dataRoot, path)
+			for _, literal := range legacyInstructionLiterals(rel, string(data)) {
+				report.AddIssue(
+					IssueLevelError,
+					rel,
+					fmt.Sprintf("instruction contains removed legacy status literal %q", literal),
+				)
+			}
+			return nil
+		})
+	}
+}
+
+func legacyInstructionLiterals(rel, content string) []string {
+	pattern := regexp.MustCompile(`\bready_for_[A-Za-z0-9_]+\b|\bin_[A-Za-z0-9_]+\b`)
+	matches := pattern.FindAllString(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(matches))
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if match == "in_progress" && filepath.ToSlash(rel) == "prompts/tech_debt/in_progress.md" {
+			continue
+		}
+		if seen[match] {
+			continue
+		}
+		seen[match] = true
+		out = append(out, match)
+	}
+	return out
 }
 
 // isExtractedSidecar reports whether path lies inside an `_extracted/`

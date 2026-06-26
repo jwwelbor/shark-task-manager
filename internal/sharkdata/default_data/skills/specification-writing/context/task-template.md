@@ -255,7 +255,7 @@ If wireframes are missing and the task touches frontend code, the BA/PM should r
 
 ## Frontmatter Fields
 
-**status**: `todo` | `in_progress` | `blocked` | `ready_for_review` | `completed` | `archived`
+**status**: `draft` | `development` | `blocked` | `on_hold` | `completed` | `cancelled`
 
 Note: Status is managed via the `shark` CLI and tracked in database. Task files remain in feature directory regardless of status.
 
@@ -341,13 +341,7 @@ This folder contains agent-executable tasks that implement the {feature-key} fea
 
 ## Status Definitions
 
-Status is tracked in database via `shark` CLI. Use these commands:
-- `pm task list --status=todo` - Show todo tasks
-- `pm task start <key>` - Start a task (status: in_progress)
-- `pm task complete <key>` - Complete a task (status: ready_for_review)
-- `pm task approve <key>` - Approve a task (status: completed)
-- `pm task block <key> --reason="..."` - Block a task
-- `pm task unblock <key>` - Unblock a task
+Status is tracked by Shark in the project database. Task specs should name the intended workflow state semantically, but should not embed CLI commands for moving between states. Use the active task workflow to transition among `draft`, `development`, `blocked`, `on_hold`, `completed`, and `cancelled`.
 
 Task files remain in `/docs/plan/{epic}/{feature}/tasks/` regardless of status.
 

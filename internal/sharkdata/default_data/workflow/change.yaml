@@ -35,13 +35,12 @@ steps:
     provider: anthropic
     model: opus
     skills: [quality]
-    prompt: task/ready_for_code_review.md
+    prompt: task/code_review.md
     outcomes:
       blocked: blocked
       fail: development
       on_hold: on_hold
       pass: qa
-    aliases: [in_code_review, ready_for_code_review]
   completed:
     phase: done
     color: green
@@ -64,13 +63,12 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [implementation]
-    prompt: change/ready_for_development.md
+    prompt: change/development.md
     outcomes:
       blocked: blocked
       fail: draft
       on_hold: on_hold
       pass: code_review
-    aliases: [in_development, ready_for_development]
   draft:
     phase: planning
     color: gray
@@ -110,10 +108,9 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality]
-    prompt: task/ready_for_qa.md
+    prompt: task/qa.md
     outcomes:
       blocked: blocked
       fail: development
       on_hold: on_hold
       pass: completed
-    aliases: [in_qa, ready_for_qa]

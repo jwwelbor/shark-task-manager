@@ -85,7 +85,7 @@ When PM dispatches you with a task, use the `/shark` skill (see `shark/SKILL.md`
 Use the `/shark` skill to resume the task (e.g., `T-E10-F05-001`). This gives you task description, acceptance criteria, dependencies, all context fields, all notes from previous sessions, and work session history. **Read this carefully.** It has everything you need.
 
 ### Step 2: Start Task
-Use the `/shark` skill to start the task. This updates shark status to "in_development" and records start time.
+Use the `/shark` skill to claim or start the task. The canonical workflow step remains `development`; the claim/session records active work.
 
 ### Step 3: Work + Document
 
@@ -103,14 +103,14 @@ When ALL work is done, tests pass, code committed:
 
 `shark status advance <task-id>`   # See /shark skill for CLI reference
 
-**This is REQUIRED. Do not skip this.** This advances the task to the next workflow status (typically `ready_for_code_review`).
+**This is REQUIRED. Do not skip this.** This advances the task according to the workflow's `pass` outcome.
 
 ### Step 5: Report Brief Status
 Return to PM:
 ```
 DONE: T-E10-F05-001
 
-All tests passing, code committed. Task advanced to ready_for_code_review.
+All tests passing, code committed. Task advanced with the workflow pass outcome.
 ```
 
 **PM can query shark for full details. No need to repeat everything.**

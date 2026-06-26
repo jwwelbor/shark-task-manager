@@ -57,5 +57,5 @@ PRODUCE QA report at {{.review_base}}qa/`<timestamp>`-{{.id}}-qa.md:
 
 DECISION:
 - ALL PASS → {{template "advance" .}}
-- ANY FAIL → shark status set {{.id}} ready_for_development --reason "<specific failures to fix>"
+- ANY FAIL → shark status set {{.id}} development --reason "<specific failures to fix>"
 {{end}}

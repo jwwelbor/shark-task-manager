@@ -1,6 +1,8 @@
 package sharkdata
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,35 @@ import (
 // embedded tree by its path relative to embedRootDir.
 func readEmbeddedAll(rel string) ([]byte, error) {
 	return embeddedFS.ReadFile(filepath.Join(embedRootDir, rel))
+}
+
+// ============================================================================
+// ReadEmbedded — security-rejection paths
+// ============================================================================
+
+func TestReadEmbedded_AbsolutePath(t *testing.T) {
+	_, err := ReadEmbedded("/etc/passwd")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be relative")
+}
+
+func TestReadEmbedded_ParentTraversal(t *testing.T) {
+	_, err := ReadEmbedded("../etc/passwd")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not escape")
+}
+
+func TestReadEmbedded_NotFound(t *testing.T) {
+	_, err := ReadEmbedded("prompts/nonexistent/file-that-does-not-exist.md")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, fs.ErrNotExist), "expected fs.ErrNotExist, got %v", err)
+}
+
+func TestReadEmbedded_KnownFile(t *testing.T) {
+	data, err := ReadEmbedded("README.md")
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+	assert.Contains(t, string(data), "shark-data")
 }
 
 // ============================================================================
@@ -159,7 +190,7 @@ func TestValidate_BrokenInclude(t *testing.T) {
 	promptDir := filepath.Join(root, SharkDataDirName, "prompts", "task")
 	require.NoError(t, os.MkdirAll(promptDir, 0755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(promptDir, "in_qa.md"),
+		filepath.Join(promptDir, "scratch.md"),
 		[]byte("Header. {{include: skills/missing/whatever.md}}"),
 		0644,
 	))
@@ -186,7 +217,7 @@ func TestValidate_AbsoluteIncludeRejected(t *testing.T) {
 	promptDir := filepath.Join(root, SharkDataDirName, "prompts", "task")
 	require.NoError(t, os.MkdirAll(promptDir, 0755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(promptDir, "in_qa.md"),
+		filepath.Join(promptDir, "scratch.md"),
 		[]byte("{{include: /etc/passwd}}"),
 		0644,
 	))
@@ -212,7 +243,7 @@ func TestValidate_ParentTraversalRejected(t *testing.T) {
 	promptDir := filepath.Join(root, SharkDataDirName, "prompts", "task")
 	require.NoError(t, os.MkdirAll(promptDir, 0755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(promptDir, "in_qa.md"),
+		filepath.Join(promptDir, "scratch.md"),
 		[]byte("{{include: ../../../etc/passwd}}"),
 		0644,
 	))
@@ -236,7 +267,7 @@ func TestValidate_OverrideOnlyFileWarns(t *testing.T) {
 	promptDir := filepath.Join(root, SharkDataDirName, "prompts", "task")
 	require.NoError(t, os.MkdirAll(promptDir, 0755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(promptDir, "in_qa.md"),
+		filepath.Join(promptDir, "scratch.md"),
 		[]byte("{{include: skills/quality/qa-testing.md}}"),
 		0644,
 	))
@@ -345,6 +376,152 @@ status_metadata:
 		}
 	}
 	assert.True(t, found, "report should mention the missing agent_type; got issues: %+v", report.Issues)
+}
+
+func TestValidate_MissingWorkflowPromptRef(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workflowDir, "task.yaml"),
+		[]byte(`version: '1.0'
+start: draft
+steps:
+  draft:
+    phase: planning
+    action: advance_status
+    prompt: task/missing-prompt.md
+    outcomes:
+      pass: completed
+      fail: draft
+      blocked: blocked
+  completed:
+    phase: done
+    terminal: true
+    prompt: task/completed.md
+`),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "task/missing-prompt.md")
+}
+
+func TestValidate_MissingWorkflowSkillRef(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workflowDir, "task.yaml"),
+		[]byte(`version: '1.0'
+start: draft
+steps:
+  draft:
+    phase: planning
+    action: spawn_agent
+    agent: developer
+    skills: [missing-skill-xyz]
+    prompt: task/development.md
+    outcomes:
+      pass: completed
+      fail: draft
+      blocked: blocked
+  completed:
+    phase: done
+    terminal: true
+    prompt: task/completed.md
+`),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "missing-skill-xyz")
+}
+
+func TestValidate_LegacyWorkflowAliasRejected(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workflowDir, "task.yaml"),
+		[]byte(`version: '1.0'
+start: draft
+steps:
+  draft:
+    phase: planning
+    action: advance_status
+    prompt: task/draft.md
+    outcomes:
+      pass: development
+      fail: draft
+      blocked: blocked
+  development:
+    phase: development
+    action: spawn_agent
+    agent: developer
+    skills: [implementation]
+    prompt: task/development.md
+    outcomes:
+      pass: completed
+      fail: draft
+      blocked: blocked
+    aliases: [ready_for_development, in_development]
+  completed:
+    phase: done
+    terminal: true
+    prompt: task/completed.md
+`),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "ready_for_development")
+	assertReportHasErrorContaining(t, report, "in_development")
+}
+
+func TestValidate_LegacyPromptFilenameRejected(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	promptDir := filepath.Join(root, SharkDataDirName, "prompts", "task")
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "ready_for_qa.md"), []byte("legacy"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "in_qa.md"), []byte("legacy"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "ready_for_qa.md")
+	assertReportHasErrorContaining(t, report, "in_qa.md")
+}
+
+func TestValidate_LegacyStatusLiteralRejectedInActiveInstructions(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	agentPath := filepath.Join(root, SharkDataDirName, "agents", "qa.md")
+	require.NoError(t, os.WriteFile(agentPath, []byte("Route failures to ready_for_development."), 0644))
+
+	promptPath := filepath.Join(root, SharkDataDirName, "prompts", "task", "development.md")
+	require.NoError(t, os.WriteFile(promptPath, []byte("Do not set in_development directly."), 0644))
+
+	skillPath := filepath.Join(root, SharkDataDirName, "skills", "quality", "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte("No embedded skill should mention in_progress task status."), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "ready_for_development")
+	assertReportHasErrorContaining(t, report, "in_development")
+	assertReportHasErrorContaining(t, report, "in_progress")
 }
 
 // TestValidate_MissingWorkflowYAML_SingleFile verifies that when one of the
@@ -558,4 +735,18 @@ func TestEmbedded_SkillsContainNoBareSharkCLIRefs(t *testing.T) {
 	assert.Empty(t, violations,
 		"skill files must not contain bare shark CLI invocations; found:\n%s",
 		strings.Join(violations, "\n"))
+}
+
+func assertReportHasErrorContaining(t *testing.T, report *ValidationReport, needle string) {
+	t.Helper()
+	require.NotNil(t, report)
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError && strings.Contains(issue.Message, needle) {
+			return
+		}
+		if issue.Level == IssueLevelError && strings.Contains(issue.Path, needle) {
+			return
+		}
+	}
+	t.Fatalf("expected error containing %q; got issues: %+v", needle, report.Issues)
 }

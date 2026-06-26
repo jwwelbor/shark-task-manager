@@ -568,10 +568,12 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 // Exported for testability — callers in non-test code use the
 // GetOrchestratorEngine().IncludeRoot() value as the root.
 func LoadAgentBodyForInline(root, agentType string) (string, bool) {
-	if root == "" || agentType == "" {
+	if agentType == "" {
 		return "", false
 	}
-	resolver := templates.NewIncludeResolver(root)
+	// NewIncludeResolverWithEmbed falls back to the embedded canonical tree
+	// when root is empty (zero-config mode) or a file is absent on disk.
+	resolver := templates.NewIncludeResolverWithEmbed(root)
 	// Construct a synthetic include directive and let the resolver do the
 	// path / override / frontmatter-strip work. Reusing the resolver keeps
 	// behavior identical to {{include: agents/<type>.md}} when an author

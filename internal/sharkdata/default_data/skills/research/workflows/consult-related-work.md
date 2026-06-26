@@ -194,9 +194,9 @@ This workflow is complete when:
 
 ## Related
 
-- `~/.claude/skills/research/workflows/understand-feature.md` — deeper dive into a single sibling once Step 4 flags it as critical
-- `~/.claude/skills/research/workflows/tracing-knowledge-lineages.md` — for "why was this decided" archaeology beyond what ADRs capture
-- `~/.claude/skills/specification-writing/workflows/write-feature-prd.md` — calls this workflow as Step 1
-- `~/.claude/skills/specification-writing/workflows/plan/feature-tech-plan.md` — calls this workflow as Step 1
-- `~/.claude/skills/specification-writing/workflows/plan/epic-tech-plan.md` — calls this workflow as Step 1
-- `~/.claude/skills/specification-writing/workflows/write-task.md` — sources Brownfield Context from the report this workflow produces
+- `skills/research/workflows/understand-feature.md` — deeper dive into a single sibling once Step 4 flags it as critical
+- `skills/research/workflows/tracing-knowledge-lineages.md` — for "why was this decided" archaeology beyond what ADRs capture
+- `skills/specification-writing/workflows/write-feature-prd.md` — calls this workflow as Step 1
+- `skills/specification-writing/workflows/plan/feature-tech-plan.md` — calls this workflow as Step 1
+- `skills/specification-writing/workflows/plan/epic-tech-plan.md` — calls this workflow as Step 1
+- `skills/specification-writing/workflows/write-task.md` — sources Brownfield Context from the report this workflow produces

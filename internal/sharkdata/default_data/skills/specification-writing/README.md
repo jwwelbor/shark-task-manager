@@ -2,7 +2,7 @@
 
 ## Overview
 
-The specification-writing skill is the authoritative source for all product specification document generation in Claude Code. It consolidates ~1,720 lines of template and procedural knowledge previously scattered across three agents into a single, reusable skill domain.
+The specification-writing skill is the authoritative source for all product specification document generation in the embedded skill system. It consolidates ~1,720 lines of template and procedural knowledge previously scattered across three agents into a single, reusable skill domain.
 
 ## What This Skill Provides
 
@@ -61,8 +61,8 @@ Reference workflows in your agent instructions:
 ## Your Process
 1. Analyze requirements
 2. Invoke specification-writing skill for document generation
-3. Follow workflow from: ~/.claude/skills/specification-writing/workflows/write-{type}.md
-4. Use templates from: ~/.claude/skills/specification-writing/context/
+3. Follow workflow from: `skills/specification-writing/workflows/write-{type}.md`
+4. Use templates from: `skills/specification-writing/context/`
 ```
 
 ### For Users

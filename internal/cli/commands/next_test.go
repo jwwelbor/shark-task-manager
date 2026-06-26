@@ -38,12 +38,13 @@ func setupAgentFixture(t *testing.T, agentType, body string, overrideBody string
 	return dataRoot
 }
 
-func TestLoadAgentBodyForInline_LegacyModeReturnsFalse(t *testing.T) {
-	// Empty root signals legacy mode (no shark-data/). The function must not
-	// attempt resolution and must report "not inlined" without erroring.
+func TestLoadAgentBodyForInline_EmptyRootFallsBackToEmbed(t *testing.T) {
+	// Empty root (zero-config mode) should fall back to the embedded canonical
+	// agent tree rather than returning false. The embedded "qa" agent is known
+	// to exist, so ok must be true and the body non-empty.
 	got, ok := LoadAgentBodyForInline("", "qa")
-	assert.False(t, ok, "legacy mode should return ok=false")
-	assert.Equal(t, "", got)
+	assert.True(t, ok, "zero-config mode should fall back to embedded agent body")
+	assert.NotEmpty(t, got)
 }
 
 func TestLoadAgentBodyForInline_EmptyAgentTypeReturnsFalse(t *testing.T) {
@@ -167,7 +168,7 @@ func isDirExist(path string) bool {
 }
 
 // TestRunNext_InlinesSkillContent is the F02 AC #2 end-to-end check: the
-// shipped feature/ready_for_assessment.md prompt must produce a rendered
+// shipped feature/assessment.md prompt must produce a rendered
 // output that contains the body of skills/assessment/SKILL.md inlined via
 // {{include:}}, not a path reference.
 func TestRunNext_InlinesSkillContent(t *testing.T) {
@@ -176,7 +177,7 @@ func TestRunNext_InlinesSkillContent(t *testing.T) {
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
 	require.NoError(t, err, "shipped prompts must parse with includes resolved")
 
-	out, err := renderer.Render("feature/ready_for_assessment.md", map[string]string{
+	out, err := renderer.Render("feature/assessment.md", map[string]string{
 		"id":        "E32-F02",
 		"title":     "Engine — includes",
 		"file_path": "docs/plan/E32/E32-F02/E32-F02.md",

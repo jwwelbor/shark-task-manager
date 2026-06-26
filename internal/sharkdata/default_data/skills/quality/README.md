@@ -2,7 +2,7 @@
 
 ## Overview
 
-The quality skill is the authoritative source for all validation, code review, and quality assurance workflows in Claude Code. It consolidates ~885+ lines of validation logic from commands and code review processes into structured workflows that any agent or command can invoke.
+The quality skill is the authoritative source for all validation, code review, and quality assurance workflows in the embedded skill system. It consolidates ~885+ lines of validation logic from commands and code review processes into structured workflows that any agent or command can invoke.
 
 ## What This Skill Provides
 
@@ -63,8 +63,8 @@ description: Validate feature design documentation
 ---
 Invoke quality skill validation workflow:
 
-Follow process in: ~/.claude/skills/quality/workflows/validate-design.md
-Apply criteria from: ~/.claude/skills/quality/context/design-validation-criteria.md
+Follow process in: `skills/quality/workflows/validate-design.md`
+Apply criteria from: `skills/quality/context/design-validation-criteria.md`
 ```
 
 ### For Agents

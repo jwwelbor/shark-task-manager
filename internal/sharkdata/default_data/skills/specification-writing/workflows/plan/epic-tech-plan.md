@@ -3,8 +3,8 @@ inputs:
   - epic_id: opaque epic identifier (string)
   - epic_spec_path: absolute path to the epic document (string)
   - ba_doc_paths: list of absolute paths — BA docs already produced (epic.md, requirements.md, scope.md, plus any optional)
-  - research_report_path: absolute path to the research report (optional; from in_research phase)
-  - ba_feasibility_report_path: absolute path to BA feasibility review report (optional; from in_feasibility_review_ba)
+  - research_report_path: absolute path to the research report (optional; from the research phase)
+  - ba_feasibility_report_path: absolute path to BA feasibility review report (optional; from BA feasibility review)
   - prior_art_report_path: absolute path to `prior-art-report.md` produced by consult-related-work workflow (REQUIRED — host must produce this before calling craft)
   - complexity_tier: "SIMPLE" | "STANDARD" | "COMPLEX" (optional; if not provided, the craft assesses from BA docs)
 outputs:
@@ -35,7 +35,7 @@ architecture in THIS epic.
 Read the inputs:
 
 1. All BA docs at `ba_doc_paths` (epic.md, requirements.md, scope.md, plus any optional).
-2. `research_report_path` (if provided) — research report from `in_research` phase.
+2. `research_report_path` (if provided) — research report from the research phase.
 3. `ba_feasibility_report_path` (if provided) — BA feasibility review report.
 4. `prior_art_report_path` — **MANDATORY**. This report enumerates sibling epics' capabilities
    and produces REUSE / EXTEND / RE-IMPLEMENT decisions per capability. The Capability Map

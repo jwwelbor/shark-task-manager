@@ -1,0 +1,14 @@
+Verify change E07-F01: "Sample feature for golden test".
+
+Check for existing verification report. If report exists with PASS verdict, advance immediately.
+
+---
+
+VERIFY:
+- [ ] Run: make fmt && make lint && make test
+- [ ] Change matches description
+- [ ] No regressions
+
+DECISION:
+- ALL PASS → shark status advance E07-F01
+- ANY FAIL → shark status set E07-F01 development --reason "<findings>"

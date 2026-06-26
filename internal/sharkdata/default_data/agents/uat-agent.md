@@ -248,8 +248,8 @@ Add a decision note to each task using the `/shark` skill (type: decision) refer
 - Route each failing task individually (do not blanket-reject the whole feature):
   1. **Classify** each failure as **AC Violation** (spec was clear, implementation missed it) or **Spec Gap** (requirement was missing/ambiguous)
   2. **Update the task markdown file** — Append a `## UAT Rejection (<date>)` section with: unmet AC IDs, classification, required fix, and link to the UAT results file (`docs/uat/<epic-key>/results/UAT-<feature-key>-YYYYMMDD-results.md`)
-  3. **Route back to development** — Use the `/shark` skill (see `shark/SKILL.md`) to set status to `ready_for_development`, set context field `bug_fix` to `true`, and add a note (type: blocker) referencing the UAT results file and updated task spec
-  4. **Leave passing tasks at `in_approval`** — only reject the tasks that actually failed
+  3. **Route back to development** — Use the `/shark` skill (see `shark/SKILL.md`) to set status to `development`, set context field `bug_fix` to `true`, and add a note (type: blocker) referencing the UAT results file and updated task spec
+  4. **Leave passing tasks at `approval`** — only reject the tasks that actually failed
 - You CAN reject tasks without user approval (rejection is conservative/safe)
 
 **If your verdict is ACCEPT WITH CONDITIONS:**

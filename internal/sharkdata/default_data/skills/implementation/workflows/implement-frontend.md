@@ -653,7 +653,7 @@ Produce a structured `summary` describing the frontend implementation. Suggested
 For visual design, consult `frontend-design` skill:
 
 ```
-Reference: ~/.claude/skills/frontend-design/SKILL.md
+Reference: `skills/frontend-design/SKILL.md`
 
 - Choose bold aesthetic direction
 - Typography: distinctive fonts, not generic

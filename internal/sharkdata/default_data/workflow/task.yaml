@@ -44,13 +44,12 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [implementation, test-driven-development]
-    prompt: task/ready_for_development.md
+    prompt: task/development.md
     outcomes:
       blocked: blocked
       fail: draft
       on_hold: on_hold
       pass: completed
-    aliases: [in_approval, in_development, in_progress, in_qa, ready_for_approval, ready_for_code_review, ready_for_development, ready_for_qa]
   draft:
     phase: planning
     color: gray
@@ -67,7 +66,6 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: development
-    aliases: [ready_for_refinement_ba, todo]
   on_hold:
     phase: paused
     color: gray

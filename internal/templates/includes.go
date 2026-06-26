@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
 // IncludeDepthCap is the maximum nesting depth for {{include:}} directives.
@@ -42,6 +44,11 @@ type IncludeResolver struct {
 	// `skills/`, `agents/`, `overrides/`).
 	dataRoot string
 
+	// useEmbed enables hybrid resolution: when a file is not found on disk,
+	// the resolver falls back to the embedded canonical tree (sharkdata.ReadEmbedded).
+	// This allows zero-config operation without requiring `shark install-shark-data`.
+	useEmbed bool
+
 	// warnFn is called when an inlined file's size exceeds
 	// IncludeSizeWarnBytes. Defaults to writing to os.Stderr; tests inject
 	// their own to capture warnings.
@@ -65,6 +72,21 @@ func NewIncludeResolver(dataRoot string) *IncludeResolver {
 	}
 }
 
+// NewIncludeResolverWithEmbed constructs an IncludeResolver with hybrid
+// embed/disk resolution. When a file is not found on disk (under dataRoot),
+// it falls back to the embedded canonical shark-data/ tree. dataRoot may be
+// empty — disk lookup is skipped but embed fallback still applies.
+//
+// Precedence order:
+//  1. <dataRoot>/overrides/<path>   (disk override, wins always)
+//  2. <dataRoot>/<path>             (disk default)
+//  3. embedded canonical tree       (zero-config backstop)
+func NewIncludeResolverWithEmbed(dataRoot string) *IncludeResolver {
+	r := NewIncludeResolver(dataRoot)
+	r.useEmbed = true
+	return r
+}
+
 // Resolve preprocesses content by inlining all {{include: <path>}} and
 // {{augment: <path>}} directives. Resolution is recursive (included files may
 // contain their own includes); cycle detection is enforced by a depth cap of
@@ -74,12 +96,12 @@ func NewIncludeResolver(dataRoot string) *IncludeResolver {
 // first; if it exists, its content replaces the default at <dataRoot>/<path>.
 // Override files are never merged with defaults — they win or they're absent.
 //
-// If dataRoot is empty (legacy mode), include directives are left in place
-// verbatim. This is intentional: the legacy `shark-templates/` mode has no
-// data root, so include is a no-op there. Callers using {{template ...}}
-// for in-tree partials are unaffected.
+// If dataRoot is empty and embed fallback is disabled (legacy mode), include
+// directives are left in place verbatim. This is intentional: the legacy
+// `shark-templates/` mode has no data root, so include is a no-op there.
+// Embed-aware resolvers still resolve includes from the embedded bundle.
 func (r *IncludeResolver) Resolve(content string) (string, error) {
-	if r.dataRoot == "" {
+	if r.dataRoot == "" && !r.useEmbed {
 		return content, nil
 	}
 	return r.resolveDepth(content, 0, map[string]bool{})
@@ -106,20 +128,17 @@ func (r *IncludeResolver) resolveDepth(content string, depth int, visited map[st
 		// directive := submatches[1]   // "include" or "augment" — same handling for now
 		path := submatches[2]
 
-		resolvedPath, err := r.resolvePath(path)
+		resolvedPath, fileContent, err := r.resolveContent(path)
 		if err != nil {
 			firstErr = err
 			return match
 		}
 
+		// Use a stable key for cycle detection. For embedded content, the
+		// resolved path is a virtual "embed:<relPath>" string; for disk it's
+		// the absolute OS path.
 		if visited[resolvedPath] {
 			firstErr = fmt.Errorf("include cycle detected: %s already on the include stack", resolvedPath)
-			return match
-		}
-
-		fileContent, err := os.ReadFile(resolvedPath)
-		if err != nil {
-			firstErr = fmt.Errorf("failed to read include %s: %w", resolvedPath, err)
 			return match
 		}
 
@@ -129,7 +148,7 @@ func (r *IncludeResolver) resolveDepth(content string, depth int, visited map[st
 
 		// Strip frontmatter from .md includes — same rule as top-level prompts.
 		body := string(fileContent)
-		if filepath.Ext(resolvedPath) == ".md" {
+		if filepath.Ext(resolvedPath) == ".md" || strings.HasSuffix(resolvedPath, ".md") {
 			body = stripFrontmatter(body)
 		}
 
@@ -152,40 +171,59 @@ func (r *IncludeResolver) resolveDepth(content string, depth int, visited map[st
 	return result, nil
 }
 
-// resolvePath looks up an include path under the data root, preferring an
-// override file at <dataRoot>/overrides/<path>. The path is resolved as POSIX
-// (forward slashes) and converted to OS-native separators; absolute paths and
-// paths escaping the data root via .. are rejected.
-func (r *IncludeResolver) resolvePath(includePath string) (string, error) {
-	// Normalize separators and reject absolute or upward paths.
+// resolveContent resolves an include path to its content using the hybrid
+// embed/disk precedence:
+//  1. <dataRoot>/overrides/<path>   (disk override)
+//  2. <dataRoot>/<path>             (disk default)
+//  3. embedded canonical tree       (zero-config backstop, when useEmbed=true)
+//
+// Returns (resolvedKey, content, error). resolvedKey is the disk path for disk
+// files, or "embed:<relPath>" for embedded files (used for cycle detection).
+func (r *IncludeResolver) resolveContent(includePath string) (resolvedKey string, content []byte, err error) {
 	cleanedPath := strings.TrimSpace(includePath)
 	if cleanedPath == "" {
-		return "", fmt.Errorf("include path is empty")
+		return "", nil, fmt.Errorf("include path is empty")
 	}
 	if filepath.IsAbs(cleanedPath) {
-		return "", fmt.Errorf("include path must be relative to data root: %q", cleanedPath)
+		return "", nil, fmt.Errorf("include path must be relative to data root: %q", cleanedPath)
 	}
-	// Convert any forward slashes to OS-native separators.
 	osPath := filepath.FromSlash(cleanedPath)
-	// Reject upward traversal, but only on a real leading ".." segment — a
-	// substring check over-matches legitimate names like "notes..draft.md".
-	// filepath.Clean collapses any interior ".." so an escaping path surfaces
-	// as a leading "..".
 	if cleaned := filepath.Clean(osPath); cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("include path must not escape the data root: %q", cleanedPath)
+		return "", nil, fmt.Errorf("include path must not escape the data root: %q", cleanedPath)
 	}
 
-	// Override wins.
-	overridePath := filepath.Join(r.dataRoot, "overrides", osPath)
-	if _, err := os.Stat(overridePath); err == nil {
-		return overridePath, nil
+	if r.dataRoot != "" {
+		// Override wins.
+		overridePath := filepath.Join(r.dataRoot, "overrides", osPath)
+		if _, statErr := os.Stat(overridePath); statErr == nil {
+			data, readErr := os.ReadFile(overridePath)
+			if readErr != nil {
+				return "", nil, fmt.Errorf("failed to read include %s: %w", overridePath, readErr)
+			}
+			return overridePath, data, nil
+		}
+
+		// Default disk location.
+		defaultPath := filepath.Join(r.dataRoot, osPath)
+		if _, statErr := os.Stat(defaultPath); statErr == nil {
+			data, readErr := os.ReadFile(defaultPath)
+			if readErr != nil {
+				return "", nil, fmt.Errorf("failed to read include %s: %w", defaultPath, readErr)
+			}
+			return defaultPath, data, nil
+		}
 	}
 
-	// Default location.
-	defaultPath := filepath.Join(r.dataRoot, osPath)
-	if _, err := os.Stat(defaultPath); err == nil {
-		return defaultPath, nil
+	// Embed backstop.
+	if r.useEmbed {
+		data, readErr := sharkdata.ReadEmbedded(cleanedPath)
+		if readErr == nil {
+			return "embed:" + cleanedPath, data, nil
+		}
 	}
 
-	return "", fmt.Errorf("include not found: %s (looked under %s and %s/overrides/)", cleanedPath, r.dataRoot, r.dataRoot)
+	if r.dataRoot != "" {
+		return "", nil, fmt.Errorf("include not found: %s (looked under %s and %s/overrides/)", cleanedPath, r.dataRoot, r.dataRoot)
+	}
+	return "", nil, fmt.Errorf("include not found: %s (no disk data root and embed fallback %v)", cleanedPath, r.useEmbed)
 }

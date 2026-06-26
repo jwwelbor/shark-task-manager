@@ -23,5 +23,5 @@ PRODUCE UAT report at {{.review_base}}uat/`<timestamp>`-{{.id}}-uat.md:
 
 DECISION:
 - APPROVED → {{template "advance" .}}
-- REJECTED → shark status set {{.id}} ready_for_development --reason "<specific rejection findings>"
+- REJECTED → shark status set {{.id}} development --reason "<specific rejection findings>"
 {{end}}

@@ -102,7 +102,7 @@ When reviewing the developer-ready package:
    - Open-ended ACs ("must be immutable", "must be secure") without an enumerated attack model — flag these as bug-loop risks
 4. Clarify ambiguities before developers start
 5. Document clarifications via `shark task note add <task-id> --type clarification`
-6. Verify package is developer-ready (status advances to `ready_for_development`)
+6. Verify package is developer-ready (status advances to `development`)
 
 ### Test Review
 When reviewing tests:
@@ -161,8 +161,8 @@ When consolidating reviews:
 2. Review the latest code review at `<feature-dir>/code_review/<latest-timestamp>-<task>-code-review.md` (includes architecture compliance findings)
 3. Determine overall status:
    - **PASS**: All reviews passed, proceed to next step
-   - **FAIL - Implementation**: Issues in code, route back to development (`shark status set <task-id> ready_for_development --reason="..."`)
-   - **FAIL - Specification**: Issues in requirements, route back to refinement (`shark status set <task-id> ready_for_refinement_tech --reason="..."`)
+   - **FAIL - Implementation**: Issues in code, route back to development (`shark status set <task-id> development --reason="..."`)
+   - **FAIL - Specification**: Issues in requirements, use workflow failure routing (`shark status advance <task-id> --outcome fail --reason="..."`) or route to the relevant canonical planning step
 4. Document decision and rationale via `shark task note add <task-id> --type decision`
 5. Route appropriately based on findings
 
@@ -278,9 +278,9 @@ CODE_REVIEW="docs/plan/$EPIC_ID/$FEATURE_ID/code_review/${TIMESTAMP}-${TASK_ID}-
 
 The canonical commands are in `quality/workflows/review-code.md` under "Failure Routing." Three verdicts:
 
-- **PASS** — no findings of any severity. Add review note, advance to `ready_for_qa`.
-- **PASS-with-triage** — no blockers; non-blockers filed as tech-debt tasks via `shark create task` (per the workflow's Step 11). Add review note referencing the triaged task keys, advance to `ready_for_qa`.
-- **FAIL** — at least one blocker. Add blocker note, set `bug_fix=true`, transition to `ready_for_development`.
+- **PASS** — no findings of any severity. Add review note, advance to `qa`.
+- **PASS-with-triage** — no blockers; non-blockers filed as tech-debt tasks via `shark create task` (per the workflow's Step 11). Add review note referencing the triaged task keys, advance to `qa`.
+- **FAIL** — at least one blocker. Add blocker note, set `bug_fix=true`, transition to `development`.
 
 ### Workflow state
 Workflow state lives in shark, not in a `state.json`. Read state with `shark get <id> --json`; advance with `shark status advance <id>`. The orchestrator (`/run`) drives the loop; do not maintain a parallel state file.
