@@ -446,9 +446,10 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	21 — E35-F03 (entity_claims table: claim/session lease for route-based
 //	             dispatch — status becomes a pure phase, the claim is the lease)
 //	22 — E19-F07 (sprint_order column + partial unique index + backfill on sprint_assignments)
+//	23 — E19-F08 (drop idx_sprints_active_one — allow multiple concurrent active sprints)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 22
+const CurrentSchemaVersion = 23
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -893,6 +894,15 @@ func runMigrations(db *sql.DB) error {
 	// index, and backfill planning/active sprints (E19-F07).
 	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
 		return fmt.Errorf("sprint_order migration: %w", err)
+	}
+
+	// E19-F08: Drop the idx_sprints_active_one partial unique index that
+	// enforced a single-active-sprint constraint at the DB layer. The
+	// feature now supports multiple concurrent active sprints; enforcement
+	// was removed from SprintService. The index blocks any attempt to set
+	// a second sprint to "active" status, so it must be dropped here.
+	if err := migrateDropSprintActiveIndex(db); err != nil {
+		return fmt.Errorf("drop sprint active index migration: %w", err)
 	}
 
 	return nil
@@ -3805,6 +3815,20 @@ func migrateSprintAssignmentsAddSprintOrder(db *sql.DB) error {
 		return fmt.Errorf("failed to create idx_sprint_assignments_order_unique: %w", err)
 	}
 
+	return nil
+}
+
+// migrateDropSprintActiveIndex drops the idx_sprints_active_one partial unique
+// index that previously enforced a single-active-sprint constraint at the DB
+// layer. E19-F08 adds support for multiple concurrent active sprints, so the
+// index must be removed. DROP INDEX IF EXISTS makes this idempotent and safe to
+// rerun on databases where the index was never created or was already dropped.
+//
+// Part of Epic E19 — Sprint Management & Planning System (E19-F08).
+func migrateDropSprintActiveIndex(db *sql.DB) error {
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_sprints_active_one`); err != nil {
+		return fmt.Errorf("failed to drop idx_sprints_active_one: %w", err)
+	}
 	return nil
 }
 

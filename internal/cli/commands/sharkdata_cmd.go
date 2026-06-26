@@ -325,7 +325,7 @@ func runSharkValidate(cmd *cobra.Command, _ []string) error {
 				"message": issue.Message,
 			})
 		}
-		_ = cli.OutputJSON(map[string]interface{}{
+		return cli.OutputJSON(map[string]interface{}{
 			"path":   report.Path,
 			"issues": issues,
 			"ok":     !report.HasErrors(),

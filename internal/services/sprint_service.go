@@ -1316,7 +1316,6 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	}
 
 	var candidates []*BacklogItemView
-	var activeSprint *models.Sprint // first sprint with a candidate (for SprintKey assignment)
 	for _, sp := range executionSprints {
 		backlog, err := s.GetSprintBacklog(ctx, sp.Key, BacklogOptions{View: "grouped"})
 		if err != nil {
@@ -1333,16 +1332,10 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 				if agentType != "" && item.AgentType != agentType {
 					continue
 				}
-				if activeSprint == nil {
-					activeSprint = sp
-				}
+				item.SprintKey = sp.Key
 				candidates = append(candidates, item)
 			}
 		}
-	}
-	if activeSprint == nil && len(executionSprints) > 0 {
-		// No candidates found across any execution sprint; use first sprint for context
-		activeSprint = executionSprints[0]
 	}
 
 	if len(candidates) == 0 {
@@ -1394,12 +1387,11 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	if len(candidates) > 1 {
 		runnerUp = candidates[1]
 	}
-	winner.SprintKey = activeSprint.Key
 	winner.SelectionReason = computeSelectionReason(winner, runnerUp)
 
 	slog.Debug("sprint.next.selection",
 		"reason", winner.SelectionReason,
-		"sprint_id", activeSprint.Key,
+		"sprint_id", winner.SprintKey,
 		"key", winner.Key,
 	)
 
