@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -189,4 +190,59 @@ func TestBundleContentServiceListDedupesByPrecedence(t *testing.T) {
 		assert.GreaterOrEqual(t, entry.Name, last, "entries should be sorted by name")
 		last = entry.Name
 	}
+}
+
+func TestBundleContentServiceListSkipsHiddenAndPrivateDiskNames(t *testing.T) {
+	root := setupBundleContentProject(t, `{"shark_data_path":"bundle"}`)
+	writeBundleFile(t, root, "bundle/skills/visible-skill/SKILL.md", "VISIBLE")
+	writeBundleFile(t, root, "bundle/skills/.hidden-skill/SKILL.md", "HIDDEN")
+	writeBundleFile(t, root, "bundle/skills/_extracted/SKILL.md", "PRIVATE")
+	writeBundleFile(t, root, "bundle/agents/visible-agent.md", "VISIBLE")
+	writeBundleFile(t, root, "bundle/agents/.hidden-agent.md", "HIDDEN")
+	writeBundleFile(t, root, "bundle/agents/_private-agent.md", "PRIVATE")
+	writeBundleFile(t, root, "bundle/agents/.hidden-agent-dir/.hidden-agent-dir.md", "HIDDEN")
+	writeBundleFile(t, root, "bundle/agents/_private-agent-dir/_private-agent-dir.md", "PRIVATE")
+
+	svc, err := NewBundleContentService(root)
+	require.NoError(t, err)
+
+	skills, err := svc.List(context.Background(), BundleContentKindSkill)
+	require.NoError(t, err)
+	agents, err := svc.List(context.Background(), BundleContentKindAgent)
+	require.NoError(t, err)
+
+	skillNames := bundleListNames(skills)
+	agentNames := bundleListNames(agents)
+	assert.Contains(t, skillNames, "visible-skill")
+	assert.NotContains(t, skillNames, ".hidden-skill")
+	assert.NotContains(t, skillNames, "_extracted")
+	assert.Contains(t, agentNames, "visible-agent")
+	assert.NotContains(t, agentNames, ".hidden-agent")
+	assert.NotContains(t, agentNames, "_private-agent")
+	assert.NotContains(t, agentNames, ".hidden-agent-dir")
+	assert.NotContains(t, agentNames, "_private-agent-dir")
+}
+
+func TestEmbeddedNameHelpersSkipHiddenAndPrivateNames(t *testing.T) {
+	fsys := fstest.MapFS{
+		"skills/visible-skill/SKILL.md":                   {},
+		"skills/.hidden-skill/SKILL.md":                   {},
+		"skills/_extracted/SKILL.md":                      {},
+		"agents/visible-agent.md":                         {},
+		"agents/.hidden-agent.md":                         {},
+		"agents/_private-agent.md":                        {},
+		"agents/.hidden-agent-dir/.hidden-agent-dir.md":   {},
+		"agents/_private-agent-dir/_private-agent-dir.md": {},
+	}
+
+	assert.Equal(t, []string{"visible-skill"}, embeddedDirectoryNames(fsys, "skills"))
+	assert.Equal(t, []string{"visible-agent"}, embeddedMarkdownNames(fsys, "agents"))
+}
+
+func bundleListNames(entries []BundleContentEntry) map[string]bool {
+	names := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		names[entry.Name] = true
+	}
+	return names
 }

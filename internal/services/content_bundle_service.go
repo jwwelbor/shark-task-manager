@@ -342,8 +342,12 @@ func embeddedDirectoryNames(fsys fs.FS, dir string) []string {
 	}
 	var names []string
 	for _, entry := range entries {
+		name := entry.Name()
+		if shouldSkipBundleListName(name) {
+			continue
+		}
 		if entry.IsDir() {
-			names = append(names, entry.Name())
+			names = append(names, name)
 		}
 	}
 	return names
@@ -356,11 +360,14 @@ func embeddedMarkdownNames(fsys fs.FS, dir string) []string {
 	}
 	var names []string
 	for _, entry := range entries {
-		if entry.IsDir() {
-			names = append(names, entry.Name())
+		name := entry.Name()
+		if shouldSkipBundleListName(name) {
 			continue
 		}
-		name := entry.Name()
+		if entry.IsDir() {
+			names = append(names, name)
+			continue
+		}
 		if strings.HasSuffix(name, ".md") {
 			names = append(names, strings.TrimSuffix(name, ".md"))
 		}
@@ -381,13 +388,16 @@ func (s *BundleContentService) diskNames(kind BundleContentKind, override bool) 
 
 	var names []string
 	for _, entry := range entries {
+		name := entry.Name()
+		if shouldSkipBundleListName(name) {
+			continue
+		}
 		switch kind {
 		case BundleContentKindSkill:
 			if entry.IsDir() {
-				names = append(names, entry.Name())
+				names = append(names, name)
 			}
 		case BundleContentKindAgent:
-			name := entry.Name()
 			if entry.IsDir() {
 				names = append(names, name)
 				continue
@@ -398,6 +408,10 @@ func (s *BundleContentService) diskNames(kind BundleContentKind, override bool) 
 		}
 	}
 	return names
+}
+
+func shouldSkipBundleListName(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 func dirForBundleKind(kind BundleContentKind) string {
