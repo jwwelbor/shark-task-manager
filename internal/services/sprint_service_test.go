@@ -683,30 +683,20 @@ func TestSprintService_DeleteSprint(t *testing.T) {
 	}
 }
 
-// TestSprintService_StartSprint tests single-active constraint (AC-6).
+// TestSprintService_StartSprint tests sprint start transitions.
 func TestSprintService_StartSprint(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name                  string
-		currentStatus         models.SprintStatus
-		existingActiveSprints []*models.Sprint
-		expectErr             bool
-		errMsg                string
+		name          string
+		currentStatus models.SprintStatus
+		expectErr     bool
+		errMsg        string
 	}{
 		{
 			name:          "start planning sprint succeeds",
 			currentStatus: "planning",
 			expectErr:     false,
-		},
-		{
-			name:          "start when another is active fails",
-			currentStatus: "planning",
-			existingActiveSprints: []*models.Sprint{
-				{ID: 2, Key: "S002", Name: "Active Sprint", Status: "active"},
-			},
-			expectErr: true,
-			errMsg:    "cannot activate",
 		},
 		{
 			name:          "start from invalid status fails",
@@ -721,7 +711,7 @@ func TestSprintService_StartSprint(t *testing.T) {
 			callCount := 0
 			mockRepo := &MockSprintRepository{
 				GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
-					// First call returns planning sprint, second returns active sprint
+					// First call returns the sprint with its current status, second returns active.
 					callCount++
 					if callCount == 1 {
 						return &models.Sprint{
@@ -731,16 +721,13 @@ func TestSprintService_StartSprint(t *testing.T) {
 							Status: tt.currentStatus,
 						}, nil
 					}
-					// After status update, return with active status
+					// After status update, return with active status.
 					return &models.Sprint{
 						ID:     1,
 						Key:    "S001",
 						Name:   "Sprint 1",
 						Status: "active",
 					}, nil
-				},
-				ListFunc: func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
-					return tt.existingActiveSprints, nil
 				},
 				UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
 					return nil
@@ -765,6 +752,42 @@ func TestSprintService_StartSprint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSprintService_StartSprint_MultipleActiveAllowed verifies that multiple sprints
+// can be active simultaneously (parallel workstreams are valid).
+func TestSprintService_StartSprint_MultipleActiveAllowed(t *testing.T) {
+	ctx := context.Background()
+
+	// Track call counts per sprint key so we can simulate post-update reload.
+	callCounts := map[string]int{}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			callCounts[key]++
+			// Second call for each key simulates the reload after UpdateStatus.
+			if callCounts[key] > 1 {
+				return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "active"}, nil
+			}
+			return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "planning"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			return nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	// Start the first sprint — must succeed.
+	result1, err := svc.StartSprint(ctx, "S001")
+	assert.NoError(t, err, "starting S001 should succeed")
+	assert.NotNil(t, result1)
+
+	// Start a second sprint while the first is active — must also succeed.
+	result2, err := svc.StartSprint(ctx, "S002")
+	assert.NoError(t, err, "starting S002 while S001 is active should succeed (parallel workstreams allowed)")
+	assert.NotNil(t, result2)
 }
 
 // TestSprintService_CloseSprint tests status transitions (AC-7).

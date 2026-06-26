@@ -6,15 +6,11 @@ import (
 	"path/filepath"
 )
 
-// createFolders creates required folder structure
-// Returns list of folders created (empty if all existed)
-func (i *Initializer) createFolders(templateDir string) ([]string, error) {
-	if templateDir == "" {
-		templateDir = "shark-templates"
-	}
+// createFolders creates required folder structure.
+// Returns list of folders created (empty if all existed).
+func (i *Initializer) createFolders() ([]string, error) {
 	folders := []string{
 		"docs/plan",
-		templateDir,
 	}
 
 	created := []string{} // Initialize to empty slice, not nil

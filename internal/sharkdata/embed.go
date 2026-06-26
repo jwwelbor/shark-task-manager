@@ -19,14 +19,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
 )
-
-var legacyInstructionPattern = regexp.MustCompile(`\bready_for_[A-Za-z0-9_]+\b|\bin_(approval|assessment|code_review|decomposition|design|development|feature_review|qa|refinement|research|specification|task_generation|task_review|test_planning|verification)\b`)
 
 // includeRegexp returns the same syntactic pattern the engine resolver uses
 // to spot {{include: <path>}} / {{augment: <path>}} directives. We mirror
@@ -55,6 +54,38 @@ const embedRootDir = "default_data"
 // root. It's a constant (not configurable) to keep harness/skill assumptions
 // stable; users override behavior via shark-data/overrides/, not by renaming.
 const SharkDataDirName = "shark-data"
+
+// ReadEmbedded reads a file from the embedded canonical shark-data/ tree using
+// a relative path (e.g. "prompts/task/draft.md"). This enables hybrid
+// embed/disk resolution: callers first check disk, then fall back to this
+// function when the file is absent on disk.
+//
+// The relPath must not be absolute and must not escape the bundle root via "..".
+// Returns (nil, fs.ErrNotExist) when the path does not exist in the embedded tree.
+func ReadEmbedded(relPath string) ([]byte, error) {
+	if filepath.IsAbs(relPath) {
+		return nil, fmt.Errorf("sharkdata.ReadEmbedded: path must be relative: %q", relPath)
+	}
+	// Convert OS-native separators to forward slashes (embed.FS always uses /).
+	fsPath := strings.ReplaceAll(relPath, string(filepath.Separator), "/")
+	// Reject upward traversal.
+	if cleaned := path.Clean(fsPath); cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return nil, fmt.Errorf("sharkdata.ReadEmbedded: path must not escape bundle root: %q", relPath)
+	}
+	data, err := embeddedFS.ReadFile(embedRootDir + "/" + fsPath)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// EmbeddedFS returns the raw embed.FS rooted at the default_data/ tree.
+// The FS root prefix is embedRootDir ("default_data"); callers accessing
+// individual files must include this prefix. Prefer ReadEmbedded for
+// single-file access.
+func EmbeddedFS() (fs.FS, string) {
+	return embeddedFS, embedRootDir
+}
 
 // Init copies the embedded canonical shark-data/ tree to <projectRoot>/shark-data/.
 //
@@ -623,7 +654,7 @@ func isLegacyPromptInFilename(rel, base string) bool {
 }
 
 func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport) {
-	for _, subdir := range []string{"agents", "prompts"} {
+	for _, subdir := range []string{"agents", "prompts", "skills"} {
 		root := filepath.Join(dataRoot, subdir)
 		if _, err := os.Stat(root); err != nil {
 			continue
@@ -644,10 +675,11 @@ func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport
 				report.AddIssue(IssueLevelError, relTo(dataRoot, path), fmt.Sprintf("read: %v", err))
 				return nil
 			}
-			for _, literal := range legacyInstructionLiterals(string(data)) {
+			rel := relTo(dataRoot, path)
+			for _, literal := range legacyInstructionLiterals(rel, string(data)) {
 				report.AddIssue(
 					IssueLevelError,
-					relTo(dataRoot, path),
+					rel,
 					fmt.Sprintf("instruction contains removed legacy status literal %q", literal),
 				)
 			}
@@ -656,14 +688,18 @@ func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport
 	}
 }
 
-func legacyInstructionLiterals(content string) []string {
-	matches := legacyInstructionPattern.FindAllString(content, -1)
+func legacyInstructionLiterals(rel, content string) []string {
+	pattern := regexp.MustCompile(`\bready_for_[A-Za-z0-9_]+\b|\bin_[A-Za-z0-9_]+\b`)
+	matches := pattern.FindAllString(content, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, match := range matches {
+		if match == "in_progress" && filepath.ToSlash(rel) == "prompts/tech_debt/in_progress.md" {
+			continue
+		}
 		if seen[match] {
 			continue
 		}

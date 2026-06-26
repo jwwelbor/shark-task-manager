@@ -1,8 +1,9 @@
 // Package commands provides CLI command implementations.
 //
-// This file wires the shark-data lifecycle commands (init / upgrade / validate)
-// into the cobra command tree. The actual logic lives in
-// internal/sharkdata/embed.go; these handlers are thin adapters.
+// This file wires the shark-data lifecycle commands (install-shark-data /
+// upgrade / validate-data) into the cobra command tree under `shark admin`.
+// The actual logic lives in internal/sharkdata/embed.go; these handlers are
+// thin adapters.
 //
 // Spec: F3/E6-E9 of E02 (Shark 2.0 — Single-Artifact Consolidation).
 package commands
@@ -21,10 +22,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
-// defaultWorkflowConfigDir is the directory `shark init` writes into
-// `.sharkconfig.json`'s `workflow_config` field on fresh setups. Once the
-// project ships per-entity YAMLs in `shark-data/workflow/`, the runtime
-// resolves them through this field (see resolveWorkflowDir in
+// defaultWorkflowConfigDir is the directory `shark admin install-shark-data`
+// writes into `.sharkconfig.json`'s `workflow_config` field. The runtime
+// resolves per-entity YAMLs through this field (see resolveWorkflowDir in
 // internal/config/aliases.go).
 const defaultWorkflowConfigDir = "shark-data/workflow/"
 
@@ -32,23 +32,28 @@ var (
 	upgradeDryRun bool
 )
 
-var sharkInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize shark-data/ in the current project",
-	Long: `Lay down the canonical shark-data/ tree at the project root.
+var sharkInstallDataCmd = &cobra.Command{
+	Use:   "install-shark-data",
+	Short: "Extract embedded shark-data/ to disk for local customization",
+	Long: `Extract the embedded canonical shark-data/ tree to <project>/shark-data/.
 
-shark init copies the embedded default shark-data/ directory (skills,
-prompts, agents, workflow YAML) into <project>/shark-data/. The operation
-is idempotent: if shark-data/ already exists, the command refuses to
-overwrite and tells you to run 'shark upgrade' instead.
+This is an explicit opt-in for authors and customizers who want to edit
+prompts, skills, workflow YAML, or agents without rebuilding the binary.
+After extraction, disk files take precedence over the embedded defaults
+on a per-file basis; the embed remains the backstop for any file absent
+from disk.
 
-This is the bootstrap step for any project adopting Shark 2.0.
+Also writes shark_data_path and workflow_config into .sharkconfig.json if
+those fields are absent or point at the legacy shark-templates/ location.
+
+To refresh an existing shark-data/ with the latest embedded defaults, run:
+  shark admin upgrade
 
 Examples:
-  shark init                       # Initialize at the current working directory
-  shark init --json                # Machine-readable output`,
+  shark admin install-shark-data           # Extract at current project root
+  shark admin install-shark-data --json    # Machine-readable output`,
 	Args: cobra.NoArgs,
-	RunE: runSharkInit,
+	RunE: runSharkInstallData,
 }
 
 var sharkUpgradeCmd = &cobra.Command{
@@ -63,15 +68,15 @@ outside overrides/ are left in place but reported in the diff summary so
 the user can decide.
 
 Examples:
-  shark upgrade                   # Apply latest defaults
-  shark upgrade --dry-run         # Show what would change without writing
-  shark upgrade --json            # Machine-readable diff summary`,
+  shark admin upgrade                   # Apply latest defaults
+  shark admin upgrade --dry-run         # Show what would change without writing
+  shark admin upgrade --json            # Machine-readable diff summary`,
 	Args: cobra.NoArgs,
 	RunE: runSharkUpgrade,
 }
 
-var sharkValidateCmd = &cobra.Command{
-	Use:   "validate",
+var sharkValidateDataCmd = &cobra.Command{
+	Use:   "validate-data",
 	Short: "Validate shark-data/ structure and references",
 	Long: `Run structural checks against <project>/shark-data/.
 
@@ -90,32 +95,31 @@ Exit codes:
   2  → unexpected internal failure
 
 Examples:
-  shark validate
-  shark validate --json`,
+  shark admin validate-data
+  shark admin validate-data --json`,
 	Args: cobra.NoArgs,
 	RunE: runSharkValidate,
 }
 
 func init() {
 	sharkUpgradeCmd.Flags().BoolVar(&upgradeDryRun, "dry-run", false, "Show diff without writing files")
-	cli.RootCmd.AddCommand(sharkInitCmd)
-	cli.RootCmd.AddCommand(sharkUpgradeCmd)
-	cli.RootCmd.AddCommand(sharkValidateCmd)
+	adminCmd.AddCommand(sharkInstallDataCmd)
+	adminCmd.AddCommand(sharkUpgradeCmd)
+	adminCmd.AddCommand(sharkValidateDataCmd)
 }
 
-func runSharkInit(cmd *cobra.Command, _ []string) error {
+// runSharkInstallData implements `shark admin install-shark-data`: explicit
+// extraction of the embedded canonical tree to disk for local authoring.
+func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 	root, err := cli.FindProjectRoot()
 	if err != nil {
-		return fmt.Errorf("shark init: failed to locate project root: %w", err)
+		return fmt.Errorf("shark admin install-shark-data: failed to locate project root: %w", err)
 	}
 
-	// Materialize at the bundle root selected by shark_data_path (defaults to
-	// <root>/shark-data) so init writes to the same directory that
-	// validate/workflow/prompt resolution read from.
 	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
 	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
-		return fmt.Errorf("shark init: %w", err)
+		return fmt.Errorf("shark admin install-shark-data: %w", err)
 	}
 
 	dest, sharkdataErr := sharkdata.InitAt(dataRoot)
@@ -124,56 +128,45 @@ func runSharkInit(cmd *cobra.Command, _ []string) error {
 		return sharkdataErr
 	}
 
-	// Ensure .sharkconfig.json's `workflow_config` points at the
-	// `shark-data/workflow/` directory. We run this even when shark-data/
-	// was already present so a partial setup (shark-data exists but config
-	// lacks the field, or still points at the legacy JSON file) gets healed
-	// by a re-run of `shark init`.
-	//
-	// When the existing field already points at a custom directory the user
-	// configured, we leave it alone.
+	// Also ensure config fields are present (heals legacy projects that still
+	// point at shark-templates/.sharkworkflow*.json).
 	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, defaultWorkflowConfigDir)
 	if err != nil {
-		// Non-fatal: shark-data/ is fine, we just couldn't update
-		// .sharkconfig.json. Report and continue.
-		fmt.Fprintf(os.Stderr, "warning: failed to update workflow_config in .sharkconfig.json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: failed to update .sharkconfig.json: %v\n", err)
 	}
 
 	if alreadyInitialized {
 		if cli.GlobalConfig.JSON {
-			_ = cli.OutputJSON(map[string]interface{}{
-				"status":         "already_initialized",
+			return cli.OutputJSON(map[string]interface{}{
+				"status":         "already_exists",
 				"path":           dest,
 				"config_updated": configUpdated,
 				"migrated_from":  migratedFrom,
 			})
 		} else {
-			fmt.Printf("shark-data/ already exists at %s. Run 'shark upgrade' to refresh.\n", dest)
+			fmt.Printf("shark-data/ already exists at %s. Run 'shark admin upgrade' to refresh.\n", dest)
 			printConfigUpdateMessage(configUpdated, migratedFrom)
 		}
-		// Return a non-zero exit so callers (scripts, CI) can distinguish
-		// fresh init from no-op. The "exit code 1:" prefix is the project
-		// convention used by main.go to map error strings to shell exit codes.
-		return fmt.Errorf("exit code 1: %w", sharkdata.ErrAlreadyInitialized)
+		// Idempotent — already extracted, report as success.
+		return nil
 	}
 
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status":         "initialized",
+			"status":         "extracted",
 			"path":           dest,
 			"config_updated": configUpdated,
 			"migrated_from":  migratedFrom,
 		})
 	}
-	fmt.Printf("Initialized shark-data/ at %s\n", dest)
+	fmt.Printf("Extracted shark-data/ to %s\n", dest)
+	fmt.Println("Disk files now take precedence over embedded defaults on a per-file basis.")
 	printConfigUpdateMessage(configUpdated, migratedFrom)
 	return nil
 }
 
 // printConfigUpdateMessage emits the human-readable summary of what
-// `ensureWorkflowConfigField` did to `.sharkconfig.json`. Stays a separate
-// helper so both the fresh-init and already-initialized code paths share
-// identical wording.
+// `ensureWorkflowConfigField` did to `.sharkconfig.json`.
 func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
 	if !configUpdated {
 		return
@@ -189,27 +182,18 @@ func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
 // <projectRoot>/.sharkconfig.json. Behavior matrix:
 //
 //   - Config missing: create a minimal {"workflow_config": "..."} file.
-//   - Config exists, field absent or empty: add the field, preserving
-//     other top-level keys verbatim (JSON-level merge, no schema dependency).
+//   - Config exists, field absent or empty: add the field.
 //   - Config exists, field set to a legacy JSON file path
 //     (`.sharkworkflow*.json` or any path ending in `.json`): auto-migrate
 //     to the directory default. This heals projects whose `shark admin init`
-//     wrote the old `shark-templates/.sharkworkflow-short.json` value.
+//     previously wrote the old `shark-templates/.sharkworkflow-short.json` value.
 //   - Config exists, field set to anything else (a custom path): leave
-//     alone — the user picked it intentionally.
+//     alone. Still persists a freshly-added shark_data_path if needed.
 //
-// Returns (updated, migratedFrom, err) where `updated` is true iff the file
-// was rewritten and `migratedFrom` is the old legacy value when an
-// auto-migration kicked in (empty string otherwise).
+// Returns (updated, migratedFrom, err).
 func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, migratedFrom string, err error) {
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
 
-	// Route the read-modify-write through config.Manager so unknown keys are
-	// preserved and the on-disk format (indent, HTML escaping, atomic rename)
-	// stays consistent with other writers (UpdateLastSyncTime,
-	// SetSprintCapacityDefault). Load() handles the file-missing case by
-	// returning an empty RawData map, so the "create minimal config" branch
-	// folds into the same flow as the "edit existing" branch.
 	mgr := config.NewManager(configPath)
 	cfg, loadErr := mgr.Load()
 	if loadErr != nil {
@@ -222,10 +206,7 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 
 	existing, _ := raw["workflow_config"].(string)
 
-	// Ensure shark_data_path is present (E: content-bundle root). This is
-	// independent of workflow_config — it selects the bundle holding skills/,
-	// prompts/, agents/, overrides/. Only set it when absent so a user's
-	// custom value (including an absolute shared-bundle path) is preserved.
+	// Ensure shark_data_path is present.
 	sharkDataAdded := false
 	if v, ok := raw["shark_data_path"].(string); !ok || v == "" {
 		raw["shark_data_path"] = config.DefaultSharkDataPath
@@ -258,13 +239,7 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 }
 
 // isLegacyWorkflowConfigValue reports whether v looks like a workflow_config
-// value left over from the Shark 1.x JSON-file model — the value `shark
-// admin init` historically wrote, or any path ending in `.json`. `shark
-// init` rewrites these to the canonical `shark-data/workflow/` directory.
-//
-// We are deliberately permissive: a custom directory the user picked won't
-// match this, so it's safe to auto-migrate. Anyone with a strong custom
-// preference can re-set the field after init and we'll respect it next time.
+// value left over from the Shark 1.x JSON-file model.
 func isLegacyWorkflowConfigValue(v string) bool {
 	if v == "" {
 		return false
@@ -272,8 +247,6 @@ func isLegacyWorkflowConfigValue(v string) bool {
 	if strings.HasSuffix(v, ".json") {
 		return true
 	}
-	// Catch the legacy template-bundled path even when users renamed the
-	// suffix.
 	base := filepath.Base(v)
 	return strings.HasPrefix(base, ".sharkworkflow")
 }
@@ -281,16 +254,13 @@ func isLegacyWorkflowConfigValue(v string) bool {
 func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 	root, err := cli.FindProjectRoot()
 	if err != nil {
-		return fmt.Errorf("shark upgrade: failed to locate project root: %w", err)
+		return fmt.Errorf("shark admin upgrade: failed to locate project root: %w", err)
 	}
 
-	// Refresh the bundle root selected by shark_data_path (defaults to
-	// <root>/shark-data) so upgrade targets the same directory the rest of the
-	// CLI resolves.
 	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
 	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
-		return fmt.Errorf("shark upgrade: %w", err)
+		return fmt.Errorf("shark admin upgrade: %w", err)
 	}
 
 	summary, err := sharkdata.UpgradeAt(dataRoot, upgradeDryRun)
@@ -332,21 +302,18 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 func runSharkValidate(cmd *cobra.Command, _ []string) error {
 	root, err := cli.FindProjectRoot()
 	if err != nil {
-		return fmt.Errorf("shark validate: failed to locate project root: %w", err)
+		return fmt.Errorf("shark admin validate-data: failed to locate project root: %w", err)
 	}
 
-	// Validate against the resolved content-bundle root selected by
-	// shark_data_path (defaults to <root>/shark-data). A relative path that
-	// escapes the project root is rejected by ResolveSharkDataRoot.
 	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
 	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
-		return fmt.Errorf("shark validate: %w", err)
+		return fmt.Errorf("shark admin validate-data: %w", err)
 	}
 
 	report, err := sharkdata.ValidateAt(dataRoot)
 	if err != nil {
-		return fmt.Errorf("shark validate: internal failure: %w", err)
+		return fmt.Errorf("shark admin validate-data: internal failure: %w", err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -358,7 +325,7 @@ func runSharkValidate(cmd *cobra.Command, _ []string) error {
 				"message": issue.Message,
 			})
 		}
-		_ = cli.OutputJSON(map[string]interface{}{
+		return cli.OutputJSON(map[string]interface{}{
 			"path":   report.Path,
 			"issues": issues,
 			"ok":     !report.HasErrors(),
@@ -379,8 +346,6 @@ func runSharkValidate(cmd *cobra.Command, _ []string) error {
 	}
 
 	if report.HasErrors() {
-		// Use the existing exit-code prefix convention so main.go translates
-		// it to a non-zero shell exit. The format is "exit code N: msg".
 		return fmt.Errorf("exit code 1: validation found %d error(s)", countErrors(report))
 	}
 	return nil

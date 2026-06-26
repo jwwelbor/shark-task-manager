@@ -108,7 +108,7 @@ Present the report to the user. The user reviews evidence + Codex's assessment, 
 - **Request re-review** — if evidence is insufficient.
 - **Override Codex** — user judgment is final.
 
-Use a question-asking mechanism appropriate to the host (e.g., AskUserQuestion in Claude Code; a CLI prompt in plain shell). Never auto-approve.
+Use a question-asking mechanism appropriate to the host (for example, a host-provided question tool or a direct CLI prompt). Never auto-approve.
 
 ### Step 6 — Record results and update state
 

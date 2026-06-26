@@ -428,7 +428,7 @@ npm run test:coverage
 
 **Prefer TDD when possible:**
 
-See: `~/.claude/skills/test-driven-development/SKILL.md`
+See: `skills/test-driven-development/SKILL.md`
 
 ```
 1. Write test first (RED)

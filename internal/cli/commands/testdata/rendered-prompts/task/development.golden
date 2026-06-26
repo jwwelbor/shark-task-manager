@@ -274,7 +274,7 @@ Implement fresh from tests. Period.
 
 ## Test Plan-Driven TDD (Shift-Left Integration)
 
-When a **QA-authored test plan** exists for your task (created during the `in_test_planning` phase), test scenarios come from the test plan and feature PRD — not from your own interpretation of the task spec.
+When a **QA-authored test plan** exists for your task (created during the `test_planning` phase), test scenarios come from the test plan and feature PRD — not from your own interpretation of the task spec.
 
 **How to check:** Look for a test plan in `docs/plan/$EPIC_ID/$FEATURE_ID/test_plans/` matching your task ID. The implementation skill's process flow will direct you to read it.
 

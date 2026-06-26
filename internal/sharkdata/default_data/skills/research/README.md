@@ -208,7 +208,7 @@ Research workflows require these tools:
 - **Bash** - Directory operations
 - **WebSearch** - Documentation lookup (optional)
 
-All these tools are available in standard Claude Code environment.
+Use the equivalent tools available in the active agent environment.
 
 ## Success Criteria
 
@@ -228,7 +228,7 @@ Research is effective when:
 ## Before Implementation
 
 1. Research existing patterns:
-   - Invoke: `~/.claude/skills/research/workflows/analyze-codebase.md`
+   - Invoke: `skills/research/workflows/analyze-codebase.md`
    - Focus: Similar features to planned work
 
 2. Document findings:
@@ -245,15 +245,15 @@ Research is effective when:
 ## Onboarding Process
 
 1. Map project structure:
-   - Invoke: `~/.claude/skills/research/workflows/map-filesystem.md`
+   - Invoke: `skills/research/workflows/map-filesystem.md`
    - Output: `/docs/architecture/file-system.md`
 
 2. Analyze codebase:
-   - Invoke: `~/.claude/skills/research/workflows/analyze-codebase.md`
+   - Invoke: `skills/research/workflows/analyze-codebase.md`
    - Output: Architecture overview and conventions
 
 3. Find common patterns:
-   - Invoke: `~/.claude/skills/research/workflows/find-patterns.md`
+   - Invoke: `skills/research/workflows/find-patterns.md`
    - Output: Pattern catalog for reference
 ```
 
@@ -263,11 +263,11 @@ Research is effective when:
 ## Refactoring Prep
 
 1. Understand current implementation:
-   - Invoke: `~/.claude/skills/research/workflows/understand-feature.md`
+   - Invoke: `skills/research/workflows/understand-feature.md`
    - Target: Feature to refactor
 
 2. Map dependencies:
-   - Invoke: `~/.claude/skills/research/workflows/trace-dependencies.md`
+   - Invoke: `skills/research/workflows/trace-dependencies.md`
    - Identify: Impact scope
 
 3. Plan refactoring:

@@ -483,8 +483,8 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 22, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 22 (E19-F07 sprint_order, after E35-F03 entity_claims)")
+	assert.Equal(t, 23, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 23 (E19-F08 drop idx_sprints_active_one, after E19-F07)")
 }
 
 // ---------------------------------------------------------------------------

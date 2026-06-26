@@ -336,3 +336,91 @@ func TestRenderer_LegacyTmplPathHasNoIncludeRoot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "LEGACY: T1", out)
 }
+
+// ============================================================================
+// CC-039 — Hybrid embed/disk resolution
+// ============================================================================
+
+// TestIncludeResolverWithEmbed_FallsBackToEmbed verifies that when the include
+// file is absent from disk, the embed-aware resolver reads from the embedded FS.
+func TestIncludeResolverWithEmbed_FallsBackToEmbed(t *testing.T) {
+	// Use an empty data root — no files on disk.
+	dataRoot := t.TempDir()
+	r := NewIncludeResolverWithEmbed(dataRoot)
+
+	// "prompts/_partials/_advance.md" is a real file in the embedded FS.
+	// We verify resolution succeeds and produces non-empty content.
+	out, err := r.Resolve("{{include: prompts/_partials/_advance.md}}")
+	require.NoError(t, err, "embed fallback must resolve a known embedded file")
+	assert.NotEqual(t, "{{include: prompts/_partials/_advance.md}}", out,
+		"resolved output must differ from the original directive")
+	assert.NotEmpty(t, strings.TrimSpace(out), "embedded file content must be non-empty")
+}
+
+// TestIncludeResolverWithEmbed_DiskWinsOverEmbed verifies that a disk file
+// takes precedence over the embedded canonical when both exist.
+func TestIncludeResolverWithEmbed_DiskWinsOverEmbed(t *testing.T) {
+	dataRoot := t.TempDir()
+
+	// Create a local disk file that shadows an embedded path.
+	partialDir := filepath.Join(dataRoot, "prompts", "_partials")
+	require.NoError(t, os.MkdirAll(partialDir, 0755))
+	localContent := "LOCAL DISK CONTENT"
+	require.NoError(t, os.WriteFile(
+		filepath.Join(partialDir, "_advance.md"),
+		[]byte(localContent),
+		0644,
+	))
+
+	r := NewIncludeResolverWithEmbed(dataRoot)
+	out, err := r.Resolve("{{include: prompts/_partials/_advance.md}}")
+	require.NoError(t, err)
+	assert.Equal(t, localContent, out,
+		"disk file must win over embedded canonical")
+}
+
+// TestIncludeResolverWithEmbed_MissingFromBoth verifies that when a file is
+// absent from both disk and embed, an error is returned.
+func TestIncludeResolverWithEmbed_MissingFromBoth(t *testing.T) {
+	dataRoot := t.TempDir()
+	r := NewIncludeResolverWithEmbed(dataRoot)
+
+	_, err := r.Resolve("{{include: prompts/nonexistent/definitely-not-there.md}}")
+	require.Error(t, err, "missing from both disk and embed must return an error")
+	assert.Contains(t, err.Error(), "nonexistent/definitely-not-there.md")
+}
+
+// TestNewIncludeResolverWithEmbed_EmptyDataRoot verifies that the embed
+// backstop works even with an empty data root (zero-config consumer mode).
+func TestNewIncludeResolverWithEmbed_EmptyDataRoot(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: prompts/_partials/_advance.md}}")
+	require.NoError(t, err, "embed-only mode (empty dataRoot) must resolve from embed")
+	assert.NotEmpty(t, strings.TrimSpace(out))
+}
+
+// TestOrchestratorRenderer_LoadsFromEmbed verifies the zero-config path:
+// when no disk prompts exist, the renderer loads templates from the embedded FS.
+func TestOrchestratorRenderer_LoadsFromEmbed(t *testing.T) {
+	// Point at a directory that exists but contains no prompt files.
+	emptyPromptsDir := t.TempDir()
+
+	renderer, err := NewOrchestratorRenderer(emptyPromptsDir)
+	require.NoError(t, err, "renderer must initialize even with no disk prompts")
+	require.NotNil(t, renderer)
+
+	// Embedded prompts include task/development.md and others.
+	// Verify at least one template is loaded from the embed.
+	out, err := renderer.Render("task/development.md", map[string]string{
+		"task_title":      "Test Task",
+		"task_key":        "E01-F01-001",
+		"feature_key":     "E01-F01",
+		"epic_key":        "E01",
+		"task_id":         "E01-F01-001",
+		"task_status":     "development",
+		"complexity_tier": "SIMPLE",
+	})
+	require.NoError(t, err, "embedded task/development.md must render successfully")
+	assert.NotEmpty(t, strings.TrimSpace(out), "rendered output must be non-empty")
+}

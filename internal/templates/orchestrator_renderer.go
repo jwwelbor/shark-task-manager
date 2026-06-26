@@ -2,7 +2,9 @@ package templates
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"text/template"
 
 	"github.com/jwwelbor/shark-task-manager/internal/pathutil"
+	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
 // defaultTemplateDir is the default template directory name (legacy layout).
@@ -230,7 +233,9 @@ func splitLines(s string) []string {
 // no data root is detected and {{include:}} directives pass through verbatim.
 func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
 	includeRoot := detectIncludeRoot(templateDir)
-	resolver := NewIncludeResolver(includeRoot)
+	// Use embed-aware resolver so {{include:}} directives can resolve against
+	// the embedded canonical tree when a file is absent on disk.
+	resolver := NewIncludeResolverWithEmbed(includeRoot)
 
 	// Create a new template with custom functions
 	tmpl := template.New("orchestrator").Funcs(orchestratorFuncs())
@@ -246,13 +251,10 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 		matches = append(matches, extMatches...)
 	}
 
-	// If no prompt files found, return empty renderer (valid for empty directory).
+	// If no prompt files found on disk, try to load from the embedded FS.
+	// This is the zero-config path: no `shark install-shark-data` required.
 	if len(matches) == 0 {
-		return &OrchestratorRenderer{
-			templates:   tmpl,
-			templateDir: templateDir,
-			includeRoot: includeRoot,
-		}, nil
+		return newOrchestratorRendererFromEmbed(tmpl, templateDir, includeRoot)
 	}
 
 	// Parse all templates manually to preserve subdirectory paths in template names.
@@ -291,6 +293,84 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse template %s: %w", relPath, err)
 		}
+	}
+
+	return &OrchestratorRenderer{
+		templates:   tmpl,
+		templateDir: templateDir,
+		includeRoot: includeRoot,
+	}, nil
+}
+
+// newOrchestratorRendererFromEmbed loads prompt templates from the embedded
+// canonical shark-data/ tree. This is the zero-config backstop used when no
+// disk prompts exist under templateDir. The resolver is embed-aware so
+// {{include:}} directives in embedded prompts also resolve from the embed.
+func newOrchestratorRendererFromEmbed(tmpl *template.Template, templateDir, includeRoot string) (*OrchestratorRenderer, error) {
+	embedFS, embedRoot := sharkdata.EmbeddedFS()
+	promptsPrefix := embedRoot + "/prompts"
+
+	resolver := NewIncludeResolverWithEmbed(includeRoot)
+
+	err := fs.WalkDir(embedFS, promptsPrefix, func(fsPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Only process recognized prompt file extensions.
+		ext := filepath.Ext(fsPath)
+		recognized := false
+		for _, e := range promptFileExtensions {
+			if ext == e {
+				recognized = true
+				break
+			}
+		}
+		if !recognized {
+			return nil
+		}
+		// Ignore .gitkeep placeholders.
+		if filepath.Base(fsPath) == ".gitkeep" {
+			return nil
+		}
+
+		data, err := fs.ReadFile(embedFS, fsPath)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded template %s: %w", fsPath, err)
+		}
+
+		body := string(data)
+		if ext == ".md" {
+			body = stripFrontmatter(body)
+		}
+
+		// Resolve {{include:}} using the embed-aware resolver.
+		body, err = resolver.Resolve(body)
+		if err != nil {
+			return fmt.Errorf("failed to resolve includes in embedded %s: %w", fsPath, err)
+		}
+
+		// Template name: path relative to the prompts/ directory
+		// (e.g. "task/draft.md" or "epic/ready_for_research.md").
+		relPath := strings.TrimPrefix(fsPath, promptsPrefix+"/")
+		if _, err = tmpl.New(relPath).Parse(body); err != nil {
+			return fmt.Errorf("failed to parse embedded template %s: %w", relPath, err)
+		}
+		return nil
+	})
+	if err != nil {
+		// If the prompts/ directory doesn't exist in the embed at all,
+		// return an empty renderer (not an error).
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		return &OrchestratorRenderer{
+			templates:   tmpl,
+			templateDir: templateDir,
+			includeRoot: includeRoot,
+		}, nil
 	}
 
 	return &OrchestratorRenderer{

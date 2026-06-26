@@ -130,7 +130,7 @@ Based on STANDARD tier assignment:
 - **Research Phase**: REQUIRED - Analyze existing CLI command logic to extract
 - **Autonomous Build**: **NOT FEASIBLE** (fails multiple feasibility checks)
 
-**Next Status**: `ready_for_research`
+**Next Status**: `research`
 
 ---
 

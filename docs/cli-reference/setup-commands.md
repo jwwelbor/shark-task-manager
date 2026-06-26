@@ -6,8 +6,9 @@ Commands for initializing projects, managing database migrations, configuring cl
 
 Shark provides several command groups for project setup and ongoing maintenance:
 
-- **Initialization** (`shark init`) -- Create and update project infrastructure (database, config, templates)
-- **Validation** (`shark validate`) -- Check database integrity and detect orphaned records
+- **Initialization** (`shark admin init`) -- Create project infrastructure (database, config, docs/plan/)
+- **Content bundle** (`shark admin install-shark-data`, `shark admin upgrade`, `shark admin validate-data`) -- Extract and manage the embedded workflow/prompt/skill bundle
+- **Validation** (`shark admin validate`) -- Check database integrity and detect orphaned records
 - **Migration** (`shark migrate`) -- Run one-time database schema upgrades and data transformations
 - **Cloud** (`shark cloud`) -- Configure Turso cloud database for multi-machine access
 - **Workflow** (`shark workflow`) -- Inspect and validate the status workflow defined in `.sharkconfig.json`
@@ -20,15 +21,13 @@ All commands listed here support the standard [global flags](global-flags.md) (`
 
 ### shark admin init
 
-Initialize Shark CLI infrastructure by creating the database, the
-`docs/plan/` and `shark-templates/` folder structure, a default
-`.sharkconfig.json`, and copying the embedded `shark-templates/` tree.
+Initialize Shark CLI infrastructure by creating the SQLite database, the
+`docs/plan/` folder structure, and a default `.sharkconfig.json`.
 
-The `shark-templates/` tree is **re-synced from the embedded version on
-every run**, so template/workflow updates shipped with a new `shark` binary
-flow through automatically. Files you have modified locally are NOT
-overwritten — they are reported as differing from the shipped version, and
-you can re-run with `--force` to accept the upstream version.
+Content (workflows, prompts, skills, agents) is served from the embedded
+bundle by default — no `shark-data/` directory is required. Run
+`shark admin install-shark-data` to extract the bundle to disk for local
+customization.
 
 This command is idempotent and safe to run multiple times.
 
@@ -42,7 +41,7 @@ Usage:
 | Flag | Description |
 |------|-------------|
 | `--non-interactive` | Skip all prompts (use defaults) |
-| `--force` | Overwrite existing config and locally-modified templates |
+| `--force` | Overwrite existing config file |
 
 **Examples:**
 
@@ -53,31 +52,87 @@ shark admin init
 # Initialize without prompts (for automation / CI)
 shark admin init --non-interactive
 
-# Pick up template updates after upgrading the shark binary; locally-modified
-# files are reported but not touched
-shark admin init
-
-# Force overwrite existing config and locally-modified templates with the
-# shipped versions
+# Force overwrite existing config
 shark admin init --force
 ```
 
 **Default config:** see [Initialization](initialization.md#default-sharkconfigjson)
-for the exact JSON shape written by a fresh init. Workflow definitions live
-in `shark-templates/.sharkworkflow-short.json` (default) or
-`shark-templates/.sharkworkflow.json` — referenced via the `workflow_config`
-field in `.sharkconfig.json` rather than embedded inline.
+for the exact JSON shape written by a fresh init. Workflow definitions are
+resolved from the embedded `shark-data/` bundle via `workflow_config:
+"shark-data/workflow/"`.
 
-> **Note:** The basic/advanced workflow "profiles" subsystem
-> (`shark init update --workflow=...`, `shark init merge ...`) was removed.
-> To switch workflows, edit `workflow_config` in `.sharkconfig.json`. See
-> [Switching workflows](initialization.md#switching-workflows).
+---
+
+## Content Bundle
+
+### shark admin install-shark-data
+
+Extract the embedded content bundle to `shark-data/` on disk for local
+customization. Writes workflow YAML files, prompts, skills, and agent
+definitions. The `shark-data/overrides/` subtree is never overwritten.
+
+```
+Usage:
+  shark admin install-shark-data [flags]
+```
+
+**Examples:**
+
+```bash
+shark admin install-shark-data
+```
+
+---
+
+### shark admin upgrade
+
+Upgrade the on-disk `shark-data/` tree to the version bundled in the
+current binary. Files in `shark-data/overrides/` are left untouched.
+
+```
+Usage:
+  shark admin upgrade [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would change without writing files |
+
+**Examples:**
+
+```bash
+# Preview changes
+shark admin upgrade --dry-run
+
+# Apply upgrade
+shark admin upgrade
+```
+
+---
+
+### shark admin validate-data
+
+Validate the on-disk `shark-data/` content bundle for correctness.
+
+```
+Usage:
+  shark admin validate-data [flags]
+```
+
+**Examples:**
+
+```bash
+shark admin validate-data
+shark admin validate-data --json
+```
 
 ---
 
 ## Validation
 
-### shark validate
+### shark admin validate
 
 Validate database integrity by checking file paths and relationships.
 
@@ -89,7 +144,7 @@ Checks performed:
 
 ```
 Usage:
-  shark validate [flags]
+  shark admin validate [flags]
 ```
 
 **Flags:**
@@ -103,13 +158,13 @@ Usage:
 
 ```bash
 # Validate database integrity
-shark validate
+shark admin validate
 
 # Output results as JSON (useful for CI pipelines)
-shark validate --json
+shark admin validate --json
 
 # Show detailed information about each check
-shark validate --verbose
+shark admin validate --verbose
 ```
 
 ---
