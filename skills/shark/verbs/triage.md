@@ -8,15 +8,13 @@ Usage: `/shark triage "short description of the thing to track"`
 
 ## Procedure
 
-1. Resolve the content bundle root (SKILL.md → *Content bundle resolution*).
-2. If `<bundle>/skills/triage/SKILL.md` exists, read and follow it.
-3. **If it does not exist** (the bundle triage skill is not yet shipped in this
-   project), print a concise unavailable message and stop:
+1. Run `shark skill get triage` and follow the returned skill instructions.
+2. **If the command fails** because the bundle triage skill is unavailable, print
+   a concise unavailable message and stop:
    > `/shark triage` is not yet available in this project's content bundle
-   > (`<bundle>/skills/triage/SKILL.md`). For now, capture the item directly with
-   > `shark create <type> …` or `shark create note <parent-key> "…"`, or run the
-   > standalone `/triage` command if installed. Bundle triage ships via
-   > `shark upgrade` once added to canonical (`internal/sharkdata/default_data/`).
+   > (`shark skill get triage` failed). For now, capture the item directly with
+   > `shark create <type> ...` or `shark create note <parent-key> "..."`, or run
+   > the standalone `/triage` command if installed.
 
    Do not improvise a full classification workflow inline — keep degradation honest.
 

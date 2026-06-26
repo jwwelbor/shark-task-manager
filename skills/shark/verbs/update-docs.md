@@ -23,9 +23,8 @@ the baseline from advancing past uncommitted code.
 Read `docs/architecture/.update-docs-state` (a stored commit SHA).
 
 - **First run** (file absent): do a **full generation** using the bundle's
-  doc-gen workflow — resolve the content bundle root and follow
-  `<bundle>/skills/research/workflows/project-init.md`'s doc-gen path. Then write
-  the baseline (step 4). Stop.
+  doc-gen workflow from `shark skill get research workflows/project-init.md`.
+  Then write the baseline (step 4). Stop.
 
 ### 3. Diff and revise
 ```bash

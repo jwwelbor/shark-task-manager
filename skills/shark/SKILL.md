@@ -37,15 +37,23 @@ The `/run` command and a bare `/shark run` both route to `verbs/run.md`.
 | | `help` | State-aware next-actions (`--fast` for a static list) |
 | **(default)** | `query` | NL questions + direct CLI passthrough |
 
-## Content bundle resolution (used by content-referencing verbs)
+## Content bundle retrieval (used by content-referencing verbs)
 
-Several verbs reach into the project's **content bundle** (skills, prompts,
-agents, overrides). Resolve its root at runtime:
+Several verbs delegate to the project's bundled **skills** or **agents**. Retrieve
+that content through shark, not by reading `shark-data/` directly:
 
-1. Find the project root (walk up for `.sharkconfig.json` / `shark-tasks.db` / `.git`).
-2. Read `.sharkconfig.json`'s `shark_data_path`.
-3. If absent/empty, default to `<project-root>/shark-data`.
-4. Resolve content from `<bundle>/{skills,prompts,agents,overrides}`.
+```bash
+shark skill get <name> [relative-path]
+shark agent get <name>
+shark skill list --json
+shark agent list --json
+```
+
+`shark skill get` and `shark agent get` resolve `.sharkconfig.json`'s
+`shark_data_path`, layer `overrides/` over disk defaults, and fall back to the
+embedded canonical bundle when no `shark-data/` tree exists. Default output
+resolves `{{include: ...}}` / `{{augment: ...}}` and strips Markdown
+frontmatter. Use `--raw` only when you need exact stored bytes.
 
 `workflow_config` selects the active **workflow graph / status routing** only —
 it is NOT the content bundle root. (In this repo `workflow_config` points at an
@@ -53,7 +61,8 @@ example workflow tree while bundle content still lives under `shark-data/`.)
 When `workflow_config` is absent/empty, the default workflow dir is
 `<bundle>/workflow/`; an explicit `workflow_config` always wins.
 
-If a referenced bundle file is missing, **degrade gracefully** — print a clear
+If a referenced `shark skill get ...` or `shark agent get ...` command fails
+because the content is missing, **degrade gracefully** — print a clear
 "unavailable / coming soon" message; never hard-fail.
 
 ## Detailed references
