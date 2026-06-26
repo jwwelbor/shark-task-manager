@@ -9,7 +9,7 @@ import (
 
 func TestLoadEntityTemplate_UsesEmbeddedDefaultWhenNoDiskTree(t *testing.T) {
 	restoreTemplateGlobals(t)
-	chdir(t, t.TempDir())
+	setWorkingDir(t, t.TempDir())
 
 	SetConfiguredSharkDataPath("shark-data")
 
@@ -25,7 +25,7 @@ func TestLoadEntityTemplate_UsesEmbeddedDefaultWhenNoDiskTree(t *testing.T) {
 func TestLoadEntityTemplate_UsesDiskOverrideBeforeDiskDefault(t *testing.T) {
 	restoreTemplateGlobals(t)
 	root := t.TempDir()
-	chdir(t, root)
+	setWorkingDir(t, root)
 
 	defaultPath := filepath.Join(root, "shark-data", "templates", "epic.md")
 	overridePath := filepath.Join(root, "shark-data", "overrides", "templates", "epic.md")
@@ -69,24 +69,17 @@ func restoreTemplateGlobals(t *testing.T) {
 	t.Helper()
 	prevTemplateDir := configuredTemplateDir
 	prevSharkDataPath := configuredSharkDataPath
+	prevGetwd := getwd
 	t.Cleanup(func() {
 		configuredTemplateDir = prevTemplateDir
 		configuredSharkDataPath = prevSharkDataPath
+		getwd = prevGetwd
 	})
 }
 
-func chdir(t *testing.T, dir string) {
+func setWorkingDir(t *testing.T, dir string) {
 	t.Helper()
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
+	getwd = func() (string, error) {
+		return dir, nil
 	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir %s: %v", dir, err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(prev); err != nil {
-			t.Fatalf("restore cwd %s: %v", prev, err)
-		}
-	})
 }

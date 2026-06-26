@@ -11,6 +11,8 @@ import (
 
 const sharkDataTemplatesLeaf = "templates"
 
+var getwd = os.Getwd
+
 // LoadEntityTemplate loads an entity markdown skeleton from the Shark 2.0
 // shark-data tree. Disk overrides win, then disk defaults, then the embedded
 // canonical defaults so create commands work without legacy shark-templates/.
@@ -46,7 +48,7 @@ func findSharkDataRoot() string {
 		return root
 	}
 
-	wd, err := os.Getwd()
+	wd, err := getwd()
 	if err != nil {
 		return ""
 	}
