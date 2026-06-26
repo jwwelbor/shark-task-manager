@@ -160,6 +160,28 @@ func LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir string) (*Multi
 	return mlw, nil
 }
 
+// ParseWorkflowYAMLBytes converts YAML bytes into a *WorkflowConfig.
+// sourcePath is used only for error messages (e.g. the embedded path or disk
+// path the bytes were read from). It is exported so callers outside this
+// package (e.g. the embedded-fallback pass in internal/config/aliases.go) can
+// parse YAML bytes obtained via sharkdata.ReadEmbedded without needing a real
+// file on disk.
+func ParseWorkflowYAMLBytes(yamlData []byte, sourcePath string) (*WorkflowConfig, error) {
+	return parseWorkflowYAML(yamlData, sourcePath)
+}
+
+// EmbeddedWorkflowFilename returns the embedded YAML filename for the given
+// entity slot (e.g. "task" → "task.yaml", "tech_debt" → "tech-debt.yaml").
+// Returns "" for unknown slots.
+func EmbeddedWorkflowFilename(slot string) string {
+	for _, entry := range yamlEntityFiles {
+		if entry.Slot == slot {
+			return entry.Filename
+		}
+	}
+	return ""
+}
+
 // parseWorkflowYAML converts YAML bytes into a *WorkflowConfig by routing
 // through JSON. The schema is JSON-tagged; rather than duplicate the tags in
 // YAML we let yaml.v3 decode into a generic map[string]interface{}, then
