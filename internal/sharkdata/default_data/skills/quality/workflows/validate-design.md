@@ -3,6 +3,7 @@ inputs:
   - feature_prd_path: absolute path to the feature PRD markdown
   - design_doc_paths: list of absolute paths to expected design documents (README, architecture, database, API spec, frontend, security/performance, implementation phases, test criteria, research report)
   - epic_prd_path: absolute path to the parent epic PRD markdown (optional)
+  - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present
   - tasks_dir_path: absolute path to the feature's tasks/ directory (used to confirm tasks have not yet been generated)
   - validation_report_path: absolute path where the validation report markdown should be written
 outputs:
@@ -155,6 +156,25 @@ Without ACs for these design elements:
 
 If any `prd_completeness_issues` have `severity = BLOCKER`, set `verdict = FAIL`.
 
+### Step 2.6: Interaction Map Closure Check
+
+If `interaction_map_path` exists, validate the cross-feature interaction section
+before task generation:
+
+1. Read the interaction map and extract every I-## row.
+2. Read the feature PRD's `Cross-feature interactions` section.
+3. Verify every I-## this feature produces or consumes is declared in the PRD.
+4. Verify producer and consumer references use the SAME shape source from the map.
+5. Verify each I-## has one shared contract test pointer.
+
+Produce an interaction-map closure table:
+
+| I-## | Producer | Consumer(s) | Shape source | Contract test pointer | Status |
+|------|----------|-------------|--------------|-----------------------|--------|
+
+Orphan wires, missing shape sources, or mismatched contract test pointers are
+BLOCKER findings and set `verdict = FAIL`.
+
 ### Step 3: Generate Validation Report
 
 Write a validation report to `validation_report_path` with:
@@ -172,6 +192,7 @@ Write a validation report to `validation_report_path` with:
 - **PASS** when: all required files exist, all required sections present, no code, no placeholders, mermaid present where required, no tasks created yet, all cross-references valid, lengths in range, all design elements have ACs.
 - **PASS_WITH_WARNINGS** when: only `WARNING`-severity findings remain.
 - **FAIL** when: any `BLOCKER` finding (missing required file, missing required section, code implementation present, missing ACs for design elements, tasks already created).
+- Interaction-map closure failures are BLOCKER findings.
 
 ## Success Criteria
 
@@ -185,6 +206,8 @@ Validation passes when:
 7. All cross-references and links are valid
 8. File lengths within acceptable ranges
 9. All design elements in PRD have corresponding acceptance criteria (Step 2.5)
+10. If an interaction map exists, all relevant I-## rows close with matching
+    producer/consumer declarations, shape sources, and contract test pointers
 
 ## Common Issues
 

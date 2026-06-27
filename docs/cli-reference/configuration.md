@@ -21,7 +21,8 @@ The `.sharkconfig.json` file is automatically created by `shark init` and contai
   "json_output": false,
   "interactive_mode": false,
   "require_rejection_reason": true,
-  "template_directory": "shark-templates",
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow/",
   "console_width": 0,
   "web": {
     "port": 7777
@@ -101,15 +102,15 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 | `interactive_mode` | bool | `false` | Enable interactive prompts |
 | `require_rejection_reason` | bool | `true` | Require reason when rejecting tasks |
 | `viewer` | string | `"cat"` | External viewer for `shark view` (e.g., `"glow"`, `"nano"`) |
-| `template_directory` | string | `"shark-templates"` | Template directory path relative to project root for `.tmpl` files |
-| `shark_data_path` | string | `"shark-data"` | Content-bundle root holding `skills/`, `prompts/`, `agents/`, `workflow/`, and `overrides/`. See [Shark Data Path](#shark-data-path) below. |
+| `template_directory` | string | unset | Optional explicit prompt directory. Leave unset to derive prompts from `shark_data_path`. |
+| `shark_data_path` | string | `"shark-data"` | Content-bundle root holding `skills/`, `prompts/`, `file_templates/`, `agents/`, `workflow/`, and `overrides/`. See [Shark Data Path](#shark-data-path) below. |
 | `console_width` | int | `0` (auto-detect) | Override the console width used by list-view tables. See [Console Width](#console-width) below. |
 
 <a id="shark-data-path"></a>
 #### Shark Data Path
 
 `shark_data_path` selects the **content-bundle root** — the directory holding
-`skills/`, `prompts/`, `agents/`, `workflow/`, and `overrides/`. It is
+`skills/`, `prompts/`, `file_templates/`, `agents/`, `workflow/`, and `overrides/`. It is
 **independent of `workflow_config`** (which selects only the active workflow
 graph / status routing); `workflow_config` never drives the bundle root.
 
@@ -873,7 +874,8 @@ shark config get-status-action blocked --json
   "json_output": true,
   "interactive_mode": false,
   "require_rejection_reason": true,
-  "template_directory": "shark-templates"
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow/"
 }
 ```
 
@@ -886,7 +888,8 @@ shark config get-status-action blocked --json
   "json_output": false,
   "interactive_mode": true,
   "viewer": "glow",
-  "template_directory": "shark-templates"
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow/"
 }
 ```
 
@@ -903,7 +906,8 @@ shark config get-status-action blocked --json
   "json_output": false,
   "interactive_mode": true,
   "require_rejection_reason": true,
-  "template_directory": "shark-templates",
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow/",
   "default_epic": "E07",
   "default_agent": "developer"
 }

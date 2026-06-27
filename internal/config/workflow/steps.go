@@ -178,19 +178,19 @@ func (w *WorkflowConfig) ValidateCoreOutcomes() []error {
 // automatically; it is exported so callers that construct a WorkflowConfig
 // in-memory (e.g. tests) can populate the legacy compatibility view.
 func (w *WorkflowConfig) DeriveLegacy() {
-	deriveLegacyFromSteps(w)
+	buildWorkflowMapsFromSteps(w)
 }
 
-// deriveLegacyFromSteps projects a route-based Steps map back onto the legacy
+// buildWorkflowMapsFromSteps projects a route-based Steps map onto the
 // StatusFlow / StatusMetadata / SpecialStatuses maps so that every existing
 // reader (status calculations, display, validation, the dispatch path) keeps
-// working unchanged. This is the strangler seam: Steps is the source of truth;
-// the two legacy maps become a derived compatibility view (E35-F01).
+// working unchanged. Steps is the source of truth; the three maps are a
+// derived compatibility view built from it (E35-F01).
 //
 // It is a no-op when Steps is empty. Existing explicit StatusFlow/StatusMetadata
 // values are overwritten for step names present in Steps, but any keys the
 // caller set that are NOT step names are preserved.
-func deriveLegacyFromSteps(cfg *WorkflowConfig) {
+func buildWorkflowMapsFromSteps(cfg *WorkflowConfig) {
 	if cfg == nil || len(cfg.Steps) == 0 {
 		return
 	}
@@ -287,21 +287,54 @@ func deriveLegacyFromSteps(cfg *WorkflowConfig) {
 	}
 }
 
-// uniqueSortedOutcomeTargets returns the distinct target step names referenced
-// by an outcomes map, in sorted order for deterministic output.
+// uniqueSortedOutcomeTargets returns the distinct target step names from an
+// outcomes map ordered so that AvailableTransitions[0] is always the
+// forward/happy-path route. Targets are ordered by the semantic priority of
+// their outcome key (pass=0, fail=1, blocked=2, everything else=3), with
+// alphabetical order as a tiebreaker within the same tier. When a target
+// appears under multiple outcome keys the lowest (best) priority wins.
 func uniqueSortedOutcomeTargets(outcomes map[string]string) []string {
 	if len(outcomes) == 0 {
 		return []string{}
 	}
-	seen := make(map[string]bool, len(outcomes))
-	out := make([]string, 0, len(outcomes))
-	for _, target := range outcomes {
-		if target == "" || seen[target] {
+	// bestPriority tracks the lowest outcome-key priority seen for each target.
+	bestPriority := make(map[string]int, len(outcomes))
+	for key, target := range outcomes {
+		if target == "" {
 			continue
 		}
-		seen[target] = true
-		out = append(out, target)
+		var p int
+		switch key {
+		case "pass":
+			p = 0
+		case "fail":
+			p = 1
+		case "blocked":
+			p = 2
+		default:
+			p = 3
+		}
+		if cur, seen := bestPriority[target]; !seen || p < cur {
+			bestPriority[target] = p
+		}
 	}
-	sort.Strings(out)
+	type entry struct {
+		target   string
+		priority int
+	}
+	entries := make([]entry, 0, len(bestPriority))
+	for target, p := range bestPriority {
+		entries = append(entries, entry{target, p})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].priority != entries[j].priority {
+			return entries[i].priority < entries[j].priority
+		}
+		return entries[i].target < entries[j].target
+	})
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.target
+	}
 	return out
 }

@@ -7,7 +7,7 @@ Commands for initializing projects, managing database migrations, configuring cl
 Shark provides several command groups for project setup and ongoing maintenance:
 
 - **Initialization** (`shark admin init`) -- Create project infrastructure (database, config, docs/plan/)
-- **Content bundle** (`shark admin install-shark-data`, `shark admin upgrade`, `shark admin validate-data`) -- Extract and manage the embedded workflow/prompt/skill bundle
+- **Content bundle** (`shark admin install-shark-data`, `shark admin upgrade`, `shark admin validate-data`) -- Extract and manage the embedded workflow, prompt, file-template, and skill bundle
 - **Validation** (`shark admin validate`) -- Check database integrity and detect orphaned records
 - **Migration** (`shark migrate`) -- Run one-time database schema upgrades and data transformations
 - **Cloud** (`shark cloud`) -- Configure Turso cloud database for multi-machine access
@@ -24,7 +24,7 @@ All commands listed here support the standard [global flags](global-flags.md) (`
 Initialize Shark CLI infrastructure by creating the SQLite database, the
 `docs/plan/` folder structure, and a default `.sharkconfig.json`.
 
-Content (workflows, prompts, skills, agents) is served from the embedded
+Content (workflows, prompts, file templates, skills, agents) is served from the embedded
 bundle by default — no `shark-data/` directory is required. Run
 `shark admin install-shark-data` to extract the bundle to disk for local
 customization.
@@ -67,9 +67,10 @@ resolved from the embedded `shark-data/` bundle via `workflow_config:
 
 ### shark admin install-shark-data
 
-Extract the embedded content bundle to `shark-data/` on disk for local
-customization. Writes workflow YAML files, prompts, skills, and agent
-definitions. The `shark-data/overrides/` subtree is never overwritten.
+Extract the embedded content bundle to `shark-data/` on disk for inspection and
+local customization. Writes workflow YAML files, prompts, markdown file templates, skills, and agent
+definitions. Put upgrade-safe local replacements under `shark-data/overrides/`;
+that subtree is never overwritten.
 
 ```
 Usage:
@@ -87,7 +88,8 @@ shark admin install-shark-data
 ### shark admin upgrade
 
 Upgrade the on-disk `shark-data/` tree to the version bundled in the
-current binary. Files in `shark-data/overrides/` are left untouched.
+current binary. Files in `shark-data/overrides/` are left untouched; extracted
+defaults outside `overrides/` are refreshed from the binary.
 
 ```
 Usage:

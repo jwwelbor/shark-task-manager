@@ -28,7 +28,7 @@ shark admin init --force
 - Folder structure (`docs/plan/`)
 - Configuration file (`.sharkconfig.json`) with sensible defaults
 
-Content (workflows, prompts, skills, agents) is served from the embedded
+Content (workflows, prompts, file templates, skills, agents) is served from the embedded
 bundle by default — no `shark-data/` directory is required on disk. Run
 `shark admin install-shark-data` to extract the bundle to disk for local
 customization.
@@ -96,7 +96,8 @@ shark admin install-shark-data
 
 This writes `shark-data/` to the project root. The `shark-data/overrides/`
 subtree is never overwritten by a subsequent `install-shark-data` or
-`upgrade` call, so your customizations are preserved.
+`upgrade` call, so upgrade-safe customizations belong there. For example,
+custom created-file skeletons go in `shark-data/overrides/file_templates/`.
 
 ## Migrating an existing project to v15 (E07 size field + E28 tagging)
 

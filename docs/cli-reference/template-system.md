@@ -1,10 +1,10 @@
 # Template System (v2)
 
-File-based templating for AI agent instructions with external `.tmpl` files, template variables, and reusable partials.
+File-based templating for AI agent instructions and created markdown files with bundled `.md` files, template variables, and reusable partials.
 
 ## Overview
 
-Shark v2 introduces file-based templates for agent instructions, replacing inline strings in `.sharkconfig.json`. This provides:
+Shark v2 uses file-based prompts for agent instructions, replacing inline strings in `.sharkconfig.json`. This provides:
 
 - **Externalized instructions**: Easy to edit without touching config
 - **Template variables**: Dynamic content based on entity data
@@ -12,31 +12,38 @@ Shark v2 introduces file-based templates for agent instructions, replacing inlin
 - **Version control friendly**: Diff and merge instructions easily
 - **Multi-line support**: Natural formatting for complex instructions
 
-## Template Directory Structure
+## Prompt Directory Structure
 
-The template directory is configurable via `template_directory` in `.sharkconfig.json` (default: `shark-templates`). Shark resolves this directory by walking up from the working directory to find a matching folder containing `.tmpl` files.
+Prompt files live under `<shark_data_path>/prompts` (default: `shark-data/prompts`). If the directory is absent on disk, Shark serves the embedded defaults from the binary. Run `shark admin install-shark-data` when you want editable disk copies.
 
 ```
-shark-templates/
-├── epic/                          # Epic status templates
-│   ├── ready_for_research.tmpl
-│   ├── ready_for_feasibility_review_ba.tmpl
-│   └── ready_for_feasibility_review_tech.tmpl
-├── feature/                       # Feature status templates
-│   ├── ready_for_research.tmpl
-│   ├── ready_for_refinement_ba.tmpl
-│   ├── ready_for_refinement_tech.tmpl
-│   └── ready_for_test_planning.tmpl
-├── task/                          # Task status templates
-│   ├── ready_for_development.tmpl
-│   ├── ready_for_code_review.tmpl
-│   ├── ready_for_qa.tmpl
-│   └── ready_for_refinement_ba.tmpl
-└── partials/                      # Reusable template fragments
-    ├── _read_section.tmpl
-    ├── _tdd_process.tmpl
-    └── _exit_gate.tmpl
+shark-data/
+└── prompts/
+    ├── epic/                      # Epic status prompts
+    ├── feature/                   # Feature status prompts
+    ├── task/                      # Task status prompts
+    ├── bug/                       # Bug status prompts
+    ├── change/                    # Change-card status prompts
+    ├── sprint/                    # Sprint status prompts
+    └── _partials/                 # Reusable prompt fragments
 ```
+
+## File Template Directory
+
+Created markdown files use `<shark_data_path>/file_templates` (default: `shark-data/file_templates`). These are separate from workflow prompts:
+
+```
+shark-data/
+└── file_templates/
+    ├── epic.md
+    ├── feature.md
+    ├── task.md
+    └── sprint.md
+```
+
+`task.md` is intentionally consolidated. The task's agent type is rendered into frontmatter as `agent: {{.AgentType}}`; it does not select a separate task skeleton.
+
+For local customizations that must survive `shark admin upgrade`, place replacement files under `<shark_data_path>/overrides/file_templates/` using the same filename, for example `shark-data/overrides/file_templates/task.md`. Override files win over both extracted disk defaults and embedded defaults.
 
 ## Template Configuration
 
@@ -51,7 +58,7 @@ Templates are referenced in `orchestrator_action` blocks:
         "action": "spawn_agent",
         "agent_type": "developer",
         "skills": ["test-driven-development", "implementation"],
-        "instruction_template": "task/ready_for_development.tmpl"
+        "instruction_template": "task/development.md"
       }
     }
   }
@@ -59,11 +66,11 @@ Templates are referenced in `orchestrator_action` blocks:
 ```
 
 **Path resolution:**
-- Relative to the configured template directory (default: `shark-templates/` in project root)
-- The directory name is set via `template_directory` in `.sharkconfig.json`
-- Shark walks up from the working directory to find a matching folder with `.tmpl` files
+- Relative to `<shark_data_path>/prompts`
+- Disk prompts are optional; embedded defaults are used when disk files are absent
+- Overrides can live under `<shark_data_path>/overrides/`
 - No leading slash
-- Must include `.tmpl` extension
+- Must include the `.md` extension for bundled prompts
 
 ## Template Variables
 
@@ -202,11 +209,11 @@ Task T-E07-F01-001: "Implement token generation"
 
 ## Partial Templates
 
-Reusable template fragments defined in `shark-templates/partials/`.
+Reusable prompt fragments are defined in `shark-data/prompts/_partials/`.
 
 ### Defining Partials
 
-Create file in `shark-templates/partials/_partial_name.tmpl`:
+Create file in `shark-data/prompts/_partials/_partial_name.md`:
 
 ```go
 {{define "_read_section"}}READ:
@@ -697,17 +704,17 @@ failed to load template: template not found: task/ready_for_development.tmpl
 ```
 
 **Causes:**
-1. File doesn't exist at `shark-templates/task/ready_for_development.tmpl`
-2. Wrong path in config (e.g., missing `.tmpl` extension)
+1. File doesn't exist on disk and is absent from the embedded bundle
+2. Wrong prompt path in workflow config (e.g., missing `.md` extension)
 3. Wrong working directory
 
 **Solution:**
 ```bash
 # Verify file exists
-ls shark-templates/task/ready_for_development.tmpl
+ls shark-data/prompts/task/development.md
 
 # Check path in config
-cat .sharkconfig.json | jq '.status_metadata.ready_for_development.orchestrator_action.instruction_template'
+cat shark-data/workflow/task.yaml
 ```
 
 ### Variable Not Rendering
@@ -733,10 +740,10 @@ template: no template "_read_section" associated with template "task"
 **Solution:**
 ```bash
 # Verify partial exists
-ls shark-templates/partials/_read_section.tmpl
+ls shark-data/prompts/_partials/_read_section.md
 
 # Check partial defines itself
-grep 'define "_read_section"' shark-templates/partials/_read_section.tmpl
+grep 'define "_read_section"' shark-data/prompts/_partials/_read_section.md
 ```
 
 ## Related Documentation

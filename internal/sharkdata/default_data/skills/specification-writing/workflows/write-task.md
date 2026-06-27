@@ -10,6 +10,7 @@ inputs:
   - prototype_path: absolute path to `prototype.md` (optional)
   - prior_art_report_path: absolute path to prior-art / consult-related-work report (REQUIRED; STOP if missing)
   - feature_research_report_path: absolute path to feature research report (optional but strongly preferred for Brownfield Context)
+  - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present
   - tasks_directory: absolute path where task spec files should be written
   - has_frontend: bool — true if any task in this feature touches frontend code
   - existing_acceptance_criteria_tc_ids: list of TC-IDs declared in `feature_test_plan_path` (the canonical AC source)
@@ -18,6 +19,7 @@ outputs:
   - decisions_log: list of {decision, rationale, file_referenced}
   - dependencies_identified: list of {from_task, to_task, kind: "data" | "api" | "ux" | "infra"}
   - documentation_gaps: list of {missing_doc, impact_on_tasks, recommendation}
+  - cross_feature_contracts: list of {interaction_id, task_slug, role: "produces" | "consumes", shape_source, contract_test_pointer}
   - import_graph_warnings: list of {symbol, deletion_task, still_referenced_by_task} — empty if no risky deletions
   - ac_quality_warnings: list of {task_slug, ac_id, anti_pattern} — should be empty before returning
 ---
@@ -74,6 +76,10 @@ Several inputs must be present before tasks can be written. The host should alre
 
 4. **Wireframes** — if `has_frontend=true` and `wireframes_path` is null, STOP and recommend the host run the feature-design workflow first. Do not silently generate frontend tasks without wireframes.
 
+5. **Cross-feature interactions** — if the feature PRD has a "Cross-feature
+   interactions" section, read `interaction_map_path` and verify every referenced
+   I-## exists. Missing map rows are blockers.
+
 ## Your Process
 
 ### Step 0: Detect Available Documentation
@@ -126,6 +132,21 @@ Read and understand all available design documents (skip missing ones):
 
 If API or Frontend docs are missing, skip this validation and note the impact in `documentation_gaps`.
 
+### Step 2.5: Identify Cross-Feature Contracts
+
+Before decomposing implementation work, extract any I-## rows from the feature
+PRD's `Cross-feature interactions` section.
+
+- Interfaces crossing outside this feature keep their I-## ID from the epic
+  interaction map.
+- Internal task-to-task contracts may use CONTRACT-### IDs.
+- Do NOT invent new CONTRACT-### IDs for cross-feature wires.
+- Each producing or consuming task must include an `Integration Contracts >
+  Cross-feature` subsection with the I-## ID, role, shape source, and contract
+  test pointer copied verbatim from the feature PRD.
+
+Populate `cross_feature_contracts` as tasks are assigned.
+
 ### Step 3: Determine Task Scope and Sequencing
 
 Create separate tasks for logical components. The structure adapts to available design documents.
@@ -170,6 +191,8 @@ For each task, write a markdown file under `tasks_directory` with these sections
 - **Implementation Guidance** — references to design docs, NOT code.
 - **Validation Gates** — what to test, NOT how.
 - **Context & Resources** — links to design doc sections.
+- **Integration Contracts** — internal CONTRACT-### and cross-feature I-## rows
+  this task produces or consumes.
 - **Design References** (MANDATORY for frontend-touching tasks — see below).
 - **Brownfield Context** (REQUIRED — see below).
 - **Notes for Agent** — patterns, edge cases, considerations.
@@ -184,6 +207,21 @@ For every task that touches frontend code, you MUST first cite:
 Then include any additional design references found in the PRD, epic, or related documents (mockups, Figma links, screenshots, UI specs). These references are **hard requirements** — code review and QA load the page in a browser and compare against them; implementations that don't match are rejected. See `../context/task-template.md` for format.
 
 If `wireframes_path` is null and the task touches frontend code, STOP — do not silently generate frontend tasks without wireframes.
+
+#### Integration Contracts (MANDATORY when applicable)
+
+For any I-## this task produces or consumes, include:
+
+```markdown
+## Integration Contracts
+
+### Cross-feature
+- I-##: produces|consumes; shape source: <architecture.md#section>;
+  contract test: <shared contract test pointer>
+```
+
+The shape source and contract test pointer must match the feature PRD exactly.
+Producer and consumer tasks reference the same pointer; do not create twin tests.
 
 #### Brownfield Context (REQUIRED)
 
@@ -246,6 +284,9 @@ After all tasks are drafted:
    If a downstream task in this feature still imports a symbol an earlier task deletes, either (a) reorder tasks so the import-removing task runs first, (b) split the deletion into "remove the call sites" + "remove the definition" across two tasks, or (c) move the deletion to a later task. Capture in `import_graph_warnings`. **Do not return a task list with a known import-time break.**
 
 4. **Contract synchronization** (if applicable): API task references exact DTO specifications from design doc; frontend task references the exact same DTO specifications; contract validation tests included in both.
+5. **Cross-feature interaction coverage**: every I-## declared by the feature PRD
+   appears in at least one producing or consuming task, with the same shape source
+   and contract test pointer.
 
 ## Writing Acceptance Criteria (CRITICAL — this is where rejection loops are born or prevented)
 
@@ -385,5 +426,7 @@ When complete:
 3. **Confirm contract synchronization** (if applicable) — API and frontend tasks reference the same DTOs.
 4. **Confirm import-graph sanity** — `import_graph_warnings` is empty.
 5. **Confirm AC quality** — `ac_quality_warnings` is empty.
+6. **Confirm cross-feature contracts** — `cross_feature_contracts` covers every
+   I-## from the feature PRD and contains no rewritten IDs or pointers.
 
 Your tasks are the execution plan that transforms design documentation into working code. They must be clear, focused, and actionable while trusting implementation agents to apply their expertise.

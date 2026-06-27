@@ -8,6 +8,7 @@ inputs:
   - tech_feasibility_report_path: absolute path to technical feasibility review report
   - existing_features: list of {feature_id, title, scope_summary} for any features already created under this epic (may be empty)
   - sibling_epic_summaries: list of {epic_id, title, scope_summary} for cross-epic awareness (optional)
+  - interaction_map_path: absolute path to `<epic-id>-interaction-map.md` if present (optional; required for 3+ feature epics after design)
   - decomposition_summary_path: absolute path where the decomposition summary document should be written
   - feature_directory_resolver: function/contract for translating a feature slug to a directory path (host supplies resolved directory in `created_features` after creation)
 outputs:
@@ -49,7 +50,11 @@ Before starting, you must have access to:
 
 4. **Existing features** (`existing_features`) — to avoid duplication
 
-5. **Sibling epic context** (`sibling_epic_summaries`) — cross-epic awareness
+5. **Interaction map** (`interaction_map_path`) — required when the epic has 3+
+   features or explicit cross-feature handoffs. Every I-## must have a producer
+   feature and at least one consumer feature in the feature list you create.
+
+6. **Sibling epic context** (`sibling_epic_summaries`) — cross-epic awareness
 
 ## Your Process
 
@@ -60,6 +65,11 @@ Before starting, you must have access to:
 2. **Read the research and feasibility reports**. Note feasibility constraints, system interactions, and risk items from all three documents.
 
 3. **Inspect `existing_features`**. Understand what's already been created and avoid duplication.
+
+4. **Read the interaction map if present**. Extract every I-## row, producer
+   capability, consumer capability, shape source, payload, and style. Treat
+   missing producer/consumer assignments as blockers to resolve in the feature
+   set, not as optional notes.
 
 ### Step 1: Analyze Epic Through Four Decomposition Lenses
 
@@ -119,6 +129,8 @@ Before finalizing, verify the decomposition is sound.
 - [ ] Every success metric traces to at least one feature
 - [ ] Every user journey is fully covered across features
 - [ ] No epic scope items are left unaddressed
+- [ ] Every I-## in the interaction map maps to one producer feature and at
+      least one consumer feature; no orphan wires
 
 Capture any gaps in `completeness_gaps`. The decomposition cannot be considered complete until this list is empty.
 
@@ -177,6 +189,15 @@ For each requirement in the epic, list the feature(s) that address it and classi
 
 Capture as `traceability_matrix`. If any requirement has no entry, that's a `completeness_gaps` failure.
 
+If an interaction map exists, add an interaction trace:
+
+| Interaction | Producer feature | Consumer feature(s) | Shape source | Closure |
+|-------------|------------------|---------------------|--------------|---------|
+| I-01 | F01 | F02, F03 | architecture.md#section | Closed |
+
+Closure is `Closed` only when producer and all consumers exist in
+`feature_candidates`; otherwise it is a decomposition blocker.
+
 ### Step 6: Write the Decomposition Summary
 
 Produce a decomposition summary document at `decomposition_summary_path` containing:
@@ -221,6 +242,8 @@ Before returning, run through:
 - [ ] `execution_order` defined for all features
 - [ ] `traceability_matrix` complete
 - [ ] Out-of-scope items from epic scope file are not included in any feature
+- [ ] Every I-## from the interaction map is named in exactly the feature
+      candidates that produce or consume it
 
 ## MANDATORY: Interactive Review with User
 

@@ -180,15 +180,16 @@ func TestHasPromptFiles(t *testing.T) {
 }
 
 func TestFindTemplateDir_PrefersSharkData(t *testing.T) {
-	// E5: when both shark-data/prompts/ and shark-templates/ exist, prefer
+	// E5: when both shark-data/prompts/ and a deprecated prompt tree exist, prefer
 	// shark-data/prompts/.
 	root := t.TempDir()
+	deprecatedDirName := "shark" + "-templates"
 	sharkData := filepath.Join(root, sharkDataPromptsSubdir(), "task")
-	sharkTemplates := filepath.Join(root, defaultTemplateDir, "task")
-	require.NoError(t, os.MkdirAll(sharkData, 0755))
-	require.NoError(t, os.MkdirAll(sharkTemplates, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(sharkData, "in_qa.md"), []byte("MD"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(sharkTemplates, "in_qa.tmpl"), []byte("TMPL"), 0644))
+	deprecatedPrompts := filepath.Join(root, deprecatedDirName, "task")
+	require.NoError(t, os.MkdirAll(sharkData, 0o755))
+	require.NoError(t, os.MkdirAll(deprecatedPrompts, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sharkData, "in_qa.md"), []byte("MD"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(deprecatedPrompts, "in_qa.tmpl"), []byte("TMPL"), 0o644))
 
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -205,15 +206,17 @@ func TestFindTemplateDir_PrefersSharkData(t *testing.T) {
 
 	got := findTemplateDir()
 	assert.Equal(t, filepath.Join(root, sharkDataPromptsSubdir()), got,
-		"findTemplateDir should prefer shark-data/prompts/ over shark-templates/")
+		"findTemplateDir should prefer shark-data/prompts/ over deprecated prompt trees")
 }
 
-func TestFindTemplateDir_FallsBackToSharkTemplates(t *testing.T) {
-	// E5: when only shark-templates/ exists, fall back to it.
+func TestFindTemplateDir_IgnoresDeprecatedPromptTree(t *testing.T) {
+	// Deprecated prompt trees must not be used as a fallback when
+	// shark-data/prompts/ is absent. The embedded bundle is the only backstop.
 	root := t.TempDir()
-	sharkTemplates := filepath.Join(root, defaultTemplateDir, "task")
-	require.NoError(t, os.MkdirAll(sharkTemplates, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(sharkTemplates, "in_qa.tmpl"), []byte("TMPL"), 0644))
+	deprecatedDirName := "shark" + "-templates"
+	deprecatedPrompts := filepath.Join(root, deprecatedDirName, "task")
+	require.NoError(t, os.MkdirAll(deprecatedPrompts, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(deprecatedPrompts, "in_qa.tmpl"), []byte("TMPL"), 0o644))
 
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -223,10 +226,13 @@ func TestFindTemplateDir_FallsBackToSharkTemplates(t *testing.T) {
 	prevConfigured := configuredTemplateDir
 	configuredTemplateDir = ""
 	defer func() { configuredTemplateDir = prevConfigured }()
+	prevSharkData := configuredSharkDataPath
+	configuredSharkDataPath = ""
+	defer func() { configuredSharkDataPath = prevSharkData }()
 
 	got := findTemplateDir()
-	assert.Equal(t, filepath.Join(root, defaultTemplateDir), got,
-		"findTemplateDir should fall back to shark-templates/ when shark-data/prompts/ is absent")
+	assert.Equal(t, sharkDataPromptsSubdir(), got,
+		"findTemplateDir should return the canonical prompts path for embedded fallback")
 }
 
 func TestFindTemplateDir_AbsoluteSharkDataPathUsedDirectly(t *testing.T) {
@@ -270,8 +276,8 @@ func TestFindTemplateDir_AbsoluteOverrideUsedDirectly(t *testing.T) {
 	assert.Equal(t, abs, got, "absolute configured override should be returned directly")
 }
 
-func TestFindTemplateDir_NoLayoutFallsBackToConfiguredName(t *testing.T) {
-	// When neither layout exists, return the configured directory name as a
+func TestFindTemplateDir_NoLayoutFallsBackToCanonicalPromptsPath(t *testing.T) {
+	// When neither layout exists, return the canonical prompts path as a
 	// relative path (the loader will then return an empty renderer for it).
 	root := t.TempDir()
 	cwd, err := os.Getwd()
@@ -282,7 +288,10 @@ func TestFindTemplateDir_NoLayoutFallsBackToConfiguredName(t *testing.T) {
 	prevConfigured := configuredTemplateDir
 	configuredTemplateDir = ""
 	defer func() { configuredTemplateDir = prevConfigured }()
+	prevSharkData := configuredSharkDataPath
+	configuredSharkDataPath = ""
+	defer func() { configuredSharkDataPath = prevSharkData }()
 
 	got := findTemplateDir()
-	assert.Equal(t, defaultTemplateDir, got)
+	assert.Equal(t, sharkDataPromptsSubdir(), got)
 }

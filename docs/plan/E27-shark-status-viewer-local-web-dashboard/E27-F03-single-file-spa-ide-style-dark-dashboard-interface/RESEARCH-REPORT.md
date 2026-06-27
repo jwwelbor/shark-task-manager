@@ -26,15 +26,15 @@ The SPA (`viewer.html`) will be a net-new file at `internal/viewer/assets/viewer
 
 ### go:embed Pattern (Established)
 
-The project has a working `go:embed` pattern at the root level:
+The project has a working `go:embed` pattern for shipped shark-data:
 
-**File**: `/home/jwwel/projects/shark-task-manager/embedded.go`
+**File**: `/home/jwwel/projects/shark-task-manager/internal/sharkdata/embed.go`
 ```go
-//go:embed all:shark-templates
-var EmbeddedSharkTemplates embed.FS
+//go:embed all:default_data
+var embeddedDefaultData embed.FS
 ```
 
-The `internal/init/templates.go` package accesses this via the import alias `stm "github.com/jwwelbor/shark-task-manager"`.
+Runtime prompt and workflow code accesses this through `sharkdata.EmbeddedFS()`.
 
 For the viewer, a new embed declaration will live in `internal/viewer/assets.go`:
 ```go

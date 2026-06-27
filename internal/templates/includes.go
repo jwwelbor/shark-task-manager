@@ -57,9 +57,7 @@ type IncludeResolver struct {
 
 // NewIncludeResolver constructs an IncludeResolver against the given data
 // root. dataRoot may be empty — in that case Resolve becomes a no-op for any
-// include directive (returns the directive's literal text). This lets the
-// engine continue working in legacy `shark-templates/` mode where there is
-// no data root.
+// include directive (returns the directive's literal text).
 func NewIncludeResolver(dataRoot string) *IncludeResolver {
 	return &IncludeResolver{
 		dataRoot: dataRoot,
@@ -96,10 +94,9 @@ func NewIncludeResolverWithEmbed(dataRoot string) *IncludeResolver {
 // first; if it exists, its content replaces the default at <dataRoot>/<path>.
 // Override files are never merged with defaults — they win or they're absent.
 //
-// If dataRoot is empty and embed fallback is disabled (legacy mode), include
-// directives are left in place verbatim. This is intentional: the legacy
-// `shark-templates/` mode has no data root, so include is a no-op there.
-// Embed-aware resolvers still resolve includes from the embedded bundle.
+// If dataRoot is empty and embed fallback is disabled, include directives are
+// left in place verbatim. Embed-aware resolvers still resolve includes from the
+// embedded bundle.
 func (r *IncludeResolver) Resolve(content string) (string, error) {
 	if r.dataRoot == "" && !r.useEmbed {
 		return content, nil

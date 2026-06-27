@@ -23,5 +23,5 @@ Regenerate:
 
 ```bash
 python3 examples/route-based-codex/convert-from-codex.py \
-  shark-templates/.sharkworkflow-short.json examples/route-based-short
+  path/to/source-workflow.json examples/route-based-short
 ```

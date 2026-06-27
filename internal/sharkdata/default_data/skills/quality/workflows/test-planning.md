@@ -6,6 +6,7 @@ inputs:
   - ac_list: list of acceptance criteria text (extracted from the task spec)
   - impl_signals: list of paths to changed/added implementation files (optional, only if implementation has begun)
   - api_spec_path: absolute path to the API specification markdown (optional)
+  - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present
   - is_first_task_in_feature: bool — whether this is the first task being test-planned for the parent feature (controls Step 4.5 coverage check)
   - sibling_task_specs: list of {task_id, spec_path} for other tasks in the same feature (only required when is_first_task_in_feature=true)
   - test_plan_path: absolute path where the test plan markdown should be written
@@ -13,6 +14,7 @@ inputs:
 outputs:
   - test_plan_doc: structured markdown written to test_plan_path
   - tc_list: list of {tc_id, ac_id, scenario, technique, iso_characteristics, inputs, expected_output, edge_cases, negative_cases, caller_path_contract}
+  - cross_feature_contract_tests: list of {interaction_id, tc_id, test_pointer, producer_feature, consumer_features}
   - drift_findings: list of {finding_type, ac_id_or_design_element, severity, description}
   - prd_completeness_issues: list of {design_element, location, missing_ac_recommendation, severity} (populated only when is_first_task_in_feature=true)
   - coverage_gaps: list of {ac_id, characteristic, reason}
@@ -39,6 +41,8 @@ Open `feature_prd_path` and extract:
 - Behavioral requirements (what users should experience)
 - Non-functional requirements (performance, security)
 - Integration requirements with other features
+- Any "Cross-feature interactions" section with I-## IDs, shape sources, and
+  contract test pointers
 
 ### Step 2: Read the Task Specification
 
@@ -247,6 +251,21 @@ For each test case in the test plan, declare:
 
 **When "internal-only" is acceptable:** for pure value objects, private dataclasses, or unit-level algorithmic functions that have no production caller above them in the diff, the test may declare `Caller-path entrypoint: internal — function under test is the production entrypoint` with a one-line justification. This is the only acceptable opt-out and codex will check that it's not being abused (Step 7.5).
 
+### Step 5.9: Cross-feature contract tests (I-##)
+
+For every I-## declared by the feature PRD or task spec:
+
+- Design at least one contract test case.
+- The TC name and location must match the contract test pointer declared in the
+  feature PRD.
+- Tag the TC with the I-## ID in its description.
+- The SAME TC is referenced by both producer and consumer features. Do not write
+  twin tests.
+- The test must assert the documented shape source, not just that a call
+  happened.
+
+Populate `cross_feature_contract_tests`.
+
 ### Step 6: Write Acceptance Test Cases
 
 For each acceptance criterion, write concrete test cases. These are NOT code — they're specifications that the developer will translate into tests.
@@ -299,6 +318,8 @@ For each acceptance criterion, write concrete test cases. These are NOT code —
 - Include boundary conditions (min, max, empty, null) — driven by BVA
 - Include at least one negative case per acceptance criterion
 - For ACs with observability requirements (Step 5.7), at least one test must assert the observability evidence is emitted
+- For I-## interactions, at least one TC must be tagged with the I-## ID and
+  match the shared contract test pointer
 
 Populate `tc_list` with one entry per test case.
 
@@ -362,6 +383,14 @@ ACs without a technique annotation = untestable spec; send back for refinement.
 Pure-internal behaviors (private value objects etc.) may have "internal — no observability" with justification.
 
 **Implementation hook:** the observability columns above become hard requirements in the task spec — the developer adds the instrumentation as part of the change; QA verifies it exists.
+
+## Cross-feature contract tests (I-##)
+
+| I-## | Producer | Consumer(s) | Shape source | Contract test pointer | TC |
+|------|----------|-------------|--------------|-----------------------|----|
+| I-01 | F01 | F02 | architecture.md#section | tests/contracts/...#TC-101 | TC-101 |
+
+The same TC is referenced by producer and consumer features. No twin tests.
 
 ## Caller-Path Contracts (per test case — Step 5.8)
 
@@ -456,6 +485,8 @@ Before returning the verdict:
 - [ ] **Every AC has an ISO 25010 row in the coverage matrix with no empty cells** (Step 5.6)
 - [ ] **Every behavior has an observability design (metric/log/trace/N-A)** (Step 5.7)
 - [ ] **Every test case has a Caller-Path Contract: entrypoint, lowest mock seam, forbidden mocks, counter-factual** (Step 5.8) — internal-only opt-outs are justified, not silent
+- [ ] **Every I-## has a shared cross-feature contract test** (Step 5.9), tagged
+      with the I-## ID and matching the declared contract test pointer
 - [ ] Concrete test cases written for every acceptance criterion
 - [ ] Each test case references its source feature requirement, the technique that produced it, and at least one ISO 25010 characteristic
 - [ ] Negative and edge cases included (driven by the technique chosen)

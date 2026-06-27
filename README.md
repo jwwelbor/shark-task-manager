@@ -67,7 +67,7 @@ This creates:
 - SQLite database (`shark-tasks.db`) with schema
 - Folder structure (`docs/plan/`)
 - Configuration file (`.sharkconfig.json`)
-- Templates (`shark-templates/`) - epic.md, feature.md, task.md
+- Embedded `shark-data` defaults for workflows, prompts, file templates, skills, and agents
 
 #### 2. Discovering Available Work
 

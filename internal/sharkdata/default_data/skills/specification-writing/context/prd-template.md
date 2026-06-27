@@ -243,6 +243,21 @@ This document defines the complete structure for Feature-level PRDs. A feature P
 
 - **{External System}**: {What data/functionality is exchanged}
 
+### Cross-feature interactions
+
+Required for STANDARD/COMPLEX features under a multi-feature epic with an
+interaction map.
+
+- **Produces**: I-## — {payload/contract}, consumers: {feature keys}, shape
+  source: `{epic}/architecture.md#section`, contract tests:
+  `{test pointer}`
+- **Consumes**: I-## — {payload/contract}, producer: {feature key}, shape
+  source: `{epic}/architecture.md#section`, contract tests:
+  `{test pointer}`
+
+Use I-## IDs verbatim from `<epic-id>-interaction-map.md`. Do not invent IDs in
+the feature PRD.
+
 ---
 
 ## Compliance & Security Considerations

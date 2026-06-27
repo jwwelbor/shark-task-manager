@@ -316,11 +316,11 @@ func TestRenderer_IncludeResolvedAtParseTime(t *testing.T) {
 	assert.Equal(t, "PROMPT[ QA craft body ]-T1", out)
 }
 
-func TestRenderer_LegacyTmplPathHasNoIncludeRoot(t *testing.T) {
-	// A legacy shark-templates/ layout has no detectable data root, so
-	// {{include:}} in a .tmpl is left as-is. Author shouldn't use {{include:}}
-	// in legacy templates anyway; this test pins the contract.
-	root := t.TempDir() // legacy: dir base is NOT "prompts"
+func TestRenderer_NonBundleTmplPathHasNoIncludeRoot(t *testing.T) {
+	// A non-bundle prompt directory has no detectable data root. Embed-aware
+	// include resolution still works for bundled files; this test pins the
+	// IncludeRoot contract for custom .tmpl paths.
+	root := t.TempDir() // dir base is NOT "prompts"
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "task"), 0755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(root, "task", "x.tmpl"),

@@ -1,10 +1,10 @@
 // Package sharkdata embeds the canonical shark-data/ tree shipped with the
 // shark binary and exposes lifecycle helpers (init / upgrade / validate).
 //
-// Layout shipped (F3 — empty placeholders; F4 populates real content):
+// Layout shipped:
 //
 //	shark-data/
-//	  prompts/   skills/   agents/   workflow/   overrides/
+//	  prompts/   skills/   agents/   workflow/   file_templates/   overrides/
 //	  README.md
 //
 // All operations work against a project-local <root>/shark-data/ directory.

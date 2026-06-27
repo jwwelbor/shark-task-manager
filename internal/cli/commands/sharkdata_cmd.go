@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -43,8 +42,8 @@ After extraction, disk files take precedence over the embedded defaults
 on a per-file basis; the embed remains the backstop for any file absent
 from disk.
 
-Also writes shark_data_path and workflow_config into .sharkconfig.json if
-those fields are absent or point at the legacy shark-templates/ location.
+Also writes shark_data_path and workflow_config into .sharkconfig.json when
+those fields are absent or empty.
 
 To refresh an existing shark-data/ with the latest embedded defaults, run:
   shark admin upgrade
@@ -128,8 +127,8 @@ func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 		return sharkdataErr
 	}
 
-	// Also ensure config fields are present (heals legacy projects that still
-	// point at shark-templates/.sharkworkflow*.json).
+	// Also ensure config fields are present. Explicit workflow_config values are
+	// preserved; runtime validation reports any deprecated formats.
 	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, defaultWorkflowConfigDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to update .sharkconfig.json: %v\n", err)
@@ -171,10 +170,6 @@ func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
 	if !configUpdated {
 		return
 	}
-	if migratedFrom != "" {
-		fmt.Printf("Migrated workflow_config: %q -> %q in .sharkconfig.json\n", migratedFrom, defaultWorkflowConfigDir)
-		return
-	}
 	fmt.Printf("Set workflow_config: %q in .sharkconfig.json\n", defaultWorkflowConfigDir)
 }
 
@@ -183,12 +178,8 @@ func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
 //
 //   - Config missing: create a minimal {"workflow_config": "..."} file.
 //   - Config exists, field absent or empty: add the field.
-//   - Config exists, field set to a legacy JSON file path
-//     (`.sharkworkflow*.json` or any path ending in `.json`): auto-migrate
-//     to the directory default. This heals projects whose `shark admin init`
-//     previously wrote the old `shark-templates/.sharkworkflow-short.json` value.
-//   - Config exists, field set to anything else (a custom path): leave
-//     alone. Still persists a freshly-added shark_data_path if needed.
+//   - Config exists, field set to anything else: leave it alone. Still
+//     persists a freshly-added shark_data_path if needed.
 //
 // Returns (updated, migratedFrom, err).
 func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, migratedFrom string, err error) {
@@ -216,12 +207,9 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 	switch {
 	case existing == "":
 		// Add the field.
-	case isLegacyWorkflowConfigValue(existing):
-		// Heal it: auto-migrate the legacy path.
-		migratedFrom = existing
 	default:
-		// Custom workflow_config — respect it. Still persist a freshly-added
-		// shark_data_path (the two fields are independent).
+		// Explicit workflow_config — respect it. Still persist a freshly-added
+		// shark_data_path; runtime validation owns deprecated config errors.
 		if sharkDataAdded {
 			if writeErr := mgr.SaveRaw(configPath, raw); writeErr != nil {
 				return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
@@ -236,19 +224,6 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 		return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
 	}
 	return true, migratedFrom, nil
-}
-
-// isLegacyWorkflowConfigValue reports whether v looks like a workflow_config
-// value left over from the Shark 1.x JSON-file model.
-func isLegacyWorkflowConfigValue(v string) bool {
-	if v == "" {
-		return false
-	}
-	if strings.HasSuffix(v, ".json") {
-		return true
-	}
-	base := filepath.Base(v)
-	return strings.HasPrefix(base, ".sharkworkflow")
 }
 
 func runSharkUpgrade(cmd *cobra.Command, _ []string) error {

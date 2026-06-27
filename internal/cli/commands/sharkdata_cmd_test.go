@@ -50,24 +50,25 @@ func TestEnsureWorkflowConfigField_AddsFieldToExistingConfig(t *testing.T) {
 	assert.Equal(t, "value", raw["some_other_key"])
 }
 
-func TestEnsureWorkflowConfigField_MigratesLegacyJSONPath(t *testing.T) {
+func TestEnsureWorkflowConfigField_PreservesExplicitJSONWorkflowConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
-	legacyPath := "shark-templates/.sharkworkflow-short.json"
+	jsonWorkflowPath := "legacy/workflow.json"
 	require.NoError(t, os.WriteFile(configPath,
-		[]byte(`{"workflow_config":"`+legacyPath+`"}`), 0644))
+		[]byte(`{"workflow_config":"`+jsonWorkflowPath+`"}`), 0644))
 
 	updated, migratedFrom, err := ensureWorkflowConfigField(dir, defaultWorkflowConfigDir)
 	require.NoError(t, err)
 	assert.True(t, updated)
-	assert.Equal(t, legacyPath, migratedFrom)
+	assert.Empty(t, migratedFrom)
 
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 
 	var raw map[string]interface{}
 	require.NoError(t, json.Unmarshal(data, &raw))
-	assert.Equal(t, defaultWorkflowConfigDir, raw["workflow_config"])
+	assert.Equal(t, jsonWorkflowPath, raw["workflow_config"])
+	assert.Equal(t, "shark-data", raw["shark_data_path"])
 }
 
 func TestEnsureWorkflowConfigField_RespectsCustomPath(t *testing.T) {
@@ -107,27 +108,4 @@ func TestEnsureWorkflowConfigField_IdempotentOnAlreadyCorrectPath(t *testing.T) 
 	require.NoError(t, err)
 	assert.False(t, updated)
 	assert.Empty(t, migratedFrom)
-}
-
-// ============================================================================
-// isLegacyWorkflowConfigValue
-// ============================================================================
-
-func TestIsLegacyWorkflowConfigValue(t *testing.T) {
-	tests := []struct {
-		input string
-		want  bool
-	}{
-		{"", false},
-		{"shark-data/workflow/", false},
-		{"my-custom-workflows/", false},
-		{"shark-templates/.sharkworkflow-short.json", true},
-		{"path/to/something.json", true},
-		{".sharkworkflow.json", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, isLegacyWorkflowConfigValue(tt.input))
-		})
-	}
 }

@@ -5,6 +5,7 @@ inputs:
   - feature_prd_path: absolute path to the feature PRD markdown
   - api_spec_path: absolute path to the API specification markdown (optional)
   - test_plan_path: absolute path to a pre-authored QA test plan, if one exists (optional)
+  - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present
   - design_refs: list of paths to wireframes / mockups / design files (optional, may be empty)
   - impl_paths: list of paths to changed source files
   - test_paths: list of paths to test files for the changes
@@ -20,6 +21,7 @@ outputs:
   - exploratory_findings: structured markdown written to qa_exploratory_path
   - bugs: list of {severity, summary, reproduction, expected, actual, fix_location} (empty on PASS)
   - blockers: list of blocker findings from any verification step
+  - wiring_coverage: list of {contract_id, producer, consumers, contract_test, test_exists, test_passes}
 ---
 
 # Workflow: QA Testing (craft)
@@ -39,6 +41,8 @@ Open and read the inputs provided:
 - `api_spec_path` (if provided) — single source of truth for API contracts
 - `impl_paths` — what was actually built (review the diff or final source)
 - `test_paths` — what's being tested
+- `interaction_map_path` and any `Cross-feature interactions` section, if
+  present
 
 You should leave this step with a clear mental model of: (a) what the change is supposed to do, (b) how it's supposed to be exercised, (c) what would constitute a successful behavior, (d) what edge cases the AC implies.
 
@@ -148,6 +152,26 @@ Walk each item in `acceptance_criteria`. For each:
 - Where PASS: cite the test or manual verification that confirmed it.
 - Where FAIL: capture expected vs actual, severity, and file:line where the fix is needed.
 
+### Step 10.5: Wiring Coverage Matrix
+
+For STANDARD/COMPLEX features, extend the QA report with a wiring coverage
+matrix:
+
+| Contract | Producer | Consumer(s) | Contract test | Test exists | Test passes |
+|----------|----------|-------------|---------------|-------------|-------------|
+| CONTRACT-001 | task | task(s) | test pointer | yes/no | yes/no |
+| I-01 | feature/task | feature(s) | shared test pointer | yes/no | yes/no |
+
+Rules:
+
+- Include one row per CONTRACT-### from task specs.
+- Include one row per I-## from the epic interaction map that this feature
+  produces or consumes.
+- Any CONTRACT-### or I-## row with a missing contract test, a test that does
+  not assert the documented shape, or a failing test is an automatic FAIL.
+- For a missing or broken I-## contract test, reopen the producer task and add a
+  blocker note to the consuming feature.
+
 ### Step 11: Document Findings
 
 Write a structured QA report to `qa_report_path`. Format:
@@ -168,6 +192,9 @@ Write a structured QA report to `qa_report_path`. Format:
 
 ## Acceptance Criteria Verification
 - [<x|✅|❌>] <AC text> — <status with citation>
+
+## Wiring Coverage Matrix
+<CONTRACT-### and I-## rows with producer/consumer, contract test, test-exists, test-passes>
 
 ## Test Results
 <detailed results>
@@ -213,6 +240,7 @@ Never approve on the assumption that someone else will fix a prerequisite. If yo
 
 - All tests pass + all AC met + reachability verified + signature match verified + codex returns PASS → **PASS**.
 - Any blocker (failing test, unmet AC, missing call sites, signature mismatch, codex blocker, design mismatch) → **FAIL**.
+- Missing or failing wiring coverage for CONTRACT-### or I-## rows → **FAIL**.
 - Minor issues only (typos, minor UX improvements, exploratory observations) → **PASS** with notes.
 
 ### Step 13: Return Summary
@@ -262,6 +290,8 @@ If integration tests need credentials and they're not present in the project's d
 - [ ] Production caller signature match — at least one test per service-contract change drives the production argument shape
 - [ ] Codex red-team verification run and findings incorporated
 - [ ] All acceptance criteria verified
+- [ ] Wiring coverage matrix completed for CONTRACT-### and I-## rows
+- [ ] Every I-## contract test exists, asserts the documented shape, and passes
 - [ ] Automated tests run (or noted if missing)
 - [ ] Manual testing completed
 - [ ] Edge cases tested

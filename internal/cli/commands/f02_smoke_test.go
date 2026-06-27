@@ -8,7 +8,7 @@ package commands
 // AC1: shark-data/ workflow config works for one feature in a test env.
 // AC2: Rendered prompt with {{include:}} inlines skill content, not a path ref.
 // AC3: Rendered prompt is semantically equivalent to the golden corpus output.
-// AC4: Old shark-templates/ path still works when shark-data/ is absent (fallback).
+// AC4: Embedded prompt defaults work when shark-data/ is absent from disk.
 // AC5: {{include:}} cycle detection fires on a deliberate cycle test fixture.
 // AC6: Override resolution: shark-data/overrides/<path> wins over shark-data/<path>.
 //
@@ -157,29 +157,13 @@ func TestF02_AC3_OutputEqualsGoldenCorpus(t *testing.T) {
 	}
 }
 
-// ── AC4: Old shark-templates/ fallback when shark-data/ is absent ────────────
+// ── AC4: Embedded fallback when shark-data/ is absent ────────────────────────
 
-// TestF02_AC4_FallsBackToSharkTemplatesWhenSharkDataAbsent is the AC4 gate:
-// "Old shark-templates/ path still works when shark-data/ is absent (fallback)."
-//
-// We construct a temp directory with only a legacy shark-templates/ subtree
-// (containing a .tmpl file) and no shark-data/ at all. The renderer must
-// discover shark-templates/ via the walk-up fallback and successfully render
-// from it.
-func TestF02_AC4_FallsBackToSharkTemplatesWhenSharkDataAbsent(t *testing.T) {
-	// Build an isolated temp project with shark-templates/ only.
+// TestF02_AC4_UsesEmbeddedPromptsWhenSharkDataAbsent is the AC4 gate:
+// a project with no disk prompt tree still renders from the embedded bundle.
+func TestF02_AC4_UsesEmbeddedPromptsWhenSharkDataAbsent(t *testing.T) {
+	// Build an isolated temp project without any disk prompt tree.
 	root := t.TempDir()
-	tmplDir := filepath.Join(root, "shark-templates", "task")
-	require.NoError(t, os.MkdirAll(tmplDir, 0755))
-
-	legacyContent := "LEGACY task prompt for {{.task_id}}"
-	require.NoError(t, os.WriteFile(
-		filepath.Join(tmplDir, "in_development.tmpl"),
-		[]byte(legacyContent),
-		0644,
-	))
-
-	// No shark-data/ directory created — shark-templates/ is the only option.
 
 	// Change working directory so findTemplateDir walks up from root.
 	origWD, err := os.Getwd()
@@ -187,27 +171,27 @@ func TestF02_AC4_FallsBackToSharkTemplatesWhenSharkDataAbsent(t *testing.T) {
 	defer func() { _ = os.Chdir(origWD) }()
 	require.NoError(t, os.Chdir(root))
 
-	// Reset the configuredTemplateDir override so fallback logic kicks in.
+	// Reset the configured template override so canonical resolution kicks in.
 	prev := templates.GetTemplateDirName()
 	templates.SetConfiguredTemplateDir("")
 	defer templates.SetConfiguredTemplateDir(prev)
 
-	// findTemplateDir is called inside NewOrchestratorRenderer; we point it
-	// at the discovered path directly to avoid singleton side-effects.
-	tmplPath := filepath.Join(root, "shark-templates")
-	renderer, err := templates.NewOrchestratorRenderer(tmplPath)
-	require.NoError(t, err, "AC4: NewOrchestratorRenderer must succeed against legacy shark-templates/")
+	promptsPath := filepath.Join(root, "shark-data", "prompts")
+	renderer, err := templates.NewOrchestratorRenderer(promptsPath)
+	require.NoError(t, err, "AC4: NewOrchestratorRenderer must fall back to embedded prompts")
 
-	out, err := renderer.Render("task/in_development.tmpl", map[string]string{
-		"task_id": "E07-F01-001",
+	out, err := renderer.Render("task/development.md", map[string]string{
+		"id":       "E07-F01-001",
+		"key":      "E07-F01-001",
+		"task_key": "E07-F01-001",
+		"task_id":  "E07-F01-001",
+		"title":    "Implement authentication system",
 	})
-	require.NoError(t, err, "AC4: legacy .tmpl file must render without error")
-	assert.Equal(t, "LEGACY task prompt for E07-F01-001", out,
-		"AC4: legacy shark-templates/ content must render correctly as fallback")
-
-	// Verify that no shark-data/ path was used (no include directives resolved).
+	require.NoError(t, err, "AC4: embedded task prompt must render without error")
+	assert.Contains(t, out, "E07-F01-001",
+		"AC4: embedded prompt should receive standard task variables")
 	assert.NotContains(t, out, "{{include:",
-		"AC4: no include directives should survive rendering in legacy mode")
+		"AC4: embedded prompts must resolve include directives")
 }
 
 // ── AC5: {{include:}} cycle detection fires ───────────────────────────────────

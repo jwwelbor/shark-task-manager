@@ -697,13 +697,12 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		actualFilePath = fmt.Sprintf("%s/epic.md", epicDir)
 	}
 
-	// Read and render template (uses cached template dir from PersistentPreRunE)
-	templateDir := templates.GetTemplateDirName()
-	templatePath := filepath.Join(templateDir, "entity", "epic.md")
-	templateContent, err := os.ReadFile(templatePath)
+	// Read and render file template from shark-data/file_templates, falling
+	// back to the embedded default when no disk customization exists.
+	templateContent, err := templates.ReadFileTemplate("epic.md")
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to read epic template: %v", err))
-		cli.Info("Make sure you've run 'shark init' to create templates")
+		cli.Info("Run 'shark admin install-shark-data' to customize file templates")
 		os.Exit(1)
 	}
 

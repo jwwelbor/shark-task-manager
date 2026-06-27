@@ -1,8 +1,7 @@
 # Route-Based Codex Workflow (example / testing)
 
 These are the **codex workflow converted to the Shark 2.x route-based `steps:`
-schema** (Epic E35), produced by `convert-from-codex.py` from
-`shark-templates/.sharkworkflow-codex.json`.
+schema** (Epic E35). The checked-in YAML files are the active example source.
 
 They are an **example/testing artifact**, not canonical config. Outcome
 assignments (`pass`/`fail`/`blocked`) are derived heuristically by phase order
@@ -55,13 +54,13 @@ task data often carries richer statuses (`ready_for_code_review`,
 `ready_for_qa`, `ready_for_approval`, …) from the long workflow. The converter
 aliases all of those to `development` so migration leaves no orphan — which
 **collapses mid-pipeline tasks into `development`**. If you want to preserve the
-full dev → code-review → qa → approval lifecycle, convert
-`shark-templates/.sharkworkflow.json` (the long workflow) for the task entity
-instead, and rely on the master index to mix profiles per entity.
+full dev → code-review → qa → approval lifecycle, edit the task YAML directly
+or point the master index at another route-based task workflow.
 
-Regenerate after editing the source workflow:
+Regenerate from an archival JSON workflow only when intentionally rebuilding
+this example from historical source data:
 
 ```bash
 python3 examples/route-based-codex/convert-from-codex.py \
-  shark-templates/.sharkworkflow-codex.json examples/route-based-codex
+  path/to/source-workflow.json examples/route-based-codex
 ```

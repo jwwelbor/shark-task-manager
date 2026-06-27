@@ -9,14 +9,51 @@ import (
 	"text/template"
 )
 
+const canonicalPromptsDir = "../../internal/sharkdata/default_data/prompts"
+
+func canonicalPromptPath(elem ...string) string {
+	parts := append([]string{canonicalPromptsDir}, elem...)
+	return filepath.Join(parts...)
+}
+
+func corePartialFiles() []string {
+	return []string{
+		canonicalPromptPath("_partials", "_tdd_process.md"),
+		canonicalPromptPath("_partials", "_exit_gate.md"),
+		canonicalPromptPath("_partials", "_read_section.md"),
+	}
+}
+
+func parseCanonicalPartials(t *testing.T) *template.Template {
+	t.Helper()
+
+	tmpl, err := template.New("partials").Funcs(orchestratorFuncs()).ParseFiles(corePartialFiles()...)
+	if err != nil {
+		t.Fatalf("Failed to load canonical partials: %v", err)
+	}
+
+	return tmpl
+}
+
+func parseCanonicalPartialsInto(t *testing.T, tmpl *template.Template) *template.Template {
+	t.Helper()
+
+	tmpl, err := tmpl.Funcs(orchestratorFuncs()).ParseFiles(corePartialFiles()...)
+	if err != nil {
+		t.Fatalf("Failed to load canonical partials: %v", err)
+	}
+
+	return tmpl
+}
+
 // TestPartialsDirectoryStructure validates the directory structure matches the architecture
 func TestPartialsDirectoryStructure(t *testing.T) {
 	expectedDirs := []string{
-		"../../shark-templates",
-		"../../shark-templates/epic",
-		"../../shark-templates/feature",
-		"../../shark-templates/task",
-		"../../shark-templates/partials",
+		canonicalPromptsDir,
+		canonicalPromptPath("epic"),
+		canonicalPromptPath("feature"),
+		canonicalPromptPath("task"),
+		canonicalPromptPath("_partials"),
 	}
 
 	for _, dir := range expectedDirs {
@@ -33,9 +70,9 @@ func TestPartialsDirectoryStructure(t *testing.T) {
 // TestPartialsExist validates all required partial templates exist
 func TestPartialsExist(t *testing.T) {
 	expectedPartials := []string{
-		"../../shark-templates/partials/_tdd_process.tmpl",
-		"../../shark-templates/partials/_exit_gate.tmpl",
-		"../../shark-templates/partials/_read_section.tmpl",
+		canonicalPromptPath("_partials", "_tdd_process.md"),
+		canonicalPromptPath("_partials", "_exit_gate.md"),
+		canonicalPromptPath("_partials", "_read_section.md"),
 	}
 
 	for _, partial := range expectedPartials {
@@ -51,10 +88,7 @@ func TestPartialsExist(t *testing.T) {
 
 // TestPartialsLoadViaParseGlob validates templates can be loaded via ParseGlob
 func TestPartialsLoadViaParseGlob(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates via ParseGlob: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	expectedPartials := []string{"_tdd_process", "_exit_gate", "_read_section"}
 	for _, partialName := range expectedPartials {
@@ -67,10 +101,7 @@ func TestPartialsLoadViaParseGlob(t *testing.T) {
 
 // TestTDDProcessPartialRenders validates the TDD process partial renders correctly
 func TestTDDProcessPartialRenders(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_tdd_process")
 	if partial == nil {
@@ -102,10 +133,7 @@ func TestTDDProcessPartialRenders(t *testing.T) {
 
 // TestExitGatePartialRenders validates the exit gate partial renders correctly
 func TestExitGatePartialRenders(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_exit_gate")
 	if partial == nil {
@@ -135,10 +163,7 @@ func TestExitGatePartialRenders(t *testing.T) {
 
 // TestReadSectionPartialWithMinimalData validates _read_section with only primary doc
 func TestReadSectionPartialWithMinimalData(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_read_section")
 	if partial == nil {
@@ -168,10 +193,7 @@ func TestReadSectionPartialWithMinimalData(t *testing.T) {
 
 // TestReadSectionPartialWithRelatedDocs validates _read_section with related docs
 func TestReadSectionPartialWithRelatedDocs(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_read_section")
 	if partial == nil {
@@ -202,10 +224,7 @@ func TestReadSectionPartialWithRelatedDocs(t *testing.T) {
 
 // TestReadSectionPartialWithAllData validates _read_section with all data
 func TestReadSectionPartialWithAllData(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_read_section")
 	if partial == nil {
@@ -234,10 +253,7 @@ func TestReadSectionPartialWithAllData(t *testing.T) {
 
 // TestReadSectionSmartNumbering validates smart numbering with only related_tasks
 func TestReadSectionSmartNumbering(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_read_section")
 	if partial == nil {
@@ -276,10 +292,7 @@ End of content.{{end}}`
 	}
 
 	// Load all partials
-	tmpl, err = tmpl.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load partials: %v", err)
-	}
+	tmpl = parseCanonicalPartialsInto(t, tmpl)
 
 	result, err := executeTemplate(tmpl.Lookup("test_with_partial"), map[string]interface{}{})
 	if err != nil {
@@ -300,7 +313,7 @@ End of content.{{end}}`
 
 // TestPartialNamingConvention validates partials use _prefix naming
 func TestPartialNamingConvention(t *testing.T) {
-	entries, err := os.ReadDir("../../shark-templates/partials")
+	entries, err := os.ReadDir(canonicalPromptPath("_partials"))
 	if err != nil {
 		t.Fatalf("Failed to read partials directory: %v", err)
 	}
@@ -317,10 +330,10 @@ func TestPartialNamingConvention(t *testing.T) {
 			continue
 		}
 
-		// Check that file starts with underscore and ends with .tmpl
+		// Check that file starts with underscore and ends with .md
 		name := entry.Name()
-		if filepath.Ext(name) != ".tmpl" {
-			t.Errorf("File %s does not have .tmpl extension", name)
+		if filepath.Ext(name) != ".md" {
+			t.Errorf("File %s does not have .md extension", name)
 		}
 		// Naming convention check
 		if !strings.HasPrefix(name, "_") {
@@ -331,10 +344,7 @@ func TestPartialNamingConvention(t *testing.T) {
 
 // TestReadSectionNoEmptyLines validates _read_section doesn't create empty lines
 func TestReadSectionNoEmptyLines(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
-	if err != nil {
-		t.Fatalf("Failed to load templates: %v", err)
-	}
+	tmpl := parseCanonicalPartials(t)
 
 	partial := tmpl.Lookup("_read_section")
 	if partial == nil {

@@ -33,6 +33,16 @@ func buildWorkflowBlock(version string) map[string]interface{} {
 	}
 }
 
+func writeWorkflowYAML(t *testing.T, workflowDir, filename, content string) {
+	t.Helper()
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
+		t.Fatalf("failed to create workflow dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workflowDir, filename), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write workflow YAML: %v", err)
+	}
+}
+
 // buildFullConfig creates a .sharkconfig.json body with all 5 entity workflow blocks
 // using prefix in version strings for identification.
 func buildFullConfig(prefix string) map[string]interface{} {
@@ -507,8 +517,32 @@ func TestLoadMultiLevelWorkflow_EmptyStatusFlowInWorkflowFile(t *testing.T) {
 
 // --- AC Group 4: Configurable Workflow File Path (REQ-F04-004) ---
 
-// TC-030: Custom path via workflow_config
+// TC-030: Custom YAML directory via workflow_config
 func TestLoadMultiLevelWorkflow_CustomPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+
+	configData := map[string]interface{}{
+		"workflow_config": "config/workflow",
+	}
+	writeJSON(t, configPath, configData)
+
+	workflowDir := filepath.Join(dir, "config", "workflow")
+	writeWorkflowYAML(t, workflowDir, "epic.yaml", epicYAML)
+
+	ClearWorkflowCache()
+	result, err := LoadMultiLevelWorkflow(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Epic == nil || result.Epic.Version != "1.0" {
+		t.Errorf("expected Epic from custom path, got %v", result.Epic)
+	}
+}
+
+// TC-030b: Explicit JSON workflow_config is rejected with a migration hint.
+func TestLoadMultiLevelWorkflow_JSONWorkflowConfigRejected(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -517,30 +551,31 @@ func TestLoadMultiLevelWorkflow_CustomPath(t *testing.T) {
 	}
 	writeJSON(t, configPath, configData)
 
-	// Write workflow file at custom path
 	workflowData := map[string]interface{}{
-		"epic_workflow": buildWorkflowBlock("custom-epic"),
+		"epic_workflow": buildWorkflowBlock("json-epic"),
 	}
 	writeJSON(t, filepath.Join(dir, "config", "workflows.json"), workflowData)
 
 	ClearWorkflowCache()
-	result, err := LoadMultiLevelWorkflow(configPath)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := LoadMultiLevelWorkflow(configPath)
+	if err == nil {
+		t.Fatal("expected deprecated JSON workflow_config error, got nil")
 	}
-
-	if result.Epic == nil || result.Epic.Version != "custom-epic" {
-		t.Errorf("expected Epic from custom path, got %v", result.Epic)
+	if !strings.Contains(err.Error(), "deprecated workflow_config JSON") {
+		t.Fatalf("error = %q; want deprecated JSON workflow_config migration hint", err.Error())
+	}
+	if strings.Contains(err.Error(), "config/workflows.json") {
+		t.Fatalf("error = %q; must not echo deprecated configured path", err.Error())
 	}
 }
 
-// TC-031: Missing custom path falls back to inline config
+// TC-031: Missing custom directory falls back to inline config
 func TestLoadMultiLevelWorkflow_MissingCustomPath(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
 	configData := map[string]interface{}{
-		"workflow_config": "nonexistent.json",
+		"workflow_config": "nonexistent/workflow",
 		"task_workflow":   buildWorkflowBlock("inline-task"),
 	}
 	writeJSON(t, configPath, configData)
@@ -607,23 +642,20 @@ func TestLoadMultiLevelWorkflow_EmptyWorkflowConfig(t *testing.T) {
 	}
 }
 
-// TC-034: Absolute path via workflow_config (within project root)
+// TC-034: Absolute YAML directory via workflow_config (within project root)
 func TestLoadMultiLevelWorkflow_AbsolutePath(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
-	// Use an absolute path within the same project root directory
-	absPath := filepath.Join(dir, "workflows", "custom.json")
+	// Use an absolute directory within the same project root directory
+	absPath := filepath.Join(dir, "workflows", "custom")
 
 	configData := map[string]interface{}{
 		"workflow_config": absPath,
 	}
 	writeJSON(t, configPath, configData)
 
-	workflowData := map[string]interface{}{
-		"epic_workflow": buildWorkflowBlock("abs-epic"),
-	}
-	writeJSON(t, absPath, workflowData)
+	writeWorkflowYAML(t, absPath, "epic.yaml", epicYAML)
 
 	ClearWorkflowCache()
 	result, err := LoadMultiLevelWorkflow(configPath)
@@ -631,30 +663,27 @@ func TestLoadMultiLevelWorkflow_AbsolutePath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Epic == nil || result.Epic.Version != "abs-epic" {
+	if result.Epic == nil || result.Epic.Version != "1.0" {
 		t.Errorf("expected Epic from absolute path, got %v", result.Epic)
 	}
 }
 
 // TC-034b: Absolute path outside project root is rejected (path traversal protection)
 // TC-034b: Absolute path outside project root is trusted (user explicitly configured it).
-// This supports shared template/workflow directories like ~/projects/shark-templates.
+// This supports shared workflow directories outside the project root.
 func TestLoadMultiLevelWorkflow_AbsolutePathOutsideRoot(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
 	absDir := t.TempDir()
-	absPath := filepath.Join(absDir, "workflows.json")
+	absPath := filepath.Join(absDir, "workflows")
 
 	configData := map[string]interface{}{
 		"workflow_config": absPath,
 	}
 	writeJSON(t, configPath, configData)
 
-	workflowData := map[string]interface{}{
-		"epic_workflow": buildWorkflowBlock("external-epic"),
-	}
-	writeJSON(t, absPath, workflowData)
+	writeWorkflowYAML(t, absPath, "epic.yaml", epicYAML)
 
 	ClearWorkflowCache()
 	result, err := LoadMultiLevelWorkflow(configPath)
@@ -666,20 +695,17 @@ func TestLoadMultiLevelWorkflow_AbsolutePathOutsideRoot(t *testing.T) {
 	}
 }
 
-// TC-035: Relative path resolved relative to config directory
+// TC-035: Relative YAML directory resolved relative to config directory
 func TestLoadMultiLevelWorkflow_RelativePathResolution(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
 	configData := map[string]interface{}{
-		"workflow_config": "subdir/wf.json",
+		"workflow_config": "subdir/workflow",
 	}
 	writeJSON(t, configPath, configData)
 
-	workflowData := map[string]interface{}{
-		"epic_workflow": buildWorkflowBlock("subdir-epic"),
-	}
-	writeJSON(t, filepath.Join(dir, "subdir", "wf.json"), workflowData)
+	writeWorkflowYAML(t, filepath.Join(dir, "subdir", "workflow"), "epic.yaml", epicYAML)
 
 	ClearWorkflowCache()
 	result, err := LoadMultiLevelWorkflow(configPath)
@@ -687,7 +713,7 @@ func TestLoadMultiLevelWorkflow_RelativePathResolution(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Epic == nil || result.Epic.Version != "subdir-epic" {
+	if result.Epic == nil || result.Epic.Version != "1.0" {
 		t.Errorf("expected Epic from subdir, got %v", result.Epic)
 	}
 }
@@ -700,7 +726,7 @@ func TestLoadMultiLevelWorkflow_TemplateDirFromWorkflowFile(t *testing.T) {
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
 	configData := map[string]interface{}{
-		"template_directory": "shark-templates",
+		"template_directory": "custom-prompts",
 	}
 	writeJSON(t, configPath, configData)
 
@@ -726,7 +752,7 @@ func TestLoadMultiLevelWorkflow_TemplateDirFallbackToConfig(t *testing.T) {
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
 	configData := map[string]interface{}{
-		"template_directory": "shark-templates",
+		"template_directory": "custom-prompts",
 	}
 	writeJSON(t, configPath, configData)
 
@@ -846,7 +872,7 @@ func TestLoadMultiLevelWorkflow_EmptyWorkflowFile(t *testing.T) {
 	}
 }
 
-// TC-053: Circular workflow_config (points to .sharkconfig.json itself) is harmless
+// TC-053: Circular JSON workflow_config is rejected as deprecated config
 func TestLoadMultiLevelWorkflow_CircularWorkflowConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
@@ -858,14 +884,12 @@ func TestLoadMultiLevelWorkflow_CircularWorkflowConfig(t *testing.T) {
 	writeJSON(t, configPath, configData)
 
 	ClearWorkflowCache()
-	result, err := LoadMultiLevelWorkflow(configPath)
-	if err != nil {
-		t.Fatalf("circular reference should be harmless: %v", err)
+	_, err := LoadMultiLevelWorkflow(configPath)
+	if err == nil {
+		t.Fatal("expected deprecated JSON workflow_config error, got nil")
 	}
-
-	// task_workflow from the "workflow file" (which is the same config file) should win
-	if result.Task == nil || result.Task.Version != "config-task" {
-		t.Errorf("expected Task from config/workflow file, got %v", result.Task)
+	if !strings.Contains(err.Error(), "deprecated workflow_config JSON") {
+		t.Fatalf("error = %q; want deprecated JSON workflow_config migration hint", err.Error())
 	}
 }
 
@@ -1209,18 +1233,19 @@ func TestLoadMultiLevelWorkflow_PathTraversal(t *testing.T) {
 		},
 		{
 			name:           "absolute path outside project is trusted",
-			workflowConfig: "/tmp/malicious.json",
+			workflowConfig: "/tmp/malicious-workflow",
 			wantErr:        false, // absolute paths are trusted (user explicitly configured them)
 		},
 		{
 			name:           "valid relative path",
-			workflowConfig: "config/workflow.json",
+			workflowConfig: "config/workflow",
 			wantErr:        false,
 		},
 		{
-			name:           "default sharkworkflow.json",
+			name:           "deprecated JSON workflow target",
 			workflowConfig: ".sharkworkflow.json",
-			wantErr:        false,
+			wantErr:        true,
+			errContains:    "deprecated workflow_config JSON",
 		},
 	}
 

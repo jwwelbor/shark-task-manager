@@ -14,6 +14,8 @@ READ:
 (2) Parent epic uat-plan.md for UAT scenarios this feature must satisfy
 (3) Feature research report (if exists) for existing test infrastructure
 (4) CLAUDE.md testing architecture rules (repo tests use real DB, everything else uses mocks)
+(5) Feature spec.md "Cross-feature interactions" section and parent
+    interaction map if present
 
 PRODUCE test-plan.md:
 
@@ -39,6 +41,17 @@ PRODUCE test-plan.md:
     - Existing test patterns to follow (with file paths)
     - New test helpers needed (if any)
 
+(5) ### Cross-feature contract tests (I-##)
+    For every I-## the feature spec declares under "Cross-feature
+    interactions", design at least one contract test case in this plan.
+    - The TC name and location must match the Contract test pointer the feature
+      spec declared.
+    - Tag the TC with the I-## ID in its description.
+    - The SAME TC is referenced by both producer and consumer features. Do not
+      write twin tests.
+    - These contract tests are what a developer on either side writes first
+      (red), then implements code to satisfy (green).
+
 CRITICAL: Tests trace to FEATURE acceptance criteria (in spec.md), which trace to epic requirements. No orphaned tests. Tests drive the production caller signature, not a convenient helper signature — caller-path contracts close that gap at design time.
 
 EXIT GATE:
@@ -47,3 +60,5 @@ EXIT GATE:
 - Edge cases identified for each AC
 - Integration scenarios cover cross-component boundaries
 - Test patterns reference existing infrastructure
+- Every I-## declared by the feature spec has at least one contract test case
+  whose TC name and location match the declared contract test pointer

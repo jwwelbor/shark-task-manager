@@ -18,19 +18,19 @@ func TestPartialTemplates_Syntax(t *testing.T) {
 	}{
 		{
 			name:         "TDD process partial",
-			templateFile: "../../shark-templates/partials/_tdd_process.tmpl",
+			templateFile: canonicalPromptPath("_partials", "_tdd_process.md"),
 			templateName: "_tdd_process",
 			expectedText: "TDD PROCESS:",
 		},
 		{
 			name:         "Exit gate partial",
-			templateFile: "../../shark-templates/partials/_exit_gate.tmpl",
+			templateFile: canonicalPromptPath("_partials", "_exit_gate.md"),
 			templateName: "_exit_gate",
 			expectedText: "EXIT GATE:",
 		},
 		{
 			name:         "Read section partial",
-			templateFile: "../../shark-templates/partials/_read_section.tmpl",
+			templateFile: canonicalPromptPath("_partials", "_read_section.md"),
 			templateName: "_read_section",
 			expectedText: "READ:",
 		},
@@ -65,7 +65,7 @@ func TestPartialTemplates_Syntax(t *testing.T) {
 }
 
 func TestPartialTemplates_TDDProcess(t *testing.T) {
-	tmpl, err := template.ParseFiles("../../shark-templates/partials/_tdd_process.tmpl")
+	tmpl, err := template.ParseFiles(canonicalPromptPath("_partials", "_tdd_process.md"))
 	require.NoError(t, err)
 
 	definedTemplate := tmpl.Lookup("_tdd_process")
@@ -83,7 +83,7 @@ func TestPartialTemplates_TDDProcess(t *testing.T) {
 }
 
 func TestPartialTemplates_ExitGate(t *testing.T) {
-	tmpl, err := template.ParseFiles("../../shark-templates/partials/_exit_gate.tmpl")
+	tmpl, err := template.ParseFiles(canonicalPromptPath("_partials", "_exit_gate.md"))
 	require.NoError(t, err)
 
 	definedTemplate := tmpl.Lookup("_exit_gate")
@@ -101,7 +101,7 @@ func TestPartialTemplates_ExitGate(t *testing.T) {
 }
 
 func TestPartialTemplates_ReadSection_SmartNumbering(t *testing.T) {
-	tmpl, err := template.ParseFiles("../../shark-templates/partials/_read_section.tmpl")
+	tmpl, err := template.ParseFiles(canonicalPromptPath("_partials", "_read_section.md"))
 	require.NoError(t, err)
 
 	definedTemplate := tmpl.Lookup("_read_section")
@@ -177,9 +177,8 @@ func TestPartialTemplates_ReadSection_SmartNumbering(t *testing.T) {
 }
 
 func TestPartialTemplates_LoadAll(t *testing.T) {
-	// Load all partials at once to verify they can coexist
-	tmpl, err := template.ParseGlob("../../shark-templates/partials/_*.tmpl")
-	require.NoError(t, err, "All partials should parse without errors")
+	// Load the core Go-template partials at once to verify they can coexist.
+	tmpl := parseCanonicalPartials(t)
 
 	// Verify all three partials are defined
 	assert.NotNil(t, tmpl.Lookup("_tdd_process"), "TDD process partial should be defined")
@@ -197,7 +196,7 @@ End of main content.`
 	require.NoError(t, err)
 
 	// Parse and add the partial
-	_, err = tmpl.ParseFiles("../../shark-templates/partials/_tdd_process.tmpl")
+	_, err = tmpl.ParseFiles(canonicalPromptPath("_partials", "_tdd_process.md"))
 	require.NoError(t, err)
 
 	var buf bytes.Buffer

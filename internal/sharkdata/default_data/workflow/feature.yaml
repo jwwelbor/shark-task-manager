@@ -161,7 +161,7 @@ steps:
     agent: researcher
     provider: anthropic
     model: sonnet
-    skills: [research, brownfield-analysis]
+    skills: [research]
     prompt: feature/research.md
     outcomes:
       blocked: blocked

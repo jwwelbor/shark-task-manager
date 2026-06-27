@@ -29,6 +29,7 @@ The `/run` command and a bare `/shark run` both route to `verbs/run.md`.
 | | `vision` | Turn a one-line idea into a shark epic + kick off its workflow |
 | **Day-to-day** | `run` | Drive an entity through its workflow (claim → agent → advance → release) |
 | | `triage` | Quick-capture & classify a discovered work item into the right entity |
+| | `code-review` | Multi-angle parallel code review (6 subagents + consolidator); flags: --fix, --comment |
 | | `viewer` | Launch the web dashboard (`shark web`) |
 | | `status` / `list` / `get` | Pass through to the shark CLI (handled by `query`) |
 | **Maintenance** | `update-docs` | Diff-driven refresh of `docs/architecture/*` |
@@ -64,6 +65,18 @@ When `workflow_config` is absent/empty, the default workflow dir is
 If a referenced `shark skill get ...` or `shark agent get ...` command fails
 because the content is missing, **degrade gracefully** — print a clear
 "unavailable / coming soon" message; never hard-fail.
+
+## Sub-skills (`skills/shark/skills/`)
+
+AI-orchestration workflows that extend the shark skill. These are not shark CLI
+commands; they are multi-agent or structured-analysis procedures invoked via
+their own slash commands or from within a verb procedure.
+
+| Sub-skill | Entry point | Purpose |
+|-----------|-------------|---------|
+| `brownfield-analysis` | `/brownfield-analysis` | Deep analysis and documentation of an existing (brownfield) codebase — architecture, business logic, technical debt, security, migration readiness. Read `skills/brownfield-analysis/SKILL.md`. |
+| `code-review` | `/code-review` | Multi-angle parallel code review. Six specialist subagents (bugs, removed behavior, contracts, reuse, tests, standards) then a consolidator produces a PASS/FAIL report with Blocker/Non-blocker/Nit triage. Flags: `--fix`, `--comment`. Read `skills/code-review/SKILL.md`. |
+| `triage` | `/triage` | Quick-capture and classify a discovered work item (task, feature, bug, tech-debt, change-card, idea, or note) under the right parent. Searches for duplicates first, confirms before creating. Read `skills/triage/SKILL.md`. |
 
 ## Detailed references
 

@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -687,11 +685,9 @@ type sprintTemplateData struct {
 }
 
 func renderSprintTemplate(sprint *models.Sprint) ([]byte, error) {
-	templateDir := templates.GetTemplateDirName()
-	templatePath := filepath.Join(templateDir, "entity", "sprint.md")
-	raw, err := os.ReadFile(templatePath)
+	raw, err := templates.ReadFileTemplate("sprint.md")
 	if err != nil {
-		return nil, fmt.Errorf("sprint template not found: %w (run 'shark admin init' to refresh templates)", err)
+		return nil, fmt.Errorf("sprint template not found: %w (run 'shark admin install-shark-data' to customize file templates)", err)
 	}
 	data := sprintTemplateData{
 		SprintKey: sprint.Key,

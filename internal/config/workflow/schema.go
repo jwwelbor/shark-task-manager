@@ -95,7 +95,7 @@ type WorkflowConfig struct {
 	// merges what used to be split across status_flow (its transition graph, now
 	// expressed as outcomes) and status_metadata (color/phase/weight/action).
 	//
-	// When Steps is non-empty, deriveLegacyFromSteps() projects it back onto
+	// When Steps is non-empty, buildWorkflowMapsFromSteps() projects it back onto
 	// StatusFlow/StatusMetadata/SpecialStatuses so every existing reader keeps
 	// working unchanged. Steps therefore becomes the source of truth while the
 	// two legacy maps become a derived compatibility view.

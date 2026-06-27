@@ -112,7 +112,7 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	}
 
 	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
-	deriveLegacyFromSteps(&workflow)
+	buildWorkflowMapsFromSteps(&workflow)
 
 	// Set default version if not specified
 	if workflow.Version == "" {
@@ -272,6 +272,10 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
 			return nil, fmt.Errorf("invalid workflow_config path: %w", err)
 		}
+	}
+
+	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
+		return nil, deprecatedWorkflowConfigJSONError()
 	}
 
 	// E35-F04: workflow_config may point at a master index file that maps each
@@ -614,7 +618,7 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 
 	// Route-based schema (E35-F01): project consolidated steps: onto the legacy
 	// maps before the emptiness check so a steps-only block is recognized.
-	deriveLegacyFromSteps(&wf)
+	buildWorkflowMapsFromSteps(&wf)
 
 	// Check if it has any meaningful content
 	if len(wf.StatusFlow) == 0 {
@@ -666,7 +670,7 @@ func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowC
 	}
 
 	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
-	deriveLegacyFromSteps(&wf)
+	buildWorkflowMapsFromSteps(&wf)
 
 	// Set defaults
 	if wf.Version == "" {
@@ -739,6 +743,25 @@ func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMes
 
 	// Default: .sharkworkflow.json in the same directory as .sharkconfig.json
 	return filepath.Join(configDir, ".sharkworkflow.json"), false
+}
+
+func hasExplicitDeprecatedJSONWorkflowConfig(rawConfig map[string]json.RawMessage) bool {
+	wcRaw, ok := rawConfig["workflow_config"]
+	if !ok {
+		return false
+	}
+	var wc string
+	if json.Unmarshal(wcRaw, &wc) != nil || strings.TrimSpace(wc) == "" {
+		return false
+	}
+	wc = expandHome(strings.TrimSpace(wc))
+	base := filepath.Base(wc)
+	return strings.EqualFold(filepath.Ext(base), ".json") ||
+		strings.HasPrefix(base, ".sharkworkflow")
+}
+
+func deprecatedWorkflowConfigJSONError() error {
+	return fmt.Errorf("deprecated workflow_config JSON file: Shark uses per-entity YAML in shark-data/workflow/ or a master index file. Run `shark admin install-shark-data` and update workflow_config to a supported target")
 }
 
 // expandHome expands a leading "~/" to the user's home directory. It delegates

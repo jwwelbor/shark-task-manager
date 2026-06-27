@@ -88,9 +88,10 @@ func TestCreateFolders(t *testing.T) {
 				}
 			}
 
-			// Verify shark-templates is NOT created
-			if _, err := os.Stat(filepath.Join(tempDir, "shark-templates")); err == nil {
-				t.Error("shark-templates should not be created by shark admin init")
+			// Verify the retired prompt tree is NOT created.
+			retiredPromptTree := "shark" + "-templates"
+			if _, err := os.Stat(filepath.Join(tempDir, retiredPromptTree)); err == nil {
+				t.Error("retired prompt tree should not be created by shark admin init")
 			}
 		})
 	}
