@@ -297,15 +297,21 @@ func uniqueSortedOutcomeTargets(outcomes map[string]string) []string {
 	if len(outcomes) == 0 {
 		return []string{}
 	}
-	keyPriority := map[string]int{"pass": 0, "fail": 1, "blocked": 2}
 	// bestPriority tracks the lowest outcome-key priority seen for each target.
 	bestPriority := make(map[string]int, len(outcomes))
 	for key, target := range outcomes {
 		if target == "" {
 			continue
 		}
-		p, ok := keyPriority[key]
-		if !ok {
+		var p int
+		switch key {
+		case "pass":
+			p = 0
+		case "fail":
+			p = 1
+		case "blocked":
+			p = 2
+		default:
 			p = 3
 		}
 		if cur, seen := bestPriority[target]; !seen || p < cur {
