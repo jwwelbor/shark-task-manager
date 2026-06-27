@@ -59,7 +59,7 @@ func sampleStepsConfig() *WorkflowConfig {
 
 func TestDeriveLegacyFromSteps_StatusFlow(t *testing.T) {
 	cfg := sampleStepsConfig()
-	deriveLegacyFromSteps(cfg)
+	buildWorkflowMapsFromSteps(cfg)
 
 	// draft -> [qa]
 	if got := cfg.StatusFlow["draft"]; len(got) != 1 || got[0] != "qa" {
@@ -90,7 +90,7 @@ func TestDeriveLegacyFromSteps_StatusFlow(t *testing.T) {
 
 func TestDeriveLegacyFromSteps_Metadata(t *testing.T) {
 	cfg := sampleStepsConfig()
-	deriveLegacyFromSteps(cfg)
+	buildWorkflowMapsFromSteps(cfg)
 
 	meta, ok := cfg.GetStatusMetadata("qa")
 	if !ok {
@@ -135,7 +135,7 @@ func TestDeriveLegacyFromSteps_Metadata(t *testing.T) {
 
 func TestDeriveLegacyFromSteps_SpecialStatuses(t *testing.T) {
 	cfg := sampleStepsConfig()
-	deriveLegacyFromSteps(cfg)
+	buildWorkflowMapsFromSteps(cfg)
 
 	if got := cfg.SpecialStatuses[StartStatusKey]; len(got) != 1 || got[0] != "draft" {
 		t.Errorf("_start_ = %v, want [draft]", got)
@@ -154,7 +154,7 @@ func TestDeriveLegacyFromSteps_Aggregation(t *testing.T) {
 			"completed": {Phase: "done", Terminal: true},
 		},
 	}
-	deriveLegacyFromSteps(cfg)
+	buildWorkflowMapsFromSteps(cfg)
 	if got := cfg.SpecialStatuses[AggregationStatusKey]; len(got) != 1 || got[0] != "active" {
 		t.Errorf("_aggregation_ = %v, want [active]", got)
 	}
@@ -189,7 +189,7 @@ func TestDeriveLegacyFromSteps_NoOpWhenEmpty(t *testing.T) {
 		StatusFlow:     map[string][]string{"todo": {"done"}},
 		StatusMetadata: map[string]StatusMetadata{"todo": {Phase: "planning"}},
 	}
-	deriveLegacyFromSteps(cfg)
+	buildWorkflowMapsFromSteps(cfg)
 	if len(cfg.StatusFlow) != 1 || cfg.StatusFlow["todo"][0] != "done" {
 		t.Errorf("legacy-only config was mutated: %v", cfg.StatusFlow)
 	}

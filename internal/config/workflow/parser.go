@@ -112,7 +112,7 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	}
 
 	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
-	deriveLegacyFromSteps(&workflow)
+	buildWorkflowMapsFromSteps(&workflow)
 
 	// Set default version if not specified
 	if workflow.Version == "" {
@@ -614,7 +614,7 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 
 	// Route-based schema (E35-F01): project consolidated steps: onto the legacy
 	// maps before the emptiness check so a steps-only block is recognized.
-	deriveLegacyFromSteps(&wf)
+	buildWorkflowMapsFromSteps(&wf)
 
 	// Check if it has any meaningful content
 	if len(wf.StatusFlow) == 0 {
@@ -666,7 +666,7 @@ func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowC
 	}
 
 	// Route-based schema (E35-F01): project consolidated steps: onto legacy maps.
-	deriveLegacyFromSteps(&wf)
+	buildWorkflowMapsFromSteps(&wf)
 
 	// Set defaults
 	if wf.Version == "" {

@@ -215,7 +215,7 @@ func parseWorkflowYAML(yamlData []byte, sourcePath string) (*WorkflowConfig, err
 
 	// Route-based schema (E35-F01): when the YAML uses the consolidated steps:
 	// shape, project it onto the legacy maps so every existing reader works.
-	deriveLegacyFromSteps(&cfg)
+	buildWorkflowMapsFromSteps(&cfg)
 
 	return &cfg, nil
 }
