@@ -25,3 +25,7 @@ shark-data/
 A file at `shark-data/overrides/<path>` **fully replaces** the default at
 `shark-data/<path>` — never merges. See E02 follow-up idea I-2026-05-10-01
 on override drift mitigation.
+
+Created-file skeleton customizations use the same rule. For example,
+`shark-data/overrides/file_templates/task.md` replaces the default
+`shark-data/file_templates/task.md` and is preserved by `shark admin upgrade`.

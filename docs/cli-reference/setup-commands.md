@@ -67,9 +67,10 @@ resolved from the embedded `shark-data/` bundle via `workflow_config:
 
 ### shark admin install-shark-data
 
-Extract the embedded content bundle to `shark-data/` on disk for local
-customization. Writes workflow YAML files, prompts, markdown file templates, skills, and agent
-definitions. The `shark-data/overrides/` subtree is never overwritten.
+Extract the embedded content bundle to `shark-data/` on disk for inspection and
+local customization. Writes workflow YAML files, prompts, markdown file templates, skills, and agent
+definitions. Put upgrade-safe local replacements under `shark-data/overrides/`;
+that subtree is never overwritten.
 
 ```
 Usage:
@@ -87,7 +88,8 @@ shark admin install-shark-data
 ### shark admin upgrade
 
 Upgrade the on-disk `shark-data/` tree to the version bundled in the
-current binary. Files in `shark-data/overrides/` are left untouched.
+current binary. Files in `shark-data/overrides/` are left untouched; extracted
+defaults outside `overrides/` are refreshed from the binary.
 
 ```
 Usage:

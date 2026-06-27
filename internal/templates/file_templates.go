@@ -30,26 +30,31 @@ func GetFileTemplatesDirName() string {
 	return sharkDataFileTemplatesSubdir()
 }
 
-// ReadFileTemplate reads a markdown file template from
-// <shark_data_path>/file_templates, falling back to embedded shark-data
-// defaults when the disk file is absent.
+// ReadFileTemplate reads a markdown file template from shark-data with the
+// standard override order: <shark_data_path>/overrides/file_templates first,
+// then <shark_data_path>/file_templates, then embedded defaults.
 func ReadFileTemplate(filename string) ([]byte, error) {
 	cleanName, err := cleanFileTemplateName(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	diskPath := filepath.Join(findFileTemplatesDir(), cleanName)
-	data, err := os.ReadFile(diskPath)
-	if err == nil {
-		return data, nil
-	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("read file template %s: %w", diskPath, err)
+	dataRoot := findFileTemplatesDataRoot()
+	for _, diskPath := range []string{
+		filepath.Join(dataRoot, "overrides", sharkDataFileTemplatesLeaf, cleanName),
+		filepath.Join(dataRoot, sharkDataFileTemplatesLeaf, cleanName),
+	} {
+		data, err := os.ReadFile(diskPath)
+		if err == nil {
+			return data, nil
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("read file template %s: %w", diskPath, err)
+		}
 	}
 
 	embeddedPath := filepath.ToSlash(filepath.Join(sharkDataFileTemplatesLeaf, cleanName))
-	data, err = sharkdata.ReadEmbedded(embeddedPath)
+	data, err := sharkdata.ReadEmbedded(embeddedPath)
 	if err == nil {
 		return data, nil
 	}
@@ -70,21 +75,25 @@ func cleanFileTemplateName(filename string) (string, error) {
 	return clean, nil
 }
 
-func findFileTemplatesDir() string {
-	dirName := GetFileTemplatesDirName()
-	if filepath.IsAbs(dirName) {
-		return dirName
+func findFileTemplatesDataRoot() string {
+	root := configuredSharkDataPath
+	if root == "" {
+		root = defaultSharkDataDirName
+	}
+	root = pathutil.ExpandHome(root)
+	if filepath.IsAbs(root) {
+		return root
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		return dirName
+		return root
 	}
 
 	currentDir := wd
 	for {
-		candidate := filepath.Join(currentDir, dirName)
-		if hasFileTemplateFiles(candidate) {
+		candidate := filepath.Join(currentDir, root)
+		if hasFileTemplateRoot(candidate) {
 			return candidate
 		}
 		parentDir := filepath.Dir(currentDir)
@@ -94,7 +103,19 @@ func findFileTemplatesDir() string {
 		currentDir = parentDir
 	}
 
-	return dirName
+	return root
+}
+
+func hasFileTemplateRoot(root string) bool {
+	for _, dir := range []string{
+		filepath.Join(root, "overrides", sharkDataFileTemplatesLeaf),
+		filepath.Join(root, sharkDataFileTemplatesLeaf),
+	} {
+		if hasFileTemplateFiles(dir) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasFileTemplateFiles(dir string) bool {

@@ -320,10 +320,11 @@ Optional editable copy of the embedded content bundle:
 shark-data/
 ├── workflow/                     # Per-entity workflow YAML
 ├── prompts/                      # Agent instruction prompts
-├── file_templates/               # Markdown skeletons for created files
+├── file_templates/               # Default markdown skeletons for created files
 ├── skills/                       # Skill instructions and references
 ├── agents/                       # Agent role definitions
-└── overrides/                    # Local overrides, preserved by upgrade
+└── overrides/                    # Local replacements, preserved by upgrade
+    └── file_templates/           # Upgrade-safe custom created-file skeletons
 ```
 
 ---

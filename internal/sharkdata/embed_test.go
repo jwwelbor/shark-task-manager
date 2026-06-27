@@ -123,6 +123,25 @@ func TestUpgrade_PreservesOverrides(t *testing.T) {
 	assert.NotEmpty(t, summary.SkippedOverrides, "summary should list at least the overrides/.gitkeep entries it skipped")
 }
 
+func TestUpgrade_PreservesFileTemplateOverrides(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	overridePath := filepath.Join(root, SharkDataDirName, "overrides", "file_templates", "task.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(overridePath), 0755))
+	overrideContent := []byte("USER TASK TEMPLATE OVERRIDE")
+	require.NoError(t, os.WriteFile(overridePath, overrideContent, 0644))
+
+	summary, err := Upgrade(root, false)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	got, err := os.ReadFile(overridePath)
+	require.NoError(t, err)
+	assert.Equal(t, overrideContent, got, "upgrade must not touch file template overrides")
+}
+
 func TestUpgrade_DryRunWritesNothing(t *testing.T) {
 	root := t.TempDir()
 	_, err := Init(root)

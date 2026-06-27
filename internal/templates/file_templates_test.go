@@ -29,6 +29,31 @@ func TestReadFileTemplate_UsesDiskBeforeEmbedded(t *testing.T) {
 	assert.Equal(t, "CUSTOM FEATURE {{.Title}}", string(content))
 }
 
+func TestReadFileTemplate_UsesOverrideBeforeDisk(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "shark-data", "file_templates"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "shark-data", "overrides", "file_templates"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(root, "shark-data", "file_templates", "task.md"),
+		[]byte("DISK TASK {{.Title}}"),
+		0644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(root, "shark-data", "overrides", "file_templates", "task.md"),
+		[]byte("OVERRIDE TASK {{.Title}}"),
+		0644,
+	))
+
+	restoreTemplateGlobals(t)
+	SetConfiguredTemplateDir("")
+	SetConfiguredSharkDataPath("shark-data")
+	chdir(t, filepath.Join(root))
+
+	content, err := ReadFileTemplate("task.md")
+	require.NoError(t, err)
+	assert.Equal(t, "OVERRIDE TASK {{.Title}}", string(content))
+}
+
 func TestReadFileTemplate_FallsBackToEmbeddedFileTemplates(t *testing.T) {
 	root := t.TempDir()
 

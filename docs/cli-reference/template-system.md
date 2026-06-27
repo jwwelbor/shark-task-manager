@@ -43,6 +43,8 @@ shark-data/
 
 `task.md` is intentionally consolidated. The task's agent type is rendered into frontmatter as `agent: {{.AgentType}}`; it does not select a separate task skeleton.
 
+For local customizations that must survive `shark admin upgrade`, place replacement files under `<shark_data_path>/overrides/file_templates/` using the same filename, for example `shark-data/overrides/file_templates/task.md`. Override files win over both extracted disk defaults and embedded defaults.
+
 ## Template Configuration
 
 Templates are referenced in `orchestrator_action` blocks:

@@ -96,7 +96,8 @@ shark admin install-shark-data
 
 This writes `shark-data/` to the project root. The `shark-data/overrides/`
 subtree is never overwritten by a subsequent `install-shark-data` or
-`upgrade` call, so your customizations are preserved.
+`upgrade` call, so upgrade-safe customizations belong there. For example,
+custom created-file skeletons go in `shark-data/overrides/file_templates/`.
 
 ## Migrating an existing project to v15 (E07 size field + E28 tagging)
 
