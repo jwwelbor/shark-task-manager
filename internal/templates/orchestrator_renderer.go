@@ -15,10 +15,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
-// defaultTemplateDir is the default template directory name (legacy layout).
-// Shark 2.0 prefers shark-data/prompts/ — see findTemplateDir for resolution order.
-const defaultTemplateDir = "shark-templates"
-
 // defaultSharkDataDirName is the default content-bundle root directory name.
 // It mirrors config.DefaultSharkDataPath; redeclared here to avoid a
 // templates -> config import edge. findTemplateDir derives the prompts
@@ -53,7 +49,7 @@ var (
 )
 
 // configuredTemplateDir is an optional override set via SetConfiguredTemplateDir.
-// When non-empty, findTemplateDir uses this name instead of the default "shark-templates".
+// When non-empty, findTemplateDir may use this path as an explicit prompt root.
 var configuredTemplateDir string
 
 // configuredSharkDataPath is an optional override set via
@@ -93,14 +89,14 @@ func sharkDataPromptsSubdir() string {
 	return filepath.Join(root, sharkDataPromptsLeaf)
 }
 
-// GetTemplateDirName returns the configured template directory name, falling
-// back to "shark-templates" if not configured. This is safe to call after
+// GetTemplateDirName returns the configured prompt directory name, falling
+// back to <shark_data_path>/prompts if not configured. This is safe to call after
 // CLI initialization has run (PersistentPreRunE sets it via SetConfiguredTemplateDir).
 // Paths starting with "~/" are expanded to the user's home directory.
 func GetTemplateDirName() string {
 	dir := configuredTemplateDir
 	if dir == "" {
-		return defaultTemplateDir
+		return sharkDataPromptsSubdir()
 	}
 	dir = pathutil.ExpandHome(dir)
 	return dir
@@ -108,16 +104,14 @@ func GetTemplateDirName() string {
 
 // findTemplateDir locates the template directory by walking up from the
 // working directory. Returns the first directory containing a matching
-// subdirectory with prompt files (.tmpl or .md), or falls back to the
-// configured directory name.
+// subdirectory with prompt files (.tmpl or .md), or falls back to the canonical
+// prompt path so the embedded bundle can serve defaults.
 //
-// Resolution order (Shark 2.0):
+// Resolution order:
 //  1. If GetTemplateDirName() returns an absolute path, use it directly.
 //  2. Walk up looking for a `shark-data/prompts/` subdirectory containing .md
-//     prompt files — this is the canonical Shark 2.0 layout.
-//  3. Walk up looking for the configured (or default) directory containing
-//     .tmpl prompt files — legacy `shark-templates/` fallback for one release.
-//  4. Fall back to the configured directory name as a relative path.
+//     prompt files.
+//  3. Fall back to the configured or canonical prompt path as a relative path.
 func findTemplateDir() string {
 	dirName := GetTemplateDirName()
 
@@ -153,20 +147,6 @@ func findTemplateDir() string {
 			}
 			currentDir = parentDir
 		}
-	}
-
-	// Pass 2: fall back to legacy shark-templates/.
-	currentDir := wd
-	for {
-		candidate := filepath.Join(currentDir, dirName)
-		if hasPromptFiles(candidate) {
-			return candidate
-		}
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			break
-		}
-		currentDir = parentDir
 	}
 
 	return dirName
@@ -229,8 +209,8 @@ func splitLines(s string) []string {
 // If templateDir is the Shark 2.0 layout (under shark-data/prompts/),
 // {{include:}} directives in any prompt are resolved at parse time against
 // the parent shark-data/ directory, with shark-data/overrides/<path> taking
-// precedence over shark-data/<path>. In the legacy shark-templates/ layout,
-// no data root is detected and {{include:}} directives pass through verbatim.
+// precedence over shark-data/<path>. For non-bundle prompt directories, no
+// disk data root is detected; embed-aware include resolution remains available.
 func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
 	includeRoot := detectIncludeRoot(templateDir)
 	// Use embed-aware resolver so {{include:}} directives can resolve against
@@ -380,18 +360,17 @@ func newOrchestratorRendererFromEmbed(tmpl *template.Template, templateDir, incl
 	}, nil
 }
 
-// IncludeRoot returns the Shark 2.0 data root this renderer resolves
-// {{include:}} directives against, or an empty string when the renderer is
-// operating in legacy shark-templates/ mode. Callers outside this package
-// use this to drive auxiliary include-style resolution (e.g., `shark next`
-// prepending the agent body to the rendered prompt).
+// IncludeRoot returns the data root this renderer resolves {{include:}}
+// directives against, or an empty string when the renderer was built from a
+// non-bundle prompt directory. Callers outside this package use this to drive
+// auxiliary include-style resolution.
 func (r *OrchestratorRenderer) IncludeRoot() string {
 	return r.includeRoot
 }
 
 // detectIncludeRoot returns the Shark 2.0 data root for include resolution
 // when templateDir is the prompts/ subdirectory of a shark-data/ tree, or an
-// empty string when the legacy shark-templates/ layout is in use.
+// empty string for other prompt directories.
 //
 // templateDir is considered Shark 2.0-shaped when its base directory name is
 // "prompts" and its parent directory exists.
@@ -414,7 +393,7 @@ func detectIncludeRoot(templateDir string) string {
 // It initializes the engine on first call using the default or test template directory
 func GetOrchestratorEngine() *OrchestratorRenderer {
 	engineOnce.Do(func() {
-		// Use test directory if set, otherwise find shark-templates by walking up
+		// Use test directory if set, otherwise find the configured prompt root.
 		var templateDir string
 		if testTemplateDir != "" {
 			templateDir = testTemplateDir

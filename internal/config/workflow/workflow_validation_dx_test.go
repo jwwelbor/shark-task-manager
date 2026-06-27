@@ -13,32 +13,14 @@ func TestSourceTracking_WorkflowFile(t *testing.T) {
 	t.Cleanup(ClearWorkflowCache)
 	tmpDir := t.TempDir()
 
-	// Create .sharkconfig.json with workflow_config pointing to workflow file
+	// Create .sharkconfig.json with workflow_config pointing to a YAML workflow directory.
 	sharkConfig := map[string]interface{}{
-		"workflow_config": ".sharkworkflow.json",
+		"workflow_config": "workflow",
 	}
 	writeJSONFile(t, filepath.Join(tmpDir, ".sharkconfig.json"), sharkConfig)
 
-	// Create .sharkworkflow.json with epic_workflow
-	workflowFile := map[string]interface{}{
-		"epic_workflow": map[string]interface{}{
-			"status_flow": map[string][]string{
-				"draft":     {"active"},
-				"active":    {"completed"},
-				"completed": {},
-			},
-			"status_metadata": map[string]interface{}{
-				"draft":     map[string]interface{}{"color": "gray"},
-				"active":    map[string]interface{}{"color": "blue"},
-				"completed": map[string]interface{}{"color": "green"},
-			},
-			"special_statuses": map[string]interface{}{
-				"_start_":    []string{"draft"},
-				"_complete_": []string{"completed"},
-			},
-		},
-	}
-	writeJSONFile(t, filepath.Join(tmpDir, ".sharkworkflow.json"), workflowFile)
+	workflowDir := filepath.Join(tmpDir, "workflow")
+	writeWorkflowYAML(t, workflowDir, "epic.yaml", epicYAML)
 
 	// Reset cache
 	ResetMultiLevelCache()
@@ -48,9 +30,9 @@ func TestSourceTracking_WorkflowFile(t *testing.T) {
 		t.Fatalf("LoadMultiLevelWorkflow failed: %v", err)
 	}
 
-	// Epic should come from .sharkworkflow.json
+	// Epic should come from the configured workflow directory.
 	epicSource := multi.Sources["epic"]
-	expectedPath := filepath.Join(tmpDir, ".sharkworkflow.json")
+	expectedPath := workflowDir
 	if epicSource != expectedPath {
 		t.Errorf("expected epic source %q, got %q", expectedPath, epicSource)
 	}
@@ -322,7 +304,7 @@ func TestValidateWorkflowFiles_ConfigWithNoWorkflowBlocks(t *testing.T) {
 			"backend": "local",
 			"url":     "./shark-tasks.db",
 		},
-		"template_directory": "shark-templates",
+		"template_directory": "custom-prompts",
 	})
 
 	ResetMultiLevelCache()

@@ -61,7 +61,7 @@ func TestMaintainerBootstrapService_SetPassword_WritesCorrectHash(t *testing.T) 
 		ReadFunc: func() (map[string]interface{}, error) {
 			// Existing config with other top-level keys
 			return map[string]interface{}{
-				"workflow_config": "shark-templates/.sharkworkflow-short.json",
+				"workflow_config": "shark-data/workflow/",
 				"database":        map[string]interface{}{"backend": "local"},
 			}, nil
 		},
@@ -125,7 +125,7 @@ func TestMaintainerBootstrapService_SetPassword_PreservesOtherKeys(t *testing.T)
 	ctx := context.Background()
 
 	originalConfig := map[string]interface{}{
-		"workflow_config": "shark-templates/.sharkworkflow-short.json",
+		"workflow_config": "shark-data/workflow/",
 		"database": map[string]interface{}{
 			"backend": "local",
 			"url":     "./shark-tasks.db",

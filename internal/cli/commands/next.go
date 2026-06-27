@@ -534,7 +534,7 @@ func applyWireAction(
 // files from its own filesystem.
 //
 // Graceful degradation: when agentType is empty, the data root is unknown
-// (legacy shark-templates/ mode), or the agent file doesn't exist, the
+// (non-bundle prompt mode), or the agent file doesn't exist, the
 // original prompt is returned unchanged — the harness can still spawn the
 // agent by type if it has a local copy.
 //

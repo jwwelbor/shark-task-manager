@@ -13,6 +13,22 @@ READ:
 (1) Feature spec.md for requirements, architecture, and file paths
 (2) Feature test-plan.md for test cases
 (3) Parent epic context for dependency awareness
+(4) Feature spec.md "Cross-feature interactions" section and parent
+    interaction map if present
+
+## Step 0 - Identify contracts before decomposing
+
+Separate internal feature contracts from cross-feature wires:
+
+- Interfaces that stay inside this feature may use local CONTRACT-### IDs if the
+  feature spec defines them.
+- Interfaces that cross OUTSIDE this feature use I-## from the epic's
+  interaction map.
+- Those I-## rows are declared in the feature spec's "Cross-feature
+  interactions" section; mirror them in the producing/consuming task spec's
+  "Integration Contracts > Cross-feature" subsection.
+- Do NOT invent new CONTRACT-### IDs for cross-feature wires.
+- Mirror the same shape source and contract-test pointer from the feature spec.
 
 PRODUCE tasks via shark CLI. Each task call MUST pass --size:
 
@@ -54,6 +70,12 @@ Additional task-specific criteria (if any):
 ## Test Cases
 Reference test-plan.md: "See test-plan.md Section 1, cases 1.1-1.4"
 
+## Integration Contracts
+
+### Cross-feature
+- I-##: produces|consumes; shape source: <spec.md/architecture.md section>;
+  contract test: <test-plan.md TC or test file pointer>
+
 ## Design Reference
 "See spec.md Architecture Section 2 for component design"
 "See spec.md Architecture Section 3 for data model"
@@ -74,6 +96,8 @@ CRITICAL RULES:
   Exception: a feature-level integration/e2e suite that exercises multiple
   components may be its own task, since it cannot be co-located with a single
   implementation file. State this exception explicitly in the task's Goal.
+- Cross-feature wires use I-## only. Do NOT invent new CONTRACT-### IDs for
+  cross-feature wires or rewrite the shape source/contract-test pointer.
 
 EXIT GATE:
 - All spec.md requirements covered by tasks
@@ -85,3 +109,5 @@ EXIT GATE:
   standalone "write tests for X" task follows an "implement X" task
 - Every task carries a non-empty size; no task is sized 8/XL or 13/XXL
   (decompose first — `shark list --json | jq` to verify sizes)
+- Multi-feature epic: every I-## this feature produces or consumes appears in
+  the relevant task spec's "Integration Contracts > Cross-feature" subsection

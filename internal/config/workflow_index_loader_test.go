@@ -130,16 +130,17 @@ func TestDefaultWorkflowDataLoader_GenuineLegacyJSONStillRejected(t *testing.T) 
 	// A regular file that is NOT a master index (no entities: map) must still be
 	// rejected with the migration hint — the fix must not loosen that guard.
 	tmp := t.TempDir()
-	legacy := filepath.Join(tmp, "shark-templates", ".sharkworkflow.json")
-	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+	configuredPath := "legacy/workflow.json"
+	workflowPath := filepath.Join(tmp, configuredPath)
+	if err := os.MkdirAll(filepath.Dir(workflowPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(legacy, []byte(`{"status_flow": {}}`), 0o644); err != nil {
+	if err := os.WriteFile(workflowPath, []byte(`{"status_flow": {}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(tmp, ".sharkconfig.json")
 	if err := os.WriteFile(configPath,
-		[]byte(`{"workflow_config": "shark-templates/.sharkworkflow.json"}`), 0o644); err != nil {
+		[]byte(`{"workflow_config": "`+configuredPath+`"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,8 +148,11 @@ func TestDefaultWorkflowDataLoader_GenuineLegacyJSONStillRejected(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected rejection for genuine legacy JSON workflow file, got nil")
 	}
-	if !strings.Contains(err.Error(), "Shark 1.x") {
-		t.Errorf("error = %q; want Shark 1.x migration hint", err.Error())
+	if !strings.Contains(err.Error(), "deprecated workflow_config JSON") {
+		t.Errorf("error = %q; want deprecated JSON workflow_config migration hint", err.Error())
+	}
+	if strings.Contains(err.Error(), configuredPath) {
+		t.Errorf("error = %q; must not echo deprecated configured path %q", err.Error(), configuredPath)
 	}
 }
 

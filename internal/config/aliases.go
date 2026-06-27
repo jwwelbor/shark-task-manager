@@ -281,12 +281,11 @@ func entityTypesForLoader() []string {
 // projectRoot is derived from configPath (the directory containing
 // .sharkconfig.json).
 //
-// Hard error: when `workflow_config` explicitly points at a Shark 1.x JSON
-// workflow file (e.g. `shark-templates/.sharkworkflow.json`), this loader
-// fails with a directive to run `shark init`. The two-path fallback that
-// used to silently load the JSON file's task slot was removed because it
-// silently dropped every other entity's workflow on the floor and caused
-// status lookups to misroute (see B020).
+// Hard error: when `workflow_config` explicitly points at a deprecated JSON
+// workflow file, this loader fails with a directive to install the shark-data
+// tree. The two-path fallback that used to silently load the JSON file's task
+// slot was removed because it silently dropped every other entity's workflow on
+// the floor and caused status lookups to misroute (see B020).
 func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.StatusActionData, error) {
 	projectRoot := filepath.Dir(configPath)
 
@@ -335,11 +334,9 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 		}
 		if !isIndex {
 			return nil, fmt.Errorf(
-				".sharkconfig.json field \"workflow_config\" = %q is a Shark 1.x "+
-					"JSON workflow file; Shark 2.0 uses per-entity YAML in "+
-					"shark-data/workflow/ or a master index file. Run `shark init` "+
-					"to materialize the shark-data/ tree and migrate the field.",
-				configured,
+				"deprecated workflow_config JSON file: Shark uses per-entity YAML in " +
+					"shark-data/workflow/ or a master index file. Run `shark admin " +
+					"install-shark-data` and update workflow_config to a supported target.",
 			)
 		}
 

@@ -946,7 +946,7 @@ ready_for_qa           → in_qa
 
 2. Update `status_flow` in your workflow file (the file referenced by
    `workflow_config` in `.sharkconfig.json` — typically
-   `shark-templates/.sharkworkflow-short.json`)
+   `shark-data/workflow/`)
 
 3. Validate:
    ```bash
@@ -965,7 +965,7 @@ Bugs and change-cards use the same configuration structure as other entities, un
 | Aspect | Tasks | Bugs | Change-Cards |
 |--------|-------|------|--------------|
 | Config key | `status_flow` / `status_metadata` | `bug_workflow` | `change_workflow` |
-| Bundled workflows | `.sharkworkflow-short.json` / `.sharkworkflow.json` (in `shark-templates/`, selected via `workflow_config`) | Custom only | Custom only |
+| Bundled workflows | Per-entity YAML files under `shark-data/workflow/` or a master index file selected via `workflow_config` | Custom YAML/index | Custom YAML/index |
 | Severity field | — | `critical`, `high`, `medium`, `low` | — |
 | Priority field | — | — | 1–10 |
 | Default start status | `todo` / `draft` | `reported` | `proposed` |

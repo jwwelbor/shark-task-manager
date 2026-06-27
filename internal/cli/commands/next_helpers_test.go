@@ -27,7 +27,7 @@ func TestAttachAgentBody_NoAgentType(t *testing.T) {
 }
 
 // TestAttachAgentBody_MissingAgentFile verifies that when the data root is
-// empty (legacy shark-templates/ mode, which LoadAgentBodyForInline
+// empty (non-bundle prompt mode, which LoadAgentBodyForInline
 // short-circuits on), the prompt also passes through untouched. This
 // covers the graceful-degradation branch documented on the helper.
 //

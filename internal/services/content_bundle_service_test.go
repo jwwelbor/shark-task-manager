@@ -32,21 +32,21 @@ func writeBundleFile(t *testing.T, root, relPath, content string) {
 	require.NoError(t, os.WriteFile(fullPath, []byte(content), 0644))
 }
 
-func TestBundleContentServiceGetEmbeddedSkillWithoutDiskBundle(t *testing.T) {
+func TestBundleContentServiceGetEmbeddedImplementationSkillWithoutDiskBundle(t *testing.T) {
 	root := setupBundleContentProject(t, `{}`)
 	svc, err := NewBundleContentService(root)
 	require.NoError(t, err)
 
-	result, err := svc.Get(context.Background(), BundleContentKindSkill, "triage", "", BundleContentGetOptions{})
+	result, err := svc.Get(context.Background(), BundleContentKindSkill, "implementation", "", BundleContentGetOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "skill", result.Kind)
-	assert.Equal(t, "triage", result.Name)
+	assert.Equal(t, "implementation", result.Name)
 	assert.Equal(t, "SKILL.md", result.Path)
 	assert.Equal(t, "embedded", result.Source)
 	assert.True(t, result.Resolved)
 	assert.False(t, result.Raw)
-	assert.Contains(t, result.Content, "# triage")
+	assert.Contains(t, result.Content, "# Implementation Skill")
 	assert.NotRegexp(t, `(?m)\A---\nname:`, result.Content, "default output should strip top-level frontmatter")
 }
 

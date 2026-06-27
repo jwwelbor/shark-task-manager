@@ -1,28 +1,23 @@
 package templates
 
 import (
-	"embed"
-	"fmt"
 	"os"
 	"path/filepath"
 )
 
-//go:embed task_templates/*.md
-var embeddedTemplates embed.FS
-
-// Loader handles loading task templates from filesystem or embedded files
+// Loader handles loading consolidated task file templates from disk or embedded shark-data.
 type Loader struct {
 	templateDir string
 	useEmbedded bool
 }
 
 // NewLoader creates a new template loader
-// If templateDir is empty, uses embedded templates and falls back to the
-// configured template directory name from SetConfiguredTemplateDir.
+// If templateDir is empty, it resolves task.md through shark-data/file_templates
+// and embedded defaults.
 func NewLoader(templateDir string) *Loader {
 	useEmbedded := templateDir == ""
 	if templateDir == "" {
-		templateDir = GetTemplateDirName()
+		templateDir = GetFileTemplatesDirName()
 	}
 	return &Loader{
 		templateDir: templateDir,
@@ -30,47 +25,30 @@ func NewLoader(templateDir string) *Loader {
 	}
 }
 
-// LoadTemplate loads a template for the given agent type
-// Falls back to general template if agent-specific template not found
+// LoadTemplate loads the consolidated task file template. The agent type is
+// rendered as data inside the template; it does not select a different skeleton.
 func (l *Loader) LoadTemplate(agentType string) (string, error) {
-	filename := fmt.Sprintf("task-%s.md", agentType)
+	return l.loadTemplateFile("task.md")
+}
 
-	// Try embedded templates first if configured
+func (l *Loader) loadTemplateFile(filename string) (string, error) {
 	if l.useEmbedded {
-		content, err := embeddedTemplates.ReadFile(filepath.Join("task_templates", filename))
+		content, err := ReadFileTemplate(filename)
 		if err == nil {
 			return string(content), nil
 		}
-
-		// If agent-specific template not found and it's not "general", try general template
-		if agentType != "general" {
-			generalFilename := "task-general.md"
-			content, err := embeddedTemplates.ReadFile(filepath.Join("task_templates", generalFilename))
-			if err == nil {
-				return string(content), nil
-			}
-		}
+		return "", err
 	}
 
-	// Try filesystem
 	path := filepath.Join(l.templateDir, filename)
 	content, err := os.ReadFile(path)
 	if err != nil {
-		// If agent-specific template not found and it's not "general", try general template
-		if agentType != "general" {
-			generalPath := filepath.Join(l.templateDir, "task-general.md")
-			content, err := os.ReadFile(generalPath)
-			if err == nil {
-				return string(content), nil
-			}
-		}
-		return "", fmt.Errorf("template not found: %s (and fallback to general template failed)", filename)
+		return "", err
 	}
-
 	return string(content), nil
 }
 
-// GetAvailableAgentTypes returns all available agent types
+// GetAvailableAgentTypes returns common agent labels for callers that present choices.
 func (l *Loader) GetAvailableAgentTypes() []string {
 	return []string{
 		"frontend",

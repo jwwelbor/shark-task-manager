@@ -6,10 +6,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 )
 
-// DefaultTemplateDir is the default template directory name used when no
-// custom template_directory is configured in .sharkconfig.json.
-const DefaultTemplateDir = "shark-templates"
-
 // DefaultSharkDataPath is the default content-bundle root directory name used
 // when no custom shark_data_path is configured in .sharkconfig.json. This is
 // the bundle root holding skills/, prompts/, agents/, and overrides/. It is
@@ -61,7 +57,7 @@ type Config struct {
 	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`         // Enable interactive prompts (default: false for automation)
 	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)
 	Viewer                 *string                `json:"viewer,omitempty"`                   // External viewer command for spec files (glow, nano, bat, less, cat, etc). Default: "cat"
-	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Template directory path relative to project root. Default: "shark-templates"
+	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Optional explicit prompt directory path. Absent means derive from shark_data_path.
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow config file (default: .sharkworkflow.json). Read-only directive.
 	SharkDataPath          *string                `json:"shark_data_path,omitempty"`          // Content-bundle root (skills/, prompts/, agents/, overrides/) relative to project root. Default: "shark-data". SEPARATE from workflow_config.
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
@@ -153,11 +149,11 @@ func (c *Config) GetViewer() string {
 	return *c.Viewer
 }
 
-// GetTemplateDirectory returns the configured template directory or default "shark-templates"
-// The directory path is relative to the project root.
+// GetTemplateDirectory returns the explicitly configured prompt directory, or
+// an empty string when the config should derive prompts from shark_data_path.
 func (c *Config) GetTemplateDirectory() string {
 	if c == nil || c.TemplateDirectory == nil || *c.TemplateDirectory == "" {
-		return DefaultTemplateDir
+		return ""
 	}
 	return *c.TemplateDirectory
 }
@@ -346,16 +342,17 @@ func (c *Config) GetConsoleWidth(detectedWidth int) int {
 	return c.ConsoleWidth
 }
 
-// GetTemplateDirectoryFromConfig loads the template directory setting from the given config file path.
-// Returns "shark-templates" if the config file doesn't exist, is unreadable, or doesn't contain the field.
+// GetTemplateDirectoryFromConfig loads the explicit prompt directory setting
+// from the given config file path. Returns an empty string if the config file
+// doesn't exist, is unreadable, or doesn't contain the field.
 func GetTemplateDirectoryFromConfig(configPath string) string {
 	if configPath == "" {
-		return DefaultTemplateDir
+		return ""
 	}
 	mgr := NewManager(configPath)
 	cfg, err := mgr.Load()
 	if err != nil {
-		return DefaultTemplateDir
+		return ""
 	}
 	return cfg.GetTemplateDirectory()
 }

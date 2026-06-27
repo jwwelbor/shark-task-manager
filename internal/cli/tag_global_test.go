@@ -24,7 +24,7 @@ func TestGetTagService_Smoke(t *testing.T) {
 
 	// Write a minimal .sharkconfig.json (no maintainer block required for ListTags).
 	writeTagGlobalSharkConfig(t, tmpDir, map[string]interface{}{
-		"workflow_config": "shark-templates/.sharkworkflow-short.json",
+		"workflow_config": "shark-data/workflow/",
 	})
 
 	// Change to tmpDir so FindProjectRoot() locates the config.
@@ -75,7 +75,7 @@ func TestGetTagService_ReturnsNewInstanceEachCall(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	writeTagGlobalSharkConfig(t, tmpDir, map[string]interface{}{
-		"workflow_config": "shark-templates/.sharkworkflow-short.json",
+		"workflow_config": "shark-data/workflow/",
 	})
 
 	origWd := chdirForTagTest(t, tmpDir)

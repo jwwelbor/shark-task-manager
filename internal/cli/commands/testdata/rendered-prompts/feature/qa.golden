@@ -81,6 +81,7 @@ READ:
   (derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders) for scope of changes
 (4) All task specs: `shark list E07-F01 --json` → collect every task's Scope file list
 (5) `git diff $(git merge-base HEAD main)..HEAD` to derive all touched paths
+(6) Parent interaction map and spec.md "Cross-feature interactions" section if present
 
 SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
 
@@ -100,6 +101,8 @@ SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
    - DB migration / schema change → backend/tests/integration/db/ + tests using the changed table
    - API endpoint change → backend/tests/integration/api/ for that route
    - Service contract change → tests for the consumer
+   - Cross-feature I-## contract → run the shared contract test named in the
+     feature spec and test-plan pointer
    - Pure intra-service or doc-only changes → skip
 
 4. Sanity spot-check (only if changes are broad across a shared module):
@@ -113,16 +116,25 @@ VALIDATE:
 - Every AC from the feature test-plan is exercised by a named test
 - No regressions in targeted scope
 - Pre-existing failures in scope are explicitly identified (not silently ignored)
+- Wiring coverage matrix includes one row per CONTRACT-### and I-## with
+  producer/consumer, contract test, test-exists, and test-passes columns
+- Any CONTRACT-### or I-## row with a missing contract test, a test that does
+  not assert the documented shape, or a failing test is an automatic FAIL
 
 PRODUCE QA report to docs/review/{epic-folder}/{feature-folder}/qa/<timestamp>-E07-F01-qa.md:
 - Verdict: PASS or FAIL
 - Test scope rationale: touched files from git diff and why each test path was chosen
 - Test results summary (counts, durations)
 - AC verification: name the test that proves each AC
+- Wiring coverage matrix: CONTRACT-### and I-## rows with producer/consumer,
+  contract test, test-exists, test-passes columns
 - Edge cases tested
 - Any pre-existing failures encountered
 
 ON PASS → shark status advance E07-F01
 ON FAIL:
 - For each failing task, kick back: `shark status set <task-id> development --reason "<specific failures>"`
+- For a missing or broken I-## contract test: reopen the producer task in this
+  feature and add a blocker note to each consuming feature:
+  `shark feature note add <consumer_feature_id> --type blocker "Cross-feature I-## contract test failing at producer feature E07-F01"`
 - Set feature back: `shark status set E07-F01 active --reason "QA failed — see report, tasks kicked back"`

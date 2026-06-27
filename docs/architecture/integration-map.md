@@ -70,12 +70,13 @@ docs/plan/
 
 | Location | Purpose |
 |----------|---------|
-| `shark-templates/` | Default entity templates (shipped with project) |
-| `templates/` | Active templates (status-specific) |
-| `templates/epic/` | Epic templates by status |
-| `templates/feature/` | Feature templates by status |
-| `templates/task/` | Task templates by status |
-| `templates/partials/` | Shared template partials |
+| `shark-data/` | Optional editable content bundle |
+| `shark-data/workflow/` | Per-entity workflow YAML |
+| `shark-data/prompts/` | Status prompts by entity type |
+| `shark-data/prompts/_partials/` | Shared prompt partials |
+| `shark-data/file_templates/` | Markdown skeletons for created epic, feature, task, and sprint files |
+| `shark-data/skills/` | Skill instructions and supporting references |
+| `shark-data/agents/` | Agent role definitions |
 
 ## API Boundaries
 

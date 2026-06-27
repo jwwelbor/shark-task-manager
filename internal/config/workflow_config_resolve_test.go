@@ -96,15 +96,15 @@ func TestResolveWorkflowDir_AbsolutePath(t *testing.T) {
 // shim for projects still on `.sharkworkflow.json`.
 func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
 	tmp := t.TempDir()
-	legacy := filepath.Join(tmp, "shark-templates", ".sharkworkflow.json")
-	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+	jsonWorkflow := filepath.Join(tmp, "legacy", "workflow.json")
+	if err := os.MkdirAll(filepath.Dir(jsonWorkflow), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(legacy, []byte(`{}`), 0644); err != nil {
+	if err := os.WriteFile(jsonWorkflow, []byte(`{}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(tmp, ".sharkconfig.json")
-	cfg := `{"workflow_config": "shark-templates/.sharkworkflow.json"}`
+	cfg := `{"workflow_config": "legacy/workflow.json"}`
 	if err := os.WriteFile(configPath, []byte(cfg), 0644); err != nil {
 		t.Fatal(err)
 	}

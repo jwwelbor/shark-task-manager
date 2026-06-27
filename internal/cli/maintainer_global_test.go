@@ -104,7 +104,7 @@ func TestGetMaintainerGate_NilMaintainerConfig_NoFail(t *testing.T) {
 
 	// Write config WITHOUT maintainer section
 	writeSharkConfig(t, projectRoot, map[string]interface{}{
-		"workflow_config": "shark-templates/.sharkworkflow-short.json",
+		"workflow_config": "shark-data/workflow/",
 	})
 
 	origConfig := cli.GlobalConfig.ConfigFile

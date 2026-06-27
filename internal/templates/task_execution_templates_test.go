@@ -14,7 +14,7 @@ func setupTaskTemplatesFixtures(t *testing.T) string {
 	t.Helper()
 
 	testDir := t.TempDir()
-	templatesDir := filepath.Join(testDir, "shark-templates")
+	templatesDir := filepath.Join(testDir, "custom-prompts")
 	taskDir := filepath.Join(templatesDir, "task")
 	partialsDir := filepath.Join(templatesDir, "partials")
 

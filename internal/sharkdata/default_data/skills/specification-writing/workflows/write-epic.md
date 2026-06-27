@@ -79,6 +79,7 @@ The set of files you create is determined by `plan_decision` and `plan_remaining
 For detailed structure of each file, see:
 
 - **Epic structure**: `../context/epic-template.md`
+- **Interaction map**: `../context/interaction-map-template.md`
 - **Naming conventions**: `../context/naming-conventions.md`
 
 ## Implementation Protocol
@@ -106,6 +107,22 @@ Each detail file should:
 - Provide depth without redundancy — do not repeat content from the index
 - Use consistent terminology with the index and other detail files
 - Include cross-references where concepts span files
+
+### Step 4.5 — Flag Cross-Feature Interaction Map Need
+
+If the epic is likely to decompose into 3+ features, or if requirements name
+producer/consumer handoffs across feature boundaries, add an interaction-map
+handoff note to the requirements catalog and decisions log:
+
+- The epic design phase must produce `<epic-id>-interaction-map.md` using
+  `../context/interaction-map-template.md`.
+- The map assigns stable I-## IDs only when each shape source can resolve to a
+  section in `architecture.md`.
+- Do not invent I-## IDs in ordinary PRD prose. The interaction map is the
+  canonical source.
+- If an interaction map already exists and every shape source resolves, verify
+  it is linked with:
+  `shark related-docs add "Interaction Map" "<epic-id>-interaction-map.md" --epic=<epic-id>`
 
 ### Step 5 — Cross-Reference Verification
 
@@ -180,6 +197,8 @@ Before returning, verify:
 - [ ] Each detail file links back to the index
 - [ ] Cross-references between files are accurate (e.g., requirements reference specific journeys)
 - [ ] File names match exactly in links (case-sensitive)
+- [ ] Multi-feature epic candidates note that the design phase must produce an
+      interaction map with stable I-## IDs and architecture.md shape sources
 
 ### Quality Standards
 

@@ -15,6 +15,7 @@ READ:
 (2) Feature test-plan.md (sibling of spec.md) for expected test cases
 (3) All task files: shark list E07-F01 --json, then read each task's file_path
 (4) Parent epic context for cross-feature dependency awareness
+(5) Parent interaction map if present
 
 VERIFY:
 
@@ -48,10 +49,27 @@ VERIFY:
 - [ ] No unnecessary tasks that don't map to spec requirements
 - [ ] Task granularity is appropriate (each is a focused unit of work)
 
+### Integration coverage (STANDARD/COMPLEX only)
+
+- Every CONTRACT-### declared for internal feature contracts appears in exactly
+  one producer task and at least one consumer task
+- Producer and consumer cite the same shape source
+- Each contract has a single contract-test pointer that both sides reference
+  verbatim
+- No orphans (missing producer, missing consumer, mismatched pointer) is FAIL
+- Every I-## the feature spec declares under "Cross-feature interactions" is
+  mirrored in the producing/consuming task spec(s) under "Integration Contracts
+  > Cross-feature"
+- Every mirrored I-## keeps the same shape source and contract-test pointer from
+  the feature spec
+
 PRODUCE task review report at docs/review/{epic-folder}/{feature-folder}/task_review/E07-F01-task-review.md:
 (Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
 - Verdict: PASS or FAIL
 - Requirements coverage matrix (spec requirement -> task mapping)
+- Integration coverage matrix for CONTRACT-### and I-## rows, including
+  producer task, consumer task(s), shape source, contract-test pointer, and
+  closure status
 - Gaps identified (if any)
 - Ordering issues (if any)
 - Task quality issues (if any)

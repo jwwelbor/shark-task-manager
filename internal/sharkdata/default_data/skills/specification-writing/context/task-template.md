@@ -107,6 +107,28 @@ Mark any AC whose TC asserts cross-component wiring (e.g., "calls X.method() on 
 - **Coordination Required**: If multiple agents involved, ensure contract synchronization
 - **Recommendation**: Consider creating API specification before implementation
 
+### Integration Contracts
+
+{Required when this task produces or consumes internal contracts or
+cross-feature interactions.}
+
+#### Cross-feature
+
+Use this subsection for every I-## from the feature PRD's "Cross-feature
+interactions" section that this task produces or consumes:
+
+- **I-##**: produces|consumes
+  - **Shape source**: `{epic}/architecture.md#section`
+  - **Contract test**: `{shared contract test pointer}`
+  - **Counterpart feature(s)**: `{producer or consumer feature keys}`
+
+Do NOT invent CONTRACT-### IDs for cross-feature wires. Producer and consumer
+tasks reference the same I-##, shape source, and contract test pointer.
+
+#### Internal
+
+Use CONTRACT-### only for contracts that stay inside this feature.
+
 ### Data Flow
 
 {For API/Frontend Tasks - reference data flow documentation IF AVAILABLE}

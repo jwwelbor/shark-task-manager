@@ -971,17 +971,17 @@ func TestGetTemplateDirectory(t *testing.T) {
 		{
 			name:     "nil config returns default",
 			config:   nil,
-			expected: "shark-templates",
+			expected: "",
 		},
 		{
 			name:     "nil TemplateDirectory returns default",
 			config:   &Config{},
-			expected: "shark-templates",
+			expected: "",
 		},
 		{
 			name:     "empty string TemplateDirectory returns default",
 			config:   &Config{TemplateDirectory: stringPtr("")},
-			expected: "shark-templates",
+			expected: "",
 		},
 		{
 			name:     "custom directory returned",
@@ -1008,15 +1008,15 @@ func TestGetTemplateDirectory(t *testing.T) {
 func TestGetTemplateDirectoryFromConfig(t *testing.T) {
 	t.Run("empty config path returns default", func(t *testing.T) {
 		result := GetTemplateDirectoryFromConfig("")
-		if result != "shark-templates" {
-			t.Errorf("GetTemplateDirectoryFromConfig(\"\") = %q, want %q", result, "shark-templates")
+		if result != "" {
+			t.Errorf("GetTemplateDirectoryFromConfig(\"\") = %q, want empty", result)
 		}
 	})
 
 	t.Run("nonexistent config file returns default", func(t *testing.T) {
 		result := GetTemplateDirectoryFromConfig("/nonexistent/path/.sharkconfig.json")
-		if result != "shark-templates" {
-			t.Errorf("GetTemplateDirectoryFromConfig() = %q, want %q", result, "shark-templates")
+		if result != "" {
+			t.Errorf("GetTemplateDirectoryFromConfig() = %q, want empty", result)
 		}
 	})
 }
@@ -1027,7 +1027,7 @@ func TestGetTemplateDirectoryFromConfig(t *testing.T) {
 func TestConfig_Maintainer_RoundTrip(t *testing.T) {
 	t.Run("config with maintainer preserves all fields", func(t *testing.T) {
 		// Arrange
-		workflowConfig := "shark-templates/.sharkworkflow.json"
+		workflowConfig := "shark-data/workflow/"
 		original := Config{
 			WorkflowConfig: &workflowConfig,
 			Maintainer: &MaintainerConfig{
@@ -1521,8 +1521,7 @@ func TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK(t *testing.T) {
 	configJSON := `{
 		"color_enabled": true,
 		"require_rejection_reason": false,
-		"template_directory": "shark-templates",
-		"workflow_config": "shark-templates/.sharkworkflow-short.json"
+		"workflow_config": "shark-data/workflow/"
 	}`
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
@@ -1547,8 +1546,11 @@ func TestRecentConfig_BackwardCompat_ExistingConfigLoadsOK(t *testing.T) {
 	// Other existing fields are preserved
 	require.NotNil(t, cfg.ColorEnabled)
 	assert.True(t, *cfg.ColorEnabled)
-	require.NotNil(t, cfg.TemplateDirectory)
-	assert.Equal(t, "shark-templates", *cfg.TemplateDirectory)
+	if cfg.TemplateDirectory != nil {
+		t.Errorf("expected TemplateDirectory to be nil for config without explicit prompt path, got %q", *cfg.TemplateDirectory)
+	}
+	require.NotNil(t, cfg.WorkflowConfig)
+	assert.Equal(t, "shark-data/workflow/", *cfg.WorkflowConfig)
 }
 
 // TestSprintDefaultsConfig_CarryoverBehaviorRoundTrip tests TC round-trip for

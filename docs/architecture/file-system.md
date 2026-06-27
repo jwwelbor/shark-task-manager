@@ -22,7 +22,7 @@ shark-task-manager/
 ├── .claude/                      # Claude AI rules and context
 ├── test/                         # E2E and integration tests
 ├── scripts/                      # Build, migration, verification scripts
-├── shark-templates/              # Default entity templates
+├── shark-data/                   # Optional editable content bundle
 ├── dev-artifacts/                # Development workspace folders
 ├── .github/workflows/            # CI/CD pipelines
 ├── shark-tasks.db                # SQLite database (single source of truth)
@@ -312,16 +312,18 @@ Context-aware documentation loaded automatically based on active files:
 
 ---
 
-## Templates (`shark-templates/`)
+## Shark Data (`shark-data/`)
 
-Default markdown templates for entity creation:
+Optional editable copy of the embedded content bundle:
 
 ```
-shark-templates/
-├── README.md                     # Template usage guide
-├── epic.md                       # Epic template (YAML frontmatter + sections)
-├── feature.md                    # Feature template
-└── task.md                       # Task template
+shark-data/
+├── workflow/                     # Per-entity workflow YAML
+├── prompts/                      # Agent instruction prompts
+├── file_templates/               # Markdown skeletons for created files
+├── skills/                       # Skill instructions and references
+├── agents/                       # Agent role definitions
+└── overrides/                    # Local overrides, preserved by upgrade
 ```
 
 ---

@@ -5,6 +5,7 @@ inputs:
   - parent_epic_paths: list of {label, path} for epic PRD, requirements, scope, personas, journeys, success metrics
   - sibling_features: list of {feature_id, title, scope_summary, doc_paths} — siblings under the same epic (may be empty for the first feature)
   - prior_art_report_path: absolute path to prior-art / consult-related-work report enumerating sibling capabilities (REQUIRED if `sibling_features` is non-empty)
+  - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present (optional; required for multi-feature epics with I-## wires)
   - existing_personas: list of {name, file_path} already documented (optional)
   - feature_prd_path: absolute path where the feature PRD should be written
   - feature_directory: absolute path of the feature's directory (where additional BA-tier docs may go)
@@ -17,6 +18,7 @@ outputs:
   - open_questions: list of unresolved items needing stakeholder input
   - sibling_capability_reuse: list of {capability, sibling_feature_id, mode: "reuse" | "extend" | "delegate"} — capabilities the new feature consumes from siblings instead of re-implementing
   - sibling_capability_excluded: list of {capability, sibling_feature_id, reason} — capabilities explicitly NOT re-implemented
+  - cross_feature_interactions: list of {interaction_id, mode: "produces" | "consumes", counterpart_features, shape_source, contract_test_pointer}
   - prd_complexity_tier: echoed back so host can record
 ---
 
@@ -86,6 +88,23 @@ If `prior_art_report_path` is provided:
 
 If `prior_art_report_path` is missing AND `sibling_features` is non-empty, STOP and instruct the host to produce the report first.
 
+### Step 4.5: Mirror Cross-Feature Interactions
+
+If `interaction_map_path` exists:
+
+1. Read the interaction map and select only I-## rows where this feature is the
+   producer or a consumer.
+2. Add a `## Cross-feature interactions` section to the PRD.
+3. For each touched I-##, record:
+   - Produces or Consumes
+   - Counterpart feature(s)
+   - Shape source, copied verbatim from the interaction map
+   - Contract tests pointer, shared by producer and consumer features
+4. Populate `cross_feature_interactions`.
+
+Do not invent I-## IDs in the PRD. If a cross-feature wire is missing from the
+map, fail the workflow and send the epic back to design.
+
 ### Step 5: Fill the PRD
 
 Write the PRD at `feature_prd_path` using the structure in `../context/prd-template.md`, scaled to `complexity_tier`.
@@ -119,6 +138,9 @@ Before returning, verify:
 - [ ] Out-of-scope section prevents ambiguity
 - [ ] Links to epic documentation are correct
 - [ ] PRD detail depth matches `complexity_tier`
+- [ ] For multi-feature epics, every touched I-## appears in `## Cross-feature
+      interactions` with the same shape source and contract test pointer used by
+      the counterpart feature(s)
 - [ ] No vague or ambiguous language remains
 
 ## When You Need More Information

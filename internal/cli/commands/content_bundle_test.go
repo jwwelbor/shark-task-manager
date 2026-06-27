@@ -61,17 +61,17 @@ func TestSkillAndAgentCommandsRegistered(t *testing.T) {
 	require.NotNil(t, findRegisteredCommand(cli.RootCmd, "agent"), "top-level agent command should be registered")
 }
 
-func TestSkillGetTriageHumanOutputFromEmbedded(t *testing.T) {
+func TestSkillGetImplementationHumanOutputFromEmbedded(t *testing.T) {
 	setupContentCommandProject(t, `{}`)
 
 	var runErr error
 	out := captureOutput(t, func() {
-		runErr = runBundleContentGet(testContentGetCommand(false), services.BundleContentKindSkill, []string{"triage"})
+		runErr = runBundleContentGet(testContentGetCommand(false), services.BundleContentKindSkill, []string{"implementation"})
 	})
 	require.NoError(t, runErr)
 
 	text := string(out)
-	assert.Contains(t, text, "# triage")
+	assert.Contains(t, text, "# Implementation Skill")
 	assert.NotRegexp(t, `(?m)\A---\nname:`, text, "human get output should print content only without frontmatter")
 }
 
@@ -94,11 +94,11 @@ func TestBundleContentGetRawPreservesFrontmatter(t *testing.T) {
 
 	var runErr error
 	out := captureOutput(t, func() {
-		runErr = runBundleContentGet(testContentGetCommand(true), services.BundleContentKindSkill, []string{"triage"})
+		runErr = runBundleContentGet(testContentGetCommand(true), services.BundleContentKindSkill, []string{"implementation"})
 	})
 	require.NoError(t, runErr)
 
-	assert.Regexp(t, `(?m)\A---\nname: triage`, string(out))
+	assert.Regexp(t, `(?m)\A---\nname: implementation`, string(out))
 }
 
 func TestSkillGetJSONIncludesResolutionMetadata(t *testing.T) {
@@ -107,19 +107,19 @@ func TestSkillGetJSONIncludesResolutionMetadata(t *testing.T) {
 
 	var runErr error
 	out := captureOutput(t, func() {
-		runErr = runBundleContentGet(testContentGetCommand(false), services.BundleContentKindSkill, []string{"triage"})
+		runErr = runBundleContentGet(testContentGetCommand(false), services.BundleContentKindSkill, []string{"implementation"})
 	})
 	require.NoError(t, runErr)
 
 	var payload map[string]interface{}
 	require.NoError(t, json.Unmarshal(out, &payload))
 	assert.Equal(t, "skill", payload["kind"])
-	assert.Equal(t, "triage", payload["name"])
+	assert.Equal(t, "implementation", payload["name"])
 	assert.Equal(t, "SKILL.md", payload["path"])
 	assert.Equal(t, "embedded", payload["source"])
 	assert.Equal(t, true, payload["resolved"])
 	assert.Equal(t, false, payload["raw"])
-	assert.Contains(t, payload["content"], "# triage")
+	assert.Contains(t, payload["content"], "# Implementation Skill")
 }
 
 func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {

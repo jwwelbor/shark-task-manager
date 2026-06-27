@@ -62,7 +62,7 @@ Examples:
 			templates.SetConfiguredTemplateDir(loadedCfg.GetTemplateDirectory())
 			templates.SetConfiguredSharkDataPath(loadedCfg.GetSharkDataPath())
 		} else {
-			templates.SetConfiguredTemplateDir(config.DefaultTemplateDir)
+			templates.SetConfiguredTemplateDir("")
 			templates.SetConfiguredSharkDataPath(config.DefaultSharkDataPath)
 		}
 

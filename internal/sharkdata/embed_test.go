@@ -62,11 +62,17 @@ func TestInit_FreshProject(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(readme), "shark-data")
 
-	// All five subdirectories are present.
-	for _, sub := range []string{"prompts", "skills", "agents", "workflow", "overrides"} {
+	// All content-bundle subdirectories are present.
+	for _, sub := range []string{"prompts", "skills", "agents", "workflow", "overrides", "file_templates"} {
 		info, err := os.Stat(filepath.Join(dest, sub))
 		require.NoError(t, err)
 		assert.True(t, info.IsDir(), "%s should be a directory", sub)
+	}
+
+	for _, rel := range []string{"file_templates/epic.md", "file_templates/feature.md", "file_templates/task.md", "file_templates/sprint.md"} {
+		content, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(rel)))
+		require.NoError(t, err, "%s should be materialized by init", rel)
+		assert.NotEmpty(t, content, "%s should not be empty", rel)
 	}
 }
 
@@ -152,6 +158,25 @@ func TestUpgrade_ApplyRestoresCanonical(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, []byte("LOCALLY EDITED"), got, "upgrade should restore the canonical README")
 	assert.Contains(t, string(got), "shark-data", "restored content should be the embedded README")
+}
+
+func TestUpgrade_AddsMissingFileTemplates(t *testing.T) {
+	root := t.TempDir()
+	dest, err := Init(root)
+	require.NoError(t, err)
+
+	require.NoError(t, os.RemoveAll(filepath.Join(dest, "file_templates")))
+
+	summary, err := Upgrade(root, false)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+	assert.Contains(t, summary.Added, "file_templates/task.md")
+
+	for _, rel := range []string{"file_templates/epic.md", "file_templates/feature.md", "file_templates/task.md", "file_templates/sprint.md"} {
+		content, readErr := os.ReadFile(filepath.Join(dest, filepath.FromSlash(rel)))
+		require.NoError(t, readErr, "%s should be restored by upgrade", rel)
+		assert.NotEmpty(t, content, "%s should not be empty", rel)
+	}
 }
 
 // ============================================================================
@@ -663,7 +688,7 @@ func TestEmbedded_AllExpectedDirectoriesPresent(t *testing.T) {
 	// or by a .gitkeep placeholder. Real content is preferred (means F4
 	// populated the directory); .gitkeep is fallback during the F3 skeleton
 	// phase.
-	requiredDirs := []string{"README.md", "prompts/", "skills/", "agents/", "workflow/", "overrides/"}
+	requiredDirs := []string{"README.md", "prompts/", "skills/", "agents/", "workflow/", "overrides/", "file_templates/"}
 	for _, want := range requiredDirs {
 		var found bool
 		for _, got := range paths {

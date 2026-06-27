@@ -13,6 +13,10 @@ READ:
 (1) Epic PRD for scope and requirements
 (2) Architecture doc for component boundaries
 (3) Research report for implementation approach
+(4) {{.id}}-interaction-map.md if present. For a multi-feature epic, every I-##
+    must have a producer feature and at least one consumer feature in the
+    feature list you create.
+    Rule anchor: every I-## must have a producer feature and at least one consumer feature.
 
 PRODUCE features via shark CLI:
 
@@ -27,6 +31,11 @@ Feature decomposition rules:
 - Features are independently deliverable where possible
 - Execution order reflects dependencies
 - Description includes: what it does, why it's needed, key integration points
+- If an interaction map exists, each feature description names the I-## IDs the
+  feature will produce or consume, using explicit "Produces: I-##" and
+  "Consumes: I-##" phrasing so reviewers can trace the map at a glance.
+- Every I-## from the interaction map has a producer feature AND at least one
+  consumer feature in the resulting list; no orphan wires.
 
 CRITICAL: Feature descriptions are THIN — one paragraph. The feature workflow will handle PRD, architecture, and test planning at feature level. Do NOT front-load detail here.
 
@@ -36,3 +45,5 @@ EXIT GATE:
 - No overlapping scope between features
 - Descriptions are specific enough for assessment
 - Every feature carries a non-empty --size; features sized 13/XXL are split before exit
+- Multi-feature epic: every I-## in the interaction map has a producer feature
+  AND at least one consumer feature; no orphan wires

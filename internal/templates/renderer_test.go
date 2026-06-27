@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRenderer_Render_Frontend(t *testing.T) {
+func TestRenderer_Render_ConsolidatedTaskTemplate(t *testing.T) {
 	loader := NewLoader("")
 	renderer := NewRenderer(loader)
 
@@ -38,135 +38,38 @@ func TestRenderer_Render_Frontend(t *testing.T) {
 	assert.Contains(t, result, "2025-12-14T10:30:00Z")
 	assert.Contains(t, result, "# Task: Build Login Component")
 	assert.Contains(t, result, "Create a reusable login component")
-	assert.Contains(t, result, "## Component Specifications")
-	assert.Contains(t, result, "## Acceptance Criteria")
-}
-
-func TestRenderer_Render_Backend(t *testing.T) {
-	loader := NewLoader("")
-	renderer := NewRenderer(loader)
-
-	data := TemplateData{
-		Key:         "T-E01-F03-002",
-		Title:       "Implement User Service",
-		Description: "Create user service with CRUD operations",
-		Epic:        "E01",
-		Feature:     "E01-F03",
-		AgentType:   "backend",
-		Priority:    7,
-		DependsOn:   []string{},
-		CreatedAt:   time.Date(2025, 12, 14, 11, 0, 0, 0, time.UTC),
-	}
-
-	result, err := renderer.Render("backend", data)
-
-	require.NoError(t, err)
-	assert.Contains(t, result, "agent: backend")
-	assert.Contains(t, result, "## API Endpoints")
-	assert.Contains(t, result, "## Data Models")
-	assert.Contains(t, result, "## Business Logic")
-	assert.NotContains(t, result, "depends_on:")
-}
-
-func TestRenderer_Render_API(t *testing.T) {
-	loader := NewLoader("")
-	renderer := NewRenderer(loader)
-
-	data := TemplateData{
-		Key:         "T-E02-F01-001",
-		Title:       "Create User API Endpoint",
-		Description: "Implement POST /api/v1/users endpoint",
-		Epic:        "E02",
-		Feature:     "E02-F01",
-		AgentType:   "api",
-		Priority:    8,
-		DependsOn:   []string{"T-E02-F01-000"},
-		CreatedAt:   time.Now().UTC(),
-	}
-
-	result, err := renderer.Render("api", data)
-
-	require.NoError(t, err)
-	assert.Contains(t, result, "agent: api")
-	assert.Contains(t, result, "## API Specification")
-	assert.Contains(t, result, "### Request Schema")
-	assert.Contains(t, result, "### Response Schema")
-	assert.Contains(t, result, "## Authentication & Authorization")
-}
-
-func TestRenderer_Render_Testing(t *testing.T) {
-	loader := NewLoader("")
-	renderer := NewRenderer(loader)
-
-	data := TemplateData{
-		Key:         "T-E03-F02-005",
-		Title:       "Test Authentication Flow",
-		Description: "Write comprehensive tests for auth",
-		Epic:        "E03",
-		Feature:     "E03-F02",
-		AgentType:   "testing",
-		Priority:    6,
-		DependsOn:   []string{"T-E03-F02-001", "T-E03-F02-002"},
-		CreatedAt:   time.Now().UTC(),
-	}
-
-	result, err := renderer.Render("testing", data)
-
-	require.NoError(t, err)
-	assert.Contains(t, result, "agent: testing")
-	assert.Contains(t, result, "## Test Scenarios")
-	assert.Contains(t, result, "## Coverage Requirements")
-	assert.Contains(t, result, "## Performance Benchmarks")
-}
-
-func TestRenderer_Render_DevOps(t *testing.T) {
-	loader := NewLoader("")
-	renderer := NewRenderer(loader)
-
-	data := TemplateData{
-		Key:         "T-E04-F01-003",
-		Title:       "Setup CI/CD Pipeline",
-		Description: "Configure automated deployment",
-		Epic:        "E04",
-		Feature:     "E04-F01",
-		AgentType:   "devops",
-		Priority:    9,
-		DependsOn:   []string{},
-		CreatedAt:   time.Now().UTC(),
-	}
-
-	result, err := renderer.Render("devops", data)
-
-	require.NoError(t, err)
-	assert.Contains(t, result, "agent: devops")
-	assert.Contains(t, result, "## Infrastructure Requirements")
-	assert.Contains(t, result, "## Deployment Configuration")
-	assert.Contains(t, result, "## Monitoring & Observability")
-}
-
-func TestRenderer_Render_General(t *testing.T) {
-	loader := NewLoader("")
-	renderer := NewRenderer(loader)
-
-	data := TemplateData{
-		Key:         "T-E05-F01-001",
-		Title:       "Research Technical Options",
-		Description: "Evaluate different approaches",
-		Epic:        "E05",
-		Feature:     "E05-F01",
-		AgentType:   "general",
-		Priority:    4,
-		DependsOn:   []string{},
-		CreatedAt:   time.Now().UTC(),
-	}
-
-	result, err := renderer.Render("general", data)
-
-	require.NoError(t, err)
-	assert.Contains(t, result, "agent: general")
 	assert.Contains(t, result, "## Requirements")
 	assert.Contains(t, result, "## Implementation Plan")
 	assert.Contains(t, result, "## Deliverables")
+	assert.Contains(t, result, "## Acceptance Criteria")
+}
+
+func TestRenderer_Render_ConsolidatedTaskTemplateForAnyAgent(t *testing.T) {
+	loader := NewLoader("")
+	renderer := NewRenderer(loader)
+
+	for _, agentType := range []string{"backend", "api", "testing", "devops", "general"} {
+		t.Run(agentType, func(t *testing.T) {
+			data := TemplateData{
+				Key:       "T-E01-F03-002",
+				Title:     "Implement User Service",
+				Epic:      "E01",
+				Feature:   "E01-F03",
+				AgentType: agentType,
+				Priority:  7,
+				CreatedAt: time.Date(2025, 12, 14, 11, 0, 0, 0, time.UTC),
+			}
+
+			result, err := renderer.Render(agentType, data)
+
+			require.NoError(t, err)
+			assert.Contains(t, result, "agent: "+agentType)
+			assert.Contains(t, result, "## Requirements")
+			assert.Contains(t, result, "## Implementation Plan")
+			assert.Contains(t, result, "## Deliverables")
+			assert.NotContains(t, result, "depends_on:")
+		})
+	}
 }
 
 func TestRenderer_Render_EmptyDescription(t *testing.T) {
@@ -249,7 +152,7 @@ func TestRenderer_Render_FrontmatterValidYAML(t *testing.T) {
 	assert.Contains(t, frontmatter, "created_at: 2025-12-14T10:30:00Z")
 }
 
-func TestRenderer_Render_UnknownAgentType_FallbackToGeneral(t *testing.T) {
+func TestRenderer_Render_UnknownAgentTypeUsesConsolidatedTemplate(t *testing.T) {
 	loader := NewLoader("")
 	renderer := NewRenderer(loader)
 
@@ -315,7 +218,7 @@ func TestRenderer_Render_CustomAgentTypeWithUnderscores(t *testing.T) {
 	assert.Contains(t, result, "agent: database_architect")
 }
 
-func TestRenderer_Render_EmptyAgentType_FallbackToGeneral(t *testing.T) {
+func TestRenderer_Render_EmptyAgentTypeUsesConsolidatedTemplate(t *testing.T) {
 	loader := NewLoader("")
 	renderer := NewRenderer(loader)
 
@@ -336,7 +239,7 @@ func TestRenderer_Render_EmptyAgentType_FallbackToGeneral(t *testing.T) {
 	assert.Contains(t, result, "## Requirements")
 }
 
-func TestRenderer_Render_CustomAgentTypeFallback(t *testing.T) {
+func TestRenderer_Render_CustomAgentTypeUsesConsolidatedTemplate(t *testing.T) {
 	loader := NewLoader("")
 	renderer := NewRenderer(loader)
 

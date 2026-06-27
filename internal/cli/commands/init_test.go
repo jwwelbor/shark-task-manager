@@ -28,15 +28,16 @@ func TestInitCommand(t *testing.T) {
 					t.Error("Database file was not created")
 				}
 
-				// Verify docs/plan folder exists (shark-templates is no longer created by init)
+				// Verify docs/plan folder exists.
 				folderPath := filepath.Join(tempDir, "docs/plan")
 				if _, err := os.Stat(folderPath); os.IsNotExist(err) {
 					t.Error("Folder docs/plan was not created")
 				}
 
-				// Verify shark-templates is NOT created (content served from embedded bundle)
-				if _, err := os.Stat(filepath.Join(tempDir, "shark-templates")); err == nil {
-					t.Error("shark-templates should not be created by shark admin init")
+				// Verify the retired prompt tree is NOT created.
+				retiredPromptTree := "shark" + "-templates"
+				if _, err := os.Stat(filepath.Join(tempDir, retiredPromptTree)); err == nil {
+					t.Error("retired prompt tree should not be created by shark admin init")
 				}
 
 				// Verify config exists

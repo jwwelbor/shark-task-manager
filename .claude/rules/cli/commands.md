@@ -118,7 +118,7 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 
 ### Setup & Configuration
 
-- `shark admin init [--non-interactive] [--force]` — Initialize project / re-sync `shark-templates/` from embedded version
+- `shark admin init [--non-interactive] [--force]` — Initialize project config, database, and planning folders
 - `shark admin validate` — Validate project structure
 - `shark migrate slugs` — Backfill slugs
 - `shark cloud init/status` — Cloud database

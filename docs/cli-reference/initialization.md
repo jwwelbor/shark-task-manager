@@ -28,7 +28,7 @@ shark admin init --force
 - Folder structure (`docs/plan/`)
 - Configuration file (`.sharkconfig.json`) with sensible defaults
 
-Content (workflows, prompts, skills, agents) is served from the embedded
+Content (workflows, prompts, file templates, skills, agents) is served from the embedded
 bundle by default — no `shark-data/` directory is required on disk. Run
 `shark admin install-shark-data` to extract the bundle to disk for local
 customization.
