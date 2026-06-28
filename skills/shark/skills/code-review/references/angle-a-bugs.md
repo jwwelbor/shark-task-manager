@@ -23,6 +23,8 @@ Hunt for:
 - Error silently swallowed: `except Exception` / `catch (e) {}` with only a log, no re-raise, no propagation
 - Unescaped regex metacharacters passed to `re.compile` / `new RegExp`
 - Type coercion surprises (`==` vs `===`, implicit int/string conversion)
+- **Deserialized external data treated as a guaranteed object**: the result of `JSON.parse` / `.json()` / `yaml.load` / `JSON.parse(await file.text())` may be `null`, a primitive, or an array — guard the **container's** shape before any property access (`parsed.foo`). A value-level guard like `typeof parsed.foo === "number"` does NOT protect against `parsed` itself being `null` (`null` is valid JSON).
+- **Unguarded parameter deref on a newly *exported* / public function**: if the diff adds an `export`ed function (or public method) that dereferences a parameter (`figure.stats`, `gameState.figures`) with no null/shape guard, that is a finding **even if every current caller passes a valid value** — an exported helper must defend its declared input contract because future callers are unconstrained. Do not refute this on caller-reachability grounds.
 
 Return up to 6 findings.
 

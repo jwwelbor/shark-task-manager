@@ -30,8 +30,13 @@ The `/run` command and a bare `/shark run` both route to `verbs/run.md`.
 | **Day-to-day** | `run` | Drive an entity through its workflow (claim → agent → advance → release) |
 | | `triage` | Quick-capture & classify a discovered work item into the right entity |
 | | `code-review` | Multi-angle parallel code review (6 subagents + consolidator); flags: --fix, --comment |
+| | `brownfield-analysis` | Deep analysis and documentation of an existing codebase |
 | | `viewer` | Launch the web dashboard (`shark web`) |
 | | `status` / `list` / `get` | Pass through to the shark CLI (handled by `query`) |
+| **Sprint lifecycle** | `plan-sprint` | Scope a sprint: surface backlog, propose assignments, confirm additions |
+| | `run-sprint` | Solo sequential pull-loop: drive sprint to completion entity-by-entity |
+| | `run-sprint-team` | Team pull-loop: one `/run-agent-team` per feature group, then standalones |
+| | `retro-sprint` | Post-close retrospective: five-section report with data-driven recommendations |
 | **Maintenance** | `update-docs` | Diff-driven refresh of `docs/architecture/*` |
 | | `amend` | Apply a spec change to an entity and rewind it to the right phase |
 | | `revalidate` | Audit spec ↔ tasks ↔ status readiness |
@@ -66,6 +71,11 @@ If a referenced `shark skill get ...` or `shark agent get ...` command fails
 because the content is missing, **degrade gracefully** — print a clear
 "unavailable / coming soon" message; never hard-fail.
 
+**`shark skill get` and `shark agent get` serve bundle content only** (workflow-injected
+craft skills + agents). The deployed sub-skills under `skills/shark/skills/` are read
+**in place** — never fetched via `shark skill get`; a verb that delegates to a deployed
+sub-skill must `Read skills/<name>/SKILL.md` directly.
+
 ## Sub-skills (`skills/shark/skills/`)
 
 AI-orchestration workflows that extend the shark skill. These are not shark CLI
@@ -74,9 +84,18 @@ their own slash commands or from within a verb procedure.
 
 | Sub-skill | Entry point | Purpose |
 |-----------|-------------|---------|
-| `brownfield-analysis` | `/brownfield-analysis` | Deep analysis and documentation of an existing (brownfield) codebase — architecture, business logic, technical debt, security, migration readiness. Read `skills/brownfield-analysis/SKILL.md`. |
-| `code-review` | `/code-review` | Multi-angle parallel code review. Six specialist subagents (bugs, removed behavior, contracts, reuse, tests, standards) then a consolidator produces a PASS/FAIL report with Blocker/Non-blocker/Nit triage. Flags: `--fix`, `--comment`. Read `skills/code-review/SKILL.md`. |
-| `triage` | `/triage` | Quick-capture and classify a discovered work item (task, feature, bug, tech-debt, change-card, idea, or note) under the right parent. Searches for duplicates first, confirms before creating. Read `skills/triage/SKILL.md`. |
+| `brownfield-analysis` | `/brownfield-analysis` or `/shark brownfield-analysis` | Deep analysis and documentation of an existing (brownfield) codebase — architecture, business logic, technical debt, security, migration readiness. Read `skills/brownfield-analysis/SKILL.md`. |
+| `code-review` | `/code-review` or `/shark code-review` | Multi-angle parallel code review. Six specialist subagents (bugs, removed behavior, contracts, reuse, tests, standards) then a consolidator produces a PASS/FAIL report with Blocker/Non-blocker/Nit triage. Flags: `--fix`, `--comment`. Read `skills/code-review/SKILL.md`. |
+| `triage` | `/triage` or `/shark triage` | Quick-capture and classify a discovered work item (task, feature, bug, tech-debt, change-card, idea, or note) under the right parent. Searches for duplicates first, confirms before creating. Read `skills/triage/SKILL.md`. |
+| `sprint-planning` | `/shark plan-sprint` | Mode-aware sprint scoping: reads shark sprint plan + readiness, proposes backlog assignments, confirms with user. Never calls `shark sprint start`. Read `skills/sprint-planning/SKILL.md`. |
+| `sprint-execution` | `/shark run-sprint`, `/shark run-sprint-team` | Sprint pull-loop harnesses (solo and team). Delegates per-entity dispatch to `/run` or `/run-agent-team`; gates sprint close on explicit user confirmation. Read `skills/sprint-execution/SKILL.md`. |
+| `sprint-analytics` | `/shark retro-sprint` | Post-close retrospective synthesis: reads `shark sprint summary --detailed` + velocity, produces five-section markdown report with quantitative recommendations. Read `skills/sprint-analytics/SKILL.md`. |
+
+**Boundary rule:** Sub-skills live here because **no workflow YAML references them** — `skills:` in
+workflow step definitions only cite bundle craft skills (`quality`, `research`, `architecture`, …).
+Standalone on-demand procedures (analysis, review, triage) belong here; workflow-injected craft
+belongs in the bundle. When adding a new AI-driven workflow, default to a sub-skill if no workflow
+YAML will inject it.
 
 ## Detailed references
 

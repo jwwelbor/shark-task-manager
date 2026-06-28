@@ -12,12 +12,6 @@ Usage: `/shark code-review [--fix] [--comment] [<target>]`
 
 ## Procedure
 
-1. Run `shark skill get code-review` and follow the returned skill instructions,
-   passing any remaining arguments as that skill's arguments.
-2. **If the command fails** because the bundle code-review skill is unavailable,
-   print a concise unavailable message and stop:
-   > `/shark code-review` is not yet available in this project's content bundle
-   > (`shark skill get code-review` failed). For now, use the standalone
-   > `/code-review` command if installed.
-
-   Do not improvise a review workflow inline — keep degradation honest.
+1. Read `skills/code-review/SKILL.md` (under this shark skill's directory) and
+   follow its procedure, passing any remaining arguments through as that skill's
+   arguments.

@@ -15,6 +15,8 @@ Before processing findings, do a 5-line gut check on the diff:
 - Is the diff size plausible? (Flag if >2000 lines changed — recommend splitting)
 - Are there unrelated modifications mixed in?
 
+**Coverage check (mandatory).** Every file in CHANGED_FILES must be addressed by at least one angle's findings or an explicit "reviewed, no findings" note. Build the set of files the angles actually touched and diff it against CHANGED_FILES. If any changed file has **zero** coverage from all six angles, flag it as a **coverage gap** — name the unreviewed file(s), record a non-blocker finding, and lower confidence in the verdict accordingly. A clean PASS is only valid when every changed file was actually reviewed. (A review that passes a feature while never opening a heavily-changed file is how production bugs ship.)
+
 If the diff is clearly wrong (wrong branch, massive accidental change), return a FAIL immediately with a scope finding.
 
 ## Step 2: Deduplicate
@@ -30,6 +32,8 @@ For each finding, read the actual source file around the flagged line and the di
 - **REFUTED** — the code proves it factually impossible (e.g., the guard the finding says is missing is on line 5)
 
 Default to PLAUSIBLE for realistic runtime scenarios. Only REFUTE when the code makes it impossible. Discard all REFUTED findings.
+
+**Do NOT refute on current-caller-reachability grounds.** A missing guard on an *exported* / public function, or missing shape-validation at a deserialization / external-input boundary (`JSON.parse`, file import, request body), is **not** "impossible" merely because every *present* caller happens to pass a valid value — future callers are unconstrained and the boundary is real. Downgrade such findings to nit or non-blocker if impact is low, but keep them. REFUTE is reserved for findings the code makes *logically* impossible (the guard already exists, or the branch is unreachable by construction), not findings that merely have no triggering caller today.
 
 ## Step 4: Triage labeling
 
@@ -75,7 +79,7 @@ Produce the following sections. Omit any empty section entirely.
 | id | severity | file:line | rule | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
 
-`rule` is one of: `CORRECTNESS`, `WIRING`, `RISK`, `SECURITY`, `REMOVED-BEHAVIOR`, `SRP`, `OCP`, `LSP`, `DIP`, `CONTRACT`, `SIBLING`, `DRY`, `COMPLEXITY`, `IDIOM`, `ALTITUDE`, `TESTS`, `CODING-STANDARD`, `NAMING`, `ERROR-HANDLING`, `TYPES`, `LOGGING`
+`rule` is one of: `CORRECTNESS`, `WIRING`, `RISK`, `SECURITY`, `REMOVED-BEHAVIOR`, `SRP`, `OCP`, `LSP`, `DIP`, `CONTRACT`, `SIBLING`, `ROUNDTRIP`, `DRY`, `COMPLEXITY`, `IDIOM`, `ALTITUDE`, `TESTS`, `CODING-STANDARD`, `NAMING`, `ERROR-HANDLING`, `TYPES`, `LOGGING`
 
 ### C. Reuse Opportunities
 For each DRY finding: existing symbol + `file:line` + diff-ready refactor.
