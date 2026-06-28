@@ -962,6 +962,53 @@ func TestValidate_HostLocalPath_DotfileToken(t *testing.T) {
 	assert.True(t, found, "~/.claude path should be flagged as error; got: %+v", report.Issues)
 }
 
+// TestValidate_HostBinaryPath_RealPathFlagged_URLExempt verifies that an
+// absolute path to a host binary (e.g. /usr/local/bin/codex) is flagged, while
+// a URL whose path merely ends in /node or /codex (e.g. github.com/nodejs/node)
+// is NOT a false positive.
+func TestValidate_HostBinaryPath_RealPathFlagged_URLExempt(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Real absolute path to a host binary — must be flagged.
+	binPath := filepath.Join(root, SharkDataDirName, "agents", "bin-agent.md")
+	require.NoError(t, os.WriteFile(binPath, []byte("Run /usr/local/bin/codex to start.\n"), 0644))
+
+	// URL ending in /node and /codex — must NOT be flagged.
+	urlPath := filepath.Join(root, SharkDataDirName, "prompts", "task", "links.md")
+	require.NoError(t, os.WriteFile(urlPath, []byte("See https://github.com/nodejs/node and https://example.com/codex\n"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	assertReportHasErrorContaining(t, report, "/usr/local/bin/codex")
+	for _, issue := range report.Issues {
+		if strings.Contains(issue.Message, "host binary") &&
+			(strings.Contains(issue.Message, "nodejs/node") || strings.Contains(issue.Path, "links.md")) {
+			t.Fatalf("URL path should not be flagged as a host binary; got: %+v", issue)
+		}
+	}
+}
+
+// TestValidate_ManifestUnparseable_Flagged verifies that a present-but-invalid
+// manifest.yaml surfaces as a validation error rather than being silently
+// swallowed (which would let the cross-entity validators degrade to defaults
+// without anyone noticing the manifest was broken).
+func TestValidate_ManifestUnparseable_Flagged(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	manifestPath := filepath.Join(root, SharkDataDirName, "manifest.yaml")
+	require.NoError(t, os.WriteFile(manifestPath, []byte("prompt_namespaces: [unterminated\n"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	assertReportHasErrorContaining(t, report, "manifest.yaml")
+}
+
 // TestValidate_UnreferencedPrompt verifies that a prompt file with no
 // corresponding workflow reference is reported as a warning.
 func TestValidate_UnreferencedPrompt(t *testing.T) {

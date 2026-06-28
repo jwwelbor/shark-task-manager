@@ -334,8 +334,13 @@ func ValidateAt(dataRoot string) (*ValidationReport, error) {
 	validateSkillFrontmatter(filepath.Join(dest, "skills"), report)
 
 	// Lightweight bundle validators — pure file/string/YAML, no workflow
-	// package import. Load the manifest once and share it across all four.
-	manifest := loadBundleManifest(dest)
+	// package import. Load the manifest once and share it across all four. A
+	// present-but-unparseable manifest is itself a validation error; an absent
+	// one (manifest == nil, err == nil) lets the validators use built-in defaults.
+	manifest, manifestErr := loadBundleManifest(dest)
+	if manifestErr != nil {
+		report.AddIssue(IssueLevelError, "manifest.yaml", fmt.Sprintf("failed to load manifest: %v", manifestErr))
+	}
 	workflowDir := filepath.Join(dest, "workflow")
 	validateCrossEntityPromptPrefix(workflowDir, manifest, report)
 	validateHostLocalPaths(dest, report)
@@ -870,7 +875,15 @@ func validateSkillFrontmatter(skillsDir string, report *ValidationReport) {
 			// name: must match the directory slug so the manifest validator and
 			// future bundle tooling can cross-check without parsing YAML.
 			if nameVal, hasName := raw["name"]; hasName {
-				if nameStr, ok := nameVal.(string); ok && nameStr != dirSlug {
+				nameStr, ok := nameVal.(string)
+				switch {
+				case !ok:
+					report.AddIssue(
+						IssueLevelError,
+						skillRelPath,
+						"skill `name:` must be a string",
+					)
+				case nameStr != dirSlug:
 					report.AddIssue(
 						IssueLevelError,
 						skillRelPath,
@@ -935,18 +948,25 @@ type bundleManifest struct {
 	} `yaml:"skills"`
 }
 
-// loadBundleManifest reads and parses <dataRoot>/manifest.yaml. Returns nil
-// if the file is absent or unparseable — callers degrade gracefully when nil.
-func loadBundleManifest(dataRoot string) *bundleManifest {
+// loadBundleManifest reads and parses <dataRoot>/manifest.yaml. Returns
+// (nil, nil) when the file is absent (the manifest is optional, and the
+// cross-entity validators degrade gracefully to built-in defaults). Returns a
+// non-nil error when the file is present but unreadable or unparseable, so a
+// syntax error in the manifest surfaces as a validation failure rather than
+// being silently swallowed.
+func loadBundleManifest(dataRoot string) (*bundleManifest, error) {
 	data, err := os.ReadFile(filepath.Join(dataRoot, "manifest.yaml"))
 	if err != nil {
-		return nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var m bundleManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
-		return nil
+		return nil, err
 	}
-	return &m
+	return &m, nil
 }
 
 // collectWorkflowPromptRefs returns a map of entity slug → all prompt/
@@ -1099,9 +1119,12 @@ func validateCrossEntityPromptPrefix(workflowDir string, manifest *bundleManifes
 var hostLocalTokens = []string{"/home/", "/Users/", "~/.claude", "~/.codex", "~/.nvm"}
 
 // absPathBinRE matches an absolute filesystem path whose last component is
-// "codex" or "node" (e.g. /usr/local/bin/codex). The character class excludes
-// whitespace and quote characters to avoid over-matching inside prose.
-var absPathBinRE = regexp.MustCompile(`/[^\s"'\x60/]+(?:/[^\s"'\x60/]+)*/(?:codex|node)\b`)
+// "codex" or "node" (e.g. /usr/local/bin/codex). The path must be preceded by
+// start-of-string or whitespace/quote so it does not match the tail of a URL
+// like https://github.com/nodejs/node. The path itself is capture group 1.
+// The character class excludes whitespace, newlines, and quote characters to
+// avoid over-matching inside prose.
+var absPathBinRE = regexp.MustCompile(`(?:^|[\s"'\x60])(/[^\n\s"'\x60/]+(?:/[^\n\s"'\x60/]+)*/(?:codex|node)\b)`)
 
 // validateHostLocalPaths — Validator #2.
 // Walks agents/, prompts/, skills/ (skipping _extracted/ sidecars) and flags
@@ -1142,7 +1165,11 @@ func validateHostLocalPaths(dataRoot string, report *ValidationReport) {
 				}
 			}
 			seen := make(map[string]bool)
-			for _, m := range absPathBinRE.FindAllString(content, -1) {
+			for _, match := range absPathBinRE.FindAllStringSubmatch(content, -1) {
+				if len(match) < 2 {
+					continue
+				}
+				m := match[1] // capture group 1: the path, without the leading boundary char
 				if seen[m] {
 					continue
 				}
