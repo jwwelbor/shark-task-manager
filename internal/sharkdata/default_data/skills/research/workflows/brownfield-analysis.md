@@ -529,3 +529,13 @@ All four output documents:
 - `map-filesystem.md` — Runs in parallel (Group A), produces `file-system.md`
 - `../context/stack-research-guide.md` — Used by coding standards step (Group D, after this workflow)
 - `../context/brownfield-detection.md` — Runs before this workflow to confirm brownfield track
+
+## Scope note
+
+This workflow is the **lightweight `project-init` bootstrap**: it reverse-engineers the four
+`docs/architecture/` foundation documents (`tech-stack.md`, `patterns-catalog.md`,
+`integration-map.md`, `architecture-overview.md`) as Groups B+C of the `project-init` flow.
+
+For a comprehensive enterprise handoff — full technical debt audit, security assessment, migration
+readiness, behavior documentation, and ~10–20 output documents — use the standalone
+**`brownfield-analysis` sub-skill** (`/shark brownfield-analysis` or `/brownfield-analysis`).

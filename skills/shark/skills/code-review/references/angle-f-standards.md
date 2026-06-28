@@ -73,7 +73,8 @@ Beyond the SOLID/correctness angles, check for project-specific error handling r
 Flag in changed code only (not pre-existing):
 - User input passed directly to shell, SQL, filesystem, or eval
 - Hardcoded credentials or API keys
-- Missing input validation at a system boundary (HTTP handler, CLI argument, file read)
+- Missing input validation at a system boundary (HTTP handler, CLI argument, file read, **file upload / import handler**)
+- **Deserialized external input accessed without a shape check**: `JSON.parse`, `.json()`, `yaml.load`, or a parsed uploaded file whose result is used as an object before validating it is a non-null object of the expected shape (valid JSON includes `null`, primitives, and arrays — any of which break member access)
 - Insecure defaults (no TLS verification, permissive CORS, etc.)
 
 ---

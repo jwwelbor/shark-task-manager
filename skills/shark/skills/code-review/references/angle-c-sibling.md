@@ -60,6 +60,20 @@ Include a sibling inventory table in your findings when this check triggers:
 
 If the diff does not add a class implementing a protocol/ABC/interface, note "Structural sibling check: not applicable" and skip this part.
 
+## Part 3: Serialization & state-field round-trip
+
+**Mandatory when the diff touches a serialize/deserialize pair OR reads a shared state field.** This catches a class of cross-function contract break that Part 1 misses entirely: the two sides never call each other — they communicate through a serialized key or a shared state object, so signature-based caller tracing never connects them.
+
+1. **Export ↔ import key symmetry.** For any write/read pair the diff touches — `downloadJson`/`importJson`, `toJSON`/`fromJSON`, `encode`/`decode`, `serialize`/`deserialize`, `persist`/`load` — list the keys each side writes and reads. Every key the producer writes must be read under the **same name/path** by the consumer, and vice versa. A key written under one path and read under a different path is a **BLOCKER** (the round-trip silently drops or misreads data).
+
+2. **State-field producer→consumer trace.** For any state field the diff *reads* (e.g. `state.warband.campaign.games`), grep for where that exact path is *written*:
+   ```bash
+   grep -rn "campaign.games" PROJECT_ROOT --include="*.js"   # adjust path/extension
+   ```
+   Confirm the writer and the reader use the **same object path**. A reader pointed at a path that no writer ever populates (so it always sees the default/empty value) is a **BLOCKER** — the logic depending on it is dead code. Watch specifically for two parallel state trees (e.g. `state.campaign` vs `state.warband.campaign`) where one is written and the other is read.
+
+Include both the write-site `file:line` and the read-site `file:line` in any finding. If the diff touches neither a serialize/deserialize pair nor a shared-state read, note "Round-trip check: not applicable" and skip.
+
 ---
 
 ## Output format
@@ -71,9 +85,9 @@ If the diff does not add a class implementing a protocol/ABC/interface, note "St
       "file": "path/to/file.py",
       "line": 123,
       "severity": "blocker|non-blocker|nit",
-      "rule": "CONTRACT|SIBLING",
+      "rule": "CONTRACT|SIBLING|ROUNDTRIP",
       "summary": "one-sentence description",
-      "diagnosis": "what contract is broken or what sibling pattern is violated",
+      "diagnosis": "what contract is broken, what sibling pattern is violated, or which write/read paths diverge",
       "evidence": "grep output or code showing the issue",
       "correction": "concrete fix"
     }

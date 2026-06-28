@@ -32,9 +32,11 @@ echo "skill_dir=$skill_dir"
 bash "$skill_dir/scripts/get_diff.sh"
 ```
 
-Parse the JSON output for `diff_path`, `changed_files`, and `project_root`.
+Parse the JSON output for `diff_path`, `changed_files`, `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Keep `review_output_path` — you write the final report there in step 4.
 
 ### 3. Launch the workflow
+
+Parse the effort token from the command arguments (`low` | `medium` | `high` | `xhigh` | `max`) if the user passed one (e.g. `/code-review high`). Pass it through as `effort` so the angle agents and consolidator reason at that depth. If no token is given, omit `effort` to inherit session effort. `low`/`medium` emit fewer, high-confidence findings; `high`→`max` broaden coverage (the right default for a pre-merge gate).
 
 ```javascript
 Workflow({
@@ -45,6 +47,7 @@ Workflow({
     project_root,
     skill_dir,
     coding_standards_path,   // from get_diff.sh output — null if not found
+    effort,                  // from the /code-review <level> token — omit to inherit session effort
     // optional — include if available:
     // task_spec_path: "/path/to/task.md",
     // feature_prd_path: "/path/to/prd.md",
@@ -54,6 +57,29 @@ Workflow({
 ```
 
 The workflow runs all 6 angle agents in parallel, then the consolidator. The return value is the final markdown report — print it to the user.
+
+### 4. Persist the report
+
+Always save the report to `review_output_path` (from `get_diff.sh`) so the gate is auditable — this is the **overall** multi-angle review, distinct from any per-feature AC-checklist review in the same `code_review/` folder. Do this before handling `--fix` / `--comment`.
+
+```bash
+mkdir -p "$(dirname "<review_output_path>")"
+```
+
+Then Write the file with a self-describing header followed by the report body:
+
+```markdown
+# Overall Code Review — <branch>
+
+**Generated:** <YYYY-MM-DD> · **Tool:** `/code-review` (6-angle automated) · **Diff:** `main...HEAD` · **Effort:** <effort or "session default">
+**Verdict:** <PASS | PASS-with-triage | FAIL — from the report's Executive Summary>
+
+---
+
+<full markdown report returned by the workflow>
+```
+
+Tell the user where it was saved (`review_output_path`). If the write fails (e.g. read-only path), print the report inline and note that persistence was skipped — never drop the report.
 
 ---
 
@@ -89,6 +115,10 @@ Once all angles return, build a final agent prompt:
 - Full contents of `references/consolidator.md`
 
 The consolidator returns the markdown report.
+
+### 5. Persist the report
+
+Save it to `review_output_path` exactly as in the primary path's step 4 (header + report body), then tell the user where it landed.
 
 ---
 
@@ -129,7 +159,7 @@ Use `gh pr view --json number` and `gh repo view --json owner,name` to get the r
 |---|---|
 | `references/angle-a-bugs.md` | Line-by-line bugs, production caller chain trace, risk hotspots |
 | `references/angle-b-behavior.md` | Removed behavior / dropped guards, SOLID compliance |
-| `references/angle-c-sibling.md` | Cross-file contract breaks, structural sibling check |
+| `references/angle-c-sibling.md` | Cross-file contract breaks, structural sibling check, serialization/state-field round-trip (export↔import key symmetry, producer→consumer path trace) |
 | `references/angle-d-cleanup.md` | Reuse/DRY, complexity tooling, idiomatic patterns, altitude |
 | `references/angle-e-tests.md` | Tests design, counter-factual check per AC |
 | `references/angle-f-standards.md` | Standards crosswalk with citations, error handling, security |

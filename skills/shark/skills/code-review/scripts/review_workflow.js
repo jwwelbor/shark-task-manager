@@ -11,11 +11,15 @@ export const meta = {
 // Required: diff_path, changed_files (array), project_root, skill_dir
 // Optional: task_spec_path, feature_prd_path, acceptance_criteria (array of {ac_id, text})
 
-const { diff_path, changed_files, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria } = args
+const { diff_path, changed_files, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = args
 
 if (!diff_path || !skill_dir) {
   throw new Error('review_workflow.js requires args.diff_path and args.skill_dir')
 }
+
+// Effort flows from the /code-review <level> token (low|medium|high|xhigh|max).
+// Higher effort = deeper per-angle reasoning and broader coverage. Undefined → inherit session effort.
+const reviewEffort = effort || undefined
 
 const fileList = Array.isArray(changed_files) ? changed_files.slice(0, 30).join('\n') : String(changed_files || '')
 const refsDir = `${skill_dir}/references`
@@ -82,12 +86,12 @@ const specContext = [
 ].filter(Boolean).join('\n')
 
 const angleResults = await parallel([
-  () => agent(preamble('angle-a-bugs.md'),                          { label: 'A: bugs + caller chains',  phase: 'Review', schema: FINDING_SCHEMA }),
-  () => agent(preamble('angle-b-behavior.md'),                      { label: 'B: removed behavior + SOLID', phase: 'Review', schema: FINDING_SCHEMA }),
-  () => agent(preamble('angle-c-sibling.md'),                       { label: 'C: cross-file + sibling',  phase: 'Review', schema: FINDING_SCHEMA }),
-  () => agent(preamble('angle-d-cleanup.md'),                       { label: 'D: reuse + complexity',    phase: 'Review', schema: FINDING_SCHEMA }),
-  () => agent(preamble('angle-e-tests.md', specContext),            { label: 'E: tests + counter-factual', phase: 'Review', schema: FINDING_SCHEMA }),
-  () => agent(preamble('angle-f-standards.md'),                     { label: 'F: standards crosswalk',   phase: 'Review', schema: FINDING_SCHEMA }),
+  () => agent(preamble('angle-a-bugs.md'),                          { label: 'A: bugs + caller chains',  phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
+  () => agent(preamble('angle-b-behavior.md'),                      { label: 'B: removed behavior + SOLID', phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
+  () => agent(preamble('angle-c-sibling.md'),                       { label: 'C: cross-file + sibling',  phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
+  () => agent(preamble('angle-d-cleanup.md'),                       { label: 'D: reuse + complexity',    phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
+  () => agent(preamble('angle-e-tests.md', specContext),            { label: 'E: tests + counter-factual', phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
+  () => agent(preamble('angle-f-standards.md'),                     { label: 'F: standards crosswalk',   phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
 ])
 
 const allFindings = angleResults
@@ -115,6 +119,6 @@ Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
 Read that file completely, then execute the consolidation and produce the full markdown report.
 Return the report as plain text (markdown). No JSON wrapper.`
 
-const report = await agent(consolidatorPreamble, { label: 'consolidator', phase: 'Consolidate' })
+const report = await agent(consolidatorPreamble, { label: 'consolidator', phase: 'Consolidate', effort: reviewEffort })
 
 return report
