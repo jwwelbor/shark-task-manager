@@ -705,7 +705,11 @@ func legacyInstructionLiterals(rel, content string) []string {
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, match := range matches {
-		if match == "in_progress" && filepath.ToSlash(rel) == "prompts/tech_debt/in_progress.md" {
+		// `in_progress` is tech-debt's canonical current status, not removed
+		// legacy language. Exempt it anywhere under the tech-debt namespace
+		// (not just the single prompts/tech_debt/in_progress.md file) so
+		// sibling tech-debt prompts/agents may legitimately reference it.
+		if match == "in_progress" && isTechDebtScopedPath(rel) {
 			continue
 		}
 		if seen[match] {
@@ -715,6 +719,18 @@ func legacyInstructionLiterals(rel, content string) []string {
 		out = append(out, match)
 	}
 	return out
+}
+
+// isTechDebtScopedPath reports whether rel lives under the tech-debt namespace
+// (a `tech_debt` or `tech-debt` path segment). Used to exempt the canonical
+// `in_progress` status from the legacy-literal scan.
+func isTechDebtScopedPath(rel string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == "tech_debt" || seg == "tech-debt" {
+			return true
+		}
+	}
+	return false
 }
 
 // isExtractedSidecar reports whether path lies inside an `_extracted/`

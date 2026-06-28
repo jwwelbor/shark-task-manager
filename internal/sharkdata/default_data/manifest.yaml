@@ -33,7 +33,7 @@ prompt_namespaces:
 # validator exempts exactly these paths from the "prompt path must start with
 # the workflow's own entity slug" rule. Both are 3-line wrappers over the
 # _partials/_code_review_process and _partials/_qa_process fragments and are
-# referenced by the task, bug, and change workflows.
+# referenced by the bug and change workflows.
 shared_prompt_allowlist:
   - _shared/code_review.md
   - _shared/qa.md
