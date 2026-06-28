@@ -13,30 +13,25 @@ READ:
 
 SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
 
-1. Quality gates (always run, fast):
-   - `cd backend && make fmt && make lint`
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
 
-2. Targeted unit tests:
+2. **Targeted unit tests:**
    - Union all changed source files from git diff AND from all task Scope sections
-   - Map each to its test counterpart(s) under backend/tests/unit/
-     - backend/app/services/X.py → backend/tests/unit/services/test_X.py
-     - backend/app/api/X.py → backend/tests/unit/api/test_X.py
-     - backend/app/db/models/X.py → backend/tests/unit/db/
+   - Map each to its test counterpart(s) using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
    - Add any tests explicitly named in the feature test-plan ACs
-   - Run: `cd backend && uv run pytest <all-paths> -x --tb=short`
+   - Run only those with the project's test runner
 
-3. Targeted integration tests (only if changeset crosses an integration seam):
-   - DB migration / schema change → backend/tests/integration/db/ + tests using the changed table
-   - API endpoint change → backend/tests/integration/api/ for that route
+3. **Targeted integration tests (only if changeset crosses an integration seam):**
+   - DB migration / schema change → corresponding integration tests and tests using the changed table
+   - API endpoint change → integration tests for that route
    - Service contract change → tests for the consumer
-   - Cross-feature I-## contract → run the shared contract test named in the
-     feature spec and test-plan pointer
+   - Cross-feature I-## contract → run the shared contract test named in the feature spec and test-plan pointer
    - Pure intra-service or doc-only changes → skip
 
-4. Sanity spot-check (only if changes are broad across a shared module):
-   - `cd backend && uv run pytest tests/unit -x --tb=short`
+4. **Sanity spot-check (only if changes are broad across a shared module):**
+   - Run the project's unit suite using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo
 
-DO NOT RUN: make test / full integration suite / codex red-team (UAT owns red-team)
+DO NOT RUN: full integration suite / codex red-team (UAT owns red-team)
 
 VALIDATE:
 - Quality gates pass (fmt, lint)

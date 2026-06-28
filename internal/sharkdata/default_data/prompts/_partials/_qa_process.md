@@ -8,31 +8,26 @@ READ:
 (5) Implementation code and existing test results
 (6) `git diff` of the task's changes to derive the actual touched paths
 
-SCOPED TEST RUN (use this — do NOT run `make test` / full integration suite):
+SCOPED TEST RUN (single pass; do NOT run the full suite):
 
-The full integration suite has many pre-existing failures unrelated to any single task. Running it adds 20–40 minutes of wall time and produces noise that obscures real regressions. Instead:
+The full integration suite may have pre-existing failures unrelated to any single task. Running it adds significant wall time and produces noise that obscures real regressions. Instead:
 
-1. **Quality gates (always run, fast):**
-   - `cd backend && make fmt && make lint`
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
 
 2. **Targeted unit tests (always run):**
    - Identify changed source files from `git diff` AND from the task's Scope section
-   - Map each changed source file to its test counterparts under `backend/tests/unit/`
-     - `backend/app/services/X.py` → `backend/tests/unit/services/test_X.py` (and any `tests/unit/services/<subdir>/`)
-     - `backend/app/api/X.py` → `backend/tests/unit/api/test_X.py`
-     - `backend/app/db/models/X.py` → `backend/tests/unit/db/`
+   - Map each changed source file to its test counterparts using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
    - Add any tests explicitly named in the task's Test Cases / Acceptance Criteria
-   - Run them: `cd backend && uv run pytest <paths> -x --tb=short`
+   - Run only those with the project's test runner
 
 3. **Targeted integration tests (run only if the change crosses an integration seam):**
-   - DB migration / schema change → corresponding `backend/tests/integration/db/` and any test using the changed table
-   - API endpoint change → `backend/tests/integration/api/` for that route
+   - DB migration / schema change → corresponding integration tests and any test using the changed table
+   - API endpoint change → integration tests for that route
    - Service contract change consumed by another service → tests for the consumer
    - If the change is purely intra-service or doc/comment-only, **skip integration tests entirely**
-   - Run with: `cd backend && uv run pytest <paths> -x --tb=short`
 
 4. **Sanity unit-suite spot-check (only if changes are broad):**
-   - For changes touching a shared module / interface used by many consumers, run the full unit suite once: `cd backend && uv run pytest tests/unit -x --tb=short` (~40s)
+   - For changes touching a shared module / interface used by many consumers, run the project's full unit suite once (using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo)
    - For localized changes (single service / single API route / doc-only), skip this — the targeted run above is sufficient.
 
 VALIDATE:
@@ -43,9 +38,8 @@ VALIDATE:
 - No regressions in the targeted scope
 
 DO NOT RUN:
-- `make test` / `scripts/ramtest.sh` (runs full integration suite — too slow for per-task QA)
-- Codex red-team (UAT owns red-team; running it here is redundant and costs ~5 min when it times out)
-- Manual `make test-performance` unless the task explicitly modifies code paths timed by performance tests
+- Full integration suite (too slow for per-task QA; may have pre-existing failures)
+- Codex red-team (UAT owns red-team; running it here is redundant)
 
 PRODUCE QA report at {{.review_base}}qa/`<timestamp>`-{{.id}}-qa.md:
 - Verdict: PASS or FAIL

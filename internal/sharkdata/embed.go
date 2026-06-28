@@ -333,6 +333,19 @@ func ValidateAt(dataRoot string) (*ValidationReport, error) {
 	validatePromptIncludes(dest, report)
 	validateSkillFrontmatter(filepath.Join(dest, "skills"), report)
 
+	// Lightweight bundle validators — pure file/string/YAML, no workflow
+	// package import. Load the manifest once and share it across all four. A
+	// present-but-unparseable manifest is itself a validation error; an absent
+	// one (manifest == nil, err == nil) lets the validators use built-in defaults.
+	manifest, manifestErr := loadBundleManifest(dest)
+	if manifestErr != nil {
+		report.AddIssue(IssueLevelError, "manifest.yaml", fmt.Sprintf("failed to load manifest: %v", manifestErr))
+	}
+	workflowDir := filepath.Join(dest, "workflow")
+	validateCrossEntityPromptPrefix(workflowDir, manifest, report)
+	validateHostLocalPaths(dest, report)
+	validateUnreferencedPrompts(workflowDir, dest, manifest, report)
+
 	return report, nil
 }
 
@@ -697,7 +710,11 @@ func legacyInstructionLiterals(rel, content string) []string {
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, match := range matches {
-		if match == "in_progress" && filepath.ToSlash(rel) == "prompts/tech_debt/in_progress.md" {
+		// `in_progress` is tech-debt's canonical current status, not removed
+		// legacy language. Exempt it anywhere under the tech-debt namespace
+		// (not just the single prompts/tech_debt/in_progress.md file) so
+		// sibling tech-debt prompts/agents may legitimately reference it.
+		if match == "in_progress" && isTechDebtScopedPath(rel) {
 			continue
 		}
 		if seen[match] {
@@ -707,6 +724,18 @@ func legacyInstructionLiterals(rel, content string) []string {
 		out = append(out, match)
 	}
 	return out
+}
+
+// isTechDebtScopedPath reports whether rel lives under the tech-debt namespace
+// (a `tech_debt` or `tech-debt` path segment). Used to exempt the canonical
+// `in_progress` status from the legacy-literal scan.
+func isTechDebtScopedPath(rel string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == "tech_debt" || seg == "tech-debt" {
+			return true
+		}
+	}
+	return false
 }
 
 // isExtractedSidecar reports whether path lies inside an `_extracted/`
@@ -830,6 +859,38 @@ func validateSkillFrontmatter(skillsDir string, report *ValidationReport) {
 			// reject. Surface as a warning so authors see it, but don't fail
 			// validation.
 			report.AddIssue(IssueLevelWarning, relTo(filepath.Dir(skillsDir), path), fmt.Sprintf("frontmatter is not strict YAML: %v (informational only; engine strips frontmatter at render time)", err))
+		} else if raw != nil {
+			// Validator #4 — Skill frontmatter slug checks.
+			skillRelPath := relTo(filepath.Dir(skillsDir), path)
+			dirSlug := filepath.Base(filepath.Dir(path))
+			// Legacy key: skill_name was the old field name; the canonical field
+			// is now name:, which must equal the skill's directory basename.
+			if _, hasLegacy := raw["skill_name"]; hasLegacy {
+				report.AddIssue(
+					IssueLevelError,
+					skillRelPath,
+					fmt.Sprintf("legacy `skill_name:` key; use `name: %s`", dirSlug),
+				)
+			}
+			// name: must match the directory slug so the manifest validator and
+			// future bundle tooling can cross-check without parsing YAML.
+			if nameVal, hasName := raw["name"]; hasName {
+				nameStr, ok := nameVal.(string)
+				switch {
+				case !ok:
+					report.AddIssue(
+						IssueLevelError,
+						skillRelPath,
+						"skill `name:` must be a string",
+					)
+				case nameStr != dirSlug:
+					report.AddIssue(
+						IssueLevelError,
+						skillRelPath,
+						fmt.Sprintf("skill `name:` %q must equal directory slug %q", nameStr, dirSlug),
+					)
+				}
+			}
 		}
 		return nil
 	})
@@ -862,4 +923,324 @@ func CopyEmbeddedTreeForTest() ([]string, error) {
 		return nil
 	})
 	return paths, err
+}
+
+// ============================================================================
+// Bundle validators — Validators #1–#3 and shared helpers.
+// These are pure file/string/YAML checks; they intentionally do NOT import
+// internal/config/workflow to avoid the production import edge.
+// ============================================================================
+
+// bundleManifest is the decoded form of manifest.yaml. It declares the
+// bundle's structural intent (prompt namespaces, shared allowlist, skills) for
+// the cross-entity validators. It has no runtime effect: the dispatch/render
+// path never reads it.
+type bundleManifest struct {
+	PromptNamespaces struct {
+		Entities []string `yaml:"entities"`
+		Shared   string   `yaml:"shared"`
+		Partials string   `yaml:"partials"`
+	} `yaml:"prompt_namespaces"`
+	SharedPromptAllowlist []string `yaml:"shared_prompt_allowlist"`
+	Skills                []struct {
+		Name      string `yaml:"name"`
+		Ownership string `yaml:"ownership"`
+	} `yaml:"skills"`
+}
+
+// loadBundleManifest reads and parses <dataRoot>/manifest.yaml. Returns
+// (nil, nil) when the file is absent (the manifest is optional, and the
+// cross-entity validators degrade gracefully to built-in defaults). Returns a
+// non-nil error when the file is present but unreadable or unparseable, so a
+// syntax error in the manifest surfaces as a validation failure rather than
+// being silently swallowed.
+func loadBundleManifest(dataRoot string) (*bundleManifest, error) {
+	data, err := os.ReadFile(filepath.Join(dataRoot, "manifest.yaml"))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var m bundleManifest
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// collectWorkflowPromptRefs returns a map of entity slug → all prompt/
+// instruction_template string values found in each *.yaml file in workflowDir.
+// The entity slug is the filename with the .yaml extension removed and "-"
+// replaced by "_", so "tech-debt.yaml" → "tech_debt".
+func collectWorkflowPromptRefs(workflowDir string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	entries, err := os.ReadDir(workflowDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, nil
+		}
+		return nil, fmt.Errorf("collectWorkflowPromptRefs: read dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		var slug string
+		switch {
+		case strings.HasSuffix(name, ".yaml"):
+			slug = strings.ReplaceAll(strings.TrimSuffix(name, ".yaml"), "-", "_")
+		case strings.HasSuffix(name, ".yml"):
+			slug = strings.ReplaceAll(strings.TrimSuffix(name, ".yml"), "-", "_")
+		default:
+			continue
+		}
+		full := filepath.Join(workflowDir, name)
+		data, readErr := os.ReadFile(full)
+		if readErr != nil {
+			continue
+		}
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			continue
+		}
+		var refs []string
+		collectPromptRefsFromNode(raw, &refs)
+		result[slug] = refs
+	}
+	return result, nil
+}
+
+// collectPromptRefsFromNode recursively walks v and appends string values of
+// "prompt" and "instruction_template" keys to refs.
+func collectPromptRefsFromNode(v interface{}, refs *[]string) {
+	switch node := v.(type) {
+	case map[string]interface{}:
+		for key, val := range node {
+			switch key {
+			case "prompt", "instruction_template":
+				if s, ok := val.(string); ok && s != "" {
+					*refs = append(*refs, s)
+				}
+			default:
+				collectPromptRefsFromNode(val, refs)
+			}
+		}
+	case []interface{}:
+		for _, item := range node {
+			collectPromptRefsFromNode(item, refs)
+		}
+	}
+}
+
+// validateCrossEntityPromptPrefix — Validator #1.
+// Each workflow file's prompt references must stay within its own entity
+// namespace (e.g. bug.yaml must only reference bug/* prompts). References to
+// the shared namespace (default "_shared/") or paths listed in
+// shared_prompt_allowlist are exempt.
+func validateCrossEntityPromptPrefix(workflowDir string, manifest *bundleManifest, report *ValidationReport) {
+	if _, err := os.Stat(workflowDir); err != nil {
+		return
+	}
+
+	sharedPrefix := "_shared/"
+	var allowlist []string
+	if manifest != nil {
+		if manifest.PromptNamespaces.Shared != "" {
+			sharedPrefix = strings.TrimSuffix(manifest.PromptNamespaces.Shared, "/") + "/"
+		}
+		allowlist = manifest.SharedPromptAllowlist
+	}
+
+	entries, err := os.ReadDir(workflowDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		var slug string
+		switch {
+		case strings.HasSuffix(name, ".yaml"):
+			slug = strings.ReplaceAll(strings.TrimSuffix(name, ".yaml"), "-", "_")
+		case strings.HasSuffix(name, ".yml"):
+			slug = strings.ReplaceAll(strings.TrimSuffix(name, ".yml"), "-", "_")
+		default:
+			continue
+		}
+
+		full := filepath.Join(workflowDir, name)
+		data, readErr := os.ReadFile(full)
+		if readErr != nil {
+			continue
+		}
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			continue
+		}
+		var refs []string
+		collectPromptRefsFromNode(raw, &refs)
+
+		expectedPrefix := slug + "/"
+		yamlPath := "workflow/" + name
+		for _, ref := range refs {
+			if strings.HasPrefix(ref, expectedPrefix) {
+				continue
+			}
+			if strings.HasPrefix(ref, sharedPrefix) {
+				continue
+			}
+			exempt := false
+			for _, allowed := range allowlist {
+				if ref == allowed {
+					exempt = true
+					break
+				}
+			}
+			if exempt {
+				continue
+			}
+			report.AddIssue(
+				IssueLevelError,
+				yamlPath,
+				fmt.Sprintf("workflow %q references prompt %q: expected prefix %q or shared namespace %q",
+					name, ref, expectedPrefix, sharedPrefix),
+			)
+		}
+	}
+}
+
+// hostLocalTokens are literal substrings whose presence in any shipped file
+// indicates a host-local path that will not work on other machines.
+var hostLocalTokens = []string{"/home/", "/Users/", "~/.claude", "~/.codex", "~/.nvm"}
+
+// absPathBinRE matches an absolute filesystem path whose last component is
+// "codex" or "node" (e.g. /usr/local/bin/codex). The path must be preceded by
+// start-of-string or whitespace/quote so it does not match the tail of a URL
+// like https://github.com/nodejs/node. The path itself is capture group 1.
+// The character class excludes whitespace, newlines, and quote characters to
+// avoid over-matching inside prose.
+var absPathBinRE = regexp.MustCompile(`(?:^|[\s"'\x60])(/[^\n\s"'\x60/]+(?:/[^\n\s"'\x60/]+)*/(?:codex|node)\b)`)
+
+// validateHostLocalPaths — Validator #2.
+// Walks agents/, prompts/, skills/ (skipping _extracted/ sidecars) and flags
+// any file that contains a host-local path token or an absolute path to a
+// codex/node binary. These references break portability across machines.
+func validateHostLocalPaths(dataRoot string, report *ValidationReport) {
+	for _, subdir := range []string{"agents", "prompts", "skills"} {
+		root := filepath.Join(dataRoot, subdir)
+		if _, err := os.Stat(root); err != nil {
+			continue
+		}
+		_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			if isExtractedSidecar(p) {
+				return nil
+			}
+			ext := filepath.Ext(p)
+			if ext != ".md" && ext != ".tmpl" {
+				return nil
+			}
+			data, readErr := os.ReadFile(p)
+			if readErr != nil {
+				report.AddIssue(IssueLevelError, relTo(dataRoot, p), fmt.Sprintf("read: %v", readErr))
+				return nil
+			}
+			content := string(data)
+			rel := relTo(dataRoot, p)
+
+			for _, token := range hostLocalTokens {
+				if strings.Contains(content, token) {
+					report.AddIssue(
+						IssueLevelError,
+						rel,
+						fmt.Sprintf("contains host-local path token %q", token),
+					)
+				}
+			}
+			seen := make(map[string]bool)
+			for _, match := range absPathBinRE.FindAllStringSubmatch(content, -1) {
+				if len(match) < 2 {
+					continue
+				}
+				m := match[1] // capture group 1: the path, without the leading boundary char
+				if seen[m] {
+					continue
+				}
+				seen[m] = true
+				report.AddIssue(
+					IssueLevelError,
+					rel,
+					fmt.Sprintf("contains absolute path to host binary %q", m),
+				)
+			}
+			return nil
+		})
+	}
+}
+
+// validateUnreferencedPrompts — Validator #3.
+// Enumerates every prompt file under <dataRoot>/prompts/ (excluding the
+// _partials/ subtree and _extracted/ sidecars) and emits a warning for any
+// file not referenced by any workflow YAML. Such prompts are shipped but never
+// dispatched; they add bundle weight and create maintenance risk. Warning (not
+// error) allows intentional extras while surfacing drift.
+func validateUnreferencedPrompts(workflowDir, dataRoot string, manifest *bundleManifest, report *ValidationReport) {
+	promptsDir := filepath.Join(dataRoot, "prompts")
+	if _, err := os.Stat(promptsDir); err != nil {
+		return
+	}
+	if _, err := os.Stat(workflowDir); err != nil {
+		return // no workflow dir — cannot compute refs
+	}
+
+	partialsPrefix := "_partials/"
+	if manifest != nil && manifest.PromptNamespaces.Partials != "" {
+		partialsPrefix = strings.TrimSuffix(manifest.PromptNamespaces.Partials, "/") + "/"
+	}
+
+	// Build a flat set of all prompt refs across all entity workflows.
+	promptRefs, _ := collectWorkflowPromptRefs(workflowDir)
+	referencedSet := make(map[string]bool)
+	for _, refs := range promptRefs {
+		for _, ref := range refs {
+			referencedSet[ref] = true
+		}
+	}
+
+	_ = filepath.Walk(promptsDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		if isExtractedSidecar(p) {
+			return nil
+		}
+		if filepath.Ext(p) != ".md" {
+			return nil
+		}
+		relPath, relErr := filepath.Rel(promptsDir, p)
+		if relErr != nil {
+			return nil
+		}
+		relPosix := filepath.ToSlash(relPath)
+		// Exclude _partials/ subtree — those are {{define}}/{{template}}
+		// fragments, not standalone dispatched prompts.
+		if strings.HasPrefix(relPosix, partialsPrefix) {
+			return nil
+		}
+		if !referencedSet[relPosix] {
+			report.AddIssue(
+				IssueLevelWarning,
+				"prompts/"+relPosix,
+				fmt.Sprintf("prompt %q is not referenced by any workflow YAML (shipped but never dispatched)", relPosix),
+			)
+		}
+		return nil
+	})
 }

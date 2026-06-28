@@ -61,7 +61,7 @@ Output paths come from the caller's inputs (`file_system_path`, `coding_standard
 
 ### Step 0.1: Confirm Project Root
 
-The caller supplies `project_root`. If it points to a config directory (e.g., `~/.claude/`), ask the user for the actual target project path before continuing.
+The caller supplies `project_root`. If it points to a tool/config directory (e.g., a `.claude/`, `.codex/`, or similar dotfile directory) rather than a real project, ask the user for the actual target project path before continuing.
 
 ### Step 0.2: Check for Existing Marker
 

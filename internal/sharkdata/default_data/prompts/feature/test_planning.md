@@ -30,7 +30,7 @@ PRODUCE test-plan.md:
     - Lowest allowed mock seam
     - Forbidden mocks (seams that hid prior bugs — e.g. helper-test signatures production never passes)
     - Counter-factual (one sentence: what a buggy impl would do that this test would catch)
-    See ~/.claude/skills/quality/workflows/test-planning.md Step 5.8 for guidance.
+    See skills/quality/workflows/test-planning.md Step 5.8 for guidance.
 
 (3) **Integration Scenarios**: Cross-component interactions:
     - Which components interact

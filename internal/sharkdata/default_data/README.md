@@ -12,13 +12,25 @@ materialize to disk for local customization.
 ```
 shark-data/
   prompts/                 # status prompts (.md)
+    <entity>/              # entity-owned prompts (bug, change, epic, feature, sprint, task, tech_debt)
+    _shared/               # dispatchable prompts reused across entities (see manifest)
+    _partials/             # non-standalone {{template}} fragments
   skills/                  # decoupled craft skills (output of F1)
   agents/                  # in-scope agent definitions
   workflow/                # per-entity workflow YAML
   file_templates/          # markdown skeletons for created entity files
+  manifest.yaml            # declarative structure for the bundle validators
   overrides/               # local-only — shark upgrade never touches this
   README.md                # this file
 ```
+
+## Manifest
+
+`manifest.yaml` is the declarative source of truth the bundle validators
+(`shark admin validate-data`) consult to tell intentional structure from drift:
+the prompt namespaces, the cross-entity `_shared/` prompt allowlist, and each
+skill's normalized identity slug + ownership. It declares no runtime behavior.
+Update it when adding an entity, a shared prompt, or a skill.
 
 ## Override semantics
 

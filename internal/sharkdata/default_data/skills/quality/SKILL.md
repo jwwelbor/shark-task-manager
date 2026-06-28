@@ -1,5 +1,5 @@
 ---
-skill_name: quality
+name: quality
 description: Authoritative source for all validation, code review, and quality assurance workflows. Provides consistent quality gates across all development phases.
 version: 1.0.0
 created: 2025-12-09

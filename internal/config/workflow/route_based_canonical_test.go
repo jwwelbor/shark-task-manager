@@ -28,6 +28,7 @@ func TestCanonicalWorkflows_AreRouteBased(t *testing.T) {
 		"bug":      mlw.Bug,
 		"change":   mlw.Change,
 		"techDebt": mlw.TechDebt,
+		"sprint":   mlw.Sprint,
 	}
 
 	loaded := 0
@@ -58,9 +59,9 @@ func TestCanonicalWorkflows_AreRouteBased(t *testing.T) {
 		}
 	}
 
-	// epic/feature/task/bug/change must always be present; tech-debt is also
-	// shipped as route-based here, so we expect all six.
-	if loaded < 6 {
-		t.Fatalf("expected 6 canonical route-based workflows, loaded %d", loaded)
+	// epic/feature/task/bug/change must always be present; tech-debt and sprint
+	// are also shipped as route-based here, so we expect all seven.
+	if loaded < 7 {
+		t.Fatalf("expected 7 canonical route-based workflows, loaded %d", loaded)
 	}
 }

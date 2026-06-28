@@ -65,6 +65,7 @@ Extract:
 - Framework(s) + versions
 - Key dependencies (ORM, HTTP, auth, testing)
 - Dev tooling (linters, formatters, bundlers)
+- **Quality gate commands**: from `Makefile` targets (look for `fmt`, `lint`, `test`, `check`), `package.json` `scripts` block, `pyproject.toml` `[tool.*]` sections, or CI workflow files — record the actual format/lint/unit-test/full-suite commands for the **Quality Gate** section of `tech-stack.md`
 
 ### Step 1.2: Detect Infrastructure Signals
 
@@ -127,6 +128,19 @@ Grep: "redis", "mongodb", "elasticsearch", "rabbitmq", "kafka"
 | ESLint | Linting | .eslintrc.json |
 | Prettier | Formatting | .prettierrc |
 | Jest | Testing | jest.config.ts |
+
+## Quality Gate
+
+The commands an agent must run before advancing work. Record the project's ACTUAL commands (discover from Makefile targets, package.json scripts, pyproject.toml tool config, go.mod, etc.).
+
+| Step | Command | When |
+|------|---------|------|
+| Format | {e.g. `make fmt` / `gofmt -w .` / `npm run format`} | before commit |
+| Lint | {e.g. `make lint` / `go vet ./...` / `npm run lint`} | before commit |
+| Unit tests | {e.g. `make test` / `go test ./...` / `npm test` / `uv run pytest tests/unit`} | before advancing |
+| Integration tests | {if applicable} | when crossing a seam |
+| Full suite | {the full gate, e.g. `make fmt && make lint && make test`} | before finishing a feature |
+| Frontend visual check | {if applicable} | when UI changes |
 
 ## Infrastructure
 

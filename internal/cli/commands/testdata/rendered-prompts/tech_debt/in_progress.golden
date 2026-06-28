@@ -5,6 +5,6 @@ RESUME tech debt resolution for E07-F01: "Sample feature for golden test".
 
 Category: feature | Severity: medium
 
-Check for existing resolution: review recent git changes. If resolution exists and quality gate passes (make fmt && make lint && make test), advance immediately.
+Check for existing resolution: review recent git changes. If resolution exists and the project quality gate passes (see `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo), advance immediately.
 
 Otherwise, continue with resolution per triaged instructions.

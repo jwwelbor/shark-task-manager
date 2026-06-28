@@ -5,7 +5,7 @@ Resolve tech debt {{.id}}: "{{.title}}".
 
 Category: {{.category}} | Severity: {{.severity}}
 
-Check for existing resolution: review recent git changes. If resolution exists and quality gate passes (make fmt && make lint && make test), advance immediately.
+Check for existing resolution: review recent git changes. If resolution exists and the project quality gate passes (see `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo), advance immediately.
 
 Otherwise, continue with resolution per the plan below.
 
@@ -29,10 +29,7 @@ Step 2 — RESOLVE:
 - Ensure no regressions are introduced
 
 Step 3 — QUALITY GATE (MANDATORY):
-```bash
-make fmt && make lint && make test
-```
-Fix ALL failures before advancing. No exceptions.
+Run the project's quality gate before advancing. Determine the commands from `docs/architecture/tech-stack.md` (the **Quality Gate** section), or `docs/architecture/coding-standards.md` if present. If neither exists, infer from the repo: a `Makefile` → its documented format/lint/test targets; `go.mod` → `gofmt`/`go vet ./...`/`go test ./...`; `package.json` → its format/lint/test scripts; `pyproject.toml` → the configured formatter/linter and `pytest`. Fix ALL failures before advancing. No exceptions.
 
 EXIT GATE:
 - Tech debt is resolved

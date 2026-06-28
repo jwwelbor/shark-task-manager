@@ -1,5 +1,6 @@
 ---
-name: Sprint Planning
+name: sprint-planning
+display_name: Sprint Planning
 description: Mode-aware sprint scoping skill that walks an orchestrator or human through planning a sprint by reading shark sprint plan and readiness data, proposing entity assignments, and confirming changes. Never starts the sprint — starting is an explicit user action via /run-sprint.
 ---
 

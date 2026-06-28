@@ -10,7 +10,7 @@ steps:
     responsibility: human
     action: pause
     parking: true
-    prompt: bug/blocked.md
+    prompt: change/blocked.md
   cancelled:
     phase: done
     color: red
@@ -35,7 +35,7 @@ steps:
     provider: anthropic
     model: opus
     skills: [quality]
-    prompt: task/code_review.md
+    prompt: _shared/code_review.md
     outcomes:
       blocked: blocked
       fail: development
@@ -95,7 +95,7 @@ steps:
     responsibility: human
     action: pause
     parking: true
-    prompt: bug/on_hold.md
+    prompt: change/on_hold.md
   qa:
     phase: qa
     color: blue
@@ -108,7 +108,7 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality]
-    prompt: task/qa.md
+    prompt: _shared/qa.md
     outcomes:
       blocked: blocked
       fail: development
