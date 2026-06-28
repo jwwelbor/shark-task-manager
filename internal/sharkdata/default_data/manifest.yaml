@@ -1,0 +1,67 @@
+# manifest.yaml — declarative source of truth for the embedded bundle's structure.
+#
+# This file exists to give the bundle validators (internal/sharkdata) a single
+# place to learn what is intentional vs. drift. It declares NO runtime behavior:
+# nothing in the dispatch/render path reads it. It is consumed only by
+# `shark admin validate-data` (the cross-entity prompt-prefix, shared-prompt
+# allowlist, and skill-identity checks).
+#
+# Keep it lean and declarative. When you add an entity, a shared prompt, or a
+# skill, update the matching list here so the validators stay accurate.
+version: "1.0"
+
+# Prompt namespaces under prompts/.
+#   entities  — one directory per entity; a workflow's `prompt:` must live under
+#               its own entity slug (enforced by the cross-entity validator)…
+#   shared    — …UNLESS the prompt is a genuinely-generic, entity-agnostic prompt
+#               kept here and listed in shared_prompt_allowlist below.
+#   partials  — non-standalone `{{define}}`/`{{template}}` fragments; never
+#               dispatched directly, so they are exempt from prompt-ref checks.
+prompt_namespaces:
+  entities:
+    - bug
+    - change
+    - epic
+    - feature
+    - sprint
+    - task
+    - tech_debt
+  shared: _shared
+  partials: _partials
+
+# Prompts intentionally reused across entities. The cross-entity prompt-prefix
+# validator exempts exactly these paths from the "prompt path must start with
+# the workflow's own entity slug" rule. Both are 3-line wrappers over the
+# _partials/_code_review_process and _partials/_qa_process fragments and are
+# referenced by the task, bug, and change workflows.
+shared_prompt_allowlist:
+  - _shared/code_review.md
+  - _shared/qa.md
+
+# Embedded craft skills, keyed by normalized identity slug (must equal the
+# directory name and the SKILL.md `name:` field). ownership tags the skill's
+# provenance for future provider bundles:
+#   canonical          — authored here as the source of truth (current default).
+#   mirror-of-repo-skill — a copy of a repo-level skill kept in sync elsewhere.
+#   provider-shim      — a thin provider-specific adapter.
+# There is no parallel provider bundle today, so every embedded skill is canonical.
+skills:
+  - { name: architecture, ownership: canonical }
+  - { name: assessment, ownership: canonical }
+  - { name: breakdown-test, ownership: canonical }
+  - { name: clarification, ownership: canonical }
+  - { name: content-validation, ownership: canonical }
+  - { name: cross-artifact-analysis, ownership: canonical }
+  - { name: debugging, ownership: canonical }
+  - { name: frontend-design, ownership: canonical }
+  - { name: implementation, ownership: canonical }
+  - { name: overconfidence-prevention, ownership: canonical }
+  - { name: product-design, ownership: canonical }
+  - { name: quality, ownership: canonical }
+  - { name: research, ownership: canonical }
+  - { name: specification-writing, ownership: canonical }
+  - { name: sprint-analytics, ownership: canonical }
+  - { name: sprint-execution, ownership: canonical }
+  - { name: sprint-planning, ownership: canonical }
+  - { name: test-driven-development, ownership: canonical }
+  - { name: uat, ownership: canonical }

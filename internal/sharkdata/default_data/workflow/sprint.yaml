@@ -17,6 +17,7 @@ steps:
     prompt: sprint/planning.md
     outcomes:
       pass: active
+      fail: on_hold
       blocked: on_hold
   active:
     phase: execution
@@ -33,6 +34,7 @@ steps:
     prompt: sprint/active.md
     outcomes:
       pass: closing
+      fail: on_hold
       blocked: on_hold
   closing:
     phase: review
@@ -49,6 +51,7 @@ steps:
     prompt: sprint/closing.md
     outcomes:
       pass: archived
+      fail: active
       blocked: on_hold
   archived:
     phase: done

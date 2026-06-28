@@ -61,6 +61,9 @@ func goldenVars() map[string]string {
 // shark-data/prompts/ produces one .golden file. Partials under _partials/
 // are skipped because they have no standalone rendering — they're composed
 // into the entity prompts via {{template ...}}.
+// The _shared/ directory IS covered: it holds dispatchable shared prompts
+// (e.g. code_review.md, qa.md) that are referenced by multiple entity
+// workflows and render independently.
 func TestRenderedPromptsGolden(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
@@ -73,9 +76,11 @@ func TestRenderedPromptsGolden(t *testing.T) {
 	goldenRoot := filepath.Join("testdata", "rendered-prompts")
 
 	for _, ent := range entities {
-		// Skip non-directories and the `_partials/` collection — only entity
-		// prompt directories produce dispatchable prompts.
-		if !ent.IsDir() || strings.HasPrefix(ent.Name(), "_") {
+		// Skip non-directories and the _partials/ directory (partials have no
+		// standalone rendering — they're composed into entity prompts via
+		// {{template ...}}). The _shared/ directory is NOT skipped: it contains
+		// dispatchable shared prompts that render independently.
+		if !ent.IsDir() || ent.Name() == "_partials" {
 			continue
 		}
 		entity := ent.Name()

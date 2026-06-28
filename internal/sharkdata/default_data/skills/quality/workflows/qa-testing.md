@@ -62,7 +62,9 @@ If no test plan exists:
 
 ### Step 3: Run Automated Tests
 
-Run the project's test suite scoped to this change. Use the appropriate runner (`npm test`, `pytest`, `go test`, `npx playwright test`, etc.) — choose by inspecting the project, not by guessing.
+First, consult `docs/architecture/tech-stack.md` (the **Quality Gate** section) or `docs/architecture/coding-standards.md` to determine the project's format, lint, and test commands. If neither document exists, infer from the repo: a `Makefile` → its documented format/lint/test targets; `go.mod` → `gofmt`/`go vet ./...`/`go test ./...`; `package.json` → its format/lint/test scripts; `pyproject.toml` → the configured formatter/linter and `pytest`.
+
+Run the project's test suite scoped to this change. Use the appropriate runner determined above — choose by reading the project's docs, not by guessing.
 
 Check test output for:
 

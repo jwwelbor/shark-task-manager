@@ -1,5 +1,5 @@
 ---
-skill_name: architecture
+name: architecture
 description: Authoritative source for all architecture design workflows (System, Backend, Frontend, Database, Security). Provides standardized patterns, templates, and design frameworks for consistent architecture documentation across all projects.
 version: 1.0.0
 created: 2025-12-09

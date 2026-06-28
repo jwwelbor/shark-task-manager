@@ -1,5 +1,6 @@
 ---
-name: Test-Driven Development (TDD)
+name: test-driven-development
+display_name: Test-Driven Development (TDD)
 description: Write the test first, watch it fail, write minimal code to pass (user) - when implementing any feature or bugfix, before writing implementation code
 inputs:
   - change_description: string — what feature, bugfix, refactor, or behavior change is being implemented

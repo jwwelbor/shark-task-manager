@@ -1,5 +1,6 @@
 ---
-name: Sprint Analytics
+name: sprint-analytics
+display_name: Sprint Analytics
 description: Post-close sprint retrospective analysis skill that reads shark sprint summary --detailed and velocity data, synthesizes five-section markdown retro reports with data-driven recommendations, and gates the archive operation on explicit user confirmation.
 ---
 

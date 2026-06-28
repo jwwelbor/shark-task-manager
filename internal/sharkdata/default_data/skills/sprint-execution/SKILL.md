@@ -1,5 +1,6 @@
 ---
-name: Sprint Execution
+name: sprint-execution
+display_name: Sprint Execution
 description: Solo and team sprint pull-loop skills that drive an active sprint to completion by pulling entities from shark sprint next and delegating per-entity dispatch to the existing /run (or /run-agent-team) orchestration skill.
 ---
 

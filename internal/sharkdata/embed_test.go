@@ -794,3 +794,245 @@ func assertReportHasErrorContaining(t *testing.T, report *ValidationReport, need
 	}
 	t.Fatalf("expected error containing %q; got issues: %+v", needle, report.Issues)
 }
+
+func assertReportHasWarningContaining(t *testing.T, report *ValidationReport, needle string) {
+	t.Helper()
+	require.NotNil(t, report)
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelWarning && strings.Contains(issue.Message, needle) {
+			return
+		}
+		if issue.Level == IssueLevelWarning && strings.Contains(issue.Path, needle) {
+			return
+		}
+	}
+	t.Fatalf("expected warning containing %q; got issues: %+v", needle, report.Issues)
+}
+
+// ============================================================================
+// New validator tests — Validators #1–#4
+// ============================================================================
+
+// TestValidate_FreshBundle_NoNewErrors is the regression guard: after Init,
+// Validate must report NO errors from any of the four new validators. The
+// cleaned bundle is expected to be structurally sound.
+func TestValidate_FreshBundle_NoNewErrors(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	require.NotNil(t, report)
+	for _, issue := range report.Issues {
+		assert.NotEqual(t, IssueLevelError, issue.Level,
+			"fresh init must produce zero error-level issues (new validators included); got: %+v", issue)
+	}
+}
+
+// TestValidate_CrossEntityPromptPrefix verifies that a workflow referencing a
+// prompt from another entity's namespace triggers an error.
+func TestValidate_CrossEntityPromptPrefix(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Overwrite change.yaml to reference a bug/* prompt (cross-entity drift).
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workflowDir, "change.yaml"),
+		[]byte(`version: "1.0"
+start: draft
+steps:
+  draft:
+    phase: planning
+    action: advance_status
+    prompt: bug/blocked.md
+    outcomes:
+      pass: completed
+      fail: draft
+      blocked: blocked
+  completed:
+    phase: done
+    terminal: true
+    prompt: change/completed.md
+`),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "bug/blocked.md")
+}
+
+// TestValidate_CrossEntityPromptPrefix_SharedExempt verifies that a workflow
+// referencing a _shared/ prompt is exempt from the cross-entity check.
+func TestValidate_CrossEntityPromptPrefix_SharedExempt(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Write a task.yaml referencing _shared/qa.md — this is a legitimate
+	// shared reference and must not produce a cross-entity error.
+	workflowDir := filepath.Join(root, SharkDataDirName, "workflow")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workflowDir, "task.yaml"),
+		[]byte(`version: "1.0"
+start: draft
+steps:
+  draft:
+    phase: planning
+    action: advance_status
+    prompt: task/draft.md
+    outcomes:
+      pass: qa
+      fail: draft
+      blocked: blocked
+  qa:
+    phase: qa
+    action: spawn_agent
+    agent: qa
+    prompt: _shared/qa.md
+    outcomes:
+      pass: completed
+      fail: draft
+      blocked: blocked
+  completed:
+    phase: done
+    terminal: true
+    prompt: task/completed.md
+`),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	// Must not error on the _shared/qa.md reference.
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError && strings.Contains(issue.Message, "_shared/qa.md") {
+			t.Errorf("_shared/qa.md should be exempt from cross-entity check; got: %+v", issue)
+		}
+	}
+}
+
+// TestValidate_HostLocalPath verifies that a file containing a host-local path
+// token (e.g. /home/) is flagged as an error.
+func TestValidate_HostLocalPath(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Write a host-local /home/ path into an agent file.
+	agentPath := filepath.Join(root, SharkDataDirName, "agents", "local-agent.md")
+	require.NoError(t, os.WriteFile(agentPath, []byte("See /home/developer/setup.sh for config.\n"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	var found bool
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError && strings.Contains(issue.Message, "/home/") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "host-local /home/ path should be flagged as error; got: %+v", report.Issues)
+}
+
+// TestValidate_HostLocalPath_DotfileToken verifies that ~/.claude triggers an error.
+func TestValidate_HostLocalPath_DotfileToken(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	promptPath := filepath.Join(root, SharkDataDirName, "prompts", "task", "scratch.md")
+	require.NoError(t, os.WriteFile(promptPath, []byte("Config lives at ~/.claude/settings.json\n"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	var found bool
+	for _, issue := range report.Issues {
+		if issue.Level == IssueLevelError && strings.Contains(issue.Message, "~/.claude") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "~/.claude path should be flagged as error; got: %+v", report.Issues)
+}
+
+// TestValidate_UnreferencedPrompt verifies that a prompt file with no
+// corresponding workflow reference is reported as a warning.
+func TestValidate_UnreferencedPrompt(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Add a prompt file not referenced by any workflow YAML.
+	orphanPath := filepath.Join(root, SharkDataDirName, "prompts", "bug", "orphan_xyz.md")
+	require.NoError(t, os.WriteFile(orphanPath, []byte("# Orphan prompt\nThis is never dispatched.\n"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	assertReportHasWarningContaining(t, report, "orphan_xyz.md")
+	assert.False(t, report.HasErrors(), "unreferenced prompt must produce a warning, not an error")
+}
+
+// TestValidate_UnreferencedPrompt_PartialsExempt verifies that files under
+// _partials/ are not flagged as unreferenced even when no workflow references them.
+func TestValidate_UnreferencedPrompt_PartialsExempt(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	// Add a file under _partials/ — these are template fragments, never
+	// dispatched directly.
+	partialPath := filepath.Join(root, SharkDataDirName, "prompts", "_partials", "_custom_fragment.md")
+	require.NoError(t, os.WriteFile(partialPath, []byte("{{define \"custom\"}}partial content{{end}}\n"), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+
+	for _, issue := range report.Issues {
+		assert.NotContains(t, issue.Path, "_custom_fragment.md",
+			"_partials/ files must be exempt from the unreferenced-prompt check; got: %+v", issue)
+	}
+}
+
+// TestValidate_SkillFrontmatterLegacyKey verifies that a skill using the
+// removed skill_name: key triggers an error.
+func TestValidate_SkillFrontmatterLegacyKey(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	skillPath := filepath.Join(root, SharkDataDirName, "skills", "implementation", "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath,
+		[]byte("---\nskill_name: implementation\ndescription: Replaces name with legacy key.\n---\n# Implementation\n"),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "skill_name")
+}
+
+// TestValidate_SkillFrontmatterWrongSlug verifies that a skill whose name:
+// field does not match the directory basename triggers an error.
+func TestValidate_SkillFrontmatterWrongSlug(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	skillPath := filepath.Join(root, SharkDataDirName, "skills", "implementation", "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath,
+		[]byte("---\nname: wrong-skill-name\ndescription: Mismatched slug.\n---\n# Implementation\n"),
+		0644,
+	))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	assertReportHasErrorContaining(t, report, "wrong-skill-name")
+}

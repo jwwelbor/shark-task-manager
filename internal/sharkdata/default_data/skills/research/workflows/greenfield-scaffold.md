@@ -153,6 +153,19 @@ Based on confirmed stack + web research:
 |------|---------|--------|
 | {tool} | {purpose} | {config file} |
 
+## Quality Gate
+
+The commands an agent must run before advancing work. Populate with the recommended commands for the chosen stack.
+
+| Step | Command | When |
+|------|---------|------|
+| Format | {e.g. `make fmt` / `gofmt -w .` / `npm run format`} | before commit |
+| Lint | {e.g. `make lint` / `go vet ./...` / `npm run lint`} | before commit |
+| Unit tests | {e.g. `make test` / `go test ./...` / `npm test` / `uv run pytest tests/unit`} | before advancing |
+| Integration tests | {if applicable} | when crossing a seam |
+| Full suite | {the full gate, e.g. `make fmt && make lint && make test`} | before finishing a feature |
+| Frontend visual check | {if applicable} | when UI changes |
+
 ## Rationale
 
 {Why this stack was chosen — domain fit, team experience, ecosystem maturity}

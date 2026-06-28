@@ -72,14 +72,14 @@ Write the evidence compilation to `docs/uat/<epic-key>/results/UAT-<feature-key>
 
 **THIS IS THE MOST IMPORTANT PHASE. DO NOT SKIP IT. DO NOT PROCEED WITHOUT IT.**
 
-**Codex IS installed.** Path: `/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex`. Do NOT check `which codex` or test availability — just run the command directly.
+**Codex is invoked from your `PATH`.** Run `codex` directly; if it is not found, report that codex is unavailable rather than failing silently. (A machine-specific path or wrapper can be set in `shark-data/overrides/`.)
 
 **WHY THIS EXISTS:** Claude-based agents have shared blind spots. The UAT agent (Claude) reviewing work done by developer (Claude), tech-lead (Claude), and QA (Claude) creates a monoculture where systemic errors pass through every gate. Codex (GPT) provides an independent perspective that catches integration gaps, wiring failures, and contract mismatches that Claude agents consistently miss. In prior incidents, Codex found CRITICAL issues (unwired pipelines, missing call sites, contract mismatches) that the UAT agent rated as "non-blocking."
 
 Codex runs in `read-only` mode with full filesystem access. Give it **file paths** — it will read and verify the artifacts itself. This is better than pasting content because codex can also cross-check the actual implementation code against the QA/review claims.
 
 ```bash
-codex exec -m gpt-5.2-codex -s read-only \
+codex exec -s read-only \
   -c model_reasoning_effort=high \
   --skip-git-repo-check \
   "You are performing an independent red-team UAT review.

@@ -26,9 +26,9 @@ Store as `SPRINT_KEY`, `TEAM_SIZE`, `FEATURE_FILTER` (parsed as a set of feature
 
 ## Step 1: Preconditions (inherited from `/run-agent-team`)
 
-Run all preconditions from `~/.claude/skills/orchestration/workflows/run-agent-team.md` (Preconditions section), in order, before doing any sprint or entity work:
+Run all preconditions from the run-agent-team orchestration workflow (Preconditions section), in order, before doing any sprint or entity work:
 
-1. **Env var enabled.** Verify `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set in `~/.claude/settings.json` (`env` block) or shell environment. If missing, instruct the user to add it and restart Claude Code. **Abort.**
+1. **Env var enabled.** Verify `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set in your Claude Code settings (`env` block) or shell environment. If missing, instruct the user to add it and restart Claude Code. **Abort.**
 2. **Version.** `claude --version` must be ≥ `2.1.32`. If older, **abort.**
 3. **Branch.** `git branch --show-current` — on `main`/`master` or unrelated branch, **ask the user** before continuing. If user declines, **abort.**
 4. **Worktree clean.** `.git/MERGE_HEAD` must not exist. `git status --porcelain` should be empty or only contain expected work-in-progress. If dirty in unexpected ways, **abort.**

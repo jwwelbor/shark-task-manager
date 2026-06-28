@@ -1,5 +1,5 @@
 ---
-skill_name: specification-writing
+name: specification-writing
 description: Authoritative source for all specification document generation workflows (Epics, Feature PRDs, Tasks). Provides standardized templates, procedures, and naming conventions for consistent documentation across all projects.
 version: 2.0.0
 inputs:

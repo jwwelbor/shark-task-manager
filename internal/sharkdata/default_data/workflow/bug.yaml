@@ -34,7 +34,7 @@ steps:
     provider: anthropic
     model: opus
     skills: [quality]
-    prompt: task/code_review.md
+    prompt: _shared/code_review.md
     outcomes:
       blocked: blocked
       fail: development
@@ -84,6 +84,7 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: development
+    aliases: [reported]
   on_hold:
     phase: paused
     color: gray
@@ -106,25 +107,9 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality]
-    prompt: task/qa.md
+    prompt: _shared/qa.md
     outcomes:
       blocked: blocked
       fail: development
       on_hold: on_hold
       pass: completed
-  reported:
-    phase: planning
-    color: gray
-    display_token: RPT
-    description: "Bug reported, not yet started"
-    progress_weight: 0
-    responsibility: none
-    is_planning: true
-    action: advance_status
-    prompt: bug/draft.md
-    outcomes:
-      blocked: blocked
-      cancelled: cancelled
-      fail: draft
-      on_hold: on_hold
-      pass: development
