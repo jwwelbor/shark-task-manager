@@ -24,7 +24,7 @@ It does NOT decide which sprint strategy to use. It reads capacity and readiness
 /shark plan-sprint S###  --max-add=N          # Limit total entities added this session
 ```
 
-See: `workflows/plan-sprint.md` for the full step-by-step workflow.
+**Read `workflows/plan-sprint.md`** to get the full step-by-step workflow procedure.
 
 ## Modes
 

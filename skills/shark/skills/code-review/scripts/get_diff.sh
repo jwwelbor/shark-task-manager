@@ -65,7 +65,8 @@ review_match=""
 if [ -d "$review_root" ]; then
   review_match=$(find "$review_root" -maxdepth 2 -type d -name "$branch_slug" 2>/dev/null | head -1)
   if [ -z "$review_match" ]; then
-    feature_key=$(printf '%s' "$branch_slug" | grep -oE '^E[0-9]+-F[0-9]+' || true)
+    # Remove the ^-anchor so GitFlow-prefixed branches (feature/E07-F01-x → feature-E07-F01-x) also match
+    feature_key=$(printf '%s' "$branch_slug" | grep -oE 'E[0-9]+-F[0-9]+' | head -1)
     if [ -n "$feature_key" ]; then
       review_match=$(find "$review_root" -maxdepth 2 -type d -name "${feature_key}-*" 2>/dev/null | head -1)
     fi

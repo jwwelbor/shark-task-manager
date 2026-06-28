@@ -75,7 +75,7 @@ Store the full JSON response as `VELOCITY`. Key fields to extract:
   ```
   variance_pct = abs(this_sprint_velocity - trailing_average) / trailing_average * 100
   ```
-  If `trailing_average` is 0, set `variance_pct = null` (cannot compute).
+  If `trailing_average` is 0 or null (no prior sprints available), set `variance_pct = null` (cannot compute).
 
 ### 2c. Carryover and Rejection Notes
 
@@ -104,10 +104,11 @@ Apply the five pattern-match rules below against the collected data. For each ru
 - **Recommendation**: `"Sprint included {N} entity/entities with size ≥ 8 (XL or larger). Consider splitting XL+ entities into smaller tasks before next sprint planning to reduce cycle-time variance."`
 
 **Rule 3 — High carryover rate** (signal: high if carryover > 30% of planned):
+- **Pre-condition guard**: if `SUMMARY.planned_count == 0`, skip Rule 3 entirely (no planned entities → carryover rate undefined).
 - **Condition**: `SUMMARY.carryover_count / SUMMARY.planned_count > 0.30`
 - **Recommendation**: `"Carryover rate was {carryover_pct:.0f}% ({SUMMARY.carryover_count} of {SUMMARY.planned_count} planned entities) — scope was too aggressive. Consider a capacity buffer of ~{buffer_pct:.0f}% in next sprint planning."`
   - Compute `carryover_pct = carryover_count / planned_count * 100`
-  - Compute `buffer_pct` as the inverse of completion rate: `(1 - completed_count/planned_count) * 100` rounded up to nearest 5%.
+  - Compute `buffer_pct = carryover_count / planned_count * 100` rounded up to nearest 5%. Clamp to `[0, 100]`. (Uses only carryover, not rejected entities, since rejected work has no bearing on capacity estimation.)
 
 **Rule 4 — Phase cycle-time imbalance** (signal: high if any phase is > 2× another):
 - **Condition**: `SUMMARY.cycle_times_by_phase` is not null AND any phase cycle time exceeds 2× any other phase's cycle time

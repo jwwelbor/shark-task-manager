@@ -28,13 +28,14 @@ Both modes gate the sprint close operation on explicit user confirmation.
 /shark run-sprint S### --max-iterations=N           # Cap loop at N (default 50)
 /shark run-sprint S### --carryover=backlog          # Carryover strategy if user confirms close
 
-/shark run-sprint-team S###                         # Team execution, one feature at a time
-/shark run-sprint-team S### --size=N                # Override teammate count per feature team
-/shark run-sprint-team S### --features=E##-F##,...  # Restrict to specific features
+/shark run-sprint-team S###                                    # Team execution, one feature at a time
+/shark run-sprint-team S### --size=N                           # Override teammate count per feature team
+/shark run-sprint-team S### --features=E##-F##,...             # Restrict to specific features
+/shark run-sprint-team S### --carryover=backlog                # Carryover strategy if user confirms close
 ```
 
-See: `workflows/run-sprint.md` for the solo pull-loop workflow.
-See: `workflows/run-sprint-team.md` for the team execution workflow.
+**Read `workflows/run-sprint.md`** to get the solo pull-loop step-by-step procedure.
+**Read `workflows/run-sprint-team.md`** to get the team execution step-by-step procedure.
 
 ## Key Design Decisions
 

@@ -17,7 +17,7 @@ Parse `$ARGUMENTS`:
    Do not call any shark commands.
 4. Parse optional flags:
    - `--size=N` (default: not set — passed through to each `/run-agent-team` invocation as-is)
-   - `--features=E##-F##[,E##-F##,...]` (default: not set — dispatch all feature groups)
+   - `--features=E##-F##[,E##-F##,...][,standalone]` (default: not set — dispatch all feature groups and standalone entities). Include the literal keyword `standalone` in the list to include standalone entities (bugs, change-cards, tech-debt without a feature parent) when the filter is active; without it, the filter excludes standalones.
    - `--carryover=<value>` (default: not set — omit from `shark sprint close` if absent)
 
 Store as `SPRINT_KEY`, `TEAM_SIZE`, `FEATURE_FILTER` (parsed as a set of feature keys), `CARRYOVER_VALUE`.

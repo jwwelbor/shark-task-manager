@@ -33,6 +33,15 @@ Parse the JSON response:
 
 **If status is `planning`**: proceed silently.
 
+**If status is `active`**:
+- Print an advisory:
+  ```
+  Note: Sprint {S###} is already active. Adding entities to an active sprint is allowed but unusual.
+  Continue? (yes/no)
+  ```
+- If user says **no**: exit cleanly. Do not call any further shark commands.
+- If user says **yes**: continue to Step 2.
+
 **If status is NOT in `{planning, active}`**:
 - Print an advisory:
   ```
@@ -41,8 +50,6 @@ Parse the JSON response:
   ```
 - If user says **no**: exit cleanly. Do not call any further shark commands.
 - If user says **yes**: continue to Step 2.
-
-**If sprint is `active`**: treat the same as non-planning — show advisory, ask to continue.
 
 ---
 
@@ -117,7 +124,8 @@ Exit.
    - Sort backlog by: `priority` descending, then `size` ascending (smaller entities that fit first).
    - For each agent type, maintain a running allocated total starting at 0.
    - Iterate through the sorted backlog:
-     - If `capacity_by_agent[entity.agent_type] - allocated[entity.agent_type] >= entity.size`:
+     - If `entity.size == 0` (unsized): mark as SKIPPED with reason "unsized — excluded from capacity calculation". Do not increment allocated.
+     - Else if `capacity_by_agent[entity.agent_type] - allocated[entity.agent_type] >= entity.size`:
        - Mark entity as SELECTED.
        - Increment `allocated[entity.agent_type]` by `entity.size`.
      - Else: mark entity as SKIPPED (over capacity for that agent type).

@@ -22,7 +22,7 @@ It does NOT execute sprint work. It does NOT modify sprint state (other than an 
 /shark retro-sprint S### --no-write    # Print report to stdout; do not write to disk
 ```
 
-See: `workflows/retro-sprint.md` for the full step-by-step workflow.
+**Read `workflows/retro-sprint.md`** to get the full step-by-step workflow procedure.
 
 ## The Five Sections
 
