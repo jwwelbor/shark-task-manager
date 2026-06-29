@@ -15,7 +15,7 @@ Usage: `/shark brownfield-analysis [path]`
 
 ## Notes
 
-- For a lightweight bootstrap of `docs/architecture/` as part of `project-init`, the
+- For a lightweight bootstrap of `docs/architecture/` as part of `/shark project bootstrap`, the
   bundle's `research/workflows/brownfield-analysis.md` is used automatically — you do
   not need to invoke this verb for that flow.
 - This verb runs the comprehensive standalone methodology (10 analysis areas, ~10–20

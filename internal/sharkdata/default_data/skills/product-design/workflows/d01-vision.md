@@ -39,6 +39,8 @@ Work through these in order. Each answer informs the next question.
 **7. Constraints**
 > "What are the hard limits — budget, timeline, technology, regulatory, or team?"
 
+If `docs/architecture/tech-stack.md` already exists (a brownfield project, or a greenfield stack already scaffolded), name it here as a candidate constraint: "The project already runs on {stack from tech-stack.md} — is that a hard limit for this initiative?" Capture the answer as a constraint. Do **not** start designing the stack — Principle 4 still holds: the stack lives in `docs/architecture/`, and D04 feasibility is where it gets tested. This only surfaces an existing fact as a stated limit so D04 inherits it.
+
 **8. Assumptions and Risks**
 > "What are you assuming to be true that hasn't been verified? What's the biggest risk to this initiative?"
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/parser"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
@@ -54,8 +55,9 @@ type BundleContent struct {
 // BundleContentEntry is one logical list item after source precedence is
 // applied.
 type BundleContentEntry struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Description string `json:"description,omitempty"`
 }
 
 // BundleContentNotFoundError reports that no bundle layer contained the
@@ -195,7 +197,24 @@ func (s *BundleContentService) List(ctx context.Context, kind BundleContentKind)
 
 	result := make([]BundleContentEntry, 0, len(names))
 	for _, name := range names {
-		result = append(result, entries[name])
+		entry := entries[name]
+		if displayPath, pathErr := defaultBundleContentPath(bundleKind, name, ""); pathErr == nil {
+			candidates := s.lookupCandidates(bundleKind, name, displayPath)
+			for _, candidate := range candidates {
+				data, readErr := s.readCandidate(candidate)
+				if readErr != nil {
+					if errors.Is(readErr, fs.ErrNotExist) {
+						continue
+					}
+					continue // try next candidate on other I/O errors
+				}
+				if fm, fmErr := parser.ParseFrontmatter(string(data)); fmErr == nil && fm != nil {
+					entry.Description = fm.Description
+				}
+				break
+			}
+		}
+		result = append(result, entry)
 	}
 	return result, nil
 }

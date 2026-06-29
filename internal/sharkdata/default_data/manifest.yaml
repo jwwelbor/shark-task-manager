@@ -53,6 +53,7 @@ skills:
   - { name: content-validation, ownership: canonical }
   - { name: cross-artifact-analysis, ownership: canonical }
   - { name: debugging, ownership: canonical }
+  - { name: feature-design, ownership: canonical }
   - { name: frontend-design, ownership: canonical }
   - { name: implementation, ownership: canonical }
   - { name: overconfidence-prevention, ownership: canonical }

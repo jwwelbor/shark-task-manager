@@ -546,9 +546,9 @@ All four output documents:
 
 ## Scope note
 
-This workflow is the **lightweight `project-init` bootstrap**: it reverse-engineers the four
+This workflow is the **lightweight bootstrap**: it reverse-engineers the four
 `docs/architecture/` foundation documents (`tech-stack.md`, `patterns-catalog.md`,
-`integration-map.md`, `architecture-overview.md`) as Groups B+C of the `project-init` flow.
+`integration-map.md`, `architecture-overview.md`) as Groups B+C of the bootstrap flow.
 
 For a comprehensive enterprise handoff — full technical debt audit, security assessment, migration
 readiness, behavior documentation, and ~10–20 output documents — use the standalone

@@ -143,6 +143,7 @@ func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {
 	}
 
 	assert.Equal(t, "override", sourcesByName["triage"])
+	assert.Equal(t, "embedded", sourcesByName["feature-design"])
 	assert.Equal(t, "embedded", sourcesByName["implementation"])
 
 	var seenTriage int

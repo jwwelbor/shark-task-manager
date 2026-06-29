@@ -1,16 +1,16 @@
 ---
 inputs:
   - project_root: absolute path to the project being initialized
-  - output_dir: absolute path to the architecture docs directory (where the 7 output files are written)
+  - output_dir: absolute path to the architecture docs directory (where the output files are written)
   - file_system_path: absolute path for file-system.md
   - coding_standards_path: absolute path for coding-standards.md
   - tech_stack_path: absolute path for tech-stack.md
   - architecture_overview_path: absolute path for architecture-overview.md
   - patterns_catalog_path: absolute path for patterns-catalog.md
   - integration_map_path: absolute path for integration-map.md
-  - marker_path: absolute path for the project-init marker file
+  - marker_path: absolute path for the bootstrap marker file
   - existing_marker: parsed marker contents from a prior run (null if first run)
-  - rerun_choice: fill-gaps | regenerate-all | cancel (null if no prior marker)
+  - rerun_choice: fill-gaps | regenerate-all | reconcile-stack | cancel (null if no prior marker)
   - host_state_status: free-form string the wrapper wants recorded in the marker (e.g. "shark: initialized", "none") — workflow does not interpret this
   - generation_date: ISO date for marker and document headers
 outputs:
@@ -21,28 +21,32 @@ outputs:
   - generated_files: list of {path, status: created | updated | skipped | failed}
   - inferred_decisions: list of architectural decisions inferred during analysis (for ADR seeding)
   - idea_readiness: 1 | 2 | 3 | null (only set for greenfield)
+  - stack_revisions: list of {doc, was, now, driver} entries when a greenfield reconcile ran (null otherwise)
   - next_step_hint: short string the host can surface to the user (e.g. "ready for vision", "ready for brainstorming")
 ---
 
-# Workflow: Project Init Orchestrator
+# Workflow: Bootstrap Orchestrator
 
 **Purpose**: Detect brownfield vs greenfield, route to the correct track, and produce a stable set of architecture foundation files
 **Use for**: Project bootstrapping at the start of a new repository or before formal planning begins
-**Output**: 7 files in the caller-supplied architecture directory (see Output Contract below)
+**Output**: Architecture docs in the caller-supplied directory (see Output Contract below)
 
 ## Output Contract
 
-| File | Purpose |
-|------|---------|
-| `file-system.md` | Project structure map |
-| `coding-standards.md` | Enforceable code rules with examples |
-| `tech-stack.md` | Languages, frameworks, versions, rationale |
-| `architecture-overview.md` | Components, boundaries, data flow |
-| `patterns-catalog.md` | Design patterns with file:line refs |
-| `integration-map.md` | APIs, data stores, external services |
-| `project-init.md` | Marker file: track, date, stack summary, file status |
+| File | Purpose | When created |
+|------|---------|--------------|
+| `file-system.md` | Project structure map | Brownfield, greenfield readiness 1 or 3 |
+| `coding-standards.md` | Enforceable code rules with examples | Brownfield, greenfield readiness 1 or 3 |
+| `tech-stack.md` | Languages, frameworks, versions, rationale | All greenfield paths (placeholder for readiness 2) |
+| `architecture-overview.md` | Components, boundaries, data flow | Brownfield, greenfield readiness 1 or 3 |
+| `patterns-catalog.md` | Design patterns with file:line refs | Brownfield, greenfield readiness 1 or 3 |
+| `integration-map.md` | APIs, data stores, external services | Brownfield, greenfield readiness 1 or 3 |
+| `bootstrap.md` | Marker file: track, date, stack summary, file status | All paths |
 
-Output paths come from the caller's inputs (`file_system_path`, `coding_standards_path`, etc.). The standard convention is `docs/architecture/<file>.md`, but the workflow does not assume that.
+> **Readiness 2 (idea needs refinement)** creates only `tech-stack.md` as a placeholder and the marker.
+> The remaining docs are generated on the reconcile-stack pass after product-design completes.
+
+Output paths come from the caller's inputs. The standard convention is `docs/architecture/<file>.md`, but the workflow does not assume that.
 
 ## Required Tools
 
@@ -67,17 +71,19 @@ The caller supplies `project_root`. If it points to a tool/config directory (e.g
 
 If `existing_marker` is provided (a previous run wrote to `marker_path`), use `rerun_choice` to decide:
 
-- **fill-gaps** — Check which of the 7 files exist on disk; only generate the missing ones.
+- **fill-gaps** — Check which files exist on disk; only generate the missing ones.
 - **regenerate-all** — Proceed as if fresh run, overwrite all.
+- **reconcile-stack** — *(greenfield only, and only when `docs/product/D04-feasibility-report.md` now exists)* re-run `greenfield-scaffold.md` in **reconcile mode** to revise `tech-stack.md` against the vision + feasibility product-design has produced since the last bootstrap. This is the reverse-feed step: the provisional stack (or placeholder) chosen at first bootstrap is now tested against D04. See Phase 2 → Greenfield Track.
 - **cancel** — Exit with "No changes made".
 
-If `rerun_choice` is null but `existing_marker` is present, ask the user:
+If `rerun_choice` is null but `existing_marker` is present, ask the user (offer **Reconcile stack** only when the track is greenfield and `docs/product/D04-feasibility-report.md` exists):
 
-> This project was previously initialized ({track} track, {date}).
+> This project was previously bootstrapped ({track} track, {date}).
 >
 > 1. **Fill gaps only** — Regenerate only missing files (Recommended)
 > 2. **Regenerate all** — Overwrite all foundation documents
-> 3. **Cancel** — Keep everything as-is
+> 3. **Reconcile stack** — Revise tech-stack.md against the vision + feasibility produced since bootstrap *(greenfield, only if D04 exists)*
+> 4. **Cancel** — Keep everything as-is
 
 ### Step 0.3: Ensure Output Directory
 
@@ -157,27 +163,40 @@ Wait for all groups to complete before Phase 3.
 
 ### Greenfield Track
 
-Invoke `greenfield-scaffold.md` workflow:
+Invoke `greenfield-scaffold.md`, passing the **track** (`greenfield`), a **mode**, and any product-design artifacts that already exist so the scaffold can read product context:
 
-1. Idea readiness assessment (Phase 1 of greenfield workflow) — capture as `idea_readiness`
-2. Stack determination (Phase 1b — 1-2 turns max)
-3. Web research for stack (Phase 2)
-4. Generate 5 prescriptive docs (Phase 3) at the supplied output paths:
+- `track`: `greenfield`
+- `mode`: `reconcile` when `rerun_choice` is `reconcile-stack` (or the host explicitly requests a stack reconcile and `docs/product/D04-feasibility-report.md` exists); otherwise `provisional`.
+- `vision_path`, `feasibility_path`, `user_needs_path`: pass each of `docs/product/D01-vision-statement.md`, `docs/product/D04-feasibility-report.md`, `docs/product/D07-user-needs.md` that exists; null otherwise.
+
+**Provisional mode** (first pass — no feasibility yet):
+
+1. Idea readiness assessment (greenfield Phase 1) — capture as `idea_readiness`.
+2. Stack intake (Phase 1b). When product context exists, the scaffold proposes from evidence and confirms in one turn instead of asking cold.
+3. **Readiness 2 (needs refinement) → Phase 1c** — write a `tech-stack.md` placeholder only. Skip web research and architecture docs. Route directly to product-design. No further phases run.
+4. **Readiness 1 or 3 → Phases 2 and 3** — web research for stack, then generate the 5 prescriptive docs:
    - `tech-stack.md`
    - `architecture-overview.md`
    - `file-system.md` (prescriptive, not scanned)
    - `patterns-catalog.md`
    - `integration-map.md`
 
+   Readiness 3 docs are marked **provisional** — they are reconciled after D04.
+
+**Reconcile mode** (re-run after product-design): the scaffold reads the product context (its Phase 0) then runs **Phase 3.5** — it diffs the provisional stack (or expands the placeholder) against D01/D04/D07, rewrites the affected docs, and appends a *Stack revision* section. Capture the scaffold's `stack_revisions` for the Phase 5 summary. Coding standards (Phase 3) run only if `tech-stack.md` changed.
+
 Record the idea readiness answer for `next_step_hint` in Phase 5.
 
-Proceed to Phase 3.
+Proceed to Phase 3 (brownfield or greenfield readiness 1/3 only).
 
 ---
 
 ## Phase 3: Coding Standards Generation (Group D)
 
-This runs **after** Phase 2 completes, because it reads the generated documents.
+> **Skip for greenfield readiness 2** — no complete tech-stack exists yet to base standards on.
+> Coding standards are generated on the reconcile-stack pass after product-design.
+
+This runs **after** Phase 2 completes (brownfield or greenfield readiness 1/3), because it reads the generated documents.
 
 ### Step 3.1: Read Generated Context
 
@@ -222,20 +241,20 @@ Write the marker to `marker_path`:
 
 **Track**: {brownfield | greenfield}
 **Date**: {generation_date}
-**Stack**: {stack_summary — e.g., "TypeScript / Next.js 14 / PostgreSQL / Prisma"}
+**Stack**: {stack_summary — e.g., "TypeScript / Next.js 14 / PostgreSQL / Prisma", or "Provisional: Go (stated constraint)" for readiness 2}
 **Host State**: {host_state_status — supplied by the wrapper, e.g., "shark: initialized" or "none"}
 
 ## Generated Files
 
 | File | Status | Generated |
 |------|--------|-----------|
-| file-system.md | {created | updated | skipped} | {date} |
-| coding-standards.md | {created | updated | skipped} | {date} |
+| file-system.md | {created | updated | skipped | n/a (readiness 2)} | {date or —} |
+| coding-standards.md | {created | updated | skipped | n/a (readiness 2)} | {date or —} |
 | tech-stack.md | {created | updated | skipped} | {date} |
-| architecture-overview.md | {created | updated | skipped} | {date} |
-| patterns-catalog.md | {created | updated | skipped} | {date} |
-| integration-map.md | {created | updated | skipped} | {date} |
-| project-init.md | created | {date} |
+| architecture-overview.md | {created | updated | skipped | n/a (readiness 2)} | {date or —} |
+| patterns-catalog.md | {created | updated | skipped | n/a (readiness 2)} | {date or —} |
+| integration-map.md | {created | updated | skipped | n/a (readiness 2)} | {date or —} |
+| bootstrap.md | created | {date} |
 
 ## Detection Signals
 
@@ -253,31 +272,43 @@ Write the marker to `marker_path`:
 Display to user:
 
 ```markdown
-## Project Init Complete
+## Bootstrap Complete
 
 **Track**: {brownfield | greenfield}
 **Stack**: {stack_summary}
-**Files generated**: {count}/7
+**Files generated**: {count}
 
 | File | Status |
 |------|--------|
-| {file_system_path} | {created/updated/existed} |
-| {coding_standards_path} | {created/updated/existed} |
+| {file_system_path} | {created/updated/existed/skipped} |
+| {coding_standards_path} | {created/updated/existed/skipped} |
 | {tech_stack_path} | {created/updated/existed} |
-| {architecture_overview_path} | {created/updated/existed} |
-| {patterns_catalog_path} | {created/updated/existed} |
-| {integration_map_path} | {created/updated/existed} |
+| {architecture_overview_path} | {created/updated/existed/skipped} |
+| {patterns_catalog_path} | {created/updated/existed/skipped} |
+| {integration_map_path} | {created/updated/existed/skipped} |
 | {marker_path} | {created/updated} |
 ```
 
-Set `next_step_hint` based on track and (for greenfield) `idea_readiness`. The wrapper is responsible for converting the hint into a host-specific suggestion (slash-command names, scheduled steps, etc.).
+When a greenfield reconcile ran, also show the **Stack revision** summary from the scaffold's `stack_revisions`:
 
-| Track / Readiness | next_step_hint |
+```markdown
+**Stack revisions** (reconciled against vision + feasibility):
+| Was | Now | Driver |
+|-----|-----|--------|
+| {prior} | {revised} | {vision element / D04 risk / D07 need} |
+```
+
+Set `next_step_hint` based on track, mode, and (for greenfield) `idea_readiness`. The wrapper is responsible for converting the hint into a host-specific suggestion.
+
+| Track / Readiness / Mode | next_step_hint |
 |---|---|
 | Brownfield | "review-architecture-then-vision" |
 | Greenfield, answer 1 | "ready-for-brainstorming" |
-| Greenfield, answer 2 | "ready-for-brainstorming-then-vision" |
-| Greenfield, answer 3 | "ready-for-vision" |
+| Greenfield, answer 2 (placeholder) | "vision-then-feasibility-then-reconcile-stack" |
+| Greenfield, answer 3 (provisional) | "vision-then-feasibility-then-reconcile-stack" |
+| Greenfield, reconcile mode | "stack-reconciled-resume-product-design" |
+
+**Carry the track forward.** product-design must know whether the stack is fixed (brownfield) or proposed/provisional (greenfield) so D04 frames feasibility correctly. The marker records **Track**; product-design reads it from `docs/architecture/bootstrap.md` (plus `tech-stack.md` when it exists). This workflow only *returns* the hint — the host acts on it. The greenfield provisional hints encode the loop the host runs: vision + feasibility (D01–D04), then the host re-invokes bootstrap in reconcile mode (option 3 in Step 0.2) to fill out or revise the stack against the D04 verdict.
 
 ---
 
@@ -290,20 +321,25 @@ Set `next_step_hint` based on track and (for greenfield) `idea_readiness`. The w
 | Web search fails | Proceed without web research, note in marker |
 | Subagent times out | Report partial results, mark failed files in marker |
 | Already initialized (fill-gaps) | Only generate files that don't exist |
+| Reconcile requested but no D04 | Tell user feasibility hasn't run yet; offer fill-gaps / regenerate-all instead |
+| Reconcile requested on brownfield | Not applicable — the stack is fixed; route the gap via D04's tech-debt / constraint-note path instead |
 
 ## Success Criteria
 
-- [ ] All 7 files written to the supplied output paths
 - [ ] Marker file accurately reflects what was generated
 - [ ] Brownfield docs contain real file:line references
-- [ ] Greenfield docs contain current version numbers from web research
+- [ ] Greenfield readiness 1/3 docs contain current version numbers from web research
+- [ ] Greenfield readiness 2: only `tech-stack.md` placeholder written (no web research, no other docs)
+- [ ] Greenfield passes `track` + `mode` + available product-artifact paths to `greenfield-scaffold.md`
+- [ ] A greenfield reconcile run surfaces `stack_revisions` in the summary
 - [ ] `next_step_hint` is set so the wrapper can route the user appropriately
 
 ## Related Files
 
 - `brownfield-analysis.md` — Brownfield track (Groups B+C)
-- `greenfield-scaffold.md` — Greenfield track
+- `greenfield-scaffold.md` — Greenfield track (provisional + reconcile modes)
 - `map-filesystem.md` — File system mapping (Group A)
 - `../context/brownfield-detection.md` — Detection algorithm
 - `../context/stack-research-guide.md` — Stack research patterns
 - `skills/quality/workflows/generate-standards.md` — Coding standards generation
+- `../../product-design/workflows/d04-feasibility.md` — Consumes the marker + stack; its verdict drives reconcile

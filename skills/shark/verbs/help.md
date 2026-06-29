@@ -14,7 +14,7 @@ Treat `commands` as a static alias for `--fast`. Do not call Shark state for
 either form. Print the verb groups plus the compact command reference below.
 
 ```
-Getting started:  /shark project-init | product-design | vision "idea"
+Getting started:  /shark project bootstrap | product-design | vision "idea"
 Day-to-day:       /shark run <key> | triage "desc" | viewer | status | list <key> | get <key>
 Sprint:           /shark plan-sprint <key> | run-sprint <key> | run-sprint-team <key> | retro-sprint <key>
 Maintenance:      /shark update-docs | amend <key> "change" | revalidate <key> | help [commands|<verb>]
@@ -35,7 +35,7 @@ entry. Do not run Shark state calls.
 
 | Verb | Static help |
 |------|-------------|
-| `project-init` | Bootstrap architecture docs through `shark skill get research workflows/project-init.md`. Afterward suggest product design, vision capture, or `/shark run <key>`. |
+| `project bootstrap` | Bootstrap architecture docs through `shark skill get research workflows/bootstrap.md`. Afterward suggest product design, vision capture, or `/shark run <key>`. |
 | `product-design` | Run the bundled product-design D01-D14 methodology through `shark skill get product-design`. |
 | `vision` | Turn an idea into a Shark epic through the bundled epic-writing workflow, then offer `/shark run <epic-key>`. |
 | `run` | Drive an epic, feature, task, bug, change-card, or tech-debt item through its workflow. Use `/shark run <key>`. |
@@ -75,7 +75,7 @@ B-notes", "feature E01-F02 is at `active` with 2 unclaimed tasks → `/shark run
 "no work in progress → `/shark run <epic>` or `/shark vision \"…\"`".
 
 Convert phase-oriented guidance into Shark terms:
-- Missing architecture or product direction: `/shark project-init`,
+- Missing architecture or product direction: `/shark project bootstrap`,
   `/shark product-design`, or `/shark vision "idea"`.
 - Direction exists but no tracked initiative: `/shark vision "next idea"` or
   `/shark triage "thing to track"`.

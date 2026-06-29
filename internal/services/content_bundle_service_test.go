@@ -50,6 +50,36 @@ func TestBundleContentServiceGetEmbeddedImplementationSkillWithoutDiskBundle(t *
 	assert.NotRegexp(t, `(?m)\A---\nname:`, result.Content, "default output should strip top-level frontmatter")
 }
 
+func TestBundleContentServiceGetEmbeddedFeatureDesignSkillWithoutDiskBundle(t *testing.T) {
+	root := setupBundleContentProject(t, `{}`)
+	svc, err := NewBundleContentService(root)
+	require.NoError(t, err)
+
+	result, err := svc.Get(context.Background(), BundleContentKindSkill, "feature-design", "", BundleContentGetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "skill", result.Kind)
+	assert.Equal(t, "feature-design", result.Name)
+	assert.Equal(t, "SKILL.md", result.Path)
+	assert.Equal(t, "embedded", result.Source)
+	assert.Contains(t, result.Content, "# Feature Design Skill")
+}
+
+func TestBundleContentServiceGetEmbeddedFeatureDesignWireframesWorkflow(t *testing.T) {
+	root := setupBundleContentProject(t, `{}`)
+	svc, err := NewBundleContentService(root)
+	require.NoError(t, err)
+
+	result, err := svc.Get(context.Background(), BundleContentKindSkill, "feature-design", "workflows/wireframes.md", BundleContentGetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "skill", result.Kind)
+	assert.Equal(t, "feature-design", result.Name)
+	assert.Equal(t, "workflows/wireframes.md", result.Path)
+	assert.Equal(t, "embedded", result.Source)
+	assert.Contains(t, result.Content, "# Wireframes (Feature-Level)")
+}
+
 func TestBundleContentServiceGetEmbeddedAgentWithoutDiskBundle(t *testing.T) {
 	root := setupBundleContentProject(t, `{}`)
 	svc, err := NewBundleContentService(root)
@@ -245,4 +275,35 @@ func bundleListNames(entries []BundleContentEntry) map[string]bool {
 		names[entry.Name] = true
 	}
 	return names
+}
+
+func TestBundleContentServiceListPopulatesDescription(t *testing.T) {
+	root := setupBundleContentProject(t, `{"shark_data_path":"bundle"}`)
+	writeBundleFile(t, root, "bundle/skills/my-skill/SKILL.md", "---\nname: my-skill\ndescription: A useful skill\n---\n# My Skill\n")
+	writeBundleFile(t, root, "bundle/skills/no-desc-skill/SKILL.md", "---\nname: no-desc\n---\n# No Desc\n")
+	writeBundleFile(t, root, "bundle/agents/my-agent.md", "---\nname: my-agent\ndescription: A useful agent\n---\n# My Agent\n")
+
+	svc, err := NewBundleContentService(root)
+	require.NoError(t, err)
+
+	skills, err := svc.List(context.Background(), BundleContentKindSkill)
+	require.NoError(t, err)
+
+	descMap := map[string]string{}
+	for _, entry := range skills {
+		descMap[entry.Name] = entry.Description
+	}
+	assert.Equal(t, "A useful skill", descMap["my-skill"])
+	assert.Equal(t, "", descMap["no-desc-skill"])
+
+	agents, err := svc.List(context.Background(), BundleContentKindAgent)
+	require.NoError(t, err)
+
+	for _, entry := range agents {
+		if entry.Name == "my-agent" {
+			assert.Equal(t, "A useful agent", entry.Description)
+			return
+		}
+	}
+	t.Error("my-agent not found in agent list")
 }

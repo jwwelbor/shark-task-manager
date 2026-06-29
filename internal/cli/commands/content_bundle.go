@@ -123,7 +123,13 @@ func runBundleContentList(cmd *cobra.Command, kind services.BundleContentKind) e
 	}
 
 	for _, entry := range entries {
-		if _, err := fmt.Fprintf(os.Stdout, "%s\t%s\n", entry.Name, entry.Source); err != nil {
+		var line string
+		if entry.Description != "" {
+			line = fmt.Sprintf("%s — %s\n", entry.Name, entry.Description)
+		} else {
+			line = entry.Name + "\n"
+		}
+		if _, err := fmt.Fprint(os.Stdout, line); err != nil {
 			return err
 		}
 	}

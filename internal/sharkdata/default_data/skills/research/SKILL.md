@@ -9,7 +9,7 @@ inputs:
   - related_docs_paths: list of related documentation paths (optional)
   - constraints: specific constraints or limitations to consider (optional)
 outputs:
-  - selected_workflow: one of {understand-feature, brownfield-analysis, map-filesystem, find-patterns, trace-dependencies, project-init, greenfield-scaffold, tracing-knowledge-lineages, consult-related-work, analyze-codebase}
+  - selected_workflow: one of {understand-feature, brownfield-analysis, map-filesystem, find-patterns, trace-dependencies, bootstrap, greenfield-scaffold, tracing-knowledge-lineages, consult-related-work, analyze-codebase}
   - findings_report: structured markdown documenting discoveries
   - pattern_catalog: identified patterns with locations and usage frequency
   - dependency_graph: mapped dependencies and interactions
@@ -34,20 +34,21 @@ Use research workflows:
 
 ### Project Bootstrap Workflows
 
-1. **project-init** - `workflows/project-init.md`
-   - Main orchestrator for `/project-init` command
+1. **bootstrap** - `workflows/bootstrap.md`
+   - Main orchestrator for `/shark project bootstrap` command
    - Detects brownfield vs greenfield, routes to correct track, produces `docs/architecture/` foundation
+   - Readiness 2 (idea needs refinement): creates only a `tech-stack.md` placeholder; remaining docs generated on reconcile pass after product-design
    - Use for: Project bootstrapping before `/vision`, after `git clone`, at project start
-   - Output: 7 files in `docs/architecture/` (see output contract in workflow)
+   - Output: up to 7 files in `docs/architecture/` depending on track and idea readiness (see output contract in workflow)
 
 2. **brownfield-analysis** - `workflows/brownfield-analysis.md`
    - Reverse-engineer existing codebase into architecture documents
-   - Use for: Brownfield track of project-init (discovering stack, patterns, integrations, architecture)
+   - Use for: Brownfield track of bootstrap (discovering stack, patterns, integrations, architecture)
    - Output: `tech-stack.md`, `patterns-catalog.md`, `integration-map.md`, `architecture-overview.md`
 
 3. **greenfield-scaffold** - `workflows/greenfield-scaffold.md`
    - Interactive stack selection and prescriptive foundation doc generation
-   - Use for: Greenfield track of project-init (new projects without existing code)
+   - Use for: Greenfield track of bootstrap (new projects without existing code)
    - Output: `tech-stack.md`, `architecture-overview.md`, `file-system.md`, `patterns-catalog.md`, `integration-map.md`
 
 ### Core Analysis Workflows
@@ -91,7 +92,7 @@ Use research workflows:
 ## Workflow Selection Guide
 
 **For project bootstrapping** (before any development):
-1. Run `project-init` — detects brownfield/greenfield, generates all `docs/architecture/` foundation files
+1. Run `bootstrap` — detects brownfield/greenfield, generates `docs/architecture/` foundation files
 2. This replaces manually running `map-filesystem`, `find-patterns`, and `analyze-codebase` separately
 
 **For new feature development**:
@@ -102,7 +103,7 @@ Use research workflows:
 5. Use `trace-dependencies` to map integration points
 
 **For project onboarding**:
-1. Start with `project-init` if `docs/architecture/` doesn't exist
+1. Start with `bootstrap` if `docs/architecture/` doesn't exist
 2. Use `map-filesystem` for structure, `analyze-codebase` for overview
 3. Use `find-patterns` to learn project conventions
 
@@ -112,7 +113,7 @@ Use research workflows:
 3. Use `find-patterns` to ensure consistency
 
 **For documentation creation**:
-1. Use `project-init` for comprehensive foundation (all 7 docs)
+1. Use `bootstrap` for comprehensive foundation (up to 7 docs depending on track)
 2. Or individually: `map-filesystem`, `analyze-codebase`, `find-patterns`
 
 ## Context Files
