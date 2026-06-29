@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/parser"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
@@ -201,11 +202,14 @@ func (s *BundleContentService) List(ctx context.Context, kind BundleContentKind)
 			candidates := s.lookupCandidates(bundleKind, name, displayPath)
 			for _, candidate := range candidates {
 				data, readErr := s.readCandidate(candidate)
-				if errors.Is(readErr, fs.ErrNotExist) {
-					continue
+				if readErr != nil {
+					if errors.Is(readErr, fs.ErrNotExist) {
+						continue
+					}
+					continue // try next candidate on other I/O errors
 				}
-				if readErr == nil {
-					entry.Description = extractFrontmatterDescription(string(data))
+				if fm, fmErr := parser.ParseFrontmatter(string(data)); fmErr == nil && fm != nil {
+					entry.Description = fm.Description
 				}
 				break
 			}
@@ -213,34 +217,6 @@ func (s *BundleContentService) List(ctx context.Context, kind BundleContentKind)
 		result = append(result, entry)
 	}
 	return result, nil
-}
-
-// extractFrontmatterDescription parses the YAML frontmatter in content and
-// returns the value of the description: key. Returns "" on any failure or if
-// no description key is present. Requires a properly closed frontmatter fence
-// (opening and closing ---).
-func extractFrontmatterDescription(content string) string {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.TrimLeft(content, " \t")
-	if !strings.HasPrefix(content, "---\n") {
-		return ""
-	}
-	rest := content[4:] // skip opening "---\n"
-	desc := ""
-	closedFence := false
-	for _, line := range strings.Split(rest, "\n") {
-		if line == "---" {
-			closedFence = true
-			break
-		}
-		if strings.HasPrefix(line, "description:") {
-			desc = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-		}
-	}
-	if !closedFence {
-		return ""
-	}
-	return desc
 }
 
 type bundleLookupCandidate struct {

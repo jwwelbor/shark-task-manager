@@ -277,62 +277,6 @@ func bundleListNames(entries []BundleContentEntry) map[string]bool {
 	return names
 }
 
-func TestExtractFrontmatterDescription(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{
-			name:    "no frontmatter",
-			content: "# My Skill\nSome content here.",
-			want:    "",
-		},
-		{
-			name:    "frontmatter without description",
-			content: "---\nname: my-skill\nauthor: test\n---\n# My Skill\n",
-			want:    "",
-		},
-		{
-			name:    "frontmatter with populated description",
-			content: "---\nname: my-skill\ndescription: Does something useful\n---\n# My Skill\n",
-			want:    "Does something useful",
-		},
-		{
-			name:    "frontmatter with empty description value",
-			content: "---\nname: my-skill\ndescription:\n---\n# My Skill\n",
-			want:    "",
-		},
-		{
-			name:    "malformed fence - no closing delimiter",
-			content: "---\nname: my-skill\ndescription: Never closed\nSome content",
-			want:    "",
-		},
-		{
-			name:    "description with whitespace trimmed",
-			content: "---\ndescription:   Trimmed value   \n---\n",
-			want:    "Trimmed value",
-		},
-		{
-			name:    "crlf line endings",
-			content: "---\r\nname: my-skill\r\ndescription: Windows line endings\r\n---\r\n# Content\r\n",
-			want:    "Windows line endings",
-		},
-		{
-			name:    "empty content",
-			content: "",
-			want:    "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractFrontmatterDescription(tt.content)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestBundleContentServiceListPopulatesDescription(t *testing.T) {
 	root := setupBundleContentProject(t, `{"shark_data_path":"bundle"}`)
 	writeBundleFile(t, root, "bundle/skills/my-skill/SKILL.md", "---\nname: my-skill\ndescription: A useful skill\n---\n# My Skill\n")
