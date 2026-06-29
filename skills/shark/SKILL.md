@@ -24,7 +24,7 @@ The `/run` command and a bare `/shark run` both route to `verbs/run.md`.
 
 | Group | Verb | Purpose |
 |-------|------|---------|
-| **Getting started** | `project-init` | Bootstrap architecture docs for a new/brownfield project |
+| **Getting started** | `project` | Pre-epic setup namespace: bootstrap, brownfield-analysis, product-design |
 | | `product-design` | Run the product-design (D01–D14) workflow |
 | | `vision` | Turn a one-line idea into a shark epic + kick off its workflow |
 | **Day-to-day** | `run` | Drive an entity through its workflow (claim → agent → advance → release) |
@@ -32,6 +32,7 @@ The `/run` command and a bare `/shark run` both route to `verbs/run.md`.
 | | `code-review` | Multi-angle parallel code review (6 subagents + consolidator); flags: --fix, --comment |
 | | `brownfield-analysis` | Deep analysis and documentation of an existing codebase |
 | | `viewer` | Launch the web dashboard (`shark web`) |
+| | `consult` | Load an agent persona as an advisor and converse inline (read-only by default) |
 | | `status` / `list` / `get` | Pass through to the shark CLI (handled by `query`) |
 | **Sprint lifecycle** | `plan-sprint` | Scope a sprint: surface backlog, propose assignments, confirm additions |
 | | `run-sprint` | Solo sequential pull-loop: drive sprint to completion entity-by-entity |

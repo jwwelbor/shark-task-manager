@@ -81,6 +81,20 @@ Each artifact draws on evidence captured in earlier ones — these are **evidenc
 
 When applying a workflow, read the artifacts it builds on so your output stays anchored to that evidence. Each workflow's "Builds on" note lists what it expects to read.
 
+## Inputs From Bootstrap (Track + Architecture)
+
+Bootstrap runs before product-design and lays down `docs/architecture/`. Product-design reads it — it is not blind to the stack:
+
+- Read the marker `docs/architecture/bootstrap.md` for the **track** (brownfield or greenfield) and the stack summary.
+- Read `docs/architecture/tech-stack.md` and `integration-map.md` when present.
+
+Feed this forward:
+
+- **D01** may surface the recorded stack as a *stated constraint* — it does not design it (the stack stays in `docs/architecture/`; D01's redirect principle still holds).
+- **D04** assesses feasibility against the recorded stack and frames it by track: **fixed** for brownfield, a **revisable proposal** for greenfield. On a "feasible with changes" / "not feasible" verdict it **returns a stack-feedback signal** (verdict + gap + driver + recommended route) in its report. Acting on it is the **host's** job, not the skill's: the `/shark product-design` verb re-runs bootstrap in reconcile mode (greenfield) or files a tech-debt entry / constraint note (brownfield).
+
+If no marker or architecture docs exist, product-design runs exactly as before.
+
 ## Core Principles (Apply Across All Workflows)
 
 1. **Elicit, don't invent.** Vision (D01–D02) and validation (D12–D14) are human decisions. Use `AskUserQuestion`. Never fabricate a user quote, metric baseline, participant, or approval.

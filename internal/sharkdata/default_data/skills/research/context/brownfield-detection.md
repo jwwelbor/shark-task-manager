@@ -1,6 +1,6 @@
 # Brownfield Detection Rules
 
-**Purpose**: Determine whether a project is brownfield (existing codebase) or greenfield (new/empty) to route `/project-init` to the correct track.
+**Purpose**: Determine whether a project is brownfield (existing codebase) or greenfield (new/empty) to route `/shark project bootstrap` to the correct track.
 
 ## Detection Algorithm
 
@@ -90,7 +90,7 @@ If the commit message suggests a template AND is recent, ask user: "This looks l
 
 ### Already-Initialized Project
 
-If `docs/architecture/project-init.md` marker file exists → project-init was already run. Defer to re-run policy (fill gaps, regenerate all, or cancel).
+If `docs/architecture/bootstrap.md` marker file exists → bootstrap was already run. Defer to re-run policy (fill gaps, regenerate all, or cancel).
 
 ### Scaffolding Exception
 
@@ -98,7 +98,7 @@ A single entry point file (e.g., lone `main.py`, `index.ts`, `main.go`) with no 
 - Someone just started coding (greenfield with a file)
 - A minimal project (brownfield)
 
-Default to **greenfield** but mention: "Found a single source file. Treating as greenfield — if this is an existing project, re-run with `/project-init --force-brownfield`."
+Default to **greenfield** but mention: "Found a single source file. Treating as greenfield — if this is an existing project, re-run with `/shark project bootstrap --force-brownfield`."
 
 ## Output
 
@@ -115,4 +115,4 @@ monorepo: true | false
 template_clone: true | false
 ```
 
-This output is consumed by the project-init orchestrator to route to the correct track workflow.
+This output is consumed by the bootstrap orchestrator to route to the correct track workflow.

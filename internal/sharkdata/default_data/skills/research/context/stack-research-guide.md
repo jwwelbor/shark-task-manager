@@ -1,6 +1,6 @@
 # Stack Research Guide
 
-**Purpose**: Authoritative sources and research patterns per technology stack. Used by `/project-init` for both greenfield (stack recommendation + prescriptive docs) and brownfield (coding standards reconciliation).
+**Purpose**: Authoritative sources and research patterns per technology stack. Used by `/shark project bootstrap` for both greenfield (stack recommendation + prescriptive docs) and brownfield (coding standards reconciliation).
 
 ## Per-Stack Entries
 
@@ -218,7 +218,7 @@ When recommending, always state: "This recommendation assumes [experience level]
 
 ## Coding Standards Augmentation Pattern
 
-Used during brownfield `/project-init` to reconcile discovered patterns with official guidance.
+Used during brownfield bootstrap to reconcile discovered patterns with official guidance.
 
 ### Process
 

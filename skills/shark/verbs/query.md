@@ -23,6 +23,24 @@ shark claims                 # active leases
 
 A **bare key** (e.g. `/shark E01-F02-001`) → `shark get <key>`.
 
+## Consult-intent recognizer
+
+Before translating to a query, check whether the request is asking you to *talk to an agent* (not to query project data). Trigger patterns:
+
+| Phrasing pattern | Example |
+|-----------------|---------|
+| "ask \<agent\> to/about …" | "ask the cx-designer about the onboarding flow" |
+| "have \<agent\> look at / review …" | "have the architect review E01-F02" |
+| "consult \<agent\> about …" | "consult the qa-engineer about test strategy" |
+| "get \<agent\>'s opinion / take on …" | "get the backend-dev's take on the API design" |
+| "talk to \<agent\> about …" | "talk to the product-designer about the vision" |
+
+Extract `<agent>` (the role/persona name) and `<referent>` (what to discuss). If `<agent>` resolves to a known shark agent persona, **do not proceed to NL routing** — instead `Read skills/shark/verbs/consult.md` and follow it with `agent=<agent>` and `referent=<referent>`.
+
+**Negative example:** "tell me about the cx-designer" → this is a query *about* an agent, not a request to consult one; fall through to NL routing below.
+
+If the agent name does not resolve to a known persona, fall through to normal NL routing below.
+
 ## Natural-language questions
 
 Translate prose into read-only shark queries, then summarize. Examples:

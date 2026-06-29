@@ -118,7 +118,7 @@ to aim for.
 
 ## Related
 
-The bundle's `research/workflows/brownfield-analysis.md` is the **lightweight `project-init`
-bootstrap** — it produces the four `docs/architecture/` foundation documents as part of the
-`/shark project-init` flow. This sub-skill is the comprehensive standalone methodology for
-full enterprise analysis. Both exist for different use cases; they are not duplicates.
+The bundle's `research/workflows/brownfield-analysis.md` is the **lightweight bootstrap** — it
+produces the four `docs/architecture/` foundation documents as part of the `/shark project bootstrap`
+flow. This sub-skill is the comprehensive standalone methodology for full enterprise analysis.
+Both exist for different use cases; they are not duplicates.

@@ -54,8 +54,9 @@ type BundleContent struct {
 // BundleContentEntry is one logical list item after source precedence is
 // applied.
 type BundleContentEntry struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Description string `json:"description,omitempty"`
 }
 
 // BundleContentNotFoundError reports that no bundle layer contained the
@@ -195,9 +196,51 @@ func (s *BundleContentService) List(ctx context.Context, kind BundleContentKind)
 
 	result := make([]BundleContentEntry, 0, len(names))
 	for _, name := range names {
-		result = append(result, entries[name])
+		entry := entries[name]
+		if displayPath, pathErr := defaultBundleContentPath(bundleKind, name, ""); pathErr == nil {
+			candidates := s.lookupCandidates(bundleKind, name, displayPath)
+			for _, candidate := range candidates {
+				data, readErr := s.readCandidate(candidate)
+				if errors.Is(readErr, fs.ErrNotExist) {
+					continue
+				}
+				if readErr == nil {
+					entry.Description = extractFrontmatterDescription(string(data))
+				}
+				break
+			}
+		}
+		result = append(result, entry)
 	}
 	return result, nil
+}
+
+// extractFrontmatterDescription parses the YAML frontmatter in content and
+// returns the value of the description: key. Returns "" on any failure or if
+// no description key is present. Requires a properly closed frontmatter fence
+// (opening and closing ---).
+func extractFrontmatterDescription(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.TrimLeft(content, " \t")
+	if !strings.HasPrefix(content, "---\n") {
+		return ""
+	}
+	rest := content[4:] // skip opening "---\n"
+	desc := ""
+	closedFence := false
+	for _, line := range strings.Split(rest, "\n") {
+		if line == "---" {
+			closedFence = true
+			break
+		}
+		if strings.HasPrefix(line, "description:") {
+			desc = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+		}
+	}
+	if !closedFence {
+		return ""
+	}
+	return desc
 }
 
 type bundleLookupCandidate struct {
