@@ -50,6 +50,36 @@ func TestBundleContentServiceGetEmbeddedImplementationSkillWithoutDiskBundle(t *
 	assert.NotRegexp(t, `(?m)\A---\nname:`, result.Content, "default output should strip top-level frontmatter")
 }
 
+func TestBundleContentServiceGetEmbeddedFeatureDesignSkillWithoutDiskBundle(t *testing.T) {
+	root := setupBundleContentProject(t, `{}`)
+	svc, err := NewBundleContentService(root)
+	require.NoError(t, err)
+
+	result, err := svc.Get(context.Background(), BundleContentKindSkill, "feature-design", "", BundleContentGetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "skill", result.Kind)
+	assert.Equal(t, "feature-design", result.Name)
+	assert.Equal(t, "SKILL.md", result.Path)
+	assert.Equal(t, "embedded", result.Source)
+	assert.Contains(t, result.Content, "# Feature Design Skill")
+}
+
+func TestBundleContentServiceGetEmbeddedFeatureDesignWireframesWorkflow(t *testing.T) {
+	root := setupBundleContentProject(t, `{}`)
+	svc, err := NewBundleContentService(root)
+	require.NoError(t, err)
+
+	result, err := svc.Get(context.Background(), BundleContentKindSkill, "feature-design", "workflows/wireframes.md", BundleContentGetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "skill", result.Kind)
+	assert.Equal(t, "feature-design", result.Name)
+	assert.Equal(t, "workflows/wireframes.md", result.Path)
+	assert.Equal(t, "embedded", result.Source)
+	assert.Contains(t, result.Content, "# Wireframes (Feature-Level)")
+}
+
 func TestBundleContentServiceGetEmbeddedAgentWithoutDiskBundle(t *testing.T) {
 	root := setupBundleContentProject(t, `{}`)
 	svc, err := NewBundleContentService(root)
