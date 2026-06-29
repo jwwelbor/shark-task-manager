@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run from within the project git repo root.
-# Outputs JSON: { "diff_path": "...", "changed_files": [...], "project_root": "..." }
+# Outputs JSON: { "diff_path": "...", "changed_files": [...], "changed_file_count": N, "diff_shortstat": "...", "project_root": "..." }
 set -euo pipefail
 
 project_root=$(git rev-parse --show-toplevel)
@@ -27,7 +27,9 @@ if [ ! -s "$diff_path" ]; then
   exit 1
 fi
 
-changed_files_raw=$(git diff --name-only "${base_branch}...HEAD" | head -60)
+changed_files_raw=$(git diff --name-only "${base_branch}...HEAD")
+changed_file_count=$(printf '%s\n' "$changed_files_raw" | sed '/^$/d' | wc -l | tr -d ' ')
+diff_shortstat=$(git diff --shortstat "${base_branch}...HEAD" || true)
 
 # Find coding standards doc — check common locations, first match wins
 coding_standards_path=""
@@ -86,6 +88,8 @@ DIFF_PATH="$diff_path" \
 PROJECT_ROOT="$project_root" \
 CODING_STANDARDS_PATH="$coding_standards_path" \
 CHANGED_FILES="$changed_files_raw" \
+CHANGED_FILE_COUNT="$changed_file_count" \
+DIFF_SHORTSTAT="$diff_shortstat" \
 BRANCH="$branch" \
 REVIEW_OUTPUT_PATH="$review_output_path" \
 python3 - <<'PYEOF'
@@ -98,6 +102,8 @@ changed_files = [f for f in changed_files if f]
 print(json.dumps({
   "diff_path": diff_path,
   "changed_files": changed_files,
+  "changed_file_count": int(os.environ.get("CHANGED_FILE_COUNT") or len(changed_files)),
+  "diff_shortstat": os.environ.get("DIFF_SHORTSTAT") or None,
   "project_root": project_root,
   "coding_standards_path": coding_standards_path or None,
   "branch": os.environ.get("BRANCH") or None,

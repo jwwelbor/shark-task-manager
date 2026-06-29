@@ -83,6 +83,7 @@ Flag in changed code only (not pre-existing):
 
 ```json
 {
+  "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
@@ -98,4 +99,4 @@ Flag in changed code only (not pre-existing):
 }
 ```
 
-Return `{"findings": []}` if nothing found. Return ONLY the JSON object, no other text.
+Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -66,6 +66,7 @@ Check that each change is implemented at the right depth:
 - Special cases layered on top of shared infrastructure (instead of fixing the shared code) → suspect
 - A workaround in a caller for a known bug in a callee, rather than fixing the callee → non-blocker flag for discussion
 - Fragile hardcoding of values that should be configuration or constants
+- Fundamental changes to an existing pattern, workflow, storage shape, validation path, or dispatch path must be consciously justified. Ask whether the change would be defensible to another architect and whether the PR used the smallest change that achieves the stated behavior. If not, flag it as `ALTITUDE` or `ARCHITECTURE`.
 
 Flag altitude issues as non-blockers with a concrete suggestion for where the fix should live.
 
@@ -85,12 +86,13 @@ Name the simpler form explicitly.
 
 ```json
 {
+  "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
       "line": 123,
       "severity": "blocker|non-blocker|nit",
-      "rule": "DRY|COMPLEXITY|IDIOM|ALTITUDE|SIMPLIFICATION",
+      "rule": "DRY|COMPLEXITY|IDIOM|ALTITUDE|ARCHITECTURE|SIMPLIFICATION",
       "summary": "one-sentence description",
       "diagnosis": "what is duplicated / too complex / non-idiomatic",
       "evidence": "grep result or code excerpt",
@@ -102,4 +104,4 @@ Name the simpler form explicitly.
 
 Correctness bugs always outrank cleanup — focus on genuine issues with concrete cost, not style preferences.
 
-Return `{"findings": []}` if nothing found. Return ONLY the JSON object, no other text.
+Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -57,6 +57,7 @@ For each counter-factual failure, this is a **blocker** if the AC is critical (t
 
 ```json
 {
+  "reviewed_files": ["path/to/test_file.py"],
   "findings": [
     {
       "file": "path/to/test_file.py",
@@ -72,4 +73,4 @@ For each counter-factual failure, this is a **blocker** if the AC is critical (t
 }
 ```
 
-Return `{"findings": []}` if nothing found. Return ONLY the JSON object, no other text.
+Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

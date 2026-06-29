@@ -2,9 +2,11 @@
 
 You are the final code review consolidator. You have received findings from 6 parallel review angles. You have been given:
 - A diff file path (DIFF_PATH)
+- The complete changed file list (CHANGED_FILES)
+- The files the review angles reported opening or inspecting (REVIEWED_FILES_REPORTED_BY_ANGLES)
 - All candidate findings as JSON (ALL_FINDINGS)
 
-Substitute these values wherever the instructions say DIFF_PATH or ALL_FINDINGS.
+Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, REVIEWED_FILES_REPORTED_BY_ANGLES, or ALL_FINDINGS.
 
 ---
 
@@ -15,7 +17,9 @@ Before processing findings, do a 5-line gut check on the diff:
 - Is the diff size plausible? (Flag if >2000 lines changed — recommend splitting)
 - Are there unrelated modifications mixed in?
 
-**Coverage check (mandatory).** Every file in CHANGED_FILES must be addressed by at least one angle's findings or an explicit "reviewed, no findings" note. Build the set of files the angles actually touched and diff it against CHANGED_FILES. If any changed file has **zero** coverage from all six angles, flag it as a **coverage gap** — name the unreviewed file(s), record a non-blocker finding, and lower confidence in the verdict accordingly. A clean PASS is only valid when every changed file was actually reviewed. (A review that passes a feature while never opening a heavily-changed file is how production bugs ship.)
+**Coverage check (mandatory).** Every file in CHANGED_FILES must be addressed by at least one angle's findings or by REVIEWED_FILES_REPORTED_BY_ANGLES. Build the set of files the angles actually touched and diff it against CHANGED_FILES. If any changed file has **zero** coverage from all six angles, flag it as a **coverage gap** — name the unreviewed file(s), record a non-blocker finding, and lower confidence in the verdict accordingly. A clean PASS is only valid when every changed file was actually reviewed. (A review that passes a feature while never opening a heavily-changed file is how production bugs ship.)
+
+**Architectural defensibility check (mandatory).** For any finding or diff section that changes how an existing capability is implemented, wired, configured, persisted, validated, rendered, or tested, state whether the change is defensible to another architect and whether it is the smallest change needed for the desired behavior unless the PR explicitly declares a refactor. Unjustified fundamental changes are blockers when they alter production behavior or create migration cost; otherwise they are non-blocker triage.
 
 If the diff is clearly wrong (wrong branch, massive accidental change), return a FAIL immediately with a scope finding.
 
@@ -41,8 +45,8 @@ For each surviving finding, assign:
 
 | Label | Criteria |
 |---|---|
-| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, new complexity over threshold, broad catch-all without justification, ≥3 siblings with no shared base |
-| **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor DRY opportunity |
+| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, ≥3 siblings with no shared base |
+| **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor DRY opportunity, broader-than-necessary but defensible change |
 | **Nit** | Stylistic preference, opinion-level, no standards citation |
 
 ## Step 5: Quality rubric
@@ -79,7 +83,7 @@ Produce the following sections. Omit any empty section entirely.
 | id | severity | file:line | rule | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
 
-`rule` is one of: `CORRECTNESS`, `WIRING`, `RISK`, `SECURITY`, `REMOVED-BEHAVIOR`, `SRP`, `OCP`, `LSP`, `DIP`, `CONTRACT`, `SIBLING`, `ROUNDTRIP`, `DRY`, `COMPLEXITY`, `IDIOM`, `ALTITUDE`, `TESTS`, `CODING-STANDARD`, `NAMING`, `ERROR-HANDLING`, `TYPES`, `LOGGING`
+`rule` is one of: `CORRECTNESS`, `WIRING`, `RISK`, `SECURITY`, `REMOVED-BEHAVIOR`, `SRP`, `OCP`, `LSP`, `DIP`, `CONTRACT`, `SIBLING`, `ROUNDTRIP`, `DRY`, `COMPLEXITY`, `IDIOM`, `ALTITUDE`, `ARCHITECTURE`, `TESTS`, `CODING-STANDARD`, `NAMING`, `ERROR-HANDLING`, `TYPES`, `LOGGING`
 
 ### C. Reuse Opportunities
 For each DRY finding: existing symbol + `file:line` + diff-ready refactor.
@@ -98,7 +102,7 @@ For each DRY finding: existing symbol + `file:line` + diff-ready refactor.
 | file | readability | maintainability | performance | testability | standards | notes |
 
 ### G. Risk Hotspots
-Short list, one per applicable category (security, concurrency, I/O, coupling, performance).
+Short list, one per applicable category (security, concurrency, I/O, coupling, performance, architectural drift).
 
 ### H. Production Caller Chains
 For each service-contract change: entrypoint → call chain → leaf with argument shapes.
@@ -118,6 +122,7 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 ## Self-verification before returning
 
 - [ ] Every blocker cites a specific risk, standards section, or named invariant
+- [ ] Any fundamental change to an existing architecture/workflow/pattern is explicitly judged as defensible or not defensible
 - [ ] Every non-blocker has `file:line + summary + fix_suggestion` so it can be filed as tech-debt without re-reading the report
 - [ ] Reuse search findings cite at least one grep result (even "no duplicates found")
 - [ ] If a structural sibling check was triggered, the sibling inventory table is in section C

@@ -39,18 +39,31 @@ Read CHANGED_FILES and evaluate each modified class/module against SOLID:
 
 For each SOLID violation: provide `file:line`, the principle violated, evidence (the specific code), and a concrete refactor.
 
+## Part 3: Architectural defensibility and smallest-change review
+
+For every change that alters how an existing capability is implemented, wired, configured, persisted, validated, rendered, or tested, ask:
+
+- Is this change justifiable to another architect who knows the current system?
+- Does it preserve the existing architectural direction, or does it consciously and explicitly refactor that direction?
+- Is it the smallest change that achieves the desired behavior, unless the diff clearly declares a refactor/migration?
+- Did the PR introduce a parallel way to do something the codebase already did, instead of extending the established path?
+- Are broad behavior changes isolated behind a clear boundary, migration path, or compatibility story?
+
+Flag a **blocker** when the diff changes an established architecture or workflow without a defensible reason and creates production risk or future migration cost. Flag a **non-blocker** when the approach is defensible but broader than necessary and should be narrowed or documented.
+
 ---
 
 ## Output format
 
 ```json
 {
+  "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
       "line": 123,
       "severity": "blocker|non-blocker|nit",
-      "rule": "REMOVED-BEHAVIOR|SRP|OCP|LSP|ISP|DIP",
+      "rule": "REMOVED-BEHAVIOR|SRP|OCP|LSP|ISP|DIP|ARCHITECTURE",
       "summary": "one-sentence description",
       "diagnosis": "what invariant or principle is violated",
       "evidence": "specific code showing the violation",
@@ -60,4 +73,4 @@ For each SOLID violation: provide `file:line`, the principle violated, evidence 
 }
 ```
 
-Return `{"findings": []}` if nothing found. Return ONLY the JSON object, no other text.
+Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

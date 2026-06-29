@@ -80,6 +80,7 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
 
 ```json
 {
+  "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
@@ -95,4 +96,4 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
 }
 ```
 
-Return `{"findings": []}` if nothing found. Return ONLY the JSON object, no other text.
+Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -22,7 +22,12 @@ Six parallel review angles, then a consolidating final pass. Angle prompts are i
 ### 1. Locate the skill directory
 
 ```bash
-skill_dir=$(find "$HOME/.claude" -name "SKILL.md" -path "*/code-review/SKILL.md" 2>/dev/null | head -1 | xargs dirname)
+project_root=$(git rev-parse --show-toplevel)
+skill_dir="$project_root/skills/shark/skills/code-review"
+if [ ! -f "$skill_dir/SKILL.md" ]; then
+  echo "error: code-review skill not found at $skill_dir" >&2
+  exit 1
+fi
 echo "skill_dir=$skill_dir"
 ```
 
@@ -32,7 +37,9 @@ echo "skill_dir=$skill_dir"
 bash "$skill_dir/scripts/get_diff.sh"
 ```
 
-Parse the JSON output for `diff_path`, `changed_files`, `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Keep `review_output_path` — you write the final report there in step 4.
+Parse the JSON output for `diff_path`, `changed_files`, `changed_file_count`, `diff_shortstat`, `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Keep `review_output_path` — you write the final report there in step 4.
+
+Do **not** truncate `changed_files` unless the user explicitly asks for a partial review. For large changesets, briefly call out the scope (`changed_file_count` and `diff_shortstat`) before launching the review. If the diff is so large that the review may be impractical in one pass, ask for confirmation or a narrower target; otherwise continue with the full file list.
 
 ### 3. Launch the workflow
 
@@ -44,6 +51,8 @@ Workflow({
   args: {
     diff_path,
     changed_files,
+    changed_file_count,
+    diff_shortstat,
     project_root,
     skill_dir,
     coding_standards_path,   // from get_diff.sh output — null if not found
@@ -99,8 +108,10 @@ Include this context preamble in each agent's prompt, substituting actual values
 ```
 CONTEXT:
 - DIFF_PATH:              <diff_path>
+- CHANGED_FILE_COUNT:     <changed_file_count>
 - CHANGED_FILES:          <list>
 - PROJECT_ROOT:           <project_root>
+- DIFF_SHORTSTAT:         <diff_shortstat, or "not provided">
 - CODING_STANDARDS_PATH:  <coding_standards_path, or "not found">
 ```
 
@@ -111,7 +122,7 @@ Then append the full contents of the corresponding `references/angle-X.md` file.
 ### 4. Run the consolidator
 
 Once all angles return, build a final agent prompt:
-- Preamble with DIFF_PATH and ALL_FINDINGS (the combined JSON arrays)
+- Preamble with DIFF_PATH, CHANGED_FILES, REVIEWED_FILES_REPORTED_BY_ANGLES, and ALL_FINDINGS (the combined JSON arrays)
 - Full contents of `references/consolidator.md`
 
 The consolidator returns the markdown report.

@@ -9,9 +9,10 @@ export const meta = {
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 // Required: diff_path, changed_files (array), project_root, skill_dir
+// Optional scope metadata: changed_file_count, diff_shortstat
 // Optional: task_spec_path, feature_prd_path, acceptance_criteria (array of {ac_id, text})
 
-const { diff_path, changed_files, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = args
+const { diff_path, changed_files, changed_file_count, diff_shortstat, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = args
 
 if (!diff_path || !skill_dir) {
   throw new Error('review_workflow.js requires args.diff_path and args.skill_dir')
@@ -21,7 +22,14 @@ if (!diff_path || !skill_dir) {
 // Higher effort = deeper per-angle reasoning and broader coverage. Undefined → inherit session effort.
 const reviewEffort = effort || undefined
 
-const fileList = Array.isArray(changed_files) ? changed_files.slice(0, 30).join('\n') : String(changed_files || '')
+const changedFiles = Array.isArray(changed_files)
+  ? changed_files
+  : String(changed_files || '').split('\n').filter(Boolean)
+const fileList = changedFiles.join('\n')
+const changedFileCount = changed_file_count || changedFiles.length
+const diffScopeLine = diff_shortstat
+  ? `- DIFF_SHORTSTAT: ${diff_shortstat}`
+  : `- DIFF_SHORTSTAT: (not provided)`
 const refsDir = `${skill_dir}/references`
 
 const FINDING_SCHEMA = {
@@ -44,8 +52,12 @@ const FINDING_SCHEMA = {
         required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis'],
       },
     },
+    reviewed_files: {
+      type: 'array',
+      items: { type: 'string' },
+    },
   },
-  required: ['findings'],
+  required: ['findings', 'reviewed_files'],
 }
 
 // ─── Angle preamble builder ───────────────────────────────────────────────────
@@ -59,16 +71,18 @@ function preamble(angleFile, extraContext) {
     : `- CODING_STANDARDS_PATH: (not found — all standards violations downgrade to opinion-only nits)`
   return `CONTEXT (substitute these wherever the instructions say the placeholder name):
 - DIFF_PATH:      ${diff_path}
+- CHANGED_FILE_COUNT: ${changedFileCount}
 - CHANGED_FILES:
 ${fileList}
 - PROJECT_ROOT:   ${project_root || '.'}
+${diffScopeLine}
 ${standardsLine}
 ${extraContext || ''}
 
 Your detailed review instructions are in: ${refsDir}/${angleFile}
 
 Read that file completely, then execute the review substituting the CONTEXT values above.
-Return ONLY a JSON object with a "findings" array as specified in the instructions. No other text.`
+Return ONLY a JSON object with a "findings" array and a "reviewed_files" array of changed files you actually opened or inspected. No other text.`
 }
 
 // ─── Phase 1: Parallel review angles ────────────────────────────────────────
@@ -98,18 +112,25 @@ const allFindings = angleResults
   .filter(Boolean)
   .flatMap(r => (r && r.findings) ? r.findings : [])
 
-log(`Collected ${allFindings.length} candidate findings across angles A–F`)
+const reviewedFiles = [...new Set(angleResults
+  .filter(Boolean)
+  .flatMap(r => (r && Array.isArray(r.reviewed_files)) ? r.reviewed_files : []))]
 
-if (allFindings.length === 0) {
-  return '## Code Review Summary\n\nNo issues found across all review angles.\n\n**Verdict: PASS**\n\nDiff reviewed against 6 angles (correctness, removed behavior, cross-file contracts, structural siblings, cleanup/complexity, tests design, standards). Nothing found.'
-}
+log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 
 // ─── Phase 2: Consolidate ────────────────────────────────────────────────────
 
 phase('Consolidate')
 
 const consolidatorPreamble = `CONTEXT:
-- DIFF_PATH:   ${diff_path}
+- DIFF_PATH:      ${diff_path}
+- CHANGED_FILE_COUNT: ${changedFileCount}
+- CHANGED_FILES:
+${fileList}
+- REVIEWED_FILES_REPORTED_BY_ANGLES:
+${reviewedFiles.length ? reviewedFiles.join('\n') : '(none reported)'}
+- PROJECT_ROOT:   ${project_root || '.'}
+${diffScopeLine}
 - ALL_FINDINGS (${allFindings.length} candidates from 6 parallel angles):
 ${JSON.stringify(allFindings, null, 2)}
 ${specContext}
