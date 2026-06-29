@@ -92,9 +92,9 @@ system is read-only.
      - If exists and contains the text "Greenfield — Provisional placeholder": `[ ] Tech stack (\`tech-stack.md\`) — provisional, reconcile after D04`
      - If exists and does NOT contain that text: `[x] Tech stack (\`tech-stack.md\`) — finalized`
      - If not exists: `[ ] Tech stack (\`tech-stack.md\`) — not present`
-   - `[x]` if `docs/architecture/D01-vision-statement.md` exists, otherwise
+   - `[x]` if `docs/product/D01-vision-statement.md` exists, otherwise
      `[ ]` — label: `Vision statement (D01-vision-statement.md) — present` / `— not present`
-   - `[x]` if `docs/architecture/D04-feasibility-report.md` exists, otherwise
+   - `[x]` if `docs/product/D04-feasibility-report.md` exists, otherwise
      `[ ]` — label: `Feasibility report (D04-feasibility-report.md) — present` / `— not present`
 
    Replace the entire checklist block (between the `<!-- DERIVED -->` comment
