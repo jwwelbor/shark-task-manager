@@ -47,7 +47,7 @@ Example architectures demonstrating best practices and common patterns.
 
 ### For Agents
 
-Architect agents (backend-architect, frontend-architect, db-admin, security-architect, principal-architect) invoke this skill to:
+The `architect` agent invokes this skill to:
 - Access architecture workflow procedures
 - Apply standard patterns to new features
 - Use templates for consistent documentation
@@ -69,7 +69,7 @@ Users can reference this skill when:
 Invoke: skills/architecture/workflows/design-system.md
 
 Use Case: High-level system design across multiple components
-Agent: principal-architect
+Agent: architect
 Output: 02-architecture.md
 ```
 
@@ -79,7 +79,7 @@ Output: 02-architecture.md
 Invoke: skills/architecture/workflows/design-backend.md
 
 Use Case: API, service layer, business logic design
-Agent: backend-architect
+Agent: architect
 Output: 02-architecture.md, 04-backend-design.md
 Patterns: api-patterns.md
 Template: api-spec-doc.md
@@ -91,7 +91,7 @@ Template: api-spec-doc.md
 Invoke: skills/architecture/workflows/design-frontend.md
 
 Use Case: Component hierarchy, state management, UX patterns
-Agent: frontend-architect
+Agent: architect
 Output: 05-frontend-design.md
 References: frontend-design skill for UI aesthetics
 Template: frontend-doc.md
@@ -103,7 +103,7 @@ Template: frontend-doc.md
 Invoke: skills/architecture/workflows/design-database.md
 
 Use Case: Data modeling, schema design, persistence strategy
-Agent: db-admin
+Agent: architect
 Output: 03-data-design.md
 Patterns: data-patterns.md
 Template: database-doc.md
@@ -115,7 +115,7 @@ Template: database-doc.md
 Invoke: skills/architecture/workflows/design-security.md
 
 Use Case: Security, auth, authorization, compliance
-Agent: security-architect
+Agent: architect
 Output: 06-security-design.md
 Patterns: security-patterns.md
 Template: security-doc.md
@@ -268,7 +268,7 @@ When new architecture domains emerge:
 
 ## Example Usage
 
-### Backend Architect Creating API Design
+### Designing a Backend API
 
 ```markdown
 ## Your Process
@@ -281,7 +281,7 @@ When new architecture domains emerge:
 7. Validate using quality skill
 ```
 
-### DB Admin Creating Data Model
+### Designing a Data Model
 
 ```markdown
 ## Your Process
@@ -295,12 +295,7 @@ When new architecture domains emerge:
 
 ## Extracted From
 
-This skill consolidates architecture knowledge from:
-- backend-architect agent (385 lines → workflow + patterns)
-- frontend-architect agent (459 lines → workflow + patterns)
-- db-admin agent (207 lines → workflow + patterns)
-- security-architect agent (230 lines → workflow + patterns)
-- principal-architect agent (177 lines → workflow + patterns)
+This skill consolidates architecture knowledge from the former specialized architect personas (system, backend, frontend, database, and security), now unified into a single `architect` agent plus these workflows, patterns, and templates.
 
 ## Version History
 

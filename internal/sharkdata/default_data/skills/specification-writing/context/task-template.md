@@ -9,7 +9,7 @@ This document defines the complete structure for Tasks (agent-executable impleme
 status: created
 feature: /docs/plan/{epic-key}/{feature-key}
 created: YYYY-MM-DD
-assigned_agent: api-developer | frontend-developer | devops-engineer | general-purpose
+assigned_agent: developer | devops | architect | qa
 dependencies: [list-of-task-files-that-must-complete-first.md]
 size: XS|S|M|L|XL|XXL  # story points: 1|2|3|5|8|13
 ---
@@ -286,13 +286,10 @@ Note: Status is managed via the `shark` CLI and tracked in database. Task files 
 **created**: Date in YYYY-MM-DD format
 
 **assigned_agent**: Appropriate specialized agent
-- `general-purpose` - General implementation work
-- `api-developer` - Backend API development
-- `frontend-developer` - Frontend UI development
-- `devops-engineer` - Infrastructure and deployment
-- `backend-architect` - Backend architecture decisions
-- `frontend-architect` - Frontend architecture decisions
-- `db-admin` - Database schema and migrations
+- `developer` - Implementation work (backend, frontend, database, integration)
+- `devops` - Infrastructure and deployment
+- `architect` - Architecture and design decisions (backend, frontend, database, security)
+- `qa` - Test planning and quality validation
 
 **dependencies**: List of Task files that must complete before this one can start
 
@@ -346,11 +343,11 @@ This folder contains agent-executable tasks that implement the {feature-key} fea
 
 | Task | Status | Assigned Agent | Dependencies | Size |
 |-----|--------|----------------|--------------|------|
-| [T-E##-F##-001](./T-E##-F##-001.md) | todo | api-developer, frontend-developer | None | XS |
-| [T-E##-F##-002](./T-E##-F##-002.md) | todo | general-purpose | T-E##-F##-001 | M |
-| [T-E##-F##-003](./T-E##-F##-003.md) | todo | api-developer | T-E##-F##-001, T-E##-F##-002 | L |
-| [T-E##-F##-004](./T-E##-F##-004.md) | todo | frontend-developer | T-E##-F##-001, T-E##-F##-003 | L |
-| [T-E##-F##-005](./T-E##-F##-005.md) | todo | general-purpose | T-E##-F##-004 | M |
+| [T-E##-F##-001](./T-E##-F##-001.md) | todo | architect | None | XS |
+| [T-E##-F##-002](./T-E##-F##-002.md) | todo | developer | T-E##-F##-001 | M |
+| [T-E##-F##-003](./T-E##-F##-003.md) | todo | developer | T-E##-F##-001, T-E##-F##-002 | L |
+| [T-E##-F##-004](./T-E##-F##-004.md) | todo | developer | T-E##-F##-001, T-E##-F##-003 | L |
+| [T-E##-F##-005](./T-E##-F##-005.md) | todo | developer | T-E##-F##-004 | M |
 
 ## Workflow
 

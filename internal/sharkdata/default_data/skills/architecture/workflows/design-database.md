@@ -2,7 +2,7 @@
 inputs:
   - feature_prd_path: absolute path to the feature PRD markdown
   - research_report_path: absolute path to the research report (00-research-report.md)
-  - interface_contracts: list of DTO/interface contracts defined by feature-architect (optional)
+  - interface_contracts: list of DTO/interface contracts defined by the architect (optional)
   - backend_design_path: absolute path to 04-backend-design.md (optional, to understand DTOs)
   - data_design_path: absolute path where 03-data-design.md should be written
   - data_patterns_path: absolute path to data-patterns.md context

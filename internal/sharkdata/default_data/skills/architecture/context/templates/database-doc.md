@@ -1,6 +1,6 @@
 # Database Design Document Template (03-data-design.md)
 
-This template is extracted from the db-admin agent.
+This template is for the data design document (extracted from the architect agent's database design).
 
 ---
 
@@ -9,7 +9,7 @@ This template is extracted from the db-admin agent.
 **Epic**: {epic-key}
 **Feature**: {feature-key}
 **Date**: {YYYY-MM-DD}
-**Author**: db-admin (data architect)
+**Author**: architect (data design)
 
 ## Persistence Overview
 

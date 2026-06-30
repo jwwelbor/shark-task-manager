@@ -102,7 +102,7 @@ Commands/agents that use this skill:
 - `/validate-feature-design` command (immediate consumer)
 - `/validate-task-readiness` command (immediate consumer)
 - code-review-orchestrator agent (immediate consumer)
-- feature-architect agent (validates own output)
+- architect agent (validates own output)
 - task-generator agent (validates own output)
 - Any agent needing quality validation
 

@@ -83,7 +83,7 @@ Write all collected evidence to `evidence_path` so Codex can read it alongside t
 
 ### Step 3 — Codex red-team review (sole assessor, MANDATORY)
 
-Codex is the **sole assessor**. Run `codex_command` and pass it the evidence file alongside the source artifact paths.
+Codex is the **sole assessor**. Run `codex_command` and pass it the evidence file alongside the source artifact paths. The reviewer follows the assessment rubric in `references/redteam-rubric.md` — the enumeration discipline ("enumerate, don't iterate"), the five verification-check categories (wiring/reachability, contract consistency, AC enumeration, coverage gaps, standards), and the required output format (AC-assessment and E2E-wiring tables, verdict).
 
 This step MUST complete before presenting anything to the user. If Codex fails after retries, the verdict is **"Insufficient Evidence"** — do not proceed to user review.
 

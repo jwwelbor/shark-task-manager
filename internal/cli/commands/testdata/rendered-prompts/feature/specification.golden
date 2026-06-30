@@ -26,32 +26,32 @@ Based on what the user needs, invoke the appropriate workflow:
 **When**: User needs high-level system architecture design across all components
 **Invoke**: `workflows/design-system.md`
 **Output**: System architecture document (02-architecture.md)
-**Used by**: principal-architect agent
+**Used by**: the `architect` agent (system design)
 
 ### Backend Architecture
 **When**: User needs API, service layer, or backend component design
 **Invoke**: `workflows/design-backend.md`
 **Output**: Backend design documents (02-architecture.md, 04-backend-design.md)
-**Used by**: backend-architect agent
+**Used by**: the `architect` agent (backend design)
 
 ### Frontend Architecture
 **When**: User needs frontend component, state management, or UI architecture design
 **Invoke**: `workflows/design-frontend.md`
 **Output**: Frontend design document (05-frontend-design.md)
-**Used by**: frontend-architect agent
+**Used by**: the `architect` agent (frontend design)
 **References**: frontend-design skill for UI component aesthetics
 
 ### Database Architecture
 **When**: User needs data modeling, schema design, or persistence strategy
 **Invoke**: `workflows/design-database.md`
 **Output**: Data design document (03-data-design.md)
-**Used by**: db-admin agent
+**Used by**: the `architect` agent (database design)
 
 ### Security Architecture
 **When**: User needs security, authentication, authorization, or compliance design
 **Invoke**: `workflows/design-security.md`
 **Output**: Security design document (06-security-design.md)
-**Used by**: security-architect agent
+**Used by**: the `architect` agent (security design)
 
 ## Pattern Resources
 
@@ -79,12 +79,7 @@ All workflows reference these templates for consistent document structure:
 - **frontend-design skill**: Referenced by frontend workflow for UI component design
 
 ### Used By
-- **feature-architect**: Orchestrates multiple architecture workflows for complete feature design
-- **backend-architect**: Uses design-backend workflow
-- **frontend-architect**: Uses design-frontend workflow
-- **db-admin**: Uses design-database workflow
-- **security-architect**: Uses design-security workflow
-- **principal-architect**: Uses design-system workflow
+- **`architect` agent**: Invokes these workflows for feature architecture — `design-system` for system design, `design-backend` for backend/API, `design-frontend` for frontend, `design-database` for data modeling, and `design-security` for security. A single feature may orchestrate several of them.
 
 ## Usage Pattern
 

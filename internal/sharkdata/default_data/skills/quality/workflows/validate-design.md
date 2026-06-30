@@ -49,7 +49,7 @@ Check that documents properly reference each other:
 
 ### 4. Anti-Pattern Detection
 
-Flag issues that violate feature-architect guidelines:
+Flag issues that violate the architecture design guidelines:
 - **No code implementation** — Check for SQL, Python, TypeScript, etc.
 - **No placeholders** — Check for "TODO", "TBD", "[to be completed]"
 - **Mermaid diagrams present** — Architecture and database sections have diagrams

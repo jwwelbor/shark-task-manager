@@ -1,6 +1,6 @@
 # Frontend Design Document Template (05-frontend-design.md)
 
-This template is extracted from the frontend-architect agent. Target length: 150-200 lines.
+This template is for the frontend design document (extracted from the architect agent's frontend design). Target length: 150-200 lines.
 
 ---
 
@@ -9,7 +9,7 @@ This template is extracted from the frontend-architect agent. Target length: 150
 **Epic**: {epic-key}
 **Feature**: {feature-key}
 **Date**: {YYYY-MM-DD}
-**Author**: frontend-architect
+**Author**: architect
 
 ## Overview
 
