@@ -67,10 +67,14 @@ review_match=""
 if [ -d "$review_root" ]; then
   review_match=$(find "$review_root" -maxdepth 2 -type d -name "$branch_slug" 2>/dev/null | head -1)
   if [ -z "$review_match" ]; then
-    # Remove the ^-anchor so GitFlow-prefixed branches (feature/E07-F01-x → feature-E07-F01-x) also match
-    # `|| true`: grep exits 1 on no match, which (with pipefail) would abort the
-    # script for any branch without an E##-F## key. Tolerate the no-match case.
-    feature_key=$(printf '%s' "$branch_slug" | grep -oE 'E[0-9]+-F[0-9]+' | head -1 || true)
+    # Pull the first E##-F## feature key, if any. Bash-native regex (unanchored,
+    # so GitFlow-prefixed branches like feature-E07-F01-x still match) avoids the
+    # grep pipeline whose exit-1-on-no-match would abort under `set -euo pipefail`.
+    if [[ "$branch_slug" =~ E[0-9]+-F[0-9]+ ]]; then
+      feature_key="${BASH_REMATCH[0]}"
+    else
+      feature_key=""
+    fi
     if [ -n "$feature_key" ]; then
       review_match=$(find "$review_root" -maxdepth 2 -type d -name "${feature_key}-*" 2>/dev/null | head -1)
     fi
