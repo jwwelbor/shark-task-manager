@@ -1,10 +1,12 @@
-# /shark code-review — Multi-angle parallel code review
+# /shark deep-review — Multi-angle parallel code review
 
 Run a structured code review using six specialist subagents in parallel, then
 consolidate into a PASS / PASS-with-triage / FAIL report with Blocker /
 Non-blocker / Nit triage.
 
-Usage: `/shark code-review [--fix] [--comment] [<target>]`
+Usage: `/shark deep-review [--fix] [--comment] [<target>]`
+
+Aliases: `/shark comprehensive-review`, `/shark pr-review`
 
 - `--fix` — apply safe one-liner fixes automatically
 - `--comment` — post findings as inline GitHub PR comments
@@ -12,6 +14,5 @@ Usage: `/shark code-review [--fix] [--comment] [<target>]`
 
 ## Procedure
 
-1. Read `skills/code-review/SKILL.md` (under this shark skill's directory) and
-   follow its procedure, passing any remaining arguments through as that skill's
-   arguments.
+1. Read `skills/shark/skills/deep-review/SKILL.md` and follow its procedure,
+   passing any remaining arguments through as that skill's arguments.

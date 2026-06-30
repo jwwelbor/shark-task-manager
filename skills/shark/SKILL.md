@@ -29,7 +29,7 @@ The `/run` command and a bare `/shark run` both route to `verbs/run.md`.
 | | `vision` | Turn a one-line idea into a shark epic + kick off its workflow |
 | **Day-to-day** | `run` | Drive an entity through its workflow (claim → agent → advance → release) |
 | | `triage` | Quick-capture & classify a discovered work item into the right entity |
-| | `code-review` | Multi-angle parallel code review (6 subagents + consolidator); flags: --fix, --comment |
+| | `deep-review` | Multi-angle parallel code review (6 subagents + consolidator); flags: --fix, --comment. Aliases: comprehensive-review, pr-review |
 | | `brownfield-analysis` | Deep analysis and documentation of an existing codebase |
 | | `viewer` | Launch the web dashboard (`shark web`) |
 | | `consult` | Load an agent persona as an advisor and converse inline (read-only by default) |
@@ -86,7 +86,7 @@ their own slash commands or from within a verb procedure.
 | Sub-skill | Entry point | Purpose |
 |-----------|-------------|---------|
 | `brownfield-analysis` | `/brownfield-analysis` or `/shark brownfield-analysis` | Deep analysis and documentation of an existing (brownfield) codebase — architecture, business logic, technical debt, security, migration readiness. Read `skills/brownfield-analysis/SKILL.md`. |
-| `code-review` | `/code-review` or `/shark code-review` | Multi-angle parallel code review. Six specialist subagents (bugs, removed behavior, contracts, reuse, tests, standards) then a consolidator produces a PASS/FAIL report with Blocker/Non-blocker/Nit triage. Flags: `--fix`, `--comment`. Read `skills/code-review/SKILL.md`. |
+| `deep-review` | `/deep-review` or `/shark deep-review` | Multi-angle parallel code review. Six specialist subagents (bugs, removed behavior, contracts, reuse, tests, standards) then a consolidator produces a PASS/FAIL report with Blocker/Non-blocker/Nit triage. Flags: `--fix`, `--comment`. Aliases: `/comprehensive-review`, `/pr-review`. Read `skills/shark/skills/deep-review/SKILL.md`. |
 | `triage` | `/triage` or `/shark triage` | Quick-capture and classify a discovered work item (task, feature, bug, tech-debt, change-card, idea, or note) under the right parent. Searches for duplicates first, confirms before creating. Read `skills/triage/SKILL.md`. |
 | `sprint-planning` | `/shark plan-sprint` | Mode-aware sprint scoping: reads shark sprint plan + readiness, proposes backlog assignments, confirms with user. Never calls `shark sprint start`. Read `skills/sprint-planning/SKILL.md`. |
 | `sprint-execution` | `/shark run-sprint`, `/shark run-sprint-team` | Sprint pull-loop harnesses (solo and team). Delegates per-entity dispatch to `/run` or `/run-agent-team`; gates sprint close on explicit user confirmation. Read `skills/sprint-execution/SKILL.md`. |

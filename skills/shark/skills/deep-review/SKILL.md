@@ -1,17 +1,17 @@
 ---
-name: code-review
+name: deep-review
 description: >
   Multi-angle parallel code review. Six specialist subagents run in parallel (A: line-by-line bugs +
   production caller chains, B: removed behavior + SOLID, C: cross-file contracts + structural sibling
   check, D: reuse/complexity/idioms, E: tests design + counter-factual, F: standards crosswalk with
   citations), then a consolidator verifies and ranks findings into a PASS / PASS-with-triage / FAIL
-  report with Blocker / Non-blocker / Nit triage. Triggered by /code-review. Flags: --fix (apply
-  one-liner safe fixes), --comment (post as inline GitHub PR comments). Prompts live in
-  references/angle-*.md and references/consolidator.md — readable on any platform even without the
-  Workflow tool.
+  report with Blocker / Non-blocker / Nit triage. Triggered by /deep-review (aliases: /comprehensive-review,
+  /pr-review). Flags: --fix (apply one-liner safe fixes), --comment (post as inline GitHub PR comments).
+  Prompts live in references/angle-*.md and references/consolidator.md — readable on any platform even
+  without the Workflow tool.
 ---
 
-# Code Review
+# Deep Review
 
 Six parallel review angles, then a consolidating final pass. Angle prompts are in `references/` — the JS workflow reads them at runtime, and the fallback path uses them directly.
 
@@ -23,9 +23,9 @@ Six parallel review angles, then a consolidating final pass. Angle prompts are i
 
 ```bash
 project_root=$(git rev-parse --show-toplevel)
-skill_dir="$project_root/skills/shark/skills/code-review"
+skill_dir="$project_root/skills/shark/skills/deep-review"
 if [ ! -f "$skill_dir/SKILL.md" ]; then
-  echo "error: code-review skill not found at $skill_dir" >&2
+  echo "error: deep-review skill not found at $skill_dir" >&2
   exit 1
 fi
 echo "skill_dir=$skill_dir"
@@ -43,7 +43,7 @@ Do **not** truncate `changed_files` unless the user explicitly asks for a partia
 
 ### 3. Launch the workflow
 
-Parse the effort token from the command arguments (`low` | `medium` | `high` | `xhigh` | `max`) if the user passed one (e.g. `/code-review high`). Pass it through as `effort` so the angle agents and consolidator reason at that depth. If no token is given, omit `effort` to inherit session effort. `low`/`medium` emit fewer, high-confidence findings; `high`→`max` broaden coverage (the right default for a pre-merge gate).
+Parse the effort token from the command arguments (`low` | `medium` | `high` | `xhigh` | `max`) if the user passed one (e.g. `/deep-review high`). Pass it through as `effort` so the angle agents and consolidator reason at that depth. If no token is given, omit `effort` to inherit session effort. `low`/`medium` emit fewer, high-confidence findings; `high`→`max` broaden coverage (the right default for a pre-merge gate).
 
 ```javascript
 Workflow({
@@ -56,7 +56,7 @@ Workflow({
     project_root,
     skill_dir,
     coding_standards_path,   // from get_diff.sh output — null if not found
-    effort,                  // from the /code-review <level> token — omit to inherit session effort
+    effort,                  // from the /deep-review <level> token — omit to inherit session effort
     // optional — include if available:
     // task_spec_path: "/path/to/task.md",
     // feature_prd_path: "/path/to/prd.md",
@@ -80,7 +80,7 @@ Then Write the file with a self-describing header followed by the report body:
 ```markdown
 # Overall Code Review — <branch>
 
-**Generated:** <YYYY-MM-DD> · **Tool:** `/code-review` (6-angle automated) · **Diff:** `main...HEAD` · **Effort:** <effort or "session default">
+**Generated:** <YYYY-MM-DD> · **Tool:** `/deep-review` (6-angle automated) · **Diff:** `main...HEAD` · **Effort:** <effort or "session default">
 **Verdict:** <PASS | PASS-with-triage | FAIL — from the report's Executive Summary>
 
 ---
