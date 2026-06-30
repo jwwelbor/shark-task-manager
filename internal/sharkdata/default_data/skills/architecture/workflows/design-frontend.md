@@ -2,7 +2,7 @@
 inputs:
   - feature_prd_path: absolute path to the feature PRD markdown
   - research_report_path: absolute path to the research report (00-research-report.md)
-  - interface_contracts: list of DTO/interface contracts defined by feature-architect (optional)
+  - interface_contracts: list of DTO/interface contracts defined by the architect (optional)
   - backend_design_path: absolute path to 04-backend-design.md (for API integration details)
   - frontend_design_path: absolute path where 05-frontend-design.md should be written
   - frontend_template_path: absolute path to frontend-doc.md template

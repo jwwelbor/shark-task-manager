@@ -10,7 +10,7 @@ Adapt based on interface type: API, Library, CLI, or Service.
 **Epic**: {epic-key}
 **Feature**: {feature-key}
 **Date**: {YYYY-MM-DD}
-**Author**: backend-architect
+**Author**: architect
 
 ## Interface Overview
 

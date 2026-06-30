@@ -88,7 +88,7 @@ Agents that use this skill:
 - epic-prd-writer (immediate consumer)
 - prd-writer (immediate consumer)
 - task-generator (immediate consumer)
-- feature-architect (may invoke for documentation)
+- architect (may invoke for documentation)
 - Any future documentation agents
 
 ## Version History

@@ -9,7 +9,7 @@ This template is for the system architecture document. Target length: 150-200 li
 **Epic**: {epic-key}
 **Feature**: {feature-key}
 **Date**: {YYYY-MM-DD}
-**Author**: backend-architect
+**Author**: architect
 
 ## Architecture Overview
 

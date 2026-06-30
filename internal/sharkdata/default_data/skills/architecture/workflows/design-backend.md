@@ -225,7 +225,7 @@ If coordinator provided contracts:
 - Maintain naming consistency
 
 ### Consider Security
-Note security requirements for later security-architect review:
+Note security requirements for later security design review:
 - Authentication requirements
 - Authorization rules
 - Data protection needs

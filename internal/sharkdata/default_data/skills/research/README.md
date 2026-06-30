@@ -182,10 +182,8 @@ Templates and standards for documenting findings:
 - `project-research-agent` - Dedicated research coordinator
 
 **Secondary consumers**:
-- `feature-architect` - Understanding context before design
-- `api-developer` - Understanding existing API patterns
-- `frontend-developer` - Understanding existing component patterns
-- `backend-architect` - Understanding existing backend architecture
+- `architect` - Understanding context and existing architecture before design
+- `developer` - Understanding existing API and component patterns
 - Any agent needing codebase understanding
 
 ### Skill dependencies

@@ -1,6 +1,6 @@
 # Security Design Document Template (06-security-design.md)
 
-This template is extracted from the security-architect agent. Target length: 100-150 lines.
+This template is for the security design document (extracted from the architect agent's security design). Target length: 100-150 lines.
 
 ---
 
@@ -9,7 +9,7 @@ This template is extracted from the security-architect agent. Target length: 100
 **Epic**: {epic-key}
 **Feature**: {feature-key}
 **Date**: {YYYY-MM-DD}
-**Author**: security-architect
+**Author**: architect
 
 ## Security Overview
 

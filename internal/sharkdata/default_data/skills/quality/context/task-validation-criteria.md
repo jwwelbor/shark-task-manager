@@ -11,7 +11,7 @@ Each Task file (except README.md) must have valid YAML frontmatter:
 status: created | todo | active | blocked | ready-for-review | completed | archived
 feature: /docs/plan/{epic}/{feature}  # Absolute path
 created: YYYY-MM-DD
-assigned_agent: api-developer | frontend-developer | devops-engineer | general-purpose
+assigned_agent: developer | devops | architect | qa
 dependencies: [list-of-task-files.md] | []  # Other task files in /docs/tasks/
 estimated_time: X hours  # Typically 2-12 hours
 ---
@@ -116,12 +116,12 @@ Tasks are directives, NOT tutorials:
 
 ### Agent Assignment
 Appropriate specialized agent:
-- Database Tasks → `general-purpose` or `api-developer`
-- API Tasks → `api-developer`
-- Frontend Tasks → `frontend-developer`
-- Deployment Tasks → `devops-engineer`
-- Integration Tasks → `general-purpose`
-- Contract validation → `api-developer, frontend-developer` (parallel)
+- Database tasks → `developer` (or `architect` for schema design)
+- API tasks → `developer`
+- Frontend tasks → `developer`
+- Deployment tasks → `devops`
+- Integration tasks → `developer`
+- Contract validation → `developer`
 
 ## Dependency Validation
 

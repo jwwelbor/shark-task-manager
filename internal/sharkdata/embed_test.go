@@ -781,6 +781,135 @@ func TestEmbedded_SkillsContainNoBareSharkCLIRefs(t *testing.T) {
 		strings.Join(violations, "\n"))
 }
 
+// TestEmbedded_AgentsDescribeRoleNotWorkflow enforces the agent-persona purity
+// rule: an agent .md file describes WHO the agent is (role identity, judgment
+// posture, communication style), not HOW to run the workflow. Workflow
+// mechanics belong in workflow YAMLs and prompts; craft methodology belongs in
+// skills.
+//
+// This is a permanent regression gate: if a future edit re-introduces a status-
+// management block, a stale harness path, or a workflow-node / skills-to-use /
+// workflow-integration section into an agent persona, `make test` fails here
+// before the change can merge.
+func TestEmbedded_AgentsDescribeRoleNotWorkflow(t *testing.T) {
+	const agentsPrefix = "agents/"
+
+	// Substrings banned in EVERY agent file.
+	banned := []string{
+		"Shark Status Management",   // the CRITICAL status-management block
+		"shark/SKILL.md",            // stale harness entry-point path
+		"docs/workflow/state.json",  // runtime state file removed when shark became the state source
+		"Workflow Nodes You Handle", // workflow-node tables belong in workflow YAMLs
+		"Skills to Use",             // skill-listing sections belong in skills/prompts
+		"Workflow Integration",      // workflow-time wiring belongs in prompts
+		"/docs/tasks/created",       // stale task-lifecycle directory convention
+		"docs/chatGPT",              // host-only path, never embedded
+	}
+
+	var violations []string
+
+	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
+		if isDir || !strings.HasPrefix(relPath, agentsPrefix) || !strings.HasSuffix(relPath, ".md") {
+			return nil
+		}
+		content := string(data)
+		for _, b := range banned {
+			if strings.Contains(content, b) {
+				violations = append(violations, relPath+`: contains "`+b+`"`)
+			}
+		}
+		// `shark status advance` is a workflow-mechanics instruction that
+		// specialist agents must not carry. product-manager is the coordinator
+		// exception (it may retain coordinator-level shark awareness).
+		if relPath != agentsPrefix+"product-manager.md" && strings.Contains(content, "shark status advance") {
+			violations = append(violations, relPath+`: contains "shark status advance" (only product-manager may)`)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, violations,
+		"agent personas must describe role identity, not workflow mechanics; found:\n%s",
+		strings.Join(violations, "\n"))
+}
+
+// TestEmbedded_SkillsHaveNoStaleAgentSlugs enforces that skill files reference
+// only current embedded agents. The specialized agents that predated
+// consolidation (api-developer, frontend-developer, devops-engineer, and the
+// per-domain architect personas) no longer exist; their work now lives in the
+// `developer`, `devops`, and `architect` agents and the architecture skill's
+// design-* workflows.
+//
+// `general-purpose` is a harness subagent type, not an embedded specialist, so
+// it must not appear as an agent assignment. Plain prose ("a general-purpose
+// choice") is fine — only slug usage (backtick-wrapped, or in an
+// assigned_agent line) is flagged.
+func TestEmbedded_SkillsHaveNoStaleAgentSlugs(t *testing.T) {
+	const skillsPrefix = "skills/"
+
+	staleSlugs := []string{
+		"api-developer", "frontend-developer", "devops-engineer",
+		"backend-architect", "frontend-architect", "db-admin",
+		"security-architect", "principal-architect", "feature-architect",
+	}
+
+	var violations []string
+
+	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
+		if isDir || !strings.HasPrefix(relPath, skillsPrefix) || !strings.HasSuffix(relPath, ".md") {
+			return nil
+		}
+		content := string(data)
+		for _, slug := range staleSlugs {
+			if strings.Contains(content, slug) {
+				violations = append(violations, relPath+`: contains stale agent slug "`+slug+`"`)
+			}
+		}
+		// `general-purpose` only when used as an agent slug, not in prose.
+		for _, line := range strings.Split(content, "\n") {
+			if !strings.Contains(line, "general-purpose") {
+				continue
+			}
+			if strings.Contains(line, "`general-purpose`") || strings.Contains(line, "assigned_agent") {
+				violations = append(violations, relPath+`: uses "general-purpose" as an agent slug: `+strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, violations,
+		"skill files must reference current embedded agents (developer/devops/architect/qa), not consolidated-away slugs; found:\n%s",
+		strings.Join(violations, "\n"))
+}
+
+// TestEmbedded_SkillsHaveNoDeadCollaborationLink guards against the
+// `skills/collaboration/remembering-conversations` reference, which points at a
+// capability that was never a tracked embedded path. The intended behavior is
+// expressed as generic prose instead ("review available decision records and
+// conversation history if the host exposes it").
+func TestEmbedded_SkillsHaveNoDeadCollaborationLink(t *testing.T) {
+	const skillsPrefix = "skills/"
+	const deadLink = "skills/collaboration/remembering-conversations"
+
+	var violations []string
+
+	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
+		if isDir || !strings.HasPrefix(relPath, skillsPrefix) || !strings.HasSuffix(relPath, ".md") {
+			return nil
+		}
+		if strings.Contains(string(data), deadLink) {
+			violations = append(violations, relPath)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, violations,
+		"skill files must not reference the untracked collaboration path %q; found in:\n%s",
+		deadLink, strings.Join(violations, "\n"))
+}
+
 func assertReportHasErrorContaining(t *testing.T, report *ValidationReport, needle string) {
 	t.Helper()
 	require.NotNil(t, report)

@@ -135,10 +135,9 @@ The research skill provides analysis techniques, standards, and reference data:
 - `quality` - Understanding codebase enables better reviews
 
 **Used by agents**:
-- project-research-agent (primary user)
-- feature-architect (for context before design)
-- api-developer (understanding existing APIs)
-- frontend-developer (understanding existing components)
+- researcher (primary user)
+- architect (for context before design)
+- developer (understanding existing APIs and components)
 
 ## Tools Required
 
