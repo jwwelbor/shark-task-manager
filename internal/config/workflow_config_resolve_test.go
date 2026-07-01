@@ -121,7 +121,8 @@ func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
 // TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy verifies that
 // when the default shark-data/workflow/ doesn't exist AND the user didn't
 // explicitly configure workflow_config, the resolver flags legacy fallback
-// so projects without `shark init` keep using their inline-JSON workflow.
+// so inline JSON workflow blocks still load before missing slots fall back to
+// embedded canonical YAML.
 func TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, ".sharkconfig.json")

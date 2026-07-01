@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -561,11 +562,31 @@ func TestLoadMultiLevelWorkflow_JSONWorkflowConfigRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected deprecated JSON workflow_config error, got nil")
 	}
-	if !strings.Contains(err.Error(), "deprecated workflow_config JSON") {
-		t.Fatalf("error = %q; want deprecated JSON workflow_config migration hint", err.Error())
+	if !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+		t.Fatalf("error = %q; want ErrDeprecatedWorkflowConfigJSON", err.Error())
 	}
-	if strings.Contains(err.Error(), "config/workflows.json") {
-		t.Fatalf("error = %q; must not echo deprecated configured path", err.Error())
+}
+
+func TestIsDeprecatedWorkflowConfigTarget_JSONOnly(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "json workflow", value: "config/workflows.json", want: true},
+		{name: "legacy sharkworkflow json", value: ".sharkworkflow.json", want: true},
+		{name: "yaml master index", value: "workflow.yaml", want: false},
+		{name: "sharkworkflow yaml master index", value: ".sharkworkflow.yaml", want: false},
+		{name: "directory", value: "shark-data/workflow", want: false},
+		{name: "empty", value: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsDeprecatedWorkflowConfigTarget(tt.value); got != tt.want {
+				t.Errorf("IsDeprecatedWorkflowConfigTarget(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -888,8 +909,8 @@ func TestLoadMultiLevelWorkflow_CircularWorkflowConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected deprecated JSON workflow_config error, got nil")
 	}
-	if !strings.Contains(err.Error(), "deprecated workflow_config JSON") {
-		t.Fatalf("error = %q; want deprecated JSON workflow_config migration hint", err.Error())
+	if !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+		t.Fatalf("error = %q; want ErrDeprecatedWorkflowConfigJSON", err.Error())
 	}
 }
 

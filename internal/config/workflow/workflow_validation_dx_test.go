@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -215,6 +216,61 @@ func TestValidateWorkflowFiles_DuplicateDetection(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected duplicate definition warning for task_workflow")
+	}
+}
+
+func TestValidateWorkflowFiles_LegacyTaskKeyGuidance(t *testing.T) {
+	t.Cleanup(ClearWorkflowCache)
+	tmpDir := t.TempDir()
+
+	taskWorkflow := map[string]interface{}{
+		"status_flow": map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"completed"},
+			"completed":   {},
+		},
+		"status_metadata": map[string]interface{}{
+			"todo":        map[string]interface{}{"color": "gray"},
+			"in_progress": map[string]interface{}{"color": "yellow"},
+			"completed":   map[string]interface{}{"color": "green"},
+		},
+		"special_statuses": map[string]interface{}{
+			"_start_":    []string{"todo"},
+			"_complete_": []string{"completed"},
+		},
+	}
+
+	sharkConfig := map[string]interface{}{
+		"status_flow":      taskWorkflow["status_flow"],
+		"status_metadata":  taskWorkflow["status_metadata"],
+		"special_statuses": taskWorkflow["special_statuses"],
+		"task_workflow":    taskWorkflow,
+	}
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	writeJSONFile(t, configPath, sharkConfig)
+
+	ResetMultiLevelCache()
+
+	results := ValidateWorkflowFiles(configPath)
+
+	var warningMessage string
+	for _, r := range results {
+		if r.Level == "warning" && r.Entity == "task" && strings.Contains(r.Message, "Legacy top-level status_flow") {
+			warningMessage = r.Message
+			break
+		}
+	}
+	if warningMessage == "" {
+		t.Fatal("expected legacy top-level task workflow warning")
+	}
+	if !strings.Contains(warningMessage, "Move task workflow settings into task_workflow") {
+		t.Errorf("warning = %q; want task_workflow migration guidance", warningMessage)
+	}
+	if !strings.Contains(warningMessage, "per-entity YAML workflow file") {
+		t.Errorf("warning = %q; want per-entity YAML migration guidance", warningMessage)
+	}
+	if strings.Contains(warningMessage, "shark init update") {
+		t.Errorf("warning = %q; must not mention removed workflow-profile command", warningMessage)
 	}
 }
 

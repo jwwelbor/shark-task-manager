@@ -149,7 +149,13 @@ untouched. `shark admin init` only creates the database, `docs/plan/`, and
 
 > A bare Shark 1.x JSON workflow file (e.g. `.sharkworkflow.json`) is **no
 > longer a valid `workflow_config` target** — the loader rejects it with a
-> migration hint. Run `shark admin install-shark-data` to materialize the `shark-data/` tree.
+> migration hint because an explicit JSON target overrides the embedded
+> defaults. To migrate with no disk bundle, remove the `workflow_config` line
+> from `.sharkconfig.json` or set it to an empty string; if a root
+> `.sharkworkflow.json` exists, remove or rename it too before expecting
+> embedded defaults. To migrate with editable workflow files, run
+> `shark admin install-shark-data`; it extracts the content bundle and rewrites
+> deprecated JSON targets to the installed bundle's workflow directory.
 
 Task lifecycle at a glance (default route-based task workflow):
 ```

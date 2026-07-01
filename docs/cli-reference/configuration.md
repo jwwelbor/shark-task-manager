@@ -4,7 +4,7 @@ Complete reference for Shark CLI configuration — both the `.sharkconfig.json` 
 
 ## Configuration File (`.sharkconfig.json`)
 
-The `.sharkconfig.json` file is automatically created by `shark init` and contains database, UI, and workflow settings.
+The `.sharkconfig.json` file is automatically created by `shark admin init` and contains database, UI, and workflow settings.
 
 **Location**: Project root directory (auto-detected by walking up from current directory).
 
@@ -114,9 +114,10 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 **independent of `workflow_config`** (which selects only the active workflow
 graph / status routing); `workflow_config` never drives the bundle root.
 
-All bundle-aware commands resolve this one value the same way — `shark init`,
-`shark upgrade`, and `shark validate` all materialize/refresh/validate the
-resolved root, and prompt + workflow resolution read from it:
+All bundle-aware commands resolve this one value the same way —
+`shark admin install-shark-data`, `shark admin upgrade`, and
+`shark admin validate-data` all materialize, refresh, or validate the resolved
+root, and prompt + workflow resolution read from it:
 
 - **Default** (`"shark-data"`): resolves to `<project-root>/shark-data`,
   preserving historical behavior.
@@ -139,6 +140,18 @@ resolved root, and prompt + workflow resolution read from it:
   "shark_data_path": "~/shared/shark-bundles/standard"
 }
 ```
+
+#### `workflow_config`
+
+`workflow_config` selects the active workflow graph and status routing. Leave it
+absent or empty to use Shark's embedded default workflows, set it to a directory
+of per-entity YAML files, or set it to a YAML master index file.
+
+Do not point `workflow_config` at `.sharkworkflow.json` or another JSON workflow
+file. To migrate an older project to embedded defaults, remove the field and
+remove or rename any root `.sharkworkflow.json`. Or run
+`shark admin install-shark-data` to extract editable YAML and set
+`workflow_config` to the installed bundle's `workflow/` directory.
 
 <a id="console-width"></a>
 #### Console Width
@@ -935,7 +948,7 @@ For the complete field reference, environment variable overrides, and example co
 
 - [Workflow Configuration](workflow-configuration.md) - Workflow system reference
 - [Global Flags](global-flags.md) - CLI-level configuration flags
-- [Setup Commands](setup-commands.md) - `shark init` and related setup
+- [Setup Commands](setup-commands.md) - `shark admin init` and related setup
 - [Turso Quickstart](../TURSO_QUICKSTART.md) - Cloud database setup
 - [Observability Developer Guide](../guides/observability.md) - OTel tracing, metrics, and structured logging
 - [Observability Configuration Reference](../guides/observability-config-reference.md) - Complete `observability.*` field reference

@@ -68,6 +68,23 @@ which is resolved from the embedded bundle when no `shark-data/` tree exists
 on disk. To customize workflows, run `shark admin install-shark-data` to
 extract the bundle, then edit `shark-data/workflow/*.yaml` directly.
 
+## Migrate a deprecated JSON workflow
+
+Older projects may set `workflow_config` to `.sharkworkflow.json` or another
+JSON workflow file. JSON workflow files are no longer supported as
+`workflow_config` targets.
+
+Choose one migration path:
+
+1. Use embedded defaults: remove the `workflow_config` field from
+   `.sharkconfig.json` or set it to `""`. If a root `.sharkworkflow.json`
+   exists, remove or rename it too.
+2. Use editable files: run `shark admin install-shark-data`. The command
+   extracts the configured content bundle and replaces the deprecated JSON
+   target with that bundle's `workflow/` directory.
+3. Use a custom workflow: set `workflow_config` to a directory of per-entity
+   YAML files or a YAML master index file.
+
 ## When to Use
 
 Run `shark admin init` when:

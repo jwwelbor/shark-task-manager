@@ -8,7 +8,12 @@
 >
 > A bare Shark 1.x JSON workflow file (e.g. `.sharkworkflow.json`) is no
 > longer a valid `workflow_config` target — the loader rejects it with a
-> migration hint. Run `shark init` to materialize the `shark-data/` tree.
+> migration hint because an explicit JSON target overrides the embedded
+> defaults. Remove the `workflow_config` field to stop selecting the deprecated
+> target; remove or rename a root `.sharkworkflow.json` too if you want embedded
+> defaults. Or run `shark admin install-shark-data` to extract editable workflow
+> files and set `workflow_config` to the installed bundle's `workflow/`
+> directory.
 >
 > This page explains the current model. If you came here looking for the
 > old `--workflow=basic|advanced` flags, see the
@@ -18,8 +23,10 @@
 
 Shark loads its workflow definitions (status list, status flow / outcome
 routing, agent routing, orchestrator actions) from per-entity YAML files.
-`workflow_config` in `.sharkconfig.json` points at either a **directory**
-of per-entity YAML (the default) or a **master index file**:
+When `workflow_config` is absent or empty, Shark uses the embedded default
+workflow bundle. When it is set, `workflow_config` in `.sharkconfig.json`
+points at either a **directory** of per-entity YAML files or a **master index
+file**:
 
 ```json
 {
@@ -37,9 +44,10 @@ shark-data/workflow/
 └── tech-debt.yaml
 ```
 
-`shark admin init` materializes the `shark-data/` tree (workflows, prompts,
-skills, agents). The `shark-data/overrides/` subtree layers on top of the
-bundled defaults and is never overwritten by `shark admin init`.
+`shark admin install-shark-data` materializes the `shark-data/` tree
+(workflows, prompts, skills, agents). The `shark-data/overrides/` subtree
+layers on top of the bundled defaults and is never overwritten by
+`shark admin install-shark-data` or `shark admin upgrade`.
 
 See the [Route-Based Workflow Guide](route-based-workflow.md) for the
 consolidated `steps:` schema, outcome routing, and master-index resolution.
@@ -51,7 +59,20 @@ consolidated `steps:` schema, outcome routing, and master-index resolution.
 3. Point `workflow_config` at your own directory or master index file.
 
 Overrides and files outside the bundled tree are left untouched by
-`shark admin init`.
+`shark admin install-shark-data` and `shark admin upgrade`.
+
+## Migrate a deprecated JSON workflow
+
+If `.sharkconfig.json` points `workflow_config` at `.sharkworkflow.json` or
+another JSON workflow file, choose one migration path:
+
+1. Use embedded defaults: remove the `workflow_config` field or set it to `""`.
+   If a root `.sharkworkflow.json` exists, remove or rename it too.
+2. Use editable files: run `shark admin install-shark-data`. The command
+   extracts the configured content bundle and replaces the deprecated JSON
+   target with that bundle's `workflow/` directory.
+3. Use a custom workflow: point `workflow_config` at a directory of per-entity
+   YAML files or a YAML master index file.
 
 ## Migration from the old profile system
 

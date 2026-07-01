@@ -275,17 +275,21 @@ func entityTypesForLoader() []string {
 //     top-level `status_flow` for the task slot) backstop any entity the
 //     YAML directory did not cover. This is what fresh checkouts and the
 //     legacy test fixtures rely on.
-//  3. Hardcoded defaults fill any entity slot left empty (e.g. tech_debt,
-//     sprint — Shark 2.0 may not have shipped YAMLs for every entity).
+//  3. Embedded canonical workflow YAML fills any entity slot left empty.
+//     Hardcoded Go defaults are used only if the embedded YAML is unavailable
+//     or invalid.
 //
 // projectRoot is derived from configPath (the directory containing
 // .sharkconfig.json).
 //
 // Hard error: when `workflow_config` explicitly points at a deprecated JSON
-// workflow file, this loader fails with a directive to install the shark-data
-// tree. The two-path fallback that used to silently load the JSON file's task
-// slot was removed because it silently dropped every other entity's workflow on
-// the floor and caused status lookups to misroute (see B020).
+// workflow file, this loader fails with a migration hint. The minimal fix is
+// removing workflow_config; if a root .sharkworkflow.json is present, remove or
+// rename it too before expecting embedded defaults. The editable-files fix is
+// `shark admin install-shark-data`. The two-path fallback that used to silently
+// load the JSON file's task slot was removed because it silently dropped every
+// other entity's workflow on the floor and caused status lookups to misroute
+// (see B020).
 func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.StatusActionData, error) {
 	projectRoot := filepath.Dir(configPath)
 
@@ -302,6 +306,11 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	// same as if the file were absent, which matches the prior best-effort
 	// semantics of the individual readers.
 	configBytes, _ := readConfigFile(configPath)
+
+	configuredWorkflow := readWorkflowConfigField(configBytes)
+	if workflow.IsDeprecatedWorkflowConfigTarget(configuredWorkflow) {
+		return nil, workflow.DeprecatedWorkflowConfigJSONError()
+	}
 
 	workflowDir, overridesDir, isLegacyFile := resolveWorkflowDir(projectRoot, configBytes)
 
@@ -322,10 +331,9 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	// dir missing — leaves workflowDir non-empty and falls through to Pass
 	// 1/2/3 so fresh projects and inline-config tests keep working.)
 	if isLegacyFile && workflowDir == "" {
-		configured := readWorkflowConfigField(configBytes)
-		indexPath := configured
+		indexPath := configuredWorkflow
 		if !filepath.IsAbs(indexPath) {
-			indexPath = filepath.Join(projectRoot, configured)
+			indexPath = filepath.Join(projectRoot, configuredWorkflow)
 		}
 
 		idxMLW, isIndex, idxErr := workflow.LoadWorkflowIndexFile(indexPath)
@@ -333,11 +341,7 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 			return nil, idxErr
 		}
 		if !isIndex {
-			return nil, fmt.Errorf(
-				"deprecated workflow_config JSON file: Shark uses per-entity YAML in " +
-					"shark-data/workflow/ or a master index file. Run `shark admin " +
-					"install-shark-data` and update workflow_config to a supported target.",
-			)
+			return nil, workflow.DeprecatedWorkflowConfigJSONError()
 		}
 
 		// Master index: project each entity slot it populated. Any slot the
@@ -368,8 +372,10 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	}
 
 	// Pass 2: inline multi-level workflows from .sharkconfig.json itself.
-	// Covers fresh checkouts that haven't run `shark init` yet and the
-	// legacy top-level `status_flow` shape still used by many tests.
+	// Covers legacy inline config blocks, including the top-level
+	// `status_flow` shape still used by many tests. Projects no longer need
+	// an init step for bundled workflows because Pass 3 reads embedded
+	// canonical YAML.
 	// Use the bytes-accepting variant so we don't re-read the file.
 	if mlw := workflow.LoadMultiLevelWorkflowOrDefaultFromBytes(configPath, configBytes); mlw != nil {
 		for _, entityType := range entityTypes {
@@ -386,7 +392,7 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 	// Reads from the binary's embedded sharkdata tree (internal/sharkdata/
 	// default_data/workflow/<entity>.yaml) so a zero-config project (no
 	// shark-data/ on disk, no inline config blocks) gets the same richer
-	// route-based workflows as an installed project that ran `shark init`.
+	// route-based workflows as a project with an extracted shark-data/ tree.
 	// Falls back to the hardcoded Go defaults only when the embedded read
 	// itself fails — e.g. for entity types that don't yet have a shipped YAML
 	// (sprint) or for defensive robustness.
@@ -483,10 +489,9 @@ func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, ov
 		// Doesn't exist (or stat error). If the user explicitly pointed
 		// workflow_config at this path, we still try Pass 1 (the YAML
 		// loader is silent on missing dirs) — but if they didn't, the
-		// default shark-data/workflow/ may simply not exist yet because
-		// the project never ran `shark init`. In that case fall back to
-		// the legacy JSON loader so inline `.sharkconfig.json` workflows
-		// keep working (tests, fresh checkouts, etc.).
+		// default shark-data/workflow/ may simply not exist on disk. In that
+		// case flag the legacy fallback path; the loader will still backstop
+		// missing slots with embedded canonical YAML.
 		overridesDir = filepath.Join(filepath.Dir(workflowDir), "overrides", "workflow")
 		if configured == "" {
 			return workflowDir, overridesDir, true

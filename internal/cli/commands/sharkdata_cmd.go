@@ -13,18 +13,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	workflowconfig "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
-// defaultWorkflowConfigDir is the directory `shark admin install-shark-data`
-// writes into `.sharkconfig.json`'s `workflow_config` field. The runtime
-// resolves per-entity YAMLs through this field (see resolveWorkflowDir in
-// internal/config/aliases.go).
+// defaultWorkflowConfigDir is the default directory
+// `shark admin install-shark-data` writes into `.sharkconfig.json`'s
+// `workflow_config` field when shark_data_path uses the default bundle root.
+// The runtime resolves per-entity YAMLs through this field (see
+// resolveWorkflowDir in internal/config/aliases.go).
 const defaultWorkflowConfigDir = "shark-data/workflow/"
 
 var (
@@ -33,8 +36,9 @@ var (
 
 var sharkInstallDataCmd = &cobra.Command{
 	Use:   "install-shark-data",
-	Short: "Extract embedded shark-data/ to disk for local customization",
-	Long: `Extract the embedded canonical shark-data/ tree to <project>/shark-data/.
+	Short: "Extract the embedded content bundle to disk for local customization",
+	Long: `Extract the embedded canonical content bundle to the configured
+shark_data_path, defaulting to <project>/shark-data/.
 
 This is an explicit opt-in for authors and customizers who want to edit
 prompts, skills, workflow YAML, or agents without rebuilding the binary.
@@ -43,7 +47,8 @@ on a per-file basis; the embed remains the backstop for any file absent
 from disk.
 
 Also writes shark_data_path and workflow_config into .sharkconfig.json when
-those fields are absent or empty.
+those fields are absent or empty, and migrates deprecated JSON workflow_config
+targets to the installed bundle's workflow directory.
 
 To refresh an existing shark-data/ with the latest embedded defaults, run:
   shark admin upgrade
@@ -127,9 +132,11 @@ func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 		return sharkdataErr
 	}
 
-	// Also ensure config fields are present. Explicit workflow_config values are
-	// preserved; runtime validation reports any deprecated formats.
-	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, defaultWorkflowConfigDir)
+	// Also ensure config fields are present. Supported explicit
+	// workflow_config values are preserved; deprecated JSON workflow pointers
+	// are migrated to the installed YAML workflow directory.
+	workflowConfigDir := workflowConfigDirForDataRoot(root, dataRoot)
+	configUpdated, migratedFrom, err := ensureWorkflowConfigField(root, workflowConfigDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to update .sharkconfig.json: %v\n", err)
 	}
@@ -143,8 +150,8 @@ func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 				"migrated_from":  migratedFrom,
 			})
 		} else {
-			fmt.Printf("shark-data/ already exists at %s. Run 'shark admin upgrade' to refresh.\n", dest)
-			printConfigUpdateMessage(configUpdated, migratedFrom)
+			fmt.Printf("Content bundle already exists at %s. Run 'shark admin upgrade' to refresh.\n", dest)
+			printConfigUpdateMessage(configUpdated, migratedFrom, workflowConfigDir)
 		}
 		// Idempotent — already extracted, report as success.
 		return nil
@@ -158,19 +165,24 @@ func runSharkInstallData(cmd *cobra.Command, _ []string) error {
 			"migrated_from":  migratedFrom,
 		})
 	}
-	fmt.Printf("Extracted shark-data/ to %s\n", dest)
+	fmt.Printf("Extracted content bundle to %s\n", dest)
 	fmt.Println("Disk files now take precedence over embedded defaults on a per-file basis.")
-	printConfigUpdateMessage(configUpdated, migratedFrom)
+	printConfigUpdateMessage(configUpdated, migratedFrom, workflowConfigDir)
 	return nil
 }
 
 // printConfigUpdateMessage emits the human-readable summary of what
 // `ensureWorkflowConfigField` did to `.sharkconfig.json`.
-func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
+func printConfigUpdateMessage(configUpdated bool, migratedFrom, workflowConfigDir string) {
 	if !configUpdated {
 		return
 	}
-	fmt.Printf("Set workflow_config: %q in .sharkconfig.json\n", defaultWorkflowConfigDir)
+	if migratedFrom != "" {
+		fmt.Printf("Migrated workflow_config from deprecated JSON target %q to %q in .sharkconfig.json\n",
+			migratedFrom, workflowConfigDir)
+		return
+	}
+	fmt.Printf("Set workflow_config: %q in .sharkconfig.json\n", workflowConfigDir)
 }
 
 // ensureWorkflowConfigField writes "workflow_config": defaultPath into
@@ -178,7 +190,9 @@ func printConfigUpdateMessage(configUpdated bool, migratedFrom string) {
 //
 //   - Config missing: create a minimal {"workflow_config": "..."} file.
 //   - Config exists, field absent or empty: add the field.
-//   - Config exists, field set to anything else: leave it alone. Still
+//   - Config exists, field set to a deprecated JSON workflow target: replace
+//     it with defaultPath.
+//   - Config exists, field set to any supported target: leave it alone. Still
 //     persists a freshly-added shark_data_path if needed.
 //
 // Returns (updated, migratedFrom, err).
@@ -196,6 +210,7 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 	}
 
 	existing, _ := raw["workflow_config"].(string)
+	existing = strings.TrimSpace(existing)
 
 	// Ensure shark_data_path is present.
 	sharkDataAdded := false
@@ -207,9 +222,11 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 	switch {
 	case existing == "":
 		// Add the field.
+	case workflowconfig.IsDeprecatedWorkflowConfigTarget(existing):
+		migratedFrom = existing
 	default:
 		// Explicit workflow_config — respect it. Still persist a freshly-added
-		// shark_data_path; runtime validation owns deprecated config errors.
+		// shark_data_path if needed.
 		if sharkDataAdded {
 			if writeErr := mgr.SaveRaw(configPath, raw); writeErr != nil {
 				return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
@@ -224,6 +241,18 @@ func ensureWorkflowConfigField(projectRoot, defaultPath string) (updated bool, m
 		return false, "", fmt.Errorf("write %s: %w", configPath, writeErr)
 	}
 	return true, migratedFrom, nil
+}
+
+func workflowConfigDirForDataRoot(projectRoot, dataRoot string) string {
+	workflowDir := filepath.Join(dataRoot, workflowconfig.YAMLWorkflowDir)
+	if rel, err := filepath.Rel(projectRoot, workflowDir); err == nil && rel != "." && !pathEscapesRoot(rel) {
+		return filepath.ToSlash(rel) + "/"
+	}
+	return filepath.ToSlash(filepath.Clean(workflowDir)) + "/"
+}
+
+func pathEscapesRoot(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
