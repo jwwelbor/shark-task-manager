@@ -1,12 +1,13 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	workflowpkg "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 )
 
 // These tests cover the ActionService workflow loader (defaultWorkflowDataLoader)
@@ -148,11 +149,26 @@ func TestDefaultWorkflowDataLoader_GenuineLegacyJSONStillRejected(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected rejection for genuine legacy JSON workflow file, got nil")
 	}
-	if !strings.Contains(err.Error(), "deprecated workflow_config JSON") {
-		t.Errorf("error = %q; want deprecated JSON workflow_config migration hint", err.Error())
+	if !errors.Is(err, workflowpkg.ErrDeprecatedWorkflowConfigJSON) {
+		t.Errorf("error = %q; want ErrDeprecatedWorkflowConfigJSON", err.Error())
 	}
-	if strings.Contains(err.Error(), configuredPath) {
-		t.Errorf("error = %q; must not echo deprecated configured path %q", err.Error(), configuredPath)
+}
+
+func TestDefaultWorkflowDataLoader_MissingLegacyJSONStillRejected(t *testing.T) {
+	tmp := t.TempDir()
+	configuredPath := "legacy/missing-workflow.json"
+	configPath := filepath.Join(tmp, ".sharkconfig.json")
+	if err := os.WriteFile(configPath,
+		[]byte(`{"workflow_config": "`+configuredPath+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := defaultWorkflowDataLoader(configPath)
+	if err == nil {
+		t.Fatal("expected rejection for missing legacy JSON workflow file, got nil")
+	}
+	if !errors.Is(err, workflowpkg.ErrDeprecatedWorkflowConfigJSON) {
+		t.Errorf("error = %q; want ErrDeprecatedWorkflowConfigJSON", err.Error())
 	}
 }
 

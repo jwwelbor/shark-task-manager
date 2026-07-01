@@ -67,10 +67,13 @@ resolved from the embedded `shark-data/` bundle via `workflow_config:
 
 ### shark admin install-shark-data
 
-Extract the embedded content bundle to `shark-data/` on disk for inspection and
-local customization. Writes workflow YAML files, prompts, markdown file templates, skills, and agent
-definitions. Put upgrade-safe local replacements under `shark-data/overrides/`;
-that subtree is never overwritten.
+Extract the embedded content bundle to the configured `shark_data_path`
+(`shark-data/` by default) for inspection and local customization. Writes
+workflow YAML files, prompts, markdown file templates, skills, and agent
+definitions. Put upgrade-safe local replacements under the bundle's
+`overrides/` directory; that subtree is never overwritten. If `.sharkconfig.json` points
+`workflow_config` at a deprecated JSON workflow file, this command replaces it
+with the installed bundle's `workflow/` directory.
 
 ```
 Usage:

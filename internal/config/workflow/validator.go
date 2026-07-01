@@ -389,7 +389,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 	if multi.HasLegacyTaskKeys {
 		results = append(results, WorkflowValidationFinding{
 			Level:   "warning",
-			Message: "Legacy top-level status_flow keys coexist with task_workflow block. Migrate to task_workflow block. Run `shark init update` to auto-migrate.",
+			Message: "Legacy top-level status_flow keys coexist with task_workflow block. Move task workflow settings into task_workflow or a per-entity YAML workflow file.",
 			Entity:  "task",
 			File:    configPath,
 		})

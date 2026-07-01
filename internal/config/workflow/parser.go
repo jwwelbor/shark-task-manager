@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -23,6 +24,10 @@ var (
 	multiLevelCacheLock sync.RWMutex
 	multiLevelCachePath string
 )
+
+// ErrDeprecatedWorkflowConfigJSON identifies an explicit workflow_config target
+// that points at a deprecated Shark 1.x JSON workflow file.
+var ErrDeprecatedWorkflowConfigJSON = errors.New("deprecated workflow_config JSON file")
 
 // LoadWorkflowConfig loads workflow configuration from .sharkconfig.json
 //
@@ -275,7 +280,7 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 	}
 
 	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
-		return nil, deprecatedWorkflowConfigJSONError()
+		return nil, DeprecatedWorkflowConfigJSONError()
 	}
 
 	// E35-F04: workflow_config may point at a master index file that maps each
@@ -754,14 +759,34 @@ func hasExplicitDeprecatedJSONWorkflowConfig(rawConfig map[string]json.RawMessag
 	if json.Unmarshal(wcRaw, &wc) != nil || strings.TrimSpace(wc) == "" {
 		return false
 	}
-	wc = expandHome(strings.TrimSpace(wc))
-	base := filepath.Base(wc)
-	return strings.EqualFold(filepath.Ext(base), ".json") ||
-		strings.HasPrefix(base, ".sharkworkflow")
+	return IsDeprecatedWorkflowConfigTarget(wc)
 }
 
-func deprecatedWorkflowConfigJSONError() error {
-	return fmt.Errorf("deprecated workflow_config JSON file: Shark uses per-entity YAML in shark-data/workflow/ or a master index file. Run `shark admin install-shark-data` and update workflow_config to a supported target")
+// IsDeprecatedWorkflowConfigTarget reports whether workflow_config explicitly
+// points at a Shark 1.x JSON workflow target. YAML directories and YAML master
+// index files are supported, even when their basename starts with
+// ".sharkworkflow".
+func IsDeprecatedWorkflowConfigTarget(value string) bool {
+	value = expandHome(strings.TrimSpace(value))
+	if value == "" {
+		return false
+	}
+	return strings.EqualFold(filepath.Ext(filepath.Base(value)), ".json")
+}
+
+// DeprecatedWorkflowConfigJSONError returns the migration error used when an
+// explicit workflow_config target points at a deprecated Shark 1.x JSON file.
+func DeprecatedWorkflowConfigJSONError() error {
+	return fmt.Errorf(
+		"%w: explicit JSON workflow_config overrides "+
+			"Shark's embedded workflow defaults, but JSON workflow files are no longer "+
+			"supported as workflow_config targets. Remove or empty workflow_config in "+
+			".sharkconfig.json, and remove or rename a root .sharkworkflow.json if "+
+			"present, to use embedded defaults. Or run `shark admin install-shark-data` "+
+			"to extract the content bundle and set workflow_config to the installed bundle's "+
+			"workflow directory.",
+		ErrDeprecatedWorkflowConfigJSON,
+	)
 }
 
 // expandHome expands a leading "~/" to the user's home directory. It delegates

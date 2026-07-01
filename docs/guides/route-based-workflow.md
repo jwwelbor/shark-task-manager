@@ -113,8 +113,12 @@ entities:
 - The bundle root is also the resolution base for prompts/skills/agents;
   `overrides/` layers on top.
 
-`workflow_config` still accepts the earlier forms too: a directory of per-entity
-YAML files, or a single JSON workflow file.
+`workflow_config` also accepts a directory of per-entity YAML files. It no
+longer accepts Shark 1.x JSON workflow files as explicit targets. To use
+embedded defaults, remove the field and remove or rename any root
+`.sharkworkflow.json`. Or run `shark admin install-shark-data` to extract
+editable YAML and set `workflow_config` to the installed bundle's `workflow/`
+directory.
 
 ---
 
