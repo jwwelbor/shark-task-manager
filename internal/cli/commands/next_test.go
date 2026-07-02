@@ -134,23 +134,22 @@ func TestLoadAgentBodyForInline_PrependFormatExample(t *testing.T) {
 }
 
 // findRepoPromptsDir walks up from the test working directory looking for the
-// canonical prompts directory. It checks the deployed shark-data/prompts tree
-// first (present after `shark admin init`), then falls back to the embedded
-// canonical at internal/sharkdata/default_data/prompts (always present in the
-// repo). This lets the suite run in a clean checkout without a materialized
-// shark-data/ on disk.
+// canonical prompts directory. It prefers the committed embedded canonical at
+// internal/sharkdata/default_data/prompts so the test suite is hermetic and
+// cannot be skewed by an untracked local shark-data/ extraction. It falls back
+// to shark-data/prompts only when the canonical source tree is unavailable.
 func findRepoPromptsDir(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	dir := wd
 	for {
-		// Prefer the deployed copy (shark-data/prompts) when present.
-		if candidate := filepath.Join(dir, "shark-data", "prompts"); isDirExist(candidate) {
+		// Prefer the embedded canonical (always present in the repo checkout).
+		if candidate := filepath.Join(dir, "internal", "sharkdata", "default_data", "prompts"); isDirExist(candidate) {
 			return candidate
 		}
-		// Fall back to the embedded canonical (always present in the repo).
-		if candidate := filepath.Join(dir, "internal", "sharkdata", "default_data", "prompts"); isDirExist(candidate) {
+		// Fall back to the deployed copy when the canonical tree is unavailable.
+		if candidate := filepath.Join(dir, "shark-data", "prompts"); isDirExist(candidate) {
 			return candidate
 		}
 		parent := filepath.Dir(dir)
@@ -168,9 +167,9 @@ func isDirExist(path string) bool {
 }
 
 // TestRunNext_InlinesSkillContent is the F02 AC #2 end-to-end check: the
-// shipped feature/assessment.md prompt must produce a rendered
-// output that contains the body of skills/assessment/SKILL.md inlined via
-// {{include:}}, not a path reference.
+// shipped feature/assessment.md prompt must produce a rendered output that
+// contains the selected assessment workflow content inlined via {{include:}},
+// not a path reference.
 func TestRunNext_InlinesSkillContent(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 
@@ -186,10 +185,10 @@ func TestRunNext_InlinesSkillContent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The skill body has a stable H1 that proves the file was inlined,
+	// The workflow body has a stable H1 that proves the file was inlined,
 	// not merely referenced by path.
-	assert.Contains(t, out, "# Assessment Skill (craft)",
-		"rendered prompt must inline skill body via {{include:}}")
+	assert.Contains(t, out, "# Workflow: Complexity Triage",
+		"rendered prompt must inline the selected assessment workflow via {{include:}}")
 	assert.NotContains(t, out, "Load skill: ",
 		"path-reference idiom should not appear in the rendered prompt")
 }
