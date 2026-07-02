@@ -125,29 +125,15 @@ Return the chains in `production_caller_chains`.
 
 ### Step 6: Idiomatic language review
 
-Apply the language's community-standard patterns:
+Apply the language's community-standard patterns.
 
-| Language | What to check |
-|---|---|
-| Python | Pythonic patterns (comprehensions, context managers, dataclasses), type hints, no string-formatted SQL, prefer `pathlib` over `os.path`, idiomatic exception handling |
-| TypeScript | Strict types, no `any` without justification, prefer `unknown` over `any` for untrusted input, discriminated unions, proper Promise typing |
-| Go | Error handling (no swallowed errors, wrap with context), goroutine lifecycle, idiomatic struct embedding, proper `context.Context` propagation |
-| All | Avoid nested ternaries (prefer if/else or switch), avoid premature abstraction, no commented-out code, no debug prints |
+Use `../context/code-review-reference.md` for the language-specific checklist.
 
 Replace non-idiomatic constructs with community-standard alternatives. Show before/after when the change isn't obvious.
 
 ### Step 7: Complexity & size hotspots
 
-Use tooling where available:
-
-```bash
-# Python
-uv run radon cc <files> --min=B
-# TypeScript
-npx eslint <files> --rule 'complexity: ["error", 10]'
-# Go
-gocyclo -over 10 <files>
-```
+Use tooling where available. See `../context/code-review-reference.md` for example commands.
 
 Flag using `complexity_thresholds` (defaults: cyclomatic 10, file 500 lines, function 50 lines, deep nesting ≥4):
 
@@ -333,6 +319,8 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 - **PASS** — no findings of any severity.
 - **PASS-with-triage** — no blockers; non-blockers exist (host triages).
 - **FAIL** — one or more blockers; task returns to development.
+
+For the full report skeleton, see `../context/code-review-reference.md`.
 
 ## Decision rules
 

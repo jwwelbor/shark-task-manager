@@ -83,7 +83,7 @@ func TestF02_AC1_SharkDataWorkflowConfigLoads(t *testing.T) {
 // "shark next <task> --json returns a rendered prompt with skill content inlined."
 //
 // We use the same renderer and template the golden test uses. The assertion
-// checks that the stable first H1 from skills/assessment/SKILL.md is present
+// checks that the stable H1 from the selected assessment workflow is present
 // in the rendered output, which proves the content was inlined rather than
 // left as a path reference.
 func TestF02_AC2_RenderedPromptInlinesSkillContent(t *testing.T) {
@@ -95,9 +95,9 @@ func TestF02_AC2_RenderedPromptInlinesSkillContent(t *testing.T) {
 	out, err := renderer.Render("feature/assessment.md", standardVars())
 	require.NoError(t, err)
 
-	// The assessment skill has a stable H1 that proves it was inlined.
-	assert.Contains(t, out, "# Assessment Skill (craft)",
-		"AC2: rendered prompt must contain inlined skill body via {{include:}}")
+	// The selected assessment workflow has a stable H1 that proves it was inlined.
+	assert.Contains(t, out, "# Workflow: Complexity Triage",
+		"AC2: rendered prompt must contain inlined workflow body via {{include:}}")
 
 	// Confirm the path-reference idiom is absent (no LOAD: prefix or raw path).
 	assert.NotContains(t, out, "{{include:",

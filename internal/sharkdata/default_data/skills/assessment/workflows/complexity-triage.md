@@ -1,11 +1,7 @@
-Assess feature E07-F01: "Sample feature for golden test".
-
-Check feature metadata: shark get E07-F01 --json. If complexity_tier already assigned, route immediately.
-
 ---
-
-COMBINED SCOPE VALIDATION + COMPLEXITY TRIAGE
-
+name: assessment-complexity-triage
+mode: complexity_triage
+---
 
 # Workflow: Complexity Triage
 
@@ -117,40 +113,3 @@ Format:
 ### Step 7: Return Structured Output
 
 Return: `complexity_score`, `tier`, `dimension_scores`, `triage_report`, `autonomous_build_feasible`, `tier_rationale`.
-
-
-(Use complexity_triage mode.)
-
-READ:
-(1) Feature description at docs/plan/E07/E07-F01/E07-F01.md
-(2) Parent epic PRD for context (shark get E07 --json for path)
-(3) Codebase via quick grep for related files and patterns
-
-## Step 1: Scope Validation
-
-Is this properly scoped as a FEATURE or is it actually a TASK?
-
-FEATURE = multi-capability (3+ changes), requires design decisions, 4+ files, cross-cutting concerns.
-TASK = single atomic change, applies existing patterns, 1-3 files.
-
-IF MISCLASSIFIED AS FEATURE (actually a task):
-(1) Find or create enhancement feature: shark list E07 | grep -i enhance
-(2) Convert: shark create task <enhancement-feature> "Sample feature for golden test"
-(3) Cancel: shark status set E07-F01 cancelled --reason "Converted to task under enhancement feature"
-(4) STOP.
-
-## Step 2: Complexity Triage
-
-SCORE using 9 dimensions (max 27):
-- Technical (6): File Impact, Pattern Novelty, Data Model, API Surface, Cross-Feature Deps, UI Complexity
-- Execution (3): Task Estimation, Regression Risk, Execution Effort
-
-TIER: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX
-
-STORE: shark create note E07-F01 --content="COMPLEXITY: {tier} (score: {score}/27)" --type=decision
-
-## Step 3: Route
-
-- SIMPLE -> shark status set E07-F01 task_generation
-- STANDARD -> shark status set E07-F01 specification
-- COMPLEX -> shark status set E07-F01 research

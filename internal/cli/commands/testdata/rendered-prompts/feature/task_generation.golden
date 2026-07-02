@@ -209,34 +209,9 @@ Producer and consumer tasks reference the same pointer; do not create twin tests
 
 #### Brownfield Context (REQUIRED)
 
-Every task must include a `## Brownfield Context` section:
+Every task must include a `## Brownfield Context` section.
 
-```markdown
-## Brownfield Context
-
-### Existing Files to Read Before Implementing
-- `path/to/file.go` — [why relevant: contains the pattern to follow / interface to implement]
-- `path/to/other.go` — [contains adjacent code that must not be broken]
-
-### Patterns to Follow
-- [Pattern name] as used in [file:line reference]
-- [Naming convention] as established in [file reference]
-
-### Integration Surface
-- This task connects to [existing component] via [interface/contract name]
-- The following existing tests must still pass: [list key test names]
-
-### Scope Boundary
-- DO NOT modify: [adjacent files / components out of scope]
-- DO NOT change the interface of: [existing public contracts]
-```
-
-Source the Brownfield Context, in priority order:
-
-- **Prior-art report** (`prior_art_report_path`) — the Capability Map tells you exactly which siblings' code/contracts the task must integrate with. Capabilities marked REUSE/EXTEND translate directly into "Existing Files to Read" and "Patterns to Follow" entries. If a capability is REUSE, the task MUST NOT re-implement it — note in "Scope Boundary" (e.g., `DO NOT re-implement PDF parsing — use the existing adapter (see prior-art-report.md → Capability: PDF parsing)`).
-- Feature research report (`feature_research_report_path`).
-- Feature architecture docs (integration points).
-- Knowledge of existing codebase patterns from research.
+Use `../context/brownfield-context-rules.md` for the required section shape and source-priority rules.
 
 If the research report is missing, create one research sub-task (order=0) before implementation tasks, with the goal of producing a research report that subsequent tasks can reference.
 
@@ -268,53 +243,21 @@ After all tasks are drafted:
    If a downstream task in this feature still imports a symbol an earlier task deletes, either (a) reorder tasks so the import-removing task runs first, (b) split the deletion into "remove the call sites" + "remove the definition" across two tasks, or (c) move the deletion to a later task. Capture in `import_graph_warnings`. **Do not return a task list with a known import-time break.**
 
 4. **Contract synchronization** (if applicable): API task references exact DTO specifications from design doc; frontend task references the exact same DTO specifications; contract validation tests included in both.
-5. **Cross-feature interaction coverage**: every I-## declared by the feature PRD
-   appears in at least one producing or consuming task, with the same shape source
-   and contract test pointer.
+5. **Cross-feature interaction coverage**: every I-## declared by the feature PRD appears in at least one producing or consuming task, with the same shape source and contract test pointer.
+
+Use `../context/task-set-cohesion-checklist.md` for the full checklist and failure conditions.
 
 ## Writing Acceptance Criteria (CRITICAL — this is where rejection loops are born or prevented)
 
-The single strongest predictor of whether a task will sail through the workflow or spiral through 5+ rejection rounds is **the style of its acceptance criteria**. A task whose AC was stated as "frozen dataclass / immutable" — open-ended robustness — produces a bug factory: each fix closes one attack; the next codex pass finds another (mutation via `.append`, mutation via dict subclass, mutation via mutable str-subclass keys, ...). Meanwhile features whose ACs were concrete — *"function X calls function Y at file:line with parameter Z"* — run dozens of tasks with minimal rejections and zero spirals.
+The single strongest predictor of whether a task will sail through the workflow or spiral through repeated rejection rounds is **the style of its acceptance criteria**.
 
-### The rule
+Use `../context/ac-writing-rules.md` for the full concrete-vs-open-ended examples, anti-pattern catalog, and rewrite guidance.
 
-Acceptance criteria must be **enumerable and verifiable in finite work**. If the AC's truth condition is "for all possible adversarial inputs", you have written a bug factory. Either narrow the scope or enumerate the inputs explicitly.
+Hard rule:
 
-### Two styles, one wins
-
-| Concrete AC (good) | Open-ended AC (bad) |
-|---|---|
-| "Manager.Load() parses `tag_required_for` from rawData into TagRequiredForTypes; returns nil only when key absent" | "Configuration parsing is robust" |
-| "Tags row renders when `service.SetTagService` is called; verified by TC-005" | "Tag display works correctly" |
-| "SourceBlock fields cannot be mutated through: (a) attribute rebinding, (b) `.append`/`.clear` on collection fields, (c) item assignment on dict fields, (d) nested mutation of dict values, (e) mutable subclass coercion of scalar keys/values — TC-T2-01..12" | "SourceBlock instances are immutable" |
-| "Token validation rejects tokens older than 1 hour: TC-009 asserts age=59m59s passes, age=60m1s rejects with INVALID_RESET_TOKEN" | "Reset links expire after 1 hour" |
-| "API endpoint POST /auth/login returns 401 for invalid passwords, 423 after 5 consecutive failures (TC-014..016)" | "Login is secure" |
-
-### Anti-patterns — refuse to ship a spec with these
-
-- **Robustness assertions without an attack model**: "must be immutable", "must be secure", "must be robust", "must handle errors gracefully", "must be performant". These have no terminal condition; the next codex pass will always find another exploit.
-- **Quality vibes**: "high quality", "well tested", "clean code", "good UX". Not measurable.
-- **Wishful adverbs**: "correctly handles X", "gracefully handles errors", "follows the pattern". What does "correctly" mean? Cite the expected output.
-- **Quantifierless universals**: "no SQL injection", "no XSS", "no race conditions". Replace with: "the following inputs are sanitized: <list>" or "concurrent calls to X are serialized via <mechanism>".
-
-### The fix when you catch yourself writing one
-
-Three options, in order of preference:
-
-1. **Enumerate the model.** Replace "must be immutable" with the concrete list of mutation paths that must be blocked. ISTQB technique application in the test plan (attack-class enumeration) produces this list automatically.
-2. **Narrow the scope.** Replace "must be secure" with "must reject inputs matching <pattern>" or "must require <auth check> before <action>". Decide what "secure" means in this context and write that.
-3. **Defer to a referenced standard.** If the AC is "follows OWASP authentication best practices", cite the specific OWASP control IDs (e.g., "implements OWASP ASVS 2.1.1, 2.1.2, 2.1.3"). The test plan then has a finite list to verify.
-
-### Required check before adding an AC to a task
-
-Before writing an acceptance criterion, ask:
-
-- [ ] If a developer implements this, can a reviewer determine in finite work whether it's met? (If "we'd need to think about every adversarial input" — no.)
-- [ ] Can I write at least one concrete test case (with input → expected output) that proves it? (If not, the AC is vague.)
-- [ ] If codex were given only the AC text, could it enumerate the cases to test, or would it iterate forever finding new ones? (The latter = bug factory.)
-- [ ] Does the AC reference a file:line / function / contract / explicit input set / explicit output, OR does it use abstract quality words ("robust", "secure", "correct")?
-
-If any answer trips the warning, add to `ac_quality_warnings` and rewrite the AC before returning.
+- Acceptance criteria must be enumerable and verifiable in finite work.
+- If an AC would cause an agent to keep finding "one more exploit", narrow the scope or enumerate the model explicitly.
+- If the AC still reads as a vibe rather than a contract, add to `ac_quality_warnings` and rewrite it before returning.
 
 ### Verify-before-citing rules
 

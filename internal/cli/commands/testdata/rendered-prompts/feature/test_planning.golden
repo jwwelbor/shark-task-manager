@@ -130,112 +130,56 @@ For each acceptance criterion in `ac_list`:
 - Missing negative test cases (what should NOT happen)
 - **Open-ended robustness assertions** — "must be immutable", "must be secure", "must be robust" without an enumerated attack model. These are bug factories; codex will keep finding new attacks against them. Either narrow the AC to specific behaviors, or write Step 5.5 enumeration that closes the model.
 
-### Step 5.5: Apply ISTQB Test Design Techniques (Per AC)
+### Step 5.5: Apply Test Design Techniques (Per AC)
 
-For **every acceptance criterion**, apply at least one named ISTQB test design technique. The technique determines what test cases you write and forces enumeration of the attack/input surface — this is what stops the "find one more exploit per round" loop.
+For **every acceptance criterion**, apply at least one named test design technique. The technique determines what test cases you write and forces enumeration of the attack or input surface.
 
-**The four core techniques:**
+Use `../context/test-design-techniques.md` for the full technique catalog, technique-to-shape mapping, and the worked example.
 
-| Technique | When to apply | What it forces you to enumerate |
-|---|---|---|
-| **Equivalence Partitioning** | The AC accepts a range or set of inputs and treats them the same way | One test per equivalence class (valid set + each invalid set), not one per individual value |
-| **Boundary Value Analysis (BVA)** | The AC has numeric ranges, sizes, lengths, dates, or any ordered domain | Min, min-1, min, min+1, ..., max-1, max, max+1; empty/null/zero/negative-one for collections |
-| **Decision Tables** | The AC has multiple conditions combining (AND/OR) to determine behavior | Every reachable combination of conditions × every action — proves no combination falls through |
-| **State Transitions** | The AC describes an entity moving between states (lifecycle, workflow, status) | Every legal transition + every illegal transition — proves no missing edge and no accidental shortcut |
+Minimum rule:
 
-**Additional techniques for adversarial ACs (immutability, security, contract):**
-
-| Technique | When to apply | What it forces |
-|---|---|---|
-| **Attack-class enumeration** | AC asserts a defensive property ("immutable", "secure", "isolated") | List the attack classes: mutation (direct, via collection methods, via subclass coercion, via reflection), injection (each surface), bypass (each guard), exhaustion (size/depth/recursion). Each class = at least one test case. |
-| **Contract surface enumeration** | AC asserts an interaction with another component | List every public method × every input class × every output assertion. Missing entries = missing tests. |
-
-**Application rule:** For each AC, the test plan must declare which technique(s) were applied and list the resulting test cases. ACs without a technique annotation are treated as untestable and the spec is sent back to refinement.
-
-**Example annotation in the test plan:**
-```markdown
-### AC-T2: SourceBlock and SourcePage instances are immutable
-
-**Techniques applied:**
-- Attack-class enumeration: mutation via direct assignment, mutation via collection methods (.append/.clear/.pop/.update), mutation via dict subclass overrides, mutation via mutable scalar subclass coercion, mutation via __setattr__/__setitem__ on nested values
-- BVA: zero-element collections, single-element, large collections (>1000), nested-depth boundary
-
-**Test cases generated: TC-T2-01 through TC-T2-12 (see Step 6)**
-```
-
-If a technique would produce infinite test cases (e.g., "all possible subclasses"), pick representative members of each attack class and document the rationale.
+- Every AC declares its technique or techniques.
+- The technique choice must match the AC's shape.
+- ACs without a technique annotation are untestable and must return to refinement.
 
 ### Step 5.6: ISO 25010 Coverage Matrix
 
 For each acceptance criterion, mark which ISO 25010 quality characteristics apply. This catches non-functional gaps that pure AC verification misses.
 
-| Characteristic | What it means | Common evidence |
-|---|---|---|
-| **Functional Suitability** | The behavior described actually works | Unit/integration tests for the AC |
-| **Performance Efficiency** | Time, throughput, resource use within limits | Benchmark, latency assertion, load test |
-| **Compatibility** | Works alongside other features/versions | Cross-version test, sibling-feature integration test |
-| **Usability** | Discoverable, learnable, error messages clear | UX walkthrough, error-message review |
-| **Reliability** | Recovers from failure, behaves under stress | Retry test, failure-injection test, idempotency test |
-| **Security** | Boundaries enforced, secrets protected, inputs validated | Auth bypass test, injection test, secret scan |
-| **Maintainability** | Modular, analyzable, testable, modifiable | Lint clean, complexity within bounds, test isolation |
-| **Portability** | Adaptable, replaceable across environments | Cross-OS test, container build test |
+Use `../context/nonfunctional-coverage-and-observability.md` for the full characteristic definitions and the example matrix.
 
-**Per-AC matrix (in test plan):**
+Rules:
 
-| AC | Functional | Performance | Compat | Usability | Reliability | Security | Maintainability | Portability |
-|---|---|---|---|---|---|---|---|---|
-| AC-T1 | ✅ TC-001..3 | N/A | N/A | N/A | N/A | N/A | ✅ lint | N/A |
-| AC-T2 | ✅ TC-T2-01..12 | N/A | N/A | N/A | ✅ TC-T2-13 | ✅ TC-T2-14..16 | ✅ complexity | N/A |
-
-`✅ TC-XXX` cites the specific test case providing evidence. `N/A` means the characteristic doesn't apply (justify briefly). **No "?" or empty cells** — every cell is a deliberate decision.
+- `✅ TC-XXX` cites the specific test case providing evidence.
+- `N/A` means the characteristic does not apply and must be justified briefly.
+- No empty cells. Every cell is a deliberate decision.
 
 If a characteristic applies to an AC but no test case covers it, that's a **coverage gap** — record it in `coverage_gaps` and either write the missing case or document why coverage is deferred.
 
 ### Step 5.7: Observability Design
 
-For every behavior the implementation introduces, design the **runtime evidence** that proves it works in production. This is not optional plumbing — without it, "the test passes" doesn't generalize to "production works."
+For every behavior the implementation introduces, design the **runtime evidence** that proves it works in production.
 
-For each AC, specify:
+Use `../context/nonfunctional-coverage-and-observability.md` for the full observability table and example entries.
 
-| Behavior | Metric | Log | Trace span | Alert threshold |
-|---|---|---|---|---|
-| "User receives reset email within 2 min" | `password_reset.email_sent_count`, `password_reset.email_send_latency_seconds{quantile=0.95}` | `INFO password_reset.email_dispatched user_id=... duration_ms=...` | `password_reset.send_email` span with `user_id`, `result` attributes | p95 > 90s for 5 min |
-| "Reset link expires after 1 hour" | `password_reset.expired_link_attempts_count` | `WARN password_reset.expired_link user_id=... age_seconds=...` | `password_reset.validate_token` span with `result=expired` | spike (>3σ) for 10 min |
+Rules:
 
-**Rules:**
-- Every behavior gets at least one of (metric, log, trace).
-- Pure-internal behaviors (private dataclasses, value objects) may legitimately have no observability — note "internal — no observability" with justification.
-- If observability requires new instrumentation (counter, span, log line), that becomes part of the implementation contract, not a follow-up.
-- Alerts with thresholds are optional at this stage but encouraged where SLOs exist.
+- Every behavior gets at least one of metric, log, or trace.
+- Pure-internal behaviors may be marked `internal — no observability` with justification.
+- If observability requires new instrumentation, that becomes part of the implementation contract.
 
 **Hook into the implementation:** the test plan's observability table should appear as a hard requirement in the task spec under a section like "Observability requirements" — the developer must add the instrumentation as part of the change, and the QA phase verifies the instrumentation exists (logs present, metrics emitted in tests).
 
 ### Step 5.8: Caller-Path Contract (per test case)
 
-The test plan must specify, for every test case, **the production caller signature it must drive** and **the lowest-allowed mock seam**, so the developer cannot write a test that mocks at a more convenient layer than the one where production breaks.
+The test plan must specify, for every test case, **the production caller signature it must drive** and **the lowest-allowed mock seam**.
 
-For each test case in the test plan, declare:
+Use `../context/caller-path-contracts.md` for the full field definitions, the example block, and the internal-only opt-out rule.
 
-| Field | What it specifies | Why it matters |
-|---|---|---|
-| **Caller-path entrypoint** | The exact production function/method the test must call (with file:line if known), with the exact argument shape production uses (kwargs, defaults, omissions) | Forces the test to drive the production caller signature, not the convenient helper signature |
-| **Lowest allowed mock seam** | The deepest layer in the call stack where mocking is permitted (e.g., "DB session boundary," "HTTP client," "LLM service") | Prevents mocking above the bug — anything between the entrypoint and this seam must be exercised for real |
-| **Forbidden mocks** | Specific seams that MUST NOT be mocked because production-equivalent behavior is required (e.g., "do not mock the orchestrator factory; the test must call the real factory and assert the wired client") | Names the trap by hand so the developer can't fall into it |
-| **Counter-factual** | One sentence describing what a buggy implementation would do that the test would catch | Forces the test designer to ensure the test would actually fail against a broken impl, not just pass because the type signature exists |
+Application rule:
 
-**Application rule:** Every test case in Step 6 must have a Caller-Path Contract block. Test cases that mock above the entrypoint without an explicit "internal-only" justification are sent back for redesign.
-
-**Example block:**
-
-```markdown
-**Caller-Path Contract:**
-- Entrypoint: `analyzer.analyze_page(upload_id=<UUID>, page_index=<int>, page_width_pts=<float>, page_height_pts=<float>)` — no `source_page_id` kwarg (production callers omit it)
-- Lowest allowed mock seam: `SourceImageRepository` (mock the repo; do NOT mock the analyzer or the helper that selects the repo method)
-- Forbidden mocks: do not call `analyze_page(source_page_id=<x>)` — that is the helper-test signature; production never passes it
-- Counter-factual: against an impl that filters by `WHERE source_page_id IS NULL`, the query returns zero rows and the `image_count == 3` assertion would fail
-```
-
-**When "internal-only" is acceptable:** for pure value objects, private dataclasses, or unit-level algorithmic functions that have no production caller above them in the diff, the test may declare `Caller-path entrypoint: internal — function under test is the production entrypoint` with a one-line justification. This is the only acceptable opt-out and codex will check that it's not being abused (Step 7.5).
+- Every test case in Step 6 must have a Caller-Path Contract block.
+- Tests that mock above the entrypoint without an explicit internal-only justification must return for redesign.
 
 ### Step 5.9: Cross-feature contract tests (I-##)
 

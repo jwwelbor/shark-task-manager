@@ -6,7 +6,7 @@ Check feature metadata: {{template "get_json" .}}. If complexity_tier already as
 
 COMBINED SCOPE VALIDATION + COMPLEXITY TRIAGE
 
-{{include: skills/assessment/SKILL.md}}
+{{include: skills/assessment/workflows/complexity-triage.md}}
 
 (Use complexity_triage mode.)
 
