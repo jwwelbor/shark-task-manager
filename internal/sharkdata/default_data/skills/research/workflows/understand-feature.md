@@ -31,6 +31,8 @@ outputs:
 
 This workflow provides a systematic approach to deeply understanding how a specific feature is implemented. Use this when you need to extend an existing feature, debug its behavior, or decide whether to modify existing code or create new code.
 
+Use `../context/understand-feature-search-recipes.md` for the fuller search patterns and `../context/understand-feature-output-template.md` for the report skeleton.
+
 ## Required Tools
 
 - **Read** - Reading feature source code
@@ -83,19 +85,7 @@ Search strategy:
 3. Search across all file types
 ```
 
-**Example searches**:
-```bash
-# Primary search terms
-Grep: "profile" -i (output_mode: files_with_matches)
-Grep: "UserProfile|user_profile" (output_mode: files_with_matches)
-
-# Related terms
-Grep: "avatar|bio|preferences" -i (output_mode: files_with_matches)
-
-# Find files by pattern
-Glob: "**/profile*.ts"
-Glob: "**/user-profile*"
-```
+Example searches live in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -136,21 +126,7 @@ Search strategy:
 4. Understand validation rules
 ```
 
-**Example workflow**:
-```bash
-# Read model definition
-Read: src/models/user-profile.model.ts
-
-# Find related models
-Grep: "User|Avatar|Preference" (path: src/models/, output_mode: content)
-
-# Find validation
-Grep: "@IsString|@IsEmail|validate" (path: src/dto/, output_mode: content)
-
-# Read DTOs
-Read: src/dto/update-profile.dto.ts
-Read: src/dto/create-profile.dto.ts
-```
+Use the data-model search patterns in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -218,20 +194,7 @@ Search strategy:
 4. Map database operations
 ```
 
-**Example workflow**:
-```bash
-# Read controller
-Read: src/users/user-profile.controller.ts
-
-# Read service
-Read: src/users/user-profile.service.ts
-
-# Read repository
-Read: src/users/user-profile.repository.ts
-
-# Find validation middleware
-Grep: "ValidationPipe|validate" (path: src/users/, output_mode: content)
-```
+Use the controller/service/repository tracing patterns in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -337,7 +300,7 @@ Transformations to identify:
 4. Data enrichment (adding computed fields)
 ```
 
-**Document transformations with code examples**
+Document transformations with concrete code citations and examples only where they clarify a non-obvious conversion.
 
 ### Phase 3: Business Logic Analysis
 
@@ -353,17 +316,7 @@ Search strategy:
 4. Look for error conditions
 ```
 
-**Example workflow**:
-```bash
-# Read service implementation
-Read: src/users/user-profile.service.ts
-
-# Find validation logic
-Grep: "if.*throw|validate|check" (path: src/users/, output_mode: content)
-
-# Find constants/config
-Grep: "MAX_|MIN_|ALLOWED_" (output_mode: content)
-```
+Use the business-rule search patterns in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -410,14 +363,7 @@ Search strategy:
 4. Map database dependencies
 ```
 
-**Example workflow**:
-```bash
-# Find constructor dependencies
-Grep: "constructor\\(" (path: src/users/user-profile.service.ts, output_mode: content)
-
-# Find method calls to other services
-Grep: "this.\\w+Service\\." (path: src/users/user-profile.service.ts, output_mode: content)
-```
+Use the dependency-discovery search patterns in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -455,17 +401,7 @@ Search strategy:
 3. Find event listeners
 ```
 
-**Example workflow**:
-```bash
-# Find imports
-Grep: "import.*UserProfile|from.*user-profile" (output_mode: files_with_matches)
-
-# Find API calls (frontend)
-Grep: "'/api.*profile|fetch.*profile" (path: src/components/, output_mode: content)
-
-# Find event listeners
-Grep: "profile.updated|profile.created" (output_mode: files_with_matches)
-```
+Use the consumer-discovery search patterns in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -501,17 +437,7 @@ Extension points to find:
 4. Configuration injection points
 ```
 
-**Example workflow**:
-```bash
-# Find hooks/events
-Grep: "emit|hook|plugin|extend" (path: src/users/, output_mode: content)
-
-# Find interfaces
-Grep: "interface.*Profile|abstract class" (output_mode: content)
-
-# Read for extension patterns
-Read: src/users/user-profile.service.ts
-```
+Use the extension-point search patterns in `../context/understand-feature-search-recipes.md`.
 
 **Document**:
 ```markdown
@@ -556,107 +482,15 @@ if (config.features.profileSocialLinks) {
 
 #### 4.2 Evaluate: Extend vs New Code
 
-Assess whether to modify existing code or create new:
+Assess whether to modify existing code or create new by comparing at least two approaches across:
 
-```markdown
-Analysis framework:
-1. Single Responsibility Principle check
-2. Complexity assessment
+1. Single Responsibility Principle fit
+2. Complexity added
 3. Testing impact
-4. Risk assessment
-```
+4. Risk
+5. Migration path if complexity grows
 
-**Document**:
-```markdown
-### Extend vs New Code Analysis
-
-**Planned change**: Add social links (Twitter, GitHub, LinkedIn) to profile
-
-#### Option 1: Extend UserProfile Model
-
-**Approach**:
-```typescript
-// Add to UserProfile model
-@Column({ type: 'jsonb', nullable: true })
-socialLinks: {
-  twitter?: string;
-  github?: string;
-  linkedin?: string;
-}
-```
-
-**Pros**:
-- Minimal code changes
-- Reuses existing validation/storage logic
-- Natural fit in profile data structure
-
-**Cons**:
-- Increases UserProfile model complexity
-- No specialized validation for social URLs
-- Limited flexibility for future social networks
-
-**SRP Assessment**: ✓ OK - Social links are profile data
-**Risk**: Low
-**Testing impact**: Add tests to existing suite
-
-#### Option 2: Create SocialLinks Module
-
-**Approach**:
-```typescript
-// New model
-@Entity('user_social_links')
-export class UserSocialLinks {
-  @OneToOne(() => UserProfile)
-  profile: UserProfile;
-
-  @Column({ nullable: true })
-  @IsUrl()
-  twitter: string;
-
-  // ...
-}
-```
-
-**Pros**:
-- Separation of concerns
-- Specialized validation logic
-- Easy to extend with new networks
-- Independent testing
-
-**Cons**:
-- More code/complexity
-- Additional database table
-- More API endpoints
-- Overkill for simple feature
-
-**SRP Assessment**: May violate YAGNI (You Aren't Gonna Need It)
-**Risk**: Low
-**Testing impact**: New test suite needed
-
-#### Recommendation
-
-**Extend UserProfile model** (Option 1)
-
-**Rationale**:
-1. Social links are inherently profile data
-2. Low complexity addition
-3. Minimal testing impact
-4. Can refactor later if needed
-5. Existing plugin system allows custom validation
-
-**Implementation approach**:
-1. Add `socialLinks` field to UserProfile model
-2. Create SocialLinksDto for validation
-3. Add URL validation via class-validator
-4. Create ProfileSocialLinksPlugin for custom logic
-5. Update frontend forms
-6. Add tests to existing suite
-
-**Migration path if complexity grows**:
-- Events already emitted, easy to extend
-- Can extract to module later without API changes
-- Use feature flag for gradual rollout
-```
+Document the option analysis in the final report format from `../context/understand-feature-output-template.md`.
 
 ### Phase 5: Testing & Quality Analysis
 
@@ -670,17 +504,6 @@ Search strategy:
 2. Read test structure
 3. Identify test patterns (AAA, mocking, fixtures)
 4. Assess coverage
-```
-
-**Example workflow**:
-```bash
-# Find tests
-Glob: "**/*profile*.test.ts"
-Glob: "**/test_*profile*.py"
-
-# Read test files
-Read: tests/unit/user-profile.service.test.ts
-Read: tests/integration/profile-api.test.ts
 ```
 
 **Document**:
@@ -745,136 +568,7 @@ Standards to identify:
 
 #### 6.1 Create Feature Documentation
 
-Compile comprehensive feature documentation:
-
-```markdown
-Template:
-1. Feature overview
-2. Data models and flows
-3. Business rules
-4. Dependencies and consumers
-5. Extension points
-6. Testing approach
-7. Known issues and limitations
-8. Extension recommendations
-```
-
-## Output Format
-
-Create comprehensive feature documentation:
-
-```markdown
-# Feature Documentation: {Feature Name}
-
-**Date**: {YYYY-MM-DD}
-**Analyst**: {your-name}
-**Version**: {feature-version-if-applicable}
-
-## Feature Overview
-
-{Description of what the feature does}
-
-**User-facing functionality**:
-- {capability 1}
-- {capability 2}
-
-**Scope**: {modules involved}
-
-## Data Models
-
-### {ModelName}
-
-{Model definition with fields, types, constraints}
-
-**Relationships**: {related models}
-**Validation**: {validation rules}
-
-## Data Flows
-
-### {Flow Name} (e.g., Create Profile, Update Profile)
-
-{Step-by-step data flow from entry point to database}
-
-**Entry point**: {API endpoint or UI action}
-**Layers**: {controller → service → repository → database}
-**Transformations**: {data transformations applied}
-**Side effects**: {events, cache, external calls}
-
-## Business Rules
-
-{List of business rules enforced}
-
-## Dependencies
-
-**Services used**: {list with purposes}
-**Database tables**: {list}
-**External APIs**: {list if applicable}
-
-## Consumers
-
-**Backend**: {services that use this feature}
-**Frontend**: {components that use this feature}
-**External**: {public APIs, webhooks}
-
-## Extension Points
-
-**Events**: {events emitted}
-**Plugins**: {plugin system if available}
-**Configuration**: {feature flags, config}
-
-## Extension Recommendation
-
-**Planned change**: {what you want to add}
-
-### Option Analysis
-
-#### Option 1: {Approach}
-**Pros**: {list}
-**Cons**: {list}
-**SRP Assessment**: {pass/fail}
-**Risk**: {low/medium/high}
-
-#### Option 2: {Approach}
-**Pros**: {list}
-**Cons**: {list}
-**SRP Assessment**: {pass/fail}
-**Risk**: {low/medium/high}
-
-### Recommendation
-
-**Chosen approach**: {option}
-
-**Rationale**: {reasoning}
-
-**Implementation steps**:
-1. {step}
-2. {step}
-
-## Testing
-
-**Existing tests**: {coverage summary}
-**Test patterns**: {approach}
-**Testing gaps**: {what's missing}
-**New tests needed**: {for extension}
-
-## Known Issues & Limitations
-
-{Any issues or constraints}
-
-## Files Reference
-
-**Core files**:
-- {file} - {purpose}
-
-**Tests**:
-- {test-file} - {coverage}
-
-## References
-
-- Original PRD: {link}
-- Related features: {links}
-- Database schema: {link}
-```
+Compile comprehensive feature documentation using the section skeleton in `../context/understand-feature-output-template.md`.
 
 ## Success Criteria
 
