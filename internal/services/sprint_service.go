@@ -862,26 +862,28 @@ func (s *SprintService) assignableSprintStatuses() []string {
 	return result
 }
 
-// executionPhaseStatus returns the first status in the configured sprint
-// workflow's "execution" phase (falling back to "active" if the workflow
-// defines none), so custom workflows with renamed statuses work without code
-// changes.
-func (s *SprintService) executionPhaseStatus() string {
-	if statuses := s.workflowSvc.GetStatusesByPhase("execution"); len(statuses) > 0 {
+// firstStatusInPhase returns the first status in the configured sprint
+// workflow's named phase, falling back to the given literal if the workflow
+// defines none, so custom workflows with renamed statuses work without code
+// changes. GetStatusesByPhase returns a sorted slice, so this is deterministic
+// even when a phase has more than one status.
+func (s *SprintService) firstStatusInPhase(phase, fallback string) string {
+	if statuses := s.workflowSvc.GetStatusesByPhase(phase); len(statuses) > 0 {
 		return statuses[0]
 	}
-	return "active"
+	return fallback
+}
+
+// executionPhaseStatus returns the first status in the configured sprint
+// workflow's "execution" phase (falling back to "active").
+func (s *SprintService) executionPhaseStatus() string {
+	return s.firstStatusInPhase("execution", "active")
 }
 
 // reviewPhaseStatus returns the first status in the configured sprint
-// workflow's "review" phase (falling back to "closing" if the workflow
-// defines none), so custom workflows with renamed statuses work without code
-// changes.
+// workflow's "review" phase (falling back to "closing").
 func (s *SprintService) reviewPhaseStatus() string {
-	if statuses := s.workflowSvc.GetStatusesByPhase("review"); len(statuses) > 0 {
-		return statuses[0]
-	}
-	return "closing"
+	return s.firstStatusInPhase("review", "closing")
 }
 
 // terminalSprintStatus returns the first terminal status in the configured
@@ -900,8 +902,9 @@ func (s *SprintService) terminalSprintStatus() string {
 // Phase alone can't disambiguate this from the terminal status, since both
 // typically share the "done" phase, so terminal statuses are excluded.
 func (s *SprintService) completedSprintStatus() string {
-	terminal := make(map[string]bool, len(s.workflowSvc.GetTerminalStatuses()))
-	for _, status := range s.workflowSvc.GetTerminalStatuses() {
+	terminalStatuses := s.workflowSvc.GetTerminalStatuses()
+	terminal := make(map[string]bool, len(terminalStatuses))
+	for _, status := range terminalStatuses {
 		terminal[strings.ToLower(status)] = true
 	}
 	for _, status := range s.workflowSvc.GetStatusesByPhase("done") {
@@ -2119,12 +2122,8 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 
 	switch resolvedMode {
 	case CarryoverNext:
-		// Find an existing planning sprint. Use the first status from the planning phase
-		// so custom workflows with renamed statuses work without code changes.
-		planningStatusStr := "planning"
-		if planningStatuses := s.workflowSvc.GetStatusesByPhase("planning"); len(planningStatuses) > 0 {
-			planningStatusStr = planningStatuses[0]
-		}
+		// Find an existing planning sprint.
+		planningStatusStr := s.firstStatusInPhase("planning", "planning")
 		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr(planningStatusStr)}
 		planningSprints, listErr := s.repo.List(ctx, planningFilter)
 		if listErr != nil {

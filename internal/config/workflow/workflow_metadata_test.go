@@ -247,11 +247,13 @@ func TestGetStatusesByPhase(t *testing.T) {
 		},
 	}
 
-	// Test development phase (multiple statuses)
+	// Test development phase (multiple statuses). Exact order (not just
+	// membership) matters: StatusMetadata is a map, so unsorted iteration
+	// would make this non-deterministic across runs, and callers like
+	// SprintService's phase-derived status helpers pick statuses[0] — a
+	// regression here would make those helpers flaky rather than fail loud.
 	devStatuses := workflow.GetStatusesByPhase("development")
-	assert.Equal(t, 2, len(devStatuses))
-	assert.Contains(t, devStatuses, "in_progress")
-	assert.Contains(t, devStatuses, "code_review")
+	assert.Equal(t, []string{"code_review", "in_progress"}, devStatuses)
 
 	// Test planning phase (single status)
 	planningStatuses := workflow.GetStatusesByPhase("planning")
@@ -261,4 +263,27 @@ func TestGetStatusesByPhase(t *testing.T) {
 	// Test unknown phase
 	unknownStatuses := workflow.GetStatusesByPhase("unknown")
 	assert.Equal(t, 0, len(unknownStatuses))
+}
+
+// TestGetStatusesByPhase_DeterministicAcrossCalls guards the specific
+// regression this diff introduced a fix for: GetStatusesByPhase must return
+// the same order on every call for the same config, since SprintService's
+// executionPhaseStatus/reviewPhaseStatus/completedSprintStatus helpers select
+// index [0] to resolve "the" status for a phase in a custom workflow that
+// defines more than one.
+func TestGetStatusesByPhase_DeterministicAcrossCalls(t *testing.T) {
+	workflow := &WorkflowConfig{
+		StatusMetadata: map[string]StatusMetadata{
+			"zebra_status": {Phase: "execution"},
+			"alpha_status": {Phase: "execution"},
+			"mid_status":   {Phase: "execution"},
+		},
+	}
+
+	first := workflow.GetStatusesByPhase("execution")
+	for i := 0; i < 20; i++ {
+		got := workflow.GetStatusesByPhase("execution")
+		assert.Equal(t, first, got, "GetStatusesByPhase must return a stable order across repeated calls")
+	}
+	assert.Equal(t, []string{"alpha_status", "mid_status", "zebra_status"}, first)
 }

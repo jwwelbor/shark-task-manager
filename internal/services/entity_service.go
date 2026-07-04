@@ -207,8 +207,10 @@ func (s *EntityService) TransitionStatus(
 		}, nil
 	}
 
-	// Steps 3-4: Validate and normalize
-	targetStatus, err = s.ValidateAndNormalize(resolvedCurrentStatus, targetStatus, opts.Force)
+	// Steps 3-4: Validate and normalize. Pass the resolved target so a legacy
+	// alias passed as the target (e.g. "reported") validates against its
+	// canonical step ("draft") instead of failing a literal StatusFlow match.
+	targetStatus, err = s.ValidateAndNormalize(resolvedCurrentStatus, resolvedTargetStatus, opts.Force)
 	if err != nil {
 		return nil, err
 	}

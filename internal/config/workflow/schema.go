@@ -3,6 +3,7 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 )
@@ -339,8 +340,11 @@ func (w *WorkflowConfig) GetStatusesByAgentType(agentType string) []string {
 	return statuses
 }
 
-// GetStatusesByPhase returns all statuses in the given phase
-// Returns empty slice if no statuses match
+// GetStatusesByPhase returns all statuses in the given phase, sorted
+// alphabetically for deterministic ordering (StatusMetadata is a map, so
+// unsorted iteration would make callers that pick the first result, e.g.
+// SprintService's phase-derived status helpers, non-deterministic across
+// calls). Returns empty slice if no statuses match.
 func (w *WorkflowConfig) GetStatusesByPhase(phase string) []string {
 	if w.StatusMetadata == nil {
 		return []string{}
@@ -352,6 +356,7 @@ func (w *WorkflowConfig) GetStatusesByPhase(phase string) []string {
 			statuses = append(statuses, status)
 		}
 	}
+	sort.Strings(statuses)
 	return statuses
 }
 

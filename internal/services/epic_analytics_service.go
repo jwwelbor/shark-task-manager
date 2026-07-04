@@ -12,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -402,7 +403,7 @@ func (s *EpicAnalyticsService) GetEpicDisplayData(ctx context.Context, epic *mod
 	if len(features) > 0 {
 		var totalProgress float64
 		for _, f := range features {
-			if f.Status == models.FeatureStatusCompleted || f.Status == models.FeatureStatusArchived {
+			if status.IsFeatureCompletedStatus(f.Status) {
 				totalProgress += 100.0
 			} else {
 				totalProgress += f.ProgressPct

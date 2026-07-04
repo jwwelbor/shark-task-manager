@@ -1023,6 +1023,40 @@ func TestBugService_TransitionStatus_ResolvesLegacyAliasCurrentStatus(t *testing
 	}
 }
 
+// TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus guards the
+// companion half of the alias-resolution fix: passing a legacy alias as the
+// TARGET status (not just the current status) must validate against its
+// canonical step. "development" -> "draft" is a real transition in bug.yaml
+// (development's "fail" outcome), so passing the legacy alias "reported"
+// (which resolves to "draft") as the target must succeed identically.
+func TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedStatus models.BugStatus
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: "development", Severity: models.BugSeverityHigh}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
+			capturedStatus = status
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	result, err := svc.TransitionStatus(ctx, "B001", "reported", TransitionOptions{})
+	if err != nil {
+		t.Fatalf("TransitionStatus() error = %v", err)
+	}
+	if result.ToStatus != "draft" {
+		t.Errorf("expected ToStatus to resolve legacy alias target 'reported' to 'draft', got %q", result.ToStatus)
+	}
+	if capturedStatus != "draft" {
+		t.Errorf("expected repo to be updated with resolved status 'draft', got %q", capturedStatus)
+	}
+}
+
 func TestBugService_TransitionStatus_InvalidStatus(t *testing.T) {
 	ctx := context.Background()
 

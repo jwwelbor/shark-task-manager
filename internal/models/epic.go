@@ -8,6 +8,9 @@ const (
 	EpicStatusActive    EpicStatus = "active"
 	EpicStatusCompleted EpicStatus = "completed"
 	EpicStatusArchived  EpicStatus = "archived"
+	// EpicStatusCancelled is the route-based workflow's terminal status for an
+	// abandoned epic (epic.yaml's "cancelled" step). See FeatureStatusCancelled.
+	EpicStatusCancelled EpicStatus = "cancelled"
 )
 
 // Priority represents priority level (used by Epic and other entities)

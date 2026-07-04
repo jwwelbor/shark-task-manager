@@ -91,13 +91,22 @@ func DeriveFeatureStatus(statusCounts map[string]int, cfg *config.WorkflowConfig
 }
 
 // DeriveEpicStatus calculates epic status from feature status counts.
-// Feature statuses are already derived, so this function uses the typed feature status constants.
+//
+// counts is keyed by each feature's raw stored status, which under a
+// route-based workflow (feature.yaml) may be any of its ~15 real statuses
+// (assessment, research, code_review, qa, ...), not just the 4 legacy
+// draft/active/completed/archived values — GetFeatureStatusBreakdown reads
+// the DB column directly. Rather than enumerate every possible intermediate
+// status, "active" is computed as everything left over once completed-ish
+// and draft features are subtracted out, so any in-progress route-based
+// status is correctly counted as active work without this function needing
+// workflow awareness.
 //
 // Rules:
 // - Empty (no features): returns EpicStatusDraft
-// - All completed/archived: returns EpicStatusCompleted
-// - Any active: returns EpicStatusActive
-// - Some completed + some draft (no active): returns EpicStatusActive
+// - All completed/archived/cancelled: returns EpicStatusCompleted
+// - Any remaining (non-completed-ish, non-draft) status: returns EpicStatusActive
+// - Some completed + some draft (no other work): returns EpicStatusActive
 // - All draft: returns EpicStatusDraft
 func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
 	total := 0
@@ -110,21 +119,25 @@ func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
 		return models.EpicStatusDraft
 	}
 
-	// Count completed (completed + archived)
-	completed := counts[models.FeatureStatusCompleted] + counts[models.FeatureStatusArchived]
+	// Count completed-ish (completed, archived, and cancelled all mean "no
+	// longer pending work" for rollup purposes; archived is the pre-migration
+	// terminal name, cancelled is route-based feature.yaml's).
+	completed := counts[models.FeatureStatusCompleted] + counts[models.FeatureStatusArchived] + counts[models.FeatureStatusCancelled]
 	if completed == total {
 		return models.EpicStatusCompleted
 	}
 
-	// Count active features
-	active := counts[models.FeatureStatusActive]
+	draft := counts[models.FeatureStatusDraft]
+
+	// Everything else — literal "active" plus any route-based intermediate
+	// status (assessment, research, code_review, qa, ...) — counts as active work.
+	active := total - completed - draft
 	if active > 0 {
 		return models.EpicStatusActive
 	}
 
 	// Check for partial completion (some completed + some draft)
 	// This is a "work in progress" state even without active features
-	draft := counts[models.FeatureStatusDraft]
 	if completed > 0 && draft > 0 {
 		return models.EpicStatusActive
 	}
@@ -133,16 +146,12 @@ func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
 	return models.EpicStatusDraft
 }
 
-// IsFeatureActiveStatus returns true if the feature status counts as "active work"
-func IsFeatureActiveStatus(status models.FeatureStatus) bool {
-	return status == models.FeatureStatusActive
-}
-
 // IsFeatureCompletedStatus returns true if the feature status counts as "completed"
 func IsFeatureCompletedStatus(status models.FeatureStatus) bool {
 	switch status {
 	case models.FeatureStatusCompleted,
-		models.FeatureStatusArchived:
+		models.FeatureStatusArchived,
+		models.FeatureStatusCancelled:
 		return true
 	default:
 		return false
