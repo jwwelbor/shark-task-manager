@@ -185,10 +185,18 @@ func (s *EntityService) TransitionStatus(
 		return nil, fmt.Errorf("%s not found: %s", entityType, key)
 	}
 
+	// currentStatus is the raw, as-stored value — preserved for FromStatus and
+	// history so audit trails record what actually happened (route-based-workflow.md
+	// §5: "task_history is left untouched"). resolvedCurrentStatus feeds every
+	// workflowSvc lookup so an entity still parked under a pre-migration status
+	// name (e.g. a bug at "reported") resolves via its step's `aliases:` list
+	// instead of failing validation with "status is not defined in workflow".
 	currentStatus := entity.GetStatus()
+	resolvedCurrentStatus := s.workflowSvc.NormalizeStatus(currentStatus)
+	resolvedTargetStatus := s.workflowSvc.NormalizeStatus(targetStatus)
 
 	// Step 2: Idempotency check — if already at target status, return early without writing
-	if strings.EqualFold(currentStatus, targetStatus) {
+	if strings.EqualFold(resolvedCurrentStatus, resolvedTargetStatus) {
 		return &TransitionResult{
 			EntityType:   entityType,
 			EntityKey:    key,
@@ -200,7 +208,7 @@ func (s *EntityService) TransitionStatus(
 	}
 
 	// Steps 3-4: Validate and normalize
-	targetStatus, err = s.ValidateAndNormalize(currentStatus, targetStatus, opts.Force)
+	targetStatus, err = s.ValidateAndNormalize(resolvedCurrentStatus, targetStatus, opts.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +221,7 @@ func (s *EntityService) TransitionStatus(
 	// Step 6: Backward detection (opt-in)
 	var isBackward bool
 	if features.DetectBackward {
-		isBackward, err = s.DetectBackward(currentStatus, targetStatus, opts.Force, opts.Reason)
+		isBackward, err = s.DetectBackward(resolvedCurrentStatus, targetStatus, opts.Force, opts.Reason)
 		if err != nil {
 			return nil, err
 		}
@@ -340,7 +348,10 @@ func (s *EntityService) GetNextStatus(
 		return nil, fmt.Errorf("%s not found: %s", entityType, key)
 	}
 
-	currentStatus := entity.GetStatus()
+	// Resolve on read (route-based-workflow.md §5): an entity still parked
+	// under a pre-migration status name (e.g. a bug at "reported") reports and
+	// looks up transitions using its step's canonical name ("draft").
+	currentStatus := s.workflowSvc.NormalizeStatus(entity.GetStatus())
 	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
 	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
 
@@ -375,7 +386,8 @@ func (s *EntityService) GetNextStatusForEntity(
 	entity models.Entity,
 	resolveActionFn ResolveActionFn,
 ) *NextStatusInfo {
-	currentStatus := entity.GetStatus()
+	// Resolve on read — see GetNextStatus.
+	currentStatus := s.workflowSvc.NormalizeStatus(entity.GetStatus())
 	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
 	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
 
