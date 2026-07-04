@@ -16,6 +16,8 @@ READ:
 (3) All task files: shark list E07-F01 --json, then read each task's file_path
 (4) Parent epic context for cross-feature dependency awareness
 (5) Parent interaction map if present
+(6) Parent E07-cross-epic-map.md and
+    docs/product/cross-epic-integration-map.md if present
 
 VERIFY:
 
@@ -62,12 +64,20 @@ VERIFY:
   > Cross-feature"
 - Every mirrored I-## keeps the same shape source and contract-test pointer from
   the feature spec
+- Every X-## the feature spec declares under "Cross-epic integrations" is
+  mirrored in the producing/consuming/validating task spec(s) under
+  "Integration Contracts > Cross-epic"
+- Every mirrored X-## keeps the same producer/consumer feature refs, contract /
+  shape source, UX / CX handoff notes, and test coverage pointer or explicit
+  progress-log deferral from the feature spec
+- Missing X-## producer task, consumer task, validation task, mismatched shape
+  source, or missing coverage disposition is FAIL
 
 PRODUCE task review report at docs/review/{epic-folder}/{feature-folder}/task_review/E07-F01-task-review.md:
 (Derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
 - Verdict: PASS or FAIL
 - Requirements coverage matrix (spec requirement -> task mapping)
-- Integration coverage matrix for CONTRACT-### and I-## rows, including
+- Integration coverage matrix for CONTRACT-###, I-##, and X-## rows, including
   producer task, consumer task(s), shape source, contract-test pointer, and
   closure status
 - Gaps identified (if any)

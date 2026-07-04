@@ -15,19 +15,31 @@ READ:
 (3) Parent epic context for dependency awareness
 (4) Feature spec.md "Cross-feature interactions" section and parent
     interaction map if present
+(5) Feature spec.md "Cross-epic integrations" section, parent
+    {{.epic_id}}-cross-epic-map.md, and docs/product/cross-epic-integration-map.md
+    if present
 
 ## Step 0 - Identify contracts before decomposing
 
-Separate internal feature contracts from cross-feature wires:
+Separate internal feature contracts, cross-feature wires, and cross-epic
+integrations:
 
 - Interfaces that stay inside this feature may use local CONTRACT-### IDs if the
   feature spec defines them.
 - Interfaces that cross OUTSIDE this feature use I-## from the epic's
   interaction map.
+- Interfaces or journey handoffs that cross EPIC boundaries use X-## from
+  docs/product/cross-epic-integration-map.md and the parent
+  {{.epic_id}}-cross-epic-map.md.
 - Those I-## rows are declared in the feature spec's "Cross-feature
   interactions" section; mirror them in the producing/consuming task spec's
   "Integration Contracts > Cross-feature" subsection.
+- Those X-## rows are declared in the feature spec's "Cross-epic integrations"
+  section; mirror them in the producing/consuming/validating task spec's
+  "Integration Contracts > Cross-epic" subsection.
 - Do NOT invent new CONTRACT-### IDs for cross-feature wires.
+- Do NOT invent I-## IDs for cross-epic integrations or X-## IDs for
+  cross-feature interactions.
 - Mirror the same shape source and contract-test pointer from the feature spec.
 
 PRODUCE tasks via shark CLI. Each task call MUST pass --size:
@@ -76,6 +88,11 @@ Reference test-plan.md: "See test-plan.md Section 1, cases 1.1-1.4"
 - I-##: produces|consumes; shape source: <spec.md/architecture.md section>;
   contract test: <test-plan.md TC or test file pointer>
 
+### Cross-epic
+- X-##: produces|consumes|validates; producer/consumer epic+feature:
+  <epic/feature refs>; contract / shape source: <product map source>;
+  coverage: <test-plan.md TC, test file pointer, or progress deferral>
+
 ## Design Reference
 "See spec.md Architecture Section 2 for component design"
 "See spec.md Architecture Section 3 for data model"
@@ -98,6 +115,9 @@ CRITICAL RULES:
   implementation file. State this exception explicitly in the task's Goal.
 - Cross-feature wires use I-## only. Do NOT invent new CONTRACT-### IDs for
   cross-feature wires or rewrite the shape source/contract-test pointer.
+- Cross-epic integrations use X-## only. Put X-## work in the distinct
+  "Integration Contracts > Cross-epic" subsection and keep it separate from
+  I-## cross-feature work.
 
 EXIT GATE:
 - All spec.md requirements covered by tasks
@@ -111,3 +131,7 @@ EXIT GATE:
   (decompose first — `shark list --json | jq` to verify sizes)
 - Multi-feature epic: every I-## this feature produces or consumes appears in
   the relevant task spec's "Integration Contracts > Cross-feature" subsection
+- Every X-## this feature produces, consumes, or validates appears in the
+  relevant task spec's "Integration Contracts > Cross-epic" subsection with
+  producer/consumer feature refs, matching contract / shape source, and coverage
+  pointer or progress-log deferral
