@@ -150,8 +150,8 @@ func TestService_GetInitialStatus_Fallback(t *testing.T) {
 
 	svc := NewService(tempDir)
 
-	// Should fall back to "todo"
-	assert.Equal(t, models.TaskStatus("todo"), svc.GetInitialStatus())
+	// Should fall back to the embedded default task workflow's start status, "draft"
+	assert.Equal(t, models.TaskStatus("draft"), svc.GetInitialStatus())
 }
 
 func TestService_GetEntryStatuses(t *testing.T) {

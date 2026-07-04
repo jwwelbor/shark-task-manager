@@ -419,11 +419,16 @@ func formatBugSummary(bugs *BugDashboardSummary, noColor bool) string {
 
 	sb.WriteString(fmt.Sprintf("Total: %d\n\n", bugs.Total))
 
-	// Status breakdown in defined order
+	// Status breakdown, sorted alphabetically. Statuses are workflow-defined
+	// (not hardcoded here), so this must not assume a fixed status set.
 	sb.WriteString("By Status:\n")
-	statusOrder := []string{"reported", "triaged", "in_fix", "in_verification", "resolved", "wont_fix", "duplicate"}
-	for _, status := range statusOrder {
-		if count, ok := bugs.ByStatus[status]; ok && count > 0 {
+	statuses := make([]string, 0, len(bugs.ByStatus))
+	for status := range bugs.ByStatus {
+		statuses = append(statuses, status)
+	}
+	sort.Strings(statuses)
+	for _, status := range statuses {
+		if count := bugs.ByStatus[status]; count > 0 {
 			sb.WriteString(fmt.Sprintf("  %-18s %d\n", status+":", count))
 		}
 	}
@@ -470,11 +475,16 @@ func formatChangeCardSummary(cards *ChangeCardDashboardSummary, noColor bool) st
 
 	sb.WriteString(fmt.Sprintf("Total: %d\n\n", cards.Total))
 
-	// Status breakdown in defined order
+	// Status breakdown, sorted alphabetically. Statuses are workflow-defined
+	// (not hardcoded here), so this must not assume a fixed status set.
 	sb.WriteString("By Status:\n")
-	statusOrder := []string{"proposed", "approved", "in_progress", "completed", "declined"}
-	for _, status := range statusOrder {
-		if count, ok := cards.ByStatus[status]; ok && count > 0 {
+	statuses := make([]string, 0, len(cards.ByStatus))
+	for status := range cards.ByStatus {
+		statuses = append(statuses, status)
+	}
+	sort.Strings(statuses)
+	for _, status := range statuses {
+		if count := cards.ByStatus[status]; count > 0 {
 			sb.WriteString(fmt.Sprintf("  %-18s %d\n", status+":", count))
 		}
 	}

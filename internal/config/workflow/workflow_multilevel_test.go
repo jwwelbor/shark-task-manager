@@ -11,9 +11,9 @@ func TestGetWorkflowForLevel_EpicWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for epic level with nil Epic")
 	}
-	// Should return default epic workflow with 4 statuses
-	if len(wf.StatusFlow) != 4 {
-		t.Errorf("expected 4 statuses in default epic workflow, got %d", len(wf.StatusFlow))
+	// Should return default epic workflow (route-based epic.yaml has 11 steps)
+	if len(wf.StatusFlow) != 11 {
+		t.Errorf("expected 11 statuses in default epic workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default epic workflow")
@@ -29,8 +29,9 @@ func TestGetWorkflowForLevel_FeatureWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for feature level with nil Feature")
 	}
-	if len(wf.StatusFlow) != 4 {
-		t.Errorf("expected 4 statuses in default feature workflow, got %d", len(wf.StatusFlow))
+	// route-based feature.yaml has 15 steps
+	if len(wf.StatusFlow) != 15 {
+		t.Errorf("expected 15 statuses in default feature workflow, got %d", len(wf.StatusFlow))
 	}
 }
 
@@ -40,12 +41,12 @@ func TestGetWorkflowForLevel_TaskWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for task level with nil Task")
 	}
-	// Default task workflow has 5 statuses
-	if len(wf.StatusFlow) != 5 {
-		t.Errorf("expected 5 statuses in default task workflow, got %d", len(wf.StatusFlow))
+	// Default task workflow (route-based task.yaml) has 6 statuses
+	if len(wf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(wf.StatusFlow))
 	}
-	if _, ok := wf.StatusFlow["todo"]; !ok {
-		t.Error("expected 'todo' status in default task workflow")
+	if _, ok := wf.StatusFlow["draft"]; !ok {
+		t.Error("expected 'draft' status in default task workflow")
 	}
 }
 
@@ -76,7 +77,7 @@ func TestGetWorkflowForLevel_UnknownLevel(t *testing.T) {
 		t.Fatal("expected non-nil workflow for unknown level")
 	}
 	// Should fall back to default task workflow
-	if _, ok := wf.StatusFlow["todo"]; !ok {
+	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected default task workflow for unknown level")
 	}
 }
@@ -98,9 +99,9 @@ func TestGetWorkflowForLevel_Isolation(t *testing.T) {
 		t.Errorf("expected 2 statuses in custom epic workflow, got %d", len(epicWf.StatusFlow))
 	}
 
-	// Task workflow should have default statuses (5)
-	if len(taskWf.StatusFlow) != 5 {
-		t.Errorf("expected 5 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow should have default statuses (6)
+	if len(taskWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 }
 
@@ -194,48 +195,64 @@ func TestStatusMetadata_IsPlanningJSONParsing(t *testing.T) {
 	}
 }
 
+// TestGetWorkflowForLevel_BugWithNil verifies the default bug workflow's new
+// route-based shape (bug.yaml): draft/development/code_review/qa/completed/
+// blocked/cancelled/on_hold, with "reported" surviving only as a backward-
+// compat alias (draft.aliases: [reported]) resolved via ResolveAlias -- it is
+// NOT a key in StatusFlow/StatusMetadata anymore.
 func TestGetWorkflowForLevel_BugWithNil(t *testing.T) {
 	m := &MultiLevelWorkflow{}
 	wf := m.GetWorkflowForLevel("bug")
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for bug level with nil Bug")
 	}
-	// Should return default bug workflow with 7 statuses
-	if len(wf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default bug workflow, got %d", len(wf.StatusFlow))
+	// Should return default bug workflow with 8 statuses
+	if len(wf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default bug workflow, got %d", len(wf.StatusFlow))
 	}
-	if _, ok := wf.StatusFlow["reported"]; !ok {
-		t.Error("expected 'reported' status in default bug workflow")
+	if _, ok := wf.StatusFlow["draft"]; !ok {
+		t.Error("expected 'draft' status in default bug workflow")
 	}
-	if _, ok := wf.StatusFlow["triaged"]; !ok {
-		t.Error("expected 'triaged' status in default bug workflow")
+	if _, ok := wf.StatusFlow["development"]; !ok {
+		t.Error("expected 'development' status in default bug workflow")
 	}
-	if _, ok := wf.StatusFlow["in_fix"]; !ok {
-		t.Error("expected 'in_fix' status in default bug workflow")
+	if _, ok := wf.StatusFlow["code_review"]; !ok {
+		t.Error("expected 'code_review' status in default bug workflow")
 	}
-	if _, ok := wf.StatusFlow["resolved"]; !ok {
-		t.Error("expected 'resolved' status in default bug workflow")
+	if _, ok := wf.StatusFlow["completed"]; !ok {
+		t.Error("expected 'completed' status in default bug workflow")
+	}
+	// Old status name "reported" resolves via alias to "draft".
+	if got := wf.ResolveAlias("reported"); got != "draft" {
+		t.Errorf("expected ResolveAlias(\"reported\") = \"draft\", got %q", got)
 	}
 }
 
+// TestGetWorkflowForLevel_ChangeWithNil mirrors the bug test for change.yaml,
+// which has the same route-based shape ("proposed"/"declined" survive only
+// as aliases on draft/cancelled).
 func TestGetWorkflowForLevel_ChangeWithNil(t *testing.T) {
 	m := &MultiLevelWorkflow{}
 	wf := m.GetWorkflowForLevel("change")
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for change level with nil Change")
 	}
-	// Should return default change-card workflow with 5 statuses
-	if len(wf.StatusFlow) != 5 {
-		t.Errorf("expected 5 statuses in default change-card workflow, got %d", len(wf.StatusFlow))
+	// Should return default change-card workflow with 8 statuses
+	if len(wf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default change-card workflow, got %d", len(wf.StatusFlow))
 	}
-	if _, ok := wf.StatusFlow["proposed"]; !ok {
-		t.Error("expected 'proposed' status in default change-card workflow")
+	if _, ok := wf.StatusFlow["draft"]; !ok {
+		t.Error("expected 'draft' status in default change-card workflow")
 	}
-	if _, ok := wf.StatusFlow["approved"]; !ok {
-		t.Error("expected 'approved' status in default change-card workflow")
+	if _, ok := wf.StatusFlow["code_review"]; !ok {
+		t.Error("expected 'code_review' status in default change-card workflow")
 	}
 	if _, ok := wf.StatusFlow["completed"]; !ok {
 		t.Error("expected 'completed' status in default change-card workflow")
+	}
+	// Old status name "proposed" resolves via alias to "draft".
+	if got := wf.ResolveAlias("proposed"); got != "draft" {
+		t.Errorf("expected ResolveAlias(\"proposed\") = \"draft\", got %q", got)
 	}
 }
 
@@ -291,6 +308,10 @@ func TestDefaultChangeCardWorkflow_PassesValidation(t *testing.T) {
 	}
 }
 
+// TestDefaultBugWorkflow_HasCorrectMetadata checks the start status resolves
+// (via alias) to the correct step and that step's metadata is right. The old
+// hardcoded "reported" status is now an alias on "draft" (bug.yaml), so
+// _start_/StatusMetadata are keyed by "draft", not "reported".
 func TestDefaultBugWorkflow_HasCorrectMetadata(t *testing.T) {
 	wf := DefaultBugWorkflow()
 
@@ -299,45 +320,11 @@ func TestDefaultBugWorkflow_HasCorrectMetadata(t *testing.T) {
 	if !ok {
 		t.Fatal("expected _start_ in special statuses")
 	}
-	if len(startStatuses) != 1 || startStatuses[0] != "reported" {
-		t.Errorf("expected _start_ = ['reported'], got %v", startStatuses)
+	if len(startStatuses) != 1 || startStatuses[0] != "draft" {
+		t.Errorf("expected _start_ = ['draft'], got %v", startStatuses)
 	}
 
-	// Check complete statuses
-	completeStatuses, ok := wf.SpecialStatuses[CompleteStatusKey]
-	if !ok {
-		t.Fatal("expected _complete_ in special statuses")
-	}
-	if len(completeStatuses) != 3 {
-		t.Errorf("expected 3 complete statuses, got %d", len(completeStatuses))
-	}
-
-	// Check reported metadata
-	reportedMeta, ok := wf.StatusMetadata["reported"]
-	if !ok {
-		t.Fatal("expected 'reported' in status metadata")
-	}
-	if reportedMeta.Color != "red" {
-		t.Errorf("expected reported color 'red', got %q", reportedMeta.Color)
-	}
-	if reportedMeta.Phase != "planning" {
-		t.Errorf("expected reported phase 'planning', got %q", reportedMeta.Phase)
-	}
-}
-
-func TestDefaultChangeCardWorkflow_HasCorrectMetadata(t *testing.T) {
-	wf := DefaultChangeCardWorkflow()
-
-	// Check start status
-	startStatuses, ok := wf.SpecialStatuses[StartStatusKey]
-	if !ok {
-		t.Fatal("expected _start_ in special statuses")
-	}
-	if len(startStatuses) != 1 || startStatuses[0] != "proposed" {
-		t.Errorf("expected _start_ = ['proposed'], got %v", startStatuses)
-	}
-
-	// Check complete statuses
+	// Check complete statuses (terminal steps: cancelled, completed)
 	completeStatuses, ok := wf.SpecialStatuses[CompleteStatusKey]
 	if !ok {
 		t.Fatal("expected _complete_ in special statuses")
@@ -346,13 +333,59 @@ func TestDefaultChangeCardWorkflow_HasCorrectMetadata(t *testing.T) {
 		t.Errorf("expected 2 complete statuses, got %d", len(completeStatuses))
 	}
 
-	// Check proposed metadata
-	proposedMeta, ok := wf.StatusMetadata["proposed"]
-	if !ok {
-		t.Fatal("expected 'proposed' in status metadata")
+	// "reported" is a backward-compat alias for "draft", not a StatusMetadata key.
+	if got := wf.ResolveAlias("reported"); got != "draft" {
+		t.Errorf("expected ResolveAlias(\"reported\") = \"draft\", got %q", got)
 	}
-	if proposedMeta.Color != "yellow" {
-		t.Errorf("expected proposed color 'yellow', got %q", proposedMeta.Color)
+
+	// Check draft (the actual start step) metadata
+	draftMeta, ok := wf.StatusMetadata["draft"]
+	if !ok {
+		t.Fatal("expected 'draft' in status metadata")
+	}
+	if draftMeta.Color != "gray" {
+		t.Errorf("expected draft color 'gray', got %q", draftMeta.Color)
+	}
+	if draftMeta.Phase != "planning" {
+		t.Errorf("expected draft phase 'planning', got %q", draftMeta.Phase)
+	}
+}
+
+// TestDefaultChangeCardWorkflow_HasCorrectMetadata mirrors the bug test:
+// "proposed" is now an alias for "draft" (change.yaml), not a StatusMetadata key.
+func TestDefaultChangeCardWorkflow_HasCorrectMetadata(t *testing.T) {
+	wf := DefaultChangeCardWorkflow()
+
+	// Check start status
+	startStatuses, ok := wf.SpecialStatuses[StartStatusKey]
+	if !ok {
+		t.Fatal("expected _start_ in special statuses")
+	}
+	if len(startStatuses) != 1 || startStatuses[0] != "draft" {
+		t.Errorf("expected _start_ = ['draft'], got %v", startStatuses)
+	}
+
+	// Check complete statuses (terminal steps: cancelled, completed)
+	completeStatuses, ok := wf.SpecialStatuses[CompleteStatusKey]
+	if !ok {
+		t.Fatal("expected _complete_ in special statuses")
+	}
+	if len(completeStatuses) != 2 {
+		t.Errorf("expected 2 complete statuses, got %d", len(completeStatuses))
+	}
+
+	// "proposed" is a backward-compat alias for "draft", not a StatusMetadata key.
+	if got := wf.ResolveAlias("proposed"); got != "draft" {
+		t.Errorf("expected ResolveAlias(\"proposed\") = \"draft\", got %q", got)
+	}
+
+	// Check draft (the actual start step) metadata
+	draftMeta, ok := wf.StatusMetadata["draft"]
+	if !ok {
+		t.Fatal("expected 'draft' in status metadata")
+	}
+	if draftMeta.Color != "gray" {
+		t.Errorf("expected draft color 'gray', got %q", draftMeta.Color)
 	}
 }
 
@@ -363,27 +396,33 @@ func TestGetWorkflowForLevel_BugChangeIsolation(t *testing.T) {
 	changeWf := m.GetWorkflowForLevel("change")
 	taskWf := m.GetWorkflowForLevel("task")
 
-	// Bug workflow should have 7 statuses
-	if len(bugWf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	// Bug workflow should have 8 statuses
+	if len(bugWf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
-	// Change workflow should have 5 statuses
-	if len(changeWf.StatusFlow) != 5 {
-		t.Errorf("expected 5 statuses in default change workflow, got %d", len(changeWf.StatusFlow))
+	// Change workflow should have 8 statuses
+	if len(changeWf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default change workflow, got %d", len(changeWf.StatusFlow))
 	}
 
-	// Task workflow should still have 5 statuses
-	if len(taskWf.StatusFlow) != 5 {
-		t.Errorf("expected 5 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow should still have 6 statuses
+	if len(taskWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 
-	// Verify no cross-contamination
+	// Verify no cross-contamination (both aliases still resolve on their own workflow only)
 	if _, ok := bugWf.StatusFlow["proposed"]; ok {
 		t.Error("bug workflow should not contain 'proposed' from change workflow")
 	}
 	if _, ok := changeWf.StatusFlow["reported"]; ok {
 		t.Error("change workflow should not contain 'reported' from bug workflow")
+	}
+	if got := bugWf.ResolveAlias("proposed"); got != "proposed" {
+		t.Errorf("bug workflow should not resolve 'proposed' (change-only alias), got %q", got)
+	}
+	if got := changeWf.ResolveAlias("reported"); got != "reported" {
+		t.Errorf("change workflow should not resolve 'reported' (bug-only alias), got %q", got)
 	}
 }
 
@@ -469,8 +508,8 @@ func TestDefaultTechDebtWorkflow_HasCorrectMetadata(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'identified' in status metadata")
 	}
-	if identifiedMeta.Color != "yellow" {
-		t.Errorf("expected identified color 'yellow', got %q", identifiedMeta.Color)
+	if identifiedMeta.Color != "gray" {
+		t.Errorf("expected identified color 'gray', got %q", identifiedMeta.Color)
 	}
 	if identifiedMeta.Phase != "planning" {
 		t.Errorf("expected identified phase 'planning', got %q", identifiedMeta.Phase)
@@ -510,25 +549,41 @@ func TestDefaultTechDebtWorkflow_HasCorrectMetadata(t *testing.T) {
 	}
 }
 
+// TestDefaultTechDebtWorkflow_StatusFlow checks the transitions derived from
+// tech-debt.yaml's outcomes maps. Every workable step routes "blocked" and
+// "fail" back to "identified" (a self-loop for "identified" itself) in
+// addition to "cancelled" and "wont_fix", so each has 4 unique targets, not
+// the single/handful the old hardcoded workflow had. The forward ("pass")
+// target is always first (uniqueSortedOutcomeTargets in steps.go orders by
+// outcome-key priority, pass=0 first).
 func TestDefaultTechDebtWorkflow_StatusFlow(t *testing.T) {
 	wf := DefaultTechDebtWorkflow()
 
-	// identified -> triaged only
+	// identified -(pass)-> triaged, plus identified/cancelled/wont_fix via blocked/fail/cancelled/wont_fix
 	identifiedTransitions := wf.StatusFlow["identified"]
-	if len(identifiedTransitions) != 1 || identifiedTransitions[0] != "triaged" {
-		t.Errorf("expected identified transitions = ['triaged'], got %v", identifiedTransitions)
+	if len(identifiedTransitions) != 4 {
+		t.Errorf("expected 4 identified transitions, got %d: %v", len(identifiedTransitions), identifiedTransitions)
+	}
+	if len(identifiedTransitions) > 0 && identifiedTransitions[0] != "triaged" {
+		t.Errorf("expected identified's forward transition to be 'triaged', got %v", identifiedTransitions)
 	}
 
-	// triaged -> in_progress, wont_fix, cancelled
+	// triaged -(pass)-> in_progress, plus identified/cancelled/wont_fix
 	triagedTransitions := wf.StatusFlow["triaged"]
-	if len(triagedTransitions) != 3 {
-		t.Errorf("expected 3 triaged transitions, got %d", len(triagedTransitions))
+	if len(triagedTransitions) != 4 {
+		t.Errorf("expected 4 triaged transitions, got %d: %v", len(triagedTransitions), triagedTransitions)
+	}
+	if len(triagedTransitions) > 0 && triagedTransitions[0] != "in_progress" {
+		t.Errorf("expected triaged's forward transition to be 'in_progress', got %v", triagedTransitions)
 	}
 
-	// in_progress -> resolved, cancelled
+	// in_progress -(pass)-> resolved, plus identified/cancelled/wont_fix
 	inProgressTransitions := wf.StatusFlow["in_progress"]
-	if len(inProgressTransitions) != 2 {
-		t.Errorf("expected 2 in_progress transitions, got %d", len(inProgressTransitions))
+	if len(inProgressTransitions) != 4 {
+		t.Errorf("expected 4 in_progress transitions, got %d: %v", len(inProgressTransitions), inProgressTransitions)
+	}
+	if len(inProgressTransitions) > 0 && inProgressTransitions[0] != "resolved" {
+		t.Errorf("expected in_progress's forward transition to be 'resolved', got %v", inProgressTransitions)
 	}
 }
 
@@ -544,14 +599,14 @@ func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
 		t.Errorf("expected 6 statuses in default tech-debt workflow, got %d", len(tdWf.StatusFlow))
 	}
 
-	// Bug workflow should have 7 statuses
-	if len(bugWf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	// Bug workflow should have 8 statuses
+	if len(bugWf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
-	// Task workflow should have 5 statuses
-	if len(taskWf.StatusFlow) != 5 {
-		t.Errorf("expected 5 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow should have 6 statuses
+	if len(taskWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 
 	// Verify no cross-contamination

@@ -18,6 +18,15 @@ func TestWorkflowConfigDefaults(t *testing.T) {
 }
 
 // Test default workflow
+//
+// The task workflow is now route-based (loaded from the embedded
+// workflow/task.yaml, see internal/config/workflow/steps.go
+// buildWorkflowMapsFromSteps): step name = status name, "terminal" steps
+// have no outgoing transitions, "parking" steps (blocked/on_hold) expose
+// every workable step as a return target, and StatusFlow/StatusMetadata are
+// derived from each step's `outcomes:` map. Statuses are draft/development/
+// completed/blocked/on_hold/cancelled -- NOT the legacy
+// todo/in_progress/ready_for_review/completed/blocked shape.
 func TestDefaultWorkflow(t *testing.T) {
 	workflow := DefaultWorkflow()
 
@@ -27,23 +36,25 @@ func TestDefaultWorkflow(t *testing.T) {
 	}
 
 	// Check all expected statuses exist
-	expectedStatuses := []string{"todo", "in_progress", "ready_for_review", "completed", "blocked"}
+	expectedStatuses := []string{"draft", "development", "completed", "blocked", "on_hold", "cancelled"}
 	for _, status := range expectedStatuses {
 		if _, exists := workflow.StatusFlow[status]; !exists {
 			t.Errorf("expected status %s to exist in default workflow", status)
 		}
 	}
 
-	// Check transitions match current behavior
+	// Check transitions match current behavior (derived from task.yaml's
+	// outcomes maps; parking steps expose all workable steps as return targets)
 	testCases := []struct {
 		from     string
 		expected []string
 	}{
-		{"todo", []string{"in_progress", "blocked"}},
-		{"in_progress", []string{"ready_for_review", "blocked"}},
-		{"ready_for_review", []string{"completed", "in_progress"}},
+		{"draft", []string{"development", "draft", "blocked", "cancelled", "on_hold"}},
+		{"development", []string{"completed", "draft", "blocked", "on_hold"}},
 		{"completed", []string{}},
-		{"blocked", []string{"todo", "in_progress"}},
+		{"blocked", []string{"development", "draft"}},
+		{"on_hold", []string{"development", "draft"}},
+		{"cancelled", []string{}},
 	}
 
 	for _, tc := range testCases {
@@ -62,13 +73,13 @@ func TestDefaultWorkflow(t *testing.T) {
 
 	// Check special statuses
 	startStatuses := workflow.SpecialStatuses[StartStatusKey]
-	if len(startStatuses) != 1 || startStatuses[0] != "todo" {
-		t.Errorf("expected _start_ = [todo], got %v", startStatuses)
+	if len(startStatuses) != 1 || startStatuses[0] != "draft" {
+		t.Errorf("expected _start_ = [draft], got %v", startStatuses)
 	}
 
 	completeStatuses := workflow.SpecialStatuses[CompleteStatusKey]
-	if len(completeStatuses) != 1 || completeStatuses[0] != "completed" {
-		t.Errorf("expected _complete_ = [completed], got %v", completeStatuses)
+	if len(completeStatuses) != 2 || completeStatuses[0] != "cancelled" || completeStatuses[1] != "completed" {
+		t.Errorf("expected _complete_ = [cancelled completed], got %v", completeStatuses)
 	}
 
 	// Check metadata exists for all statuses
@@ -268,9 +279,10 @@ func TestGetWorkflowOrDefault(t *testing.T) {
 		t.Fatal("expected default workflow, got nil")
 	}
 
-	// Verify it's the default workflow
-	if len(workflow.StatusFlow) != 5 {
-		t.Errorf("expected 5 default statuses, got %d", len(workflow.StatusFlow))
+	// Verify it's the default workflow (route-based task.yaml has 6 steps:
+	// draft/development/completed/blocked/on_hold/cancelled)
+	if len(workflow.StatusFlow) != 6 {
+		t.Errorf("expected 6 default statuses, got %d", len(workflow.StatusFlow))
 	}
 }
 
@@ -651,6 +663,12 @@ func workflowStringContainsHelper(s, substr string) bool {
 }
 
 // Test IsBackwardTransition with default workflow
+//
+// The route-based task workflow (task.yaml) uses phases planning (draft),
+// development (development), done (completed/cancelled), blocked (blocked),
+// and an unmapped "paused" phase (on_hold) that -- like "blocked" -- doesn't
+// participate in backward-transition ordering (getPhaseOrder returns -1 for
+// unknown phases, schema.go).
 func TestIsBackwardTransition_DefaultWorkflow(t *testing.T) {
 	workflow := DefaultWorkflow()
 
@@ -662,26 +680,30 @@ func TestIsBackwardTransition_DefaultWorkflow(t *testing.T) {
 		isBackward  bool
 	}{
 		// Forward transitions (phase increases)
-		{"planning to development", "todo", "in_progress", false, false},
-		{"development to review", "in_progress", "ready_for_review", false, false},
-		{"review to done", "ready_for_review", "completed", false, false},
+		{"planning to development", "draft", "development", false, false},
+		{"development to done", "development", "completed", false, false},
 
-		// Backward transitions (phase decreases)
-		{"review back to development", "ready_for_review", "in_progress", false, true},
-		{"development back to planning", "in_progress", "todo", false, true},
+		// Backward transitions (phase decreases) -- mirrors the "fail" outcome
+		// routing development back to draft.
+		{"development back to planning", "development", "draft", false, true},
 
 		// Lateral/special transitions (blocked phase is special, never backward)
-		{"planning to blocked", "todo", "blocked", false, false},
-		{"development to blocked (special)", "in_progress", "blocked", false, false},
-		{"blocked back to planning", "blocked", "todo", false, false},
-		{"blocked back to development", "blocked", "in_progress", false, false},
+		{"planning to blocked", "draft", "blocked", false, false},
+		{"development to blocked (special)", "development", "blocked", false, false},
+		{"blocked back to planning", "blocked", "draft", false, false},
+		{"blocked back to development", "blocked", "development", false, false},
+
+		// on_hold's "paused" phase is unmapped, so it behaves like "blocked":
+		// never participates in backward-transition detection.
+		{"development to on_hold (special)", "development", "on_hold", false, false},
+		{"on_hold back to development", "on_hold", "development", false, false},
 
 		// Same status (no phase change)
-		{"same status", "todo", "todo", false, false},
+		{"same status", "draft", "draft", false, false},
 
 		// Undefined statuses
-		{"undefined from status", "nonexistent", "todo", true, false},
-		{"undefined to status", "todo", "nonexistent", true, false},
+		{"undefined from status", "nonexistent", "draft", true, false},
+		{"undefined to status", "draft", "nonexistent", true, false},
 	}
 
 	for _, tc := range testCases {

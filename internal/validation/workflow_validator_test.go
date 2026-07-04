@@ -248,14 +248,15 @@ func TestStatusValidator_DefaultWorkflow(t *testing.T) {
 		t.Error("Default workflow should have statuses defined")
 	}
 
-	// Verify default workflow is usable - default has "todo", not "draft"
-	if err := validator.ValidateStatus("todo"); err != nil {
-		t.Errorf("Default workflow should support 'todo' status: %v", err)
+	// Verify default workflow is usable - default (embedded route-based
+	// task.yaml) has "draft" as its start status, not "todo".
+	if err := validator.ValidateStatus("draft"); err != nil {
+		t.Errorf("Default workflow should support 'draft' status: %v", err)
 	}
 
-	// Verify default workflow supports in_progress
-	if err := validator.ValidateStatus("in_progress"); err != nil {
-		t.Errorf("Default workflow should support 'in_progress' status: %v", err)
+	// Verify default workflow supports development
+	if err := validator.ValidateStatus("development"); err != nil {
+		t.Errorf("Default workflow should support 'development' status: %v", err)
 	}
 
 	// Verify default workflow supports completed

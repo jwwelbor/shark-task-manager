@@ -1200,7 +1200,7 @@ func TestSprintService_GetSprintBacklog_CompletionPercentBVA(t *testing.T) {
 			items: []*sprint.BacklogItem{
 				makeItem("task", "completed"),
 				makeItem("task", "completed"),
-				makeItem("bug", "resolved"),          // bug terminal = resolved, not completed
+				makeItem("bug", "completed"),         // bug terminal = completed (route-based bug.yaml)
 				makeItem("change_card", "completed"), // change_card terminal = completed
 			},
 			completedStatus:   "completed",

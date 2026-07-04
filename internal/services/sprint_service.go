@@ -448,13 +448,15 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 		return nil, recordSpanError(span, fmt.Errorf("failed to start sprint %s: %w", key, err))
 	}
 
-	// Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "active"); err != nil {
+	// Validate workflow transition. Use the first execution-phase status so
+	// custom workflows with renamed statuses work without code changes.
+	activeStatus := s.executionPhaseStatus()
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), activeStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("active")); err != nil {
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus(activeStatus)); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to start sprint %s: %w", key, err))
 	}
 
@@ -510,13 +512,15 @@ func (s *SprintService) CloseSprint(ctx context.Context, key string) (*models.Sp
 		return nil, recordSpanError(span, fmt.Errorf("failed to close sprint %s: %w", key, err))
 	}
 
-	// Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "closing"); err != nil {
+	// Validate workflow transition. Use the first review-phase status so
+	// custom workflows with renamed statuses work without code changes.
+	closingStatus := s.reviewPhaseStatus()
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), closingStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot close sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("closing")); err != nil {
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus(closingStatus)); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to close sprint %s: %w", key, err))
 	}
 
@@ -856,6 +860,56 @@ func (s *SprintService) assignableSprintStatuses() []string {
 		}
 	}
 	return result
+}
+
+// executionPhaseStatus returns the first status in the configured sprint
+// workflow's "execution" phase (falling back to "active" if the workflow
+// defines none), so custom workflows with renamed statuses work without code
+// changes.
+func (s *SprintService) executionPhaseStatus() string {
+	if statuses := s.workflowSvc.GetStatusesByPhase("execution"); len(statuses) > 0 {
+		return statuses[0]
+	}
+	return "active"
+}
+
+// reviewPhaseStatus returns the first status in the configured sprint
+// workflow's "review" phase (falling back to "closing" if the workflow
+// defines none), so custom workflows with renamed statuses work without code
+// changes.
+func (s *SprintService) reviewPhaseStatus() string {
+	if statuses := s.workflowSvc.GetStatusesByPhase("review"); len(statuses) > 0 {
+		return statuses[0]
+	}
+	return "closing"
+}
+
+// terminalSprintStatus returns the first terminal status in the configured
+// sprint workflow (falling back to "archived" if the workflow defines none),
+// so custom workflows with renamed statuses work without code changes.
+func (s *SprintService) terminalSprintStatus() string {
+	if statuses := s.workflowSvc.GetTerminalStatuses(); len(statuses) > 0 {
+		return statuses[0]
+	}
+	return "archived"
+}
+
+// completedSprintStatus returns the "done"-phase status a sprint moves to
+// once its carryover has been processed but before it is archived (e.g.
+// "completed"), falling back to "completed" if the workflow defines none.
+// Phase alone can't disambiguate this from the terminal status, since both
+// typically share the "done" phase, so terminal statuses are excluded.
+func (s *SprintService) completedSprintStatus() string {
+	terminal := make(map[string]bool, len(s.workflowSvc.GetTerminalStatuses()))
+	for _, status := range s.workflowSvc.GetTerminalStatuses() {
+		terminal[strings.ToLower(status)] = true
+	}
+	for _, status := range s.workflowSvc.GetStatusesByPhase("done") {
+		if !terminal[strings.ToLower(status)] {
+			return status
+		}
+	}
+	return "completed"
 }
 
 // sprintAcceptsAssignments reports whether a sprint in the given status may
@@ -1681,13 +1735,15 @@ func (s *SprintService) ArchiveSprint(ctx context.Context, key string) (*models.
 		return nil, recordSpanError(span, fmt.Errorf("failed to archive sprint %s: %w", key, err))
 	}
 
-	// Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), "archived"); err != nil {
+	// Validate workflow transition. Use the first terminal status so custom
+	// workflows with renamed statuses work without code changes.
+	archivedStatus := s.terminalSprintStatus()
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), archivedStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot archive sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus("archived")); err != nil {
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus(archivedStatus)); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to archive sprint %s: %w", key, err))
 	}
 
@@ -1994,9 +2050,10 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		return nil, fmt.Errorf("failed to close sprint %s: %w", sprintKey, err)
 	}
 
-	if string(sprintEntity.Status) != "active" {
+	activeStatus := s.executionPhaseStatus()
+	if !strings.EqualFold(string(sprintEntity.Status), activeStatus) {
 		return nil, fmt.Errorf("cannot close sprint %s: current status is %q, must be %q",
-			sprintKey, sprintEntity.Status, "active")
+			sprintKey, sprintEntity.Status, activeStatus)
 	}
 
 	// Step 2: Resolve carryover mode from config when empty (TC-C09, TC-C10)
@@ -2173,7 +2230,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	}
 
 	// Step 6: Advance sprint status to completed inside the transaction (TC-C11)
-	if statusErr := s.repo.UpdateStatusTx(ctx, tx, sprintEntity.ID, models.SprintStatus("completed")); statusErr != nil {
+	if statusErr := s.repo.UpdateStatusTx(ctx, tx, sprintEntity.ID, models.SprintStatus(s.completedSprintStatus())); statusErr != nil {
 		return nil, fmt.Errorf("failed to update sprint %s status in transaction: %w", sprintKey, statusErr)
 	}
 

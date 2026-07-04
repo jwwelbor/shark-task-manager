@@ -33,10 +33,10 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		}
 	}
 
-	// Create default config pointing at the shark-data/ content bundle. Workflow
-	// definitions are resolved from shark-data/workflow/ (or the embedded bundle
-	// when shark-data/ is absent from disk). Run 'shark admin install-shark-data'
-	// to materialize the bundle on disk for local customization.
+	// Create default config with no workflow_config pointer: workflow
+	// definitions resolve from the embedded canonical bundle until
+	// 'shark admin install-shark-data' materializes shark-data/workflow/ on
+	// disk for local customization (which re-adds workflow_config itself).
 	config := ConfigDefaults{
 		ColorEnabled:           true,
 		JSONOutput:             false,
@@ -47,8 +47,7 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 			URL:            "./shark-tasks.db",
 			SkipMigrations: false,
 		},
-		SharkDataPath:  "shark-data",
-		WorkflowConfig: "shark-data/workflow/",
+		SharkDataPath: "shark-data",
 		Observability: &ObservabilityConfigDefault{
 			Enabled:        false,
 			TracingEnabled: false,

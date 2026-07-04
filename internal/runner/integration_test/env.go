@@ -177,6 +177,63 @@ func NewEnv(t *testing.T) *Env {
 	}
 }
 
+// NewZeroConfigEnv creates an isolated environment with a bare .sharkconfig.json
+// and NO shark-data/workflow/ directory and NO workflow_config field — the same
+// shape `shark admin init` produces on disk. It exercises the embedded
+// canonical route-based workflow fallback (internal/sharkdata/default_data/workflow/*.yaml)
+// end to end, rather than the on-disk minimalTaskWorkflowYAML fixture NewEnv writes.
+//
+// Call Env.Cleanup() (or defer it) to release resources, same as NewEnv.
+func NewZeroConfigEnv(t *testing.T) *Env {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	dbPath := filepath.Join(dir, "shark-tasks.db")
+
+	// No shark-data/workflow/ directory and no workflow_config field: this is
+	// the "plain admin init" shape the E35-F0x embedded-fallback fix targets.
+	if err := os.WriteFile(configPath, []byte(minimalSharkConfig), 0644); err != nil {
+		t.Fatalf("NewZeroConfigEnv: write .sharkconfig.json: %v", err)
+	}
+
+	// Clear the global workflow cache so this test doesn't see a cached
+	// workflow from a previous NewEnv/NewZeroConfigEnv call.
+	config.ClearWorkflowCache()
+
+	sqlDB, err := db.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewZeroConfigEnv: init db: %v", err)
+	}
+
+	wrappedDB := repository.NewDB(sqlDB)
+	workflowSvc := workflow.NewService(dir)
+
+	defaultDisp := NewMockDispatcher("default", &DispatchResult{
+		ExitCode: 0,
+		Stdout:   "task completed successfully (mock)",
+		Stderr:   "",
+	})
+
+	dispatchers := map[string]runner.AgentDispatcher{
+		"":          defaultDisp,
+		"anthropic": defaultDisp,
+		"codex":     NewMockDispatcher("codex", &DispatchResult{ExitCode: 0, Stdout: "codex done (mock)"}),
+		"openai":    NewMockDispatcher("openai", &DispatchResult{ExitCode: 0, Stdout: "openai done (mock)"}),
+	}
+
+	return &Env{
+		Dir:         dir,
+		DBPath:      dbPath,
+		ConfigPath:  configPath,
+		DB:          wrappedDB,
+		WorkflowSvc: workflowSvc,
+		Dispatchers: dispatchers,
+		t:           t,
+	}
+}
+
 // patchConfigWorkflowRef updates the workflow_config field in the named
 // .sharkconfig.json to point at relativeWorkflowPath.
 func patchConfigWorkflowRef(configPath, relativeWorkflowPath string) error {

@@ -691,9 +691,11 @@ func TestEpicService_GetNextStatus(t *testing.T) {
 }
 
 func TestEpicService_GetNextStatus_Terminal(t *testing.T) {
+	// "archived" is no longer a valid epic status in the route-based default
+	// workflow; "completed" is one of the terminal statuses instead.
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusArchived}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusCompleted}, nil
 		},
 	}
 
@@ -706,7 +708,7 @@ func TestEpicService_GetNextStatus_Terminal(t *testing.T) {
 	}
 
 	if !info.IsTerminal {
-		t.Error("expected IsTerminal=true for archived status")
+		t.Error("expected IsTerminal=true for completed status")
 	}
 	if len(info.AvailableTransitions) != 0 {
 		t.Errorf("expected no transitions for terminal status, got %d", len(info.AvailableTransitions))
@@ -733,8 +735,9 @@ func TestEpicService_ValidateStatus(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
-	// Valid epic statuses
-	for _, status := range []string{"draft", "active", "completed", "archived"} {
+	// Valid epic statuses (route-based default workflow; "archived" is no
+	// longer a valid epic status, "cancelled" replaces it as a terminal status)
+	for _, status := range []string{"draft", "active", "completed", "cancelled"} {
 		if err := svc.ValidateStatus(status); err != nil {
 			t.Errorf("expected %q to be valid, got error: %v", status, err)
 		}
@@ -1529,16 +1532,21 @@ func TestEpicService_GetNextStatus_WithActions(t *testing.T) {
 }
 
 func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
-	// Create an EpicService with a default workflow (no actions defined)
-	// makeResolveActionFn callback should return nil gracefully
+	// The route-based embedded default workflow defines an orchestrator
+	// action for every step (including "draft"), so makeResolveActionFn
+	// now resolves a real action here instead of nil. This asserts that
+	// resolution actually happens for the default workflow.
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "draft"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
 	action := resolveFn(epic, "draft")
-	if action != nil {
-		t.Errorf("expected nil action for default workflow (no actions defined), got %+v", action)
+	if action == nil {
+		t.Fatal("expected a real action for 'draft' status in the default route-based workflow")
+	}
+	if action.Action != "advance_status" {
+		t.Errorf("expected action 'advance_status', got %q", action.Action)
 	}
 }
 

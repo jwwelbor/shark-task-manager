@@ -313,48 +313,6 @@ func TestDeriveEpicStatus(t *testing.T) {
 	}
 }
 
-func TestIsTaskActiveStatus(t *testing.T) {
-	tests := []struct {
-		status   models.TaskStatus
-		expected bool
-	}{
-		{models.TaskStatus("in_progress"), true},
-		{models.TaskStatus("ready_for_review"), true},
-		{models.TaskStatus("blocked"), true},
-		{models.TaskStatus("todo"), false},
-		{models.TaskStatus("completed"), false},
-		{models.TaskStatus("archived"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.status), func(t *testing.T) {
-			result := IsTaskActiveStatus(tt.status)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsTaskCompletedStatus(t *testing.T) {
-	tests := []struct {
-		status   models.TaskStatus
-		expected bool
-	}{
-		{models.TaskStatus("completed"), true},
-		{models.TaskStatus("archived"), true},
-		{models.TaskStatus("in_progress"), false},
-		{models.TaskStatus("ready_for_review"), false},
-		{models.TaskStatus("blocked"), false},
-		{models.TaskStatus("todo"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.status), func(t *testing.T) {
-			result := IsTaskCompletedStatus(tt.status)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestIsFeatureActiveStatus(t *testing.T) {
 	tests := []struct {
 		status   models.FeatureStatus

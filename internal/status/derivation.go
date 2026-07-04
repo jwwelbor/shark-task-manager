@@ -133,31 +133,6 @@ func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
 	return models.EpicStatusDraft
 }
 
-// IsTaskActiveStatus returns true if the task status counts as "active work"
-// DEPRECATED: Use workflow config phase field instead. This function uses hardcoded logic.
-func IsTaskActiveStatus(status models.TaskStatus) bool {
-	switch status {
-	case models.TaskStatus("in_progress"),
-		models.TaskStatus("ready_for_review"),
-		models.TaskStatus("blocked"):
-		return true
-	default:
-		return false
-	}
-}
-
-// IsTaskCompletedStatus returns true if the task status counts as "completed"
-// DEPRECATED: Use workflow config phase field instead. This function uses hardcoded logic.
-func IsTaskCompletedStatus(status models.TaskStatus) bool {
-	switch status {
-	case models.TaskStatus("completed"),
-		models.TaskStatus("archived"):
-		return true
-	default:
-		return false
-	}
-}
-
 // IsFeatureActiveStatus returns true if the feature status counts as "active work"
 func IsFeatureActiveStatus(status models.FeatureStatus) bool {
 	return status == models.FeatureStatusActive
