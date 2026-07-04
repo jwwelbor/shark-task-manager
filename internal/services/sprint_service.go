@@ -886,12 +886,23 @@ func (s *SprintService) reviewPhaseStatus() string {
 	return s.firstStatusInPhase("review", "closing")
 }
 
-// terminalSprintStatus returns the first terminal status in the configured
-// sprint workflow (falling back to "archived" if the workflow defines none),
-// so custom workflows with renamed statuses work without code changes.
+// terminalSprintStatus returns the terminal status ArchiveSprint should
+// transition into. When a workflow defines more than one terminal status
+// (e.g. an "archived" success path alongside a "cancelled" abandon path),
+// picking an arbitrary one (even a deterministically-sorted one) would be
+// semantically wrong — this specifically wants "the" archive endpoint, so it
+// prefers the terminal status whose orchestrator action is "archive". Falls
+// back to the first (sorted) terminal status, then to the literal "archived",
+// so custom workflows with renamed statuses still work without code changes.
 func (s *SprintService) terminalSprintStatus() string {
-	if statuses := s.workflowSvc.GetTerminalStatuses(); len(statuses) > 0 {
-		return statuses[0]
+	terminalStatuses := s.workflowSvc.GetTerminalStatuses()
+	for _, status := range terminalStatuses {
+		if s.workflowSvc.HasOrchestratorAction(status, "archive") {
+			return status
+		}
+	}
+	if len(terminalStatuses) > 0 {
+		return terminalStatuses[0]
 	}
 	return "archived"
 }
