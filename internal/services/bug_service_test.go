@@ -958,7 +958,7 @@ func TestBugService_ListBugs_ShowAllTrue_IncludesTerminal(t *testing.T) {
 func TestBugService_TransitionStatus_ValidTransition(t *testing.T) {
 	ctx := context.Background()
 
-	currentStatus := models.BugStatus("reported")
+	currentStatus := models.BugStatus("draft")
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
@@ -972,12 +972,88 @@ func TestBugService_TransitionStatus_ValidTransition(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "B001", "triaged", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "B001", "development", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "triaged" {
-		t.Errorf("expected status 'triaged', got %s", result.ToStatus)
+	if result.ToStatus != "development" {
+		t.Errorf("expected status 'development', got %s", result.ToStatus)
+	}
+}
+
+// TestBugService_TransitionStatus_ResolvesLegacyAliasCurrentStatus guards the
+// route-based-workflow.md §5 "input compat shim" guarantee: an entity still
+// parked under a pre-migration status name (bug.yaml's "draft" step has
+// `aliases: [reported]`) must still be able to transition, not fail with
+// "status 'reported' is not defined in workflow". FromStatus and the recorded
+// history must keep the raw stored value ("reported"), not the resolved one —
+// audit trails record what actually happened; only workflow lookups resolve.
+func TestBugService_TransitionStatus_ResolvesLegacyAliasCurrentStatus(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.entitySvc.SetHistoryRepo(historyRecorder)
+
+	result, err := svc.TransitionStatus(ctx, "B001", "development", TransitionOptions{})
+	if err != nil {
+		t.Fatalf("TransitionStatus() error = %v", err)
+	}
+	if result.FromStatus != "reported" {
+		t.Errorf("expected FromStatus to preserve the raw stored value 'reported', got %q", result.FromStatus)
+	}
+	if result.ToStatus != "development" {
+		t.Errorf("expected status 'development', got %s", result.ToStatus)
+	}
+	if len(historyRecorder.created) != 1 {
+		t.Fatalf("expected exactly one history record, got %d", len(historyRecorder.created))
+	}
+	from := historyRecorder.created[0].FromStatus
+	if from == nil || *from != "reported" {
+		t.Errorf("expected recorded history from_status to preserve raw value 'reported', got %v", from)
+	}
+}
+
+// TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus guards the
+// companion half of the alias-resolution fix: passing a legacy alias as the
+// TARGET status (not just the current status) must validate against its
+// canonical step. "development" -> "draft" is a real transition in bug.yaml
+// (development's "fail" outcome), so passing the legacy alias "reported"
+// (which resolves to "draft") as the target must succeed identically.
+func TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedStatus models.BugStatus
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: "development", Severity: models.BugSeverityHigh}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
+			capturedStatus = status
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	result, err := svc.TransitionStatus(ctx, "B001", "reported", TransitionOptions{})
+	if err != nil {
+		t.Fatalf("TransitionStatus() error = %v", err)
+	}
+	if result.ToStatus != "draft" {
+		t.Errorf("expected ToStatus to resolve legacy alias target 'reported' to 'draft', got %q", result.ToStatus)
+	}
+	if capturedStatus != "draft" {
+		t.Errorf("expected repo to be updated with resolved status 'draft', got %q", capturedStatus)
 	}
 }
 
@@ -1022,7 +1098,7 @@ func TestBugService_GetNextStatus(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: "draft", Severity: models.BugSeverityHigh}, nil
 		},
 	}
 
@@ -1032,11 +1108,11 @@ func TestBugService_GetNextStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetNextStatus() error = %v", err)
 	}
-	if info.CurrentStatus != "reported" {
-		t.Errorf("expected current status 'reported', got %s", info.CurrentStatus)
+	if info.CurrentStatus != "draft" {
+		t.Errorf("expected current status 'draft', got %s", info.CurrentStatus)
 	}
 	if len(info.AvailableTransitions) == 0 {
-		t.Error("expected at least one available transition from 'reported'")
+		t.Error("expected at least one available transition from 'draft'")
 	}
 }
 
@@ -1136,7 +1212,7 @@ func TestBugService_CreateBug_LinkedToTask(t *testing.T) {
 func TestBugService_TransitionStatus_ReturnsResult(t *testing.T) {
 	ctx := context.Background()
 
-	currentStatus := models.BugStatus("reported")
+	currentStatus := models.BugStatus("draft")
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
@@ -1154,12 +1230,12 @@ func TestBugService_TransitionStatus_ReturnsResult(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "B001", "triaged", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "B001", "development", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "triaged" {
-		t.Errorf("expected result ToStatus 'triaged', got %s", result.ToStatus)
+	if result.ToStatus != "development" {
+		t.Errorf("expected result ToStatus 'development', got %s", result.ToStatus)
 	}
 	if !result.Transitioned {
 		t.Error("expected Transitioned to be true")

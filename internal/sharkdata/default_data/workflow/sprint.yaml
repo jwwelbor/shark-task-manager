@@ -50,8 +50,20 @@ steps:
     skills: [sprint-analytics]
     prompt: sprint/closing.md
     outcomes:
-      pass: archived
+      pass: completed
       fail: active
+      blocked: on_hold
+  completed:
+    phase: done
+    color: green
+    display_token: CMP
+    description: "Sprint work is complete; pending archive"
+    progress_weight: 1.0
+    responsibility: none
+    action: advance_status
+    outcomes:
+      pass: archived
+      fail: closing
       blocked: on_hold
   archived:
     phase: done

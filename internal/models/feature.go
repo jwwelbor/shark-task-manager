@@ -8,6 +8,11 @@ const (
 	FeatureStatusActive    FeatureStatus = "active"
 	FeatureStatusCompleted FeatureStatus = "completed"
 	FeatureStatusArchived  FeatureStatus = "archived"
+	// FeatureStatusCancelled is the route-based workflow's terminal status for
+	// an abandoned feature (feature.yaml's "cancelled" step). It replaces
+	// FeatureStatusArchived as the terminal-but-not-successfully-completed
+	// status; both are still recognized so pre-migration data keeps working.
+	FeatureStatusCancelled FeatureStatus = "cancelled"
 )
 
 // Feature represents a mid-level unit within an epic

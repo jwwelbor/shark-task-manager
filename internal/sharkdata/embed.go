@@ -393,19 +393,19 @@ func (r *ValidationReport) HasErrors() bool {
 // expectedWorkflowFiles is the canonical set of per-entity workflow YAML
 // filenames the engine expects to find under shark-data/workflow/.  When any
 // of these files is absent, shark validate reports an error: the engine will
-// silently fall back to hardcoded defaults at runtime, which can change
-// dispatch behavior in hard-to-diagnose ways (B023).
+// silently fall back to the embedded route-based default at runtime, which
+// can change dispatch behavior in hard-to-diagnose ways (B023).
 //
 // This list mirrors the yamlEntityFiles table in
-// internal/config/workflow/yaml_loader.go.  tech-debt.yaml and sprint.yaml
-// are intentionally omitted: they are supplementary — most projects do not
-// define them and the fallback for those entity types is less disruptive.
+// internal/config/workflow/yaml_loader.go and covers every entity type.
 var expectedWorkflowFiles = []string{
 	"epic.yaml",
 	"feature.yaml",
 	"task.yaml",
 	"bug.yaml",
 	"change.yaml",
+	"tech-debt.yaml",
+	"sprint.yaml",
 }
 
 func validateWorkflowYAML(workflowDir string, report *ValidationReport) {

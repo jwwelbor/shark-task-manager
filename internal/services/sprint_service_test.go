@@ -920,6 +920,90 @@ func TestSprintService_ArchiveSprint(t *testing.T) {
 	}
 }
 
+// TestSprintService_ArchiveSprint_PrefersArchiveActionAmongMultipleTerminals
+// guards a gemini-code-assist review finding on this PR: terminalSprintStatus
+// must not pick an arbitrary (even if deterministically sorted) terminal
+// status when a workflow defines more than one — it must pick the one whose
+// orchestrator action is "archive". The two terminal statuses below are named
+// so alphabetical order would pick the WRONG one ("abandoned" < "closed_out"),
+// proving this isn't just a determinism fix but an intentional semantic
+// choice.
+//
+// Caller-Path Contract:
+//   - Entrypoint: SprintService.ArchiveSprint(ctx, "S001")
+//   - Lowest mock seam: SprintRepository interface; workflow.Service is real,
+//     reading a custom route-based YAML sprint workflow from a temp project root.
+//   - Forbidden mocks: Do NOT mock workflow.Service — the whole point is to
+//     verify terminalSprintStatus() reads the orchestrator action through it.
+//   - Counter-factual: a buggy impl that returns GetTerminalStatuses()[0]
+//     (sorted-first) would set the sprint to "abandoned" instead of "closed_out".
+func TestSprintService_ArchiveSprint_PrefersArchiveActionAmongMultipleTerminals(t *testing.T) {
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	workflowDir := filepath.Join(projectRoot, "shark-data", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+
+	sprintYAML := `version: "1.0"
+start: planning
+steps:
+  planning:
+    phase: planning
+    is_planning: true
+    action: advance_status
+    outcomes:
+      pass: active
+      fail: abandoned
+      blocked: abandoned
+  active:
+    phase: execution
+    action: advance_status
+    outcomes:
+      pass: closed_out
+      fail: abandoned
+      blocked: abandoned
+  abandoned:
+    phase: done
+    action: noop
+    terminal: true
+  closed_out:
+    phase: done
+    action: archive
+    terminal: true
+`
+	require.NoError(t, os.WriteFile(filepath.Join(workflowDir, "sprint.yaml"), []byte(sprintYAML), 0o644))
+	configJSON := `{"workflow_config": "shark-data/workflow"}`
+	require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(configJSON), 0o644))
+
+	cfgworkflow.ClearWorkflowCache()
+	defer cfgworkflow.ClearWorkflowCache()
+
+	workflowSvc := workflow.NewService(projectRoot)
+
+	// Sanity-check: both statuses are terminal, sorted alphabetically puts
+	// "abandoned" first — the naive [0]-pick would choose it.
+	sprintLevelSvc := workflowSvc.ForLevel(workflow.LevelSprint)
+	require.Equal(t, []string{"abandoned", "closed_out"}, sprintLevelSvc.GetTerminalStatuses())
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "active"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			if status != "closed_out" {
+				return fmt.Errorf("expected UpdateStatus to be called with 'closed_out', got %q", status)
+			}
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+	result, err := svc.ArchiveSprint(ctx, "S001")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
 // MockSprintCapacityRepository is a test double for SprintCapacityRepository.
 type MockSprintCapacityRepository struct {
 	GetCapacityFunc func(ctx context.Context, sprintID int64) ([]*models.SprintCapacity, error)
@@ -1200,7 +1284,7 @@ func TestSprintService_GetSprintBacklog_CompletionPercentBVA(t *testing.T) {
 			items: []*sprint.BacklogItem{
 				makeItem("task", "completed"),
 				makeItem("task", "completed"),
-				makeItem("bug", "resolved"),          // bug terminal = resolved, not completed
+				makeItem("bug", "completed"),         // bug terminal = completed (route-based bug.yaml)
 				makeItem("change_card", "completed"), // change_card terminal = completed
 			},
 			completedStatus:   "completed",

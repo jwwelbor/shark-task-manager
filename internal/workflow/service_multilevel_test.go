@@ -78,12 +78,12 @@ func TestForLevel_Task(t *testing.T) {
 		t.Errorf("expected level %q, got %q", LevelTask, taskSvc.GetLevel())
 	}
 
-	// Task workflow has "todo" and "in_progress"
-	if !taskSvc.IsValidStatus("todo") {
-		t.Error("expected 'todo' to be a valid task status")
+	// Task workflow has "draft" and "development"
+	if !taskSvc.IsValidStatus("draft") {
+		t.Error("expected 'draft' to be a valid task status")
 	}
-	if !taskSvc.IsValidStatus("in_progress") {
-		t.Error("expected 'in_progress' to be a valid task status")
+	if !taskSvc.IsValidStatus("development") {
+		t.Error("expected 'development' to be a valid task status")
 	}
 }
 
@@ -116,19 +116,19 @@ func TestForLevel_Isolation(t *testing.T) {
 		t.Error("expected epic transition 'draft' -> 'active' to be valid")
 	}
 
-	// Epic: "draft" -> "in_progress" should NOT be valid (task-only transition)
-	if epicSvc.IsValidTransition("draft", "in_progress") {
-		t.Error("expected epic transition 'draft' -> 'in_progress' to be invalid")
+	// Epic: "draft" -> "development" should NOT be valid (task-only status)
+	if epicSvc.IsValidTransition("draft", "development") {
+		t.Error("expected epic transition 'draft' -> 'development' to be invalid")
 	}
 
-	// Task: "todo" -> "in_progress" should be valid
-	if !taskSvc.IsValidTransition("todo", "in_progress") {
-		t.Error("expected task transition 'todo' -> 'in_progress' to be valid")
+	// Task: "draft" -> "development" should be valid
+	if !taskSvc.IsValidTransition("draft", "development") {
+		t.Error("expected task transition 'draft' -> 'development' to be valid")
 	}
 
-	// Task: "draft" -> "active" should NOT be valid (epic-only status)
-	if taskSvc.IsValidStatus("draft") {
-		t.Error("expected 'draft' to NOT be a valid task status (default task workflow)")
+	// Task: "decomposition" should NOT be a valid task status (epic-only status)
+	if taskSvc.IsValidStatus("decomposition") {
+		t.Error("expected 'decomposition' to NOT be a valid task status (epic-only status, default task workflow)")
 	}
 }
 
@@ -142,14 +142,14 @@ func TestNewService_BackwardCompatible(t *testing.T) {
 	}
 
 	// Should have task statuses
-	if !svc.IsValidStatus("todo") {
-		t.Error("expected 'todo' to be valid in default task service")
+	if !svc.IsValidStatus("draft") {
+		t.Error("expected 'draft' to be valid in default task service")
 	}
 
-	// GetInitialStatus should return "todo" for task level
+	// GetInitialStatus should return "draft" for task level
 	status := svc.GetInitialStatus()
-	if string(status) != "todo" {
-		t.Errorf("expected initial status 'todo', got %q", status)
+	if string(status) != "draft" {
+		t.Errorf("expected initial status 'draft', got %q", status)
 	}
 }
 
@@ -178,8 +178,8 @@ func TestGetInitialStatusString_Task(t *testing.T) {
 	taskSvc := svc.ForLevel(LevelTask)
 
 	initial := taskSvc.GetInitialStatusString()
-	if initial != "todo" {
-		t.Errorf("expected task initial status 'todo', got %q", initial)
+	if initial != "draft" {
+		t.Errorf("expected task initial status 'draft', got %q", initial)
 	}
 }
 
@@ -231,8 +231,8 @@ func TestValidateTransition_ValidTask(t *testing.T) {
 	svc := newTestService()
 	taskSvc := svc.ForLevel(LevelTask)
 
-	// "todo" -> "in_progress" is valid in default task workflow
-	err := taskSvc.ValidateTransition("todo", "in_progress")
+	// "draft" -> "development" is valid in default task workflow
+	err := taskSvc.ValidateTransition("draft", "development")
 	if err != nil {
 		t.Errorf("expected valid transition, got error: %v", err)
 	}
@@ -242,8 +242,8 @@ func TestValidateTransition_InvalidTask(t *testing.T) {
 	svc := newTestService()
 	taskSvc := svc.ForLevel(LevelTask)
 
-	// "todo" -> "completed" is NOT valid (must go through in_progress)
-	err := taskSvc.ValidateTransition("todo", "completed")
+	// "draft" -> "completed" is NOT valid (must go through development)
+	err := taskSvc.ValidateTransition("draft", "completed")
 	if err == nil {
 		t.Error("expected error for invalid task transition, got nil")
 	}

@@ -573,7 +573,7 @@ func TestChangeCardService_DeleteChangeCard(t *testing.T) {
 func TestChangeCardService_TransitionStatus(t *testing.T) {
 	ctx := context.Background()
 
-	currentStatus := models.ChangeCardStatus("proposed")
+	currentStatus := models.ChangeCardStatus("draft")
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: currentStatus}, nil
@@ -586,12 +586,12 @@ func TestChangeCardService_TransitionStatus(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "CC-001", "approved", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "CC-001", "development", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "approved" {
-		t.Errorf("expected status 'approved', got %s", result.ToStatus)
+	if result.ToStatus != "development" {
+		t.Errorf("expected status 'development', got %s", result.ToStatus)
 	}
 }
 
@@ -644,7 +644,7 @@ func TestChangeCardService_GetNextStatus(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "draft"}, nil
 		},
 	}
 
@@ -654,11 +654,11 @@ func TestChangeCardService_GetNextStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetNextStatus() error = %v", err)
 	}
-	if info.CurrentStatus != "proposed" {
-		t.Errorf("expected current status 'proposed', got %s", info.CurrentStatus)
+	if info.CurrentStatus != "draft" {
+		t.Errorf("expected current status 'draft', got %s", info.CurrentStatus)
 	}
 	if len(info.AvailableTransitions) == 0 {
-		t.Error("expected at least one available transition from 'proposed'")
+		t.Error("expected at least one available transition from 'draft'")
 	}
 }
 

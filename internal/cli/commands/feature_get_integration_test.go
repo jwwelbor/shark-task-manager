@@ -47,7 +47,7 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 		t.Fatalf("Failed to create feature: %v", err)
 	}
 
-	// Create 4 tasks with different statuses: 2 completed, 1 in progress, 1 todo
+	// Create 4 tasks with different statuses: 2 completed, 1 in development, 1 draft
 	tasks := []*models.Task{
 		{
 			BaseEntity: models.BaseEntity{
@@ -72,7 +72,7 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 				Key:   "T-E07-F01-003",
 				Title: "Task 3",
 			},
-			Status:    models.TaskStatus("in_progress"),
+			Status:    models.TaskStatus("development"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
@@ -81,7 +81,7 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 				Key:   "T-E07-F01-004",
 				Title: "Task 4",
 			},
-			Status:    models.TaskStatus("todo"),
+			Status:    models.TaskStatus("draft"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
@@ -101,8 +101,8 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 		t.Fatalf("GetProgress failed: %v", err)
 	}
 
-	// Verify weighted progress: 2 completed (1.0) + 1 in_progress (0.5) + 1 todo (0.0) = 2.5/4 = 62.5%
-	expectedProgress := 62.5
+	// Verify weighted progress: 2 completed (1.0) + 1 development (0.1) + 1 draft (0.0) = 2.1/4 = 52.5%
+	expectedProgress := 52.5
 	progress := progressInfo.WeightedProgress
 	if progress != expectedProgress {
 		t.Errorf("Expected progress %f, got %f", expectedProgress, progress)
@@ -328,16 +328,16 @@ func TestFeatureGetIntegration_WorkflowAwareness(t *testing.T) {
 	}
 
 	// Verify different statuses have different phases
-	todoMeta := workflowService.GetStatusMetadata("todo")
+	draftMeta := workflowService.GetStatusMetadata("draft")
 	completedMeta := workflowService.GetStatusMetadata("completed")
 
-	if (todoMeta.Color == "" && todoMeta.Phase == "") || (completedMeta.Color == "" && completedMeta.Phase == "") {
-		t.Fatal("Expected both todo and completed metadata with color or phase")
+	if (draftMeta.Color == "" && draftMeta.Phase == "") || (completedMeta.Color == "" && completedMeta.Phase == "") {
+		t.Fatal("Expected both draft and completed metadata with color or phase")
 	}
 
-	// These should be different phases (todo in planning, completed in done)
-	if todoMeta.Phase == completedMeta.Phase {
-		t.Logf("Note: Phases are the same (%s), this may be expected depending on workflow config", todoMeta.Phase)
+	// These should be different phases (draft in planning, completed in done)
+	if draftMeta.Phase == completedMeta.Phase {
+		t.Logf("Note: Phases are the same (%s), this may be expected depending on workflow config", draftMeta.Phase)
 	}
 }
 

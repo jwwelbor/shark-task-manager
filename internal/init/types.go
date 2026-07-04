@@ -27,7 +27,6 @@ type ConfigDefaults struct {
 	RequireRejectionReason bool                        `json:"require_rejection_reason"`
 	Database               *DatabaseConfigDefault      `json:"database"`
 	SharkDataPath          string                      `json:"shark_data_path"`
-	WorkflowConfig         string                      `json:"workflow_config"`
 	Observability          *ObservabilityConfigDefault `json:"observability"`
 }
 

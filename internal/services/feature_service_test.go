@@ -402,9 +402,11 @@ func TestFeatureService_GetNextStatus(t *testing.T) {
 }
 
 func TestFeatureService_GetNextStatus_Terminal(t *testing.T) {
+	// "archived" is no longer a valid feature status in the route-based
+	// default workflow; "completed" is one of the terminal statuses instead.
 	repo := &mockFeatureRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{BaseEntity: models.BaseEntity{Key: "E16-F01"}, Status: models.FeatureStatusArchived}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{Key: "E16-F01"}, Status: models.FeatureStatusCompleted}, nil
 		},
 	}
 
@@ -417,7 +419,7 @@ func TestFeatureService_GetNextStatus_Terminal(t *testing.T) {
 	}
 
 	if !info.IsTerminal {
-		t.Error("expected IsTerminal=true for archived status")
+		t.Error("expected IsTerminal=true for completed status")
 	}
 	if len(info.AvailableTransitions) != 0 {
 		t.Errorf("expected no transitions for terminal status, got %d", len(info.AvailableTransitions))
@@ -444,8 +446,9 @@ func TestFeatureService_ValidateStatus(t *testing.T) {
 	repo := &mockFeatureRepo{}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
 
-	// Valid feature statuses
-	for _, status := range []string{"draft", "active", "completed", "archived"} {
+	// Valid feature statuses (route-based default workflow; "archived" is no
+	// longer a valid feature status, "cancelled" replaces it as a terminal status)
+	for _, status := range []string{"draft", "active", "completed", "cancelled"} {
 		if err := svc.ValidateStatus(status); err != nil {
 			t.Errorf("expected %q to be valid, got error: %v", status, err)
 		}

@@ -462,7 +462,8 @@ func TestService_GetDefaultStatus_AdvancedWorkflow(t *testing.T) {
 }
 
 func TestService_GetDefaultStatus_Fallback(t *testing.T) {
-	// When no config exists, should fall back to "todo"
+	// When no config exists, should fall back to the embedded default task
+	// workflow's start status, "draft".
 	tempDir := t.TempDir()
 	config.ClearWorkflowCache()
 	defer config.ClearWorkflowCache()
@@ -470,5 +471,5 @@ func TestService_GetDefaultStatus_Fallback(t *testing.T) {
 	svc := NewService(tempDir)
 
 	defaultStatus := svc.GetDefaultStatus()
-	assert.Equal(t, "todo", defaultStatus)
+	assert.Equal(t, "draft", defaultStatus)
 }

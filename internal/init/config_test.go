@@ -110,9 +110,6 @@ func TestCreateConfig(t *testing.T) {
 			if !cfg.RequireRejectionReason {
 				t.Errorf("RequireRejectionReason = false, want true")
 			}
-			if cfg.WorkflowConfig != "shark-data/workflow/" {
-				t.Errorf("WorkflowConfig = %q, want %q", cfg.WorkflowConfig, "shark-data/workflow/")
-			}
 			if cfg.SharkDataPath != "shark-data" {
 				t.Errorf("SharkDataPath = %q, want %q", cfg.SharkDataPath, "shark-data")
 			}
@@ -241,13 +238,21 @@ func TestCreateConfigShape(t *testing.T) {
 		"require_rejection_reason",
 		"database",
 		"shark_data_path",
-		"workflow_config",
 		"observability",
 	}
 	for _, field := range requiredFields {
 		if _, exists := actual[field]; !exists {
 			t.Errorf("Config missing required field: %s", field)
 		}
+	}
+
+	// workflow_config must NOT be written by init — a bare init has no
+	// shark-data/ on disk, so the field would be a dangling pointer. Workflow
+	// definitions resolve from the embedded bundle until
+	// `shark admin install-shark-data` materializes shark-data/workflow/ and
+	// re-adds workflow_config itself.
+	if _, exists := actual["workflow_config"]; exists {
+		t.Error("Config should not contain workflow_config; init no longer points at an unmaterialized bundle")
 	}
 
 	// status_metadata must NOT be inlined — it lives in the workflow file now.

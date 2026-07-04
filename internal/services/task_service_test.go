@@ -786,7 +786,7 @@ func TestTaskService_ValidateStatus_Valid_Status(t *testing.T) {
 	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate valid status
-	err := svc.ValidateStatus("todo")
+	err := svc.ValidateStatus("draft")
 
 	// Assert: No error for valid status
 	assert.NoError(t, err)
@@ -1751,7 +1751,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{BaseEntity: models.BaseEntity{ID: 6,
-				Key: "T-E07-F01-006"}, Status: "todo",
+				Key: "T-E07-F01-006"}, Status: "draft",
 				FeatureID: 10,
 			}, nil
 		},
@@ -1762,7 +1762,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "in_progress", TransitionOptions{
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "development", TransitionOptions{
 		Agent:  "my-agent",
 		Reason: "starting work",
 	})
@@ -1770,11 +1770,11 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.True(t, result.Transitioned)
-	assert.Equal(t, "todo", result.FromStatus)
-	assert.Equal(t, "in_progress", result.ToStatus)
+	assert.Equal(t, "draft", result.FromStatus)
+	assert.Equal(t, "development", result.ToStatus)
 
 	assert.Equal(t, int64(6), capturedParams.TaskID)
-	assert.Equal(t, "todo", capturedParams.OldStatus)
+	assert.Equal(t, "draft", capturedParams.OldStatus)
 	assert.NotNil(t, capturedParams.Agent)
 	assert.Equal(t, "my-agent", *capturedParams.Agent)
 	assert.NotNil(t, capturedParams.RejectionReason)
@@ -1815,7 +1815,7 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{BaseEntity: models.BaseEntity{ID: 8,
-				Key: "T-E07-F01-008"}, Status: "ready_for_review",
+				Key: "T-E07-F01-008"}, Status: "development",
 				FeatureID: 10,
 			}, nil
 		},
@@ -1826,8 +1826,9 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
-	// Attempt backward transition without reason
-	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-008", "in_progress", TransitionOptions{
+	// Attempt backward transition without reason ("development" -> "draft" is
+	// a backward transition per the route-based default task workflow)
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-008", "draft", TransitionOptions{
 		// No reason provided
 	})
 
@@ -1835,7 +1836,7 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 	if err != nil {
 		// Error may or may not occur depending on workflow config.
 		// The important thing is the orchestration path works.
-		// With the basic workflow config, ready_for_review -> in_progress might not be backward.
+		// With the default workflow config, development -> draft might not be backward.
 		// So we just verify we get a result or an expected error.
 		assert.Contains(t, err.Error(), "transition")
 	}
@@ -1846,7 +1847,7 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{BaseEntity: models.BaseEntity{ID: 11,
-				Key: "T-E07-F01-011"}, Status: "in_progress",
+				Key: "T-E07-F01-011"}, Status: "development",
 				FeatureID: 10,
 			}, nil
 		},
@@ -1856,7 +1857,7 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-011", "ready_for_review", TransitionOptions{})
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-011", "completed", TransitionOptions{})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
@@ -1878,7 +1879,7 @@ func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{
 				BaseEntity: models.BaseEntity{ID: 20, Key: "T-E07-F01-020"},
-				Status:     "todo",
+				Status:     "draft",
 				FeatureID:  10,
 			}, nil
 		},
@@ -1889,19 +1890,19 @@ func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "in_progress", TransitionOptions{
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "development", TransitionOptions{
 		Agent: "dev-agent",
 	})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, models.EntityTypeTask, result.EntityType)
-	assert.Equal(t, "todo", result.FromStatus)
-	assert.Equal(t, "in_progress", result.ToStatus)
+	assert.Equal(t, "draft", result.FromStatus)
+	assert.Equal(t, "development", result.ToStatus)
 	assert.True(t, result.Transitioned)
 	// Verify StatusUpdateRaw was called via adapter
 	assert.Equal(t, int64(20), capturedParams.TaskID)
-	assert.Equal(t, models.TaskStatus("in_progress"), capturedParams.NewStatus)
+	assert.Equal(t, models.TaskStatus("development"), capturedParams.NewStatus)
 }
 
 // TC-F09-036: taskEntityRepoAdapter routes UpdateStatus through StatusUpdateRaw
@@ -1913,7 +1914,7 @@ func TestTaskService_TransitionStatus_AdapterUsesStatusUpdateRaw(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{
 				BaseEntity: models.BaseEntity{ID: 21, Key: "T-E07-F01-021"},
-				Status:     "todo",
+				Status:     "draft",
 				FeatureID:  10,
 			}, nil
 		},
@@ -1925,7 +1926,7 @@ func TestTaskService_TransitionStatus_AdapterUsesStatusUpdateRaw(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "in_progress", TransitionOptions{
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "development", TransitionOptions{
 		Agent:        "test-agent",
 		Reason:       "test-reason",
 		DocumentPath: "/docs/test.md",
@@ -1996,7 +1997,7 @@ func TestTaskService_TransitionStatus_AutoUnblockPostHook(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{
 				BaseEntity: models.BaseEntity{ID: 24, Key: "T-E07-F01-024"},
-				Status:     "in_progress",
+				Status:     "development",
 				FeatureID:  10,
 			}, nil
 		},
@@ -2006,7 +2007,7 @@ func TestTaskService_TransitionStatus_AutoUnblockPostHook(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-024", "ready_for_review", TransitionOptions{})
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-024", "completed", TransitionOptions{})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
@@ -2046,7 +2047,7 @@ func TestTaskService_TransitionStatus_NoAutoUnblockNoDependents(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{
 				BaseEntity: models.BaseEntity{ID: 26, Key: "T-E07-F01-026"},
-				Status:     "in_progress",
+				Status:     "development",
 				FeatureID:  10,
 			}, nil
 		},
@@ -2056,7 +2057,7 @@ func TestTaskService_TransitionStatus_NoAutoUnblockNoDependents(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-026", "ready_for_review", TransitionOptions{})
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-026", "completed", TransitionOptions{})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
@@ -2523,8 +2524,8 @@ func TestTaskService_CreateTask_ReopensArchivedFeature(t *testing.T) {
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
-	// "archived" is in default feature _complete_ list: ["completed", "archived"]
-	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "archived", nil)
+	// "completed" is a terminal status in the route-based default feature workflow
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "completed", nil)
 	svc.SetFeatureService(featureSvc)
 
 	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
@@ -2911,7 +2912,7 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return &models.Task{
 				BaseEntity: models.BaseEntity{ID: 1, Key: taskKey},
-				Status:     "todo",
+				Status:     "draft",
 				FeatureID:  featureID,
 			}, nil
 		},
@@ -2924,7 +2925,7 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 	svc.SetFeatureService(featureSvc)
 
 	// Call TransitionStatus to trigger the recalculateFeatureProgress post-hook.
-	_, err := svc.TransitionStatus(context.Background(), taskKey, "in_progress", TransitionOptions{})
+	_, err := svc.TransitionStatus(context.Background(), taskKey, "development", TransitionOptions{})
 	// TransitionStatus itself should succeed (progress recalc failure is non-fatal).
 	assert.NoError(t, err)
 

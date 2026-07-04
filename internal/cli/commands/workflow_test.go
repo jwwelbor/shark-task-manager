@@ -55,9 +55,8 @@ func TestWorkflowListCommand(t *testing.T) {
 				"Bug Workflow (default)",
 				"Change Workflow (default)",
 				"Tech Debt Workflow (default)",
-				"todo",
-				"in_progress",
-				"ready_for_review",
+				"draft",
+				"development",
 				"completed",
 				"blocked",
 				"Legend:",
@@ -971,8 +970,8 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 		expectError   bool
 	}{
 		{
-			name:          "valid_start_from_todo",
-			currentStatus: models.TaskStatus("todo"),
+			name:          "valid_start_from_draft",
+			currentStatus: models.TaskStatus("draft"),
 			force:         false,
 			expectError:   false,
 		},
@@ -1006,7 +1005,7 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task start)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("in_progress"), nil, nil, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("development"), nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -1030,20 +1029,20 @@ func TestTaskCompleteWithWorkflow(t *testing.T) {
 		expectError   bool
 	}{
 		{
-			name:          "valid_complete_from_in_progress",
-			currentStatus: models.TaskStatus("in_progress"),
+			name:          "valid_complete_from_development",
+			currentStatus: models.TaskStatus("development"),
 			force:         false,
 			expectError:   false,
 		},
 		{
-			name:          "invalid_complete_from_todo",
-			currentStatus: models.TaskStatus("todo"),
+			name:          "invalid_complete_from_draft",
+			currentStatus: models.TaskStatus("draft"),
 			force:         false,
 			expectError:   true,
 		},
 		{
-			name:          "force_complete_from_todo",
-			currentStatus: models.TaskStatus("todo"),
+			name:          "force_complete_from_draft",
+			currentStatus: models.TaskStatus("draft"),
 			force:         true,
 			expectError:   false,
 		},
@@ -1065,7 +1064,7 @@ func TestTaskCompleteWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task complete)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("ready_for_review"), nil, nil, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -1089,20 +1088,20 @@ func TestTaskApproveWithWorkflow(t *testing.T) {
 		expectError   bool
 	}{
 		{
-			name:          "valid_approve_from_ready_for_review",
-			currentStatus: models.TaskStatus("ready_for_review"),
+			name:          "valid_approve_from_development",
+			currentStatus: models.TaskStatus("development"),
 			force:         false,
 			expectError:   false,
 		},
 		{
-			name:          "invalid_approve_from_todo",
-			currentStatus: models.TaskStatus("todo"),
+			name:          "invalid_approve_from_blocked",
+			currentStatus: models.TaskStatus("blocked"),
 			force:         false,
 			expectError:   true,
 		},
 		{
-			name:          "force_approve_from_todo",
-			currentStatus: models.TaskStatus("todo"),
+			name:          "force_approve_from_blocked",
+			currentStatus: models.TaskStatus("blocked"),
 			force:         true,
 			expectError:   false,
 		},

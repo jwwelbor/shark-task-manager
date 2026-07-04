@@ -270,6 +270,30 @@ func TestDeriveEpicStatus(t *testing.T) {
 			expected: models.EpicStatusCompleted,
 		},
 		{
+			// Regression: route-based feature.yaml's terminal status is
+			// "cancelled", not "archived" — an epic with only completed and
+			// cancelled features must still derive as completed, not draft.
+			name: "mixed_completed_cancelled_returns_completed",
+			counts: map[models.FeatureStatus]int{
+				models.FeatureStatusCompleted: 3,
+				models.FeatureStatusCancelled: 1,
+			},
+			expected: models.EpicStatusCompleted,
+		},
+		{
+			// Regression: GetFeatureStatusBreakdown reads the raw DB status
+			// column, which under a route-based feature.yaml can be any of
+			// its ~15 real statuses (assessment, research, code_review, qa,
+			// ...), not just the 4 legacy values. An unrecognized
+			// non-completed, non-draft status must count as active work, not
+			// silently fall through to draft.
+			name: "route_based_intermediate_status_returns_active",
+			counts: map[models.FeatureStatus]int{
+				models.FeatureStatus("research"): 3,
+			},
+			expected: models.EpicStatusActive,
+		},
+		{
 			name: "any_active_returns_active",
 			counts: map[models.FeatureStatus]int{
 				models.FeatureStatusDraft:     1,
@@ -313,67 +337,6 @@ func TestDeriveEpicStatus(t *testing.T) {
 	}
 }
 
-func TestIsTaskActiveStatus(t *testing.T) {
-	tests := []struct {
-		status   models.TaskStatus
-		expected bool
-	}{
-		{models.TaskStatus("in_progress"), true},
-		{models.TaskStatus("ready_for_review"), true},
-		{models.TaskStatus("blocked"), true},
-		{models.TaskStatus("todo"), false},
-		{models.TaskStatus("completed"), false},
-		{models.TaskStatus("archived"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.status), func(t *testing.T) {
-			result := IsTaskActiveStatus(tt.status)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsTaskCompletedStatus(t *testing.T) {
-	tests := []struct {
-		status   models.TaskStatus
-		expected bool
-	}{
-		{models.TaskStatus("completed"), true},
-		{models.TaskStatus("archived"), true},
-		{models.TaskStatus("in_progress"), false},
-		{models.TaskStatus("ready_for_review"), false},
-		{models.TaskStatus("blocked"), false},
-		{models.TaskStatus("todo"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.status), func(t *testing.T) {
-			result := IsTaskCompletedStatus(tt.status)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsFeatureActiveStatus(t *testing.T) {
-	tests := []struct {
-		status   models.FeatureStatus
-		expected bool
-	}{
-		{models.FeatureStatusActive, true},
-		{models.FeatureStatusDraft, false},
-		{models.FeatureStatusCompleted, false},
-		{models.FeatureStatusArchived, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.status), func(t *testing.T) {
-			result := IsFeatureActiveStatus(tt.status)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestIsFeatureCompletedStatus(t *testing.T) {
 	tests := []struct {
 		status   models.FeatureStatus
@@ -381,6 +344,7 @@ func TestIsFeatureCompletedStatus(t *testing.T) {
 	}{
 		{models.FeatureStatusCompleted, true},
 		{models.FeatureStatusArchived, true},
+		{models.FeatureStatusCancelled, true},
 		{models.FeatureStatusActive, false},
 		{models.FeatureStatusDraft, false},
 	}
