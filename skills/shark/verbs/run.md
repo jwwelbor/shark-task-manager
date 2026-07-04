@@ -1,4 +1,4 @@
-# /shark run — Dispatch Loop (Shark 2.x-native)
+# /shark run — Dispatch Loop
 
 Drive an entity through its workflow. Usage:
 
@@ -10,55 +10,44 @@ Drive an entity through its workflow. Usage:
 
 `/run <key>` is an alias for this verb.
 
-## What this is
+## Contract
 
-A **mechanical dispatch loop**. It reads state, runs the action the workflow
-returns, and loops. It does not know what the workflow steps are or whether any
-step is "needed" — it runs whatever shark hands back.
+This verb is a mechanical host loop around the canonical Shark dispatch API:
 
 ```
-loop:  shark get {KEY} --json → orchestrator_action → execute → goto loop
+loop: shark next {KEY} --json -> response.action -> execute response.prompt -> advance -> loop
 ```
 
-## Ownership model — single owner
+`shark next` owns workflow routing and prompt assembly. The returned
+`response.prompt` is the only execution payload. It already contains the
+rendered workflow prompt, resolved `{{include: ...}}` skill content, and the
+Shark specialist agent persona from the content bundle.
 
-The **parent loop owns the lease and every status transition.** Per iteration:
+Do not build prompts from `shark get ... orchestrator_action`. Do not load Shark
+skills or Shark specialist agents from the host filesystem. Treat
+`response.agent_type`, `response.provider`, and `response.model` as Shark
+metadata for logging/provenance and host adapter selection only.
 
-1. Parent **claims** the entity (acquires the session lease).
-2. Parent **spawns the child agent** for the current step.
-3. Child does its craft and **returns a structured outcome only**:
-   `{ "outcome": "pass" | "fail" | "blocked", "summary": "...", "note": "..." }`.
-   The child **never** claims, advances, releases, or heartbeats.
-4. Parent runs `shark status advance {KEY} --outcome <outcome>`.
-5. Parent **releases the lease in every terminal/error path** — success, agent
-   failure, or exception.
+## Ownership model
 
-The claim TTL is the backstop if the *parent* itself crashes mid-iteration.
+The parent loop owns the lease and every status transition. Per spawned step:
 
-## Entity-type detection
+1. Parent claims `response.entity_key`.
+2. Parent spawns a host-safe worker with `response.prompt`.
+3. Worker returns only `{ "outcome": "pass" | "fail" | "blocked", "summary": "...", "note": "..." }`.
+4. Parent runs `shark status advance {response.entity_key} --outcome <outcome>`.
+5. Parent releases the lease on every success, failure, or exception path.
 
-| Pattern | Type | State read |
-|---------|------|-----------|
-| `E##` | Epic | `shark get {KEY} --json` |
-| `E##-F##` | Feature | `shark get {KEY} --json` |
-| `E##-F##-###` | Task | `shark get {KEY} --json` |
-| `B###` | Bug | `shark get {KEY} --json` |
-| `CC-###` | Change-card | `shark get {KEY} --json` |
-| `bugs` | Bug collection | see **Roots vs collections** |
-| `change-cards` | Change-card collection | see **Roots vs collections** |
+The child never claims, advances, releases, or heartbeats.
 
 ## Roots vs collections
 
-- A **specific key** (epic/feature/task/bug/change) is worked directly.
-- `shark next <root>` accepts a single **entity root key** (epic/feature) and
-  returns the next *unclaimed* child. Use it ONLY with a valid key.
-- **Collection keywords** (`bugs`, `change-cards`) are NOT valid `next` roots.
-  Handle them by enumeration instead:
-  ```bash
-  shark bug list --json        # or: shark change list --json
-  ```
-  Filter to non-terminal items, then claim/work each one individually through
-  the loop below.
+- A specific key is worked by repeatedly calling `shark next <that-key> --json`.
+- An epic or feature key may resolve to an unclaimed child; execute the returned
+  `response.entity_key`, then call `shark next <original-root> --json` again.
+- Collection keywords are not valid `shark next` roots. For `bugs` and
+  `change-cards`, enumerate non-terminal items with `shark bug list --json` or
+  `shark change list --json`, then run this loop for each concrete key.
 
 ## Step 0 — Log + branch check
 
@@ -68,150 +57,97 @@ echo '{"ts":"'$(date +"%Y-%m-%dT%H:%M:%S%z")'","sid":"'$CLAUDE_SID'","event":"ru
 ```
 
 Check `git branch --show-current`:
-- On `main`/`master` → **ASK USER** before proceeding.
-- On the matching branch for this entity → continue.
-- On an unrelated branch → **ASK USER**.
+- On `main`/`master` -> ask the user before proceeding.
+- On the matching branch for this entity -> continue.
+- On an unrelated branch -> ask the user.
 
 Branch patterns: `E##-F##`, `E##-F##-description`, `feature/E##-F##`,
 `fix/B###-*`, `change/CC-###-*`.
 
-## Step 1 — Build the phase maps (once per run)
-
-Resolve the active workflow YAML (`.sharkconfig.json` → `workflow_config`; if
-absent, `<content-bundle>/workflow/`). Parse the entity's workflow file and build:
-
-- `status → phase` — from each step's `phase:`, **plus every name in that step's
-  `aliases:`** (so legacy historical statuses like `ready_for_qa` resolve to the
-  current step's phase).
-- `phase → order` — the linear order phases appear in the workflow.
-
-These maps drive the escape-hatch below. **Do not hardcode any `ready_for_*` /
-`in_*` names** — everything comes from the YAML.
-
-## Step 2 — Read state
+## Step 1 — Read next dispatch response
 
 ```bash
-shark get {KEY} --json
+shark next {KEY} --json
 ```
 
-Read `status` and `orchestrator_action`. The `orchestrator_action` is the **sole
-instruction**. Report: `"Entity {KEY} is at status: {status}"`.
-
-Single-field reads (never pipe JSON through `head`/`grep`/`python`/`jq`):
-```bash
-shark get {KEY} --json --field status
-shark get {KEY} --json --field orchestrator_action
-```
+Parse the JSON response:
 
 | Field | Meaning |
 |-------|---------|
-| `orchestrator_action.action` | `spawn_agent`, `advance_status`, `cascade`, `pause`, `archive` |
-| `orchestrator_action.agent_type` | Which agent to spawn |
-| `orchestrator_action.instruction` | The fully-rendered prompt (engine already inlined bundle prompts/skills/agents) |
-| `orchestrator_action.skills` | Skills the agent should use |
+| `response.action` | Wire action: `spawn_agent`, `pause`, `archive`, or `error` |
+| `response.entity_key` | Concrete entity to claim, execute, advance, and release |
+| `response.entity_type` | Concrete entity type |
+| `response.status` | Current workflow status |
+| `response.prompt` | Self-contained execution prompt |
+| `response.agent_type` | Shark persona metadata, not a native host subagent name |
+| `response.provider` | Provider metadata, e.g. `anthropic`, `openai`, `codex` |
+| `response.model` | Model metadata or override |
+| `response.resolved_via` | Optional parent keys traversed by cascade resolution |
+| `response.error` | Error detail when action is `error` or pause carries a warning |
 
-## Step 3 — Escape hatch (rework detector)
+Report: `Entity {response.entity_key} is at status: {response.status}`.
 
-Before spawning into a step, count how many times this entity has been **routed
-backward** (a `fail`/rework hop):
-
-```bash
-shark status history {KEY} --json
-```
-
-For each transition, map `old_status` and `new_status` to phases via the Step-1
-maps. Count the transition as **rework** when `phase→order[new] < phase→order[old]`.
-Historical statuses that resolve to **no** phase are **skipped, not counted**.
-
-If rework count **≥ 2**:
-```bash
-shark create note {KEY} "Loop guard: {N} backward routes detected — halting for human review." --type=blocker
-shark status set {KEY} blocked --force --reason "Loop guard: {N} rework routes — human review required"
-```
-Report the halt and **STOP**. (No hardcoded status names anywhere in this check.)
-
-## Step 4 — Execute the action
+## Step 2 — Execute the wire action
 
 ### `spawn_agent`
 
+Claim the concrete entity returned by Shark:
+
 ```bash
-SID=$(shark claim {KEY} --by "$CLAUDE_SID" --field session_id)   # acquire lease
+SID=$(shark claim {response.entity_key} --by "$CLAUDE_SID" --field session_id)
 ```
-1. Spawn the child agent (Agent tool): `subagent_type` =
-   `orchestrator_action.agent_type`, prompt = `orchestrator_action.instruction`.
-   For long steps, periodically renew the lease:
-   `shark heartbeat {KEY} --session "$SID" --progress <0..1> --note "<step>"`.
-2. The child returns `{ outcome, summary, note? }`. If it returned a `note`, record it:
-   `shark create note {KEY} "<note>" --type comment`.
-3. Advance by the released outcome (never a bare advance):
+
+Spawn the host worker using a host-safe adapter:
+
+- Claude Code Agent tool: `subagent_type = general-purpose`
+- Prompt: exactly `response.prompt`
+- Metadata to record/pass through if the host supports it: `response.agent_type`,
+  `response.provider`, `response.model`
+
+Do not set the host `subagent_type` to Shark names such as `business-analyst`,
+`product-manager`, or `tech-director`; those personas are already inside
+`response.prompt`.
+
+For long steps, periodically renew the parent lease:
+
+```bash
+shark heartbeat {response.entity_key} --session "$SID" --progress <0..1> --note "<step>"
+```
+
+When the worker returns:
+
+1. If it returned `note`, record it:
    ```bash
-   shark status advance {KEY} --outcome <pass|fail|blocked>
+   shark create note {response.entity_key} "<note>" --type comment
    ```
-4. **Release the lease** — always, including on agent failure/exception:
+2. Advance by the returned outcome:
    ```bash
-   shark release {KEY} --session "$SID"
+   shark status advance {response.entity_key} --outcome <pass|fail|blocked>
    ```
-5. Go to **Step 2**.
+3. Release the lease, always:
+   ```bash
+   shark release {response.entity_key} --session "$SID"
+   ```
+4. Return to Step 1 with the original `{KEY}`.
 
-If the agent fails or throws, still run step 4 (release), record a `blocker`
-note, and surface the failure to the user before deciding whether to retry.
-
-### `advance_status`
-
-Auto step, no agent. `shark status advance {KEY} --outcome pass` → go to Step 2.
-
-### `cascade`
-
-The entity is a parent that drives children.
-
-- **Epic** → spawn the agent from `orchestrator_action` (it iterates features),
-  or drive features directly via the loop, one per child.
-- **Feature** → enter the **Task dispatch loop** below.
+If the worker fails or throws, still release the lease, record a blocker note if
+possible, and surface the failure before deciding whether to retry.
 
 ### `pause`
 
-Report `orchestrator_action.instruction` to the user. **STOP.**
+Report `response.prompt` and any `response.error`. Stop.
 
 ### `archive`
 
-Report done. **STOP.**
+Report done. Stop.
 
----
+### `error`
 
-## Task dispatch loop (feature cascading into tasks)
-
-```
-loop:
-  shark list {EPIC} {FEATURE} --json            # all tasks
-  for each task not at a terminal status (completed, cancelled):
-    run Steps 2–4 above for that task key (claim → agent → advance --outcome → release)
-  if all tasks completed → STOP
-  if any task still active → continue loop
-```
-
-Rules:
-- For EVERY task, read `orchestrator_action` (Step 2) before acting.
-- Never advance a task without reading its `orchestrator_action` first.
-- The loop terminates only when all tasks reach `completed` (or are
-  blocked/cancelled).
-
-Stop conditions: all tasks completed; an unresolvable blocker; or a spec
-contradiction needing a human decision.
-
----
-
-## The rule
-
-```
-read orchestrator_action → execute → read orchestrator_action → execute → …
-```
-
-It does NOT: know workflow steps, decide whether a step is needed, skip ahead,
-advance more than once without re-reading, or substitute its own judgment for
-shark's instructions.
+Report `response.error` and stop. Do not retry blindly.
 
 ## Resuming
 
-Re-invoke `/shark run {KEY}`. Step 2 reads the current status; the loop picks up
-wherever the entity is. Expired leases are reclaimed automatically; a live lease
-from a dead parent clears on TTL (or `shark release {KEY}` administratively).
+Re-invoke `/shark run {KEY}`. The loop calls `shark next {KEY} --json` and picks
+up from the current workflow state. Use `shark claims` to see live work; expired
+leases are reclaimed automatically, and an administrative `shark release {KEY}`
+can clear a dead parent lease when needed.

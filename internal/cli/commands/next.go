@@ -391,7 +391,7 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	// loudly if any `<token>` is unmapped — the lint that used to live as
 	// a post-render guard on the whole prompt, now scoped to just the
 	// agent body region.
-	attached, err := attachAgentBody(resp.Prompt, resp.AgentType, vars)
+	attached, err := assembleDispatchPrompt(resp.Prompt, resp.AgentType, vars)
 	if err != nil {
 		return NextResponse{}, err
 	}
@@ -557,6 +557,18 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 		return "", err
 	}
 	return rendered + "\n\n---\n\n" + prompt, nil
+}
+
+// assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
+// by `shark next` and `shark run`: take the already-rendered workflow prompt,
+// inline the Shark specialist persona, and return the exact prompt the host
+// execution primitive should receive.
+func assembleDispatchPrompt(prompt, agentType string, vars map[string]string) (string, error) {
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	templates.AugmentPlaceholderAliases(vars)
+	return attachAgentBody(prompt, agentType, vars)
 }
 
 // LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/

@@ -158,6 +158,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		ActionSvc:    actionSvc,
 		WorkflowSvc:  workflowSvc,
 		Dispatchers:  dispatchers,
+		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
+			return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+		}),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)

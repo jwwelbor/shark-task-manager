@@ -1,12 +1,16 @@
 package commands
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -191,4 +195,159 @@ func TestRunNext_InlinesSkillContent(t *testing.T) {
 		"rendered prompt must inline the selected assessment workflow via {{include:}}")
 	assert.NotContains(t, out, "Load skill: ",
 		"path-reference idiom should not appear in the rendered prompt")
+}
+
+func TestRunNext_ResumePreambleIncludeIsShortAndActionable(t *testing.T) {
+	promptsDir := findRepoPromptsDir(t)
+
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err)
+
+	vars := standardVars()
+	vars["is_resume"] = "true"
+
+	out, err := renderer.Render("feature/assessment.md", vars)
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "RESUME CONTEXT:")
+	assert.Contains(t, out, "shark claims")
+	assert.Contains(t, out, "continue it instead of restarting")
+	assert.Contains(t, out, "Do not advance status just because code or docs exist")
+
+	preamble := strings.SplitN(out, "Assess feature", 2)[0]
+	nonEmptyLines := 0
+	for _, line := range strings.Split(preamble, "\n") {
+		if strings.TrimSpace(line) != "" {
+			nonEmptyLines++
+		}
+	}
+	assert.LessOrEqual(t, nonEmptyLines, 3, "resume preamble should stay short")
+}
+
+type fixedNextTransitioner struct {
+	info *services.NextStatusInfo
+}
+
+func (f fixedNextTransitioner) TransitionStatus(ctx context.Context, key, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+	return &services.TransitionResult{ToStatus: targetStatus}, nil
+}
+
+func (f fixedNextTransitioner) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+	return f.info, nil
+}
+
+type fixedNextPlaceholders struct {
+	vars map[string]string
+}
+
+func (f fixedNextPlaceholders) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
+	return f.vars, nil
+}
+
+func TestResolveNext_ReturnsSelfContainedPrompt(t *testing.T) {
+	promptsDir := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err)
+
+	vars := standardVars()
+	vars["id"] = "E99-F01"
+	vars["key"] = "E99-F01"
+	vars["feature_id"] = "E99-F01"
+	vars["title"] = "Self-contained dispatch contract"
+	vars["file_path"] = "docs/plan/E99/E99-F01/feature.md"
+	vars["is_resume"] = "false"
+
+	actionSvc := &action.MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, gotVars map[string]string) (*action.PopulatedAction, error) {
+			require.Equal(t, "assessment", status)
+			rendered, err := renderer.Render("feature/assessment.md", gotVars)
+			require.NoError(t, err)
+			return &action.PopulatedAction{
+				Action:      "spawn_agent",
+				AgentType:   "researcher",
+				Provider:    "anthropic",
+				Model:       "haiku",
+				Instruction: rendered,
+			}, nil
+		},
+	}
+
+	cache := &nextAdapterCache{
+		entries: map[string]*nextAdapters{
+			"feature": {
+				transitioner: fixedNextTransitioner{info: &services.NextStatusInfo{
+					CurrentStatus: "assessment",
+					IsTerminal:    false,
+					AvailableTransitions: []services.TransitionInfoWithAction{
+						{TransitionInfo: workflow.TransitionInfo{TargetStatus: "research"}},
+					},
+				}},
+				generator: fixedNextPlaceholders{vars: vars},
+				actionSvc: actionSvc,
+			},
+		},
+		actionSvcRoot: actionSvc,
+	}
+
+	resp, err := resolveNext(context.Background(), cache, "feature", "E99-F01", 0)
+	require.NoError(t, err)
+
+	assert.Equal(t, "spawn_agent", resp.Action)
+	assert.Equal(t, "researcher", resp.AgentType)
+	assert.Equal(t, "anthropic", resp.Provider)
+	assert.Equal(t, "haiku", resp.Model)
+	assert.Contains(t, resp.Prompt, "# Researcher Agent",
+		"response.prompt must include Shark agent persona content")
+	assert.Contains(t, resp.Prompt, "# Workflow: Complexity Triage",
+		"response.prompt must include workflow skill content")
+	assert.Contains(t, resp.Prompt, `Assess feature E99-F01: "Self-contained dispatch contract".`,
+		"response.prompt must include rendered workflow prompt content")
+	assert.NotContains(t, resp.Prompt, "{{include:",
+		"response.prompt must not leave include directives for the harness")
+	assert.Less(t,
+		strings.Index(resp.Prompt, "# Researcher Agent"),
+		strings.Index(resp.Prompt, "# Workflow: Complexity Triage"),
+		"agent persona should be prepended before the workflow prompt")
+}
+
+func TestSharkRunVerbUsesNextDispatchContract(t *testing.T) {
+	path := findRepoPath(t, filepath.Join("skills", "shark", "verbs", "run.md"))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	body := string(data)
+
+	assert.Contains(t, body, "shark next {KEY} --json")
+	assert.Contains(t, body, "response.action")
+	assert.Contains(t, body, "response.prompt")
+	assert.Contains(t, body, "response.agent_type")
+	assert.Contains(t, body, "response.provider")
+	assert.Contains(t, body, "response.model")
+	assert.Contains(t, body, "general-purpose")
+
+	for _, forbidden := range []string{
+		"loop:  shark get {KEY} --json",
+		"orchestrator_action.instruction",
+		"orchestrator_action.agent_type",
+		"read orchestrator_action",
+	} {
+		assert.NotContains(t, body, forbidden, "run harness must not assemble dispatch prompts from orchestrator_action")
+	}
+}
+
+func findRepoPath(t *testing.T, rel string) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	dir := wd
+	for {
+		candidate := filepath.Join(dir, rel)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("could not locate %s walking up from %s", rel, wd)
+		}
+		dir = parent
+	}
 }
