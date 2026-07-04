@@ -17,8 +17,9 @@ READ:
 (2) Research report for existing implementations and extension points
 (3) CLAUDE.md for architecture patterns and coding standards
 (4) Existing architecture docs in codebase for consistency
+(5) docs/product/cross-epic-integration-map.md if present
 
-PRODUCE two documents (plus interaction map when applicable):
+PRODUCE two documents plus the integration maps below:
 
 **architecture.md** — System-level design:
 (1) Component overview: what changes, what stays
@@ -33,6 +34,44 @@ PRODUCE two documents (plus interaction map when applicable):
 (3) Cross-feature integration scenarios
 (4) Performance/security considerations
 
+**E07-F01-cross-epic-map.md** — Cross-epic execution view:
+REQUIRED for every new or redesigned epic. Create the file even when no
+cross-epic integrations are found; in that case, record "No X-## rows
+identified during design" with the current date.
+
+Before writing it:
+- Ask the architect to identify cross-epic dependencies, shared contracts,
+  shared state, API boundaries, data handoffs, and sequencing risks.
+- Ask the CX designer to review user journey handoffs, continuity concerns,
+  state continuity, handoff copy, and product workflow implications.
+- Read docs/product/cross-epic-integration-map.md if it exists. Create it from
+  file_templates/cross-epic-integration-map.md when new X-## rows are needed
+  and the global map does not exist.
+
+Use this table for both the global product map and the per-epic map:
+
+| ID | Producer epic | Consumer epic(s) | Integration purpose | Contract / shape source | UX / CX handoff notes | Owning feature | Status | Test coverage pointer |
+|----|---------------|------------------|---------------------|-------------------------|-----------------------|----------------|--------|-----------------------|
+
+Rules:
+- X-## IDs are stable product-level IDs. Assign once in
+  docs/product/cross-epic-integration-map.md and reference verbatim in
+  E07-F01-cross-epic-map.md, decomposition, feature specs, test plans,
+  producing/consuming task specs, feature review, and QA.
+- X-## is only for cross-epic integrations. Keep it separate from I-##, which
+  remains the per-epic cross-feature interaction ID space.
+- Each X-## row names producer epic, consumer epic(s), integration purpose,
+  contract / shape source, UX / CX handoff notes, owning feature once known,
+  status, and test coverage pointer.
+- Owning feature and test coverage pointer may be TBD at epic design. If either
+  stays TBD, status remains proposed and decomposition or test planning must
+  close it before their gates pass.
+- Update docs/product/progress.md after changing the global map: mark the map
+  present, set last updated, name E07-F01 design as the updater, and append a
+  decision-log entry naming added, changed, covered, or deferred X-## rows.
+- Register the per-epic document after writing it:
+  `shark related-docs add "Cross-Epic Map" E07-F01-cross-epic-map.md --epic=E07-F01`
+
 **E07-F01-interaction-map.md** — Cross-feature wiring:
 REQUIRED if this epic is expected to decompose into 3+ features. SKIP only for
 single-feature epics or epics with fewer than 3 features and no explicit
@@ -44,6 +83,9 @@ Use this table:
 |----|------------------|---------------------|-------|---------|-------|
 
 Rules:
+- I-## is only for cross-feature interactions inside this epic. Use X-## for
+  cross-epic integrations in docs/product/cross-epic-integration-map.md and
+  E07-F01-cross-epic-map.md.
 - I-## IDs are stable: assign once here and reference verbatim in
   decomposition, feature specs, producing/consuming task specs, feature review,
   task review, and QA.
@@ -66,5 +108,9 @@ EXIT GATE:
 - Every technical decision has rationale
 - UAT scenarios map to epic success criteria
 - No orphaned requirements
+- E07-F01-cross-epic-map.md exists. If X-## rows are present, they match
+  docs/product/cross-epic-integration-map.md, producer and consumer epic(s) are
+  named, UX / CX handoff notes are reviewed or marked not applicable, and
+  docs/product/progress.md has a decision-log entry for the update
 - Multi-feature epic: E07-F01-interaction-map.md exists with at least one I-##
   row, and every row's shape source resolves to a section in architecture.md

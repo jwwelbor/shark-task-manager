@@ -16,6 +16,9 @@ READ:
 (4) CLAUDE.md testing architecture rules (repo tests use real DB, everything else uses mocks)
 (5) Feature spec.md "Cross-feature interactions" section and parent
     interaction map if present
+(6) Feature spec.md "Cross-epic integrations" section, parent
+    {{.epic_id}}-cross-epic-map.md, and docs/product/cross-epic-integration-map.md
+    if present
 
 PRODUCE test-plan.md:
 
@@ -52,6 +55,19 @@ PRODUCE test-plan.md:
     - These contract tests are what a developer on either side writes first
       (red), then implements code to satisfy (green).
 
+(6) ### Cross-epic integration tests (X-##)
+    For every X-## the feature spec declares under "Cross-epic integrations",
+    design at least one contract, journey handoff, or integration test case in
+    this plan unless the row is explicitly deferred in docs/product/progress.md.
+    - The TC name and location must match the Test coverage pointer declared in
+      the feature spec and global product map.
+    - Tag the TC with the X-## ID in its description.
+    - Producer and consumer features reference the SAME TC or shared test file
+      pointer when the same contract proves both sides.
+    - If coverage is deferred, record the deferral decision, owner, and
+      follow-up trigger from docs/product/progress.md. Do not silently omit it.
+    - Verify the contract / shape source matches the global product map.
+
 CRITICAL: Tests trace to FEATURE acceptance criteria (in spec.md), which trace to epic requirements. No orphaned tests. Tests drive the production caller signature, not a convenient helper signature — caller-path contracts close that gap at design time.
 
 EXIT GATE:
@@ -62,3 +78,5 @@ EXIT GATE:
 - Test patterns reference existing infrastructure
 - Every I-## declared by the feature spec has at least one contract test case
   whose TC name and location match the declared contract test pointer
+- Every X-## declared by the feature spec has test coverage matching the
+  product map pointer, or an explicit deferral recorded in docs/product/progress.md

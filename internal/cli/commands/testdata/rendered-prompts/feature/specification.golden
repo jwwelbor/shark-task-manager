@@ -223,6 +223,9 @@ READ:
 (6) Existing code in affected areas (grep for related services, models, repos)
 (7) Parent epic E07-interaction-map.md if present. Use only I-## IDs
     from that map; do not invent new interaction IDs.
+(8) Parent epic E07-cross-epic-map.md and
+    docs/product/cross-epic-integration-map.md if present. Use only X-## IDs
+    from those maps; do not invent new cross-epic IDs.
 
 PRODUCE spec.md with these sections:
 
@@ -259,6 +262,31 @@ Notes:
 - Producer and consumer features reference the same contract test pointer
   verbatim. The same test proves the shared contract; do not create twin tests.
 
+## Cross-epic integrations
+
+Required when this feature produces, consumes, or validates any X-## row from
+E07-cross-epic-map.md or docs/product/cross-epic-integration-map.md.
+Add this section to spec.md for every X-## this feature touches:
+
+- **Produces**: X-## - integration purpose, consumer epic(s)/feature(s),
+  contract / shape source, UX / CX handoff notes, test coverage pointer or
+  explicit deferral
+- **Consumes**: X-## - integration purpose, producer epic/feature, contract /
+  shape source, UX / CX handoff notes, test coverage pointer or explicit
+  deferral
+- **Validates**: X-## - shared contract or journey handoff this feature proves,
+  contract / shape source, test coverage pointer
+- **Contract / shape source**: the exact source from the global product map
+- **Test coverage**: test-plan.md TC, test file pointer, or explicit deferral
+  linked to docs/product/progress.md
+
+Notes:
+- Use X-## IDs verbatim from the cross-epic maps. Do not invent new IDs here.
+- Producer and consumer features reference the same contract / shape source
+  verbatim.
+- X-## rows are product-level cross-epic integrations. Do not replace I-##
+  cross-feature interactions with X-## rows.
+
 CRITICAL RULES:
 - DO NOT restate epic-level business context. Say "See epic PRD Section X" instead.
 - DO NOT restate existing architecture. Say "Follows pattern in internal/services/task_service.go" instead.
@@ -268,6 +296,9 @@ CRITICAL RULES:
 - Cross-feature interactions MUST mirror the parent interaction map exactly.
   Internal contracts within this feature may use local names, but interfaces
   crossing outside this feature use I-##.
+- Cross-epic integrations MUST mirror E07-cross-epic-map.md and
+  docs/product/cross-epic-integration-map.md exactly. Interfaces crossing epic
+  boundaries use X-##, not I-## or CONTRACT-###.
 
 EXIT GATE:
 - Every requirement is testable
@@ -277,3 +308,7 @@ EXIT GATE:
 - Multi-feature epic: every I-## this feature produces or consumes is declared
   in the "Cross-feature interactions" section with shape source and contract
   test pointer
+- Every X-## this feature produces, consumes, or validates is declared in the
+  "Cross-epic integrations" section with producer/consumer feature ownership,
+  matching contract / shape source, UX / CX handoff notes, and test coverage
+  pointer or explicit progress-log deferral

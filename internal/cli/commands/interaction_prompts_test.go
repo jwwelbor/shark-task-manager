@@ -109,6 +109,115 @@ func TestCrossFeatureInteractionLifecyclePrompts(t *testing.T) {
 	}
 }
 
+func TestCrossEpicIntegrationLifecyclePrompts(t *testing.T) {
+	promptsDir := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes resolved")
+
+	vars := goldenVars()
+	cases := []struct {
+		name string
+		tmpl string
+		want []string
+	}{
+		{
+			name: "epic design creates and updates cross-epic maps",
+			tmpl: "epic/design.md",
+			want: []string{
+				"docs/product/cross-epic-integration-map.md",
+				"cross-epic-map.md",
+				"X-## IDs are stable product-level IDs",
+				"Ask the CX designer to review user journey handoffs",
+				"X-## is only for cross-epic integrations",
+			},
+		},
+		{
+			name: "epic decomposition assigns X rows to features",
+			tmpl: "epic/decomposition.md",
+			want: []string{
+				"Every relevant X-## must be assigned to producer and consumer",
+				"Produces: X-##",
+				"Consumes: X-##",
+				"Keep X-## separate from I-##",
+			},
+		},
+		{
+			name: "epic feature review validates X closure",
+			tmpl: "epic/feature_review.md",
+			want: []string{
+				"### Cross-epic integration closure",
+				"Every relevant X-## row has producer epic and consumer epic(s) named",
+				"Test coverage pointer exists or is explicitly deferred",
+			},
+		},
+		{
+			name: "feature specification mirrors X rows",
+			tmpl: "feature/specification.md",
+			want: []string{
+				"## Cross-epic integrations",
+				"Use X-## IDs verbatim",
+				"Interfaces crossing epic",
+				"not I-## or CONTRACT-###",
+			},
+		},
+		{
+			name: "feature test planning requires X coverage or deferral",
+			tmpl: "feature/test_planning.md",
+			want: []string{
+				"### Cross-epic integration tests (X-##)",
+				"Tag the TC with the X-## ID",
+				"explicit deferral recorded in docs/product/progress.md",
+			},
+		},
+		{
+			name: "feature task generation keeps X tasks distinct",
+			tmpl: "feature/task_generation.md",
+			want: []string{
+				"Integration Contracts > Cross-epic",
+				"Do NOT invent I-## IDs for cross-epic integrations",
+				"X-## work in the distinct",
+			},
+		},
+		{
+			name: "feature task review validates X task mirrors",
+			tmpl: "feature/task_review.md",
+			want: []string{
+				"Every X-## the feature spec declares under \"Cross-epic integrations\"",
+				"Integration Contracts > Cross-epic",
+				"missing coverage disposition is FAIL",
+			},
+		},
+		{
+			name: "feature code review checks X implementation ownership",
+			tmpl: "feature/code_review.md",
+			want: []string{
+				"every I-## and X-## declared",
+				"consistent",
+				"coverage pointer or explicit deferral",
+			},
+		},
+		{
+			name: "feature qa enforces X wiring coverage",
+			tmpl: "feature/qa.md",
+			want: []string{
+				"Cross-epic X-## integration",
+				"include X-## rows with",
+				"missing or broken X-## contract test",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered, err := renderer.Render(tc.tmpl, vars)
+			require.NoError(t, err, "render %s", tc.tmpl)
+			for _, want := range tc.want {
+				require.Contains(t, rendered, want)
+			}
+		})
+	}
+}
+
 func TestInteractionMapTemplateIsShippedWithSpecificationWritingSkill(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	dataRoot := filepath.Dir(promptsDir)
@@ -125,5 +234,83 @@ func TestInteractionMapTemplateIsShippedWithSpecificationWritingSkill(t *testing
 		"shark related-docs add",
 	} {
 		require.Truef(t, strings.Contains(content, want), "template missing %q", want)
+	}
+}
+
+func TestCrossEpicIntegrationMapTemplates(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	rootTemplate := filepath.Join(repoRoot, "file_templates", "cross-epic-integration-map.md")
+	progressTemplate := filepath.Join(repoRoot, "file_templates", "progress.md")
+
+	for _, tc := range []struct {
+		name string
+		path string
+		want []string
+	}{
+		{
+			name: "root cross-epic template",
+			path: rootTemplate,
+			want: []string{
+				"| ID | Producer epic | Consumer epic(s) | Integration purpose | Contract / shape source | UX / CX handoff notes | Owning feature | Status | Test coverage pointer |",
+				"X-##",
+				"Use `X-##` only for cross-epic integrations",
+				"Use `I-##` for cross-feature",
+			},
+		},
+		{
+			name: "progress template tracks cross-epic map",
+			path: progressTemplate,
+			want: []string{
+				"## Cross-Epic Integration Map",
+				"docs/product/cross-epic-integration-map.md",
+				"Last updated:",
+				"Updated by:",
+				"Latest design decision:",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := os.ReadFile(tc.path)
+			require.NoError(t, err, "%s should exist", tc.path)
+			content := string(body)
+			for _, want := range tc.want {
+				require.Contains(t, content, want)
+			}
+		})
+	}
+
+	promptsDir := findRepoPromptsDir(t)
+	dataRoot := filepath.Dir(promptsDir)
+	skillTemplatePath := filepath.Join(dataRoot, "skills", "specification-writing", "context", "cross-epic-integration-map-template.md")
+	body, err := os.ReadFile(skillTemplatePath)
+	require.NoError(t, err, "cross-epic integration map template should be shipped with default shark-data")
+	content := string(body)
+	for _, want := range []string{
+		"docs/product/cross-epic-integration-map.md",
+		"`X-##` IDs are stable",
+		"Use `X-##` only for cross-epic integrations",
+		"Use `I-##` for cross-feature",
+		"docs/product/progress.md",
+	} {
+		require.Contains(t, content, want)
+	}
+}
+
+func findRepoRootForInteractionTest(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	dir := wd
+	for {
+		if isDirExist(filepath.Join(dir, "internal", "sharkdata", "default_data", "prompts")) {
+			if _, err := os.Stat(filepath.Join(dir, "file_templates", "progress.md")); err == nil {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("could not locate repo root walking up from %s", wd)
+		}
+		dir = parent
 	}
 }

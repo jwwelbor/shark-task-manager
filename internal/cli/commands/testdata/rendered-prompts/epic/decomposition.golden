@@ -179,6 +179,10 @@ READ:
     must have a producer feature and at least one consumer feature in the
     feature list you create.
     Rule anchor: every I-## must have a producer feature and at least one consumer feature.
+(5) E07-F01-cross-epic-map.md and docs/product/cross-epic-integration-map.md if
+    present. Every relevant X-## must be assigned to producer and consumer
+    features before decomposition exits.
+    Rule anchor: every X-## must name producer and consumer feature ownership.
 
 PRODUCE features via shark CLI:
 
@@ -206,6 +210,14 @@ Feature decomposition rules:
   "Consumes: I-##" phrasing so reviewers can trace the map at a glance.
 - Every I-## from the interaction map has a producer feature AND at least one
   consumer feature in the resulting list; no orphan wires.
+- If a cross-epic map exists, each feature description names the X-## IDs the
+  feature will produce, consume, or validate, using explicit "Produces: X-##",
+  "Consumes: X-##", or "Validates: X-##" phrasing.
+- Update E07-F01-cross-epic-map.md and docs/product/cross-epic-integration-map.md
+  with the assigned owning feature(s) for this epic's role in each relevant
+  X-## row. Keep X-## separate from I-##; do not renumber either ID space.
+- Every X-## relevant to this epic has producer and consumer feature ownership
+  named before exit, or an explicit deferred decision in docs/product/progress.md.
 
 CRITICAL: Feature descriptions are THIN — one paragraph. The feature workflow will handle PRD, architecture, and test planning at feature level. Do NOT front-load detail here.
 
@@ -215,5 +227,8 @@ EXIT GATE:
 - No overlapping scope between features
 - Descriptions are specific enough for assessment
 - Every feature carries a non-empty --size; features sized 13/XXL are split before exit
+- Every relevant X-## in E07-F01-cross-epic-map.md has producer and consumer
+  feature ownership named, and the global product map is updated with the same
+  owner information or a progress decision-log deferral
 - Multi-feature epic: every I-## in the interaction map has a producer feature
   AND at least one consumer feature; no orphan wires

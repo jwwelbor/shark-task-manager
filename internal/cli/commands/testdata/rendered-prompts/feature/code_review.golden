@@ -372,6 +372,8 @@ READ:
 (4) All task specs: `shark list E07-F01 --json` → read each task's file_path in sequence
 (5) Full feature diff: `git log --oneline -20` then `git diff $(git merge-base HEAD main)..HEAD`
 (6) Implementation code for all changed files
+(7) Parent interaction map and cross-epic maps if the feature spec declares
+    I-## or X-## rows
 
 REVIEW (treat this as a single PR review, not per-task):
 - Code quality, security, and adherence to CLAUDE.md across the full changeset
@@ -379,6 +381,9 @@ REVIEW (treat this as a single PR review, not per-task):
 - All feature acceptance criteria are met in aggregate — cite the AC and the code that satisfies it
 - TDD compliance — tests from the feature test-plan are implemented and passing
 - Cross-task integration — do the task implementations fit together correctly?
+- Cross-feature and cross-epic integration — every I-## and X-## declared by
+  the feature spec has named producer/consumer implementation, consistent
+  contract / shape source, and test coverage pointer or explicit deferral
 - No regressions or unintended side effects in the combined changeset
 - Flag any drift between feature intent (spec/test-plan) and actual implementation
 
@@ -387,6 +392,8 @@ ON PASS (all ACs met, no blockers across full feature):
   (derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders)
   - Verdict: PASS
   - AC verification: list each AC with the code/test that satisfies it
+  - Integration verification: list each I-## and X-## with implementation
+    owner, contract / shape source, and coverage pointer or deferral
   - Notes on any non-blocking observations
 - Add note: shark create note E07-F01 --type=review "Feature code review approved — see report"
 - Advance: shark status advance E07-F01

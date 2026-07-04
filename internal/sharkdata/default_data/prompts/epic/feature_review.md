@@ -14,6 +14,7 @@ READ:
 (3) Architecture doc (if exists) in the epic directory for component boundaries
 (4) Research report (if exists) in the epic directory for implementation context
 (5) {{.id}}-interaction-map.md if present
+(6) {{.id}}-cross-epic-map.md and docs/product/cross-epic-integration-map.md if present
 
 VERIFY:
 
@@ -51,17 +52,37 @@ For multi-feature epics, read {{.id}}-interaction-map.md and verify:
 - No orphans: an I-## with no producer, no consumer, or mismatched shape source
   is FAIL
 
+### Cross-epic integration closure
+
+If {{.id}}-cross-epic-map.md or docs/product/cross-epic-integration-map.md
+contains X-## rows relevant to this epic, verify:
+
+- Every relevant X-## row has producer epic and consumer epic(s) named
+- Producer and consumer feature ownership is named before this review passes
+- Each referenced producer or consumer feature exists in the feature list
+- Contract / shape source matches between the per-epic map, the global product
+  map, and any feature description that names the X-##
+- UX / CX handoff notes are populated or marked not applicable with a reason
+- Test coverage pointer exists or is explicitly deferred in
+  docs/product/progress.md with a decision-log entry
+- No orphans: an X-## with missing producer feature, missing consumer feature,
+  mismatched shape source, or missing coverage disposition is FAIL
+
 PRODUCE feature review report at feature_reviews/{{.id}}-feature-review.md:
 - Verdict: PASS or FAIL
 - Requirements coverage matrix (epic requirement -> feature mapping)
 - Interaction-map closure table (multi-feature epics): one row per I-## with
   producer, consumer(s), shape source, and closure status
+- Cross-epic integration closure table: one row per relevant X-## with producer
+  epic/feature, consumer epic(s)/feature(s), shape source, coverage pointer or
+  deferral, and closure status
 - Gaps identified (if any)
 - Overlaps identified (if any)
 - Ordering issues (if any)
 - Recommendations
 
-Print interaction-map closure table in the report before the final verdict.
+Print interaction-map closure table and cross-epic integration closure table in
+the report before the final verdict.
 
 DECISION:
 - ALL PASS -> shark status advance {{.id}}
