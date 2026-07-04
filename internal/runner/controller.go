@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -119,6 +120,32 @@ type PlaceholderGenerator interface {
 	GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error)
 }
 
+// PromptAssemblyInput is the fully-rendered workflow action plus metadata
+// needed to produce the final host-facing prompt.
+type PromptAssemblyInput struct {
+	// Instruction is the rendered workflow prompt from the action service.
+	Instruction string
+
+	// AgentType is Shark metadata naming the specialist persona to inline.
+	AgentType string
+
+	// Vars are the entity placeholders used by both workflow prompt rendering
+	// and agent persona rendering.
+	Vars map[string]string
+}
+
+// PromptAssembler produces the final prompt sent to an agent dispatcher.
+type PromptAssembler interface {
+	AssemblePrompt(ctx context.Context, input PromptAssemblyInput) (string, error)
+}
+
+// PromptAssemblerFunc adapts a function to PromptAssembler.
+type PromptAssemblerFunc func(ctx context.Context, input PromptAssemblyInput) (string, error)
+
+func (f PromptAssemblerFunc) AssemblePrompt(ctx context.Context, input PromptAssemblyInput) (string, error) {
+	return f(ctx, input)
+}
+
 // RunControllerDeps bundles all dependencies for RunController construction.
 // All fields are interfaces to enable mock injection for tests.
 type RunControllerDeps struct {
@@ -139,6 +166,10 @@ type RunControllerDeps struct {
 	// The "" (empty string) key is the default dispatcher (used when action.Provider is "").
 	// Required: must have at least one entry.
 	Dispatchers map[string]AgentDispatcher
+
+	// PromptAssembler converts a populated action instruction into the final
+	// host-facing prompt. Optional; nil preserves the legacy instruction passthrough.
+	PromptAssembler PromptAssembler
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -153,6 +184,7 @@ type RunController struct {
 	actionSvc    config.ActionService
 	workflowSvc  *workflow.Service
 	dispatchers  map[string]AgentDispatcher
+	assembler    PromptAssembler
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -171,6 +203,12 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 	if len(deps.Dispatchers) == 0 {
 		return nil, fmt.Errorf("RunController: Dispatchers map must have at least one entry")
 	}
+	assembler := deps.PromptAssembler
+	if assembler == nil {
+		assembler = PromptAssemblerFunc(func(_ context.Context, input PromptAssemblyInput) (string, error) {
+			return input.Instruction, nil
+		})
+	}
 
 	return &RunController{
 		transitioner: deps.Transitioner,
@@ -178,6 +216,7 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		actionSvc:    deps.ActionSvc,
 		workflowSvc:  deps.WorkflowSvc,
 		dispatchers:  deps.Dispatchers,
+		assembler:    assembler,
 	}, nil
 }
 
@@ -271,6 +310,10 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 				return result, nil
 			}
 		}
+		if vars == nil {
+			vars = map[string]string{}
+		}
+		templates.AugmentPlaceholderAliases(vars)
 
 		// Step 4: Get populated orchestrator action for current status.
 		action, err := c.actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
@@ -318,7 +361,7 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			outcome = c.handleAdvanceStatus(ctx, key, currentStatus, action, opts, result, stageStart, startTime)
 
 		case config.ActionSpawnAgent:
-			outcome = c.handleSpawnAgent(ctx, key, currentStatus, action, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
+			outcome = c.handleSpawnAgent(ctx, key, currentStatus, action, vars, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
 
 		default:
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -444,7 +487,7 @@ func (c *RunController) handleAdvanceStatus(
 // rest of the run.
 func (c *RunController) handleSpawnAgent(
 	ctx context.Context, key, currentStatus string,
-	action *config.PopulatedAction, opts RunOptions,
+	action *config.PopulatedAction, vars map[string]string, opts RunOptions,
 	result *RunResult, stageStart, startTime time.Time,
 	stageN int, transcriptDisabled *bool,
 ) stageOutcome {
@@ -460,8 +503,24 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	input := DispatchInput{
+	assembledPrompt, err := c.assembler.AssemblePrompt(ctx, PromptAssemblyInput{
 		Instruction: action.Instruction,
+		AgentType:   action.AgentType,
+		Vars:        vars,
+	})
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "prompt_assembly",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+
+	input := DispatchInput{
+		Instruction: assembledPrompt,
 		WorkingDir:  opts.WorkingDir,
 		EntityKey:   key,
 		Status:      currentStatus,

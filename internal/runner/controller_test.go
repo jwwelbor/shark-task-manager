@@ -547,6 +547,98 @@ func TestRunController_DispatcherSelection_DefaultProvider(t *testing.T) {
 	}
 }
 
+// TestRunController_SpawnAgentDispatchesAssembledPrompt verifies the run loop
+// does not dispatch PopulatedAction.Instruction directly when a prompt
+// assembler is configured. The CLI injects the same final assembly helper used
+// by `shark next`, so this is the controller-level guard against regressing to
+// raw orchestrator_action prompt dispatch.
+func TestRunController_SpawnAgentDispatchesAssembledPrompt(t *testing.T) {
+	var dispatched DispatchInput
+	var assemblerInput PromptAssemblyInput
+	getNextCalls := 0
+
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			getNextCalls++
+			return &services.NextStatusInfo{
+				CurrentStatus: "in_development",
+				IsTerminal:    false,
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+			}, nil
+		},
+		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	placeholders := &MockPlaceholderGen{
+		GenerateFunc: func(ctx context.Context, key string) (map[string]string, error) {
+			return map[string]string{"task_key": key}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			if vars["task_id"] != "E07-F01-001" {
+				t.Fatalf("expected augmented task_id alias before action rendering, got %q", vars["task_id"])
+			}
+			return &config.PopulatedAction{
+				Action:      config.ActionSpawnAgent,
+				AgentType:   "developer",
+				Provider:    "anthropic",
+				Model:       "sonnet",
+				Instruction: "RAW ORCHESTRATOR INSTRUCTION",
+			}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{
+			DispatchFunc: func(ctx context.Context, input DispatchInput) (*DispatchResult, error) {
+				dispatched = input
+				return &DispatchResult{ExitCode: 0, Command: "mock-cmd"}, nil
+			},
+		},
+	}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: placeholders,
+		ActionSvc:    actionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  dispatchers,
+		PromptAssembler: PromptAssemblerFunc(func(ctx context.Context, input PromptAssemblyInput) (string, error) {
+			assemblerInput = input
+			return "SELF-CONTAINED PROMPT\n\n" + input.Instruction, nil
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() returned unexpected error: %v", err)
+	}
+
+	result, err := ctrl.Run(context.Background(), "E07-F01-001", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if result.Outcome != "completed" {
+		t.Errorf("expected Outcome=completed, got %s", result.Outcome)
+	}
+	if getNextCalls < 2 {
+		t.Errorf("expected at least two GetNextStatus calls, got %d", getNextCalls)
+	}
+	if assemblerInput.Instruction != "RAW ORCHESTRATOR INSTRUCTION" {
+		t.Errorf("assembler saw instruction %q", assemblerInput.Instruction)
+	}
+	if assemblerInput.AgentType != "developer" {
+		t.Errorf("assembler saw agent type %q", assemblerInput.AgentType)
+	}
+	if dispatched.Instruction == "RAW ORCHESTRATOR INSTRUCTION" {
+		t.Fatal("dispatch received raw PopulatedAction.Instruction; expected assembled prompt")
+	}
+	if dispatched.Instruction != "SELF-CONTAINED PROMPT\n\nRAW ORCHESTRATOR INSTRUCTION" {
+		t.Errorf("dispatch instruction mismatch: %q", dispatched.Instruction)
+	}
+}
+
 // TestRunController_DispatcherSelection_UnknownProvider verifies that an unknown
 // provider returns a descriptive error.
 func TestRunController_DispatcherSelection_UnknownProvider(t *testing.T) {
