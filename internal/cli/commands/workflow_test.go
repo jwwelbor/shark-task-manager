@@ -26,11 +26,118 @@ func findLevel(display MultiLevelWorkflowDisplay, name string) *LevelWorkflowDis
 	return nil
 }
 
+func runWorkflowListForTest(t *testing.T, configContent string, jsonOutput bool, expanded bool, args ...string) (string, error) {
+	t.Helper()
+
+	cmd := &cobra.Command{RunE: runWorkflowList}
+	cmd.SetContext(context.Background())
+	return runWorkflowListWithCommandForTest(t, cmd, configContent, jsonOutput, expanded, args...)
+}
+
+func runWorkflowListCobraForTest(t *testing.T, configContent string, jsonOutput bool, args ...string) (string, error) {
+	t.Helper()
+
+	cmd := &cobra.Command{
+		Use:  workflowListCmd.Use,
+		Args: workflowListCmd.Args,
+		RunE: workflowListCmd.RunE,
+	}
+	cmd.Flags().BoolVar(&workflowListAll, "all", false, "Render expanded workflow details")
+	cmd.SetArgs(args)
+	cmd.SetContext(context.Background())
+
+	return runWorkflowListWithCommandForTest(t, cmd, configContent, jsonOutput, false)
+}
+
+func runWorkflowListWithCommandForTest(t *testing.T, cmd *cobra.Command, configContent string, jsonOutput bool, expanded bool, args ...string) (string, error) {
+	t.Helper()
+
+	config.ClearWorkflowCache()
+
+	originalConfig := cli.GlobalConfig
+	originalAll := workflowListAll
+	t.Cleanup(func() {
+		cli.GlobalConfig = originalConfig
+		workflowListAll = originalAll
+	})
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cli.GlobalConfig = &cli.Config{
+		JSON:       jsonOutput,
+		ConfigFile: configPath,
+	}
+	workflowListAll = expanded
+
+	return captureStdoutForTest(t, func() error {
+		if len(args) > 0 {
+			return runWorkflowList(cmd, args)
+		}
+		return cmd.Execute()
+	})
+}
+
+func captureStdoutForTest(t *testing.T, run func() error) (string, error) {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
+	}
+	os.Stdout = w
+	restored := false
+	restoreStdout := func() {
+		if !restored {
+			os.Stdout = oldStdout
+			restored = true
+		}
+	}
+	defer restoreStdout()
+
+	type readResult struct {
+		output string
+		err    error
+	}
+	outputCh := make(chan readResult, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, readErr := buf.ReadFrom(r)
+		outputCh <- readResult{output: buf.String(), err: readErr}
+	}()
+
+	runErr := run()
+	closeWriterErr := w.Close()
+	restoreStdout()
+	result := <-outputCh
+	closeReaderErr := r.Close()
+
+	if runErr == nil && closeWriterErr != nil {
+		runErr = fmt.Errorf("close stdout writer: %w", closeWriterErr)
+	}
+	if runErr == nil && result.err != nil {
+		runErr = fmt.Errorf("read stdout: %w", result.err)
+	}
+	if runErr == nil && closeReaderErr != nil {
+		runErr = fmt.Errorf("close stdout reader: %w", closeReaderErr)
+	}
+
+	return result.output, runErr
+}
+
 // TestWorkflowListCommand tests the workflow list command with multi-level output
 func TestWorkflowListCommand(t *testing.T) {
 	// Save original GlobalConfig
 	originalConfig := cli.GlobalConfig
-	defer func() { cli.GlobalConfig = originalConfig }()
+	originalAll := workflowListAll
+	defer func() {
+		cli.GlobalConfig = originalConfig
+		workflowListAll = originalAll
+	}()
 
 	tests := []struct {
 		name           string
@@ -140,47 +247,7 @@ func TestWorkflowListCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config.ClearWorkflowCache()
-
-			// Create temp config file
-			tmpDir := t.TempDir()
-			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
-			err := os.WriteFile(configPath, []byte(tt.configContent), 0644)
-			if err != nil {
-				t.Fatalf("Failed to write test config: %v", err)
-			}
-
-			// Set up GlobalConfig
-			cli.GlobalConfig = &cli.Config{
-				JSON:       tt.jsonOutput,
-				ConfigFile: configPath,
-			}
-
-			// Capture output - read pipe concurrently to avoid deadlock on large output
-			oldStdout := os.Stdout
-			r, w, _ := os.Pipe()
-			os.Stdout = w
-
-			// Read pipe in goroutine to prevent blocking when buffer fills
-			outputCh := make(chan string, 1)
-			go func() {
-				var buf bytes.Buffer
-				_, _ = buf.ReadFrom(r)
-				outputCh <- buf.String()
-			}()
-
-			// Run command
-			cmd := &cobra.Command{
-				RunE: runWorkflowList,
-			}
-			cmd.SetContext(context.Background())
-
-			err = runWorkflowList(cmd, []string{})
-
-			// Restore stdout and collect output
-			w.Close()
-			os.Stdout = oldStdout
-			output := <-outputCh
+			output, err := runWorkflowListForTest(t, tt.configContent, tt.jsonOutput, true)
 
 			// Check error expectation
 			if tt.expectError && err == nil {
@@ -199,6 +266,191 @@ func TestWorkflowListCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWorkflowListCommandEntityFilter(t *testing.T) {
+	output, err := runWorkflowListForTest(t, `{"task_folder_base": "docs/plan"}`, false, false, "task")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)
+	}
+
+	for _, expected := range []string{
+		"Workflow Configuration (simple)",
+		"Task Workflow (default)",
+		" -> ",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("Expected output to contain %q\nGot: %s", expected, output)
+		}
+	}
+
+	for _, unexpected := range []string{
+		"Epic Workflow",
+		"Feature Workflow",
+		"Bug Workflow",
+		"Change Workflow",
+	} {
+		if strings.Contains(output, unexpected) {
+			t.Errorf("Expected filtered output not to contain %q\nGot: %s", unexpected, output)
+		}
+	}
+}
+
+func TestWorkflowListCommandEntityFilterAliases(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{"epic", "epic"},
+		{"epics", "epic"},
+		{"feature", "feature"},
+		{"features", "feature"},
+		{"task", "task"},
+		{"tasks", "task"},
+		{"sprint", "sprint"},
+		{"sprints", "sprint"},
+		{"bug", "bug"},
+		{"bugs", "bug"},
+		{"change", "change"},
+		{"changes", "change"},
+		{"change-card", "change"},
+		{"change_card", "change"},
+		{"change-cards", "change"},
+		{"change_cards", "change"},
+		{"tech-debt", "tech_debt"},
+		{"tech_debt", "tech_debt"},
+		{"tech-debts", "tech_debt"},
+		{"tech_debts", "tech_debt"},
+		{"td", "tech_debt"},
+		{" TASKS ", "task"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			got, err := normalizeWorkflowListLevel(tt.raw)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeWorkflowListLevel(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowListCommandInvalidEntityFilter(t *testing.T) {
+	output, err := runWorkflowListForTest(t, `{"task_folder_base": "docs/plan"}`, false, false, "widget")
+	if err == nil {
+		t.Fatalf("Expected invalid entity error\nOutput: %s", output)
+	}
+	if !strings.Contains(err.Error(), `invalid entity type "widget"`) {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+}
+
+func TestWorkflowListCommandDefaultSimpleOutput(t *testing.T) {
+	output, err := runWorkflowListForTest(t, `{"task_folder_base": "docs/plan"}`, false, false)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)
+	}
+
+	for _, expected := range []string{
+		"Workflow Configuration (simple)",
+		"Epic Workflow (default)",
+		"Task Workflow (default)",
+		"Change Workflow (default)",
+		"Tech Debt Workflow (default)",
+		" -> ",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("Expected simple output to contain %q\nGot: %s", expected, output)
+		}
+	}
+
+	for _, unexpected := range []string{
+		"Status Transitions:",
+		"Legend:",
+		"phase:",
+	} {
+		if strings.Contains(output, unexpected) {
+			t.Errorf("Expected simple output not to contain verbose marker %q\nGot: %s", unexpected, output)
+		}
+	}
+}
+
+func TestWorkflowListCommandSimpleOutputEdges(t *testing.T) {
+	output, err := runWorkflowListForTest(t, `{
+		"task_folder_base": "docs/plan",
+		"status_flow_version": "1.0",
+		"status_flow": {
+			"ready": ["review", "blocked"],
+			"review": ["done"],
+			"blocked": [],
+			"done": []
+		},
+		"special_statuses": {
+			"_start_": ["ready"],
+			"_complete_": ["done", "blocked"]
+		}
+	}`, false, false, "task")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)
+	}
+
+	for _, expected := range []string{
+		"  ready -> review | blocked",
+		"  review -> done",
+		"  done -> [terminal]",
+		"  blocked -> [terminal]",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("Expected simple output to contain %q\nGot: %s", expected, output)
+		}
+	}
+}
+
+func TestWorkflowListCommandAllOutput(t *testing.T) {
+	output, err := runWorkflowListCobraForTest(t, `{"task_folder_base": "docs/plan"}`, false, "task", "--all")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)
+	}
+
+	for _, expected := range []string{
+		"Workflow Configuration",
+		"Task Workflow (default)",
+		"Status Transitions:",
+		"Legend:",
+		"phase:",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("Expected expanded output to contain %q\nGot: %s", expected, output)
+		}
+	}
+}
+
+func TestWorkflowListCommandRejectsTooManyArgs(t *testing.T) {
+	output, err := runWorkflowListCobraForTest(t, `{"task_folder_base": "docs/plan"}`, false, "task", "bug")
+	if err == nil {
+		t.Fatalf("Expected too many args error\nOutput: %s", output)
+	}
+}
+
+func TestWorkflowListCommandEntityFilterJSON(t *testing.T) {
+	output, err := runWorkflowListForTest(t, `{"task_folder_base": "docs/plan"}`, true, false, "bug")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)
+	}
+
+	var display MultiLevelWorkflowDisplay
+	if err := json.Unmarshal([]byte(output), &display); err != nil {
+		t.Fatalf("Failed to parse JSON output: %v\nOutput: %s", err, output)
+	}
+	if len(display.Levels) != 1 {
+		t.Fatalf("Expected one filtered level, got %d", len(display.Levels))
+	}
+	if display.Levels[0].Level != "bug" {
+		t.Fatalf("Expected bug level, got %q", display.Levels[0].Level)
 	}
 }
 
@@ -309,40 +561,7 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config.ClearWorkflowCache()
-
-			tmpDir := t.TempDir()
-			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
-			if err := os.WriteFile(configPath, []byte(tt.configContent), 0644); err != nil {
-				t.Fatalf("Failed to write test config: %v", err)
-			}
-
-			cli.GlobalConfig = &cli.Config{
-				JSON:       true,
-				ConfigFile: configPath,
-			}
-
-			// Capture output - read pipe concurrently to avoid deadlock on large output
-			oldStdout := os.Stdout
-			r, w, _ := os.Pipe()
-			os.Stdout = w
-
-			// Read pipe in goroutine to prevent blocking when buffer fills
-			outputCh := make(chan string, 1)
-			go func() {
-				var buf bytes.Buffer
-				_, _ = buf.ReadFrom(r)
-				outputCh <- buf.String()
-			}()
-
-			cmd := &cobra.Command{RunE: runWorkflowList}
-			cmd.SetContext(context.Background())
-			err := runWorkflowList(cmd, []string{})
-
-			// Restore stdout and collect output
-			w.Close()
-			os.Stdout = oldStdout
-			output := <-outputCh
+			output, err := runWorkflowListForTest(t, tt.configContent, true, false)
 
 			if err != nil {
 				t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)

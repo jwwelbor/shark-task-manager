@@ -2,11 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"sort"
-	"strings"
-
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -53,10 +48,11 @@ var workflowCmd = &cobra.Command{
 
 	Long: `Workflow configuration operations including listing, validation, and inspection.
 
-The workflow system allows customizing task status transitions via .sharkconfig.json.
+The workflow system allows customizing entity status transitions via .sharkconfig.json.
 
 Examples:
-  shark admin workflow list              Display configured workflow
+  shark admin workflow list              Display compact workflow flows
+  shark admin workflow list task --all   Display expanded task workflow details
   shark admin workflow validate          Validate workflow configuration
   shark admin workflow show-actions      Show all orchestrator actions
   shark admin workflow validate-actions  Validate orchestrator actions
@@ -65,19 +61,26 @@ Examples:
 
 // workflowListCmd displays the configured workflow
 var workflowListCmd = &cobra.Command{
-	Use:   "list",
+	Use:   "list [entity-type]",
 	Short: "Display configured workflow",
 	Long: `Display the configured status workflow from .sharkconfig.json.
 
-Shows all statuses and their valid transitions, highlighting special statuses
-(_start_ and _complete_). If no custom workflow is configured, displays the
-default workflow.
+By default, this command renders compact ASCII status-flow lines. Pass an
+entity type to show one workflow level. Use --all to show expanded metadata,
+including special statuses, descriptions, phases, colors, and agent types.
+
+If no custom workflow is configured, this command displays the default workflow.
 
 Examples:
-  shark workflow list         Display workflow (human-readable)
-  shark workflow list --json  Display workflow (JSON format)`,
+  shark admin workflow list               Display compact workflow flows
+  shark admin workflow list task          Display only the task workflow
+  shark admin workflow list change --all  Display expanded change workflow details
+  shark admin workflow list --json        Display workflow as JSON`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runWorkflowList,
 }
+
+var workflowListAll bool
 
 // workflowValidateCmd validates the workflow configuration
 var workflowValidateCmd = &cobra.Command{
@@ -97,8 +100,8 @@ Exit codes:
   2 - Configuration is invalid (specific errors displayed)
 
 Examples:
-  shark workflow validate         Validate configuration
-  shark workflow validate --json  Validate with JSON output`,
+  shark admin workflow validate         Validate configuration
+  shark admin workflow validate --json  Validate with JSON output`,
 	RunE: runWorkflowValidate,
 }
 
@@ -106,6 +109,7 @@ func init() {
 	adminCmd.AddCommand(workflowCmd)
 	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowValidateCmd)
+	workflowListCmd.Flags().BoolVar(&workflowListAll, "all", false, "Render expanded workflow details")
 }
 
 // runWorkflowList implements the workflow list command
@@ -122,206 +126,27 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load workflow config: %w", err)
 	}
 
+	levelFilter := ""
+	if len(args) > 0 {
+		levelFilter, err = normalizeWorkflowListLevel(args[0])
+		if err != nil {
+			return err
+		}
+	}
+
 	// Build display structs
-	display := buildMultiLevelWorkflowDisplay(multi, configPath)
+	display := buildMultiLevelWorkflowDisplay(multi, configPath, levelFilter)
 
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(display)
 	}
 
-	// Human-readable output
-	return displayMultiLevelWorkflowHumanReadable(display)
-}
-
-// buildMultiLevelWorkflowDisplay builds display structs for all workflow levels.
-func buildMultiLevelWorkflowDisplay(multi *config.MultiLevelWorkflow, configPath string) *MultiLevelWorkflowDisplay {
-	levels := make([]*LevelWorkflowDisplay, 0, len(config.KnownWorkflowLevels))
-	for _, lvl := range config.KnownWorkflowLevels {
-		levels = append(levels, buildLevelWorkflowDisplay(lvl, multi.RawForLevel(lvl), multi.GetWorkflowForLevel(lvl)))
-	}
-	return &MultiLevelWorkflowDisplay{
-		Levels:     levels,
-		ConfigPath: configPath,
-	}
-}
-
-// buildLevelWorkflowDisplay builds the display struct for a single workflow level.
-// raw is the custom config (nil if using default), resolved is the effective config (never nil).
-func buildLevelWorkflowDisplay(level string, raw *config.WorkflowConfig, resolved *config.WorkflowConfig) *LevelWorkflowDisplay {
-	source := "default"
-	if raw != nil {
-		source = "custom"
+	if workflowListAll {
+		return displayMultiLevelWorkflowHumanReadable(display)
 	}
 
-	// Count transitions
-	transitionCount := 0
-	for _, transitions := range resolved.StatusFlow {
-		transitionCount += len(transitions)
-	}
-
-	// Build sorted status list
-	statusNames := make([]string, 0, len(resolved.StatusFlow))
-	for s := range resolved.StatusFlow {
-		statusNames = append(statusNames, s)
-	}
-	sort.Strings(statusNames)
-
-	statuses := make([]StatusDisplay, 0, len(statusNames))
-	for _, name := range statusNames {
-		sd := StatusDisplay{
-			Name:        name,
-			Transitions: resolved.StatusFlow[name],
-		}
-		if sd.Transitions == nil {
-			sd.Transitions = []string{}
-		}
-		if meta, ok := resolved.StatusMetadata[name]; ok {
-			sd.Description = meta.Description
-			sd.Phase = meta.Phase
-			sd.Color = meta.Color
-			sd.IsPlanning = meta.IsPlanning
-			sd.AggregatesFrom = meta.AggregatesFrom
-			if len(meta.AgentTypes) > 0 {
-				sd.AgentTypes = meta.AgentTypes
-			}
-		}
-		statuses = append(statuses, sd)
-	}
-
-	version := resolved.Version
-	if version == "" {
-		version = config.DefaultWorkflowVersion
-	}
-
-	return &LevelWorkflowDisplay{
-		Level:           level,
-		Source:          source,
-		Version:         version,
-		Statuses:        statuses,
-		SpecialStatuses: resolved.SpecialStatuses,
-		StatusCount:     len(resolved.StatusFlow),
-		TransitionCount: transitionCount,
-	}
-}
-
-// displayMultiLevelWorkflowHumanReadable renders all workflow levels in human-readable format.
-func displayMultiLevelWorkflowHumanReadable(display *MultiLevelWorkflowDisplay) error {
-	fmt.Println("Workflow Configuration")
-	fmt.Println("================================================================")
-
-	for _, level := range display.Levels {
-		displayWorkflowLevelSection(level)
-	}
-
-	// Legend
-	fmt.Println("Legend:")
-	fmt.Println("  [status] = aggregation threshold (progress derived from children)")
-	fmt.Println("  [planning] = entity has its own workflow status (not aggregating)")
-	fmt.Println("  [aggregates: X] = status aggregates progress from children of type X")
-	fmt.Println()
-
-	return nil
-}
-
-// levelDisplayLabel turns a level key like "tech_debt" into "Tech Debt" for
-// human-readable headers.
-func levelDisplayLabel(level string) string {
-	titleCase := cases.Title(language.English)
-	return titleCase.String(strings.ReplaceAll(level, "_", " "))
-}
-
-// displayWorkflowLevelSection renders a single workflow level section.
-func displayWorkflowLevelSection(level *LevelWorkflowDisplay) {
-	fmt.Printf("\n--- %s Workflow (%s) ---\n", levelDisplayLabel(level.Level), level.Source)
-	fmt.Printf("  Version: %s\n\n", level.Version)
-
-	// Special statuses
-	displaySpecialStatuses(level.SpecialStatuses)
-
-	// Status transitions
-	fmt.Println("  Status Transitions:")
-	for _, status := range level.Statuses {
-		displayStatusWithMarkers(status)
-	}
-}
-
-// displaySpecialStatuses renders the special statuses section.
-func displaySpecialStatuses(specials map[string][]string) {
-	if len(specials) == 0 {
-		return
-	}
-	fmt.Println("  Special Statuses:")
-	// Show in a consistent order
-	keys := []struct {
-		key   string
-		label string
-	}{
-		{config.StartStatusKey, "entry points"},
-		{config.CompleteStatusKey, "exit points"},
-		{config.AggregationStatusKey, "threshold"},
-	}
-	for _, k := range keys {
-		if vals, ok := specials[k.key]; ok && len(vals) > 0 {
-			fmt.Printf("    %s (%s):  %s\n", k.key, k.label, strings.Join(vals, ", "))
-		}
-	}
-	fmt.Println()
-}
-
-// displayStatusWithMarkers renders a single status with planning/aggregation markers.
-func displayStatusWithMarkers(status StatusDisplay) {
-	// Build status name display: use [brackets] for aggregation statuses
-	nameDisplay := status.Name
-	if status.AggregatesFrom != "" {
-		nameDisplay = fmt.Sprintf("[%s]", status.Name)
-	}
-
-	// Build description part
-	descPart := ""
-	if status.Description != "" {
-		descPart = fmt.Sprintf(" (%s)", status.Description)
-	}
-
-	// Build marker suffix
-	var markers []string
-	if status.IsPlanning {
-		markers = append(markers, "[planning]")
-	}
-	if status.AggregatesFrom != "" {
-		markers = append(markers, fmt.Sprintf("[aggregates: %s]", status.AggregatesFrom))
-	}
-	markerSuffix := ""
-	if len(markers) > 0 {
-		markerSuffix = "  " + strings.Join(markers, " ")
-	}
-
-	fmt.Printf("    %s%s%s\n", nameDisplay, descPart, markerSuffix)
-
-	// Transitions
-	if len(status.Transitions) == 0 {
-		fmt.Printf("      -> (terminal - no transitions)\n")
-	} else {
-		for _, t := range status.Transitions {
-			fmt.Printf("      -> %s\n", t)
-		}
-	}
-
-	// Metadata line
-	var metaInfo []string
-	if status.Phase != "" {
-		metaInfo = append(metaInfo, fmt.Sprintf("phase: %s", status.Phase))
-	}
-	if len(status.AgentTypes) > 0 {
-		metaInfo = append(metaInfo, fmt.Sprintf("agents: %s", strings.Join(status.AgentTypes, ", ")))
-	}
-	if status.Color != "" {
-		metaInfo = append(metaInfo, fmt.Sprintf("color: %s", status.Color))
-	}
-	if len(metaInfo) > 0 {
-		fmt.Printf("      [%s]\n", strings.Join(metaInfo, " | "))
-	}
-	fmt.Println()
+	return displayMultiLevelWorkflowSimple(display)
 }
 
 // levelValidationResult holds validation results for a single workflow level.
