@@ -8,6 +8,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockSearchRepository is a test double for SearchRepository.
@@ -168,6 +170,31 @@ func TestSearchAll_TagFilterReducesResults(t *testing.T) {
 	if entityIDsByTagsCalls != 2 {
 		t.Errorf("expected 2 EntityIDsByTags calls (one per entity-type bucket), got %d", entityIDsByTagsCalls)
 	}
+}
+
+func TestSearchAll_TagFilterUsesANDSemanticsForMultipleTags(t *testing.T) {
+	rawResults := []*repository.EntitySearchResult{
+		{EntityType: "task", ID: 1, Key: "E07-F01-001", Title: "has both tags", Status: "todo"},
+		{EntityType: "task", ID: 2, Key: "E07-F01-002", Title: "has one tag", Status: "todo"},
+		{EntityType: "task", ID: 3, Key: "E07-F01-003", Title: "has no tags", Status: "todo"},
+	}
+	searchMock := &mockSearchRepository{
+		SearchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
+			return rawResults, nil
+		},
+	}
+	tagSvc := NewMockTagService().WithEntityIDsByTagsFn(func(ctx context.Context, entityType models.EntityType, names []string, op TagQueryOp) ([]int64, error) {
+		assert.Equal(t, models.EntityTypeTask, entityType)
+		assert.Equal(t, []string{"voice", "auth"}, names)
+		assert.Equal(t, TagQueryOpAnd, op)
+		return []int64{1}, nil
+	})
+
+	svc := NewSearchService(searchMock, tagSvc)
+	got, err := svc.SearchAll(context.Background(), "login", "", []string{"voice", "auth"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "E07-F01-001", got[0].Key)
 }
 
 // AC-17b: EntityIDsByTags is called exactly once per distinct entity type,

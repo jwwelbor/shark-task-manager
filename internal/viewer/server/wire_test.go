@@ -7,6 +7,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestRepoDB creates an in-memory SQLite database with the full schema
@@ -15,9 +17,7 @@ import (
 func newTestRepoDB(t *testing.T) *repository.DB {
 	t.Helper()
 	sqlDB, err := db.InitDB(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create in-memory test DB: %v", err)
-	}
+	require.NoError(t, err)
 	return repository.NewDB(sqlDB)
 }
 
@@ -44,14 +44,10 @@ func TestWireServices_ConstructsTagService(t *testing.T) {
 
 	container := WireServices(repoDB, t.TempDir())
 
-	if container == nil {
-		t.Fatal("WireServices returned nil container")
-	}
+	require.NotNil(t, container)
 
 	// AC-T1: TagService must be non-nil in the returned bundle.
-	if container.TagService == nil {
-		t.Fatal("AC-T1: container.TagService is nil; WireServices must construct a TagService")
-	}
+	require.NotNil(t, container.TagService)
 
 	// Verify type.
 	var _ *services.TagService = container.TagService
@@ -70,16 +66,40 @@ func TestWireServices_ConstructsTagService(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.svc == nil {
-				t.Fatalf("%s is nil in the container", tc.name)
-			}
+			require.NotNil(t, tc.svc)
 			fv := tagSvcField(t, tc.svc)
-			if !fv.IsValid() {
-				t.Fatalf("%s has no tagSvc field", tc.name)
-			}
-			if fv.IsNil() {
-				t.Errorf("%s has a nil tagSvc field; WireServices must inject the shared TagService", tc.name)
-			}
+			require.True(t, fv.IsValid(), "%s has no tagSvc field", tc.name)
+			assert.False(t, fv.IsNil(), "%s has a nil tagSvc field; WireServices must inject the shared TagService", tc.name)
+		})
+	}
+}
+
+func TestWireServices_ConstructsSearchIndexer(t *testing.T) {
+	repoDB := newTestRepoDB(t)
+
+	container := WireServices(repoDB, t.TempDir())
+
+	require.NotNil(t, container)
+	require.NotNil(t, container.SearchService)
+
+	cases := []struct {
+		name string
+		svc  interface{}
+	}{
+		{"TaskService", container.TaskService},
+		{"FeatureService", container.FeatureService},
+		{"EpicService", container.EpicService},
+		{"BugService", container.BugService},
+		{"ChangeCardService", container.ChangeCardService},
+		{"NoteService", container.NoteService},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotNil(t, tc.svc)
+			fv := searchIndexerField(t, tc.svc)
+			require.True(t, fv.IsValid(), "%s has no searchIndexer field", tc.name)
+			assert.False(t, fv.IsNil(), "%s has a nil searchIndexer field; WireServices must inject the shared search indexer", tc.name)
 		})
 	}
 }
@@ -90,13 +110,20 @@ func TestWireServices_ConstructsTagService(t *testing.T) {
 // (SetTagService) fields because they both land in the same named field.
 func tagSvcField(t *testing.T, svc interface{}) reflect.Value {
 	t.Helper()
+	return serviceField(t, svc, "tagSvc")
+}
+
+func searchIndexerField(t *testing.T, svc interface{}) reflect.Value {
+	t.Helper()
+	return serviceField(t, svc, "searchIndexer")
+}
+
+func serviceField(t *testing.T, svc interface{}, name string) reflect.Value {
+	t.Helper()
+	require.NotNil(t, svc)
 	v := reflect.ValueOf(svc)
-	if v.Kind() != reflect.Pointer || v.IsNil() {
-		t.Fatalf("service value is not a non-nil pointer: %T", svc)
-	}
+	require.True(t, v.Kind() == reflect.Pointer && !v.IsNil(), "service value is not a non-nil pointer: %T", svc)
 	elem := v.Elem()
-	if elem.Kind() != reflect.Struct {
-		t.Fatalf("service does not point at a struct: %T", svc)
-	}
-	return elem.FieldByName("tagSvc")
+	require.Equal(t, reflect.Struct, elem.Kind(), "service does not point at a struct: %T", svc)
+	return elem.FieldByName(name)
 }

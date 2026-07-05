@@ -373,11 +373,13 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		tagGate,
 		tagEnforcementCfg,
 	)
+	searchRepo := repository.NewSearchRepository(db)
 
 	// Step 4: Construct entity-specific services
 	taskService := services.NewTaskService(taskRepo, entitySvc, creatorSvc)
 	taskService.SetEntityHistoryRepo(entityHistoryRepo)
 	taskService.SetTagService(tagSvc)
+	taskService.SetSearchIndexer(searchRepo)
 
 	featureService := services.NewFeatureService(
 		featureRepo, entitySvc,
@@ -386,6 +388,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	)
 	featureService.SetEntityHistoryRepo(entityHistoryRepo)
 	featureService.SetTagService(tagSvc)
+	featureService.SetSearchIndexer(searchRepo)
 
 	// Wire FeatureService into TaskService for auto-reopen behavior
 	taskService.SetFeatureService(featureService)
@@ -402,6 +405,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		taskRepo,
 	)
 	epicService.SetTagService(tagSvc)
+	epicService.SetSearchIndexer(searchRepo)
 
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
 	epicService.SetAnalyticsService(analyticsSvc)
@@ -414,6 +418,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		projectRoot,
 		tagSvc,
 	)
+	bugService.SetSearchIndexer(searchRepo)
 
 	changeCardService := services.NewChangeCardService(
 		changeCardRepoAdapter,
@@ -423,11 +428,13 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		projectRoot,
 	)
 	changeCardService.SetTagService(tagSvc)
+	changeCardService.SetSearchIndexer(searchRepo)
 
 	noteService, err := services.NewNoteService(noteRepo, registry)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create NoteService: %v", err))
 	}
+	noteService.SetSearchIndexer(searchRepo)
 	contextService, err := services.NewContextService(registry)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create ContextService: %v", err))
@@ -498,7 +505,6 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	// Step 7: Construct SearchService with TagService wired for tag post-filter
 	// (REQ-F-011, spec §2.8.3). tagSvc is passed as the second argument so that
 	// --tag filtering works on the search path.
-	searchRepo := repository.NewSearchRepository(db)
 	searchService := services.NewSearchService(searchRepo, tagSvc)
 
 	return &ServiceContainer{

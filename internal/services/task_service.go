@@ -166,6 +166,7 @@ type TaskService struct {
 	featureService    *FeatureService // optional: triggers progress recalc on status change
 	enrichRepo        config.TemplateEnrichmentRepository
 	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	searchIndexer     SearchIndexer
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
@@ -357,6 +358,9 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, result.Task.ID, input.Tags); err != nil {
 			return nil, false, recordSpanError(span, err)
 		}
+		if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTask, result.Task.ID); err != nil {
+			return nil, false, recordSpanError(span, err)
+		}
 
 		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
 		return result.Task, result.FileWasLinked, nil
@@ -422,6 +426,9 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 	}
 
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, task.ID, input.Tags); err != nil {
+		return nil, false, recordSpanError(span, err)
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTask, task.ID); err != nil {
 		return nil, false, recordSpanError(span, err)
 	}
 
@@ -584,6 +591,9 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, task.ID, updates.Tags); err != nil {
 		return nil, recordSpanError(span, err)
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTask, task.ID); err != nil {
+		return nil, recordSpanError(span, err)
+	}
 
 	return task, nil
 }
@@ -625,6 +635,9 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 	// Delete task
 	if err := s.repo.Delete(ctx, task.ID); err != nil {
 		return recordSpanError(span, fmt.Errorf("failed to delete task %s: %w", key, err))
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeTask, task.ID); err != nil {
+		return recordSpanError(span, err)
 	}
 
 	return nil
@@ -791,6 +804,9 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 				featureID:   task.FeatureID,
 			})
 		}
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTask, result.EntityID); err != nil {
+		return nil, recordSpanError(span, err)
 	}
 
 	return result, nil
@@ -1205,6 +1221,11 @@ func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 func (s *TaskService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSearchIndexer wires the optional search indexer used after task writes.
+func (s *TaskService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or

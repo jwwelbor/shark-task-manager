@@ -161,6 +161,7 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 			c.noteServiceErr = fmt.Errorf("failed to create NoteService: %w", svcErr)
 			return
 		}
+		svc.SetSearchIndexer(repository.NewSearchRepository(db))
 		c.noteService = svc
 	})
 
@@ -278,6 +279,7 @@ func GetTaskService() *services.TaskService {
 	// E28-F04 T-006: wire the shared *TagService so TaskService can enforce
 	// `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
+	svc.SetSearchIndexer(repository.NewSearchRepository(d.db))
 
 	// Wire size enforcement (mirrors tag enforcement). When `size_required_for`
 	// in .sharkconfig.json contains "task", CreateTask rejects calls without --size.
@@ -314,6 +316,7 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	svc.SetFeatureService(GetFeatureService())
+	svc.SetSearchIndexer(repository.NewSearchRepository(d.db))
 
 	// Wire sub-services for query and history delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)
@@ -365,6 +368,7 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	// in rich-display (REQ-F-014 / AC-28c). Must match the wiring in GetTaskService().
 	svc.SetTagService(GetTagService())
 	svc.SetSizeEnforcement(getSizeEnforcement())
+	svc.SetSearchIndexer(repository.NewSearchRepository(d.db))
 
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
@@ -468,6 +472,7 @@ func GetChangeCardService() *services.ChangeCardService {
 	// enforce `tag_required_for` on create and honour --tag on create/update.
 	svc.SetTagService(GetTagService())
 	svc.SetSizeEnforcement(getSizeEnforcement())
+	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 
 	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
@@ -504,6 +509,7 @@ func GetBugService() *services.BugService {
 	tagSvc := GetTagService()
 	svc := services.NewBugService(bugRepo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, projectRoot, tagSvc)
 	svc.SetSizeEnforcement(getSizeEnforcement())
+	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
@@ -539,6 +545,7 @@ func GetTechDebtService() *services.TechDebtService {
 	tagSvc := GetTagService()
 	svc := services.NewTechDebtService(tdRepo, entitySvc, entityRepo, projectRoot, tagSvc)
 	svc.SetSizeEnforcement(getSizeEnforcement())
+	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)

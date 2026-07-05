@@ -24,8 +24,9 @@ type NoteEntityDetails struct {
 
 // NoteService provides business logic for note operations across all entity types.
 type NoteService struct {
-	noteRepo NoteEntityNoteRepository
-	registry *EntityRegistry
+	noteRepo      NoteEntityNoteRepository
+	registry      *EntityRegistry
+	searchIndexer SearchIndexer
 }
 
 // NewNoteService creates a new NoteService with injected dependencies.
@@ -37,6 +38,12 @@ func NewNoteService(noteRepo NoteEntityNoteRepository, registry *EntityRegistry)
 		noteRepo: noteRepo,
 		registry: registry,
 	}, nil
+}
+
+// SetSearchIndexer wires the optional search indexer used to refresh the
+// parent entity after note writes.
+func (s *NoteService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // GetEntityDetails returns the key and name of the entity referenced by a note.
@@ -82,6 +89,9 @@ func (s *NoteService) AddNote(ctx context.Context, entityType models.EntityType,
 
 	if err := s.noteRepo.Create(ctx, note); err != nil {
 		return nil, fmt.Errorf("failed to create note: %w", err)
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, entityType, entityID); err != nil {
+		return nil, err
 	}
 
 	return note, nil

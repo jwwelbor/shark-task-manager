@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/searchindex"
 	_ "modernc.org/sqlite"
 )
 
@@ -447,9 +448,10 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	             dispatch — status becomes a pure phase, the claim is the lease)
 //	22 — E19-F07 (sprint_order column + partial unique index + backfill on sprint_assignments)
 //	23 — E19-F08 (drop idx_sprints_active_one — allow multiple concurrent active sprints)
+//	24 — E07-F43 (replace task_search_fts with unified entity_search_fts and backfill)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 23
+const CurrentSchemaVersion = 24
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -555,6 +557,21 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Check if features table has description column; old pre-E07 schemas used
+	// title/status only but current repositories and search backfill read it.
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'description'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for description: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN description TEXT;`); err != nil {
+			return fmt.Errorf("failed to add description to features: %w", err)
+		}
+	}
+
 	// Check if tasks table has file_path column; if not, add it
 	err = db.QueryRow(`
 		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'file_path'
@@ -634,11 +651,6 @@ func runMigrations(db *sql.DB) error {
 	// Run completion metadata migration
 	if err := migrateCompletionMetadata(db); err != nil {
 		return fmt.Errorf("failed to migrate completion metadata: %w", err)
-	}
-
-	// Run search FTS migration
-	if err := migrateSearchFTS(db); err != nil {
-		return fmt.Errorf("failed to migrate search FTS: %w", err)
 	}
 
 	// Drop unused task_criteria table
@@ -903,6 +915,12 @@ func runMigrations(db *sql.DB) error {
 	// a second sprint to "active" status, so it must be dropped here.
 	if err := migrateDropSprintActiveIndex(db); err != nil {
 		return fmt.Errorf("drop sprint active index migration: %w", err)
+	}
+
+	// Run search FTS migration after all source and note tables are current so
+	// the unified index can be rebuilt during the migration.
+	if err := migrateSearchFTS(db); err != nil {
+		return fmt.Errorf("failed to migrate search FTS: %w", err)
 	}
 
 	return nil
@@ -1182,35 +1200,48 @@ func migrateCompletionMetadata(db *sql.DB) error {
 	return nil
 }
 
-// migrateSearchFTS adds FTS5 virtual table for search (if not already present)
+// migrateSearchFTS adds the unified FTS5 virtual table for search.
 func migrateSearchFTS(db *sql.DB) error {
-	// Check if task_search_fts table exists
-	var tableExists int
-	err := db.QueryRow(`
-		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_search_fts'
-	`).Scan(&tableExists)
-	if err != nil {
-		return fmt.Errorf("failed to check task_search_fts table: %w", err)
+	if _, err := db.Exec(`DROP TABLE IF EXISTS task_search_fts`); err != nil {
+		return fmt.Errorf("failed to drop legacy task_search_fts table: %w", err)
 	}
 
-	if tableExists == 0 {
-		// Create FTS5 virtual table for full-text search (optional - skip if FTS5 not available)
-		_, err := db.Exec(`
-			CREATE VIRTUAL TABLE task_search_fts USING fts5(
-				task_key UNINDEXED,
-				title,
-				description,
-				note_content,
-				criterion_text,
-				metadata_text,
-				tokenize='porter unicode61'
-			);
-		`)
+	var unifiedExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_search_fts'
+	`).Scan(&unifiedExists)
+	if err != nil {
+		return fmt.Errorf("failed to check entity_search_fts table: %w", err)
+	}
+
+	if unifiedExists > 0 {
+		var tableSQL string
+		err = db.QueryRow(`
+			SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_search_fts'
+		`).Scan(&tableSQL)
 		if err != nil {
-			// FTS5 not available - skip this migration (search feature will be limited)
-			// This is acceptable for development environments
-			fmt.Printf("Warning: FTS5 not available, skipping full-text search table: %v\n", err)
+			return fmt.Errorf("failed to inspect entity_search_fts schema: %w", err)
 		}
+		if strings.Contains(strings.ToLower(tableSQL), "key unindexed") {
+			if _, err := db.Exec(`DROP TABLE entity_search_fts`); err != nil {
+				return fmt.Errorf("failed to replace entity_search_fts with key-indexed schema: %w", err)
+			}
+			unifiedExists = 0
+		}
+	}
+
+	if unifiedExists == 0 {
+		_, err := db.Exec(searchindex.CreateTableSQL())
+		if err != nil {
+			return fmt.Errorf("failed to create entity_search_fts: %w", err)
+		}
+	}
+
+	if _, err := db.Exec(`DELETE FROM entity_search_fts`); err != nil {
+		return fmt.Errorf("failed to clear entity_search_fts for backfill: %w", err)
+	}
+	if _, err := db.Exec(searchindex.RebuildSQL()); err != nil {
+		return fmt.Errorf("failed to backfill entity_search_fts: %w", err)
 	}
 
 	return nil

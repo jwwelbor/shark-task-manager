@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,20 @@ import (
 
 // validSearchTypes lists all accepted values for the --type flag.
 var validSearchTypes = []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt"}
+
+type searchServicer interface {
+	SearchAll(ctx context.Context, query string, entityType string, tags []string) ([]*repository.EntitySearchResult, error)
+}
+
+// searchSvcOverride is non-nil only during tests.
+var searchSvcOverride searchServicer
+
+func getSearchService() searchServicer {
+	if searchSvcOverride != nil {
+		return searchSvcOverride
+	}
+	return cli.GetSearchService()
+}
 
 // searchCmd is the parent command for search operations.
 // It supports two modes:
@@ -100,7 +115,7 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
 		searchTags = rawTags
 	}
-	results, err := cli.GetSearchService().SearchAll(cmd.Context(), query, entityTypeFlag, searchTags)
+	results, err := getSearchService().SearchAll(cmd.Context(), query, entityTypeFlag, searchTags)
 	if err != nil {
 		// Search has no single entity type; pass empty EntityType. The helper
 		// does not consume entityType for any rendering decisions today.
@@ -148,6 +163,9 @@ func printEntitySearchResults(results []*repository.EntitySearchResult, query st
 			fmt.Printf("[%s] %s: %s (%s, severity: %s)\n", r.EntityType, r.Key, r.Title, r.Status, r.Severity)
 		} else {
 			fmt.Printf("[%s] %s: %s (%s)\n", r.EntityType, r.Key, r.Title, r.Status)
+		}
+		if r.Snippet != "" {
+			fmt.Printf("  %s\n", r.Snippet)
 		}
 	}
 	return nil
@@ -205,7 +223,7 @@ func init() {
 	searchCmd.Flags().String("status", "", "Filter by task status (file search mode)")
 
 	// Flags for full-text query mode
-	searchCmd.Flags().String("type", "", "Filter by entity type: epic, feature, task, bug, change, idea")
+	searchCmd.Flags().String("type", "", "Filter by entity type: epic, feature, task, bug, change, idea, tech_debt")
 	// E28-F05 REQ-F-011 / REQ-F-018: repeatable --tag flag with AND semantics.
 	searchCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 }

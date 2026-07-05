@@ -16,9 +16,17 @@ func TestEntitySearchResult_IDFieldPresentInStruct(t *testing.T) {
 		Title:      "some task",
 		Status:     "todo",
 		Severity:   "",
+		Rank:       -0.5,
+		Snippet:    "some <mark>task</mark>",
 	}
 	if r.ID != 42 {
 		t.Errorf("expected ID=42, got %d", r.ID)
+	}
+	if r.Rank == 0 {
+		t.Errorf("expected non-zero Rank")
+	}
+	if r.Snippet == "" {
+		t.Errorf("expected Snippet to be populated")
 	}
 }
 

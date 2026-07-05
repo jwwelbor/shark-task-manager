@@ -162,9 +162,6 @@ var NewEntityRelEpicKeyAdapter = entityrel.NewEntityRelEpicKeyAdapter
 // SearchRepository is an alias for search.SearchRepository.
 type SearchRepository = search.SearchRepository
 
-// SearchResult is an alias for search.SearchResult.
-type SearchResult = search.SearchResult
-
 // EntitySearchResult is an alias for search.EntitySearchResult.
 type EntitySearchResult = search.EntitySearchResult
 

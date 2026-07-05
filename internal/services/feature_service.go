@@ -90,6 +90,7 @@ type FeatureService struct {
 	enrichRepo        config.TemplateEnrichmentRepository
 	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
 	tracer            trace.Tracer          // optional; defaults to otel.Tracer("shark/services/feature") if nil
+	searchIndexer     SearchIndexer
 
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
@@ -172,6 +173,11 @@ func (s *FeatureService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 func (s *FeatureService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSearchIndexer wires the optional search indexer used after feature writes.
+func (s *FeatureService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
@@ -311,6 +317,9 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 				featureID:   result.EntityID,
 			})
 		}
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, result.EntityID); err != nil {
+		return nil, recordSpanError(span, err)
 	}
 
 	return result, nil
@@ -551,6 +560,19 @@ func (s *FeatureService) UpdateFeatureKey(ctx context.Context, oldKey string, ne
 	if err := s.repo.UpdateKey(ctx, oldKey, newKey); err != nil {
 		return fmt.Errorf("failed to update feature key from %s to %s: %w", oldKey, newKey, err)
 	}
+	if s.searchIndexer == nil {
+		return nil
+	}
+	feature, err := s.repo.GetByKey(ctx, newKey)
+	if err != nil {
+		return fmt.Errorf("failed to get renamed feature %s for indexing: %w", newKey, err)
+	}
+	if feature == nil {
+		return fmt.Errorf("renamed feature not found: %s", newKey)
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -573,7 +595,14 @@ func (s *FeatureService) UpdateFeatureStatusIfNotOverridden(ctx context.Context,
 	if err != nil {
 		return false, fmt.Errorf("feature %s does not exist: %w", featureKey, err)
 	}
-	return s.repo.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
+	updated, err := s.repo.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
+	if err != nil || !updated {
+		return updated, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CascadeFeatureStatusToTasks sets all tasks in a feature to the given status.
@@ -951,6 +980,9 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeFeature, feature.ID, input.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
+		return nil, err
+	}
 
 	s.maybeReopenParentEpic(ctx, epic, feature.Key)
 	return feature, nil
@@ -1048,6 +1080,9 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeFeature, feature.ID, updates.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
+		return nil, err
+	}
 
 	return feature, nil
 }
@@ -1070,6 +1105,9 @@ func (s *FeatureService) DeleteFeature(ctx context.Context, key string) error {
 
 	if err := s.repo.Delete(ctx, feature.ID); err != nil {
 		return fmt.Errorf("failed to delete feature %s: %w", key, err)
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
+		return err
 	}
 
 	return nil

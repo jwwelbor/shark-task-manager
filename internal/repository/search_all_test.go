@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -25,12 +26,22 @@ func seedSearchAllTestData(t *testing.T, repoDb *DB) {
 
 	// Epic
 	epicRepo := NewEpicRepository(repoDb)
-	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01", Title: "Login System"}, Status: "active", Priority: "high"}
+	epicDesc := "Enhancements roadmap for cross entity search"
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E01", Title: "Login Enhancements System", Description: &epicDesc},
+		Status:     "active",
+		Priority:   "high",
+	}
 	require.NoError(t, epicRepo.Create(ctx, epic))
 
 	// Feature
 	featureRepo := NewFeatureRepository(repoDb)
-	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01", Title: "Authentication"}, EpicID: epic.ID, Status: "active"}
+	featureDesc := "Unified index synchronizer appears only in the feature body"
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E01-F01", Title: "Authentication", Description: &featureDesc},
+		EpicID:     epic.ID,
+		Status:     "active",
+	}
 	require.NoError(t, featureRepo.Create(ctx, feature))
 
 	// Task
@@ -66,9 +77,38 @@ func seedSearchAllTestData(t *testing.T, repoDb *DB) {
 		Priority: 5,
 	}
 	require.NoError(t, ccRepo.Create(ctx, cc))
+
+	_, err := repoDb.ExecContext(ctx, `
+		INSERT INTO tech_debts (key, title, description, status, category, severity)
+		VALUES ('TD-001', 'Refactor login search debt', 'Search repository needs unified FTS coverage', 'identified', 'code-quality', 'medium')
+	`)
+	require.NoError(t, err)
+
+	_, err = repoDb.ExecContext(ctx, `
+		INSERT INTO ideas (key, title, description, created_date, status)
+		VALUES ('I-2026-07-05-01', 'Search everything idea', 'Users should find notes and ideas with full text search', '2026-07-05', 'new')
+	`)
+	require.NoError(t, err)
 }
 
 // --- SearchAll tests ---
+
+func rebuildSearchAllIndex(t *testing.T, repo *SearchRepository) {
+	t.Helper()
+	require.NoError(t, repo.RebuildIndex(context.Background()))
+}
+
+func requireSearchResult(t *testing.T, results []*EntitySearchResult, entityType, key string) *EntitySearchResult {
+	t.Helper()
+	for _, result := range results {
+		if result.EntityType == entityType && result.Key == key {
+			assert.NotZero(t, result.ID, "search result ID should be populated for %s %s", entityType, key)
+			return result
+		}
+	}
+	t.Fatalf("expected %s %s in search results, got %#v", entityType, key, results)
+	return nil
+}
 
 func TestSearchAll_ReturnsAllEntityTypes(t *testing.T) {
 	repoDb := setupSearchAllTestDB(t)
@@ -76,6 +116,7 @@ func TestSearchAll_ReturnsAllEntityTypes(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	// "login" matches the task title, bug title, and change-card description
@@ -98,6 +139,7 @@ func TestSearchAll_EmptyQueryReturnsEmpty(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	results, err := repo.SearchAll(ctx, "", nil)
@@ -111,6 +153,7 @@ func TestSearchAll_TypeFilterBug(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	entityType := "bug"
@@ -129,6 +172,7 @@ func TestSearchAll_TypeFilterChange(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	entityType := "change"
@@ -147,6 +191,7 @@ func TestSearchAll_TypeFilterTask(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	entityType := "task"
@@ -165,6 +210,7 @@ func TestSearchAll_BugResultIncludesSeverity(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	entityType := "bug"
@@ -185,6 +231,7 @@ func TestSearchAll_ChangeResultHasNoSeverity(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	entityType := "change"
@@ -205,6 +252,7 @@ func TestSearchAll_ResultsHaveRequiredFields(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	results, err := repo.SearchAll(ctx, "login", nil)
@@ -225,9 +273,132 @@ func TestSearchAll_NoMatchReturnsEmpty(t *testing.T) {
 
 	seedSearchAllTestData(t, repoDb)
 	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
 	ctx := context.Background()
 
 	results, err := repo.SearchAll(ctx, "xyznonexistent12345", nil)
 	require.NoError(t, err)
 	assert.Empty(t, results)
+}
+
+func TestSearchAll_ReturnsRankAndSnippetForEpicTitle(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	results, err := repo.SearchAll(context.Background(), "enhancements", nil)
+	require.NoError(t, err)
+
+	result := requireSearchResult(t, results, "epic", "E01")
+	assert.NotZero(t, result.Rank, "rank should come from FTS backend")
+	assert.Contains(t, strings.ToLower(result.Snippet), "<mark>enhancements</mark>")
+}
+
+func TestSearchAll_SearchesFeatureDescriptionBody(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	entityType := "feature"
+	results, err := repo.SearchAll(context.Background(), "synchronizer", &entityType)
+	require.NoError(t, err)
+
+	result := requireSearchResult(t, results, "feature", "E01-F01")
+	assert.NotZero(t, result.Rank)
+	assert.Contains(t, strings.ToLower(result.Snippet), "<mark>synchronizer</mark>")
+}
+
+func TestSearchAll_IdeaTypeFilterReturnsIndexedIdea(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	entityType := "idea"
+	results, err := repo.SearchAll(context.Background(), "everything", &entityType)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "idea", results[0].EntityType)
+	assert.Equal(t, "I-2026-07-05-01", results[0].Key)
+	assert.NotZero(t, results[0].Rank)
+	assert.NotEmpty(t, results[0].Snippet)
+}
+
+func TestSearchAll_TechDebtTypeFilterReturnsRankedSnippet(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	entityType := "tech_debt"
+	results, err := repo.SearchAll(context.Background(), "refactor", &entityType)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "TD-001", results[0].Key)
+	assert.NotZero(t, results[0].Rank)
+	assert.Contains(t, strings.ToLower(results[0].Snippet), "<mark>refactor</mark>")
+}
+
+func TestSearchAll_SearchesEntityKeys(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	entityType := "bug"
+	results, err := repo.SearchAll(context.Background(), "B001", &entityType)
+	require.NoError(t, err)
+
+	result := requireSearchResult(t, results, "bug", "B001")
+	assert.NotZero(t, result.Rank)
+	assert.Contains(t, strings.ToLower(result.Snippet), "<mark>b001</mark>")
+}
+
+func TestSearchAll_UsesPorterTokenizerStemming(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	entityType := "task"
+	results, err := repo.SearchAll(context.Background(), "implementing", &entityType)
+	require.NoError(t, err)
+
+	requireSearchResult(t, results, "task", "T-E01-F01-001")
+}
+
+func TestSearchAll_EscapesFTSQuerySyntax(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	syntaxHeavyQueries := []string{
+		`login "`,
+		`login OR title:task`,
+		`login -broken`,
+		`E01-F01-001`,
+	}
+	for _, query := range syntaxHeavyQueries {
+		t.Run(query, func(t *testing.T) {
+			_, err := repo.SearchAll(context.Background(), query, nil)
+			require.NoError(t, err)
+		})
+	}
 }

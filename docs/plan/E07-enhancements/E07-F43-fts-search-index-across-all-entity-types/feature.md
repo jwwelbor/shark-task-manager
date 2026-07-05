@@ -16,7 +16,7 @@ size:
 
 ### Observed problem
 
-`shark search` (full-text query mode) does substring `LIKE '%query%'` matches against `title`, `key`, and (for some types) `description` only. It misses notes content, has no relevance ranking, no snippets, no stemming. A separate FTS5 infrastructure exists in the codebase but is unused, tasks-only, and has no sync triggers — see `internal/repository/search/repository.go:147` (`RebuildIndex`/`IndexTask` are never called from non-test code).
+Before E07-F43, `shark search` (full-text query mode) did substring `LIKE '%query%'` matches against `title`, `key`, and (for some types) `description` only. It missed notes content, had no relevance ranking, no snippets, and no stemming. A separate FTS5 infrastructure existed in the codebase but was unused, tasks-only, and had no sync triggers.
 
 ### Proposed scope
 
@@ -35,7 +35,7 @@ FTS5 is the obvious starting point but **may not be the right answer**. Review h
 2. Unified `SearchService` API with MATCH + snippets + entity-type/tag filters
 3. Wire `Index/Remove` hooks into all 8 entity services + `NoteService` (re-index parent on note write)
 4. Rewire `runSearchQuery` (CLI) to use new service; preserve `--type` and `--tag` flags
-5. Delete legacy: `Search`, `SearchWithSnippets`, `SearchByEpic`, `SearchByFeature`, `RebuildIndex`, `IndexTask`, `criterion_text` references, LIKE-based `SearchAll`
+5. Delete legacy: task-only `Search`, `SearchWithSnippets`, `SearchByEpic`, `SearchByFeature`, `IndexTask`, `criterion_text` references, and LIKE-based `SearchAll`; keep `RebuildIndex` as the unified backfill path.
 
 ### Risks to resolve during refinement
 
@@ -59,5 +59,5 @@ FTS5 is the obvious starting point but **may not be the right answer**. Review h
 
 ---
 
-*Last Updated*: 2026-05-05
-*Status*: Triage stub — refinement pending.
+*Last Updated*: 2026-07-05
+*Status*: Implemented.

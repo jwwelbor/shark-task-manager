@@ -72,15 +72,16 @@ var _ TagAttacher = (*TagService)(nil)
 
 // BugService provides business logic for bug operations.
 type BugService struct {
-	repo        BugRepository
-	workflowSvc *workflow.Service
-	entitySvc   *EntityService
-	entityRepo  EntityRepository
-	epicRepo    LinkValidatorEpicRepo
-	featureRepo LinkValidatorFeatureRepo
-	taskRepo    LinkValidatorTaskRepo
-	projectRoot string
-	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	repo          BugRepository
+	workflowSvc   *workflow.Service
+	entitySvc     *EntityService
+	entityRepo    EntityRepository
+	epicRepo      LinkValidatorEpicRepo
+	featureRepo   LinkValidatorFeatureRepo
+	taskRepo      LinkValidatorTaskRepo
+	projectRoot   string
+	docSvc        *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	searchIndexer SearchIndexer
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
@@ -94,6 +95,11 @@ type BugService struct {
 // nil Size silently.
 func (s *BugService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
 	s.sizeCfg = cfg
+}
+
+// SetSearchIndexer wires the optional search indexer used after bug writes.
+func (s *BugService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // NewBugService creates a BugService. tagSvc is optional (pass nil to
@@ -210,6 +216,9 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 	// transaction — on failure the row is persisted with zero tags and
 	// the user retries via `shark bug update --tag=...`.
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bug.ID, input.Tags); err != nil {
+		return nil, false, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
 		return nil, false, err
 	}
 
@@ -376,6 +385,9 @@ func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdat
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bug.ID, updates.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
+		return nil, err
+	}
 
 	return bug, nil
 }
@@ -389,6 +401,9 @@ func (s *BugService) DeleteBug(ctx context.Context, key string) error {
 
 	if err := s.repo.Delete(ctx, bug.ID); err != nil {
 		return fmt.Errorf("failed to delete bug %s: %w", key, err)
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
+		return err
 	}
 
 	return nil
@@ -437,11 +452,18 @@ func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*model
 // TransitionStatus transitions a bug to a specific status with workflow validation.
 // Delegates to EntityService.TransitionStatus for shared transition logic.
 func (s *BugService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	return s.entitySvc.TransitionStatus(
+	result, err := s.entitySvc.TransitionStatus(
 		ctx, s.entityRepo, models.EntityTypeBug, key, targetStatus, opts,
 		SimpleTransitionFeatures(),
 		s.makeResolveActionFn(),
 	)
+	if err != nil {
+		return nil, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, result.EntityID); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // GetNextStatus returns the available transitions for the current status of a bug.
@@ -486,6 +508,9 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 
 	if err := s.repo.Update(ctx, bug); err != nil {
 		return nil, fmt.Errorf("failed to triage bug %s: %w", key, err)
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
+		return nil, err
 	}
 
 	return bug, nil

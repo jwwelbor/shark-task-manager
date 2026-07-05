@@ -34,7 +34,8 @@ type IdeaRepository interface {
 // It orchestrates idea lifecycle, key generation, status transitions,
 // and coordinates with the idea repository.
 type IdeaService struct {
-	repo IdeaRepository
+	repo          IdeaRepository
+	searchIndexer SearchIndexer
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
@@ -70,6 +71,11 @@ func NewIdeaService(repo IdeaRepository) (*IdeaService, error) {
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 func (s *IdeaService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSearchIndexer wires the optional search indexer used after idea writes.
+func (s *IdeaService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // CreateIdea creates a new idea with a date-based key generated automatically.
@@ -135,6 +141,9 @@ func (s *IdeaService) CreateIdea(ctx context.Context, input CreateIdeaInput) (*m
 	}
 
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeIdea, idea.ID, input.Tags); err != nil {
+		return nil, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeIdea, idea.ID); err != nil {
 		return nil, err
 	}
 
@@ -293,6 +302,9 @@ func (s *IdeaService) UpdateIdea(ctx context.Context, key string, input UpdateId
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeIdea, idea.ID, input.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeIdea, idea.ID); err != nil {
+		return nil, err
+	}
 
 	return idea, nil
 }
@@ -313,6 +325,9 @@ func (s *IdeaService) DeleteIdea(ctx context.Context, key string) error {
 
 	if err := s.repo.Delete(ctx, idea.ID); err != nil {
 		return fmt.Errorf("failed to delete idea %s: %w", key, err)
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeIdea, idea.ID); err != nil {
+		return err
 	}
 
 	return nil
@@ -343,6 +358,9 @@ func (s *IdeaService) ConvertIdea(ctx context.Context, key, convertedToType, con
 
 	if err := s.repo.MarkAsConverted(ctx, idea.ID, convertedToType, convertedToKey); err != nil {
 		return fmt.Errorf("failed to convert idea %s: %w", key, err)
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeIdea, idea.ID); err != nil {
+		return err
 	}
 
 	return nil
