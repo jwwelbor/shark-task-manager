@@ -31,11 +31,11 @@ Exit codes:
   1 - Validation failed (errors found or warnings in --strict mode)
 
 Examples:
-  shark workflow validate-actions                  Validate all levels
-  shark workflow validate-actions --level=task     Validate only task workflow
-  shark workflow validate-actions --level=epic     Validate only epic workflow
-  shark workflow validate-actions --strict         Fail on any warnings
-  shark workflow validate-actions --json           JSON output`,
+  shark admin workflow validate-actions                  Validate all levels
+  shark admin workflow validate-actions --level=task     Validate only task workflow
+  shark admin workflow validate-actions --level=epic     Validate only epic workflow
+  shark admin workflow validate-actions --strict         Fail on any warnings
+  shark admin workflow validate-actions --json           JSON output`,
 	RunE: runWorkflowValidateActions,
 }
 

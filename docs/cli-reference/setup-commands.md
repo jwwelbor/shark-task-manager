@@ -11,7 +11,7 @@ Shark provides several command groups for project setup and ongoing maintenance:
 - **Validation** (`shark admin validate`) -- Check database integrity and detect orphaned records
 - **Migration** (`shark migrate`) -- Run one-time database schema upgrades and data transformations
 - **Cloud** (`shark cloud`) -- Configure Turso cloud database for multi-machine access
-- **Workflow** (`shark workflow`) -- Inspect and validate the status workflow defined in `.sharkconfig.json`
+- **Workflow** (`shark admin workflow`) -- Inspect and validate the status workflow defined in `.sharkconfig.json`
 
 All commands listed here support the standard [global flags](global-flags.md) (`--json`, `--verbose`, `--config`, `--db`, `--no-color`, `--field`).
 
@@ -333,13 +333,13 @@ Auth token file: /home/user/.turso/shark-token
 
 ## Workflow
 
-### shark workflow
+### shark admin workflow
 
 Parent command for workflow configuration operations including listing, validation, and action inspection. The workflow system allows customizing task status transitions via `.sharkconfig.json`.
 
 ```
 Usage:
-  shark workflow [command]
+  shark admin workflow [command]
 ```
 
 **Available Subcommands:**
@@ -353,28 +353,41 @@ Usage:
 
 ---
 
-### shark workflow list
+### shark admin workflow list
 
-Display the configured status workflow from `.sharkconfig.json`. Shows all statuses and their valid transitions, highlighting special statuses (`_start_` and `_complete_`). If no custom workflow is configured, displays the default workflow.
+Display the configured status workflow from `.sharkconfig.json`. By default, the command renders compact ASCII status-flow lines. Pass an entity type to show one workflow level. Use `--all` to show expanded metadata, including special statuses, descriptions, phases, colors, and agent types. If no custom workflow is configured, the command displays the default workflow.
 
 ```
 Usage:
-  shark workflow list [flags]
+  shark admin workflow list [entity-type] [flags]
 ```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Show expanded workflow details |
+| `--json` | Output in JSON format |
 
 **Examples:**
 
 ```bash
-# Display workflow (human-readable table)
-shark workflow list
+# Display compact workflow flows
+shark admin workflow list
 
-# Display workflow (JSON format)
-shark workflow list --json
+# Display only the task workflow
+shark admin workflow list task
+
+# Display expanded change workflow details
+shark admin workflow list change --all
+
+# Display workflow as JSON
+shark admin workflow list --json
 ```
 
 ---
 
-### shark workflow validate
+### shark admin workflow validate
 
 Validate the workflow configuration in `.sharkconfig.json` for correctness.
 
@@ -391,22 +404,22 @@ Checks performed:
 
 ```
 Usage:
-  shark workflow validate [flags]
+  shark admin workflow validate [flags]
 ```
 
 **Examples:**
 
 ```bash
 # Validate configuration
-shark workflow validate
+shark admin workflow validate
 
 # Validate with JSON output
-shark workflow validate --json
+shark admin workflow validate --json
 ```
 
 ---
 
-### shark workflow show-actions
+### shark admin workflow show-actions
 
 Display all orchestrator actions defined in the workflow configuration. Shows actions grouped by workflow phase with agent types and skills. Displays all three entity levels (epic, feature, task) by default.
 
@@ -417,7 +430,7 @@ Display all orchestrator actions defined in the workflow configuration. Shows ac
 
 ```
 Usage:
-  shark workflow show-actions [flags]
+  shark admin workflow show-actions [flags]
 ```
 
 **Flags:**
@@ -432,24 +445,24 @@ Usage:
 
 ```bash
 # Show all levels
-shark workflow show-actions
+shark admin workflow show-actions
 
 # Show only epic actions
-shark workflow show-actions --level=epic
+shark admin workflow show-actions --level=epic
 
 # Task actions in JSON
-shark workflow show-actions --level=task --json
+shark admin workflow show-actions --level=task --json
 
 # Show action for a specific status
-shark workflow show-actions --status=ready_for_development
+shark admin workflow show-actions --status=ready_for_development
 
 # Filter by action type
-shark workflow show-actions --action-type=spawn_agent --json
+shark admin workflow show-actions --action-type=spawn_agent --json
 ```
 
 ---
 
-### shark workflow validate-actions
+### shark admin workflow validate-actions
 
 Validate that all orchestrator actions in the workflow configuration are properly defined.
 
@@ -465,7 +478,7 @@ Checks performed:
 
 ```
 Usage:
-  shark workflow validate-actions [flags]
+  shark admin workflow validate-actions [flags]
 ```
 
 **Flags:**
@@ -479,19 +492,19 @@ Usage:
 
 ```bash
 # Validate all levels
-shark workflow validate-actions
+shark admin workflow validate-actions
 
 # Validate only task workflow
-shark workflow validate-actions --level=task
+shark admin workflow validate-actions --level=task
 
 # Validate only epic workflow
-shark workflow validate-actions --level=epic
+shark admin workflow validate-actions --level=epic
 
 # Strict mode -- fail on any warnings
-shark workflow validate-actions --strict
+shark admin workflow validate-actions --strict
 
 # JSON output
-shark workflow validate-actions --json
+shark admin workflow validate-actions --json
 ```
 
 ---

@@ -86,6 +86,7 @@ patterns in the `context/*.md` references.
 | Status & leases by hand | `shark status advance <key> --outcome pass\|fail\|blocked` · `shark status set <key> <status> [--force]` · `shark status transitions\|history <key>` · `shark claim\|heartbeat\|release <key>` → `context/workflow-and-status.md` |
 | Entity CRUD | `shark create epic\|feature\|task\|bug\|change\|idea …` · `shark update <key> …` (no `--status`) · `shark delete <key>` · `shark link <a> <b> --type=…` → `context/entity-crud.md` |
 | Notes · context · docs | `shark create note <key> "…" --type=…` · `shark context set <key> --field … --value …` · `shark related-docs add\|list …` → `context/notes-context-docs.md` |
+| Workflow inspection | `/shark workflow [entity-type\|entity-key]` → show compact workflow by default; for concrete keys, read current status and transitions first → `verbs/workflow.md` |
 | Web dashboard | `/shark viewer` → `shark web` → `verbs/viewer.md` |
 
 Prefer `--field` for single values; never pipe JSON through `head`/`grep`/`jq`.
@@ -152,6 +153,7 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Scope a sprint | `/shark plan-sprint S###` → read `skills/sprint-planning/SKILL.md`; reads `shark sprint plan` + readiness, proposes, confirms. Never `shark sprint start` → `verbs/plan-sprint.md` |
 | Sprint retrospective | `/shark retro-sprint S###` → read `skills/sprint-analytics/SKILL.md`; `shark sprint summary --detailed` + velocity → five-section report → `verbs/retro-sprint.md` |
 | Consult an agent persona | `/shark consult <agent> [referent]` → `shark agent list --json` (resolve) → `shark agent get <agent>` → adopt persona inline, read-only → `verbs/consult.md` |
+| Inspect workflow/status flow | `/shark workflow [entity-type\|entity-key] [--all\|--json]` → read status for keys, then render `shark admin workflow list` → `verbs/workflow.md` |
 | State-aware next actions | `/shark help` → `shark status` + `shark task list --blocked` + `shark claims` → propose 2–4 next commands. `--fast`/`commands` = static, no CLI → `verbs/help.md` |
 
 ## Golden path
@@ -189,7 +191,7 @@ shark next <key> --preview        # what the engine would dispatch next (no clai
 
 Recognized verbs: `project`, `product-design`, `vision`, `run`, `triage`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
-`viewer`, `consult`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
+`viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
 `retro-sprint`, `update-docs`, `amend`, `revalidate`, `help`. Everything else
 (including `status` / `list` / `get`) falls through to `query`. `/run` and
 `/shark run` both route to `verbs/run.md`.
@@ -227,6 +229,7 @@ Host-local AI-orchestration procedures that Mode-3 verbs read directly.
 ## Detailed references
 
 - `verbs/*.md` — the per-verb procedures (read on demand)
+- `verbs/workflow.md` — workflow inspection wrapper for entity types and keys
 - `context/workflow-and-status.md` — 2.x status, outcomes, claim/lease
 - `context/entity-crud.md` — create / update / delete patterns
 - `context/notes-context-docs.md` — notes, context, related docs
