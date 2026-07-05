@@ -25,7 +25,7 @@ READ:
 PRODUCE features via shark CLI:
 
 For each feature:
-(1) {{template "create_feature" .}} "<title>" --execution-order=N --size=<1|2|3|5|8|13>
+(1) {{template "create_feature" .}} "<title>" --order=N --size=<1|2|3|5|8|13>
 (2) Write a 1-paragraph description to the feature file (NOT a full PRD — that happens at feature level)
 
 {{template "_sizing_feature" .}}
@@ -50,6 +50,8 @@ Feature decomposition rules:
   named before exit, or an explicit deferred decision in docs/product/progress.md.
 
 CRITICAL: Feature descriptions are THIN — one paragraph. The feature workflow will handle PRD, architecture, and test planning at feature level. Do NOT front-load detail here.
+
+ANTI-FILLER RULE: if decomposition would yield zero features, or only a single filler feature invented to satisfy the "at least one feature" gate, do NOT create it. This epic was misclassified — perform the reclassify procedure from `epic/assessment.md` Step 2 (reclassify to change-card/tech-debt/task/feature/idea as appropriate) and release `shark status set {{.id}} cancelled --reason "Reclassified as <new-key>"`. If the reclassification target is unclear, `shark status set {{.id}} design --reason "Decomposition found no genuine features — needs reassessment"` instead, with a note explaining why.
 
 EXIT GATE:
 - All epic requirements covered by at least one feature

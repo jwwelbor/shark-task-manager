@@ -144,6 +144,10 @@ CLI Entry Point
 - **Agent routing**: Advanced profile assigns statuses to agent types (ba, developer, tech_lead, qa, product_owner)
 - **Status metadata**: Color, phase, progress weight, responsibility, blocks_feature flag
 - **No hardcoded statuses**: All behavior derived from configuration
+- **Dispatch prompt assembly**: Harnesses use `shark next <key> --json` and
+  execute the returned `prompt`. Shark owns rendering workflow prompts, inlining
+  skill content, and prepending Shark specialist agent personas. See
+  [Shark Dispatch Prompt Assembly](./shark-dispatch-prompt-assembly.md).
 
 ## File System Integration
 

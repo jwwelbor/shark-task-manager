@@ -80,6 +80,24 @@ Several inputs must be present before tasks can be written. The host should alre
    interactions" section, read `interaction_map_path` and verify every referenced
    I-## exists. Missing map rows are blockers.
 
+## SIMPLE-tier mode
+
+The host (feature/task_generation.md) determines the feature's complexity tier from the latest `COMPLEXITY:` decision note and tells you when a feature is SIMPLE. When it is, the following Hard Gates above are **waived** — do not STOP on their absence:
+
+- **Gate 1 (Feature PRD / spec.md)** — waived. A SIMPLE feature does not require a full spec.md before tasks can be written.
+- **Gate 2 (Feature test plan / test-plan.md)** — waived, including its TC-ID, Caller-Path Contracts, ISTQB matrix, and ISO 25010 matrix requirements (BUG-7: those matrices exist to size STANDARD/COMPLEX test surfaces and do not apply to XS/SIMPLE work).
+- **Gate 3 (Prior-art report)** — waived. Substitute the quick codebase grep already performed during assessment's complexity triage.
+
+Gates 4 (Wireframes) and 5 (Cross-feature interactions) are **not** waived — they still apply if their trigger condition is met.
+
+Inline replacement for the waived gates, per task file:
+
+- **Acceptance Criteria** — write concrete, enumerable criteria directly in the task file instead of TC-ID references (there is no test-plan.md to reference). For code changes: specific pass/fail conditions. For doc-only tasks: verification steps (links resolve, lint/format passes, reviewer checklist).
+- **Test Cases** — write the concrete test case(s) directly in the task file (what to run or check), instead of "See test-plan.md Section N".
+- **Prior art** — note the grep terms and result inline in "Notes for Agent" instead of citing a prior-art report path.
+
+Everything else in this workflow (line count, no code blocks, cross-references not copies, dependency DAG, TDD structure) still applies unchanged — SIMPLE-tier mode only removes the requirement for upstream planning documents, not task-quality discipline.
+
 ## Your Process
 
 ### Step 0: Detect Available Documentation

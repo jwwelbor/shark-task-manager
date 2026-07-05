@@ -121,12 +121,23 @@ func FirstUnrenderedToken(s string) (string, bool) {
 // RenderAndLintAgentBody guard never disagree about whether a prompt has
 // genuinely unfilled slots.
 func CountUnrenderedTokens(s string) int {
+	return len(UnrenderedTokens(s))
+}
+
+// UnrenderedTokens returns every surviving `<token>` placeholder in s, using
+// the same code-aware scan as FirstUnrenderedToken and CountUnrenderedTokens:
+// tokens inside fenced code blocks (``` … ```) or inline code spans (` … `)
+// are skipped. This is the canonical source for the shark.next
+// "unresolved_placeholders" response field — unlike CountUnrenderedTokens, it
+// preserves the token identities (e.g. "<task_id>") so callers can report
+// which placeholders are still unfilled, not just how many.
+func UnrenderedTokens(s string) []string {
 	if !strings.ContainsRune(s, '<') {
-		return 0
+		return nil
 	}
 	scanned := stripFencedCodeBlocks(s)
 	scanned = inlineCodeRe.ReplaceAllString(scanned, "")
-	return len(agentBodyTokenRe.FindAllString(scanned, -1))
+	return agentBodyTokenRe.FindAllString(scanned, -1)
 }
 
 // stripFencedCodeBlocks returns s with all triple-backtick fenced code

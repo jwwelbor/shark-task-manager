@@ -16,6 +16,26 @@ steps:
       fail: feature_review
       on_hold: on_hold
       pass: completed
+  assessment:
+    phase: triage
+    color: purple
+    display_token: RAS
+    description: Ready for intake triage — confirm this is genuinely an epic before the heavyweight pipeline runs
+    progress_weight: 0.02
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: researcher
+    provider: anthropic
+    model: haiku
+    skills: [assessment, research]
+    prompt: epic/assessment.md
+    outcomes:
+      blocked: blocked
+      cancelled: cancelled
+      fail: draft
+      on_hold: on_hold
+      pass: refinement
   blocked:
     phase: blocked
     color: red
@@ -30,7 +50,7 @@ steps:
     phase: done
     color: red
     display_token: CXL
-    description: Epic abandoned
+    description: Epic abandoned or reclassified into a lighter entity
     progress_weight: 0
     responsibility: none
     exclude_from_progress: true
@@ -63,6 +83,7 @@ steps:
     prompt: epic/decomposition.md
     outcomes:
       blocked: blocked
+      cancelled: cancelled
       fail: design
       on_hold: on_hold
       pass: feature_review
@@ -102,7 +123,7 @@ steps:
       blocked: blocked
       cancelled: cancelled
       fail: draft
-      pass: refinement
+      pass: assessment
   feature_review:
     phase: review
     color: magenta

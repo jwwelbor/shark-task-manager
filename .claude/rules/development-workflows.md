@@ -26,10 +26,10 @@ make test   # Run full test suite
 1. **Create Feature** (if new feature area):
    ```bash
    # Positional syntax (recommended)
-   ./bin/shark feature create E07 "Feature Title" --execution-order=1
+   ./bin/shark feature create E07 "Feature Title" --order=1
 
    # Flag syntax (legacy, still supported)
-   ./bin/shark feature create --epic=E07 --title="Feature Title" --execution-order=1
+   ./bin/shark feature create --epic=E07 --title="Feature Title" --order=1
    ```
 
 2. **Create Tasks** in the feature:

@@ -131,6 +131,15 @@ type NextResponse struct {
 	// got skipped through. Empty when no cascade happened.
 	ResolvedVia []string `json:"resolved_via,omitempty"`
 
+	// UnresolvedPlaceholders lists the `<token>` names still present in
+	// Prompt after rendering (e.g. "<task_id>"). A non-empty list means the
+	// agent will receive literal placeholder text instead of real data —
+	// usually a missing variable in the placeholder map or an authoring bug
+	// in the template. Empty when the prompt fully rendered (BUG-3/4: this
+	// used to be a stderr-only warning that corrupted --json consumers
+	// piping stdout; it is now part of the stable JSON contract instead).
+	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
+
 	Error string `json:"error,omitempty"`
 }
 
@@ -154,7 +163,8 @@ Output JSON shape:
     "agent_type":   "<agent type if action=spawn_agent>",
     "provider":     "<provider>",
     "model":        "<model override>",
-    "prompt":       "<fully-rendered, skill-inlined prompt>"
+    "prompt":       "<fully-rendered, skill-inlined prompt>",
+    "unresolved_placeholders": ["<token>", ...]  // omitted when empty
   }
 
 Examples:
@@ -237,7 +247,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	// Record per-dispatch span attributes so traces capture the full
 	// dispatch decision for this entity step.
-	unresolvedCount := templates.CountUnrenderedTokens(resp.Prompt)
+	resp, unresolvedTokens := annotateUnresolvedPlaceholders(resp)
 	span.SetAttributes(
 		attribute.String("entity_key", resp.EntityKey),
 		attribute.String("entity_type", resp.EntityType),
@@ -246,17 +256,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 		attribute.String("agent_type", resp.AgentType),
 		attribute.String("model", resp.Model),
 		attribute.Int("prompt_bytes", len(resp.Prompt)),
-		attribute.Int("unresolved_placeholders", unresolvedCount),
+		attribute.Int("unresolved_placeholders", len(unresolvedTokens)),
 		attribute.String("exit_status", "ok"),
 	)
-
-	// Warn operators when the rendered prompt still contains unfilled slots.
-	// A count > 0 means the agent will receive literal placeholder text
-	// instead of the real data value — usually indicates a missing variable
-	// in the placeholder map or an authoring bug in the template.
-	if unresolvedCount > 0 {
-		fmt.Fprintf(os.Stderr, "[shark-stats] WARN: %s has %d unresolved placeholders\n", resp.EntityKey, unresolvedCount)
-	}
 
 	return outputNextJSON(resp)
 }
@@ -604,6 +606,21 @@ func LoadAgentBodyForInline(root, agentType string) (string, bool) {
 		return "", false
 	}
 	return resolved, true
+}
+
+// annotateUnresolvedPlaceholders scans resp.Prompt for surviving `<token>`
+// placeholders and records their identities on resp.UnresolvedPlaceholders,
+// returning both the annotated response and the token list (the latter is
+// used for the span attribute count). A count > 0 means the agent will
+// receive literal placeholder text instead of the real data value — usually
+// a missing variable in the placeholder map or an authoring bug in the
+// template. This used to be a stderr-only "[shark-stats] WARN" line, which
+// corrupted `--json` consumers piping stdout (BUG-3/4); it is now part of
+// the stable JSON contract instead.
+func annotateUnresolvedPlaceholders(resp NextResponse) (NextResponse, []string) {
+	tokens := templates.UnrenderedTokens(resp.Prompt)
+	resp.UnresolvedPlaceholders = tokens
+	return resp, tokens
 }
 
 // outputNextJSON marshals the response. `shark next` always emits JSON to

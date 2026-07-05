@@ -11,9 +11,10 @@ func TestGetWorkflowForLevel_EpicWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for epic level with nil Epic")
 	}
-	// Should return default epic workflow (route-based epic.yaml has 11 steps)
-	if len(wf.StatusFlow) != 11 {
-		t.Errorf("expected 11 statuses in default epic workflow, got %d", len(wf.StatusFlow))
+	// Should return default epic workflow (route-based epic.yaml has 12 steps,
+	// including the BUG-5 intake "assessment" triage step)
+	if len(wf.StatusFlow) != 12 {
+		t.Errorf("expected 12 statuses in default epic workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default epic workflow")

@@ -886,6 +886,37 @@ func ensureSizeFieldsAlwaysPresent(result map[string]interface{}, sizable interf
 	}
 }
 
+// promoteEntityScalarFields copies an entity's key, title, status, and
+// (when set) description to the top level of infoMap. Aggregation-mode JSON
+// already exposes these as top-level scalars, but planning-mode JSON nests
+// the entity under "epic"/"feature" (EpicDisplayInfo.Epic /
+// FeatureDisplayInfo.Feature), so `--field status` / `--field title` /
+// `--field description` 404 for planning-mode entities even though they
+// resolve fine in aggregation mode (BUG-2). Mirrors the
+// ensureSizeFieldsAlwaysPresent helper's "always inject at top level" pattern.
+//
+// entity must be *models.Epic or *models.Feature (the two planning-mode
+// callers); any other type is a no-op.
+func promoteEntityScalarFields(infoMap map[string]interface{}, entity models.Entity) {
+	if entity == nil {
+		return
+	}
+	infoMap["key"] = entity.GetKey()
+	infoMap["title"] = entity.GetTitle()
+	infoMap["status"] = entity.GetStatus()
+
+	var description *string
+	switch e := entity.(type) {
+	case *models.Epic:
+		description = e.Description
+	case *models.Feature:
+		description = e.Description
+	}
+	if description != nil {
+		infoMap["description"] = *description
+	}
+}
+
 // buildEnrichedJSON converts an entity struct to a map[string]interface{} and adds
 // valid_transitions, orchestrator_action, and (when present) size_label fields.
 // This is a shared helper used by bug get and change get commands.
