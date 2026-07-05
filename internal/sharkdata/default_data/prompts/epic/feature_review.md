@@ -8,6 +8,8 @@ FEATURE DECOMPOSITION REVIEW
 
 This is a quality gate comparing the generated features against the epic requirements. The goal is to catch gaps, overlaps, or misalignments BEFORE task generation begins.
 
+SCOPE: decomposition produces thin, one-paragraph feature descriptions by design (full PRD, architecture, and test planning happen later in the feature workflow). Judge completeness ONLY on requirements coverage, overlap, ordering, and interaction-map/cross-epic closure below. Do NOT flag a feature's file for unfilled PRD/architecture/test-plan template placeholders, missing acceptance criteria, or any other feature-level template section — those are expected to be empty at this stage and are filled in later. A FAIL verdict must cite one of the checklist items below, never a template-placeholder gap.
+
 READ:
 (1) Epic PRD at {{.file_path}} for goals, scope, requirements, and success criteria
 (2) All feature files: {{template "list_json" .}}, then read each feature's file_path

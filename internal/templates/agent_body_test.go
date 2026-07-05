@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -343,6 +344,46 @@ func TestCountUnrenderedTokens(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := CountUnrenderedTokens(tt.input); got != tt.want {
 				t.Errorf("CountUnrenderedTokens(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUnrenderedTokens verifies the token-identity list that feeds the
+// shark.next "unresolved_placeholders" JSON field (BUG-3/4). It must agree
+// with CountUnrenderedTokens on count and with FirstUnrenderedToken's
+// code-aware exclusions.
+func TestUnrenderedTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"empty string", "", nil},
+		{"no placeholders", "This is a fully-rendered prompt with no placeholders.", nil},
+		{"single placeholder", "Task key is <task_id>.", []string{"<task_id>"}},
+		{
+			"multiple placeholders",
+			"Entity <entity_key> is of type <entity_type> with status <status>.",
+			[]string{"<entity_key>", "<entity_type>", "<status>"},
+		},
+		{"inline-code span is skipped", "Run `git push origin <branch-name>` to push.", nil},
+		{
+			"prose token outside code still counts",
+			"Fill <real_token> but ignore `<example>` in code.",
+			[]string{"<real_token>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := UnrenderedTokens(tt.input)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("UnrenderedTokens(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+			if len(got) != CountUnrenderedTokens(tt.input) {
+				t.Errorf("UnrenderedTokens(%q) length %d disagrees with CountUnrenderedTokens %d",
+					tt.input, len(got), CountUnrenderedTokens(tt.input))
 			}
 		})
 	}

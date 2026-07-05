@@ -49,12 +49,12 @@ The child never claims, advances, releases, or heartbeats.
   `change-cards`, enumerate non-terminal items with `shark bug list --json` or
   `shark change list --json`, then run this loop for each concrete key.
 
-## Step 0 — Log + branch check
+## Step 0 — Branch check
 
-```bash
-mkdir -p docs/workflow
-echo '{"ts":"'$(date +"%Y-%m-%dT%H:%M:%S%z")'","sid":"'$CLAUDE_SID'","event":"run_started","entity":"{KEY}","detail":{"command":"/shark run {KEY}","branch":"'$(git branch --show-current 2>/dev/null)'"}}' >> docs/workflow/activity.jsonl
-```
+Shark's own DB is the activity record — `shark status history <key>` shows every
+transition with timestamp, agent, and outcome, and the `shark claim --by
+"$CLAUDE_SID"` in Step 2 ties the session to the entity. Do not write a separate
+run log.
 
 Check `git branch --show-current`:
 - On `main`/`master` -> ask the user before proceeding.

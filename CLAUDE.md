@@ -1,51 +1,6 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
+# Project Overview
 
 **Shark Task Manager** is a Go-based CLI tool and HTTP API for managing project tasks, features, and epics with AI-driven development workflows. It uses SQLite for persistence and follows clean architecture principles.
-
-### Key Technologies
-- **Go**: 1.23.4+ (statically typed, compiled)
-- **SQLite**: Local database with WAL mode for concurrency
-- **Cobra**: CLI framework for structured command hierarchy
-- **Viper**: Configuration management
-
-### Quick Commands
-
-See @.claude/rules/quickref.md for complete command reference.
-
-```bash
-# Build
-make build              # Build all binaries
-make shark             # Build only shark CLI
-
-# Test
-make test              # Run all tests
-make test-coverage     # Run tests with HTML coverage report
-
-# Core Commands (auto-detect entity type from key)
-./bin/shark get E07                                    # Get epic details
-./bin/shark get E07-F01                                # Get feature details
-./bin/shark get E07-F01-001                            # Get task details
-./bin/shark get E07-F01-001 --field status             # Extract single field
-./bin/shark list                                       # List epics
-./bin/shark list E07                                   # List features in epic
-./bin/shark list E07 F01                               # List tasks in feature
-
-# Status & Analytics
-./bin/shark status                                     # Project dashboard
-./bin/shark status E07-F01                             # Feature status
-./bin/shark status history E07-F01-001                 # Status change history
-./bin/shark status advance E07-F01-001                 # Advance to next status
-./bin/shark progress E07                               # Epic progress
-
-# Entity Management
-./bin/shark task create E07 F01 "Task Title"           # Create task
-./bin/shark feature create E07 "Feature Title"         # Create feature
-./bin/shark task next-status E07-F01-001               # Advance task workflow
-```
 
 ---
 
@@ -81,39 +36,6 @@ This project uses modular documentation. Rules are loaded automatically based on
 - **Quick Reference**: @.claude/rules/quickref.md - Build, test, common commands
 - **Database Critical**: @.claude/rules/database-critical.md - Critical DB warnings & recovery
 - **Development Workflows**: @.claude/rules/development-workflows.md - Task creation, lifecycle, patterns
-
-### Path-Specific (Auto-Loaded Based on Files)
-
-**Working on Go code** (`internal/**/*.go`, `cmd/**/*.go`):
-- Architecture: @.claude/rules/architecture.md
-- Go Patterns: @.claude/rules/go/patterns.md
-- Error Handling: @.claude/rules/go/error-handling.md
-- Input Sanitization: @.claude/rules/go/input-sanitization.md
-
-**Working on Database/Repository** (`internal/db/**/*`, `internal/repository/**/*`):
-- Database Schema: @.claude/rules/database/schema.md
-- Architecture: @.claude/rules/architecture.md
-
-**Working on Cloud/Config** (`internal/db/**/*`, `internal/config/**/*`):
-- Cloud/Turso: @.claude/rules/database/cloud-turso.md
-
-**Working on CLI** (`internal/cli/**/*`):
-- CLI Patterns: @.claude/rules/cli/patterns.md
-
-**Working on CLI Commands** (`internal/cli/commands/**/*`):
-- CLI Commands: @.claude/rules/cli/commands.md
-
-**Working on Service Layer** (`internal/services/**/*`):
-- Service Design: @.claude/rules/services/service-design.md
-- CLI Integration: @.claude/rules/services/cli-integration.md
-- HTTP Integration: @.claude/rules/services/http-integration.md
-- Service Testing: @.claude/rules/services/testing.md
-- Migration Guide: @docs/guides/service-layer-migration.md
-
-**Writing Tests** (`**/*_test.go`):
-- Testing Architecture: @.claude/rules/testing/architecture.md
-- Repository Tests: @.claude/rules/testing/repository-tests.md (if in `internal/repository/**/*_test.go`)
-- CLI Tests: @.claude/rules/testing/cli-tests.md (if in `internal/cli/**/*_test.go`)
 
 ---
 
@@ -157,57 +79,6 @@ untouched. `shark admin init` only creates the database, `docs/plan/`, and
 > `shark admin install-shark-data`; it extracts the content bundle and rewrites
 > deprecated JSON targets to the installed bundle's workflow directory.
 
-Task lifecycle at a glance (default route-based task workflow):
-```
-draft → development → completed
-   ↘ blocked / on_hold (parking)   ↘ cancelled (terminal)
-```
-
-Commands:
-- `shark task next-status <task>` / `shark status advance <task>` — Advance to next workflow status
-- `shark status advance <task> --outcome <pass|fail|blocked>` — Release a semantic outcome (route-based)
-- `shark status set <task> <status>` / `shark task set-status <task> <status>` — Set status directly
-- `shark task approve <task>` — Final approval/completion
-- `shark task reopen <task>` — Move back to in-progress
-
-### Switching / customizing workflows
-
-Edit the per-entity YAML under `shark-data/workflow/` directly, or point
-`workflow_config` at your own directory or master index file. Files under
-`shark-data/overrides/` layer on top of the bundled defaults and are never
-overwritten by `shark admin install-shark-data` or `shark admin upgrade`.
-
-> The basic/advanced "profile" subsystem (`shark init update --workflow=...`,
-> `shark init merge ...`) was removed. Workflows are now edited directly under
-> `shark-data/workflow/`. See
-> [Workflow Configuration Guide](docs/guides/workflow-profiles.md) for the
-> migration table.
-
-### Route-Based Workflows (Shark 2.x — E35)
-
-A consolidated route-based workflow schema is supported alongside the legacy
-two-map shape. It merges `status_flow` + `status_metadata` into one per-step
-block (`steps:`), replaces the transition graph with a per-step `outcomes:` map
-(skills release a semantic `pass`/`fail`/`blocked` outcome and the engine
-routes), collapses `ready_for_X`/`in_X` into a phase + a claim/session lease,
-and supports a master index file mapping each entity to its workflow.
-
-Both shapes coexist: the loader derives the legacy maps from `steps:`, so every
-existing reader keeps working and the default shipped workflows remain on the
-legacy shape until explicitly switched. New CLI surface: `shark status advance
---outcome <name>`, `shark claim/release/heartbeat/claims`, and `shark admin
-migrate statuses` (gated). See
-[Route-Based Workflow Guide](docs/guides/route-based-workflow.md).
-
-### Project Root Auto-Detection
-
-Shark automatically finds the project root by walking up directories looking for:
-1. `.sharkconfig.json` (primary)
-2. `shark-tasks.db` (secondary)
-3. `.git/` (fallback)
-
-You can run shark commands from any subdirectory.
-
 ---
 
 ## Documentation References
@@ -221,23 +92,59 @@ You can run shark commands from any subdirectory.
 
 ---
 
-## Development Principles
+## Rule 1 — Think Before Coding
+State assumptions explicitly. If uncertain, ask rather than guess.
+Present multiple interpretations when ambiguity exists.
+Push back when a simpler approach exists.
+Stop when confused. Name what's unclear.
 
-See @.claude/rules/development-workflows.md for complete workflows.
+## Rule 2 — Simplicity First
+Minimum code that solves the problem. Nothing speculative.
+No features beyond what was asked. No abstractions for single-use code.
+Test: would a senior engineer say this is overcomplicated? If yes, simplify.
 
-**Task Creation**:
-1. Create feature: `shark feature create E07 "Feature Title"`
-2. Create tasks: `shark task create E07 F01 "Task Title"`
-3. Update task file with implementation details
-4. Link related docs in task frontmatter
+## Rule 3 — Surgical Changes
+Touch only what you must. Clean up only your own mess.
+Don't "improve" adjacent code, comments, or formatting.
+Don't refactor what isn't broken. Match existing style.
 
-**Testing**:
-- Only repository tests use real database
-- All other tests use mocks
-- Viewer HTML is covered by Go asset/API/service tests; do not add Playwright,
-  npm, or `node_modules` for viewer testing
-- See @.claude/rules/testing/architecture.md for details
+## Rule 4 — Goal-Driven Execution
+Define success criteria. Loop until verified.
+Don't follow steps. Define success and iterate.
+Strong success criteria let you loop independently.
 
-**Go Patterns**:
-- See @.claude/rules/go/patterns.md (auto-loaded for .go files)
-- Error handling, transactions, validation patterns
+## Rule 5 — Use the model only for judgment calls
+Use me for: classification, drafting, summarization, extraction.
+Do NOT use me for: routing, retries, deterministic transforms.
+If code can answer, code answers.
+
+## Rule 7 — Surface conflicts, don't average them
+If two patterns contradict, pick one (more recent / more tested).
+Explain why. Flag the other for cleanup.
+Don't blend conflicting patterns.
+
+## Rule 8 — Read before you write
+Before adding code, read exports, immediate callers, shared utilities.
+"Looks orthogonal" is dangerous. If unsure why code is structured a way, ask.
+
+## Rule 9 — Tests verify intent, not just behavior
+Tests must encode WHY behavior matters, not just WHAT it does.
+A test that can't fail when business logic changes is wrong.
+
+## Rule 10 — Checkpoint after every significant step
+Summarize what was done, what's verified, what's left.
+Don't continue from a state you can't describe back.
+If you lose track, stop and restate.
+
+## Rule 11 — Match the codebase's conventions, even if you disagree
+Conformance > taste inside the codebase.
+If you genuinely think a convention is harmful, surface it. Don't fork silently.
+
+## Rule 12 — Fail loud
+"Completed" is wrong if anything was skipped silently.
+"Tests pass" is wrong if any were skipped.
+Default to surfacing uncertainty, not hiding it.
+
+## Rule 13 - Research Agents
+Research agents don't need to run at Opus or Fable level. Launch with Sonnet of Haiku
+depending on the complexity of the task.

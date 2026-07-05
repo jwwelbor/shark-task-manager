@@ -131,6 +131,18 @@ type NextResponse struct {
 	// got skipped through. Empty when no cascade happened.
 	ResolvedVia []string `json:"resolved_via,omitempty"`
 
+	// UnresolvedPlaceholders lists the `<token>` names still present in
+	// Prompt after rendering (e.g. "<task_id>"). A non-empty list means the
+	// agent will receive literal placeholder text instead of real data —
+	// usually a missing variable in the placeholder map or an authoring bug
+	// in the template. Empty when the prompt fully rendered (BUG-3/4: this
+	// used to be stderr-only, which machine consumers had to parse out of an
+	// unstructured log line; it is now part of the stable JSON contract too.
+	// The stderr WARN line is still emitted unconditionally per E32-F07
+	// REQ-F-003 — this field doesn't replace it, it gives structured
+	// consumers the token identities without scraping stderr).
+	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
+
 	Error string `json:"error,omitempty"`
 }
 
@@ -154,7 +166,8 @@ Output JSON shape:
     "agent_type":   "<agent type if action=spawn_agent>",
     "provider":     "<provider>",
     "model":        "<model override>",
-    "prompt":       "<fully-rendered, skill-inlined prompt>"
+    "prompt":       "<fully-rendered, skill-inlined prompt>",
+    "unresolved_placeholders": ["<token>", ...]  // omitted when empty
   }
 
 Examples:
@@ -237,7 +250,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	// Record per-dispatch span attributes so traces capture the full
 	// dispatch decision for this entity step.
-	unresolvedCount := templates.CountUnrenderedTokens(resp.Prompt)
+	resp = annotateUnresolvedPlaceholders(resp)
 	span.SetAttributes(
 		attribute.String("entity_key", resp.EntityKey),
 		attribute.String("entity_type", resp.EntityType),
@@ -246,17 +259,10 @@ func runNext(cmd *cobra.Command, args []string) error {
 		attribute.String("agent_type", resp.AgentType),
 		attribute.String("model", resp.Model),
 		attribute.Int("prompt_bytes", len(resp.Prompt)),
-		attribute.Int("unresolved_placeholders", unresolvedCount),
+		attribute.Int("unresolved_placeholders", len(resp.UnresolvedPlaceholders)),
 		attribute.String("exit_status", "ok"),
 	)
-
-	// Warn operators when the rendered prompt still contains unfilled slots.
-	// A count > 0 means the agent will receive literal placeholder text
-	// instead of the real data value — usually indicates a missing variable
-	// in the placeholder map or an authoring bug in the template.
-	if unresolvedCount > 0 {
-		fmt.Fprintf(os.Stderr, "[shark-stats] WARN: %s has %d unresolved placeholders\n", resp.EntityKey, unresolvedCount)
-	}
+	warnUnresolvedPlaceholdersToStderr(resp)
 
 	return outputNextJSON(resp)
 }
@@ -604,6 +610,30 @@ func LoadAgentBodyForInline(root, agentType string) (string, bool) {
 		return "", false
 	}
 	return resolved, true
+}
+
+// annotateUnresolvedPlaceholders scans resp.Prompt for surviving `<token>`
+// placeholders and records their identities on resp.UnresolvedPlaceholders.
+// A non-empty result means the agent will receive literal placeholder text
+// instead of the real data value — usually a missing variable in the
+// placeholder map or an authoring bug in the template. This used to be
+// stderr-only (BUG-3/4); the JSON field is now a structured contract
+// alongside the still-unconditional stderr WARN (E32-F07 REQ-F-003).
+func annotateUnresolvedPlaceholders(resp NextResponse) NextResponse {
+	resp.UnresolvedPlaceholders = templates.UnrenderedTokens(resp.Prompt)
+	return resp
+}
+
+// warnUnresolvedPlaceholdersToStderr emits the "[shark-stats] WARN" line
+// unconditionally when resp.UnresolvedPlaceholders is non-empty, per E32-F07
+// REQ-F-003 ("so trial defects are impossible to miss" for operators/harnesses
+// watching stderr across many invocations without parsing every JSON response
+// body). This is a separate stream from the stdout JSON contract — it does
+// not affect --json consumers unless they explicitly merge 2>&1.
+func warnUnresolvedPlaceholdersToStderr(resp NextResponse) {
+	if len(resp.UnresolvedPlaceholders) > 0 {
+		fmt.Fprintf(os.Stderr, "[shark-stats] WARN: %s has %d unresolved placeholders\n", resp.EntityKey, len(resp.UnresolvedPlaceholders))
+	}
 }
 
 // outputNextJSON marshals the response. `shark next` always emits JSON to

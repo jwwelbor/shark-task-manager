@@ -15,7 +15,7 @@ shark create epic "Epic Title" --priority=5 --business-value=8
 
 ```bash
 shark create feature E01 "Feature Title"
-shark create feature E01 "Feature Title" --execution-order=1
+shark create feature E01 "Feature Title" --order=1
 ```
 
 ### Tasks
@@ -155,7 +155,7 @@ shark update B001 --title="New bug title"
 shark update CC-001 --title="New change title"
 
 # Entity-specific updates (legacy aliases — prefer verb-first syntax above)
-shark update E01-F02-001 --title="New" --priority=5 --execution-order=2
+shark update E01-F02-001 --title="New" --priority=5 --order=2
 shark update E01-F02 --title="New Feature Name"
 shark update E01 --title="New Epic Name"
 ```

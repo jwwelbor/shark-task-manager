@@ -187,7 +187,7 @@ READ:
 PRODUCE features via shark CLI:
 
 For each feature:
-(1) shark create feature E07-F01 "<title>" --execution-order=N --size=<1|2|3|5|8|13>
+(1) shark create feature E07-F01 "<title>" --order=N --size=<1|2|3|5|8|13>
 (2) Write a 1-paragraph description to the feature file (NOT a full PRD — that happens at feature level)
 
 REQUIRED: Every feature must carry a size. Pass --size=<1|2|3|5|8|13> (or XS|S|M|L|XL|XXL) on shark create feature E07-F01. Features sized 8/XL or 13/XXL must be split before decomposition completes.
@@ -220,6 +220,8 @@ Feature decomposition rules:
   named before exit, or an explicit deferred decision in docs/product/progress.md.
 
 CRITICAL: Feature descriptions are THIN — one paragraph. The feature workflow will handle PRD, architecture, and test planning at feature level. Do NOT front-load detail here.
+
+ANTI-FILLER RULE: if decomposition would yield zero features, or only a single filler feature invented to satisfy the "at least one feature" gate, do NOT create it. This epic was misclassified — determine the target type using the same signals as `epic/assessment.md`'s reclassification table (change-card/tech-debt/task/feature/idea as appropriate), then perform the reclassify-and-cancel procedure in `skills/assessment/workflows/reclassify-misfiled-entity.md`. If the reclassification target is unclear, `shark status set E07-F01 design --reason "Decomposition found no genuine features — needs reassessment"` instead, with a note explaining why.
 
 EXIT GATE:
 - All epic requirements covered by at least one feature

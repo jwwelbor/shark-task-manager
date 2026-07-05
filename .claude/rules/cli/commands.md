@@ -41,7 +41,7 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 - `shark task create <epic> <feature> "<title>" [--order=N] [--agent=TYPE] [--priority=N]`
 - `shark task get <key> [--json] [--field <name>]`
 - `shark task list [EPIC] [FEATURE] [--status=S] [--agent=TYPE] [--blocked] [--json]`
-- `shark task update <key> [--title=...] [--priority=N] [--execution-order=N]`
+- `shark task update <key> [--title=...] [--priority=N] [--order=N]`
 - `shark task delete <key>`
 
 **Lifecycle:**
@@ -71,7 +71,7 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 
 #### Feature Commands (13 subcommands)
 
-- `shark feature create <epic> "<title>" [--execution-order=N]`
+- `shark feature create <epic> "<title>" [--order=N]`
 - `shark feature get <key> [--json]`
 - `shark feature list [EPIC] [--json]`
 - `shark feature update <key> [--title=...]`

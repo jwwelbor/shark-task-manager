@@ -295,6 +295,10 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			// size_label` work for planning-mode epics and JSON is consistent
 			// across entity types.
 			ensureSizeFieldsAlwaysPresent(infoMap, epic)
+			// BUG-2: planning-mode JSON nests the epic under "epic", so
+			// promote key/title/status/description to the top level too, the
+			// same way aggregation mode already exposes them.
+			promoteEntityScalarFields(infoMap, epic)
 			return cli.OutputJSON(infoMap)
 		}
 		renderEpicPlanningWithTags(info, tags)

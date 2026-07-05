@@ -303,6 +303,10 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			// size_label` work for planning-mode features and JSON is consistent
 			// across entity types.
 			ensureSizeFieldsAlwaysPresent(infoMap, feature)
+			// BUG-2: planning-mode JSON nests the feature under "feature", so
+			// promote key/title/status/description to the top level too, the
+			// same way aggregation mode already exposes them.
+			promoteEntityScalarFields(infoMap, feature)
 			return cli.OutputJSON(infoMap)
 		}
 		renderFeaturePlanningWithTags(info, tags)

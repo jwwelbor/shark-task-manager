@@ -134,6 +134,11 @@ so they cannot be missed during a trial.
   of `<[a-zA-Z][a-zA-Z0-9_-]*>` matches in `resp.Prompt`), `exit_status`.
 - When `unresolved_placeholders > 0` also emit `[shark-stats] WARN:
   <entity_key> has N unresolved placeholders` to stderr.
+- The response JSON also carries the token identities as
+  `unresolved_placeholders: ["<token>", ...]` (omitted when empty) on
+  `NextResponse`, giving structured `--json` consumers the placeholder names
+  without scraping the stderr line. This is additive — it does not replace
+  the stderr WARN or the span attribute above.
 - Maps to task **T-E32-F07-003**.
 
 **REQ-F-004**: shark.advance span instrumentation
