@@ -16,13 +16,13 @@ import (
 // stderr.
 func captureStderrOutput(fn func()) string {
 	old := os.Stderr
+	defer func() { os.Stderr = old }()
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
 	fn()
 
 	w.Close()
-	os.Stderr = old
 
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)

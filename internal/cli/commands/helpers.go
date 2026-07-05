@@ -900,7 +900,7 @@ func ensureSizeFieldsAlwaysPresent(result map[string]interface{}, sizable interf
 // aggregation mode always including the key — omitting it entirely on a nil
 // description reintroduces the same 404 this function exists to fix.
 func promoteEntityScalarFields(infoMap map[string]interface{}, entity models.Entity) {
-	if entity == nil {
+	if infoMap == nil || entity == nil {
 		return
 	}
 	// A typed-nil concrete pointer (e.g. a nil *models.Epic) satisfies the

@@ -99,11 +99,29 @@ var inlineCodeRe = regexp.MustCompile("`[^`]*`")
 // code as documentation, and treating those as failures would force a
 // rewrite of every shipped agent file.
 func FirstUnrenderedToken(s string) (string, bool) {
-	tokens := UnrenderedTokens(s)
-	if len(tokens) == 0 {
+	scanned, ok := prepTokenScan(s)
+	if !ok {
 		return "", false
 	}
-	return tokens[0], true
+	match := agentBodyTokenRe.FindString(scanned)
+	return match, match != ""
+}
+
+// prepTokenScan applies the shared code-aware prep pass (fast-path check,
+// fenced-code-block stripping, inline-code-span stripping) used by
+// FirstUnrenderedToken and UnrenderedTokens before either runs its regex
+// match. Centralizing prep here — instead of each function repeating it —
+// keeps the two functions' definitions of "exposed token" in sync without
+// forcing FirstUnrenderedToken through UnrenderedTokens' full FindAllString
+// + dedup pass, which would do more work than a first-match lookup needs.
+// ok is false when the fast path rules out any token shape.
+func prepTokenScan(s string) (scanned string, ok bool) {
+	if !strings.ContainsRune(s, '<') {
+		return "", false
+	}
+	scanned = stripFencedCodeBlocks(s)
+	scanned = inlineCodeRe.ReplaceAllString(scanned, "")
+	return scanned, true
 }
 
 // CountUnrenderedTokens returns the number of `<token>` placeholders still
@@ -131,11 +149,10 @@ func CountUnrenderedTokens(s string) int {
 // unfilled, not just how many. A token referenced more than once in s (e.g.
 // "<task_id>" appearing twice) is reported once.
 func UnrenderedTokens(s string) []string {
-	if !strings.ContainsRune(s, '<') {
+	scanned, ok := prepTokenScan(s)
+	if !ok {
 		return nil
 	}
-	scanned := stripFencedCodeBlocks(s)
-	scanned = inlineCodeRe.ReplaceAllString(scanned, "")
 	matches := agentBodyTokenRe.FindAllString(scanned, -1)
 	if len(matches) == 0 {
 		return nil
