@@ -37,6 +37,12 @@ func normalizeWorkflowListLevel(raw string) (string, error) {
 		return level, nil
 	}
 
+	for _, level := range config.KnownWorkflowLevels {
+		if normalized == level {
+			return level, nil
+		}
+	}
+
 	return "", fmt.Errorf("invalid entity type %q: must be one of %s", raw, strings.Join(config.KnownWorkflowLevels, ", "))
 }
 

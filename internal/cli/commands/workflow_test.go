@@ -339,6 +339,22 @@ func TestWorkflowListCommandEntityFilterAliases(t *testing.T) {
 	}
 }
 
+func TestWorkflowListCommandEntityFilterAcceptsKnownLevelFallback(t *testing.T) {
+	originalLevels := config.KnownWorkflowLevels
+	config.KnownWorkflowLevels = append(append([]string{}, originalLevels...), "experiment")
+	t.Cleanup(func() {
+		config.KnownWorkflowLevels = originalLevels
+	})
+
+	got, err := normalizeWorkflowListLevel("experiment")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if got != "experiment" {
+		t.Fatalf("Expected fallback level %q, got %q", "experiment", got)
+	}
+}
+
 func TestWorkflowListCommandInvalidEntityFilter(t *testing.T) {
 	output, err := runWorkflowListForTest(t, `{"task_folder_base": "docs/plan"}`, false, false, "widget")
 	if err == nil {
