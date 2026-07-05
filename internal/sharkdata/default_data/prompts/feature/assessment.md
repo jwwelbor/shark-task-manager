@@ -23,10 +23,12 @@ FEATURE = multi-capability (3+ changes), requires design decisions, 4+ files, cr
 TASK = single atomic change, applies existing patterns, 1-3 files.
 
 IF MISCLASSIFIED AS FEATURE (actually a task):
-(1) Find or create enhancement feature: {{template "list_epic" .}} | grep -i enhance
-(2) Convert: shark create task <enhancement-feature> "{{.title}}"
-(3) Cancel: shark status set {{.id}} cancelled --reason "Converted to task under enhancement feature"
-(4) STOP.
+
+This feature already has a natural container — find or create an enhancement feature under its own parent epic: {{template "list_epic" .}} | grep -i enhance. Target type is Task.
+
+{{include: skills/assessment/workflows/reclassify-misfiled-entity.md}}
+
+STOP once reclassified.
 
 ## Step 2: Complexity Triage
 

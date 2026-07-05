@@ -136,8 +136,11 @@ type NextResponse struct {
 	// agent will receive literal placeholder text instead of real data —
 	// usually a missing variable in the placeholder map or an authoring bug
 	// in the template. Empty when the prompt fully rendered (BUG-3/4: this
-	// used to be a stderr-only warning that corrupted --json consumers
-	// piping stdout; it is now part of the stable JSON contract instead).
+	// used to be stderr-only, which machine consumers had to parse out of an
+	// unstructured log line; it is now part of the stable JSON contract too.
+	// The stderr WARN line is still emitted unconditionally per E32-F07
+	// REQ-F-003 — this field doesn't replace it, it gives structured
+	// consumers the token identities without scraping stderr).
 	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
 
 	Error string `json:"error,omitempty"`
@@ -247,7 +250,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	// Record per-dispatch span attributes so traces capture the full
 	// dispatch decision for this entity step.
-	resp, unresolvedTokens := annotateUnresolvedPlaceholders(resp)
+	resp = annotateUnresolvedPlaceholders(resp)
 	span.SetAttributes(
 		attribute.String("entity_key", resp.EntityKey),
 		attribute.String("entity_type", resp.EntityType),
@@ -256,9 +259,10 @@ func runNext(cmd *cobra.Command, args []string) error {
 		attribute.String("agent_type", resp.AgentType),
 		attribute.String("model", resp.Model),
 		attribute.Int("prompt_bytes", len(resp.Prompt)),
-		attribute.Int("unresolved_placeholders", len(unresolvedTokens)),
+		attribute.Int("unresolved_placeholders", len(resp.UnresolvedPlaceholders)),
 		attribute.String("exit_status", "ok"),
 	)
+	warnUnresolvedPlaceholdersToStderr(resp)
 
 	return outputNextJSON(resp)
 }
@@ -609,18 +613,27 @@ func LoadAgentBodyForInline(root, agentType string) (string, bool) {
 }
 
 // annotateUnresolvedPlaceholders scans resp.Prompt for surviving `<token>`
-// placeholders and records their identities on resp.UnresolvedPlaceholders,
-// returning both the annotated response and the token list (the latter is
-// used for the span attribute count). A count > 0 means the agent will
-// receive literal placeholder text instead of the real data value — usually
-// a missing variable in the placeholder map or an authoring bug in the
-// template. This used to be a stderr-only "[shark-stats] WARN" line, which
-// corrupted `--json` consumers piping stdout (BUG-3/4); it is now part of
-// the stable JSON contract instead.
-func annotateUnresolvedPlaceholders(resp NextResponse) (NextResponse, []string) {
-	tokens := templates.UnrenderedTokens(resp.Prompt)
-	resp.UnresolvedPlaceholders = tokens
-	return resp, tokens
+// placeholders and records their identities on resp.UnresolvedPlaceholders.
+// A non-empty result means the agent will receive literal placeholder text
+// instead of the real data value — usually a missing variable in the
+// placeholder map or an authoring bug in the template. This used to be
+// stderr-only (BUG-3/4); the JSON field is now a structured contract
+// alongside the still-unconditional stderr WARN (E32-F07 REQ-F-003).
+func annotateUnresolvedPlaceholders(resp NextResponse) NextResponse {
+	resp.UnresolvedPlaceholders = templates.UnrenderedTokens(resp.Prompt)
+	return resp
+}
+
+// warnUnresolvedPlaceholdersToStderr emits the "[shark-stats] WARN" line
+// unconditionally when resp.UnresolvedPlaceholders is non-empty, per E32-F07
+// REQ-F-003 ("so trial defects are impossible to miss" for operators/harnesses
+// watching stderr across many invocations without parsing every JSON response
+// body). This is a separate stream from the stdout JSON contract — it does
+// not affect --json consumers unless they explicitly merge 2>&1.
+func warnUnresolvedPlaceholdersToStderr(resp NextResponse) {
+	if len(resp.UnresolvedPlaceholders) > 0 {
+		fmt.Fprintf(os.Stderr, "[shark-stats] WARN: %s has %d unresolved placeholders\n", resp.EntityKey, len(resp.UnresolvedPlaceholders))
+	}
 }
 
 // outputNextJSON marshals the response. `shark next` always emits JSON to

@@ -93,7 +93,7 @@ func TestEpicPlanningModeJSON_ScalarFieldsAtTopLevel(t *testing.T) {
 	}
 }
 
-func TestEpicPlanningModeJSON_DescriptionOmittedWhenNil(t *testing.T) {
+func TestEpicPlanningModeJSON_DescriptionEmptyStringWhenNil(t *testing.T) {
 	epic := &models.Epic{
 		BaseEntity: models.BaseEntity{ID: 2, Key: "E43", Title: "No Description Epic"},
 		Status:     models.EpicStatus("draft"),
@@ -106,8 +106,14 @@ func TestEpicPlanningModeJSON_DescriptionOmittedWhenNil(t *testing.T) {
 
 	result := simulateEpicPlanningModeScalarJSON(t, info, epic)
 
-	if _, ok := result["description"]; ok {
-		t.Errorf("expected top-level 'description' to be absent when Description is nil, got %v", result["description"])
+	// The key must still be present (as "") so `--field description` resolves
+	// instead of 404ing — omitting the key entirely reintroduces BUG-2.
+	got, ok := result["description"]
+	if !ok {
+		t.Fatal("expected top-level 'description' key to be present (as \"\") when Description is nil")
+	}
+	if got != "" {
+		t.Errorf("expected top-level description=\"\", got %v", got)
 	}
 }
 
@@ -147,7 +153,7 @@ func TestFeaturePlanningModeJSON_ScalarFieldsAtTopLevel(t *testing.T) {
 	}
 }
 
-func TestFeaturePlanningModeJSON_DescriptionOmittedWhenNil(t *testing.T) {
+func TestFeaturePlanningModeJSON_DescriptionEmptyStringWhenNil(t *testing.T) {
 	feature := &models.Feature{
 		BaseEntity: models.BaseEntity{ID: 2, Key: "E42-F02", Title: "No Description Feature"},
 		Status:     models.FeatureStatus("draft"),
@@ -160,19 +166,36 @@ func TestFeaturePlanningModeJSON_DescriptionOmittedWhenNil(t *testing.T) {
 
 	result := simulateFeaturePlanningModeScalarJSON(t, info, feature)
 
-	if _, ok := result["description"]; ok {
-		t.Errorf("expected top-level 'description' to be absent when Description is nil, got %v", result["description"])
+	got, ok := result["description"]
+	if !ok {
+		t.Fatal("expected top-level 'description' key to be present (as \"\") when Description is nil")
+	}
+	if got != "" {
+		t.Errorf("expected top-level description=\"\", got %v", got)
 	}
 }
 
-// TestPromoteEntityScalarFields_NilEntityIsNoop guards against a nil entity
-// (e.g. a future caller passing a typed-nil pointer) causing a nil-pointer
-// panic inside a JSON-output hot path.
+// TestPromoteEntityScalarFields_NilEntityIsNoop guards against a nil
+// interface value causing a nil-pointer panic inside a JSON-output hot path.
 func TestPromoteEntityScalarFields_NilEntityIsNoop(t *testing.T) {
 	result := map[string]interface{}{"existing": "value"}
 	promoteEntityScalarFields(result, nil)
 
 	if len(result) != 1 {
 		t.Errorf("expected promoteEntityScalarFields(nil) to be a no-op, got %v", result)
+	}
+}
+
+// TestPromoteEntityScalarFields_TypedNilEntityIsNoop guards against a typed-nil
+// concrete pointer (e.g. `var epic *models.Epic`), which satisfies the
+// models.Entity interface without being == nil — a plain `entity == nil`
+// check does not catch this case and would panic on GetKey().
+func TestPromoteEntityScalarFields_TypedNilEntityIsNoop(t *testing.T) {
+	result := map[string]interface{}{"existing": "value"}
+	var epic *models.Epic
+	promoteEntityScalarFields(result, epic)
+
+	if len(result) != 1 {
+		t.Errorf("expected promoteEntityScalarFields(typed-nil) to be a no-op, got %v", result)
 	}
 }

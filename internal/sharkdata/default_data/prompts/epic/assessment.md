@@ -36,29 +36,14 @@ Classify using the same signals as `/triage`, scoped to the EPIC-vs-lighter-enti
 | Single multi-step capability, no second feature or architecture decision needed | **Feature** (under a related epic) |
 | Speculative / future concept not yet committed | **Idea** |
 
-Copy the epic's description verbatim into the replacement entity's description, and cross-reference both directions with notes (old epic key <-> new entity key) so history is traceable.
+An epic has no natural existing container, so **Feature** and **Task** targets need a container chosen first:
 
-### Change Card / Tech Debt / Idea
+- **Feature**: choose a clearly related, non-cancelled parent epic for this capability: `shark list`. If no safe parent exists, add a note explaining why, then `shark status set {{.id}} on_hold --reason "Reclassified as feature; needs human parent-epic selection"` and STOP — do NOT create the feature under the epic being cancelled.
+- **Task**: choose a parent epic, then find or create an enhancement feature under that parent: `shark list <parent-epic>` | grep -i enhance. If no safe parent exists, add a note explaining why, then `shark status set {{.id}} on_hold --reason "Reclassified as task; needs human parent-epic selection"` and STOP — do NOT create the task under the epic being cancelled.
 
-(1) Create the replacement directly:
-    - `shark create change "<title>" --description="<copied description>"`
-    - `shark create tech-debt "<title>" --category=<code-quality|architecture|dependency|testing|performance|documentation> --description="<copied description>"`
-    - `shark create idea "<title>" --description="<copied description>"`
-(2) Cross-reference: `{{template "create_note" .}} --content="Reclassified as <new-key>: <new-key title>" --type=decision`, then `shark create note <new-key> "Reclassified from epic {{.id}}: {{.title}}" --type=reference`.
-(3) Cancel: `shark status set {{.id}} cancelled --reason "Reclassified as <new-key>"`.
-(4) STOP.
+Once the target type (and container, for Feature/Task) is determined:
 
-### Feature
-
-(1) Choose a clearly related, non-cancelled parent epic for this capability: `shark list`.
-(2) If no safe parent exists: add a note explaining why, then `shark status set {{.id}} on_hold --reason "Reclassified as feature; needs human parent-epic selection"`. Do NOT create the feature under the epic being cancelled. STOP.
-(3) If a safe parent exists: `shark create feature <parent-epic> "<title>"`, copy the description, cross-reference notes both ways (as above), then `shark status set {{.id}} cancelled --reason "Reclassified as <new-key>"`. STOP.
-
-### Task
-
-(1) Choose a parent epic, then find or create an enhancement feature under that parent: `shark list <parent-epic>` | grep -i enhance.
-(2) If no safe parent exists: add a note explaining why, then `shark status set {{.id}} on_hold --reason "Reclassified as task; needs human parent-epic selection"`. Do NOT create the task under the epic being cancelled. STOP.
-(3) If a safe parent and enhancement feature exist: `shark create task <enhancement-feature> "<title>"`, copy the description, cross-reference notes both ways (as above), then `shark status set {{.id}} cancelled --reason "Reclassified as <new-key>"`. STOP.
+{{include: skills/assessment/workflows/reclassify-misfiled-entity.md}}
 
 ## Step 3: Route
 

@@ -99,14 +99,11 @@ var inlineCodeRe = regexp.MustCompile("`[^`]*`")
 // code as documentation, and treating those as failures would force a
 // rewrite of every shipped agent file.
 func FirstUnrenderedToken(s string) (string, bool) {
-	// Fast path: no '<' anywhere means no token shape possible.
-	if !strings.ContainsRune(s, '<') {
+	tokens := UnrenderedTokens(s)
+	if len(tokens) == 0 {
 		return "", false
 	}
-	scanned := stripFencedCodeBlocks(s)
-	scanned = inlineCodeRe.ReplaceAllString(scanned, "")
-	match := agentBodyTokenRe.FindString(scanned)
-	return match, match != ""
+	return tokens[0], true
 }
 
 // CountUnrenderedTokens returns the number of `<token>` placeholders still
@@ -124,20 +121,35 @@ func CountUnrenderedTokens(s string) int {
 	return len(UnrenderedTokens(s))
 }
 
-// UnrenderedTokens returns every surviving `<token>` placeholder in s, using
-// the same code-aware scan as FirstUnrenderedToken and CountUnrenderedTokens:
-// tokens inside fenced code blocks (``` … ```) or inline code spans (` … `)
-// are skipped. This is the canonical source for the shark.next
-// "unresolved_placeholders" response field — unlike CountUnrenderedTokens, it
-// preserves the token identities (e.g. "<task_id>") so callers can report
-// which placeholders are still unfilled, not just how many.
+// UnrenderedTokens returns every distinct surviving `<token>` placeholder in
+// s, in order of first appearance, using the same code-aware scan as
+// FirstUnrenderedToken and CountUnrenderedTokens: tokens inside fenced code
+// blocks (``` … ```) or inline code spans (` … `) are skipped. This is the
+// canonical source for the shark.next "unresolved_placeholders" response
+// field — unlike CountUnrenderedTokens, it preserves the token identities
+// (e.g. "<task_id>") so callers can report which placeholders are still
+// unfilled, not just how many. A token referenced more than once in s (e.g.
+// "<task_id>" appearing twice) is reported once.
 func UnrenderedTokens(s string) []string {
 	if !strings.ContainsRune(s, '<') {
 		return nil
 	}
 	scanned := stripFencedCodeBlocks(s)
 	scanned = inlineCodeRe.ReplaceAllString(scanned, "")
-	return agentBodyTokenRe.FindAllString(scanned, -1)
+	matches := agentBodyTokenRe.FindAllString(scanned, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(matches))
+	tokens := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		tokens = append(tokens, m)
+	}
+	return tokens
 }
 
 // stripFencedCodeBlocks returns s with all triple-backtick fenced code

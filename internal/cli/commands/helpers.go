@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -887,34 +888,31 @@ func ensureSizeFieldsAlwaysPresent(result map[string]interface{}, sizable interf
 }
 
 // promoteEntityScalarFields copies an entity's key, title, status, and
-// (when set) description to the top level of infoMap. Aggregation-mode JSON
-// already exposes these as top-level scalars, but planning-mode JSON nests
-// the entity under "epic"/"feature" (EpicDisplayInfo.Epic /
-// FeatureDisplayInfo.Feature), so `--field status` / `--field title` /
-// `--field description` 404 for planning-mode entities even though they
-// resolve fine in aggregation mode (BUG-2). Mirrors the
-// ensureSizeFieldsAlwaysPresent helper's "always inject at top level" pattern.
+// description to the top level of infoMap. Aggregation-mode JSON already
+// exposes these as top-level scalars, but planning-mode JSON nests the
+// entity under "epic"/"feature" (EpicDisplayInfo.Epic / FeatureDisplayInfo.
+// Feature), so `--field status` / `--field title` / `--field description`
+// 404 for planning-mode entities even though they resolve fine in
+// aggregation mode (BUG-2). Mirrors the ensureSizeFieldsAlwaysPresent
+// helper's "always inject at top level" pattern.
 //
-// entity must be *models.Epic or *models.Feature (the two planning-mode
-// callers); any other type is a no-op.
+// The "description" key is always set (as "" when unset), matching
+// aggregation mode always including the key — omitting it entirely on a nil
+// description reintroduces the same 404 this function exists to fix.
 func promoteEntityScalarFields(infoMap map[string]interface{}, entity models.Entity) {
 	if entity == nil {
+		return
+	}
+	// A typed-nil concrete pointer (e.g. a nil *models.Epic) satisfies the
+	// Entity interface without being == nil, so guard against it explicitly
+	// rather than panicking on GetKey().
+	if v := reflect.ValueOf(entity); v.Kind() == reflect.Ptr && v.IsNil() {
 		return
 	}
 	infoMap["key"] = entity.GetKey()
 	infoMap["title"] = entity.GetTitle()
 	infoMap["status"] = entity.GetStatus()
-
-	var description *string
-	switch e := entity.(type) {
-	case *models.Epic:
-		description = e.Description
-	case *models.Feature:
-		description = e.Description
-	}
-	if description != nil {
-		infoMap["description"] = *description
-	}
+	infoMap["description"] = entity.GetDescription()
 }
 
 // buildEnrichedJSON converts an entity struct to a map[string]interface{} and adds
