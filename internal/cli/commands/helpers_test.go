@@ -995,6 +995,64 @@ func TestDetectEntityTypeEdgeCases(t *testing.T) {
 	}
 }
 
+// TestNormalizeEntityTypeForWorkflow covers B034: DetectEntityType/ParseScope
+// produce "change_card" for CC-### keys, but the workflow-loading subsystem
+// (internal/config/workflow index/multilevel/aliases) only ever registers a
+// "change" slot. Any call site that narrows an action.ActionService via
+// ForEntity(entityType) — or otherwise keys into the per-entity workflow
+// config — must translate "change_card" to "change" first, or every status
+// lookup misses unconditionally. All other entity type strings must pass
+// through unchanged.
+func TestNormalizeEntityTypeForWorkflow(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"change_card normalizes to change", "change_card", "change"},
+		{"change passes through unchanged", "change", "change"},
+		{"task passes through unchanged", "task", "task"},
+		{"feature passes through unchanged", "feature", "feature"},
+		{"epic passes through unchanged", "epic", "epic"},
+		{"bug passes through unchanged", "bug", "bug"},
+		{"tech_debt passes through unchanged", "tech_debt", "tech_debt"},
+		{"idea passes through unchanged", "idea", "idea"},
+		{"sprint passes through unchanged", "sprint", "sprint"},
+		{"unknown passes through unchanged", "unknown", "unknown"},
+		{"empty string passes through unchanged", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeEntityTypeForWorkflow(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeEntityTypeForWorkflow(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestNarrowActionServiceForEntity_NormalizesChangeCardEntityType is the
+// single shared regression test for narrowActionServiceForEntity — the seam
+// both next.go's adapter cache (cache.get) and run.go's runRun call to
+// narrow the root action service. Neither call site inlines its own
+// ForEntity/normalize pair anymore, so testing this one function covers
+// both: `git grep -n "ForEntity("` in this package shows next.go and run.go
+// each call narrowActionServiceForEntity exactly once and never call
+// ForEntity directly.
+func TestNarrowActionServiceForEntity_NormalizesChangeCardEntityType(t *testing.T) {
+	actionSvc := newCountingActionService()
+
+	_ = narrowActionServiceForEntity(actionSvc.MockActionService, "change_card")
+
+	if actionSvc.forEntityCounts["change"] != 1 {
+		t.Errorf("expected ForEntity(\"change\") to be called once, got %d", actionSvc.forEntityCounts["change"])
+	}
+	if actionSvc.forEntityCounts["change_card"] != 0 {
+		t.Errorf("action service must never be narrowed against the unregistered \"change_card\" key, got %d calls", actionSvc.forEntityCounts["change_card"])
+	}
+}
+
 // BenchmarkDetectEntityType benchmarks the DetectEntityType function.
 // Bug (B###) and change (C###) cases are included to verify no >5% regression
 // from the E18-F06 key detection extension (F06-REQ-NF-003).

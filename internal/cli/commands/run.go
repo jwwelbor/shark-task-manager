@@ -121,7 +121,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
-	actionSvc := actionSvcRoot.ForEntity(entityType)
+	actionSvc := narrowActionServiceForEntity(actionSvcRoot, entityType)
 
 	workflowSvc := cli.GetWorkflowService()
 

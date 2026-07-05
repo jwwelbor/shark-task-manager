@@ -85,7 +85,7 @@ func (c *nextAdapterCache) get(ctx context.Context, entityType string) (*nextAda
 	a := &nextAdapters{
 		transitioner: transitioner,
 		generator:    nextBuildPlaceholderGenerator(ctx, entityType),
-		actionSvc:    c.actionSvcRoot.ForEntity(entityType),
+		actionSvc:    narrowActionServiceForEntity(c.actionSvcRoot, entityType),
 	}
 	c.entries[entityType] = a
 	return a, nil
@@ -661,7 +661,9 @@ func isArchivedStatus(entityType, status string) bool {
 	}
 	wf := cli.GetWorkflowService()
 	if entityType != "" {
-		wf = wf.ForLevel(entityType)
+		// B034: narrow against the normalized type or change-cards silently
+		// fall back to the task workflow's terminal-status set.
+		wf = wf.ForLevel(normalizeEntityTypeForWorkflow(entityType))
 	}
 	return wf.IsTerminalStatus(status)
 }
