@@ -906,7 +906,7 @@ func promoteEntityScalarFields(infoMap map[string]interface{}, entity models.Ent
 	// A typed-nil concrete pointer (e.g. a nil *models.Epic) satisfies the
 	// Entity interface without being == nil, so guard against it explicitly
 	// rather than panicking on GetKey().
-	if v := reflect.ValueOf(entity); v.Kind() == reflect.Ptr && v.IsNil() {
+	if v := reflect.ValueOf(entity); v.Kind() == reflect.Pointer && v.IsNil() {
 		return
 	}
 	infoMap["key"] = entity.GetKey()
