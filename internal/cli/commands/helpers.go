@@ -830,6 +830,24 @@ func DetectEntityType(key string) string {
 	return "unknown"
 }
 
+// normalizeEntityTypeForWorkflow maps a raw CLI/DB entity-type string (as
+// produced by DetectEntityType/ParseScope for CC-### keys) onto the entity
+// key registered by the workflow-loading subsystem (internal/config/workflow
+// index/multilevel/aliases). Only "change_card" needs translation today: the
+// workflow loader only ever registers a "change" slot, never "change_card".
+//
+// This mirrors the "ADR-1: change_card -> change" normalization already
+// applied at status_group.go and history.go. Call sites that narrow an
+// action.ActionService via ForEntity(entityType), or otherwise key into the
+// per-entity workflow config, must apply this first or the lookup misses
+// unconditionally for every change-card status (B034).
+func normalizeEntityTypeForWorkflow(entityType string) string {
+	if entityType == "change_card" {
+		return "change"
+	}
+	return entityType
+}
+
 // applySizeLabelToMap injects "size_label" into a JSON map when the entity carries a
 // non-nil Size field. This satisfies E07-F42 REQ-F-007 ("--field size_label" must be
 // a separately extractable field) for all six entity types.

@@ -995,6 +995,40 @@ func TestDetectEntityTypeEdgeCases(t *testing.T) {
 	}
 }
 
+// TestNormalizeEntityTypeForWorkflow covers B034: DetectEntityType/ParseScope
+// produce "change_card" for CC-### keys, but the workflow-loading subsystem
+// (internal/config/workflow index/multilevel/aliases) only ever registers a
+// "change" slot. Any call site that narrows an action.ActionService via
+// ForEntity(entityType) — or otherwise keys into the per-entity workflow
+// config — must translate "change_card" to "change" first, or every status
+// lookup misses unconditionally. All other entity type strings must pass
+// through unchanged.
+func TestNormalizeEntityTypeForWorkflow(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"change_card normalizes to change", "change_card", "change"},
+		{"change passes through unchanged", "change", "change"},
+		{"task passes through unchanged", "task", "task"},
+		{"feature passes through unchanged", "feature", "feature"},
+		{"epic passes through unchanged", "epic", "epic"},
+		{"bug passes through unchanged", "bug", "bug"},
+		{"tech_debt passes through unchanged", "tech_debt", "tech_debt"},
+		{"empty string passes through unchanged", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeEntityTypeForWorkflow(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeEntityTypeForWorkflow(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 // BenchmarkDetectEntityType benchmarks the DetectEntityType function.
 // Bug (B###) and change (C###) cases are included to verify no >5% regression
 // from the E18-F06 key detection extension (F06-REQ-NF-003).
