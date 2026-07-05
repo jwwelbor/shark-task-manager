@@ -39,14 +39,15 @@ type ChangeCardRepository interface {
 
 // ChangeCardService provides business logic for change-card operations.
 type ChangeCardService struct {
-	repo        ChangeCardRepository
-	workflowSvc *workflow.Service
-	entitySvc   *EntityService
-	entityRepo  EntityRepository
-	epicRepo    EpicRepository
-	featureRepo FeatureRepository
-	projectRoot string
-	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	repo          ChangeCardRepository
+	workflowSvc   *workflow.Service
+	entitySvc     *EntityService
+	entityRepo    EntityRepository
+	epicRepo      EpicRepository
+	featureRepo   FeatureRepository
+	projectRoot   string
+	docSvc        *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	searchIndexer SearchIndexer
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
@@ -59,6 +60,11 @@ type ChangeCardService struct {
 // hooks in CreateChangeCard and UpdateChangeCard are skipped silently.
 func (s *ChangeCardService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
+}
+
+// SetSearchIndexer wires the optional search indexer used after change-card writes.
+func (s *ChangeCardService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
@@ -188,6 +194,9 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	}
 
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, input.Tags); err != nil {
+		return nil, false, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeChange, card.ID); err != nil {
 		return nil, false, err
 	}
 
@@ -368,6 +377,9 @@ func (s *ChangeCardService) UpdateChangeCard(ctx context.Context, key string, up
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, updates.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeChange, card.ID); err != nil {
+		return nil, err
+	}
 
 	return card, nil
 }
@@ -381,6 +393,9 @@ func (s *ChangeCardService) DeleteChangeCard(ctx context.Context, key string) er
 
 	if err := s.repo.Delete(ctx, card.ID); err != nil {
 		return fmt.Errorf("failed to delete change-card %s: %w", key, err)
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeChange, card.ID); err != nil {
+		return err
 	}
 
 	// Best-effort file deletion
@@ -397,11 +412,18 @@ func (s *ChangeCardService) DeleteChangeCard(ctx context.Context, key string) er
 // TransitionStatus transitions a change-card to a specific status with workflow validation.
 // Delegates to EntityService.TransitionStatus for shared transition logic.
 func (s *ChangeCardService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	return s.entitySvc.TransitionStatus(
+	result, err := s.entitySvc.TransitionStatus(
 		ctx, s.entityRepo, models.EntityTypeChange, key, targetStatus, opts,
 		SimpleTransitionFeatures(),
 		s.makeResolveActionFn(),
 	)
+	if err != nil {
+		return nil, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeChange, result.EntityID); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // GetNextStatus returns the available transitions for the current status of a change-card.

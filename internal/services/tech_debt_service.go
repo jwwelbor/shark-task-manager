@@ -32,12 +32,13 @@ type TechDebtRepository interface {
 
 // TechDebtService provides business logic for tech-debt operations.
 type TechDebtService struct {
-	repo        TechDebtRepository
-	workflowSvc *workflow.Service
-	entitySvc   *EntityService
-	entityRepo  EntityRepository
-	projectRoot string
-	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	repo          TechDebtRepository
+	workflowSvc   *workflow.Service
+	entitySvc     *EntityService
+	entityRepo    EntityRepository
+	projectRoot   string
+	docSvc        *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	searchIndexer SearchIndexer
 	// tagSvc is optional — nil disables tag integration on create/update.
 	// Mirrors the bug/change-card pattern (E28-F04).
 	tagSvc TagQuerier
@@ -51,6 +52,11 @@ type TechDebtService struct {
 // accepts nil Size silently.
 func (s *TechDebtService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
 	s.sizeCfg = cfg
+}
+
+// SetSearchIndexer wires the optional search indexer used after tech-debt writes.
+func (s *TechDebtService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
 }
 
 // NewTechDebtService creates a new TechDebtService with injected dependencies.
@@ -154,6 +160,9 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 	// transaction — on failure the row is persisted with zero tags and
 	// the user retries via `shark td update --tag=...`.
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTechDebt, td.ID, input.Tags); err != nil {
+		return nil, false, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTechDebt, td.ID); err != nil {
 		return nil, false, err
 	}
 
@@ -285,6 +294,9 @@ func (s *TechDebtService) UpdateTechDebt(ctx context.Context, key string, update
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTechDebt, td.ID, updates.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTechDebt, td.ID); err != nil {
+		return nil, err
+	}
 
 	return td, nil
 }
@@ -298,6 +310,9 @@ func (s *TechDebtService) DeleteTechDebt(ctx context.Context, key string) error 
 
 	if err := s.repo.Delete(ctx, td.ID); err != nil {
 		return fmt.Errorf("failed to delete tech-debt %s: %w", key, err)
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeTechDebt, td.ID); err != nil {
+		return err
 	}
 
 	return nil
@@ -323,11 +338,18 @@ func (s *TechDebtService) ListTechDebts(ctx context.Context, filters TechDebtFil
 // TransitionStatus transitions a tech-debt item to a specific status with workflow validation.
 // Delegates to EntityService.TransitionStatus for shared transition logic.
 func (s *TechDebtService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	return s.entitySvc.TransitionStatus(
+	result, err := s.entitySvc.TransitionStatus(
 		ctx, s.entityRepo, models.EntityTypeTechDebt, key, targetStatus, opts,
 		SimpleTransitionFeatures(),
 		s.makeResolveActionFn(),
 	)
+	if err != nil {
+		return nil, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTechDebt, result.EntityID); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // GetNextStatus returns the available transitions for the current status of a tech-debt item.
@@ -388,6 +410,9 @@ func (s *TechDebtService) TriageTechDebt(ctx context.Context, key string, input 
 
 	if err := s.repo.Update(ctx, td); err != nil {
 		return nil, fmt.Errorf("failed to triage tech-debt %s: %w", key, err)
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeTechDebt, td.ID); err != nil {
+		return nil, err
 	}
 
 	return td, nil

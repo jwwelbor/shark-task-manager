@@ -483,8 +483,68 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 23, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 23 (E19-F08 drop idx_sprints_active_one, after E19-F07)")
+	assert.Equal(t, 24, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 24 (E07-F43 unified search index, after E19-F08)")
+}
+
+func TestMigration_ApplySchemaIfNeeded_UpgradesV23SearchIndex(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	database, err := InitDB(dbPath)
+	require.NoError(t, err, "initial migration failed")
+	defer database.Close()
+
+	_, err = database.Exec(`
+		INSERT INTO epics (key, title, description, status, priority)
+		VALUES ('E99', 'Preexisting searchable epic', 'migration backfill sentinel', 'active', 'high')
+	`)
+	require.NoError(t, err)
+	_, err = database.Exec(`DROP TABLE IF EXISTS entity_search_fts`)
+	require.NoError(t, err)
+	_, err = database.Exec(`
+		CREATE VIRTUAL TABLE task_search_fts USING fts5(
+			task_id UNINDEXED,
+			key UNINDEXED,
+			title,
+			description
+		)
+	`)
+	require.NoError(t, err)
+	_, err = database.Exec(`DELETE FROM schema_version`)
+	require.NoError(t, err)
+	err = setSchemaVersion(database, 23)
+	require.NoError(t, err)
+
+	applied, err := ApplySchemaIfNeeded(database)
+	require.NoError(t, err)
+	assert.True(t, applied, "version 23 database should run the E07-F43 migration")
+
+	var unifiedCount int
+	err = database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'table' AND name = 'entity_search_fts'
+	`).Scan(&unifiedCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, unifiedCount, "entity_search_fts should exist after upgrade")
+
+	var legacyCount int
+	err = database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'table' AND name = 'task_search_fts'
+	`).Scan(&legacyCount)
+	require.NoError(t, err)
+	assert.Equal(t, 0, legacyCount, "legacy task_search_fts should be removed")
+
+	var indexedRows int
+	err = database.QueryRow(`
+		SELECT COUNT(*)
+		FROM entity_search_fts
+		WHERE entity_type = 'epic' AND key = 'E99'
+		  AND entity_search_fts MATCH '"backfill"'
+	`).Scan(&indexedRows)
+	require.NoError(t, err)
+	assert.Equal(t, 1, indexedRows, "preexisting entity rows should be backfilled during upgrade")
 }
 
 // ---------------------------------------------------------------------------

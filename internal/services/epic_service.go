@@ -81,6 +81,7 @@ type EpicService struct {
 	analyticsService *EpicAnalyticsService  // optional; lazy-initialized if nil
 	enrichRepo       config.TemplateEnrichmentRepository
 	tracer           trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
+	searchIndexer    SearchIndexer
 
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
@@ -175,6 +176,11 @@ func (s *EpicService) SetTagService(tagSvc TagQuerier) {
 	s.tagSvc = tagSvc
 }
 
+// SetSearchIndexer wires the optional search indexer used after epic writes.
+func (s *EpicService) SetSearchIndexer(indexer SearchIndexer) {
+	s.searchIndexer = indexer
+}
+
 // SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
 // when the config does not list "epic" in SizeRequiredFor, CreateEpic accepts
 // nil Size silently.
@@ -245,6 +251,9 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 		if listErr == nil {
 			result.ChildCount = len(features)
 		}
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeEpic, result.EntityID); err != nil {
+		return nil, recordSpanError(span, err)
 	}
 
 	return result, nil
@@ -556,6 +565,9 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeEpic, epic.ID, input.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeEpic, epic.ID); err != nil {
+		return nil, err
+	}
 
 	return epic, nil
 }
@@ -623,6 +635,9 @@ func (s *EpicService) UpdateEpic(ctx context.Context, key string, updates EpicUp
 	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeEpic, epic.ID, updates.Tags); err != nil {
 		return nil, err
 	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeEpic, epic.ID); err != nil {
+		return nil, err
+	}
 
 	return epic, nil
 }
@@ -645,6 +660,9 @@ func (s *EpicService) DeleteEpic(ctx context.Context, key string) error {
 
 	if err := s.repo.Delete(ctx, epic.ID); err != nil {
 		return fmt.Errorf("failed to delete epic %s: %w", key, err)
+	}
+	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeEpic, epic.ID); err != nil {
+		return err
 	}
 
 	return nil
