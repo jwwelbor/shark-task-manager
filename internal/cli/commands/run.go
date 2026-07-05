@@ -121,10 +121,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
-	// B034: the workflow-loading subsystem only registers a "change" slot,
-	// never "change_card" — narrow against the normalized type or every
-	// change-card status lookup misses the map unconditionally.
-	actionSvc := actionSvcRoot.ForEntity(normalizeEntityTypeForWorkflow(entityType))
+	actionSvc := narrowActionServiceForEntity(actionSvcRoot, entityType)
 
 	workflowSvc := cli.GetWorkflowService()
 

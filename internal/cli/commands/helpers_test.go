@@ -1016,6 +1016,9 @@ func TestNormalizeEntityTypeForWorkflow(t *testing.T) {
 		{"epic passes through unchanged", "epic", "epic"},
 		{"bug passes through unchanged", "bug", "bug"},
 		{"tech_debt passes through unchanged", "tech_debt", "tech_debt"},
+		{"idea passes through unchanged", "idea", "idea"},
+		{"sprint passes through unchanged", "sprint", "sprint"},
+		{"unknown passes through unchanged", "unknown", "unknown"},
 		{"empty string passes through unchanged", "", ""},
 	}
 
@@ -1026,6 +1029,27 @@ func TestNormalizeEntityTypeForWorkflow(t *testing.T) {
 				t.Errorf("normalizeEntityTypeForWorkflow(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+// TestNarrowActionServiceForEntity_NormalizesChangeCardEntityType is the
+// single shared regression test for narrowActionServiceForEntity — the seam
+// both next.go's adapter cache (cache.get) and run.go's runRun call to
+// narrow the root action service. Neither call site inlines its own
+// ForEntity/normalize pair anymore, so testing this one function covers
+// both: `git grep -n "ForEntity("` in this package shows next.go and run.go
+// each call narrowActionServiceForEntity exactly once and never call
+// ForEntity directly.
+func TestNarrowActionServiceForEntity_NormalizesChangeCardEntityType(t *testing.T) {
+	actionSvc := newCountingActionService()
+
+	_ = narrowActionServiceForEntity(actionSvc.MockActionService, "change_card")
+
+	if actionSvc.forEntityCounts["change"] != 1 {
+		t.Errorf("expected ForEntity(\"change\") to be called once, got %d", actionSvc.forEntityCounts["change"])
+	}
+	if actionSvc.forEntityCounts["change_card"] != 0 {
+		t.Errorf("action service must never be narrowed against the unregistered \"change_card\" key, got %d calls", actionSvc.forEntityCounts["change_card"])
 	}
 }
 
