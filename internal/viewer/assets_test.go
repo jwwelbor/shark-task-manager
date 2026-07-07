@@ -1177,6 +1177,21 @@ func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
 	}
 }
 
+func TestViewerHTMLFeatureTasksSupportsWrappedResponse(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	required := []string{
+		"const payload = await resp.json();",
+		"if (Array.isArray(payload)) return payload;",
+		"if (payload && Array.isArray(payload.tasks)) return payload.tasks;",
+	}
+	for _, marker := range required {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing feature-task response compatibility marker: %q", marker)
+		}
+	}
+}
+
 // TestViewerHTMLF08RegressionGate verifies that the highest-risk existing markers
 // survive the F08 rewrite. TC-F08-022, Scenario 6.
 func TestViewerHTMLF08RegressionGate(t *testing.T) {
