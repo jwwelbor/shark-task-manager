@@ -4,6 +4,12 @@
 
 Use verb-first syntax with `shark create`:
 
+**Post-create rule:** whenever `shark create` generates a placeholder file for
+the new entity, update that file immediately with the context already available.
+Do not leave placeholder content behind. Fill in the investigation, scope, or
+breadcrumbs you have at creation time, but do not expand the work into a full
+research or specification pass unless the current workflow explicitly calls for it.
+
 ### Epics
 
 ```bash

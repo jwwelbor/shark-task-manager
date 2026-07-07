@@ -1,0 +1,5 @@
+{"ts":"2026-07-06T23:37:21.196902-05:00","sid":"585bb1a3-8026-43ca-b470-eae7b4e0bb2c","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a58740ec8eb6a9a11"}}
+{"ts":"2026-07-06T23:38:00.380513-05:00","sid":"585bb1a3-8026-43ca-b470-eae7b4e0bb2c","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ad7a8189da2282f87"}}
+{"ts":"2026-07-06T23:52:56.263975-05:00","sid":"585bb1a3-8026-43ca-b470-eae7b4e0bb2c","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a02a4c1baef9d3777"}}
+{"ts":"2026-07-06T23:55:55.177447-05:00","sid":"585bb1a3-8026-43ca-b470-eae7b4e0bb2c","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a43ff048a38576947"}}
+{"ts":"2026-07-07T00:02:35.774961-05:00","sid":"585bb1a3-8026-43ca-b470-eae7b4e0bb2c","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a894ba6552dda4945"}}
