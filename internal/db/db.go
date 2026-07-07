@@ -452,9 +452,11 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	26 — E36 metrics (rebuild work_sessions entity-generic: entity_type/
 //	             entity_key/session_id columns, nullable task_id, no outcome
 //	             CHECK — sessions open on claim, close on release)
+//	27 — E36 metrics (drop entity_notes.note_type CHECK — app-layer
+//	             validation only; adds 'review-finding' note type)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 26
+const CurrentSchemaVersion = 27
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -1007,6 +1009,14 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate work_sessions to entity-generic: %w", err)
 	}
 
+	// E36 metrics: drop the entity_notes.note_type CHECK so note types are
+	// validated only at the app layer (models.ValidateNoteType) — mirrors the
+	// v17 decision for entity_type CHECKs and unblocks the new
+	// 'review-finding' type without a DDL change per future type.
+	if err := migrateEntityNotesDropNoteTypeCheck(db); err != nil {
+		return fmt.Errorf("failed to drop entity_notes note_type CHECK: %w", err)
+	}
+
 	return nil
 }
 
@@ -1109,6 +1119,136 @@ func migrateWorkSessionsEntityGeneric(db *sql.DB) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit work_sessions rebuild: %w", err)
+	}
+	return nil
+}
+
+// migrateEntityNotesDropNoteTypeCheck rebuilds entity_notes WITHOUT the
+// note_type CHECK. Note types are workflow/product vocabulary validated by
+// models.ValidateNoteType; keeping the enum in DDL means a table rebuild for
+// every new type (B027 was exactly that). This mirrors schema v17, which
+// dropped the entity_type CHECKs from polymorphic-association tables for the
+// same reason. Idempotent: a no-op when no note_type CHECK is present.
+func migrateEntityNotesDropNoteTypeCheck(db *sql.DB) error {
+	tableSQL, err := readTableSQL(db, "entity_notes")
+	if err != nil {
+		return fmt.Errorf("failed to read entity_notes schema: %w", err)
+	}
+	if tableSQL == "" || !strings.Contains(tableSQL, "note_type IN") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Drop dependent views up front (SQLite re-validates view definitions
+	// during ALTER TABLE ... RENAME); recreated below in the same transaction.
+	dropViewSteps := []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+	}
+	for _, step := range dropViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop view failed: %w (step: %s)", err, step)
+		}
+	}
+
+	steps := []string{
+		`CREATE TABLE entity_notes_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			note_type TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT
+		);`,
+		`INSERT INTO entity_notes_new (id, entity_type, entity_id, note_type, content, created_by, created_at, metadata)
+			SELECT id, entity_type, entity_id, note_type, content, created_by, created_at, metadata FROM entity_notes;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_task;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_feature;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_epic;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_bug;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_change;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_idea;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_tech_debt;`,
+		`DROP TABLE entity_notes;`,
+		`ALTER TABLE entity_notes_new RENAME TO entity_notes;`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type_entity ON entity_notes(note_type, entity_type, entity_id);`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_change
+			AFTER DELETE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'change' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_idea
+			AFTER DELETE ON ideas
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'idea' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_tech_debt
+			AFTER DELETE ON tech_debts
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'tech_debt' AND entity_id = OLD.id;
+			END;`,
+	}
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop entity_notes note_type CHECK failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	// Recreate views inside the same transaction so the schema is fully
+	// consistent on commit.
+	recreateViewSteps := []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+	}
+	for _, step := range recreateViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("recreate view failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit entity_notes note_type CHECK drop: %w", err)
 	}
 	return nil
 }

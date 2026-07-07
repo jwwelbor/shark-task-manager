@@ -500,3 +500,54 @@ func TestNoteService_NilRegistry_ReturnsError(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+// Review-finding notes carry structured metadata so review effectiveness is
+// queryable (gate/round/severity/defect_class/fingerprint) instead of buried
+// in free text. Metadata must be a JSON object; anything else is rejected
+// before the repo is touched.
+func TestNoteService_AddNoteWithMetadata(t *testing.T) {
+	var stored *models.EntityNote
+	noteRepo := &mockNoteEntityNoteRepo{
+		createFunc: func(ctx context.Context, note *models.EntityNote) error {
+			note.ID = 99
+			stored = note
+			return nil
+		},
+	}
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
+
+	meta := `{"gate":"qa","round":2,"severity":"high","defect_class":"unguarded dereference","fingerprint":"svc.go:Render:deref"}`
+	note, err := svc.AddNoteWithMetadata(context.Background(), models.EntityTypeEpic, "E16", "review-finding", "Unguarded deref in Render", "sonnet", meta)
+	if err != nil {
+		t.Fatalf("AddNoteWithMetadata() error = %v", err)
+	}
+	if note.Metadata == nil || *stored.Metadata != meta {
+		t.Errorf("metadata not stored verbatim: %+v", note.Metadata)
+	}
+
+	// Invalid JSON is rejected before any write.
+	stored = nil
+	if _, err := svc.AddNoteWithMetadata(context.Background(), models.EntityTypeEpic, "E16", "review-finding", "x", "", "{not json"); err == nil {
+		t.Fatal("expected error for invalid metadata JSON")
+	}
+	if stored != nil {
+		t.Error("repo must not be called when metadata is invalid")
+	}
+
+	// A non-object JSON value (array) is also rejected — metadata is a field map.
+	if _, err := svc.AddNoteWithMetadata(context.Background(), models.EntityTypeEpic, "E16", "review-finding", "x", "", `["a"]`); err == nil {
+		t.Fatal("expected error for non-object metadata JSON")
+	}
+
+	// AddNote (no metadata) still works and stores NULL metadata.
+	note, err = svc.AddNote(context.Background(), models.EntityTypeEpic, "E16", "review-finding", "plain", "")
+	if err != nil {
+		t.Fatalf("AddNote() error = %v", err)
+	}
+	if note.Metadata != nil {
+		t.Errorf("expected nil metadata, got %v", *note.Metadata)
+	}
+}

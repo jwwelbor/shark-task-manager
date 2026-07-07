@@ -67,6 +67,9 @@ PRODUCE QA report to docs/review/{epic-folder}/{feature-folder}/qa/<timestamp>-{
 - Edge cases tested
 - Any pre-existing failures encountered
 
+REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on PASS or FAIL):
+- One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"qa","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
+
 ON PASS → {{template "advance" .}}
 ON FAIL:
 - For each failing task, kick back: `shark status set <task-id> development --reason "<specific failures>"`

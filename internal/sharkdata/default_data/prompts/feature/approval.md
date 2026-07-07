@@ -30,6 +30,10 @@ PRODUCE UAT report to docs/review/{epic-folder}/{feature-folder}/uat/<timestamp>
 - Red-team findings (if any): severity, description, recommendation, and a one-line defect-class statement (the general class, not the point instance)
 - End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
 
+REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on APPROVED or REJECTED):
+- One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="codex" --metadata='{"gate":"uat","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
+- round = count of prior UAT reports in the uat/ folder + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
+
 ON APPROVED:
 - Add note: {{template "create_note" .}} --type=review "Feature UAT approved — red-team passed"
 - Advance: {{template "advance" .}}

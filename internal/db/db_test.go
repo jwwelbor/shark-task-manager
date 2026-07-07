@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,15 +78,21 @@ func TestMigration_RejectionReason(t *testing.T) {
 	require.NoError(t, err, "failed to query rejection_reason column type")
 	assert.Equal(t, "TEXT", columnType, "rejection_reason column should be TEXT type")
 
-	// Verify entity_notes table has 'rejection' in note_type constraint
-	// (task_notes is renamed to task_notes_backup after entity_notes migration)
+	// entity_notes carries no note_type CHECK since schema v27 — note types
+	// are validated at the app layer (models.ValidateNoteType), so adding a
+	// type never requires a table rebuild again. Verify the CHECK is gone
+	// AND that 'rejection' still inserts (the behavior the old CHECK test
+	// guarded).
 	var noteTypesCheckSQL string
 	err = db.QueryRow(`
 		SELECT sql FROM sqlite_master
 		WHERE type='table' AND name='entity_notes'
 	`).Scan(&noteTypesCheckSQL)
 	require.NoError(t, err, "failed to query entity_notes table schema")
-	assert.Contains(t, noteTypesCheckSQL, "'rejection'", "entity_notes table should allow 'rejection' note type")
+	assert.NotContains(t, noteTypesCheckSQL, "note_type IN", "entity_notes note_type CHECK should be dropped (app-layer validation)")
+	_, err = db.Exec(`INSERT INTO entity_notes (entity_type, entity_id, note_type, content) VALUES ('task', 999999, 'rejection', 'test')`)
+	require.NoError(t, err, "'rejection' note type should insert without a CHECK")
+	_, _ = db.Exec(`DELETE FROM entity_notes WHERE entity_id = 999999`)
 }
 
 // TestMigration_RejectionReason_Idempotent verifies that the migration can be run
@@ -259,12 +266,18 @@ func TestMigration_EntityNotesNoteTypeConstraint(t *testing.T) {
 		"'rejection'",
 	}
 
+	// Since schema v27 the note_type CHECK is dropped (app-layer validation
+	// via models.ValidateNoteType). The invariant this test now guards is
+	// behavioral: every historical note type still INSERTs successfully
+	// after all migrations — the guarantee the old CHECK-text assertion
+	// was a proxy for.
+	assert.NotContains(t, tableSchema, "CHECK (note_type IN", "entity_notes note_type CHECK should be dropped (v27)")
 	for _, noteType := range expectedTypes {
-		assert.Contains(t, tableSchema, noteType, "entity_notes CHECK constraint should include note type: %s", noteType)
+		nt := strings.Trim(noteType, "'")
+		_, err := db.Exec(`INSERT INTO entity_notes (entity_type, entity_id, note_type, content) VALUES ('task', 999998, ?, 'test')`, nt)
+		assert.NoError(t, err, "note type %s should insert", nt)
 	}
-
-	// Verify CHECK constraint syntax
-	assert.Contains(t, tableSchema, "CHECK (note_type IN", "entity_notes should have CHECK constraint on note_type")
+	_, _ = db.Exec(`DELETE FROM entity_notes WHERE entity_id = 999998`)
 }
 
 // TestMigration_DisplayViewsExistAfterEntityNotesMigration verifies that the
@@ -637,8 +650,8 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 26, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 26 (E36 metrics: entity-generic work_sessions)")
+	assert.Equal(t, 27, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 27 (E36 metrics: entity-generic work_sessions + note_type CHECK drop)")
 }
 
 func TestMigration_ApplySchemaIfNeeded_UpgradesV23SearchIndex(t *testing.T) {

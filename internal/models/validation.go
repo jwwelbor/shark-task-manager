@@ -238,6 +238,11 @@ var validNoteTypes = []string{
 	"rejection",
 	"requirement",
 	"review",
+	// review-finding: one structured finding from a review gate
+	// (code_review/qa/uat), with gate/round/severity/defect_class/
+	// fingerprint carried in the note's metadata JSON so review
+	// effectiveness is queryable instead of buried in free text.
+	"review-finding",
 }
 
 // ValidNoteTypes returns a defensive copy of the canonical note-type

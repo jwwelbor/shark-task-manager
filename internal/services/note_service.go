@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -65,8 +67,27 @@ func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.En
 
 // AddNote resolves the entity key to an ID and creates a note on the entity.
 func (s *NoteService) AddNote(ctx context.Context, entityType models.EntityType, entityKey string, noteType string, content string, createdBy string) (*models.EntityNote, error) {
+	return s.AddNoteWithMetadata(ctx, entityType, entityKey, noteType, content, createdBy, "")
+}
+
+// AddNoteWithMetadata is AddNote with an optional structured-metadata JSON
+// payload. Metadata makes note fields queryable (e.g. review-finding notes
+// carry gate/round/severity/defect_class/fingerprint) instead of burying
+// them in free text. Empty metadata stores NULL; non-empty metadata must be
+// a valid JSON object.
+func (s *NoteService) AddNoteWithMetadata(ctx context.Context, entityType models.EntityType, entityKey string, noteType string, content string, createdBy string, metadata string) (*models.EntityNote, error) {
 	if err := models.ValidateNoteType(noteType); err != nil {
 		return nil, fmt.Errorf("invalid note type: %w", err)
+	}
+
+	metadata = strings.TrimSpace(metadata)
+	var metadataPtr *string
+	if metadata != "" {
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(metadata), &obj); err != nil {
+			return nil, fmt.Errorf("invalid note metadata: must be a JSON object: %w", err)
+		}
+		metadataPtr = &metadata
 	}
 
 	entityID, err := s.resolveEntityID(ctx, entityType, entityKey)
@@ -85,6 +106,7 @@ func (s *NoteService) AddNote(ctx context.Context, entityType models.EntityType,
 		NoteType:   models.NoteType(noteType),
 		Content:    content,
 		CreatedBy:  createdByPtr,
+		Metadata:   metadataPtr,
 	}
 
 	if err := s.noteRepo.Create(ctx, note); err != nil {

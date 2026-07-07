@@ -235,6 +235,7 @@ func runCreateNote(cmd *cobra.Command, args []string) error {
 
 	noteTypeStr, _ := cmd.Flags().GetString("type")
 	createdBy, _ := cmd.Flags().GetString("created-by")
+	metadata, _ := cmd.Flags().GetString("metadata")
 
 	// Auto-detect entity type from key
 	entityType, _, err := resolveEntityFromKey(entityKey)
@@ -247,7 +248,7 @@ func runCreateNote(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get note service: %w", err)
 	}
 
-	note, err := noteSvc.AddNote(cmd.Context(), entityType, entityKey, noteTypeStr, content, createdBy)
+	note, err := noteSvc.AddNoteWithMetadata(cmd.Context(), entityType, entityKey, noteTypeStr, content, createdBy, metadata)
 	if err != nil {
 		return fmt.Errorf("failed to add note: %w", err)
 	}
@@ -294,6 +295,7 @@ func init() {
 	// ======================================================================
 	createNoteCmd.Flags().String("type", "comment", "Note type: comment, decision, blocker, solution, reference, implementation, testing, future, question")
 	createNoteCmd.Flags().String("created-by", "", "Author name (optional)")
+	createNoteCmd.Flags().String("metadata", "", "Structured JSON object stored with the note (e.g. review-finding fields: gate, round, severity, defect_class, fingerprint)")
 
 	// ======================================================================
 	// Epic Create Flags
