@@ -22,6 +22,121 @@ func requireViewerHTMLMarkers(t *testing.T, content string, label string, marker
 	}
 }
 
+func extractJSFunction(t *testing.T, content string, signature string) string {
+	t.Helper()
+
+	start := strings.Index(content, signature)
+	if start < 0 {
+		t.Fatalf("viewer.html missing function signature: %q", signature)
+	}
+
+	bodyStart := strings.Index(content[start:], "{")
+	if bodyStart < 0 {
+		t.Fatalf("viewer.html missing function body for signature: %q", signature)
+	}
+	bodyStart += start
+
+	depth := 0
+	inSingle := false
+	inDouble := false
+	inBacktick := false
+	inLineComment := false
+	inBlockComment := false
+	escaped := false
+
+	for i := bodyStart; i < len(content); i++ {
+		ch := content[i]
+
+		if inLineComment {
+			if ch == '\n' {
+				inLineComment = false
+			}
+			continue
+		}
+		if inBlockComment {
+			if ch == '*' && i+1 < len(content) && content[i+1] == '/' {
+				inBlockComment = false
+				i++
+			}
+			continue
+		}
+		if inSingle {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		if inDouble {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inDouble = false
+			}
+			continue
+		}
+		if inBacktick {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '`' {
+				inBacktick = false
+			}
+			continue
+		}
+
+		if ch == '/' && i+1 < len(content) {
+			switch content[i+1] {
+			case '/':
+				inLineComment = true
+				i++
+				continue
+			case '*':
+				inBlockComment = true
+				i++
+				continue
+			}
+		}
+
+		switch ch {
+		case '\'':
+			inSingle = true
+		case '"':
+			inDouble = true
+		case '`':
+			inBacktick = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return content[start : i+1]
+			}
+		}
+	}
+
+	t.Fatalf("viewer.html function %q did not terminate", signature)
+	return ""
+}
+
 // TestViewerHTMLEmbedded verifies that the go:embed directive populated
 // ViewerHTML and that it contains the structural markers required by the SPA.
 // TC-SMOKE-01 (full marker set verified once renderSidebar added in Task 3).
@@ -1189,16 +1304,9 @@ func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
 
 func TestViewerHTMLFeatureTasksNormalizationBehavior(t *testing.T) {
 	content := viewerHTMLContent()
-
-	start := strings.Index(content, "// === API CLIENT ===")
-	if start < 0 {
-		t.Fatal("viewer.html missing API client section")
-	}
-	end := strings.Index(content[start:], "// ============================================================\n// SECTION: UI Feedback Helpers")
-	if end < 0 {
-		t.Fatal("viewer.html missing UI feedback helper section after API client section")
-	}
-	fnSource := content[start : start+end]
+	fnSource := extractJSFunction(t, content, "function normalizeFeatureTasksPayload(payload)") +
+		"\n" +
+		extractJSFunction(t, content, "async function apiGetFeatureTasks(key, tags)")
 
 	nodePath, err := exec.LookPath("node")
 	if err != nil {
