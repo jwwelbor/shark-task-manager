@@ -17,6 +17,7 @@ import (
 // can assert that the CLI threaded the --tag slice through to the DTO.
 type mockBugServiceForTags struct {
 	createBugFn func(ctx context.Context, input services.CreateBugInput) (*models.Bug, bool, error)
+	listBugsFn  func(ctx context.Context, filters services.BugFilters) ([]*models.Bug, error)
 	updateBugFn func(ctx context.Context, key string, updates services.BugUpdates) (*models.Bug, error)
 	lastCreate  services.CreateBugInput
 	lastUpdate  services.BugUpdates
@@ -40,6 +41,9 @@ func (m *mockBugServiceForTags) GetBugWithTags(ctx context.Context, key string) 
 }
 
 func (m *mockBugServiceForTags) ListBugs(ctx context.Context, filters services.BugFilters) ([]*models.Bug, error) {
+	if m.listBugsFn != nil {
+		return m.listBugsFn(ctx, filters)
+	}
 	return nil, nil
 }
 
@@ -279,6 +283,29 @@ func TestParseBugLinkFlag_Task(t *testing.T) {
 	}
 	if entityKey != "E07-F01-001" {
 		t.Errorf("expected entityKey %q, got %q", "E07-F01-001", entityKey)
+	}
+}
+
+func TestParseBugLinkFlag_LowercaseKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		link     string
+		wantType string
+	}{
+		{name: "feature", link: "e07-f01", wantType: "feature"},
+		{name: "task", link: "e07-f01-001", wantType: "task"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entityType, entityKey := parseBugLinkFlag(tt.link)
+			if entityType != tt.wantType {
+				t.Fatalf("entityType = %q, want %q", entityType, tt.wantType)
+			}
+			if entityKey != tt.link {
+				t.Fatalf("entityKey = %q, want original %q", entityKey, tt.link)
+			}
+		})
 	}
 }
 

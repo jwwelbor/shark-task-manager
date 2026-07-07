@@ -259,7 +259,7 @@ func (r *BugRepository) List(ctx context.Context, filters *BugListFilters) ([]*m
 			args = append(args, *filters.Severity)
 		}
 		if filters.LinkedEntityKey != nil {
-			conditions = append(conditions, "linked_entity_key = ?")
+			conditions = append(conditions, "UPPER(linked_entity_key) = UPPER(?)")
 			args = append(args, *filters.LinkedEntityKey)
 		}
 

@@ -796,7 +796,7 @@ func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bo
 		}, nil
 	}
 
-	// Force-complete all tasks or complete all-done tasks
+	// Force-complete child features and tasks in one repository-owned transaction.
 	var affectedTaskKeys []string
 	newCompletedCount := completedCount
 
@@ -804,25 +804,12 @@ func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bo
 		if task.Status == models.TaskStatus("completed") {
 			continue
 		}
-		agentPtr := &agentID
-		if err := s.taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), agentPtr, nil, nil, nil, true); err != nil {
-			return nil, fmt.Errorf("failed to complete task %s: %w", task.Key, err)
-		}
 		newCompletedCount++
 		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
-
-	// Mark all features as completed
-	for _, feature := range features {
-		updatedFeature, err := s.featureRepo.GetByID(ctx, feature.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get updated feature %s: %w", feature.Key, err)
-		}
-		if updatedFeature.Status != models.FeatureStatusCompleted {
-			updatedFeature.Status = models.FeatureStatusCompleted
-			if err := s.featureRepo.Update(ctx, updatedFeature); err != nil {
-				return nil, fmt.Errorf("failed to complete feature %s: %w", updatedFeature.Key, err)
-			}
+	if len(affectedTaskKeys) > 0 || len(features) > 0 {
+		if err := s.repo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
+			return nil, fmt.Errorf("failed to complete child features and tasks for epic %s: %w", epicKey, err)
 		}
 	}
 

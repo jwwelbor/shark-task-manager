@@ -1,7 +1,12 @@
 package commands
 
 import (
+	"context"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/spf13/cobra"
 )
 
 // TestParseListArgs tests the parsing of positional arguments for the list command
@@ -140,4 +145,80 @@ func listStringPtrValue(s *string) string {
 		return "<nil>"
 	}
 	return *s
+}
+
+func TestRunList_ForwardsStatusToStandaloneTypes(t *testing.T) {
+	t.Run("bug", func(t *testing.T) {
+		var gotStatus *models.BugStatus
+		stub := &mockBugServiceForTags{}
+		stub.listBugsFn = func(_ context.Context, filters services.BugFilters) ([]*models.Bug, error) {
+			gotStatus = filters.Status
+			return []*models.Bug{}, nil
+		}
+		withBugSvcOverride(t, stub)
+
+		cmd := buildListTestCommand("triaged")
+		err := runList(cmd, []string{"bug"})
+		if err != nil {
+			t.Fatalf("runList returned error: %v", err)
+		}
+		if gotStatus == nil || *gotStatus != models.BugStatus("triaged") {
+			t.Fatalf("status filter = %#v, want triaged", gotStatus)
+		}
+	})
+
+	t.Run("change", func(t *testing.T) {
+		var gotStatus string
+		withChangeCardSvcOverride(t, &MockChangeCardService{
+			ListChangeCardsFunc: func(_ context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error) {
+				gotStatus = filters.Status
+				return []*models.ChangeCard{}, nil
+			},
+		})
+
+		cmd := buildListTestCommand("approved")
+		err := runList(cmd, []string{"change"})
+		if err != nil {
+			t.Fatalf("runList returned error: %v", err)
+		}
+		if gotStatus != "approved" {
+			t.Fatalf("status filter = %q, want approved", gotStatus)
+		}
+	})
+
+	t.Run("tech debt", func(t *testing.T) {
+		var gotStatus *string
+		withTechDebtSvcOverride(t, &MockTechDebtService{
+			ListTechDebtsFunc: func(_ context.Context, filters services.TechDebtFilters) ([]*models.TechDebt, error) {
+				gotStatus = filters.Status
+				return []*models.TechDebt{}, nil
+			},
+		})
+
+		cmd := buildListTestCommand("identified")
+		err := runList(cmd, []string{"tech_debt"})
+		if err != nil {
+			t.Fatalf("runList returned error: %v", err)
+		}
+		if gotStatus == nil || *gotStatus != "identified" {
+			t.Fatalf("status filter = %#v, want identified", gotStatus)
+		}
+	})
+}
+
+func buildListTestCommand(status string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("status", "", "")
+	cmd.Flags().String("sort-by", "", "")
+	cmd.Flags().Bool("all", false, "")
+	cmd.Flags().StringSlice("tag", nil, "")
+	_ = cmd.Flags().Set("status", status)
+	return cmd
+}
+
+func withTechDebtSvcOverride(t *testing.T, svc techDebtServicer) {
+	t.Helper()
+	orig := tdSvcOverride
+	tdSvcOverride = svc
+	t.Cleanup(func() { tdSvcOverride = orig })
 }

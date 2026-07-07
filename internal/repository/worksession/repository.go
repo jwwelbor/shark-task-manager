@@ -145,9 +145,10 @@ func (r *WorkSessionRepository) GetByID(ctx context.Context, id int64) (*models.
 	`
 
 	session := &models.WorkSession{}
+	var scannedTaskID sql.NullInt64
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&session.ID,
-		&session.TaskID,
+		&scannedTaskID,
 		&session.AgentID,
 		&session.StartedAt,
 		&session.EndedAt,
@@ -162,6 +163,9 @@ func (r *WorkSessionRepository) GetByID(ctx context.Context, id int64) (*models.
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work session: %w", err)
+	}
+	if scannedTaskID.Valid {
+		session.TaskID = scannedTaskID.Int64
 	}
 
 	return session, nil
@@ -185,9 +189,10 @@ func (r *WorkSessionRepository) GetByTaskID(ctx context.Context, taskID int64) (
 	var sessions []*models.WorkSession
 	for rows.Next() {
 		session := &models.WorkSession{}
+		var scannedTaskID sql.NullInt64
 		err := rows.Scan(
 			&session.ID,
-			&session.TaskID,
+			&scannedTaskID,
 			&session.AgentID,
 			&session.StartedAt,
 			&session.EndedAt,
@@ -198,6 +203,9 @@ func (r *WorkSessionRepository) GetByTaskID(ctx context.Context, taskID int64) (
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan work session: %w", err)
+		}
+		if scannedTaskID.Valid {
+			session.TaskID = scannedTaskID.Int64
 		}
 		sessions = append(sessions, session)
 	}
@@ -219,9 +227,10 @@ func (r *WorkSessionRepository) GetActiveSessionByTaskID(ctx context.Context, ta
 	`
 
 	session := &models.WorkSession{}
+	var scannedTaskID sql.NullInt64
 	err := r.db.QueryRowContext(ctx, query, taskID).Scan(
 		&session.ID,
-		&session.TaskID,
+		&scannedTaskID,
 		&session.AgentID,
 		&session.StartedAt,
 		&session.EndedAt,
@@ -236,6 +245,9 @@ func (r *WorkSessionRepository) GetActiveSessionByTaskID(ctx context.Context, ta
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active work session: %w", err)
+	}
+	if scannedTaskID.Valid {
+		session.TaskID = scannedTaskID.Int64
 	}
 
 	return session, nil

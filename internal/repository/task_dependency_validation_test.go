@@ -621,4 +621,58 @@ func TestTaskRepository_GetTaskDependents(t *testing.T) {
 			}
 		})
 	}
+
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO entity_relationships
+			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		VALUES ('task', ?, 'task', ?, 'depends_on')
+	`, tasks[2].ID, tasks[1].ID)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, `
+			DELETE FROM entity_relationships
+			WHERE from_entity_type = 'task' AND from_entity_id = ?
+			  AND to_entity_type = 'task' AND to_entity_id = ?
+			  AND relationship_type = 'depends_on'
+		`, tasks[2].ID, tasks[1].ID)
+	}()
+
+	dependencyTests := []struct {
+		name             string
+		taskKey          string
+		expectedTaskKeys []string
+	}{
+		{
+			name:             "get dependencies of base task",
+			taskKey:          "T-E97-F01-001",
+			expectedTaskKeys: []string{},
+		},
+		{
+			name:             "get dependencies from legacy depends_on",
+			taskKey:          "T-E97-F01-004",
+			expectedTaskKeys: []string{"T-E97-F01-002", "T-E97-F01-003"},
+		},
+		{
+			name:             "get dependencies from legacy and entity relationships",
+			taskKey:          "T-E97-F01-003",
+			expectedTaskKeys: []string{"T-E97-F01-001", "T-E97-F01-002"},
+		},
+	}
+
+	for _, tt := range dependencyTests {
+		t.Run(tt.name, func(t *testing.T) {
+			dependencies, err := taskRepo.GetTaskDependencies(ctx, tt.taskKey)
+			require.NoError(t, err)
+			assert.Len(t, dependencies, len(tt.expectedTaskKeys))
+
+			foundKeys := make(map[string]bool)
+			for _, dep := range dependencies {
+				foundKeys[dep.Key] = true
+			}
+
+			for _, expectedKey := range tt.expectedTaskKeys {
+				assert.True(t, foundKeys[expectedKey], "expected to find dependency task %s", expectedKey)
+			}
+		})
+	}
 }

@@ -154,9 +154,10 @@ func runUnclaim(cmd *cobra.Command, args []string) error {
 	}
 	session, _ := cmd.Flags().GetString("session")
 	outcome, _ := cmd.Flags().GetString("outcome")
+	force, _ := cmd.Flags().GetBool("force")
 
 	svc := cli.GetClaimService()
-	released, err := svc.Release(ctx, entityType, key, session, outcome)
+	released, err := svc.Release(ctx, entityType, key, session, outcome, force)
 	if err != nil {
 		cli.Error(err.Error())
 		return err

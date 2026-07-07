@@ -39,6 +39,7 @@ type MockTaskRepository struct {
 	ListFunc                          func(ctx context.Context) ([]*models.Task, error)
 	ListByFeatureFunc                 func(ctx context.Context, featureID int64) ([]*models.Task, error)
 	ListByEpicFunc                    func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	GetTaskDependenciesFunc           func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	GetTaskDependentsFunc             func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	UpdateStatusFunc                  func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
 	UpdateStatusForcedFunc            func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
@@ -124,6 +125,13 @@ func (m *MockTaskRepository) GetTaskDependents(ctx context.Context, taskKey stri
 		return m.GetTaskDependentsFunc(ctx, taskKey)
 	}
 	return nil, fmt.Errorf("GetTaskDependents not implemented in mock")
+}
+
+func (m *MockTaskRepository) GetTaskDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
+	if m.GetTaskDependenciesFunc != nil {
+		return m.GetTaskDependenciesFunc(ctx, taskKey)
+	}
+	return []*models.Task{}, nil
 }
 
 func (m *MockTaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
@@ -1408,7 +1416,7 @@ func TestTaskQueryBuilder_ChainedFilters(t *testing.T) {
 // TestTaskService_ValidateDependencies_NoDependencies tests tasks without dependencies
 func TestTaskService_ValidateDependencies_NoDependencies(t *testing.T) {
 	mockRepo := &MockTaskRepository{
-		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+		GetTaskDependenciesFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
 			return []*models.Task{}, nil // No dependencies
 		},
 	}
@@ -1420,6 +1428,29 @@ func TestTaskService_ValidateDependencies_NoDependencies(t *testing.T) {
 
 	// Assert: Validation passes
 	assert.NoError(t, err)
+}
+
+func TestTaskService_ValidateDependencies_ChecksPrerequisites(t *testing.T) {
+	dependentsCalled := false
+	mockRepo := &MockTaskRepository{
+		GetTaskDependenciesFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-000"}, Status: models.TaskStatus("todo")},
+			}, nil
+		},
+		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			dependentsCalled = true
+			return []*models.Task{}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dependency not met")
+	assert.False(t, dependentsCalled, "ValidateDependencies must inspect prerequisites, not dependents")
 }
 
 // ============================================================================
@@ -2166,6 +2197,30 @@ func TestTaskService_GetNextStatus_TerminalStatus(t *testing.T) {
 	assert.NotNil(t, info)
 	assert.True(t, info.IsTerminal)
 	assert.Empty(t, info.AvailableTransitions)
+}
+
+func TestTaskService_GetNextStatus_BlocksUnmetDependencies(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 32, Key: "T-E07-F01-032"},
+				Status:     "todo",
+				FeatureID:  10,
+			}, nil
+		},
+		GetTaskDependenciesFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "T-E07-F01-031"}, Status: models.TaskStatus("in_progress")},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	info, err := svc.GetNextStatus(context.Background(), "T-E07-F01-032")
+
+	assert.Nil(t, info)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dependency not met")
 }
 
 // ============================================================================

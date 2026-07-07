@@ -149,7 +149,7 @@ func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea
 		       notes, related_docs, dependencies, status, size, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
-		WHERE key = ?
+		WHERE UPPER(key) = UPPER(?)
 	`
 
 	idea := &models.Idea{}

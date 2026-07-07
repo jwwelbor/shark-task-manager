@@ -154,16 +154,19 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 }
 
 // Release frees the lease on an entity. When sessionID is non-empty the release
-// is session-scoped (safe sync-release that won't steal a re-issued lease);
-// otherwise it is an unconditional administrative release. A non-empty outcome
+// is session-scoped (safe sync-release that won't steal a re-issued lease).
+// Unscoped administrative release requires force=true. A non-empty outcome
 // (typically the semantic outcome the worker released — pass/fail/blocked) is
 // stamped on the work session being closed; empty defaults to "released".
-func (s *ClaimService) Release(ctx context.Context, entityType, entityKey, sessionID, outcome string) (bool, error) {
+func (s *ClaimService) Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error) {
 	var released bool
 	var err error
 	if sessionID != "" {
 		released, err = s.repo.ReleaseSession(ctx, entityType, entityKey, sessionID)
 	} else {
+		if !force {
+			return false, fmt.Errorf("unscoped release requires --force or a matching --session")
+		}
 		released, err = s.repo.Release(ctx, entityType, entityKey)
 	}
 	if err == nil && released {

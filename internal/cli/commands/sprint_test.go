@@ -1294,6 +1294,25 @@ func TestSprintSummary_PassesDetailedFlag(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestSprintSummary_ReturnsServiceError(t *testing.T) {
+	mock := &MockSprintAnalyticsService{
+		GetSummaryFunc: func(ctx context.Context, sprintKey string, detailed bool) (*services.SprintSummaryResult, error) {
+			return nil, fmt.Errorf("summary backend unavailable")
+		},
+	}
+	cleanup := setupAnalyticsTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().Bool("detailed", false, "")
+
+	err := runSprintSummary(cmd, []string{"S024"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "summary backend unavailable")
+}
+
 // =============================================================================
 // TC-J01: sprint add JSON output contains SprintAssignment fields
 // =============================================================================

@@ -734,14 +734,34 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasksWithTx(ctx context.Conte
 		return fmt.Errorf("failed to cascade status to features: %w", err)
 	}
 
-	// Then update all tasks in those features
+	// Then record and update all tasks in those features.
+	historyQuery := `
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced)
+		SELECT id, status, ?, ?, ?, ?
+		FROM tasks
+		WHERE feature_id IN (SELECT id FROM features WHERE epic_id = ?)
+		  AND status <> ?
+	`
+	agent := "shark-cli"
+	notes := "Force-completed via epic cascade"
+	if _, err := tx.ExecContext(ctx, historyQuery, targetTaskStatus, agent, notes, true, epicID, targetTaskStatus); err != nil {
+		return fmt.Errorf("failed to create cascade task history: %w", err)
+	}
+
 	taskQuery := `
 		UPDATE tasks
-		SET status = ?
+		SET status = ?`
+	args := []interface{}{targetTaskStatus}
+	if targetTaskStatus == models.TaskStatus("completed") {
+		taskQuery += `, completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)`
+	}
+	taskQuery += `
 		WHERE feature_id IN (SELECT id FROM features WHERE epic_id = ?)
+		  AND status <> ?
 	`
+	args = append(args, epicID, targetTaskStatus)
 
-	_, err = tx.ExecContext(ctx, taskQuery, targetTaskStatus, epicID)
+	_, err = tx.ExecContext(ctx, taskQuery, args...)
 	if err != nil {
 		return fmt.Errorf("failed to cascade status to tasks: %w", err)
 	}

@@ -381,7 +381,7 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 	}
 	// Route --link to FeatureKey when format is E##-F## (feature), otherwise EpicKey
 	if changeLinkFilter != "" {
-		if strings.Contains(changeLinkFilter, "-F") {
+		if strings.Contains(strings.ToUpper(changeLinkFilter), "-F") {
 			filters.FeatureKey = changeLinkFilter
 		} else {
 			filters.EpicKey = changeLinkFilter
@@ -509,7 +509,7 @@ func buildCreateChangeCardInput(title string) services.CreateChangeCardInput {
 	}
 	// Parse --link into EpicKey or FeatureKey
 	if changeLinkKey != "" {
-		if strings.Contains(changeLinkKey, "-F") {
+		if strings.Contains(strings.ToUpper(changeLinkKey), "-F") {
 			input.FeatureKey = changeLinkKey
 		} else {
 			input.EpicKey = changeLinkKey

@@ -683,6 +683,52 @@ func TestGetBurndown_ActualRemaining_FromCompletionEvents(t *testing.T) {
 	}
 }
 
+func TestGetBurndown_NonTaskCompletionReducesActualRemaining(t *testing.T) {
+	startDate := testBase
+	endDate := testBase.AddDate(0, 0, 2)
+
+	s := &models.Sprint{
+		ID:        30,
+		Key:       "S030",
+		Name:      "Sprint 30",
+		Status:    "completed",
+		StartDate: startDate,
+		EndDate:   endDate,
+	}
+
+	sz8, sz13 := 8, 13
+	completedAt := startDate.AddDate(0, 0, 1).Add(2 * time.Hour)
+
+	sprintRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) { return s, nil },
+	}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
+				{EntityType: "bug", EntityID: 1, AssignedAt: startDate, RemovedAt: nil, Size: &sz8},
+				{EntityType: "tech_debt", EntityID: 2, AssignedAt: startDate, RemovedAt: nil, Size: &sz13},
+			}, nil
+		},
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{
+				{EntityID: 1, EntityType: "bug", NewStatus: "resolved", Timestamp: completedAt},
+			}, nil
+		},
+	}
+
+	today := endDate.Add(24 * time.Hour)
+	svc := newSprintAnalyticsServiceWithClock(analyticsRepo, sprintRepo, func() time.Time { return today })
+
+	result, err := svc.GetBurndown(context.Background(), "S030")
+
+	require.NoError(t, err)
+	require.Len(t, result.DataPoints, 3)
+	require.NotNil(t, result.DataPoints[0].ActualRemaining)
+	require.NotNil(t, result.DataPoints[1].ActualRemaining)
+	assert.InDelta(t, 21.0, *result.DataPoints[0].ActualRemaining, 0.001)
+	assert.InDelta(t, 13.0, *result.DataPoints[1].ActualRemaining, 0.001)
+}
+
 // --- TC-B-09: UnsizedRemaining present in every data point ---
 // Counter-factual: a buggy impl that initializes UnsizedRemaining=0 always fails day0 assertion.
 
@@ -1022,6 +1068,75 @@ func TestGetSummary_BaseFieldsComplete(t *testing.T) {
 	assert.InDelta(t, 2.0, result.VelocityDelta, 0.01)
 	// delta pct = 2/38 * 100 ≈ 5.26%
 	assert.InDelta(t, 5.26, result.VelocityDeltaPct, 0.1)
+}
+
+func TestGetSummary_CountsOnlyTerminalCompletionEvents(t *testing.T) {
+	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	size5 := 5
+
+	sprintRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintHelper("S024", "completed", startDate, endDate), nil
+		},
+	}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
+				{EntityType: "task", EntityID: 1, AssignedAt: startDate, Size: &size5},
+				{EntityType: "task", EntityID: 2, AssignedAt: startDate, Size: &size5},
+			}, nil
+		},
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{
+				{EntityID: 1, EntityType: "task", NewStatus: "in_progress", Timestamp: startDate.Add(24 * time.Hour)},
+				{EntityID: 2, EntityType: "task", NewStatus: "completed", Timestamp: startDate.Add(48 * time.Hour)},
+			}, nil
+		},
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
+		},
+	}
+
+	svc := NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	result, err := svc.GetSummary(context.Background(), "S024", false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 1, result.CompletedCount)
+	assert.Equal(t, 5, result.CompletedSize)
+	assert.Equal(t, 5, result.VelocityThisSprint)
+	assert.InDelta(t, 50.0, result.CompletionPctBySize, 0.001)
+}
+
+func TestGetSummary_ReturnsVelocityDataError(t *testing.T) {
+	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	velocityErr := errors.New("velocity backend unavailable")
+
+	sprintRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintHelper("S024", "completed", startDate, endDate), nil
+		},
+	}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{}, nil
+		},
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
+		},
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return nil, velocityErr
+		},
+	}
+
+	svc := NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	result, err := svc.GetSummary(context.Background(), "S024", false)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, velocityErr)
+	assert.Nil(t, result)
 }
 
 // --- TC-S-04: planned_size=0 → CompletionPctBySize=0.0 (no divide-by-zero panic).

@@ -220,3 +220,19 @@ func TestGracefulShutdown_InFlightRequestsComplete(t *testing.T) {
 			rf.Sub(shutdownStarted), shutdownFinished.Sub(shutdownStarted))
 	}
 }
+
+func TestServerAddrDefaultsToLoopback(t *testing.T) {
+	t.Setenv("PORT", "")
+
+	if got := serverAddr(); got != "127.0.0.1:8080" {
+		t.Fatalf("serverAddr() = %q, want loopback default", got)
+	}
+}
+
+func TestServerAddrUsesLoopbackWithPortEnv(t *testing.T) {
+	t.Setenv("PORT", "9090")
+
+	if got := serverAddr(); got != "127.0.0.1:9090" {
+		t.Fatalf("serverAddr() = %q, want loopback PORT binding", got)
+	}
+}

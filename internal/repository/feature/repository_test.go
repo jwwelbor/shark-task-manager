@@ -2,6 +2,7 @@ package feature
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -877,6 +878,78 @@ func TestFeatureRepository_GetRecent_OrdersByCreatedAtDesc(t *testing.T) {
 		assert.True(t, !features[i-1].CreatedAt.Before(features[i].CreatedAt),
 			"expected features[%d].CreatedAt >= features[%d].CreatedAt", i-1, i)
 	}
+}
+
+func TestFeatureRepository_CascadeStatusToTasks_WritesHistoryAndCompletedAt(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E86-F01-%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E86-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E86-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E86'")
+
+	testEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E86", Title: "Cascade History Epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	feat := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E86-F01", Title: "Cascade History Feature"},
+		EpicID:     testEpic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	require.NoError(t, repo.Create(ctx, feat))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feat.ID) }()
+
+	_, err := database.ExecContext(ctx, `
+		INSERT INTO tasks (feature_id, key, title, status, priority, created_at, updated_at)
+		VALUES
+			(?, 'T-E86-F01-001', 'Open task', 'in_progress', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			(?, 'T-E86-F01-002', 'Already done task', 'completed', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, feat.ID, feat.ID)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E86-F01-%')")
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E86-F01-%'")
+	}()
+
+	require.NoError(t, repo.CascadeStatusToTasks(ctx, feat.ID, models.TaskStatus("completed")))
+
+	var historyCount int
+	err = database.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM task_history th
+		JOIN tasks t ON t.id = th.task_id
+		WHERE t.key = 'T-E86-F01-001'
+		  AND th.old_status = 'in_progress'
+		  AND th.new_status = 'completed'
+		  AND th.forced = 1
+	`).Scan(&historyCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, historyCount)
+
+	var unchangedHistoryCount int
+	err = database.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM task_history th
+		JOIN tasks t ON t.id = th.task_id
+		WHERE t.key = 'T-E86-F01-002'
+		  AND th.new_status = 'completed'
+	`).Scan(&unchangedHistoryCount)
+	require.NoError(t, err)
+	assert.Equal(t, 0, unchangedHistoryCount, "unchanged completed tasks should not receive duplicate history")
+
+	var completedAt sql.NullTime
+	err = database.QueryRowContext(ctx, `SELECT completed_at FROM tasks WHERE key = 'T-E86-F01-001'`).Scan(&completedAt)
+	require.NoError(t, err)
+	require.True(t, completedAt.Valid)
 }
 
 // TestFeatureRepository_GetRecent_LimitRespected seeds 10 features and asserts GetRecent(ctx, 3)

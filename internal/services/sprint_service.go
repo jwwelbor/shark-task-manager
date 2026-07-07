@@ -1947,9 +1947,9 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 						NewPosition:  &newPos,
 					})
 				}
-				// Ignore renumber errors — advisory, non-blocking. The sprint is usable
-				// even if the order has minor gaps (user can run sprint reorder to fix).
-				_ = s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops)
+				if err := s.repo.RenumberAssignmentsTx(ctx, nil, sprintEntity.ID, ops); err != nil {
+					return nil, fmt.Errorf("failed to repair sprint order after bulk add for sprint %s: %w", input.SprintKey, err)
+				}
 			}
 		}
 	}

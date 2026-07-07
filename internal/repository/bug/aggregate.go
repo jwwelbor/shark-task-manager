@@ -148,7 +148,7 @@ func (r *BugRepository) GetFeatureBugSummary(ctx context.Context, featureKey str
 			COUNT(*) AS total_in_bucket,
 			COUNT(CASE WHEN status NOT IN (` + bugTerminalStatusPlaceholders + `) THEN 1 END) AS open_in_bucket
 		FROM bugs
-		WHERE linked_entity_key = ?
+		WHERE UPPER(linked_entity_key) = UPPER(?)
 		GROUP BY severity`
 
 	// Args: terminal statuses first (for the IN clause), then featureKey.

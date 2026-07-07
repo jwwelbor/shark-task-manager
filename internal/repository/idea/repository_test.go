@@ -97,6 +97,15 @@ func TestIdeaRepository_GetByKey(t *testing.T) {
 	if *retrieved.Priority != *idea.Priority {
 		t.Errorf("Expected priority %d, got %d", *idea.Priority, *retrieved.Priority)
 	}
+
+	// Key lookup must honor the project-wide case-insensitive key contract.
+	lowercase, err := repo.GetByKey(ctx, "i-2026-01-01-02")
+	if err != nil {
+		t.Fatalf("Failed to get idea by lowercase key: %v", err)
+	}
+	if lowercase.Key != idea.Key {
+		t.Errorf("Expected lowercase lookup to return key %s, got %s", idea.Key, lowercase.Key)
+	}
 }
 
 // TestIdeaRepository_GetByID tests retrieving an idea by its ID

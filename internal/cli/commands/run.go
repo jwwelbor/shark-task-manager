@@ -6,12 +6,14 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
@@ -22,6 +24,22 @@ var (
 	runWorkDir  string
 	runWorktree bool
 )
+
+type runClaimServicer interface {
+	Claim(ctx context.Context, in services.ClaimInput) (*models.EntityClaim, error)
+	Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error)
+	Heartbeat(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) error
+	TTL() time.Duration
+}
+
+var runClaimSvcOverride runClaimServicer
+
+func getRunClaimService() runClaimServicer {
+	if runClaimSvcOverride != nil {
+		return runClaimSvcOverride
+	}
+	return cli.GetClaimService()
+}
 
 var runCmd = &cobra.Command{
 	Use:   "run <entity-key>",
@@ -90,6 +108,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// We use a pointer to a *RunResult so the defer closure captures the
 	// final value written by the controller. durationStart captures wall time.
 	var runResult *runner.RunResult
+	var runLease *activeRunLease
 	runStart := time.Now()
 	defer func() {
 		durationMS := time.Since(runStart).Milliseconds()
@@ -104,6 +123,23 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 		emitRunEnd(ctx, obs, runID, r, durationMS)
 	}()
+	defer func() {
+		if runLease == nil {
+			return
+		}
+		outcome := "failed"
+		if runResult != nil && runResult.Outcome != "" {
+			outcome = runResult.Outcome
+		}
+		if err := runLease.Release(outcome); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to release run claim for %s: %v\n", normalizedKey, err)
+		}
+	}()
+
+	runLease, err = acquireRunLease(ctx, entityType, normalizedKey, runDryRun)
+	if err != nil {
+		return fmt.Errorf("claim %s before run: %w", normalizedKey, err)
+	}
 
 	// Step 2: Build entity-type adapters.
 	transitioner, err := buildTransitioner(ctx, entityType)
@@ -219,6 +255,85 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+type activeRunLease struct {
+	svc             runClaimServicer
+	entityType      string
+	entityKey       string
+	sessionID       string
+	stopHeartbeat   context.CancelFunc
+	heartbeatDoneCh <-chan struct{}
+}
+
+func acquireRunLease(ctx context.Context, entityType, entityKey string, dryRun bool) (*activeRunLease, error) {
+	if dryRun {
+		return nil, nil
+	}
+
+	svc := getRunClaimService()
+	claim, err := svc.Claim(ctx, services.ClaimInput{
+		EntityType: entityType,
+		EntityKey:  entityKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	hbCtx, stopHeartbeat := context.WithCancel(ctx)
+	doneCh := startRunHeartbeat(hbCtx, svc, entityType, entityKey, claim.SessionID)
+	return &activeRunLease{
+		svc:             svc,
+		entityType:      entityType,
+		entityKey:       entityKey,
+		sessionID:       claim.SessionID,
+		stopHeartbeat:   stopHeartbeat,
+		heartbeatDoneCh: doneCh,
+	}, nil
+}
+
+func (l *activeRunLease) Release(outcome string) error {
+	if l == nil {
+		return nil
+	}
+	if l.stopHeartbeat != nil {
+		l.stopHeartbeat()
+	}
+	if l.heartbeatDoneCh != nil {
+		<-l.heartbeatDoneCh
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := l.svc.Release(ctx, l.entityType, l.entityKey, l.sessionID, outcome, false)
+	return err
+}
+
+func startRunHeartbeat(ctx context.Context, svc runClaimServicer, entityType, entityKey, sessionID string) <-chan struct{} {
+	done := make(chan struct{})
+	interval := svc.TTL() / 3
+	if interval < time.Second {
+		interval = time.Second
+	}
+
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := svc.Heartbeat(ctx, entityType, entityKey, sessionID, nil, "shark run active"); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to heartbeat run claim for %s: %v\n", entityKey, err)
+				}
+			}
+		}
+	}()
+
+	return done
 }
 
 // setupWorktree creates a git worktree for the given entity key and returns

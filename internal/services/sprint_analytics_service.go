@@ -342,7 +342,9 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 	// Build a set of completed entity keys for O(1) lookup.
 	completedSet := make(map[summaryEntityKey]bool, len(completionEvents))
 	for _, ev := range completionEvents {
-		completedSet[summaryEntityKey{ev.EntityType, ev.EntityID}] = true
+		if isTerminalStatus(ev.NewStatus) {
+			completedSet[summaryEntityKey{ev.EntityType, ev.EntityID}] = true
+		}
 	}
 
 	// Compute completed Σ size and counts.
@@ -369,19 +371,21 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 	// velocityResult.TrailingAverage because it includes the current sprint in
 	// its denominator.
 	var trailingAvgVelocity float64
-	if priorRows, velErr := s.analyticsRepo.GetVelocityData(ctx, 6); velErr == nil {
-		var priorTotal int
-		var priorCount int
-		for _, row := range priorRows {
-			if row.SprintKey == sp.Key {
-				continue // exclude the sprint being summarised
-			}
-			priorTotal += row.CompletedSize
-			priorCount++
+	priorRows, err := s.analyticsRepo.GetVelocityData(ctx, 6)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get velocity data for sprint %s summary: %w", sprintKey, err)
+	}
+	var priorTotal int
+	var priorCount int
+	for _, row := range priorRows {
+		if row.SprintKey == sp.Key {
+			continue // exclude the sprint being summarised
 		}
-		if priorCount > 0 {
-			trailingAvgVelocity = float64(priorTotal) / float64(priorCount)
-		}
+		priorTotal += row.CompletedSize
+		priorCount++
+	}
+	if priorCount > 0 {
+		trailingAvgVelocity = float64(priorTotal) / float64(priorCount)
 	}
 
 	velocityThisSprint := completedSize
@@ -512,6 +516,7 @@ func sprintStatusPtr(s string) *models.SprintStatus {
 
 // truncateToDay truncates a time to midnight UTC for day-boundary comparisons.
 func truncateToDay(t time.Time) time.Time {
+	t = t.UTC()
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 

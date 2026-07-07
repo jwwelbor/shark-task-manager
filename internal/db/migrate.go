@@ -1345,16 +1345,21 @@ func fixTaskNotesTasksOldFK(db *sql.DB) error {
 		return nil
 	}
 
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	foreignKeysDisabled := true
+	defer func() {
+		if foreignKeysDisabled {
+			_, _ = db.Exec("PRAGMA foreign_keys = ON")
+		}
+	}()
+
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	// Disable foreign keys temporarily
-	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
-		return fmt.Errorf("failed to disable foreign keys: %w", err)
-	}
 
 	// Rename existing table
 	_, err = tx.Exec(`ALTER TABLE task_notes RENAME TO task_notes_old;`)
@@ -1399,14 +1404,13 @@ CREATE TABLE task_notes (
 		return fmt.Errorf("failed to drop old task_notes table: %w", err)
 	}
 
-	// Re-enable foreign keys
-	if _, err := tx.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
-	}
-
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
+	}
+	foreignKeysDisabled = false
 
 	return nil
 }
@@ -1425,16 +1429,21 @@ func fixWorkSessionsTasksOldFK(db *sql.DB) error {
 		return nil
 	}
 
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	foreignKeysDisabled := true
+	defer func() {
+		if foreignKeysDisabled {
+			_, _ = db.Exec("PRAGMA foreign_keys = ON")
+		}
+	}()
+
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	// Disable foreign keys temporarily
-	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
-		return fmt.Errorf("failed to disable foreign keys: %w", err)
-	}
 
 	// Rename existing table
 	_, err = tx.Exec(`ALTER TABLE work_sessions RENAME TO work_sessions_old;`)
@@ -1472,14 +1481,13 @@ CREATE TABLE work_sessions (
 		return fmt.Errorf("failed to drop old work_sessions table: %w", err)
 	}
 
-	// Re-enable foreign keys
-	if _, err := tx.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
-	}
-
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
+	}
+	foreignKeysDisabled = false
 
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -578,5 +579,56 @@ func TestMutationHandler_ServiceErrorsAreReturned(t *testing.T) {
 	}
 	if errResp["message"] != "epic not found: E07" {
 		t.Fatalf("expected service error to be returned, got %#v", errResp["message"])
+	}
+}
+
+func TestMutationHandler_InternalErrorsAreGeneric(t *testing.T) {
+	rawErr := "sqlite: UNIQUE constraint failed: secret_table.internal_column"
+	mock := &mockMutationServicer{
+		updateEpicFn: func(_ context.Context, _ string, _ services.EpicUpdates) (*models.Epic, error) {
+			return nil, fmt.Errorf("%s", rawErr)
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/viewer/epics/E07", bytes.NewBufferString(`{"title":"Updated"}`))
+	rec := httptest.NewRecorder()
+	newMutationHandlerMux(mock).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+
+	var errResp map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if errResp["message"] == rawErr {
+		t.Fatalf("expected generic 500 message, got raw backend error")
+	}
+}
+
+func TestMutationHandler_RequestBodyTooLarge(t *testing.T) {
+	called := false
+	mock := &mockMutationServicer{
+		updateEpicFn: func(_ context.Context, _ string, _ services.EpicUpdates) (*models.Epic, error) {
+			called = true
+			epic := &models.Epic{}
+			epic.Key = "E07"
+			epic.Title = "Updated"
+			return epic, nil
+		},
+	}
+	oversizedTitle := strings.Repeat("x", 2*1024*1024+1)
+	body := `{"title":"` + oversizedTitle + `"}`
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/viewer/epics/E07", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	newMutationHandlerMux(mock).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", rec.Code)
+	}
+	if called {
+		t.Fatalf("service must not be called when request body is too large")
 	}
 }
