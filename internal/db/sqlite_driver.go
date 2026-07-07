@@ -25,6 +25,12 @@ func (s *SQLiteDriver) Connect(ctx context.Context, dsn string) error {
 	} else if dsn != "" && !contains(dsn, "_foreign_keys") {
 		dsn += "&_foreign_keys=on"
 	}
+	// Write time.Time params in SQLite's canonical text layout instead of
+	// Go's debug format (time.Time.String()), which neither SQLite datetime()
+	// nor the driver's own read path can parse.
+	if dsn != "" && !contains(dsn, "_time_format") {
+		dsn += "&_time_format=sqlite"
+	}
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

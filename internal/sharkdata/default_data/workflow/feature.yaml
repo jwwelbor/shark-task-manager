@@ -46,6 +46,7 @@ steps:
     agent: researcher
     provider: anthropic
     model: haiku
+    effort: low
     skills: [assessment, research]
     prompt: feature/assessment.md
     outcomes:
@@ -88,6 +89,7 @@ steps:
     agent: tech-lead
     provider: anthropic
     model: sonnet
+    effort: xhigh
     skills: [quality]
     prompt: feature/code_review.md
     outcomes:
@@ -143,6 +145,7 @@ steps:
     agent: qa
     provider: anthropic
     model: sonnet
+    effort: high
     skills: [quality, test-driven-development]
     prompt: feature/qa.md
     outcomes:
@@ -181,6 +184,7 @@ steps:
     agent: architect
     provider: anthropic
     model: opus
+    effort: high
     skills: [architecture, specification-writing]
     prompt: feature/specification.md
     outcomes:

@@ -449,9 +449,12 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	23 — E19-F08 (drop idx_sprints_active_one — allow multiple concurrent active sprints)
 //	24 — E07-F43 (replace task_search_fts with unified entity_search_fts and backfill)
 //	25 — B036   (repair task_history rejection_reason migration ordering)
+//	26 — E36 metrics (rebuild work_sessions entity-generic: entity_type/
+//	             entity_key/session_id columns, nullable task_id, no outcome
+//	             CHECK — sessions open on claim, close on release)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 25
+const CurrentSchemaVersion = 26
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -998,6 +1001,115 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate search FTS: %w", err)
 	}
 
+	// E36 metrics: rebuild work_sessions entity-generic so claim/release can
+	// log sessions for every entity type, not just tasks.
+	if err := migrateWorkSessionsEntityGeneric(db); err != nil {
+		return fmt.Errorf("failed to migrate work_sessions to entity-generic: %w", err)
+	}
+
+	return nil
+}
+
+// migrateWorkSessionsEntityGeneric rebuilds work_sessions so a session can be
+// attached to any entity (epic, feature, task, bug, change, tech-debt), not
+// only tasks. Sessions are opened on `shark claim` and closed on `shark
+// release`/reclaim, giving an active-vs-idle wall-clock split that
+// entity_history alone cannot provide.
+//
+// Changes from the legacy shape:
+//   - entity_type/entity_key identify the leased entity (task_id becomes a
+//     nullable legacy column, preserved for existing task sessions)
+//   - session_id links the row to the entity_claims lease that opened it
+//   - the outcome CHECK is dropped — outcomes are workflow vocabulary and are
+//     validated at the app layer, never hardcoded in DDL
+func migrateWorkSessionsEntityGeneric(db *sql.DB) error {
+	// Idempotence: if entity_key already exists, the rebuild has run.
+	var colCount int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('work_sessions') WHERE name = 'entity_key'
+	`).Scan(&colCount)
+	if err != nil {
+		return fmt.Errorf("failed to inspect work_sessions columns: %w", err)
+	}
+	if colCount > 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Drop dependent views up front. SQLite re-validates view definitions
+	// during ALTER TABLE ... RENAME, so a stale view referencing a missing
+	// column would abort the rebuild (mirrors migrateEntityNotesExpandNoteTypes).
+	dropViewSteps := []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+	}
+	for _, step := range dropViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop view failed: %w (step: %s)", err, step)
+		}
+	}
+
+	statements := []string{
+		`CREATE TABLE work_sessions_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL DEFAULT 'task',
+			entity_key TEXT,
+			task_id INTEGER,
+			agent_id TEXT,
+			session_id TEXT,
+			started_at TIMESTAMP NOT NULL,
+			ended_at TIMESTAMP,
+			outcome TEXT,
+			session_notes TEXT,
+			context_snapshot TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`INSERT INTO work_sessions_new (
+			id, entity_type, entity_key, task_id, agent_id,
+			started_at, ended_at, outcome, session_notes, context_snapshot, created_at
+		)
+		SELECT ws.id, 'task', t.key, ws.task_id, ws.agent_id,
+		       ws.started_at, ws.ended_at, ws.outcome, ws.session_notes, ws.context_snapshot, ws.created_at
+		FROM work_sessions ws
+		LEFT JOIN tasks t ON t.id = ws.task_id;`,
+		`DROP TABLE work_sessions;`,
+		`ALTER TABLE work_sessions_new RENAME TO work_sessions;`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_task_id ON work_sessions(task_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_agent_id ON work_sessions(agent_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_started_at ON work_sessions(started_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_entity ON work_sessions(entity_type, entity_key);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_active ON work_sessions(entity_type, entity_key, ended_at) WHERE ended_at IS NULL;`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to rebuild work_sessions: %w", err)
+		}
+	}
+
+	// Recreate views inside the same transaction so the schema is fully
+	// consistent on commit.
+	recreateViewSteps := []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+	}
+	for _, step := range recreateViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("recreate view failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit work_sessions rebuild: %w", err)
+	}
 	return nil
 }
 

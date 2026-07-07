@@ -14,11 +14,18 @@ const (
 	SessionOutcomeBlocked   SessionOutcome = "blocked"   // Work blocked by external dependency
 )
 
-// WorkSession represents a single work session on a task
+// WorkSession represents a single work session on an entity. Sessions are
+// opened when an agent claims the entity and closed on release/reclaim,
+// providing the active-vs-idle wall-clock split entity_history cannot.
+// EntityType/EntityKey identify the leased entity; TaskID is the legacy
+// task-only association (0 when the session belongs to a non-task entity).
 type WorkSession struct {
 	ID              int64           `json:"id" db:"id"`
-	TaskID          int64           `json:"task_id" db:"task_id"`
+	EntityType      string          `json:"entity_type" db:"entity_type"`
+	EntityKey       string          `json:"entity_key,omitempty" db:"entity_key"`
+	TaskID          int64           `json:"task_id,omitempty" db:"task_id"`
 	AgentID         *string         `json:"agent_id,omitempty" db:"agent_id"`
+	SessionID       *string         `json:"session_id,omitempty" db:"session_id"`
 	StartedAt       time.Time       `json:"started_at" db:"started_at"`
 	EndedAt         sql.NullTime    `json:"ended_at,omitempty" db:"ended_at"`
 	Outcome         *SessionOutcome `json:"outcome,omitempty" db:"outcome"`
@@ -29,7 +36,7 @@ type WorkSession struct {
 
 // Validate validates the WorkSession fields
 func (ws *WorkSession) Validate() error {
-	if ws.TaskID == 0 {
+	if ws.TaskID == 0 && ws.EntityKey == "" {
 		return ErrInvalidTaskID
 	}
 	if ws.StartedAt.IsZero() {

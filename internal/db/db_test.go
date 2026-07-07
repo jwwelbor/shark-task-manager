@@ -637,8 +637,8 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 25, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 25 (B036 task_history rejection_reason repair)")
+	assert.Equal(t, 26, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 26 (E36 metrics: entity-generic work_sessions)")
 }
 
 func TestMigration_ApplySchemaIfNeeded_UpgradesV23SearchIndex(t *testing.T) {

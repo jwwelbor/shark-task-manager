@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -31,12 +32,29 @@ type ClaimRepository interface {
 	List(ctx context.Context) ([]*models.EntityClaim, error)
 }
 
+// WorkSessionLog is the optional session-journal surface ClaimService writes
+// to: a session opens when an entity is claimed and closes when the lease is
+// released (or superseded by the next claim). It provides the
+// active-vs-idle wall-clock split that entity_history cannot.
+type WorkSessionLog interface {
+	Open(ctx context.Context, session *models.WorkSession) error
+	CloseOpenForEntity(ctx context.Context, entityType, entityKey, outcome string, endedAt time.Time) (int64, error)
+}
+
 // ClaimService orchestrates the claim/session lease (E35-F03). Status is a pure
 // phase; the claim is the in-flight lease. The service owns lease policy (TTL
 // backstop, reclaim-before-claim, force-steal) on top of the repository.
 type ClaimService struct {
-	repo ClaimRepository
-	ttl  time.Duration
+	repo     ClaimRepository
+	ttl      time.Duration
+	sessions WorkSessionLog // optional; nil degrades gracefully
+}
+
+// SetSessionLog attaches the optional work-session journal. Session writes
+// are best-effort telemetry: failures are logged, never propagated, so a
+// broken journal can never wedge the lease machinery.
+func (s *ClaimService) SetSessionLog(log WorkSessionLog) {
+	s.sessions = log
 }
 
 // NewClaimService constructs a ClaimService. A non-positive ttl falls back to
@@ -88,6 +106,7 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 
 	claimed, err := s.repo.Claim(ctx, c)
 	if err == nil {
+		s.openSession(ctx, claimed)
 		return claimed, nil
 	}
 	if !errors.Is(err, claimrepo.ErrAlreadyClaimed) {
@@ -117,17 +136,61 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 		return nil, fmt.Errorf("lost steal race after releasing existing claim on %s %s: %w",
 			in.EntityType, in.EntityKey, err)
 	}
+	s.openSession(ctx, claimed)
 	return claimed, nil
 }
 
 // Release frees the lease on an entity. When sessionID is non-empty the release
 // is session-scoped (safe sync-release that won't steal a re-issued lease);
-// otherwise it is an unconditional administrative release.
-func (s *ClaimService) Release(ctx context.Context, entityType, entityKey, sessionID string) (bool, error) {
+// otherwise it is an unconditional administrative release. A non-empty outcome
+// (typically the semantic outcome the worker released — pass/fail/blocked) is
+// stamped on the work session being closed; empty defaults to "released".
+func (s *ClaimService) Release(ctx context.Context, entityType, entityKey, sessionID, outcome string) (bool, error) {
+	var released bool
+	var err error
 	if sessionID != "" {
-		return s.repo.ReleaseSession(ctx, entityType, entityKey, sessionID)
+		released, err = s.repo.ReleaseSession(ctx, entityType, entityKey, sessionID)
+	} else {
+		released, err = s.repo.Release(ctx, entityType, entityKey)
 	}
-	return s.repo.Release(ctx, entityType, entityKey)
+	if err == nil && released {
+		if outcome == "" {
+			outcome = "released"
+		}
+		s.closeSessions(ctx, entityType, entityKey, outcome)
+	}
+	return released, err
+}
+
+// openSession journals the start of a work session for a fresh claim. Any
+// still-open session for the entity (dead holder, force-steal) is closed as
+// "superseded" first so at most one session per entity is ever open.
+func (s *ClaimService) openSession(ctx context.Context, c *models.EntityClaim) {
+	if s.sessions == nil || c == nil {
+		return
+	}
+	s.closeSessions(ctx, c.EntityType, c.EntityKey, "superseded")
+	ws := &models.WorkSession{
+		EntityType: c.EntityType,
+		EntityKey:  c.EntityKey,
+		AgentID:    &c.ClaimedBy,
+		SessionID:  &c.SessionID,
+		StartedAt:  time.Now().UTC(),
+	}
+	if err := s.sessions.Open(ctx, ws); err != nil {
+		slog.Warn("failed to open work session", "entity", c.EntityKey, "error", err)
+	}
+}
+
+// closeSessions ends any open work session for the entity with the given
+// outcome. Best-effort: errors are logged, never propagated.
+func (s *ClaimService) closeSessions(ctx context.Context, entityType, entityKey, outcome string) {
+	if s.sessions == nil {
+		return
+	}
+	if _, err := s.sessions.CloseOpenForEntity(ctx, entityType, entityKey, outcome, time.Now().UTC()); err != nil {
+		slog.Warn("failed to close work session", "entity", entityKey, "outcome", outcome, "error", err)
+	}
 }
 
 // Heartbeat renews a lease and records optional progress/note. The triple-duty

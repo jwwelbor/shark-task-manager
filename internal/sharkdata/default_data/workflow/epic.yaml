@@ -28,6 +28,7 @@ steps:
     agent: researcher
     provider: anthropic
     model: haiku
+    effort: low
     skills: [assessment, research]
     prompt: epic/assessment.md
     outcomes:
@@ -99,6 +100,7 @@ steps:
     agent: architect
     provider: anthropic
     model: opus
+    effort: high
     skills: [architecture, quality]
     prompt: epic/design.md
     outcomes:
@@ -165,6 +167,7 @@ steps:
     agent: business-analyst
     provider: anthropic
     model: opus
+    effort: high
     skills: [specification-writing]
     prompt: epic/refinement.md
     outcomes:

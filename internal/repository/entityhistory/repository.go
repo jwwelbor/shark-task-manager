@@ -80,6 +80,9 @@ func (r *EntityHistoryRepository) Create(ctx context.Context, history *models.En
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
+	// Bind changed_at as canonical text (not a raw time.Time) so the stored
+	// value is parseable and identical across drivers (modernc sqlite would
+	// otherwise store Go's debug layout; libsql/Turso likewise).
 	result, err := r.db.ExecContext(ctx, query,
 		history.EntityType,
 		history.EntityID,
@@ -89,7 +92,7 @@ func (r *EntityHistoryRepository) Create(ctx context.Context, history *models.En
 		history.Notes,
 		history.Forced,
 		history.RejectionReason,
-		history.ChangedAt,
+		dbconn.FormatTime(history.ChangedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create entity history: %w", err)
@@ -217,7 +220,7 @@ func (r *EntityHistoryRepository) CreateTx(
 		history.Notes,
 		history.Forced,
 		history.RejectionReason,
-		history.ChangedAt,
+		dbconn.FormatTime(history.ChangedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create entity history in transaction: %w", err)
@@ -290,7 +293,9 @@ func (r *EntityHistoryRepository) ListRecentAcrossEntities(ctx context.Context, 
 
 	if opts.Since != nil {
 		sb.WriteString(" AND changed_at > ?")
-		args = append(args, opts.Since.UTC())
+		// Bind as canonical text so the comparison layout matches what Create
+		// stores (mixed layouts make SQLite's lexicographic compare unreliable).
+		args = append(args, dbconn.FormatTime(*opts.Since))
 	}
 
 	sb.WriteString(" ORDER BY changed_at DESC LIMIT ?")

@@ -43,6 +43,7 @@ without --session it is an unconditional administrative release.
 Examples:
   shark release E07-F01-001                      Administrative release
   shark release E07-F01-001 --session=$SID        Safe session-scoped release
+  shark release E07-F01-001 --session=$SID --outcome=pass   Stamp the work session's outcome
 
 Hidden aliases (functional, omitted from help): unclaim, release-claim.`,
 	Args: cobra.ExactArgs(1),
@@ -60,6 +61,7 @@ func newReleaseAlias(name string) *cobra.Command {
 		RunE:   runUnclaim,
 	}
 	c.Flags().String("session", "", "Session id for a safe session-scoped release")
+	c.Flags().String("outcome", "", "Outcome stamped on the closed work session (default: released)")
 	return c
 }
 
@@ -91,6 +93,7 @@ func init() {
 	claimCmd.Flags().Bool("force", false, "Steal an existing (even live) claim")
 
 	unclaimCmd.Flags().String("session", "", "Session id for a safe session-scoped release")
+	unclaimCmd.Flags().String("outcome", "", "Outcome stamped on the closed work session (default: released)")
 
 	heartbeatCmd.Flags().String("session", "", "Session id that holds the claim (required)")
 	heartbeatCmd.Flags().Float64("progress", 0, "Progress fraction 0.0-1.0 to record")
@@ -150,9 +153,10 @@ func runUnclaim(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown key format: %s", key)
 	}
 	session, _ := cmd.Flags().GetString("session")
+	outcome, _ := cmd.Flags().GetString("outcome")
 
 	svc := cli.GetClaimService()
-	released, err := svc.Release(ctx, entityType, key, session)
+	released, err := svc.Release(ctx, entityType, key, session, outcome)
 	if err != nil {
 		cli.Error(err.Error())
 		return err

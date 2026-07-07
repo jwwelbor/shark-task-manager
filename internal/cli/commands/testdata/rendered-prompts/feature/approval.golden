@@ -1,4 +1,4 @@
-QA passed for feature E07-F01 ("Sample feature for golden test"). Launch UAT red-team review.
+Verification passed for feature E07-F01 ("Sample feature for golden test"). Launch UAT red-team review.
 
 This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
@@ -13,6 +13,7 @@ READ:
 
 RED-TEAM REVIEW:
 - Independently verify EVERY feature acceptance criterion against the actual code (not just reports)
+- ENUMERATE, don't iterate: for each AC, list ALL violations within each defect class in this pass — finding one issue per round produces a rejection spiral
 - Look for gaps between what the spec required and what was implemented
 - Check for cross-task integration issues that per-task review would miss
 - Verify error handling under adversarial and edge-case inputs
@@ -20,17 +21,20 @@ RED-TEAM REVIEW:
 - Verify the feature integrates correctly with the broader system
 - Challenge assumptions in the code review and QA reports — they may have missed things
 
+RE-VERIFICATION ROUND (a prior UAT report exists in the uat/ folder)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
+
 PRODUCE UAT report to docs/review/{epic-folder}/{feature-folder}/uat/<timestamp>-E07-F01-uat.md:
-- Verdict: APPROVED or REJECTED
+- Verdict: APPROVED or REJECTED — any CRITICAL or HIGH severity finding means REJECTED (never "approved with concerns")
 - Independent findings (do not just echo prior reports)
 - Evidence for each AC: cite specific file and line number
-- Red-team findings (if any): severity, description, recommendation
+- Red-team findings (if any): severity, description, recommendation, and a one-line defect-class statement (the general class, not the point instance)
+- End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
 
 ON APPROVED:
 - Add note: shark create note E07-F01 --type=review "Feature UAT approved — red-team passed"
 - Advance: shark status advance E07-F01
 
 ON REJECTED:
-- For each failing task, kick back: `shark status set <task-id> development --reason "<specific rejection findings>"`
+- For each failing task, kick back: `shark status set <task-id> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
 - Set feature back: `shark status set E07-F01 active --reason "UAT rejected — see report, tasks kicked back"`
 - Do NOT advance the feature.

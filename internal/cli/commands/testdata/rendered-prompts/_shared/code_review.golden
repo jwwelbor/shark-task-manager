@@ -171,7 +171,7 @@ For each: severity, evidence, and a concrete mitigation.
 
 ### Step 10: Codex red-team on the diff (MANDATORY)
 
-Claude reviewing Claude is a monoculture. Run `codex_command` to red-team the diff from a different model's perspective — same pattern as QA's codex step, but applied at craft-review focus (DRY, idiom, complexity, standards, design) rather than spec fidelity.
+Claude reviewing Claude is a monoculture. Run `codex_command` to red-team the diff from a different model's perspective, applied at craft-review focus (DRY, idiom, complexity, standards, design) rather than spec fidelity.
 
 The codex prompt (assembled by the caller) should instruct codex to:
 
@@ -185,7 +185,7 @@ The codex prompt (assembled by the caller) should instruct codex to:
 
 Codex output should be enumerative within each category — multiple non-blocker DRY findings beat one summary.
 
-**Timeout**: 5 minutes. If it times out, retry once. After two failures, log `"Codex craft review: FAILED — [error]"` as a non-blocking note (don't skip CR because of codex failure, but document it).
+**Timeout**: at least 580 seconds — five-minute budgets kill codex runs mid-investigation, and a retry after truncation just burns a second full run. Prefer one long run over two truncated ones. If it times out at the long budget, retry once. After two failures, log `"Codex craft review: FAILED — [error]"` as a non-blocking note (don't skip CR because of codex failure, but document it).
 
 **Merge codex findings into your own:**
 

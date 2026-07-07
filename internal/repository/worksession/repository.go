@@ -21,6 +21,70 @@ func NewWorkSessionRepository(db *dbconn.DB) *WorkSessionRepository {
 	return &WorkSessionRepository{db: db}
 }
 
+// Open inserts a new session row for a leased entity. Timestamps are bound
+// as canonical text (dbconn.FormatTime) so the stored value is parseable and
+// identical across drivers. Callers are expected to close any prior open
+// session for the entity first (see CloseOpenForEntity) — Open itself does
+// not guard, so a claim-steal can hand over cleanly.
+func (r *WorkSessionRepository) Open(ctx context.Context, session *models.WorkSession) error {
+	if err := session.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	var taskID interface{}
+	if session.TaskID != 0 {
+		taskID = session.TaskID
+	}
+
+	query := `
+		INSERT INTO work_sessions (
+			entity_type, entity_key, task_id, agent_id, session_id, started_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+	result, err := r.db.ExecContext(ctx, query,
+		session.EntityType,
+		session.EntityKey,
+		taskID,
+		session.AgentID,
+		session.SessionID,
+		dbconn.FormatTime(session.StartedAt),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open work session: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	session.ID = id
+	return nil
+}
+
+// CloseOpenForEntity ends every open session for an entity, stamping the
+// given outcome and end time. Returns the number of sessions closed (0 when
+// none were open — callers treat that as a no-op, not an error).
+func (r *WorkSessionRepository) CloseOpenForEntity(ctx context.Context, entityType, entityKey, outcome string, endedAt time.Time) (int64, error) {
+	if err := models.ValidateSessionOutcome(outcome); err != nil {
+		return 0, err
+	}
+	query := `
+		UPDATE work_sessions
+		SET ended_at = ?, outcome = ?
+		WHERE entity_type = ? AND entity_key = ? AND ended_at IS NULL
+	`
+	result, err := r.db.ExecContext(ctx, query, dbconn.FormatTime(endedAt), outcome, entityType, entityKey)
+	if err != nil {
+		return 0, fmt.Errorf("failed to close work sessions for %s %s: %w", entityType, entityKey, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return n, nil
+}
+
 // Create creates a new work session
 func (r *WorkSessionRepository) Create(ctx context.Context, session *models.WorkSession) error {
 	if err := session.Validate(); err != nil {

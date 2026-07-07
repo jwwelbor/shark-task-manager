@@ -279,14 +279,13 @@ func ValidateRelationshipType(relType string) error {
 	return nil
 }
 
-// ValidateSessionOutcome validates the session outcome enum
+// ValidateSessionOutcome validates a session outcome structurally. Outcomes
+// carry workflow vocabulary (pass/fail/blocked/…) plus lease lifecycle values
+// (released/superseded/expired), and workflow vocabulary is config-driven —
+// so this validator only rejects empty/whitespace values, never enforces an
+// allowlist (business validation belongs to the workflow layer).
 func ValidateSessionOutcome(outcome string) error {
-	validOutcomes := map[string]bool{
-		"completed": true,
-		"paused":    true,
-		"blocked":   true,
-	}
-	if !validOutcomes[outcome] {
+	if strings.TrimSpace(outcome) == "" {
 		return fmt.Errorf("%w: got %q", ErrInvalidSessionOutcome, outcome)
 	}
 	return nil

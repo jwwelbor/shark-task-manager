@@ -158,12 +158,14 @@ func init() {
 	statusSetCmd.Flags().String("reason", "", "Reason for backward or forced transitions")
 	statusSetCmd.Flags().Bool("force", false, "Bypass workflow validation")
 	statusSetCmd.Flags().String("notes", "", "Transition notes")
+	statusSetCmd.Flags().String("agent", "", "Actor identity recorded as changed_by (default: $SHARK_ACTOR or 'cli')")
 
 	// statusAdvanceCmd: route-based release. Without --outcome it advances to the
 	// default next status (legacy behavior). With --outcome it resolves
 	// step.outcomes[outcome] and routes there (E35-F02).
 	statusAdvanceCmd.Flags().String("outcome", "", "Release a semantic outcome (pass|fail|blocked|…) and route via the workflow's outcomes map")
 	statusAdvanceCmd.Flags().String("reason", "", "Reason recorded with the transition")
+	statusAdvanceCmd.Flags().String("agent", "", "Actor identity recorded as changed_by (default: $SHARK_ACTOR or 'cli')")
 
 	// statusHistoryCmd flags
 	statusHistoryCmd.Flags().Int("limit", 50, "Maximum number of history entries to show")
@@ -251,10 +253,15 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	// Parse flags
 	reason, _ := cmd.Flags().GetString("reason")
 	force, _ := cmd.Flags().GetBool("force")
+	agent, _ := cmd.Flags().GetString("agent")
+	if agent == "" {
+		agent = advanceActor()
+	}
 
 	opts := services.TransitionOptions{
 		Force:  force,
 		Reason: reason,
+		Agent:  agent,
 	}
 
 	// Step 2: Perform transition (idempotency is handled in the service layer)
@@ -390,14 +397,18 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	// Determine the target. With --outcome, resolve via the route-based outcomes
 	// map (release semantics, D4). Without it, auto-select the default transition.
 	// cmd may be nil in unit tests that call runStatusAdvance directly.
-	var outcome, reason string
+	var outcome, reason, agent string
 	if cmd != nil {
 		outcome, _ = cmd.Flags().GetString("outcome")
 		reason, _ = cmd.Flags().GetString("reason")
+		agent, _ = cmd.Flags().GetString("agent")
+	}
+	if agent == "" {
+		agent = advanceActor()
 	}
 
 	autoTarget := info.AvailableTransitions[0].TargetStatus
-	opts := services.TransitionOptions{Reason: reason}
+	opts := services.TransitionOptions{Reason: reason, Agent: agent}
 
 	if strings.TrimSpace(outcome) != "" {
 		outcome = strings.TrimSpace(strings.ToLower(outcome))

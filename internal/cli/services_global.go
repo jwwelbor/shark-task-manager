@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -720,5 +721,7 @@ func GetClaimService() *services.ClaimService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	return services.NewClaimService(claimrepo.NewRepository(db), 0)
+	svc := services.NewClaimService(claimrepo.NewRepository(db), 0)
+	svc.SetSessionLog(worksession.NewWorkSessionRepository(db))
+	return svc
 }
