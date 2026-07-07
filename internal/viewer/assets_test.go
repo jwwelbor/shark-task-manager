@@ -1,12 +1,26 @@
 package viewer_test
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	viewer "github.com/jwwelbor/shark-task-manager/internal/viewer"
 )
+
+func viewerHTMLContent() string {
+	return string(viewer.ViewerHTML)
+}
+
+func requireViewerHTMLMarkers(t *testing.T, content string, label string, markers ...string) {
+	t.Helper()
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("%s missing marker: %q", label, marker)
+		}
+	}
+}
 
 // TestViewerHTMLEmbedded verifies that the go:embed directive populated
 // ViewerHTML and that it contains the structural markers required by the SPA.
@@ -1158,7 +1172,7 @@ func TestViewerHTMLPropertiesPanelRegressionGate(t *testing.T) {
 // TestViewerHTMLNoNewAPIEndpoints verifies that the seven existing API fetch wrapper
 // functions remain unchanged — no new apiGet* functions were added. TC-F08-020, AC-NF-001.1.
 func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
-	content := string(viewer.ViewerHTML)
+	content := viewerHTMLContent()
 
 	// All 7 existing functions must be present
 	expectedFunctions := []string{
@@ -1170,25 +1184,76 @@ func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
 		"apiGetHistory",
 		"apiGetFeatureTasks",
 	}
-	for _, fn := range expectedFunctions {
-		if !strings.Contains(content, fn) {
-			t.Errorf("viewer.html missing expected API function: %q", fn)
-		}
-	}
+	requireViewerHTMLMarkers(t, content, "viewer.html API client", expectedFunctions...)
 }
 
-func TestViewerHTMLFeatureTasksSupportsWrappedResponse(t *testing.T) {
-	content := string(viewer.ViewerHTML)
+func TestViewerHTMLFeatureTasksNormalizationMarkers(t *testing.T) {
+	content := viewerHTMLContent()
 
-	required := []string{
-		"const payload = await resp.json();",
+	requireViewerHTMLMarkers(t, content, "viewer.html feature-task normalization",
+		"function normalizeFeatureTasksPayload(payload)",
 		"if (Array.isArray(payload)) return payload;",
 		"if (payload && Array.isArray(payload.tasks)) return payload.tasks;",
+		"return null;",
+		"return normalizeFeatureTasksPayload(await resp.json());",
+	)
+}
+
+func TestViewerHTMLFeatureTasksNormalizationBehavior(t *testing.T) {
+	content := viewerHTMLContent()
+
+	start := strings.Index(content, "function normalizeFeatureTasksPayload(payload) {")
+	if start < 0 {
+		t.Fatal("viewer.html missing normalizeFeatureTasksPayload helper")
 	}
-	for _, marker := range required {
-		if !strings.Contains(content, marker) {
-			t.Errorf("viewer.html missing feature-task response compatibility marker: %q", marker)
-		}
+	end := strings.Index(content[start:], "\n\n/**\n * Fetches all tasks for a feature.")
+	if end < 0 {
+		t.Fatal("viewer.html missing apiGetFeatureTasks docblock after normalizeFeatureTasksPayload")
+	}
+	fnSource := content[start : start+end]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available for viewer payload normalization behavior test")
+	}
+
+	script := fnSource + `
+const legacy = normalizeFeatureTasksPayload([{ key: 'T-E01-F01-001' }]);
+if (!Array.isArray(legacy) || legacy.length !== 1 || legacy[0].key !== 'T-E01-F01-001') {
+  throw new Error('legacy array payload was not preserved');
+}
+
+const wrapped = normalizeFeatureTasksPayload({
+  feature_key: 'E01-F01',
+  total: 1,
+  tasks: [{ key: 'T-E01-F01-002' }]
+});
+if (!Array.isArray(wrapped) || wrapped.length !== 1 || wrapped[0].key !== 'T-E01-F01-002') {
+  throw new Error('wrapped tasks payload was not unwrapped');
+}
+
+const emptyWrapped = normalizeFeatureTasksPayload({
+  feature_key: 'E01-F01',
+  total: 0,
+  tasks: []
+});
+if (!Array.isArray(emptyWrapped) || emptyWrapped.length !== 0) {
+  throw new Error('empty wrapped tasks payload was not preserved');
+}
+
+if (normalizeFeatureTasksPayload({}) !== null) {
+  throw new Error('malformed payload should return null');
+}
+
+if (normalizeFeatureTasksPayload({ tasks: null }) !== null) {
+  throw new Error('non-array tasks payload should return null');
+}
+`
+
+	cmd := exec.Command(nodePath, "-e", script)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node-based viewer payload normalization test failed: %v\n%s", err, output)
 	}
 }
 
