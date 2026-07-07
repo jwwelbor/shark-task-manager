@@ -54,8 +54,8 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: research
-      specification: specification
-      task_generation: task_generation
+      simple: task_generation
+      standard: specification
   blocked:
     phase: blocked
     color: red
@@ -117,7 +117,7 @@ steps:
     action: advance_status
     prompt: feature/draft.md
     outcomes:
-      active: active
+      already_planned: active
       blocked: blocked
       cancelled: cancelled
       fail: draft

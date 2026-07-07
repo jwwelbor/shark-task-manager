@@ -105,9 +105,9 @@ steps:
       blocked: blocked
       cancelled: cancelled
       fail: research
+      needs_refinement: refinement
       on_hold: on_hold
       pass: decomposition
-      refinement: refinement
   draft:
     phase: planning
     color: gray
@@ -119,7 +119,7 @@ steps:
     action: advance_status
     prompt: epic/draft.md
     outcomes:
-      active: active
+      already_planned: active
       blocked: blocked
       cancelled: cancelled
       fail: draft

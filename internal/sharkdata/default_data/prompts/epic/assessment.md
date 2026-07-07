@@ -47,4 +47,4 @@ Once the target type (and container, for Feature/Task) is determined:
 
 ## Step 3: Route
 
-Genuine epic -> `shark status set {{.id}} refinement`
+Genuine epic -> `shark status advance {{.id}} --outcome pass`

@@ -42,6 +42,8 @@ STORE: {{template "create_note" .}} --content="COMPLEXITY: {tier} (score: {score
 
 ## Step 3: Route
 
-- SIMPLE -> shark status set {{.id}} task_generation
-- STANDARD -> shark status set {{.id}} specification
-- COMPLEX -> shark status set {{.id}} research
+Release the tier as a semantic outcome — never name a target status:
+
+- SIMPLE -> shark status advance {{.id}} --outcome simple
+- STANDARD -> shark status advance {{.id}} --outcome standard
+- COMPLEX -> shark status advance {{.id}} --outcome pass
