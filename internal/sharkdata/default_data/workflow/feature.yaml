@@ -81,20 +81,21 @@ steps:
     phase: code_review
     color: magenta
     display_token: CRV
-    description: All tasks developed — ready for feature-level code review
+    description: "All tasks developed — feature verification gate (merged review+QA for SIMPLE/STANDARD; review-only first gate for COMPLEX)"
     progress_weight: 0.7
     responsibility: agent
     action: spawn_agent
     agent: tech-lead
     provider: anthropic
-    model: opus
+    model: sonnet
     skills: [quality]
     prompt: feature/code_review.md
     outcomes:
       blocked: blocked
+      deep_verify: qa
       fail: active
       on_hold: on_hold
-      pass: qa
+      pass: approval
   completed:
     phase: done
     color: green
@@ -135,7 +136,7 @@ steps:
     phase: qa
     color: blue
     display_token: QA
-    description: Code review passed — ready for feature-level QA
+    description: "COMPLEX features only: deep second verification gate after review"
     progress_weight: 0.8
     responsibility: agent
     action: spawn_agent

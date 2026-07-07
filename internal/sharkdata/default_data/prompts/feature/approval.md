@@ -1,4 +1,4 @@
-QA passed for feature {{.id}} ("{{.title}}"). Launch UAT red-team review.
+Verification passed for feature {{.id}} ("{{.title}}"). Launch UAT red-team review.
 
 This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
