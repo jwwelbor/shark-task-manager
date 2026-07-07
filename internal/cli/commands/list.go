@@ -18,7 +18,7 @@ Positional Arguments:
   EPIC FEATURE           List tasks in feature (e.g., E04 F01 or E04-F01)
   idea / ideas           List all ideas
   bug / bugs             List all bugs
-  change / changes       List all change cards (also: change-card / change-cards)
+  change / changes       List all change cards (also: change-card / change_card)
   tech-debt / td         List all tech-debt items (also: tech_debt / techdebt)
 
 Examples:

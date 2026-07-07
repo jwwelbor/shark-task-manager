@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -622,10 +623,8 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 			}
 			return "tech_debt", entityID, nil
 		}
-		// Change-card keys in the legacy CC-### format are not handled by
-		// KeyService.Parse (which uses the C### pattern). Fall back to
-		// IsChangeCardKey to support the CC-### format used in the feature spec
-		// (REQ-F-004) and by older workflows.
+		// Keep the legacy predicate as a defensive fallback for older callers
+		// even though KeyService.Parse now handles the accepted change aliases.
 		if keys.IsChangeCardKey(entityKey) {
 			normalized := strings.ToUpper(strings.TrimSpace(entityKey))
 			entityID, err = repo.GetChangeCardIDByKey(ctx, normalized)
@@ -635,7 +634,7 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 			return "change_card", entityID, nil
 		}
 		return "", 0, fmt.Errorf(
-			"unsupported entity type %q for sprint assignment: entity key %q must be a task, bug, change-card (C### or CC-###), or tech-debt (TD-###) key",
+			"unsupported entity type %q for sprint assignment: entity key %q must be a task, bug, change-card (canonical CC-###; C###/CC### aliases accepted), or tech-debt (TD-###) key",
 			parsed.EntityType, entityKey,
 		)
 	}
@@ -1095,14 +1094,23 @@ type ReorderTarget struct {
 	Bottom   bool // move to position max+1 (last)
 }
 
-// validBacklogEntityTypes is the allowlist of entity types accepted by GetSprintBacklog's
-// EntityType filter. The service validates against this set before passing to the repository
-// to prevent invalid values from reaching the UNION query.
+// validBacklogEntityTypes is the allowlist of storage entity types accepted by
+// GetSprintBacklog's EntityType filter. The service validates against this set
+// before passing to the repository to prevent invalid values from reaching the
+// UNION query.
 var validBacklogEntityTypes = map[string]bool{
 	"task":        true,
 	"bug":         true,
 	"change_card": true,
 	"tech_debt":   true,
+}
+
+func normalizeBacklogEntityType(raw string) string {
+	normalized := entitytype.WorkflowLevelOrSelf(raw)
+	if normalized == entitytype.WorkflowChange {
+		return "change_card"
+	}
+	return normalized
 }
 
 // GetSprintBacklog returns all entities assigned to a sprint.
@@ -1153,13 +1161,14 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 	// Step 3: Validate entity type filter
 	var entityTypeFilter *string
 	if opts.EntityType != "" {
-		if !validBacklogEntityTypes[opts.EntityType] {
+		normalizedEntityType := normalizeBacklogEntityType(opts.EntityType)
+		if !validBacklogEntityTypes[normalizedEntityType] {
 			return nil, fmt.Errorf(
-				"invalid entity type %q: must be one of task, bug, change_card, tech_debt",
+				"invalid entity type %q: must be one of task, bug, change, change_card, tech_debt",
 				opts.EntityType,
 			)
 		}
-		entityTypeFilter = &opts.EntityType
+		entityTypeFilter = &normalizedEntityType
 	}
 
 	// Step 4: Determine blocked statuses from workflow service (never hardcode "blocked")

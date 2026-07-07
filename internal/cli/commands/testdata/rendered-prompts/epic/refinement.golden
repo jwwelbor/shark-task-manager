@@ -113,7 +113,7 @@ handoff note to the requirements catalog and decisions log:
   canonical source.
 - If an interaction map already exists and every shape source resolves, verify
   it is linked with:
-  `shark related-docs add "Interaction Map" "<epic-id>-interaction-map.md" --epic=<epic-id>`
+  `DOC_PATH="docs/plan/<epic-id>/<epic-id>-interaction-map.md" && shark related-docs add "Interaction Map" "${DOC_PATH}" --epic=<epic-id>`
 
 ### Step 5 — Cross-Reference Verification
 

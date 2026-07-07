@@ -14,12 +14,16 @@ var (
 	// shortTaskKeyPattern matches task keys without the T- prefix (E##-F##-###)
 	// This enables users to use "E01-F02-001" instead of "T-E01-F02-001"
 	shortTaskKeyPattern = regexp.MustCompile(`^E\d{2}-F\d{2}-\d{3}$`)
-	// changeCardKeyPattern matches change-card keys (CC-### format)
-	changeCardKeyPattern = regexp.MustCompile(`^CC-\d{3}$`)
+	// changeCardKeyPattern matches canonical and accepted legacy change-card
+	// keys: CC-001, CC001, C001, C1, C1000.
+	changeCardKeyPattern = regexp.MustCompile(`^C{1,2}-?\d+$`)
 	// bugKeyPattern matches bug keys (B followed by 1+ digits: B1, B42, B001, B1000)
 	bugKeyPattern = regexp.MustCompile(`^B\d+$`)
-	// changeKeyPattern matches change keys (C followed by 1+ digits: C1, C15, C001)
-	changeKeyPattern = regexp.MustCompile(`^C\d+$`)
+	// changeKeyPattern is the same accepted input set as changeCardKeyPattern.
+	changeKeyPattern = changeCardKeyPattern
+	// changeKeyNumberPattern extracts the numeric suffix from any accepted
+	// change-card alias.
+	changeKeyNumberPattern = regexp.MustCompile(`^C{1,2}-?(\d+)$`)
 	// techDebtKeyPattern matches tech-debt keys (TD-### format)
 	techDebtKeyPattern = regexp.MustCompile(`^TD-\d{3}$`)
 	// ideaKeyPattern matches idea keys (I-YYYY-MM-DD-## format)
@@ -40,6 +44,30 @@ var (
 //	E01-FEATURE-NAME -> E01-FEATURE-NAME
 func Normalize(key string) string {
 	return strings.ToUpper(key)
+}
+
+// NormalizeChangeKey converts accepted change-card key aliases to the
+// canonical storage/display form: CC-###. Inputs with fewer than three digits
+// are zero-padded; longer numeric suffixes are preserved.
+//
+// Examples:
+//
+//	C001   -> CC-001
+//	CC001  -> CC-001
+//	CC-001 -> CC-001
+//	C1     -> CC-001
+func NormalizeChangeKey(input string) (string, error) {
+	normalized := Normalize(strings.TrimSpace(input))
+	matches := changeKeyNumberPattern.FindStringSubmatch(normalized)
+	if matches == nil {
+		return "", fmt.Errorf("invalid change-card key format: %q", input)
+	}
+
+	digits := matches[1]
+	if len(digits) < 3 {
+		digits = strings.Repeat("0", 3-len(digits)) + digits
+	}
+	return "CC-" + digits, nil
 }
 
 // IsEpicKey validates if a string is a valid epic key format (E##)
@@ -174,8 +202,8 @@ func NormalizeTaskKey(input string) (string, error) {
 	return "", fmt.Errorf("invalid task key format: %q", input)
 }
 
-// IsChangeCardKey validates if a string is a valid change-card key format (CC-###).
-// Case insensitive: cc-001 is normalized to CC-001 before validation.
+// IsChangeCardKey validates accepted change-card key aliases.
+// Case insensitive: c001, cc001, and cc-001 all resolve to the same entity.
 func IsChangeCardKey(s string) bool {
 	normalized := Normalize(s)
 	return changeCardKeyPattern.MatchString(normalized)
@@ -189,10 +217,8 @@ func IsBugKey(s string) bool {
 	return bugKeyPattern.MatchString(normalized)
 }
 
-// IsChangeKey validates if a string is a valid change key format (C###).
-// Accepts C followed by one or more digits: C1, C15, C001, C1000.
-// Case insensitive: c001 is normalized to C001 before validation.
-// Note: This is distinct from IsChangeCardKey which validates the old CC-### format.
+// IsChangeKey validates accepted change-card key aliases.
+// C001, CC001, and CC-001 are all the same change-card key family.
 func IsChangeKey(s string) bool {
 	normalized := Normalize(s)
 	return changeKeyPattern.MatchString(normalized)

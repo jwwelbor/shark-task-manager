@@ -62,6 +62,6 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	case "sprint":
 		return runSprintDelete(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), CC-### (change-card), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), CC-### (change card, C###/CC### aliases accepted), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 	}
 }

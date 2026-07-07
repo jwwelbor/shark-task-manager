@@ -669,7 +669,12 @@ func TestGetByType_AllSlotsAndUnknown(t *testing.T) {
 		{"sprint", "sprint-cfg"},
 		{"bug", "bug-cfg"},
 		{"change", "change-cfg"},
+		{"change_card", "change-cfg"},
+		{"change-card", "change-cfg"},
+		{"change-cards", "change-cfg"},
 		{"tech_debt", "tech_debt-cfg"},
+		{"tech-debt", "tech_debt-cfg"},
+		{"td", "tech_debt-cfg"},
 		{"unknown", ""},
 		{"", ""},
 	}

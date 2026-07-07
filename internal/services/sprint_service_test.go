@@ -1384,6 +1384,35 @@ func TestSprintService_GetSprintBacklog_TypeFilter(t *testing.T) {
 		assert.Equal(t, "task", *capturedEntityType, "repo must receive the entity type filter value")
 	})
 
+	t.Run("TC-B06b: change aliases normalize to change_card storage filter", func(t *testing.T) {
+		for _, input := range []string{"change", "changes", "change-card", "change_card"} {
+			t.Run(input, func(t *testing.T) {
+				var capturedEntityType *string
+				mockRepo := &MockSprintRepository{
+					GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+						return sprintEntity, nil
+					},
+					ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+						capturedEntityType = entityType
+						return []*sprint.BacklogItem{
+							{EntityType: "change_card", EntityKey: "CC-001", Key: "CC-001", Title: "Change 1", Status: "proposed"},
+						}, nil
+					},
+				}
+
+				workflowSvc := workflow.NewService("")
+				svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+				result, err := svc.GetSprintBacklog(ctx, "S024", BacklogOptions{EntityType: input})
+
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.NotNil(t, capturedEntityType, "repo must be called with non-nil entityType pointer")
+				assert.Equal(t, "change_card", *capturedEntityType, "repo must receive the storage entity type filter")
+			})
+		}
+	})
+
 	t.Run("TC-B07: invalid --type=sprint returns error with valid values listed", func(t *testing.T) {
 		listBacklogCalled := false
 		mockRepo := &MockSprintRepository{

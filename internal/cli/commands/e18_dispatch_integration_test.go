@@ -27,16 +27,18 @@ import (
 // INT-01 — DetectEntityType correctly identifies B### and C### keys
 // ---------------------------------------------------------------------------
 
-// TestDetectEntityType_ChangeCardKey verifies that CC-### keys are recognized as "change_card".
+// TestDetectEntityType_ChangeCardKey verifies accepted change-card key aliases
+// all resolve to the canonical "change" entity family.
 func TestDetectEntityType_ChangeCardKey(t *testing.T) {
 	tests := []struct {
 		name     string
 		key      string
 		wantType string
 	}{
-		{"CC-001 uppercase", "CC-001", "change_card"},
-		{"CC-042 uppercase", "CC-042", "change_card"},
-		{"cc-001 lowercase", "cc-001", "change_card"},
+		{"CC-001 uppercase", "CC-001", "change"},
+		{"CC001 compact", "CC001", "change"},
+		{"C001 alias", "C001", "change"},
+		{"cc-001 lowercase", "cc-001", "change"},
 	}
 
 	for _, tt := range tests {
@@ -79,17 +81,20 @@ func TestDetectEntityType_NoFalsePositives(t *testing.T) {
 // INT-01 — ParseGetArgs / scopeInterpreterImpl routes B### and C### correctly
 // ---------------------------------------------------------------------------
 
-// TestParseGetArgs_ChangeCardKey verifies that ParseGetArgs dispatches CC-### to "change_card".
+// TestParseGetArgs_ChangeCardKey verifies that ParseGetArgs dispatches
+// change-card key aliases to "change" with the canonical CC-### key.
 func TestParseGetArgs_ChangeCardKey(t *testing.T) {
-	command, key, err := ParseGetArgs([]string{"CC-001"})
-	if err != nil {
-		t.Fatalf("ParseGetArgs(CC-001) unexpected error: %v", err)
-	}
-	if command != "change_card" {
-		t.Errorf("ParseGetArgs(CC-001) command = %q, want %q", command, "change_card")
-	}
-	if key != "CC-001" {
-		t.Errorf("ParseGetArgs(CC-001) key = %q, want %q", key, "CC-001")
+	for _, input := range []string{"CC-001", "CC001", "C001"} {
+		command, key, err := ParseGetArgs([]string{input})
+		if err != nil {
+			t.Fatalf("ParseGetArgs(%s) unexpected error: %v", input, err)
+		}
+		if command != "change" {
+			t.Errorf("ParseGetArgs(%s) command = %q, want %q", input, command, "change")
+		}
+		if key != "CC-001" {
+			t.Errorf("ParseGetArgs(%s) key = %q, want %q", input, key, "CC-001")
+		}
 	}
 }
 
@@ -122,7 +127,7 @@ func TestValidateSearchType_EmptyIsValid(t *testing.T) {
 
 // TestValidateSearchType_InvalidType verifies that unsupported types are rejected.
 func TestValidateSearchType_InvalidType(t *testing.T) {
-	invalidTypes := []string{"change_card", "cc", "unknown"}
+	invalidTypes := []string{"cc", "unknown"}
 	for _, typ := range invalidTypes {
 		t.Run("invalid type: "+typ, func(t *testing.T) {
 			err := validateSearchType(typ)
@@ -166,7 +171,8 @@ func TestDeleteDispatch_EntityTypeDetection(t *testing.T) {
 		{"B001 -> bug", "B001", "bug"},
 		{"B042 -> bug", "B042", "bug"},
 		{"C001 -> change", "C001", "change"},
-		{"CC-001 -> change_card", "CC-001", "change_card"},
+		{"CC001 -> change", "CC001", "change"},
+		{"CC-001 -> change", "CC-001", "change"},
 		{"E07 -> epic", "E07", "epic"},
 		{"E07-F01 -> feature", "E07-F01", "feature"},
 		{"E07-F01-001 -> task", "E07-F01-001", "task"},
@@ -321,7 +327,7 @@ func TestDispatchInventory_IsBugKey(t *testing.T) {
 
 // TestDispatchInventory_IsChangeKey verifies keys.IsChangeKey is correctly
 // wired through the commands package (dispatch point #17).
-// IsChangeKey is case-insensitive — both "c001" and "C001" are valid.
+// IsChangeKey is case-insensitive and accepts change-card key aliases.
 func TestDispatchInventory_IsChangeKey(t *testing.T) {
 	tests := []struct {
 		key  string
@@ -330,9 +336,10 @@ func TestDispatchInventory_IsChangeKey(t *testing.T) {
 		{"C001", true},
 		{"C042", true},
 		{"C999", true},
+		{"CC001", true},
+		{"CC-001", true},
 		{"c001", true}, // case-insensitive: lowercase also accepted
 		{"B001", false},
-		{"CC-001", false},
 		{"E001", false},
 		{"", false},
 	}
@@ -349,17 +356,19 @@ func TestDispatchInventory_IsChangeKey(t *testing.T) {
 
 // TestDispatchInventory_IsChangeCardKey verifies keys.IsChangeCardKey is correctly
 // wired through the commands package (dispatch point #18).
-// IsChangeCardKey is case-insensitive — both "cc-001" and "CC-001" are valid.
+// IsChangeCardKey is the legacy predicate for the same accepted change-card
+// key aliases as IsChangeKey.
 func TestDispatchInventory_IsChangeCardKey(t *testing.T) {
 	tests := []struct {
 		key  string
 		want bool
 	}{
 		{"CC-001", true},
+		{"CC001", true},
+		{"C001", true},
 		{"CC-042", true},
 		{"CC-999", true},
 		{"cc-001", true}, // case-insensitive: lowercase also accepted
-		{"C001", false},
 		{"B001", false},
 		{"", false},
 	}
@@ -542,7 +551,8 @@ func TestGAP003_Fix_DispatchNextStatus_ChangeKey(t *testing.T) {
 }
 
 // TestGAP001_Fix_DeleteDispatch_ChangeKey verifies GAP-001: that DetectEntityType("C001")
-// returns "change" and that the delete dispatch error message includes C### format hint.
+// returns "change" and that the delete dispatch error message includes canonical
+// change-card format plus alias guidance.
 //
 // We cannot call runDelete directly without a live DB (it calls runChangeCardDelete
 // which opens a DB connection).  The routing decision (entityType detection) IS
@@ -550,7 +560,7 @@ func TestGAP003_Fix_DispatchNextStatus_ChangeKey(t *testing.T) {
 //
 //  1. DetectEntityType("C001") == "change" (already true — DetectEntityType works)
 //  2. runDelete must have a case "change" so it doesn't hit the default error
-//  3. The default error message must include "C### (change card)" for EC-004
+//  3. The default error message must include "CC-###" and alias guidance for EC-004
 func TestGAP001_Fix_DeleteDispatch_ChangeKey(t *testing.T) {
 	entityType := DetectEntityType("C001")
 	if entityType != "change" {
@@ -560,16 +570,17 @@ func TestGAP001_Fix_DeleteDispatch_ChangeKey(t *testing.T) {
 	// After fix the "change" case must exist in runDelete.  Since we can't
 	// call runDelete without a DB, we verify the error message that would be
 	// returned for a truly unknown key includes the updated format hint.
-	// The updated default message (EC-004) must include "C### (change card)".
+	// The updated default message (EC-004) must include the canonical key format
+	// and accepted aliases.
 	updatedDefaultMsg := "cannot determine entity type from key: UNKNOWN-KEY\n" +
 		"Expected format: E## (epic), E##-F## (feature), E##-F##-### (task), " +
-		"B### (bug), C### (change card), or CC-### (change-card)"
-	if !strings.Contains(updatedDefaultMsg, "C### (change card)") {
-		t.Error("EC-004 format hint does not contain 'C### (change card)'")
+		"B### (bug), CC-### (change card, C###/CC### aliases accepted)"
+	if !strings.Contains(updatedDefaultMsg, "CC-###") || !strings.Contains(updatedDefaultMsg, "C###/CC###") {
+		t.Error("EC-004 format hint does not contain canonical change key plus alias guidance")
 	}
 
 	t.Logf("GAP-001: DetectEntityType(C001)=%q — runDelete must add case \"change\"", entityType)
-	t.Log("After fix: C### keys route to runChangeCardDelete; default error updated with C### hint")
+	t.Log("After fix: change key aliases route to runChangeCardDelete; default error includes canonical CC-### hint")
 }
 
 // ---------------------------------------------------------------------------

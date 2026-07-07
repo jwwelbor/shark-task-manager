@@ -172,3 +172,55 @@ func TestCloseDB_SafeToCallMultipleTimes(t *testing.T) {
 		t.Errorf("Expected no error on second close, got: %v", err)
 	}
 }
+
+func TestInitDatabase_RespectsExplicitConfigAndDBOverrides(t *testing.T) {
+	projectRoot := t.TempDir()
+	customDBDir := t.TempDir()
+	configPath := filepath.Join(projectRoot, "custom-config.json")
+	relativeDB := filepath.Join("..", filepath.Base(customDBDir), "override.db")
+
+	configContent := `{
+		"database": {
+			"backend": "local",
+			"url": "ignored-by-flag.db"
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	oldConfigFile := GlobalConfig.ConfigFile
+	oldDBPath := GlobalConfig.DBPath
+	GlobalConfig.ConfigFile = configPath
+	GlobalConfig.DBPath = relativeDB
+	defer func() {
+		GlobalConfig.ConfigFile = oldConfigFile
+		GlobalConfig.DBPath = oldDBPath
+		_ = RootCmd.PersistentFlags().Set("db", "shark-tasks.db")
+		_ = RootCmd.PersistentFlags().Set("config", "")
+		if flag := RootCmd.PersistentFlags().Lookup("db"); flag != nil {
+			flag.Changed = false
+		}
+		if flag := RootCmd.PersistentFlags().Lookup("config"); flag != nil {
+			flag.Changed = false
+		}
+	}()
+
+	if err := RootCmd.PersistentFlags().Set("config", configPath); err != nil {
+		t.Fatalf("set config flag: %v", err)
+	}
+	if err := RootCmd.PersistentFlags().Set("db", relativeDB); err != nil {
+		t.Fatalf("set db flag: %v", err)
+	}
+
+	repoDB, err := initDatabase(context.Background())
+	if err != nil {
+		t.Fatalf("initDatabase() error = %v", err)
+	}
+	defer repoDB.Close()
+
+	expectedDBPath := filepath.Join(filepath.Dir(configPath), relativeDB)
+	if _, err := os.Stat(expectedDBPath); err != nil {
+		t.Fatalf("expected override DB at %s: %v", expectedDBPath, err)
+	}
+}

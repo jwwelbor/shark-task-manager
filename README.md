@@ -1,6 +1,6 @@
 # Shark Task Manager
 
-A task management system built with Go and SQLite, featuring both an HTTP API and a powerful CLI tool for AI-driven development workflows.
+An AI-DLC workflow system built with Go and SQLite, featuring both an HTTP API and a powerful CLI tool for fully customizable AI-driven development workflows.
 
 ## Key Features
 

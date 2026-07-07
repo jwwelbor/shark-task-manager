@@ -66,8 +66,9 @@ func TestParseScope_BugKey(t *testing.T) {
 	}
 }
 
-// TestParseScope_ChangeKey verifies that C### keys parsed via the scope package
-// return ScopeChange. This is dispatch point #19 (scope/interpreter.go).
+// TestParseScope_ChangeKey verifies that change key aliases parsed via the
+// scope package return ScopeChange with the canonical CC-### key. This is
+// dispatch point #19 (scope/interpreter.go).
 func TestParseScope_ChangeKey(t *testing.T) {
 	interp := scope.NewInterpreter()
 	tests := []struct {
@@ -76,10 +77,12 @@ func TestParseScope_ChangeKey(t *testing.T) {
 		want scope.ScopeType
 		key  string
 	}{
-		{"C001 uppercase", []string{"C001"}, scope.ScopeChange, "C001"},
-		{"c001 lowercase", []string{"c001"}, scope.ScopeChange, "C001"},
-		{"C1 single digit", []string{"C1"}, scope.ScopeChange, "C1"},
-		{"C15 two digits", []string{"C15"}, scope.ScopeChange, "C15"},
+		{"C001 alias", []string{"C001"}, scope.ScopeChange, "CC-001"},
+		{"c001 lowercase alias", []string{"c001"}, scope.ScopeChange, "CC-001"},
+		{"CC001 compact alias", []string{"CC001"}, scope.ScopeChange, "CC-001"},
+		{"CC-001 canonical", []string{"CC-001"}, scope.ScopeChange, "CC-001"},
+		{"C1 single digit alias", []string{"C1"}, scope.ScopeChange, "CC-001"},
+		{"C15 two digits alias", []string{"C15"}, scope.ScopeChange, "CC-015"},
 	}
 
 	for _, tt := range tests {
@@ -103,7 +106,7 @@ func TestParseScope_ChangeKey(t *testing.T) {
 func TestParseScope_BugChangeDoNotMatchOtherTypes(t *testing.T) {
 	interp := scope.NewInterpreter()
 	bugKeys := []string{"B001", "B42", "B1000"}
-	changeKeys := []string{"C001", "C15"}
+	changeKeys := []string{"C001", "C15", "CC001", "CC-001"}
 
 	for _, k := range bugKeys {
 		got, err := interp.ParseScope([]string{k})
@@ -148,6 +151,8 @@ func TestDetectEntityType_ParityWithKeyService(t *testing.T) {
 		{"B1000", "bug", "bug"},
 		{"C001", "change", "change"},
 		{"C15", "change", "change"},
+		{"CC001", "change", "change"},
+		{"CC-001", "change", "change"},
 		{"E07", "epic", "epic"},
 		{"E07-F01", "feature", "feature"},
 		{"E07-F01-001", "task", "task"},
@@ -192,7 +197,8 @@ func TestDetectEntityType_ParityWithKeyService(t *testing.T) {
 //
 // This test confirms:
 //  1. ParseGetArgs("C001") still returns entityType "change" (the routing key)
-//  2. The entity type is correctly identified as a change card type
+//  2. The alias is canonicalized to the CC-### storage/display key
+//  3. The entity type is correctly identified as a change card type
 func TestGAP001_DeleteDispatch_ChangeEntityTypeResolved(t *testing.T) {
 	// Confirm C### keys resolve to "change" entity type (unchanged behaviour)
 	entityType, key, err := ParseGetArgs([]string{"C001"})
@@ -202,8 +208,8 @@ func TestGAP001_DeleteDispatch_ChangeEntityTypeResolved(t *testing.T) {
 	if entityType != "change" {
 		t.Errorf("ParseGetArgs(C001) entityType = %q, want %q", entityType, "change")
 	}
-	if key != "C001" {
-		t.Errorf("ParseGetArgs(C001) key = %q, want %q", key, "C001")
+	if key != "CC-001" {
+		t.Errorf("ParseGetArgs(C001) key = %q, want %q", key, "CC-001")
 	}
 
 	// Confirm IsChangeKey agrees — this is the predicate dispatchDelete uses
@@ -228,7 +234,8 @@ func TestGAP001_DeleteDispatch_ChangeEntityTypeResolved(t *testing.T) {
 // map to the change_cards table via the same ChangeCardService methods).
 //
 // This test confirms that ParseGetArgs correctly identifies C### keys and that
-// IsChangeKey validates them — the preconditions for the fixed dispatch to work.
+// IsChangeKey validates the canonicalized result — the preconditions for the
+// fixed dispatch to work.
 func TestGAP002_StatusGroup_ChangeEntityTypeResolved(t *testing.T) {
 	// Confirm C### keys resolve to "change" entity type
 	entityType, key, err := ParseGetArgs([]string{"C001"})
@@ -238,11 +245,11 @@ func TestGAP002_StatusGroup_ChangeEntityTypeResolved(t *testing.T) {
 	if entityType != "change" {
 		t.Errorf("ParseGetArgs(C001) entityType = %q, want %q", entityType, "change")
 	}
-	if key != "C001" {
-		t.Errorf("ParseGetArgs(C001) key = %q, want %q", key, "C001")
+	if key != "CC-001" {
+		t.Errorf("ParseGetArgs(C001) key = %q, want %q", key, "CC-001")
 	}
 
-	// Confirm IsChangeKey validates C### — used by dispatchTransition,
+	// Confirm IsChangeKey validates the canonical key — used by dispatchTransition,
 	// dispatchNextStatus, and dispatchOptions before calling the service.
 	if !IsChangeKey(key) {
 		t.Errorf("IsChangeKey(%q) = false, want true — status dispatch requires this", key)
@@ -307,9 +314,10 @@ func TestSearchRepository_IncludesBugAndChange(t *testing.T) {
 		t.Errorf("validateSearchType('change') = %v, want nil", err)
 	}
 
-	// Verify no false positive for CC-### entity type strings
-	if err := validateSearchType("change_card"); err == nil {
-		t.Log("Note: validateSearchType('change_card') unexpectedly returned nil — expected error")
+	for _, alias := range []string{"changes", "change-card", "change_card"} {
+		if err := validateSearchType(alias); err != nil {
+			t.Errorf("validateSearchType(%q) = %v, want nil", alias, err)
+		}
 	}
 
 	t.Log("Dispatch points #21/#22 (search_repository.go): bug and change types HANDLED")

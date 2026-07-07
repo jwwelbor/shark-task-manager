@@ -44,7 +44,7 @@ func buildSearchQueryCmdForTest() *cobra.Command {
 // --- validateSearchType tests ---
 
 func TestValidateSearchType_ValidTypes(t *testing.T) {
-	validTypes := []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt"}
+	validTypes := []string{"epic", "feature", "task", "bug", "change", "changes", "change-card", "change_card", "idea", "ideas", "tech_debt", "tech-debt", "td"}
 	for _, typ := range validTypes {
 		t.Run(typ, func(t *testing.T) {
 			err := validateSearchType(typ)
@@ -144,6 +144,23 @@ func TestRunSearchQuery_ForwardsTypeAndTagsToService(t *testing.T) {
 	assert.Equal(t, "unified index", capturedQuery)
 	assert.Equal(t, "idea", capturedType)
 	assert.Equal(t, []string{"voice", "auth"}, capturedTags)
+}
+
+func TestRunSearchQuery_NormalizesChangeTypeAlias(t *testing.T) {
+	var capturedType string
+	mock := &mockSearchService{
+		SearchAllFunc: func(ctx context.Context, query string, entityType string, tags []string) ([]*repository.EntitySearchResult, error) {
+			capturedType = entityType
+			return []*repository.EntitySearchResult{}, nil
+		},
+	}
+	withSearchSvcOverride(t, mock)
+
+	cmd := buildSearchQueryCmdForTest()
+	cmd.SetArgs([]string{"dark", "mode", "--type=change_card"})
+	require.NoError(t, cmd.Execute())
+
+	assert.Equal(t, "change", capturedType)
 }
 
 func TestRunSearchQuery_JSONIncludesRankAndSnippet(t *testing.T) {

@@ -609,9 +609,11 @@ func TestKeyService_DetectEntityType_BugAndChange(t *testing.T) {
 		{"bug 4 digits", "B1000", EntityTypeBug},
 		{"bug zero is valid", "B0", EntityTypeBug},
 
-		// Change keys: C followed by 1+ digits (variable digit count)
-		{"change 3 digits uppercase", "C001", EntityTypeChange},
-		{"change 3 digits lowercase", "c001", EntityTypeChange},
+		// Change-card key aliases
+		{"change canonical", "CC-001", EntityTypeChange},
+		{"change compact CC alias", "CC001", EntityTypeChange},
+		{"change compact C alias", "C001", EntityTypeChange},
+		{"change lowercase C alias", "c001", EntityTypeChange},
 		{"change 2 digits lowercase", "c015", EntityTypeChange},
 		{"change 1 digit", "C1", EntityTypeChange},
 
@@ -706,31 +708,45 @@ func TestKeyService_Parse_Change(t *testing.T) {
 		wantNum        string
 	}{
 		{
-			name:           "change 3 digits uppercase",
+			name:           "change compact C alias",
 			key:            "C001",
 			wantEntityType: EntityTypeChange,
-			wantNormalized: "C001",
+			wantNormalized: "CC-001",
 			wantNum:        "001",
 		},
 		{
-			name:           "change 3 digits lowercase",
+			name:           "change compact C lowercase",
 			key:            "c001",
 			wantEntityType: EntityTypeChange,
-			wantNormalized: "C001",
+			wantNormalized: "CC-001",
+			wantNum:        "001",
+		},
+		{
+			name:           "change canonical",
+			key:            "CC-001",
+			wantEntityType: EntityTypeChange,
+			wantNormalized: "CC-001",
+			wantNum:        "001",
+		},
+		{
+			name:           "change compact CC alias",
+			key:            "CC001",
+			wantEntityType: EntityTypeChange,
+			wantNormalized: "CC-001",
 			wantNum:        "001",
 		},
 		{
 			name:           "change 2 digits lowercase",
 			key:            "c015",
 			wantEntityType: EntityTypeChange,
-			wantNormalized: "C015",
+			wantNormalized: "CC-015",
 			wantNum:        "015",
 		},
 		{
 			name:           "change 1 digit",
 			key:            "C1",
 			wantEntityType: EntityTypeChange,
-			wantNormalized: "C1",
+			wantNormalized: "CC-001",
 			wantNum:        "1",
 		},
 	}
@@ -784,7 +800,7 @@ func TestKeyService_Format_BugAndChange(t *testing.T) {
 				EntityType: EntityTypeChange,
 				ChangeNum:  "001",
 			},
-			want: "C001",
+			want: "CC-001",
 		},
 		{
 			name: "format change 1 digit",
@@ -792,7 +808,7 @@ func TestKeyService_Format_BugAndChange(t *testing.T) {
 				EntityType: EntityTypeChange,
 				ChangeNum:  "1",
 			},
-			want: "C1",
+			want: "CC-001",
 		},
 	}
 
@@ -818,6 +834,8 @@ func TestKeyService_IsValid_BugAndChange(t *testing.T) {
 		{"valid bug lowercase", "b001", true},
 		{"valid bug 1 digit", "B1", true},
 		{"valid change 3 digits", "C001", true},
+		{"valid change canonical", "CC-001", true},
+		{"valid compact CC alias", "CC001", true},
 		{"valid change lowercase", "c001", true},
 		{"valid change 1 digit", "C1", true},
 		{"invalid bug no digits", "B", false},

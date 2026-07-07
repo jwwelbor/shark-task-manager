@@ -9,7 +9,7 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	wf "github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 )
 
 // buildMultiLevelWorkflowDisplay builds display structs for all workflow levels.
@@ -30,13 +30,11 @@ func buildMultiLevelWorkflowDisplay(multi *config.MultiLevelWorkflow, configPath
 // normalizeWorkflowListLevel validates and normalizes the optional entity-type
 // filter accepted by `shark admin workflow list`.
 func normalizeWorkflowListLevel(raw string) (string, error) {
-	normalized := strings.ToLower(strings.TrimSpace(raw))
-	normalized = strings.ReplaceAll(normalized, "-", "_")
-
-	if level, ok := workflowListLevelAliases[normalized]; ok {
+	if level, ok := entitytype.NormalizeWorkflowLevel(raw); ok {
 		return level, nil
 	}
-
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
 	for _, level := range config.KnownWorkflowLevels {
 		if normalized == level {
 			return level, nil
@@ -44,29 +42,6 @@ func normalizeWorkflowListLevel(raw string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid entity type %q: must be one of %s", raw, strings.Join(config.KnownWorkflowLevels, ", "))
-}
-
-var workflowListLevelAliases = map[string]string{
-	"epic":     wf.LevelEpic,
-	"epics":    wf.LevelEpic,
-	"feature":  wf.LevelFeature,
-	"features": wf.LevelFeature,
-	"task":     wf.LevelTask,
-	"tasks":    wf.LevelTask,
-	"sprint":   wf.LevelSprint,
-	"sprints":  wf.LevelSprint,
-	"bug":      wf.LevelBug,
-	"bugs":     wf.LevelBug,
-
-	"change":       wf.LevelChange,
-	"changes":      wf.LevelChange,
-	"change_card":  wf.LevelChange,
-	"change_cards": wf.LevelChange,
-
-	"tech_debt":  wf.LevelTechDebt,
-	"tech_debts": wf.LevelTechDebt,
-	"techdebt":   wf.LevelTechDebt,
-	"td":         wf.LevelTechDebt,
 }
 
 // buildLevelWorkflowDisplay builds the display struct for a single workflow level.

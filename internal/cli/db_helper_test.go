@@ -8,7 +8,22 @@ import (
 	"testing"
 )
 
+func clearDBOverrideEnv(t *testing.T) {
+	t.Helper()
+
+	for _, key := range []string{
+		"SHARK_DB_BACKEND",
+		"SHARK_DB_URL",
+		"SHARK_AUTH_TOKEN_FILE",
+		"TURSO_AUTH_TOKEN",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
 func TestInitializeDatabase_LocalBackend(t *testing.T) {
+	clearDBOverrideEnv(t)
+
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
@@ -50,6 +65,8 @@ func TestInitializeDatabase_LocalBackend(t *testing.T) {
 }
 
 func TestInitializeDatabase_TursoBackend(t *testing.T) {
+	clearDBOverrideEnv(t)
+
 	// Skip if no Turso credentials available (integration test)
 	tursoURL := os.Getenv("TEST_TURSO_URL")
 	tursoToken := os.Getenv("TEST_TURSO_TOKEN")
@@ -105,6 +122,8 @@ func TestInitializeDatabase_TursoBackend(t *testing.T) {
 }
 
 func TestInitializeDatabase_MissingConfig(t *testing.T) {
+	clearDBOverrideEnv(t)
+
 	ctx := context.Background()
 	_, err := InitializeDatabaseFromConfig(ctx, "/nonexistent/path/.sharkconfig.json")
 	if err == nil {
@@ -113,6 +132,8 @@ func TestInitializeDatabase_MissingConfig(t *testing.T) {
 }
 
 func TestInitializeDatabase_InvalidConfig(t *testing.T) {
+	clearDBOverrideEnv(t)
+
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
@@ -143,6 +164,8 @@ func TestInitializeDatabase_InvalidConfig(t *testing.T) {
 }
 
 func TestGetDatabaseConfig_ParsesConfigCorrectly(t *testing.T) {
+	clearDBOverrideEnv(t)
+
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
@@ -189,6 +212,8 @@ func TestGetDatabaseConfig_ParsesConfigCorrectly(t *testing.T) {
 }
 
 func TestGetDatabaseConfig_FallbackToLocalDB(t *testing.T) {
+	clearDBOverrideEnv(t)
+
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
@@ -221,5 +246,47 @@ func TestGetDatabaseConfig_FallbackToLocalDB(t *testing.T) {
 	// Should have a default URL (shark-tasks.db)
 	if dbConfig.URL == "" {
 		t.Error("expected default URL, got empty string")
+	}
+}
+
+func TestGetDatabaseConfig_IgnoresAmbientDatabaseOverrideEnv(t *testing.T) {
+	clearDBOverrideEnv(t)
+
+	tempDir := t.TempDir()
+	configuredURL := filepath.Join(tempDir, "configured.db")
+
+	cfg := map[string]interface{}{
+		"database": map[string]interface{}{
+			"backend": "sqlite",
+			"url":     configuredURL,
+		},
+	}
+
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	t.Setenv("SHARK_DB_BACKEND", "turso")
+	t.Setenv("SHARK_DB_URL", "libsql://wrong.turso.io")
+	t.Setenv("SHARK_AUTH_TOKEN_FILE", "/tmp/wrong-token")
+
+	dbConfig, err := GetDatabaseConfig(configPath)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if dbConfig.Backend != "sqlite" {
+		t.Fatalf("backend = %q, want %q", dbConfig.Backend, "sqlite")
+	}
+	if dbConfig.URL != configuredURL {
+		t.Fatalf("url = %q, want %q", dbConfig.URL, configuredURL)
+	}
+	if dbConfig.AuthTokenFile != "" {
+		t.Fatalf("auth_token_file = %q, want empty", dbConfig.AuthTokenFile)
 	}
 }

@@ -455,11 +455,12 @@ func (s *TechDebtService) GetOrchestratorAction(td *models.TechDebt) *config.Pop
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations.
-func (s *TechDebtService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+func (s *TechDebtService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository, projectRoot string) {
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
 		EntityLookupFnFromRepo(s.entityRepo),
+		projectRoot,
 	)
 }
 

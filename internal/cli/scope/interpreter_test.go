@@ -164,30 +164,42 @@ func TestInterpreter_ParseScope(t *testing.T) {
 			wantKey:  "B42",
 		},
 
-		// Change scope tests (C###)
+		// Change scope tests (aliases canonicalize to CC-###)
 		{
-			name:     "change scope - uppercase C001",
+			name:     "change scope - C001 alias",
 			args:     []string{"C001"},
 			wantType: ScopeChange,
-			wantKey:  "C001",
+			wantKey:  "CC-001",
 		},
 		{
-			name:     "change scope - lowercase c001",
+			name:     "change scope - lowercase c001 alias",
 			args:     []string{"c001"},
 			wantType: ScopeChange,
-			wantKey:  "C001",
+			wantKey:  "CC-001",
+		},
+		{
+			name:     "change scope - compact CC001 alias",
+			args:     []string{"CC001"},
+			wantType: ScopeChange,
+			wantKey:  "CC-001",
+		},
+		{
+			name:     "change scope - canonical CC-001",
+			args:     []string{"CC-001"},
+			wantType: ScopeChange,
+			wantKey:  "CC-001",
 		},
 		{
 			name:     "change scope - C1 single digit",
 			args:     []string{"C1"},
 			wantType: ScopeChange,
-			wantKey:  "C1",
+			wantKey:  "CC-001",
 		},
 		{
 			name:     "change scope - C15 two digits",
 			args:     []string{"C15"},
 			wantType: ScopeChange,
-			wantKey:  "C15",
+			wantKey:  "CC-015",
 		},
 
 		// Error cases

@@ -56,6 +56,8 @@ type Config struct {
 	JSONOutput             *bool                  `json:"json_output,omitempty"`
 	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`         // Enable interactive prompts (default: false for automation)
 	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)
+	Backups                *bool                  `json:"backups,omitempty"`                  // Enable automatic daily local SQLite backups before startup migrations.
+	BackupFiles            int                    `json:"backup_files,omitempty"`             // Number of daily backup sets to retain when Backups is enabled.
 	Viewer                 *string                `json:"viewer,omitempty"`                   // External viewer command for spec files (glow, nano, bat, less, cat, etc). Default: "cat"
 	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Optional explicit prompt directory path. Absent means derive from shark_data_path.
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow YAML directory or index. Empty uses embedded defaults.

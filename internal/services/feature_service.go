@@ -222,11 +222,12 @@ func (s *FeatureService) cascadeDepsBundle() cascadeDeps {
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument and UnlinkDocument operations on features.
-func (s *FeatureService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+func (s *FeatureService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository, projectRoot string) {
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
 		EntityLookupFnFromRepo(s.entityRepo),
+		projectRoot,
 	)
 }
 

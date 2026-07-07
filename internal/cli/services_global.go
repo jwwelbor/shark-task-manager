@@ -361,7 +361,11 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	svc.SetSessionRepo(sessionRepo)
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
-	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	svc.SetEnrichRepo(enrichRepo)
 
 	// E28-F05 T-010: wire TagService so GetTaskWithTags renders the Tags row
@@ -466,7 +470,7 @@ func GetChangeCardService() *services.ChangeCardService {
 	svc := services.NewChangeCardService(changeCardRepo, entitySvc, entityRepo, epicRepo, featureRepo, projectRoot)
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
-	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 
 	// E28-F04 T-009: wire the shared *TagService so ChangeCardService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
@@ -512,7 +516,7 @@ func GetBugService() *services.BugService {
 	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
-	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
 }
@@ -548,7 +552,7 @@ func GetTechDebtService() *services.TechDebtService {
 	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
-	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	return svc
 }
 

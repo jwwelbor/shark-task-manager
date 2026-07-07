@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -33,7 +34,7 @@ Provides insights into:
   - Time investment
   - Agent productivity
   - Bug analytics (--type=bug)
-  - Change-card analytics (--type=change)
+  - Change-card analytics (--type=change; aliases: changes, change-card, change_card)
   - Tech-debt analytics (--type=tech_debt)
 
 Examples:
@@ -61,6 +62,7 @@ func init() {
 // runAnalytics executes the analytics command
 func runAnalytics(cmd *cobra.Command, args []string) error {
 	entityType, _ := cmd.Flags().GetString("type")
+	entityType = entitytype.WorkflowLevelOrSelf(entityType)
 	sessionDuration, _ := cmd.Flags().GetBool("session-duration")
 	pauseFrequency, _ := cmd.Flags().GetBool("pause-frequency")
 
@@ -71,7 +73,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 
 	// Reject unknown --type values
 	if entityType != "" {
-		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change', 'tech_debt'", entityType)
+		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change' (aliases: changes, change-card, change_card), 'tech_debt' (aliases: tech-debt, td)", entityType)
 	}
 
 	// No session flags and no --type: show combined analytics
@@ -179,7 +181,7 @@ func runEntityAnalyticsWithSvc(ctx context.Context, entityType string, svc dashb
 		return nil
 
 	default:
-		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change', 'tech_debt'", entityType)
+		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change' (aliases: changes, change-card, change_card), 'tech_debt' (aliases: tech-debt, td)", entityType)
 	}
 }
 

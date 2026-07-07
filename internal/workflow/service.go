@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -64,6 +65,8 @@ func (s *Service) GetWorkflow() *config.WorkflowConfig {
 // Returns:
 //   - *Service: configured for the specified level
 func (s *Service) ForLevel(level string) *Service {
+	level = entitytype.WorkflowLevelOrSelf(level)
+
 	multi := s.multiLevel
 	if multi == nil {
 		multi = &config.MultiLevelWorkflow{}

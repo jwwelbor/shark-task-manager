@@ -327,7 +327,7 @@ var sprintAddCmd = &cobra.Command{
 	Short: "Add an entity (or bulk entities) to a sprint",
 	Long: `Assign one entity or a group of entities to a sprint.
 
-Supported entity types: task, bug, change-card (C### or CC-###), tech-debt (TD-###).
+Supported entity types: task, bug, change-card (canonical CC-### key; C###/CC### aliases accepted), tech-debt (TD-###).
 Features cannot be added directly — add their child tasks individually or use --bulk=<feature-key>.
 
 Single-entity add (positional):
@@ -371,7 +371,7 @@ Examples:
 
 // sprintBacklogCmd shows all entities assigned to a sprint.
 var sprintBacklogCmd = &cobra.Command{
-	Use:   "backlog <sprint-key> [--type=task|bug|change_card|tech_debt] [--blocked] [--all]",
+	Use:   "backlog <sprint-key> [--type=task|bug|change|change_card|tech_debt] [--blocked] [--all]",
 	Short: "View all entities assigned to a sprint",
 	Long: `Display all entities assigned to a sprint, grouped by status.
 
@@ -575,7 +575,7 @@ func init() {
 	sprintSummaryCmd.Flags().Bool("detailed", false, "Include detailed cycle-time, size-band distribution, and carryover entities")
 
 	// Backlog flags (F03 base filters + F07 view/include-completed)
-	sprintBacklogCmd.Flags().String("type", "", "Filter by entity type: task, bug, change_card, tech_debt")
+	sprintBacklogCmd.Flags().String("type", "", "Filter by entity type: task, bug, change/change_card, tech_debt")
 	sprintBacklogCmd.Flags().Bool("blocked", false, "Show only blocked entities")
 	sprintBacklogCmd.Flags().Bool("all", false, "Show all items regardless of status (includes terminal-status items in ordered view)")
 	sprintBacklogCmd.Flags().Bool("include-completed", false, "Include completed/terminal-status items in ordered view")

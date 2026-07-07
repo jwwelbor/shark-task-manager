@@ -70,7 +70,7 @@ Rules:
   present, set last updated, name {{.id}} design as the updater, and append a
   decision-log entry naming added, changed, covered, or deferred X-## rows.
 - Register the per-epic document after writing it:
-  `shark related-docs add "Cross-Epic Map" {{.id}}-cross-epic-map.md --epic={{.id}}`
+  `DOC_PATH="docs/plan/{{.id}}/{{.id}}-cross-epic-map.md" && shark related-docs add "Cross-Epic Map" "${DOC_PATH}" --epic={{.id}}`
 
 **{{.id}}-interaction-map.md** — Cross-feature wiring:
 REQUIRED if this epic is expected to decompose into 3+ features. SKIP only for
@@ -99,7 +99,7 @@ Rules:
 - Style names the interaction mode: API, event, shared data model, file
   artifact, CLI contract, UI handoff, or other concrete style.
 - Register the document after writing it:
-  `shark related-docs add "Interaction Map" {{.id}}-interaction-map.md --epic={{.id}}`
+  `DOC_PATH="docs/plan/{{.id}}/{{.id}}-interaction-map.md" && shark related-docs add "Interaction Map" "${DOC_PATH}" --epic={{.id}}`
 
 CRITICAL: Architecture must align with existing patterns from research report. Do not propose patterns that contradict CLAUDE.md conventions.
 

@@ -2009,6 +2009,37 @@ func TestViewerService_File_TaskFile(t *testing.T) {
 	}
 }
 
+func TestViewerService_FileByPath_OpensCanonicalRelatedDoc(t *testing.T) {
+	dir := t.TempDir()
+	relPath := "docs/plan/E01/interaction-map.md"
+	writeTestFile(t, dir, relPath, "# interaction map\n")
+
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+		buildNoopEntityRelSvc(),
+		NewEntityRegistry(),
+	)
+
+	resp, err := svc.FileByPath(context.Background(), relPath)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !resp.Exists {
+		t.Fatal("expected file to exist")
+	}
+	if resp.Path != relPath {
+		t.Fatalf("expected canonical path %q, got %q", relPath, resp.Path)
+	}
+}
+
 func TestViewerService_File_EpicNoFilePath(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewViewerService(

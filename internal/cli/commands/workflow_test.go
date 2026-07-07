@@ -318,11 +318,13 @@ func TestWorkflowListCommandEntityFilterAliases(t *testing.T) {
 		{"change_card", "change"},
 		{"change-cards", "change"},
 		{"change_cards", "change"},
+		{"changecard", "change"},
 		{"tech-debt", "tech_debt"},
 		{"tech_debt", "tech_debt"},
 		{"tech-debts", "tech_debt"},
 		{"tech_debts", "tech_debt"},
 		{"td", "tech_debt"},
+		{"techdebts", "tech_debt"},
 		{" TASKS ", "task"},
 	}
 

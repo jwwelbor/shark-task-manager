@@ -26,6 +26,28 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
+func applyTemplateConfig(projectRoot string) {
+	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	mgr := config.NewManager(configPath)
+	cfg, _ := mgr.Load()
+
+	templateDir := ""
+	sharkDataPath := config.DefaultSharkDataPath
+	if cfg != nil {
+		templateDir = cfg.GetTemplateDirectory()
+		sharkDataPath = cfg.GetSharkDataPath()
+	}
+
+	if workflows, err := config.LoadMultiLevelWorkflow(configPath); err == nil && workflows != nil &&
+		workflows.TemplateDirectory != nil && *workflows.TemplateDirectory != "" {
+		templateDir = *workflows.TemplateDirectory
+	}
+
+	templates.SetConfiguredTemplateDir(templateDir)
+	templates.SetConfiguredSharkDataPath(sharkDataPath)
+	templates.ResetOrchestratorEngine()
+}
+
 // loadTagEnforcementConfig reads .sharkconfig.json from projectRoot and
 // returns a services.TagEnforcementConfig. If the file is missing or fails
 // to parse, an empty fallback is returned so wiring never fails at startup.
@@ -329,6 +351,8 @@ type ServiceContainer struct {
 // Returns:
 //   - *ServiceContainer: all services ready to inject into handlers
 func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
+	applyTemplateConfig(projectRoot)
+
 	// Step 1: Initialize workflow service (shared dependency)
 	workflowSvc := workflow.NewService(projectRoot)
 

@@ -64,7 +64,7 @@ func TestHistoryCommand_EntityKeyDetection(t *testing.T) {
 			name:         "change-card key",
 			args:         []string{"CC-001"},
 			expectEntity: true,
-			expectedType: "change_card",
+			expectedType: "change",
 			expectedKey:  "CC-001",
 		},
 		{

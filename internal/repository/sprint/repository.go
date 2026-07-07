@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
@@ -762,17 +763,27 @@ func (r *SprintRepository) GetBugIDByKey(ctx context.Context, key string) (int64
 // GetChangeCardIDByKey resolves a change-card key to its database ID.
 // Returns an error if the key does not exist.
 func (r *SprintRepository) GetChangeCardIDByKey(ctx context.Context, key string) (int64, error) {
-	var id int64
-	err := r.db.QueryRowContext(ctx,
-		`SELECT id FROM change_cards WHERE UPPER(key) = UPPER(?)`, key,
-	).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("change_card not found with key %q: %w", key, repoerr.ErrNotFound)
+	lookupKeys := []string{key}
+	if canonical, err := keys.NormalizeChangeKey(key); err == nil {
+		lookupKeys = []string{canonical}
+		if !strings.EqualFold(canonical, key) {
+			lookupKeys = append(lookupKeys, key)
+		}
 	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to get change_card id by key: %w", err)
+
+	for _, lookupKey := range lookupKeys {
+		var id int64
+		err := r.db.QueryRowContext(ctx,
+			`SELECT id FROM change_cards WHERE UPPER(key) = UPPER(?)`, lookupKey,
+		).Scan(&id)
+		if err == nil {
+			return id, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("failed to get change_card id by key: %w", err)
+		}
 	}
-	return id, nil
+	return 0, fmt.Errorf("change_card not found with key %q: %w", key, repoerr.ErrNotFound)
 }
 
 // GetTechDebtIDByKey resolves a tech-debt key to its database ID.

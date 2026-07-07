@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -33,18 +35,17 @@ type EntityKeyLookup interface {
 
 // EntityLookupFnFromRepo creates an entity lookup function from any EntityKeyLookup.
 // This eliminates duplicate closures in SetWritableDocRepo methods across services.
-// The returned function resolves an entity key to (entityID, entityType) via the
-// polymorphic Entity interface.
-func EntityLookupFnFromRepo(repo EntityKeyLookup) func(ctx context.Context, key string) (int64, models.EntityType, error) {
-	return func(ctx context.Context, key string) (int64, models.EntityType, error) {
+// The returned function resolves an entity key to the full polymorphic entity.
+func EntityLookupFnFromRepo(repo EntityKeyLookup) func(ctx context.Context, key string) (models.Entity, error) {
+	return func(ctx context.Context, key string) (models.Entity, error) {
 		entity, err := repo.GetByKey(ctx, key)
 		if err != nil {
-			return 0, "", err
+			return nil, err
 		}
 		if entity == nil {
-			return 0, "", fmt.Errorf("entity not found: %s", key)
+			return nil, fmt.Errorf("entity not found: %s", key)
 		}
-		return entity.GetID(), entity.GetEntityType(), nil
+		return entity, nil
 	}
 }
 
@@ -55,7 +56,8 @@ func EntityLookupFnFromRepo(repo EntityKeyLookup) func(ctx context.Context, key 
 type EntityDocumentService struct {
 	writableRepo   EntityDocumentRepository
 	linkRepo       EntityDocumentLinkRepository
-	entityLookupFn func(ctx context.Context, key string) (int64, models.EntityType, error)
+	entityLookupFn func(ctx context.Context, key string) (models.Entity, error)
+	projectRoot    string
 }
 
 // NewEntityDocumentService creates a new EntityDocumentService.
@@ -67,12 +69,17 @@ type EntityDocumentService struct {
 func NewEntityDocumentService(
 	writableRepo EntityDocumentRepository,
 	linkRepo EntityDocumentLinkRepository,
-	entityLookupFn func(ctx context.Context, key string) (int64, models.EntityType, error),
+	entityLookupFn func(ctx context.Context, key string) (models.Entity, error),
+	projectRoot string,
 ) *EntityDocumentService {
+	if projectRoot == "" {
+		projectRoot = "."
+	}
 	return &EntityDocumentService{
 		writableRepo:   writableRepo,
 		linkRepo:       linkRepo,
 		entityLookupFn: entityLookupFn,
+		projectRoot:    projectRoot,
 	}
 }
 
@@ -83,12 +90,19 @@ func NewEntityDocumentService(
 //   - *models.Document: the created or retrieved document
 //   - error: if entity not found, or document creation/linking fails
 func (s *EntityDocumentService) LinkDocumentByKey(ctx context.Context, entityKey, title, path string) (*models.Document, error) {
-	entityID, entityType, err := s.entityLookupFn(ctx, entityKey)
+	entity, err := s.entityLookupFn(ctx, entityKey)
 	if err != nil {
 		return nil, fmt.Errorf("entity not found: %w", err)
 	}
+	entityID := entity.GetID()
+	entityType := entity.GetEntityType()
 
-	doc, err := s.writableRepo.CreateOrGet(ctx, title, path)
+	normalizedPath, err := s.normalizeDocumentPath(path, entity)
+	if err != nil {
+		return nil, fmt.Errorf("invalid document path: %w", err)
+	}
+
+	doc, err := s.writableRepo.CreateOrGet(ctx, title, normalizedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create or get document: %w", err)
 	}
@@ -106,10 +120,12 @@ func (s *EntityDocumentService) LinkDocumentByKey(ctx context.Context, entityKey
 // Returns:
 //   - error: if entity not found, or unlinking fails
 func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityKey, title string) error {
-	entityID, entityType, err := s.entityLookupFn(ctx, entityKey)
+	entity, err := s.entityLookupFn(ctx, entityKey)
 	if err != nil {
 		return fmt.Errorf("entity not found: %w", err)
 	}
+	entityID := entity.GetID()
+	entityType := entity.GetEntityType()
 
 	doc, err := s.writableRepo.GetByTitle(ctx, title)
 	if err != nil {
@@ -131,10 +147,12 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 //   - []*models.Document: list of linked documents (never nil)
 //   - error: if entity not found or listing fails
 func (s *EntityDocumentService) ListDocumentsByKey(ctx context.Context, entityKey string) ([]*models.Document, error) {
-	entityID, entityType, err := s.entityLookupFn(ctx, entityKey)
+	entity, err := s.entityLookupFn(ctx, entityKey)
 	if err != nil {
 		return nil, fmt.Errorf("entity not found: %w", err)
 	}
+	entityID := entity.GetID()
+	entityType := entity.GetEntityType()
 
 	docs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
@@ -144,4 +162,52 @@ func (s *EntityDocumentService) ListDocumentsByKey(ctx context.Context, entityKe
 		return []*models.Document{}, nil
 	}
 	return docs, nil
+}
+
+func (s *EntityDocumentService) normalizeDocumentPath(input string, entity models.Entity) (string, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+	if filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", trimmed)
+	}
+
+	if containsPathSeparator(trimmed) {
+		return s.normalizeProjectRelativePath(trimmed)
+	}
+
+	parentPath := strings.TrimSpace(entity.GetFilePath())
+	if parentPath == "" {
+		return "", fmt.Errorf("cannot resolve bare filename %q without a parent entity file_path", trimmed)
+	}
+
+	parentDir := filepath.Dir(filepath.Clean(parentPath))
+	return s.normalizeProjectRelativePath(filepath.Join(parentDir, trimmed))
+}
+
+func (s *EntityDocumentService) normalizeProjectRelativePath(path string) (string, error) {
+	cleaned := filepath.Clean(path)
+	if cleaned == "." || cleaned == "" {
+		return "", fmt.Errorf("path cannot resolve to project root")
+	}
+
+	absRoot, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve project root: %w", err)
+	}
+	target := filepath.Join(absRoot, cleaned)
+	rel, err := filepath.Rel(absRoot, target)
+	if err != nil {
+		return "", fmt.Errorf("resolve relative path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes project root: %s", path)
+	}
+
+	return filepath.ToSlash(rel), nil
+}
+
+func containsPathSeparator(path string) bool {
+	return strings.Contains(path, "/") || strings.Contains(path, `\`)
 }

@@ -22,9 +22,17 @@ func writeConfig(t *testing.T, dir string, data map[string]interface{}) {
 	}
 }
 
+func clearDBEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("SHARK_DB_BACKEND", "")
+	t.Setenv("SHARK_DB_URL", "")
+	t.Setenv("SHARK_AUTH_TOKEN_FILE", "")
+}
+
 // --- loadDatabaseConfig -------------------------------------------------------
 
 func TestLoadDatabaseConfig_NoFile(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	cfg, err := loadDatabaseConfig(filepath.Join(dir, ".sharkconfig.json"), dir)
 	if err != nil {
@@ -39,6 +47,7 @@ func TestLoadDatabaseConfig_NoFile(t *testing.T) {
 }
 
 func TestLoadDatabaseConfig_EmptyFile(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{})
 	cfg, err := loadDatabaseConfig(filepath.Join(dir, ".sharkconfig.json"), dir)
@@ -51,6 +60,7 @@ func TestLoadDatabaseConfig_EmptyFile(t *testing.T) {
 }
 
 func TestLoadDatabaseConfig_LocalBackend(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": map[string]interface{}{
@@ -71,6 +81,7 @@ func TestLoadDatabaseConfig_LocalBackend(t *testing.T) {
 }
 
 func TestLoadDatabaseConfig_EnvExpansion(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	t.Setenv("TEST_DB_URL", "/tmp/from-env.db")
 	writeConfig(t, dir, map[string]interface{}{
@@ -89,6 +100,7 @@ func TestLoadDatabaseConfig_EnvExpansion(t *testing.T) {
 }
 
 func TestLoadDatabaseConfig_TursoBackend(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": map[string]interface{}{
@@ -116,7 +128,33 @@ func TestLoadDatabaseConfig_TursoBackend(t *testing.T) {
 	}
 }
 
+func TestLoadDatabaseConfig_IgnoresAmbientDatabaseOverrideEnv(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, map[string]interface{}{
+		"database": map[string]interface{}{
+			"backend": "sqlite",
+			"url":     filepath.Join(dir, "from-config.db"),
+		},
+	})
+
+	t.Setenv("SHARK_DB_BACKEND", "local")
+	t.Setenv("SHARK_DB_URL", filepath.Join(dir, "from-env.db"))
+
+	cfg, err := loadDatabaseConfig(filepath.Join(dir, ".sharkconfig.json"), dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Backend != "sqlite" {
+		t.Fatalf("backend = %q, want %q", cfg.Backend, "sqlite")
+	}
+	if cfg.URL != filepath.Join(dir, "from-config.db") {
+		t.Fatalf("url = %q, want %q", cfg.URL, filepath.Join(dir, "from-config.db"))
+	}
+}
+
 func TestLoadDatabaseConfig_InvalidFormat(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": "not-a-map",
@@ -130,6 +168,7 @@ func TestLoadDatabaseConfig_InvalidFormat(t *testing.T) {
 // --- resolveRoots -------------------------------------------------------------
 
 func TestResolveRoots_ExplicitProjectRoot(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	root, cfgPath, err := resolveRoots(Options{ProjectRoot: dir})
 	if err != nil {
@@ -144,6 +183,7 @@ func TestResolveRoots_ExplicitProjectRoot(t *testing.T) {
 }
 
 func TestResolveRoots_ExplicitConfigPath(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	custom := filepath.Join(dir, "custom.json")
 	root, cfgPath, err := resolveRoots(Options{ProjectRoot: dir, ConfigPath: custom})
@@ -161,6 +201,7 @@ func TestResolveRoots_ExplicitConfigPath(t *testing.T) {
 // --- resolveRoots with auto-discovery -----------------------------------------
 
 func TestResolveRoots_AutoDiscover(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	// Write a .sharkconfig.json so findProjectRoot can locate the root.
 	if err := os.WriteFile(filepath.Join(dir, ".sharkconfig.json"), []byte("{}"), 0o644); err != nil {
@@ -192,6 +233,7 @@ func TestResolveRoots_AutoDiscover(t *testing.T) {
 // --- Init (local SQLite) ------------------------------------------------------
 
 func TestInit_LocalSQLite(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	// No config file → falls back to local SQLite at <dir>/shark-tasks.db
 	repoDb, err := Init(context.Background(), Options{ProjectRoot: dir})
@@ -211,6 +253,7 @@ func TestInit_LocalSQLite(t *testing.T) {
 }
 
 func TestInit_LocalSQLite_ExplicitConfig(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "my.db")
 	writeConfig(t, dir, map[string]interface{}{
@@ -234,6 +277,7 @@ func TestInit_LocalSQLite_ExplicitConfig(t *testing.T) {
 }
 
 func TestInit_LocalSQLite_UnreachablePath(t *testing.T) {
+	clearDBEnv(t)
 	// Attempting to create a database inside a non-existent directory hierarchy
 	// should cause initLocal to return an error.
 	dir := t.TempDir()
@@ -250,6 +294,7 @@ func TestInit_LocalSQLite_UnreachablePath(t *testing.T) {
 }
 
 func TestInit_UnsupportedBackend(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": map[string]interface{}{
@@ -264,6 +309,7 @@ func TestInit_UnsupportedBackend(t *testing.T) {
 }
 
 func TestInit_BadDatabaseConfigFormat_ReturnsError(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": "not-a-map",
@@ -277,6 +323,7 @@ func TestInit_BadDatabaseConfigFormat_ReturnsError(t *testing.T) {
 // --- initTurso error paths (no live Turso required) ---------------------------
 
 func TestInit_Turso_InvalidURL_ReturnsError(t *testing.T) {
+	clearDBEnv(t)
 	// A turso config with a bad URL format triggers Validate() → error before
 	// any network dial occurs.
 	dir := t.TempDir()
@@ -293,6 +340,7 @@ func TestInit_Turso_InvalidURL_ReturnsError(t *testing.T) {
 }
 
 func TestInit_Turso_MissingAuthTokenFile_ReturnsError(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": map[string]interface{}{
@@ -308,6 +356,7 @@ func TestInit_Turso_MissingAuthTokenFile_ReturnsError(t *testing.T) {
 }
 
 func TestInit_Turso_EnvVarAuth_FailsConnect(t *testing.T) {
+	clearDBEnv(t)
 	// Providing a fake env-var token causes the driver to attempt a connection
 	// and fail, but it exercises the TURSO_AUTH_TOKEN code path.
 	dir := t.TempDir()
@@ -328,6 +377,7 @@ func TestInit_Turso_EnvVarAuth_FailsConnect(t *testing.T) {
 // --- MustInit -----------------------------------------------------------------
 
 func TestMustInit_LocalSQLite(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	repoDb := MustInit(context.Background(), Options{ProjectRoot: dir})
 	if repoDb == nil {
@@ -337,6 +387,7 @@ func TestMustInit_LocalSQLite(t *testing.T) {
 }
 
 func TestMustInit_Panics_OnUnsupportedBackend(t *testing.T) {
+	clearDBEnv(t)
 	dir := t.TempDir()
 	writeConfig(t, dir, map[string]interface{}{
 		"database": map[string]interface{}{

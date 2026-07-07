@@ -95,13 +95,42 @@ func TestLoadWorkflowIndexFile_RelativePaths(t *testing.T) {
 	if !mlw.Task.HasSteps() {
 		t.Error("task config should be route-based")
 	}
-	// Bundle root drives prompt resolution.
-	if mlw.TemplateDirectory == nil || *mlw.TemplateDirectory != filepath.Join(bundle, "prompts") {
-		t.Errorf("TemplateDirectory = %v, want %s/prompts", mlw.TemplateDirectory, bundle)
+	// No explicit template_directory on the index means callers fall back to
+	// config/template defaults instead of assuming <bundle>/prompts exists.
+	if mlw.TemplateDirectory != nil {
+		t.Errorf("TemplateDirectory = %v, want nil when the index omits template_directory", mlw.TemplateDirectory)
 	}
 	// Derived routing works.
 	if target, ok := mlw.Task.ResolveOutcome("in_dev", "fail"); !ok || target != "todo" {
 		t.Errorf("ResolveOutcome(in_dev,fail) = (%q,%v)", target, ok)
+	}
+}
+
+func TestLoadWorkflowIndexFile_EntityAliases(t *testing.T) {
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "workflow", "change.yaml"), taskStepsYAML)
+	writeFile(t, filepath.Join(bundle, "workflow", "tech.yaml"), taskStepsYAML)
+	indexPath := filepath.Join(bundle, "workflow.yaml")
+	writeFile(t, indexPath, "entities:\n  change-card: workflow/change.yaml\n  tech_debt: workflow/tech.yaml\n")
+
+	mlw, isIndex, err := LoadWorkflowIndexFile(indexPath)
+	if err != nil {
+		t.Fatalf("load index: %v", err)
+	}
+	if !isIndex {
+		t.Fatal("expected isIndex=true")
+	}
+	if mlw.Change == nil {
+		t.Fatal("change-card alias should populate canonical change slot")
+	}
+	if mlw.TechDebt == nil {
+		t.Fatal("tech_debt alias should populate canonical tech_debt slot")
+	}
+	if _, ok := mlw.Sources["change"]; !ok {
+		t.Fatalf("expected canonical change source key, got %v", mlw.Sources)
+	}
+	if _, ok := mlw.Sources["tech_debt"]; !ok {
+		t.Fatalf("expected canonical tech_debt source key, got %v", mlw.Sources)
 	}
 }
 
@@ -121,6 +150,24 @@ func TestLoadWorkflowIndexFile_AbsolutePath(t *testing.T) {
 	}
 	if !isIndex || mlw.Task == nil {
 		t.Fatalf("absolute-path entity not loaded: isIndex=%v task=%v", isIndex, mlw.Task)
+	}
+}
+
+func TestLoadWorkflowIndexFile_TemplateDirectoryRelativePath(t *testing.T) {
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "workflow", "task.yaml"), taskStepsYAML)
+	indexPath := filepath.Join(bundle, "workflow.yaml")
+	writeFile(t, indexPath, "template_directory: custom-prompts\nentities:\n  task: workflow/task.yaml\n")
+
+	mlw, isIndex, err := LoadWorkflowIndexFile(indexPath)
+	if err != nil {
+		t.Fatalf("load index: %v", err)
+	}
+	if !isIndex || mlw.Task == nil {
+		t.Fatalf("relative template_directory not loaded: isIndex=%v task=%v", isIndex, mlw.Task)
+	}
+	if mlw.TemplateDirectory == nil || *mlw.TemplateDirectory != filepath.Join(bundle, "custom-prompts") {
+		t.Errorf("TemplateDirectory = %v, want %s/custom-prompts", mlw.TemplateDirectory, bundle)
 	}
 }
 

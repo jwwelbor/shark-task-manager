@@ -22,7 +22,7 @@ const (
 	// EntityTypeBug identifies a bug key (e.g., B001, B42, B1)
 	EntityTypeBug EntityType = "bug"
 
-	// EntityTypeChange identifies a change key (e.g., C001, C15, C1)
+	// EntityTypeChange identifies a change-card key (e.g., CC-001, CC001, C001)
 	EntityTypeChange EntityType = "change"
 
 	// EntityTypeSprint identifies a sprint key (e.g., S001, S024, S999).
@@ -63,7 +63,7 @@ type ParsedKey struct {
 	// Empty for non-bug keys.
 	BugNum string
 
-	// ChangeNum is the numeric part of the change key (e.g., "001" from C001).
+	// ChangeNum is the numeric part of the change-card key (e.g., "001" from CC-001).
 	// Empty for non-change keys.
 	ChangeNum string
 
@@ -97,8 +97,9 @@ var (
 	// bugVariablePattern matches B followed by 1+ digits (variable): B1, B42, B001, B1000
 	bugVariablePattern = regexp.MustCompile(`^B(\d+)$`)
 
-	// changeVariablePattern matches C followed by 1+ digits (variable): C1, C15, C001
-	changeVariablePattern = regexp.MustCompile(`^C(\d+)$`)
+	// changeVariablePattern matches accepted change-card key aliases: CC-001,
+	// CC001, C001, C1, C1000.
+	changeVariablePattern = regexp.MustCompile(`^C{1,2}-?(\d+)$`)
 
 	// sprintKeyPattern matches S followed by exactly 3 digits (strict): S001, S024, S999.
 	// Unlike bug/change patterns, sprint keys are intentionally fixed-width to keep
@@ -201,11 +202,11 @@ func (ks *KeyService) Parse(key string) ParsedKey {
 		return result
 	}
 
-	// Change key: C followed by 1+ digits (variable): C1, C15, C001
+	// Change-card key aliases: CC-001, CC001, C001, C1
 	if m := changeVariablePattern.FindStringSubmatch(upper); m != nil {
 		result.EntityType = EntityTypeChange
 		result.ChangeNum = m[1]
-		result.Normalized = fmt.Sprintf("C%s", m[1])
+		result.Normalized, _ = NormalizeChangeKey(upper)
 		return result
 	}
 
@@ -288,7 +289,14 @@ func (ks *KeyService) Format(parsed ParsedKey) string {
 		return fmt.Sprintf("B%s", parsed.BugNum)
 
 	case EntityTypeChange:
-		return fmt.Sprintf("C%s", parsed.ChangeNum)
+		if parsed.ChangeNum == "" {
+			return ""
+		}
+		normalized, err := NormalizeChangeKey("C" + parsed.ChangeNum)
+		if err != nil {
+			return ""
+		}
+		return normalized
 
 	case EntityTypeSprint:
 		return fmt.Sprintf("S%s", parsed.SprintNum)

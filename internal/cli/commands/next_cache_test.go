@@ -154,6 +154,28 @@ func TestNextAdapterCache_ReturnsSameInstanceOnRepeatedGet(t *testing.T) {
 	assert.Same(t, first, second, "repeated get() for the same entity type must return the same *nextAdapters")
 }
 
+// TestNextAdapterCache_NormalizesChangeCardActionService verifies CC-### keys
+// use the canonical "change" workflow action slot. DetectEntityType returns
+// "change_card", while workflow config stores change-card statuses under
+// "change"; passing the raw detected type makes shark next pause with
+// "status not defined" for valid change-card statuses.
+func TestNextAdapterCache_NormalizesChangeCardActionService(t *testing.T) {
+	_, _, restore := installCountingBuilders(t)
+	defer restore()
+
+	actionSvc := newCountingActionService()
+	cache := &nextAdapterCache{
+		entries:       map[string]*nextAdapters{},
+		actionSvcRoot: actionSvc.MockActionService,
+	}
+
+	_, err := cache.get(context.Background(), "change_card")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, actionSvc.forEntityCounts["change"], "change_card should narrow action service to canonical change workflow")
+	assert.Equal(t, 0, actionSvc.forEntityCounts["change_card"], "raw change_card must not be used for action lookup")
+}
+
 // TestNextAdapterCache_PropagatesBuilderError verifies error handling: when
 // the transitioner builder fails (e.g. unknown entity type), get() must
 // surface a wrapped error and not cache a partial entry. The next call

@@ -412,6 +412,16 @@ func GetOrchestratorEngine() *OrchestratorRenderer {
 	return engineInstance
 }
 
+// ResetOrchestratorEngine clears the singleton renderer so the next
+// GetOrchestratorEngine call re-initializes against the current configured
+// template settings.
+func ResetOrchestratorEngine() {
+	engineOnce = sync.Once{}
+	engineInstance = nil
+	engineError = nil
+	testTemplateDir = ""
+}
+
 // Render executes a template with the given variables
 // Returns the rendered string or an error if the template is not found or execution fails
 // Template lookup strategy:
