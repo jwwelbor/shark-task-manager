@@ -18,6 +18,8 @@ Usage: `/shark vision "one-line idea"`
    ```bash
    shark create epic "<idea>"            # cloud DB assigns the key; capture it from the response
    ```
+   Then update the shark-generated placeholder file with the idea context
+   already available so the epic does not remain an empty shell.
    then note that the full epic-authoring workflow is unavailable in this bundle
    (`shark skill get specification-writing workflows/write-epic.md` failed) and
    stop.

@@ -84,7 +84,7 @@ patterns in the `context/*.md` references.
 |-----------|--------|
 | Read state | `shark status [key]` · `shark list [epic] [feature]` · `shark get <key> [--field f]` · `shark view <key>` · `shark search "q"` · `shark claims` |
 | Status & leases by hand | `shark status advance <key> --outcome pass\|fail\|blocked` · `shark status set <key> <status> [--force]` · `shark status transitions\|history <key>` · `shark claim\|heartbeat\|release <key>` → `context/workflow-and-status.md` |
-| Entity CRUD | `shark create epic\|feature\|task\|bug\|change\|idea …` · `shark update <key> …` (no `--status`) · `shark delete <key>` · `shark link <a> <b> --type=…` → `context/entity-crud.md` |
+| Entity CRUD | `shark create epic\|feature\|task\|bug\|change\|idea …` · after create, fill any shark-generated placeholder file with available context · `shark update <key> …` (no `--status`) · `shark delete <key>` · `shark link <a> <b> --type=…` → `context/entity-crud.md` |
 | Notes · context · docs | `shark create note <key> "…" --type=…` · `shark context set <key> --field … --value …` · `shark related-docs add\|list …` → `context/notes-context-docs.md` |
 | Workflow inspection | `/shark workflow [entity-type\|entity-key]` → show compact workflow by default; for concrete keys, read current status and transitions first → `verbs/workflow.md` |
 | Web dashboard | `/shark viewer` → `shark web` → `verbs/viewer.md` |

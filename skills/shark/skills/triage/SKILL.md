@@ -118,7 +118,12 @@ or child task breakdowns during triage.
 
 After creating, link or anchor the entity to whatever made it relevant (the
 parent epic/feature/task) so it does not float unanchored in the backlog. Capture
-the assigned key from the create response. Then **stop**.
+the assigned key from the create response. If the created entity has a
+generated placeholder file, update it with the investigation context already
+available: what was observed, where it was found, why it matters, and any
+concrete breadcrumbs or links discovered during triage. Do not leave the
+placeholder empty, but do not turn this into a full research or specification
+task either; fill it with the information you already have. Then **stop**.
 
 ## Anti-patterns
 
