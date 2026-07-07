@@ -23,7 +23,7 @@ Key format detection:
   E##-F##            Feature
   E##-F##-### or T-* Task
   B###               Bug
-  C### or CC-###     Change card
+  CC-###             Change card (C###/CC### aliases accepted)
   TD-###             Tech-debt
   I-YYYY-MM-DD-##    Idea
   S###               Sprint

@@ -106,6 +106,36 @@ func TestForLevel_Sprint(t *testing.T) {
 	}
 }
 
+func TestForLevel_EntityAliases(t *testing.T) {
+	svc := newTestService()
+
+	tests := []struct {
+		level       string
+		wantLevel   string
+		validStatus string
+	}{
+		{"change", LevelChange, "development"},
+		{"change_card", LevelChange, "development"},
+		{"change-card", LevelChange, "development"},
+		{"change-cards", LevelChange, "development"},
+		{"tech-debt", LevelTechDebt, "in_progress"},
+		{"tech_debt", LevelTechDebt, "in_progress"},
+		{"td", LevelTechDebt, "in_progress"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.level, func(t *testing.T) {
+			levelSvc := svc.ForLevel(tt.level)
+			if levelSvc.GetLevel() != tt.wantLevel {
+				t.Fatalf("ForLevel(%q).GetLevel() = %q, want %q", tt.level, levelSvc.GetLevel(), tt.wantLevel)
+			}
+			if !levelSvc.IsValidStatus(tt.validStatus) {
+				t.Fatalf("ForLevel(%q) should use %q workflow with valid status %q", tt.level, tt.wantLevel, tt.validStatus)
+			}
+		})
+	}
+}
+
 func TestForLevel_Isolation(t *testing.T) {
 	svc := newTestService()
 	epicSvc := svc.ForLevel(LevelEpic)

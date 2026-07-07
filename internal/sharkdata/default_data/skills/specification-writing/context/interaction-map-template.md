@@ -36,7 +36,8 @@ Example: `E34-interaction-map.md`
 After writing the map, register it with Shark:
 
 ```bash
-shark related-docs add "Interaction Map" "<epic-id>-interaction-map.md" --epic=<epic-id>
+DOC_PATH="docs/plan/<epic-id>/<epic-id>-interaction-map.md"
+shark related-docs add "Interaction Map" "${DOC_PATH}" --epic=<epic-id>
 ```
 
 ## Exit Check

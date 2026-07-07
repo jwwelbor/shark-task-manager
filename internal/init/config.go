@@ -42,6 +42,8 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		JSONOutput:             false,
 		InteractiveMode:        false,
 		RequireRejectionReason: true,
+		Backups:                false,
+		BackupFiles:            7,
 		Database: &DatabaseConfigDefault{
 			Backend:        "local",
 			URL:            "./shark-tasks.db",

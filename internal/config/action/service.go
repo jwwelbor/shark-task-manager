@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 )
 
 // DefaultEntityType is the entity type that base ActionService methods
@@ -13,6 +15,13 @@ import (
 // service historically only handled task statuses; this default preserves
 // behavior for callers that still don't pass an entity type.
 const DefaultEntityType = "task"
+
+// NormalizeEntityType maps CLI/storage aliases to canonical workflow action
+// slots. Workflow config stores change-card actions under "change", while
+// key detection for CC-### returns "change_card".
+func NormalizeEntityType(entityType string) string {
+	return entitytype.WorkflowLevelOrSelf(entityType)
+}
 
 // ActionService provides access to orchestrator action configuration.
 //
@@ -143,12 +152,14 @@ func NewActionService(configPath string, loader WorkflowDataLoader) (*DefaultAct
 // ForEntity returns an ActionService view bound to entityType. All status
 // lookups via the returned view resolve only against that entity's workflow.
 func (s *DefaultActionService) ForEntity(entityType string) ActionService {
-	return &entityActionView{parent: s, entityType: entityType}
+	return &entityActionView{parent: s, entityType: NormalizeEntityType(entityType)}
 }
 
 // getStatusActionFor is the single internal lookup path used by both the
 // bare service and the entity view.
 func (s *DefaultActionService) getStatusActionFor(entityType, status string) (*OrchestratorAction, error) {
+	entityType = NormalizeEntityType(entityType)
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -206,6 +217,8 @@ func (s *DefaultActionService) GetAllActions(ctx context.Context) (map[string]*O
 }
 
 func (s *DefaultActionService) getAllActionsFor(entityType string) (map[string]*OrchestratorAction, error) {
+	entityType = NormalizeEntityType(entityType)
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

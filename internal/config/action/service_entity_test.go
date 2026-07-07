@@ -85,6 +85,59 @@ func TestForEntity_ResolvesStatusInCorrectWorkflow(t *testing.T) {
 	}
 }
 
+func TestNormalizeEntityType_ChangeCardAliases(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityType string
+		want       string
+	}{
+		{name: "singular_cli_alias", entityType: "change_card", want: "change"},
+		{name: "hyphen_cli_alias", entityType: "change-card", want: "change"},
+		{name: "plural_storage_alias", entityType: "change_cards", want: "change"},
+		{name: "plural_hyphen_alias", entityType: "change-cards", want: "change"},
+		{name: "canonical_change", entityType: "change", want: "change"},
+		{name: "tech_debt_hyphen_alias", entityType: "tech-debt", want: "tech_debt"},
+		{name: "other_entity", entityType: "feature", want: "feature"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeEntityType(tt.entityType); got != tt.want {
+				t.Fatalf("NormalizeEntityType(%q) = %q, want %q", tt.entityType, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestForEntity_NormalizesChangeCardToChangeWorkflow covers the B034
+// regression: key detection returns "change_card" for CC-###, but workflow
+// action data is loaded under the canonical "change" slot.
+func TestForEntity_NormalizesChangeCardToChangeWorkflow(t *testing.T) {
+	loader := func(_ string) (map[string]map[string]StatusActionData, error) {
+		return map[string]map[string]StatusActionData{
+			"change": {
+				"development": {OrchestratorAction: &OrchestratorAction{
+					Action:              "spawn_agent",
+					InstructionTemplate: "change/development.md",
+				}},
+			},
+		}, nil
+	}
+
+	svc, err := NewActionService("/tmp/test", loader)
+	if err != nil {
+		t.Fatalf("NewActionService: %v", err)
+	}
+
+	a, err := svc.ForEntity("change_card").GetStatusAction(context.Background(), "development")
+	if err != nil {
+		t.Fatalf("change_card alias GetStatusAction: %v", err)
+	}
+	if a == nil || a.InstructionTemplate != "change/development.md" {
+		t.Fatalf("change_card alias expected change/development.md, got %+v", a)
+	}
+}
+
 // errorsAs is a tiny dependency-free shim so this file doesn't pull in errors.As
 // (kept inlined to mirror the test style of the surrounding package).
 func errorsAs(err error, target interface{}) bool {

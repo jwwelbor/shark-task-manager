@@ -22,7 +22,7 @@ Entity types:
   feature     Create a feature in an epic
   task        Create a task in a feature
   bug         Create a bug report
-  change      Create a change card (also: change-card)
+  change      Create a change card (also: changes, change-card, change_card)
   tech-debt   Create a tech-debt item (also: td)
   idea        Create a new idea
   note        Add a note to any entity (auto-detects type from key)
@@ -104,8 +104,9 @@ Examples:
 
 // createChangeCmd delegates to runChangeCardCreate
 var createChangeCmd = &cobra.Command{
-	Use:   "change <title> [flags]",
-	Short: "Create a new change card",
+	Use:     "change <title> [flags]",
+	Aliases: []string{"changes", "change_card", "change_cards", "change-cards"},
+	Short:   "Create a new change card",
 	Long: `Create a new change card with auto-generated key (CC-###).
 
 Examples:
@@ -176,7 +177,7 @@ Key format detection:
   E##-F## or F##             Feature
   E##-F##-### or T-E##-F##-### Task
   B###                       Bug
-  C### or CC-###             Change card
+  CC-###                     Change card (C###/CC### aliases accepted)
   TD-###                     Tech-debt
   I-YYYY-MM-DD-##            Idea
   S###                       Sprint
@@ -204,11 +205,8 @@ Examples:
 // resolveEntityFromKey returns the models.EntityType and human-readable
 // display label for a key, or an error if the format isn't recognized.
 //
-// Two translations are needed beyond a direct cast of DetectEntityType's
-// return value:
-//   - CC-### keys are detected as "change_card" but share EntityTypeChange.
-//   - EntityTypeTechDebt is "tech_debt" (underscore) but displays as
-//     "tech-debt" (hyphen).
+// The tech-debt type needs a display translation: EntityTypeTechDebt is
+// "tech_debt" (underscore) but displays as "tech-debt" (hyphen).
 func resolveEntityFromKey(key string) (models.EntityType, string, error) {
 	detected := DetectEntityType(key)
 	if detected == "change_card" {
@@ -228,7 +226,7 @@ func resolveEntityFromKey(key string) (models.EntityType, string, error) {
 // resolved. Centralized so the long format list stays consistent across
 // `create note`, `notes add`, and any future dispatch surface.
 func unknownEntityKeyError(key string) error {
-	return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
+	return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), CC-### (change card, C###/CC### aliases accepted), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 }
 
 func runCreateNote(cmd *cobra.Command, args []string) error {

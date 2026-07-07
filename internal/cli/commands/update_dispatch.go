@@ -78,7 +78,7 @@ Key format detection:
   E##-F## or F##             Feature
   E##-F##-### or T-E##-F##-### Task
   B###                       Bug
-  C###                       Change card
+  CC-###                     Change card (C###/CC### aliases accepted)
   TD-###                     Tech-debt
   I-YYYY-MM-DD-##            Idea
 
@@ -134,7 +134,7 @@ Examples:
   shark update E07-F01-002 --order=1 --parallel    # join existing order=1 group as parallel work
   shark update B030 --severity=medium
   shark update TD-001 --severity=high --category=performance
-  shark update C001 --requested-by="Alice" --assigned-to="Bob"
+  shark update CC-001 --requested-by="Alice" --assigned-to="Bob"
   shark update TD-001 --size=clear`,
 	GroupID: "manage",
 	Args:    cobra.ExactArgs(1),
@@ -229,6 +229,6 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	case "sprint":
 		return runSprintUpdate(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), CC-### (change card, C###/CC### aliases accepted), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 	}
 }

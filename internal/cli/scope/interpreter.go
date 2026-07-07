@@ -6,7 +6,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 )
 
-// Interpreter parses CLI arguments to determine scope (epic, feature, or task)
+// Interpreter parses CLI arguments to determine scope.
 // This is a reusable component that can be used across multiple commands
 type Interpreter struct{}
 
@@ -30,6 +30,11 @@ func NewInterpreter() *Interpreter {
 //	  - ParseScope(["T-E01-F01-001"]) -> (ScopeTask, "T-E01-F01-001", nil)
 //	  - ParseScope(["E01-F01-001"]) -> (ScopeTask, "T-E01-F01-001", nil) (short format)
 //	  - ParseScope(["E01", "F01", "001"]) -> (ScopeTask, "T-E01-F01-001", nil)
+//
+//	Change:
+//	  - ParseScope(["CC-001"]) -> (ScopeChange, "CC-001", nil)
+//	  - ParseScope(["CC001"]) -> (ScopeChange, "CC-001", nil)
+//	  - ParseScope(["C001"]) -> (ScopeChange, "CC-001", nil)
 //
 // All keys are normalized to uppercase before returning
 func (i *Interpreter) ParseScope(args []string) (*Scope, error) {
@@ -89,14 +94,13 @@ func parseGetArgsLogic(args []string) (command string, key string, err error) {
 			return "bug", normalized, nil
 		}
 
-		// Check if it's a change key (C###)
+		// Check if it's a change-card key alias (C001, CC001, CC-001)
 		if keys.IsChangeKey(normalized) {
-			return "change", normalized, nil
-		}
-
-		// Check if it's a change-card key (CC-###)
-		if keys.IsChangeCardKey(normalized) {
-			return "change_card", normalized, nil
+			canonicalKey, err := keys.NormalizeChangeKey(normalized)
+			if err != nil {
+				return "", "", err
+			}
+			return "change", canonicalKey, nil
 		}
 
 		// Check if it's a task key (T-E##-F##-### or E##-F##-###)

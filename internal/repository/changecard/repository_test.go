@@ -111,3 +111,69 @@ func TestChangeCardRepository_List_TerminalStatusFiltering(t *testing.T) {
 		}
 	})
 }
+
+func TestChangeCardRepository_GetByKey_NormalizesChangeAliases(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewChangeCardRepository(db)
+
+	const canonicalKey = "CC-984"
+	_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", canonicalKey)
+
+	card := newTestChangeCard(canonicalKey, "Alias lookup change card", "draft")
+	if err := repo.Create(ctx, card); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", canonicalKey)
+	}()
+
+	for _, input := range []string{"CC-984", "CC984", "C984", "c984", "C-984"} {
+		t.Run(input, func(t *testing.T) {
+			got, err := repo.GetByKey(ctx, input)
+			if err != nil {
+				t.Fatalf("GetByKey(%q) error = %v", input, err)
+			}
+			if got.Key != canonicalKey {
+				t.Errorf("GetByKey(%q).Key = %q, want %q", input, got.Key, canonicalKey)
+			}
+		})
+	}
+}
+
+func TestChangeCardRepository_GetByKey_SluggedAliasesResolveCanonicalKey(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewChangeCardRepository(db)
+
+	const canonicalKey = "CC-985"
+	const slug = "alias-lookup-change-card"
+	_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", canonicalKey)
+
+	card := newTestChangeCard(canonicalKey, "Slug alias lookup change card", "draft")
+	card.Slug = &[]string{slug}[0]
+	if err := repo.Create(ctx, card); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", canonicalKey)
+	}()
+
+	for _, input := range []string{
+		"CC-985-alias-lookup-change-card",
+		"CC985-alias-lookup-change-card",
+		"C985-alias-lookup-change-card",
+	} {
+		t.Run(input, func(t *testing.T) {
+			got, err := repo.GetByKey(ctx, input)
+			if err != nil {
+				t.Fatalf("GetByKey(%q) error = %v", input, err)
+			}
+			if got.Key != canonicalKey {
+				t.Errorf("GetByKey(%q).Key = %q, want %q", input, got.Key, canonicalKey)
+			}
+		})
+	}
+}

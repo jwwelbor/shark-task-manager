@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -52,7 +53,8 @@ File search mode (--file flag):
   shark search --file="completion" --feature E10-F02
   shark search --file="models/task.go" --json
 
-Valid --type values: epic, feature, task, bug, change, idea, tech_debt`,
+Valid --type values: epic, feature, task, bug, change, idea, tech_debt.
+Aliases such as changes, change-card, change_card, tech-debt, and td are accepted.`,
 	RunE: runSearch,
 }
 
@@ -104,7 +106,8 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	entityTypeFlag, _ := cmd.Flags().GetString("type")
-	if err := validateSearchType(entityTypeFlag); err != nil {
+	entityType, err := normalizeSearchType(entityTypeFlag)
+	if err != nil {
 		return err
 	}
 
@@ -115,7 +118,7 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
 		searchTags = rawTags
 	}
-	results, err := getSearchService().SearchAll(cmd.Context(), query, entityTypeFlag, searchTags)
+	results, err := getSearchService().SearchAll(cmd.Context(), query, entityType, searchTags)
 	if err != nil {
 		// Search has no single entity type; pass empty EntityType. The helper
 		// does not consume entityType for any rendering decisions today.
@@ -140,15 +143,24 @@ func parseSearchQuery(args []string) (string, error) {
 // validateSearchType validates the --type flag value.
 // An empty string is valid (means "all types").
 func validateSearchType(entityType string) error {
+	_, err := normalizeSearchType(entityType)
+	return err
+}
+
+func normalizeSearchType(entityType string) (string, error) {
 	if entityType == "" {
-		return nil
+		return "", nil
+	}
+	normalized := entitytype.WorkflowLevelOrSelf(entityType)
+	if strings.EqualFold(entityType, "ideas") {
+		normalized = "idea"
 	}
 	for _, valid := range validSearchTypes {
-		if entityType == valid {
-			return nil
+		if normalized == valid {
+			return normalized, nil
 		}
 	}
-	return fmt.Errorf("invalid type %q: valid types are %s", entityType, strings.Join(validSearchTypes, ", "))
+	return "", fmt.Errorf("invalid type %q: valid types are %s", entityType, strings.Join(validSearchTypes, ", "))
 }
 
 // printEntitySearchResults prints human-readable cross-entity search results.

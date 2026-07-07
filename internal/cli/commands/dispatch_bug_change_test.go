@@ -274,9 +274,11 @@ func TestParseGetArgs_ChangeKey(t *testing.T) {
 		wantKey     string
 		wantErr     bool
 	}{
-		{"C001 dispatches to change", []string{"C001"}, "change", "C001", false},
-		{"c001 lowercase dispatches to change", []string{"c001"}, "change", "C001", false},
-		{"C15 dispatches to change", []string{"C15"}, "change", "C15", false},
+		{"C001 dispatches to canonical change key", []string{"C001"}, "change", "CC-001", false},
+		{"c001 lowercase dispatches to canonical change key", []string{"c001"}, "change", "CC-001", false},
+		{"CC001 compact dispatches to canonical change key", []string{"CC001"}, "change", "CC-001", false},
+		{"CC-001 dispatches to canonical change key", []string{"CC-001"}, "change", "CC-001", false},
+		{"C15 dispatches to canonical padded change key", []string{"C15"}, "change", "CC-015", false},
 	}
 
 	for _, tt := range tests {

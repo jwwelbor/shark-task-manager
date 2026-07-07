@@ -58,13 +58,8 @@ Examples:
 			mgr := config.NewManager(cfgPath)
 			loadedCfg, _ = mgr.Load()
 		}
-		if loadedCfg != nil {
-			templates.SetConfiguredTemplateDir(loadedCfg.GetTemplateDirectory())
-			templates.SetConfiguredSharkDataPath(loadedCfg.GetSharkDataPath())
-		} else {
-			templates.SetConfiguredTemplateDir("")
-			templates.SetConfiguredSharkDataPath(config.DefaultSharkDataPath)
-		}
+		applyTemplateConfig(cfgPath, loadedCfg)
+		templates.ResetOrchestratorEngine()
 
 		// Initialize observability (non-fatal on error)
 		var obsCfg config.ObservabilityConfig
@@ -219,6 +214,26 @@ func init() {
 	if err := viper.BindPFlag("db", RootCmd.PersistentFlags().Lookup("db")); err != nil {
 		panic(err)
 	}
+}
+
+func applyTemplateConfig(cfgPath string, loadedCfg *config.Config) {
+	templateDir := ""
+	sharkDataPath := config.DefaultSharkDataPath
+
+	if loadedCfg != nil {
+		templateDir = loadedCfg.GetTemplateDirectory()
+		sharkDataPath = loadedCfg.GetSharkDataPath()
+	}
+
+	if cfgPath != "" {
+		if workflows, err := config.LoadMultiLevelWorkflow(cfgPath); err == nil && workflows != nil &&
+			workflows.TemplateDirectory != nil && *workflows.TemplateDirectory != "" {
+			templateDir = *workflows.TemplateDirectory
+		}
+	}
+
+	templates.SetConfiguredTemplateDir(templateDir)
+	templates.SetConfiguredSharkDataPath(sharkDataPath)
 }
 
 // rootUsageTemplate customizes the usage output for the root command.

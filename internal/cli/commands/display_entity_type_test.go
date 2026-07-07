@@ -74,7 +74,7 @@ func TestRenderHeaderBug(t *testing.T) {
 }
 
 // TestRenderHeaderChange verifies the renderHeader function produces correct
-// header text for change-card entities: "Change Card: C001".
+// header text for change-card entities: "Change Card: CC-001".
 // Architecture dispatch #24.
 func TestRenderHeaderChange(t *testing.T) {
 	// Test that renderHeader doesn't panic for change entity type
@@ -83,7 +83,7 @@ func TestRenderHeaderChange(t *testing.T) {
 			t.Errorf("renderHeader() panicked for change entity type: %v", r)
 		}
 	}()
-	renderHeader("change", "C001")
+	renderHeader("change", "CC-001")
 }
 
 // TestNotFoundErrorBug verifies the NotFoundError function produces
@@ -151,7 +151,7 @@ func TestNotFoundErrorChange(t *testing.T) {
 }
 
 // TestInvalidKeyFormatErrorIncludesBugAndChange verifies that the generic
-// invalid key format error in ParseGetArgs includes B### and C### examples.
+// invalid key format error in ParseGetArgs includes bug and change examples.
 // Architecture section 8.3, TC-ERR-11 to TC-ERR-14.
 func TestInvalidKeyFormatErrorIncludesBugAndChange(t *testing.T) {
 	tests := []struct {
@@ -168,19 +168,19 @@ func TestInvalidKeyFormatErrorIncludesBugAndChange(t *testing.T) {
 			},
 		},
 		{
-			name: "TC-ERR-12: Invalid key 'C' includes C### in error",
+			name: "TC-ERR-12: Invalid key 'C' includes canonical change format in error",
 			args: []string{"C"},
 			wantContains: []string{
+				"CC-###",
 				"C###",
-				"C001",
 			},
 		},
 		{
-			name: "TC-ERR-13: Invalid key 'X001' error mentions B### and C###",
+			name: "TC-ERR-13: Invalid key 'X001' error mentions B### and change aliases",
 			args: []string{"X001"},
 			wantContains: []string{
 				"B###",
-				"C###",
+				"CC-###",
 			},
 		},
 	}

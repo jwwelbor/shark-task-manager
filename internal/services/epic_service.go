@@ -150,11 +150,12 @@ func (s *EpicService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentReposito
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument and UnlinkDocument operations on epics.
 // The *repository.DocumentRepository type satisfies the EpicWritableDocumentRepository interface.
-func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository, projectRoot string) {
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
 		EntityLookupFnFromRepo(s.entityRepo),
+		projectRoot,
 	)
 }
 

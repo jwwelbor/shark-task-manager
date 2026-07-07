@@ -64,15 +64,13 @@ func IsBugKey(s string) bool {
 	return keys.IsBugKey(s)
 }
 
-// IsChangeKey validates if a string is a valid change key format (C###).
-// Case insensitive: c001 is normalized to C001 before validation.
+// IsChangeKey validates accepted change-card key aliases.
 // Delegates to keys.IsChangeKey for implementation.
 func IsChangeKey(s string) bool {
 	return keys.IsChangeKey(s)
 }
 
-// IsChangeCardKey validates if a string is a valid change-card key format (CC-###).
-// Case insensitive: cc-001 is normalized to CC-001 before validation.
+// IsChangeCardKey validates accepted change-card key aliases.
 // Delegates to keys.IsChangeCardKey for implementation.
 func IsChangeCardKey(s string) bool {
 	return keys.IsChangeCardKey(s)
@@ -246,8 +244,10 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 			return "bug", nil, nil, nil
 		}
 
-		// Check if it's "change", "changes", or "change-card(s)" keyword
-		if normalized == "CHANGE" || normalized == "CHANGES" || normalized == "CHANGE-CARD" || normalized == "CHANGE-CARDS" {
+		// Check if it's a change/change-card keyword alias.
+		if normalized == "CHANGE" || normalized == "CHANGES" ||
+			normalized == "CHANGE-CARD" || normalized == "CHANGE-CARDS" ||
+			normalized == "CHANGE_CARD" || normalized == "CHANGE_CARDS" {
 			return "change", nil, nil, nil
 		}
 
@@ -405,14 +405,13 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 			return &parsedScope{Type: scopeBug, Key: normalized}, nil
 		}
 
-		// Check if it's a change key (C###)
+		// Check if it's a change-card key alias (C001, CC001, CC-001)
 		if IsChangeKey(normalized) {
-			return &parsedScope{Type: scopeChange, Key: normalized}, nil
-		}
-
-		// Check if it's a change-card key (CC-###)
-		if IsChangeCardKey(normalized) {
-			return &parsedScope{Type: scopeChangeCard, Key: normalized}, nil
+			canonical, err := keys.NormalizeChangeKey(normalized)
+			if err != nil {
+				return nil, err
+			}
+			return &parsedScope{Type: scopeChange, Key: canonical}, nil
 		}
 
 		// Check if it's an idea key (I-YYYY-MM-DD-##)
@@ -493,23 +492,23 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 		// Check if it looks like it was trying to be a change-card key (starts with C but no digits)
 		if len(normalized) > 0 && normalized[0] == 'C' {
 			return nil, InvalidPositionalArgsError("get",
-				fmt.Sprintf("invalid change card key format %q - expected C### (e.g., C001)", args[0]),
+				fmt.Sprintf("invalid change card key format %q - expected CC-### (also accepts C### or CC### aliases)", args[0]),
 				[]string{
+					"shark get CC-001",
 					"shark get C001",
-					"shark get C042",
-					"shark change get C001",
+					"shark change get CC001",
 				})
 		}
 
 		// Generic invalid format
 		return nil, InvalidPositionalArgsError("get",
-			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech debt), or S### (sprint)", args[0]),
+			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), CC-### (change card, C###/CC### aliases accepted), TD-### (tech debt), or S### (sprint)", args[0]),
 			[]string{
 				"shark get E07",
 				"shark get E07-F01",
 				"shark get T-E07-F01-001",
 				"shark get B001",
-				"shark get C001",
+				"shark get CC-001",
 				"shark get TD-001",
 				"shark get S001",
 			})
@@ -711,14 +710,15 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 }
 
 // DetectEntityType detects the entity type from a key string.
-// Returns "epic", "feature", "task", "bug", "change", "change_card", "tech_debt", or "unknown" based on the key format.
+// Returns "epic", "feature", "task", "bug", "change", "tech_debt", or "unknown" based on the key format.
 // Case insensitive: e07, E07, E07-enhancements all return "epic"
 //
 // Examples:
 //
 //	B001 -> "bug"
 //	C001 -> "change"
-//	CC-001 -> "change_card"
+//	CC001 -> "change"
+//	CC-001 -> "change"
 //	TD-001 -> "tech_debt"
 //	E07 -> "epic"
 //	E07-user-management -> "epic"
@@ -744,14 +744,9 @@ func DetectEntityType(key string) string {
 		return "bug"
 	}
 
-	// Check change key (C###) before task patterns
+	// Check change-card key aliases before task patterns
 	if IsChangeKey(normalized) {
 		return "change"
-	}
-
-	// Check change-card key (CC-###) before task patterns
-	if IsChangeCardKey(normalized) {
-		return "change_card"
 	}
 
 	// Check idea key (I-YYYY-MM-DD-##)
@@ -831,22 +826,12 @@ func DetectEntityType(key string) string {
 	return "unknown"
 }
 
-// normalizeEntityTypeForWorkflow maps a raw CLI/DB entity-type string (as
-// produced by DetectEntityType/ParseScope for CC-### keys) onto the entity
-// key registered by the workflow-loading subsystem (internal/config/workflow
-// index/multilevel/aliases). Only "change_card" needs translation today: the
-// workflow loader only ever registers a "change" slot, never "change_card".
-//
-// This mirrors the "ADR-1: change_card -> change" normalization already
-// applied at status_group.go and history.go. Call sites that narrow an
-// action.ActionService via ForEntity(entityType), or otherwise key into the
-// per-entity workflow config, must apply this first or the lookup misses
-// unconditionally for every change-card status (B034).
+// normalizeEntityTypeForWorkflow maps a raw CLI/DB entity-type string onto
+// the canonical workflow-action slot used by the action/config layers.
+// Callers keep using this local seam so tests can cover the CLI narrowing
+// behavior directly, while the action package owns the actual alias map.
 func normalizeEntityTypeForWorkflow(entityType string) string {
-	if entityType == "change_card" {
-		return "change"
-	}
-	return entityType
+	return action.NormalizeEntityType(entityType)
 }
 
 // narrowActionServiceForEntity narrows a root action.ActionService to the

@@ -575,11 +575,12 @@ func (s *BugService) validateLinkedEntity(ctx context.Context, entityType, entit
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations on bugs.
-func (s *BugService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+func (s *BugService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository, projectRoot string) {
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
 		EntityLookupFnFromRepo(s.entityRepo),
+		projectRoot,
 	)
 }
 

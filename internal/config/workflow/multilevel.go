@@ -1,5 +1,7 @@
 package workflow
 
+import "github.com/jwwelbor/shark-task-manager/internal/entitytype"
+
 // KnownLevels lists every entity workflow level shark supports, in the canonical
 // display order used by `shark admin workflow list/validate` and any other
 // consumer that needs to iterate all levels. Adding a new entity workflow
@@ -55,6 +57,8 @@ type MultiLevelWorkflow struct {
 // Returns:
 //   - *WorkflowConfig: the slot value (may be nil)
 func (m *MultiLevelWorkflow) GetByType(entityType string) *WorkflowConfig {
+	entityType = entitytype.WorkflowLevelOrSelf(entityType)
+
 	switch entityType {
 	case "epic":
 		return m.Epic
@@ -114,6 +118,8 @@ func (m *MultiLevelWorkflow) GetWorkflowForLevel(level string) *WorkflowConfig {
 // Unknown types fall back to DefaultWorkflow (the task workflow) to preserve
 // historical GetWorkflowForLevel behavior.
 func defaultForType(entityType string) *WorkflowConfig {
+	entityType = entitytype.WorkflowLevelOrSelf(entityType)
+
 	switch entityType {
 	case "epic":
 		return DefaultEpicWorkflow()

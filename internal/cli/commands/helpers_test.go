@@ -885,9 +885,11 @@ func TestDetectEntityType(t *testing.T) {
 		{"Bug B42 two digits", "B42", "bug"},
 		{"Bug B1000 four digits", "B1000", "bug"},
 
-		// Change keys (C###)
+		// Change key aliases canonicalize to the change entity type.
 		{"Change C001 uppercase", "C001", "change"},
 		{"Change C001 lowercase", "c001", "change"},
+		{"Change CC001 compact alias", "CC001", "change"},
+		{"Change CC-001 canonical", "CC-001", "change"},
 		{"Change C1 single digit", "C1", "change"},
 		{"Change C15 two digits", "C15", "change"},
 		{"Change C1000 four digits", "C1000", "change"},

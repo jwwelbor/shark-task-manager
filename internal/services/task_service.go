@@ -1013,11 +1013,12 @@ func (s *TaskService) SearchByFile(ctx context.Context, filePath string, filters
 
 // SetWritableDocRepo sets the writable document repository for link/unlink operations.
 // This is optional; commands needing document write operations must call this before use.
-func (s *TaskService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+func (s *TaskService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository, projectRoot string) {
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
 		EntityLookupFnFromRepo(&taskSvcKeyLookup{repo: s.repo}),
+		projectRoot,
 	)
 }
 

@@ -156,7 +156,7 @@ Suggestions:
 		suggestions = `
 Suggestions:
   - List all change cards: shark change list
-  - Check change card key format (must be C### like C001)
+  - Check change card key format (canonical CC-### like CC-001; C001 and CC001 aliases accepted)
   - Verify change card exists in database`
 	case "tech_debt":
 		suggestions = `

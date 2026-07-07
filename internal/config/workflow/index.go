@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +26,8 @@ const WorkflowIndexFilename = "workflow.yaml"
 // story — shared mount / monorepo / submodule). Local overrides/workflow/
 // layer on top, matching the per-entity-directory loader.
 type workflowIndex struct {
-	Entities map[string]string `yaml:"entities" json:"entities"`
+	Entities          map[string]string `yaml:"entities" json:"entities"`
+	TemplateDirectory string            `yaml:"template_directory" json:"template_directory"`
 }
 
 // isWorkflowIndex parses the bytes (YAML, which is a JSON superset) and reports
@@ -109,26 +111,29 @@ func LoadWorkflowIndexFile(indexPath string) (*MultiLevelWorkflow, bool, error) 
 		mlw.Sources[slot] = loadPath
 	}
 
-	// Root prompt/skill/agent resolution at the bundle. Pointing
-	// TemplateDirectory at <bundleRoot>/prompts lets the orchestrator renderer
-	// resolve includes/overrides from the same bundle (including absolute,
-	// out-of-project bundles).
-	promptsDir := filepath.Join(bundleRoot, "prompts")
-	mlw.TemplateDirectory = &promptsDir
+	// Optional explicit template_directory lets an index bundle ship a prompt
+	// tree that does not live at the default shark-data/prompts location. When
+	// absent, callers fall back to config/template defaults rather than
+	// assuming <bundleRoot>/prompts exists.
+	if td := strings.TrimSpace(idx.TemplateDirectory); td != "" {
+		templateDir := td
+		if !filepath.IsAbs(templateDir) {
+			if cleaned := filepath.Clean(filepath.FromSlash(td)); cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+				return nil, true, fmt.Errorf("workflow index %s: template_directory %q must not escape the bundle root", indexPath, td)
+			}
+			templateDir = filepath.Join(bundleRoot, td)
+		}
+		mlw.TemplateDirectory = &templateDir
+	}
 
 	return mlw, true, nil
 }
 
-// normalizeIndexEntity maps an index entity key to a MultiLevelWorkflow slot,
-// accepting both kebab-case (tech-debt) and snake_case (tech_debt). Returns ""
-// for unknown entities.
+// normalizeIndexEntity maps an index entity key to a MultiLevelWorkflow slot.
+// Returns "" for unknown entities.
 func normalizeIndexEntity(entity string) string {
-	switch entity {
-	case "epic", "feature", "task", "sprint", "bug", "change":
-		return entity
-	case "tech-debt", "tech_debt":
-		return "tech_debt"
-	default:
-		return ""
+	if level, ok := entitytype.NormalizeWorkflowLevel(entity); ok {
+		return level
 	}
+	return ""
 }

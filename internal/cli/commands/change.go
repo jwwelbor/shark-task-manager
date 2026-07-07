@@ -44,20 +44,22 @@ func getChangeCardService() changeCardServicer {
 // changeCmd is the parent command group for change-card management.
 var changeCmd = &cobra.Command{
 	Use:     "change",
+	Aliases: []string{"changes", "change-card", "change-cards", "change_card", "change_cards"},
 	Short:   "Manage change-cards",
 	GroupID: "advanced",
 	Long: `Change-card management operations for lightweight enhancement tracking.
 
 Change-cards are used to track proposed and approved changes to the system.
-Keys are in format C-### (e.g., C-001).
+Keys are displayed in canonical CC-### format. Accepted input aliases include
+CC-001, CC001, and C001.
 
 Examples:
   shark change list                            List all change-cards
   shark change create "Add dark mode"          Create a new change-card
-  shark change get C-001                       Get change-card details
-  shark change update C-001 --title="New title"
-  shark change delete C-001                    Delete a change-card
-  shark change approve C-001                   Approve a change-card`,
+  shark change get CC-001                      Get change-card details
+  shark change update CC-001 --title="New title"
+  shark change delete CC-001                   Delete a change-card
+  shark change approve CC-001                  Approve a change-card`,
 }
 
 // changeCreateCmd creates a new change-card.
@@ -82,9 +84,9 @@ var changeGetCmd = &cobra.Command{
 	Long: `Display detailed information about a specific change-card.
 
 Examples:
-  shark change get C-001
-  shark change get C-001 --json
-  shark change get C-001 --field status`,
+  shark change get CC-001
+  shark change get C001 --json
+  shark change get CC001 --field status`,
 	Args: cobra.ExactArgs(1),
 	RunE: runChangeGet,
 }
@@ -115,10 +117,10 @@ var changeUpdateCmd = &cobra.Command{
 	Long: `Update properties of an existing change-card.
 
 Examples:
-  shark change update C-001 --title="New title"
-  shark change update C-001 --description="Updated description"
-  shark change update C-001 --assigned-to=alice
-  shark change update C-001 --priority=8 --json`,
+  shark change update CC-001 --title="New title"
+  shark change update C001 --description="Updated description"
+  shark change update CC001 --assigned-to=alice
+  shark change update CC-001 --priority=8 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runChangeUpdate,
 }
@@ -130,8 +132,8 @@ var changeDeleteCmd = &cobra.Command{
 	Long: `Delete a change-card by key. Requires confirmation unless --force is provided.
 
 Examples:
-  shark change delete C-001
-  shark change delete C-001 --force`,
+  shark change delete CC-001
+  shark change delete C001 --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runChangeDelete,
 }
@@ -145,8 +147,8 @@ var changeApproveCmd = &cobra.Command{
 The change-card must be in a status that allows transition to 'approved'.
 
 Examples:
-  shark change approve C-001
-  shark change approve C-001 --json`,
+  shark change approve CC-001
+  shark change approve C001 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runChangeApprove,
 }

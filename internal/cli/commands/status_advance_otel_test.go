@@ -153,12 +153,34 @@ func TestRunStatusAdvance_EmitsSharkAdvanceSpan(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 
 	// Reset all global CLI singletons so this test runs in isolation.
+	origConfigFile := cli.GlobalConfig.ConfigFile
+	origDBPath := cli.GlobalConfig.DBPath
+	configFlag := cli.RootCmd.PersistentFlags().Lookup("config")
+	dbFlag := cli.RootCmd.PersistentFlags().Lookup("db")
+	origConfigChanged := configFlag != nil && configFlag.Changed
+	origDBChanged := dbFlag != nil && dbFlag.Changed
+	cli.GlobalConfig.ConfigFile = configPath
+	cli.GlobalConfig.DBPath = dbPath
+	require.NoError(t, cli.RootCmd.PersistentFlags().Set("config", configPath))
+	require.NoError(t, cli.RootCmd.PersistentFlags().Set("db", dbPath))
 	cli.ResetDB()
+	cli.ResetServices()
 	cli.ResetWorkflowService()
 	cli.ResetObservability()
 	config.ClearWorkflowCache()
 	t.Cleanup(func() {
+		cli.GlobalConfig.ConfigFile = origConfigFile
+		cli.GlobalConfig.DBPath = origDBPath
+		require.NoError(t, cli.RootCmd.PersistentFlags().Set("config", origConfigFile))
+		require.NoError(t, cli.RootCmd.PersistentFlags().Set("db", origDBPath))
+		if configFlag != nil {
+			configFlag.Changed = origConfigChanged
+		}
+		if dbFlag != nil {
+			dbFlag.Changed = origDBChanged
+		}
 		cli.ResetDB()
+		cli.ResetServices()
 		cli.ResetWorkflowService()
 		cli.ResetObservability()
 		config.ClearWorkflowCache()

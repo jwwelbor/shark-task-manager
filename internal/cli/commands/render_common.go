@@ -95,7 +95,7 @@ func RenderEntity(opts EntityDisplayOptions) {
 //
 // Parameters:
 //   - entityType: "epic", "feature", "task", "bug", or "change"
-//   - key: entity key (e.g., "E07", "E07-F01", "E07-F01-001", "B001", "C001")
+//   - key: entity key (e.g., "E07", "E07-F01", "E07-F01-001", "B001", "CC-001")
 func renderHeader(entityType, key string) {
 	pterm.DefaultSection.Printf("%s: %s", displayEntityTypeName(entityType), key)
 	fmt.Println()
@@ -109,7 +109,7 @@ func renderHeader(entityType, key string) {
 //   - "change" -> "Change Card" (space, not hyphen per ADR-F06-003)
 //   - others   -> capitalize first letter (e.g., "epic" -> "Epic")
 //
-// This produces headers like "Bug: B001", "Change Card: C001",
+// This produces headers like "Bug: B001", "Change Card: CC-001",
 // matching the existing "Epic: E07" pattern.
 func displayEntityTypeName(entityType string) string {
 	switch entityType {

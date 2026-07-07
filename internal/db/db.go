@@ -253,7 +253,6 @@ CREATE TABLE IF NOT EXISTS task_history (
 
 CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_history_timestamp ON task_history(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_task_history_rejection_reason ON task_history(rejection_reason) WHERE rejection_reason IS NOT NULL;
 
 -- ============================================================================
 -- Table: task_notes
@@ -449,9 +448,10 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	22 — E19-F07 (sprint_order column + partial unique index + backfill on sprint_assignments)
 //	23 — E19-F08 (drop idx_sprints_active_one — allow multiple concurrent active sprints)
 //	24 — E07-F43 (replace task_search_fts with unified entity_search_fts and backfill)
+//	25 — B036   (repair task_history rejection_reason migration ordering)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 24
+const CurrentSchemaVersion = 25
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -468,7 +468,13 @@ func ApplySchemaIfNeeded(db *sql.DB) (bool, error) {
 	}
 
 	if version >= CurrentSchemaVersion {
-		return false, nil // Already up to date
+		needsRepair, err := needsSchemaRepair(db)
+		if err != nil {
+			return false, fmt.Errorf("failed to inspect schema health: %w", err)
+		}
+		if !needsRepair {
+			return false, nil // Already up to date
+		}
 	}
 
 	// Version is behind, apply schema and migrations
@@ -476,6 +482,75 @@ func ApplySchemaIfNeeded(db *sql.DB) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func needsSchemaRepair(db *sql.DB) (bool, error) {
+	checks := []func(*sql.DB) (bool, error){
+		needsTaskHistoryRejectionReasonRepair,
+		needsDisplayViewRepair,
+		needsSearchFTSRepair,
+		needsLegacyRelationshipCleanup,
+	}
+
+	for _, check := range checks {
+		needsRepair, err := check(db)
+		if err != nil {
+			return false, err
+		}
+		if needsRepair {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func needsTaskHistoryRejectionReasonRepair(db *sql.DB) (bool, error) {
+	var taskHistoryExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&taskHistoryExists); err != nil {
+		return false, fmt.Errorf("check task_history existence: %w", err)
+	}
+	if taskHistoryExists == 0 {
+		return false, nil
+	}
+
+	var rejectionReasonExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task_history') WHERE name='rejection_reason'`).Scan(&rejectionReasonExists); err != nil {
+		return false, fmt.Errorf("check task_history.rejection_reason: %w", err)
+	}
+	return rejectionReasonExists == 0, nil
+}
+
+func needsDisplayViewRepair(db *sql.DB) (bool, error) {
+	for _, viewName := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?`, viewName).Scan(&count); err != nil {
+			return false, fmt.Errorf("check %s existence: %w", viewName, err)
+		}
+		if count == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func needsSearchFTSRepair(db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_search_fts'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("check entity_search_fts existence: %w", err)
+	}
+	return count == 0, nil
+}
+
+func needsLegacyRelationshipCleanup(db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name IN ('task_relationships', 'feature_relationships', 'epic_relationships')
+	`).Scan(&count); err != nil {
+		return false, fmt.Errorf("check legacy relationship tables: %w", err)
+	}
+	return count > 0, nil
 }
 
 // getSchemaVersion reads the current schema version from the database.
@@ -1982,7 +2057,7 @@ func migrateRelationshipTables(db *sql.DB) error {
 	if featureTableExists == 0 {
 		// Create feature_relationships table
 		_, err = db.Exec(`
-			CREATE TABLE feature_relationships (
+			CREATE TABLE IF NOT EXISTS feature_relationships (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				from_feature_id INTEGER NOT NULL,
 				to_feature_id INTEGER NOT NULL,
@@ -2026,7 +2101,7 @@ func migrateRelationshipTables(db *sql.DB) error {
 	if epicTableExists == 0 {
 		// Create epic_relationships table
 		_, err = db.Exec(`
-			CREATE TABLE epic_relationships (
+			CREATE TABLE IF NOT EXISTS epic_relationships (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				from_epic_id INTEGER NOT NULL,
 				to_epic_id INTEGER NOT NULL,

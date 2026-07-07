@@ -55,6 +55,22 @@ func TestParseListArgs(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "change_card keyword alias - list changes",
+			args:        []string{"change_card"},
+			wantCommand: "change",
+			wantEpic:    nil,
+			wantFeature: nil,
+			wantErr:     false,
+		},
+		{
+			name:        "change-cards keyword alias - list changes",
+			args:        []string{"change-cards"},
+			wantCommand: "change",
+			wantEpic:    nil,
+			wantFeature: nil,
+			wantErr:     false,
+		},
+		{
 			name:        "invalid epic format",
 			args:        []string{"E1"},
 			wantCommand: "",

@@ -13,10 +13,10 @@ const (
 	// ScopeTask indicates the command operates on a task
 	ScopeTask ScopeType = "task"
 
-	// ScopeChangeCard indicates the command operates on a change-card (legacy CC-### format)
+	// ScopeChangeCard indicates the command operates on a legacy change_card alias.
 	ScopeChangeCard ScopeType = "change_card"
 
-	// ScopeChange indicates the command operates on a change (C### format)
+	// ScopeChange indicates the command operates on a change-card/change entity.
 	ScopeChange ScopeType = "change"
 
 	// ScopeBug indicates the command operates on a bug
@@ -24,9 +24,9 @@ const (
 )
 
 // Scope represents a parsed scope from CLI arguments
-// It contains the type of entity (epic, feature, or task) and the normalized key
+// It contains the type of entity and the normalized key.
 type Scope struct {
-	// Type is the scope type (epic, feature, or task)
+	// Type is the scope type.
 	Type ScopeType
 
 	// Key is the normalized key for the entity
@@ -34,5 +34,6 @@ type Scope struct {
 	//   - Epic: "E01"
 	//   - Feature: "E01-F01"
 	//   - Task: "T-E01-F01-001"
+	//   - Change: "CC-001"
 	Key string
 }

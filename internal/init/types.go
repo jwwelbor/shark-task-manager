@@ -25,6 +25,8 @@ type ConfigDefaults struct {
 	JSONOutput             bool                        `json:"json_output"`
 	InteractiveMode        bool                        `json:"interactive_mode"`
 	RequireRejectionReason bool                        `json:"require_rejection_reason"`
+	Backups                bool                        `json:"backups"`
+	BackupFiles            int                         `json:"backup_files"`
 	Database               *DatabaseConfigDefault      `json:"database"`
 	SharkDataPath          string                      `json:"shark_data_path"`
 	Observability          *ObservabilityConfigDefault `json:"observability"`

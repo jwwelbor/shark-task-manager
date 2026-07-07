@@ -247,19 +247,21 @@ func TestIsChangeKey(t *testing.T) {
 		input string
 		want  bool
 	}{
-		// Valid change keys - variable digit count, C### format
-		{"valid 3 digits uppercase", "C001", true},
-		{"valid 3 digits lowercase", "c001", true},
-		{"valid 2 digits lowercase", "c015", true},
-		{"valid 1 digit", "C1", true},
-		{"valid 4 digits", "C1000", true},
+		// Valid change-card key aliases
+		{"valid canonical uppercase", "CC-001", true},
+		{"valid canonical lowercase", "cc-001", true},
+		{"valid compact CC alias", "CC001", true},
+		{"valid compact C alias", "C001", true},
+		{"valid hyphen C alias", "C-001", true},
+		{"valid 1 digit alias", "C1", true},
+		{"valid 4 digits alias", "C1000", true},
 		{"valid zero", "C0", true},
 		// Invalid change keys
 		{"invalid no digits", "C", false},
+		{"invalid CC no digits", "CC", false},
 		{"invalid alpha", "CABC", false},
 		{"invalid wrong prefix", "E01", false},
 		{"invalid bug key", "B001", false},
-		{"invalid old CC format", "CC-001", false},
 		{"empty", "", false},
 	}
 
@@ -268,6 +270,38 @@ func TestIsChangeKey(t *testing.T) {
 			got := IsChangeKey(tt.input)
 			if got != tt.want {
 				t.Errorf("IsChangeKey(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeChangeKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"canonical", "CC-001", "CC-001", false},
+		{"compact CC alias", "CC001", "CC-001", false},
+		{"compact C alias", "C001", "CC-001", false},
+		{"hyphen C alias", "C-001", "CC-001", false},
+		{"lowercase", "cc001", "CC-001", false},
+		{"pad one digit", "C1", "CC-001", false},
+		{"pad two digits", "C42", "CC-042", false},
+		{"preserve four digits", "C1000", "CC-1000", false},
+		{"bug key invalid", "B001", "", true},
+		{"tech debt key invalid", "TD-001", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeChangeKey(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NormalizeChangeKey(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("NormalizeChangeKey(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

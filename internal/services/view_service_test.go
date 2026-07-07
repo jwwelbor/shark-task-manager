@@ -33,15 +33,22 @@ func TestViewService_GetFilePath(t *testing.T) {
 		{
 			name:      "change scope resolves to docs/plan/changes/",
 			scopeType: scope.ScopeChange,
-			key:       "C001",
-			wantPath:  "docs/plan/changes/C001.md",
+			key:       "CC-001",
+			wantPath:  "docs/plan/changes/CC-001.md",
 			wantErr:   false,
 		},
 		{
-			name:      "change scope with different key",
+			name:      "change scope canonicalizes legacy alias",
 			scopeType: scope.ScopeChange,
 			key:       "C099",
-			wantPath:  "docs/plan/changes/C099.md",
+			wantPath:  "docs/plan/changes/CC-099.md",
+			wantErr:   false,
+		},
+		{
+			name:      "legacy change-card scope canonicalizes compact alias",
+			scopeType: scope.ScopeChangeCard,
+			key:       "CC099",
+			wantPath:  "docs/plan/changes/CC-099.md",
 			wantErr:   false,
 		},
 		{

@@ -128,6 +128,103 @@ func TestMigration_RejectionReason_Idempotent(t *testing.T) {
 	assert.Equal(t, 1, finalCount, "rejection_reason column should still exist exactly once after second migration")
 }
 
+func TestApplySchemaAndMigrations_LegacyTaskHistoryWithoutRejectionReason(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/legacy-task-history.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE task_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			old_status TEXT,
+			new_status TEXT NOT NULL,
+			agent TEXT,
+			notes TEXT,
+			forced BOOLEAN DEFAULT FALSE,
+			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err, "setup legacy task_history table")
+
+	err = ApplySchemaAndMigrations(db)
+	require.NoError(t, err, "legacy task_history without rejection_reason should migrate cleanly")
+
+	var columnCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM pragma_table_info('task_history')
+		WHERE name = 'rejection_reason'
+	`).Scan(&columnCount)
+	require.NoError(t, err, "query migrated task_history column")
+	assert.Equal(t, 1, columnCount, "task_history.rejection_reason should be added by migration")
+
+	var indexCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'index'
+		  AND name = 'idx_task_history_rejection_reason'
+	`).Scan(&indexCount)
+	require.NoError(t, err, "query rejection_reason index")
+	assert.Equal(t, 1, indexCount, "task_history rejection_reason index should be created after column exists")
+}
+
+func TestApplySchemaIfNeeded_UpgradesV24TaskHistoryWithoutRejectionReason(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/legacy-task-history-v24.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE task_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			old_status TEXT,
+			new_status TEXT NOT NULL,
+			agent TEXT,
+			notes TEXT,
+			forced BOOLEAN DEFAULT FALSE,
+			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err, "setup legacy task_history table")
+	err = setSchemaVersion(db, 24)
+	require.NoError(t, err, "setup version 24 schema marker")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "version 24 task_history without rejection_reason should migrate cleanly")
+	assert.True(t, applied, "version 24 database should run the version 25 repair migration")
+
+	var columnCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM pragma_table_info('task_history')
+		WHERE name = 'rejection_reason'
+	`).Scan(&columnCount)
+	require.NoError(t, err, "query migrated task_history column")
+	assert.Equal(t, 1, columnCount, "task_history.rejection_reason should be added by migration")
+
+	var indexCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'index'
+		  AND name = 'idx_task_history_rejection_reason'
+	`).Scan(&indexCount)
+	require.NoError(t, err, "query rejection_reason index")
+	assert.Equal(t, 1, indexCount, "task_history rejection_reason index should be created after column exists")
+
+	version, err := getSchemaVersion(db)
+	require.NoError(t, err, "getSchemaVersion should succeed")
+	assert.Equal(t, CurrentSchemaVersion, version, "schema version should advance after repair migration")
+}
+
 // TestMigration_EntityNotesNoteTypeConstraint verifies that entity_notes table
 // includes 'rejection' in the note_type CHECK constraint (E16-F04 migration from task_notes)
 func TestMigration_EntityNotesNoteTypeConstraint(t *testing.T) {
@@ -275,6 +372,63 @@ func TestMigration_ApplySchemaIfNeeded_RestoresViewsWhenVersionBehind(t *testing
 	}
 
 	db.Close()
+}
+
+func TestMigration_ApplySchemaIfNeeded_RepairsCurrentVersionWhenViewMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/repair-current-version.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "initial migration failed")
+	defer db.Close()
+
+	_, err = db.Exec(`DROP VIEW IF EXISTS task_display_data`)
+	require.NoError(t, err, "drop task_display_data")
+	_, err = db.Exec(`DELETE FROM schema_version`)
+	require.NoError(t, err, "clear schema_version")
+	require.NoError(t, setSchemaVersion(db, CurrentSchemaVersion), "set current schema version")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "ApplySchemaIfNeeded should repair current-version schema drift")
+	assert.True(t, applied, "ApplySchemaIfNeeded should re-run migrations when required view is missing")
+
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='task_display_data'`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "task_display_data should be restored")
+}
+
+func TestMigration_ApplySchemaIfNeeded_RepairsCurrentVersionWhenTaskHistoryColumnMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/repair-current-task-history.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE task_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			old_status TEXT,
+			new_status TEXT NOT NULL,
+			agent TEXT,
+			notes TEXT,
+			forced BOOLEAN DEFAULT FALSE,
+			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err, "create legacy task_history")
+	require.NoError(t, setSchemaVersion(db, CurrentSchemaVersion), "set current schema version")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "ApplySchemaIfNeeded should repair current-version task_history drift")
+	assert.True(t, applied, "ApplySchemaIfNeeded should re-run migrations when rejection_reason is missing")
+
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task_history') WHERE name='rejection_reason'`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "task_history.rejection_reason should be added during repair")
 }
 
 // ---------------------------------------------------------------------------
@@ -483,8 +637,8 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 24, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 24 (E07-F43 unified search index, after E19-F08)")
+	assert.Equal(t, 25, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 25 (B036 task_history rejection_reason repair)")
 }
 
 func TestMigration_ApplySchemaIfNeeded_UpgradesV23SearchIndex(t *testing.T) {

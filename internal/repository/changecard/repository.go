@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
@@ -90,27 +91,67 @@ func (r *ChangeCardRepository) Create(ctx context.Context, card *models.ChangeCa
 
 // GetByKey retrieves a change-card by its key, supporting dual-key lookup (numeric and slugged).
 func (r *ChangeCardRepository) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
-	normalizedKey := strings.ToUpper(key)
+	originalKey := strings.ToUpper(key)
+	normalizedKey := originalKey
+	if canonical, err := keys.NormalizeChangeKey(originalKey); err == nil {
+		normalizedKey = canonical
+	}
 
 	// Try exact match first
 	card, err := r.getByExactKey(ctx, normalizedKey)
 	if err == nil {
 		return card, nil
 	}
+	if !errors.Is(err, repoerr.ErrNotFound) {
+		return nil, err
+	}
+	if normalizedKey != originalKey {
+		card, err = r.getByExactKey(ctx, originalKey)
+		if err == nil {
+			return card, nil
+		}
+		if !errors.Is(err, repoerr.ErrNotFound) {
+			return nil, err
+		}
+	}
 
-	// If not found and input contains a hyphen after C###, try slug match
-	if idx := strings.Index(normalizedKey, "-"); idx > 0 {
-		numericKey := normalizedKey[:idx]
-		slug := strings.ToLower(key[idx+1:])
-
+	// If not found and the input is a slugged change-card key alias
+	// (CC-001-some-slug, CC001-some-slug, C001-some-slug), resolve the
+	// canonical key and query by (key, slug).
+	if canonicalKey, slug, ok := splitChangeCardSlugKey(key); ok {
 		query := `SELECT ` + changeCardSelectColumns + ` FROM change_cards WHERE key = ? AND slug = ?`
-		card, scanErr := scanCard(r.db.QueryRowContext(ctx, query, numericKey, slug))
+		card, scanErr := scanCard(r.db.QueryRowContext(ctx, query, canonicalKey, slug))
 		if scanErr == nil {
 			return card, nil
 		}
 	}
 
 	return nil, fmt.Errorf("change-card not found: %s: %w", key, repoerr.ErrNotFound)
+}
+
+func splitChangeCardSlugKey(input string) (canonicalKey, slug string, ok bool) {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return "", "", false
+	}
+
+	upper := strings.ToUpper(raw)
+	for i := 1; i < len(upper); i++ {
+		if upper[i] != '-' {
+			continue
+		}
+		candidate := upper[:i]
+		canonical, err := keys.NormalizeChangeKey(candidate)
+		if err != nil {
+			continue
+		}
+		if i+1 >= len(raw) {
+			return "", "", false
+		}
+		return canonical, strings.ToLower(raw[i+1:]), true
+	}
+
+	return "", "", false
 }
 
 // getByExactKey retrieves a change-card by exact key match.

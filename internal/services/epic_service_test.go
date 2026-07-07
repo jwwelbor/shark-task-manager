@@ -2211,7 +2211,7 @@ func TestEpicService_LinkDocument_Happy_Path(t *testing.T) {
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
 
@@ -2251,7 +2251,7 @@ func TestEpicService_LinkDocument_EpicNotFound(t *testing.T) {
 	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E99", "Design Doc", "docs/design.md")
 
@@ -2278,7 +2278,7 @@ func TestEpicService_LinkDocument_CreateOrGetError(t *testing.T) {
 	linkRepo := &mockEpicLinkRepo{}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
 
@@ -2309,7 +2309,7 @@ func TestEpicService_LinkDocument_LinkError(t *testing.T) {
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
 
@@ -2351,7 +2351,7 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 
@@ -2390,7 +2390,7 @@ func TestEpicService_UnlinkDocument_EpicNotFound(t *testing.T) {
 	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E99", "Design Doc")
 
@@ -2417,7 +2417,7 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 	linkRepo := &mockEpicLinkRepo{}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Missing Doc")
 
@@ -2446,7 +2446,7 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 

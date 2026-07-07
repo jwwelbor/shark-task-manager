@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli/scope"
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 )
 
 // ViewService provides file path resolution for entity view operations.
@@ -27,7 +28,10 @@ func (s *ViewService) GetFilePath(scopeType scope.ScopeType, key string) (string
 	switch scopeType {
 	case scope.ScopeBug:
 		return filepath.Join("docs", "plan", "bugs", key+".md"), nil
-	case scope.ScopeChange:
+	case scope.ScopeChange, scope.ScopeChangeCard:
+		if canonicalKey, err := keys.NormalizeChangeKey(key); err == nil {
+			key = canonicalKey
+		}
 		return filepath.Join("docs", "plan", "changes", key+".md"), nil
 	default:
 		return "", fmt.Errorf("unsupported scope type: %q", scopeType)

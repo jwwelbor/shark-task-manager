@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -56,6 +57,34 @@ func (m *mockEntityDocumentLinkRepo) ListForEntity(ctx context.Context, entityTy
 	return nil, fmt.Errorf("ListForEntity not implemented")
 }
 
+func entityLookupResult(entity models.Entity) func(ctx context.Context, key string) (models.Entity, error) {
+	return func(ctx context.Context, key string) (models.Entity, error) {
+		return entity, nil
+	}
+}
+
+func entityWithFilePath(entityType models.EntityType, id int64, key, filePath string) models.Entity {
+	base := models.BaseEntity{ID: id, Key: key}
+	if filePath != "" {
+		base.FilePath = &filePath
+	}
+	switch entityType {
+	case models.EntityTypeEpic:
+		return &models.Epic{BaseEntity: base}
+	case models.EntityTypeFeature:
+		return &models.Feature{BaseEntity: base}
+	case models.EntityTypeTask:
+		agentType := "backend"
+		return &models.Task{BaseEntity: base, AgentType: &agentType, Priority: 1}
+	case models.EntityTypeBug:
+		return &models.Bug{BaseEntity: base}
+	case models.EntityTypeChange:
+		return &models.ChangeCard{BaseEntity: base}
+	default:
+		return &models.TechDebt{BaseEntity: base}
+	}
+}
+
 // ============================================================================
 // EntityDocumentService.LinkDocumentByKey Tests
 // ============================================================================
@@ -84,12 +113,13 @@ func TestEntityDocumentService_LinkDocumentByKey_HappyPath(t *testing.T) {
 	svc := NewEntityDocumentService(
 		repo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
+		func(ctx context.Context, key string) (models.Entity, error) {
 			if key != "E07-F01-001" {
 				t.Errorf("expected key 'E07-F01-001', got %q", key)
 			}
-			return 10, models.EntityTypeTask, nil
+			return entityWithFilePath(models.EntityTypeTask, 10, key, "docs/plan/E07/F01/task.md"), nil
 		},
+		".",
 	)
 
 	doc, err := svc.LinkDocumentByKey(context.Background(), "E07-F01-001", "Design Doc", "docs/design.md")
@@ -120,9 +150,10 @@ func TestEntityDocumentService_LinkDocumentByKey_EntityNotFound(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 0, "", fmt.Errorf("not found")
+		func(ctx context.Context, key string) (models.Entity, error) {
+			return nil, fmt.Errorf("not found")
 		},
+		".",
 	)
 
 	_, err := svc.LinkDocumentByKey(context.Background(), "E99", "Doc", "path.md")
@@ -153,12 +184,11 @@ func TestEntityDocumentService_LinkDocumentByKey_CreateOrGetFails(t *testing.T) 
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 10, models.EntityTypeTask, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 10, "E07-F01-001", "docs/plan/E07/F01/task.md")),
+		".",
 	)
 
-	_, err := svc.LinkDocumentByKey(context.Background(), "E07-F01-001", "Doc", "path.md")
+	_, err := svc.LinkDocumentByKey(context.Background(), "E07-F01-001", "Doc", "docs/path.md")
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -186,12 +216,11 @@ func TestEntityDocumentService_LinkDocumentByKey_LinkFails(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 10, models.EntityTypeEpic, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 10, "E07", "docs/plan/E07/epic.md")),
+		".",
 	)
 
-	_, err := svc.LinkDocumentByKey(context.Background(), "E07", "Doc", "path.md")
+	_, err := svc.LinkDocumentByKey(context.Background(), "E07", "Doc", "docs/path.md")
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -226,9 +255,8 @@ func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 5, models.EntityTypeFeature, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeFeature, 5, "E07-F01", "docs/plan/E07/F01/feature.md")),
+		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "E07-F01", "My Doc")
@@ -258,9 +286,8 @@ func TestEntityDocumentService_UnlinkDocumentByKey_DocumentNotFound_Idempotent(t
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 5, models.EntityTypeTask, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
+		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "E07-F01-001", "Missing Doc")
@@ -277,9 +304,10 @@ func TestEntityDocumentService_UnlinkDocumentByKey_EntityNotFound(t *testing.T) 
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 0, "", fmt.Errorf("not found")
+		func(ctx context.Context, key string) (models.Entity, error) {
+			return nil, fmt.Errorf("not found")
 		},
+		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "B999", "Doc")
@@ -307,9 +335,8 @@ func TestEntityDocumentService_UnlinkDocumentByKey_UnlinkFails(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 5, models.EntityTypeBug, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeBug, 5, "B001", "docs/plan/B001/bug.md")),
+		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "B001", "Doc")
@@ -346,9 +373,8 @@ func TestEntityDocumentService_ListDocumentsByKey_HappyPath(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 7, models.EntityTypeEpic, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 7, "E07", "docs/plan/E07/epic.md")),
+		".",
 	)
 
 	docs, err := svc.ListDocumentsByKey(context.Background(), "E07")
@@ -373,9 +399,10 @@ func TestEntityDocumentService_ListDocumentsByKey_EntityNotFound(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 0, "", fmt.Errorf("not found")
+		func(ctx context.Context, key string) (models.Entity, error) {
+			return nil, fmt.Errorf("not found")
 		},
+		".",
 	)
 
 	_, err := svc.ListDocumentsByKey(context.Background(), "CC-999")
@@ -399,9 +426,8 @@ func TestEntityDocumentService_ListDocumentsByKey_NilResult(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 1, models.EntityTypeFeature, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeFeature, 1, "E07-F01", "docs/plan/E07/F01/feature.md")),
+		".",
 	)
 
 	docs, err := svc.ListDocumentsByKey(context.Background(), "E07-F01")
@@ -428,9 +454,8 @@ func TestEntityDocumentService_ListDocumentsByKey_ListError(t *testing.T) {
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			return 1, models.EntityTypeEpic, nil
-		},
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 1, "E07", "docs/plan/E07/epic.md")),
+		".",
 	)
 
 	_, err := svc.ListDocumentsByKey(context.Background(), "E07")
@@ -474,16 +499,16 @@ func TestEntityLookupFnFromRepo_Success(t *testing.T) {
 	}
 
 	lookupFn := EntityLookupFnFromRepo(mock)
-	id, entityType, err := lookupFn(context.Background(), "E07")
+	entity, err := lookupFn(context.Background(), "E07")
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if id != 42 {
-		t.Errorf("expected ID 42, got %d", id)
+	if entity.GetID() != 42 {
+		t.Errorf("expected ID 42, got %d", entity.GetID())
 	}
-	if entityType != models.EntityTypeEpic {
-		t.Errorf("expected entity type %q, got %q", models.EntityTypeEpic, entityType)
+	if entity.GetEntityType() != models.EntityTypeEpic {
+		t.Errorf("expected entity type %q, got %q", models.EntityTypeEpic, entity.GetEntityType())
 	}
 }
 
@@ -495,7 +520,7 @@ func TestEntityLookupFnFromRepo_RepoError(t *testing.T) {
 	}
 
 	lookupFn := EntityLookupFnFromRepo(mock)
-	_, _, err := lookupFn(context.Background(), "E99")
+	_, err := lookupFn(context.Background(), "E99")
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -513,7 +538,7 @@ func TestEntityLookupFnFromRepo_NilEntity(t *testing.T) {
 	}
 
 	lookupFn := EntityLookupFnFromRepo(mock)
-	_, _, err := lookupFn(context.Background(), "E99")
+	_, err := lookupFn(context.Background(), "E99")
 
 	if err == nil {
 		t.Fatal("expected error for nil entity, got nil")
@@ -591,16 +616,16 @@ func TestEntityLookupFnFromRepo_DifferentEntityTypes(t *testing.T) {
 			}
 
 			lookupFn := EntityLookupFnFromRepo(mock)
-			id, entityType, err := lookupFn(context.Background(), "test-key")
+			entity, err := lookupFn(context.Background(), "test-key")
 
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
-			if id != tt.expectedID {
-				t.Errorf("expected ID %d, got %d", tt.expectedID, id)
+			if entity.GetID() != tt.expectedID {
+				t.Errorf("expected ID %d, got %d", tt.expectedID, entity.GetID())
 			}
-			if entityType != tt.expectedType {
-				t.Errorf("expected entity type %q, got %q", tt.expectedType, entityType)
+			if entity.GetEntityType() != tt.expectedType {
+				t.Errorf("expected entity type %q, got %q", tt.expectedType, entity.GetEntityType())
 			}
 		})
 	}
@@ -641,12 +666,11 @@ func TestEntityDocumentService_LinkDocumentByKey_AllEntityTypes(t *testing.T) {
 
 			svc := NewEntityDocumentService(
 				repo, linkRepo,
-				func(ctx context.Context, key string) (int64, models.EntityType, error) {
-					return tt.entityID, tt.entityType, nil
-				},
+				entityLookupResult(entityWithFilePath(tt.entityType, tt.entityID, tt.entityKey, filepath.ToSlash(filepath.Join("docs", "plan", tt.name, "entity.md")))),
+				".",
 			)
 
-			doc, err := svc.LinkDocumentByKey(context.Background(), tt.entityKey, "Test Doc", "test.md")
+			doc, err := svc.LinkDocumentByKey(context.Background(), tt.entityKey, "Test Doc", filepath.ToSlash(filepath.Join("docs", "test.md")))
 
 			if err != nil {
 				t.Fatalf("expected no error for %s, got: %v", tt.name, err)
@@ -661,5 +685,82 @@ func TestEntityDocumentService_LinkDocumentByKey_AllEntityTypes(t *testing.T) {
 				t.Errorf("expected entity ID %d, got %d", tt.entityID, capturedEntityID)
 			}
 		})
+	}
+}
+
+func TestEntityDocumentService_LinkDocumentByKey_ResolvesBareFilenameAgainstParentDirectory(t *testing.T) {
+	var capturedPath string
+	repo := &mockEntityDocumentRepo{
+		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
+			capturedPath = filePath
+			return &models.Document{ID: 1, Title: title, FilePath: filePath}, nil
+		},
+	}
+	linkRepo := &mockEntityDocumentLinkRepo{
+		linkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
+			return nil
+		},
+	}
+	svc := NewEntityDocumentService(
+		repo,
+		linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 7, "E07", "docs/plan/E07/epic.md")),
+		".",
+	)
+
+	_, err := svc.LinkDocumentByKey(context.Background(), "E07", "Interaction Map", "E07-interaction-map.md")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if capturedPath != "docs/plan/E07/E07-interaction-map.md" {
+		t.Fatalf("expected resolved sibling path, got %q", capturedPath)
+	}
+}
+
+func TestEntityDocumentService_LinkDocumentByKey_RejectsAbsolutePath(t *testing.T) {
+	repo := &mockEntityDocumentRepo{}
+	linkRepo := &mockEntityDocumentLinkRepo{}
+	svc := NewEntityDocumentService(
+		repo,
+		linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 7, "E07", "docs/plan/E07/epic.md")),
+		".",
+	)
+
+	_, err := svc.LinkDocumentByKey(context.Background(), "E07", "Interaction Map", "/tmp/interaction-map.md")
+	if err == nil || err.Error() != "invalid document path: absolute paths are not allowed: /tmp/interaction-map.md" {
+		t.Fatalf("expected absolute-path validation error, got %v", err)
+	}
+}
+
+func TestEntityDocumentService_LinkDocumentByKey_RejectsTraversal(t *testing.T) {
+	repo := &mockEntityDocumentRepo{}
+	linkRepo := &mockEntityDocumentLinkRepo{}
+	svc := NewEntityDocumentService(
+		repo,
+		linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 7, "E07", "docs/plan/E07/epic.md")),
+		".",
+	)
+
+	_, err := svc.LinkDocumentByKey(context.Background(), "E07", "Interaction Map", "../secrets.md")
+	if err == nil || err.Error() != "invalid document path: path escapes project root: ../secrets.md" {
+		t.Fatalf("expected traversal validation error, got %v", err)
+	}
+}
+
+func TestEntityDocumentService_LinkDocumentByKey_BareFilenameRequiresParentFilePath(t *testing.T) {
+	repo := &mockEntityDocumentRepo{}
+	linkRepo := &mockEntityDocumentLinkRepo{}
+	svc := NewEntityDocumentService(
+		repo,
+		linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeEpic, 7, "E07", "")),
+		".",
+	)
+
+	_, err := svc.LinkDocumentByKey(context.Background(), "E07", "Interaction Map", "E07-interaction-map.md")
+	if err == nil || err.Error() != `invalid document path: cannot resolve bare filename "E07-interaction-map.md" without a parent entity file_path` {
+		t.Fatalf("expected missing-parent-path validation error, got %v", err)
 	}
 }

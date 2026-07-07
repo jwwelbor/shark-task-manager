@@ -22,6 +22,9 @@ type Options struct {
 	// ConfigPath is an optional override for the configuration file path.
 	// If empty, defaults to filepath.Join(resolvedProjectRoot, ".sharkconfig.json").
 	ConfigPath string
+
+	// DBPath overrides the configured local SQLite path. It is ignored for Turso.
+	DBPath string
 }
 
 // Init returns a cloud-aware *repository.DB by reading .sharkconfig.json to
@@ -44,10 +47,18 @@ func Init(ctx context.Context, opts Options) (*repository.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load database config: %w", err)
 	}
+	if opts.DBPath != "" {
+		dbConfig.Backend = "sqlite"
+		dbConfig.URL = opts.DBPath
+	}
 
 	switch dbConfig.Backend {
 	case "sqlite", "local", "":
-		return initLocal(dbConfig)
+		backupPolicy, err := loadBackupPolicy(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load backup config: %w", err)
+		}
+		return initLocal(dbConfig, backupPolicy)
 	case "turso":
 		return initTurso(ctx, dbConfig)
 	default:
@@ -155,8 +166,11 @@ func loadDatabaseConfig(configPath, projectRoot string) (db.DatabaseConfig, erro
 }
 
 // initLocal initialises a local SQLite database and wraps it in *repository.DB.
-func initLocal(dbConfig db.DatabaseConfig) (*repository.DB, error) {
+func initLocal(dbConfig db.DatabaseConfig, backupPolicy BackupPolicy) (*repository.DB, error) {
 	dbPath := dbConfig.URL
+	if err := ensureLocalBackup(dbPath, backupPolicy); err != nil {
+		return nil, fmt.Errorf("failed to prepare local database backup for %q: %w", dbPath, err)
+	}
 	sqlDB, err := db.InitDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize local database at %q: %w", dbPath, err)

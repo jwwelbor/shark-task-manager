@@ -1088,9 +1088,13 @@ func TestGetChangeCardIDByKey_Found(t *testing.T) {
 	ccID := seedEntityRow(t, database, "change_card", "CC-910", "ID CC", "proposed")
 	defer cleanupTestEntities(t, database, [][2]string{{"change_card", "CC-910"}})
 
-	got, err := repo.GetChangeCardIDByKey(ctx, "CC-910")
-	require.NoError(t, err)
-	assert.Equal(t, ccID, got)
+	for _, input := range []string{"CC-910", "CC910", "C910", "c910", "C-910"} {
+		t.Run(input, func(t *testing.T) {
+			got, err := repo.GetChangeCardIDByKey(ctx, input)
+			require.NoError(t, err)
+			assert.Equal(t, ccID, got)
+		})
+	}
 }
 
 func TestGetChangeCardIDByKey_NotFound(t *testing.T) {

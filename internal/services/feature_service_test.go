@@ -2279,7 +2279,7 @@ func TestFeatureService_LinkDocument_Happy_Path(t *testing.T) {
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
 
@@ -2319,7 +2319,7 @@ func TestFeatureService_LinkDocument_FeatureNotFound(t *testing.T) {
 	docRepo := &mockFeatureDocRepo{}
 	linkRepo := &mockFeatureLinkRepo{}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07-F99", "API Spec", "docs/api-spec.md")
 
@@ -2346,7 +2346,7 @@ func TestFeatureService_LinkDocument_CreateOrGetError(t *testing.T) {
 	linkRepo := &mockFeatureLinkRepo{}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
 
@@ -2377,7 +2377,7 @@ func TestFeatureService_LinkDocument_LinkError(t *testing.T) {
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
 
@@ -2419,7 +2419,7 @@ func TestFeatureService_UnlinkDocument_Happy_Path(t *testing.T) {
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
 
@@ -2458,7 +2458,7 @@ func TestFeatureService_UnlinkDocument_FeatureNotFound(t *testing.T) {
 	docRepo := &mockFeatureDocRepo{}
 	linkRepo := &mockFeatureLinkRepo{}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F99", "API Spec")
 
@@ -2485,7 +2485,7 @@ func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 	linkRepo := &mockFeatureLinkRepo{}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "Missing Doc")
 
@@ -2514,7 +2514,7 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
-	svc.SetWritableDocRepo(docRepo, linkRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
 

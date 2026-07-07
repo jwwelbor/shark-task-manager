@@ -40,26 +40,11 @@ func main() {
 	}
 	defer db.Close()
 
-	rows, err := db.Query(`SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	tables, err := listDumpTables(db)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list tables: %v\n", err)
 		os.Exit(1)
 	}
-	type tbl struct{ name, ddl string }
-	var tables []tbl
-	for rows.Next() {
-		var t tbl
-		if err := rows.Scan(&t.name, &t.ddl); err != nil {
-			fmt.Fprintf(os.Stderr, "scan: %v\n", err)
-			os.Exit(1)
-		}
-		tables = append(tables, t)
-	}
-	if err := rows.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "list tables (row iteration): %v\n", err)
-		os.Exit(1)
-	}
-	rows.Close()
 
 	fmt.Println("PRAGMA foreign_keys=OFF;")
 	fmt.Println("BEGIN TRANSACTION;")
@@ -73,6 +58,49 @@ func main() {
 		}
 	}
 	fmt.Println("COMMIT;")
+	fmt.Println("-- Restores should re-run Shark migrations locally to rebuild FTS.")
+	fmt.Println("-- Use: go run ./cmd/dbrestore <dump.sql> <output.db>")
+}
+
+type tbl struct{ name, ddl string }
+
+func listDumpTables(db *sql.DB) ([]tbl, error) {
+	rows, err := db.Query(`SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []tbl
+	for rows.Next() {
+		var t tbl
+		if err := rows.Scan(&t.name, &t.ddl); err != nil {
+			return nil, err
+		}
+		if shouldDumpTable(t.name, t.ddl) {
+			tables = append(tables, t)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tables, nil
+}
+
+func shouldDumpTable(name, ddl string) bool {
+	lowerName := strings.ToLower(name)
+	lowerDDL := strings.ToLower(ddl)
+
+	if lowerName == "entity_search_fts" || lowerName == "task_search_fts" {
+		return false
+	}
+	if strings.HasPrefix(lowerName, "entity_search_fts_") || strings.HasPrefix(lowerName, "task_search_fts_") {
+		return false
+	}
+	if strings.Contains(lowerDDL, "virtual table") && strings.Contains(lowerDDL, "using fts5") {
+		return false
+	}
+	return true
 }
 
 // quoteIdent wraps a SQL identifier in double quotes, escaping embedded quotes,

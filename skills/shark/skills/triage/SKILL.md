@@ -60,7 +60,7 @@ In the proposal, name the existing coverage and recommend the note target.
 |--------|----------------|
 | Something is broken or behaves wrong | **Bug** |
 | Code works but should be improved (quality / architecture / dependency / testing / performance / docs) | **Tech Debt** |
-| Process / infra / config change not tied to user value | **Change Card** |
+| Process / infra / config change (or "chore") not tied to user value | **Change Card** |
 | Atomic work fitting under an existing feature | **Task** (under that feature) |
 | Multi-step work delivering user/stakeholder value | **Feature** (under best-fit epic) |
 | Speculative / future concept not yet committed | **Idea** |

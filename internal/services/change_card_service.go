@@ -510,11 +510,12 @@ func (s *ChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *conf
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations on change-cards.
-func (s *ChangeCardService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+func (s *ChangeCardService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository, projectRoot string) {
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
 		EntityLookupFnFromRepo(s.entityRepo),
+		projectRoot,
 	)
 }
 

@@ -30,7 +30,7 @@ Classify using the same signals as `/triage`, scoped to the EPIC-vs-lighter-enti
 
 | Signal | Classification |
 |--------|----------------|
-| Process / infra / docs-governance change not tied to product value | **Change Card** |
+| Process / infra / docs-governance change (or "chore") not tied to product value | **Change Card** |
 | Documentation or architecture debt (quality/maintainability, not new capability) | **Tech Debt** |
 | Single atomic change | **Task** (under an existing feature) |
 | Single multi-step capability, no second feature or architecture decision needed | **Feature** (under a related epic) |

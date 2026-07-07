@@ -228,10 +228,14 @@ func GetEpicService() *services.EpicService {
 	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeEpic)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
 	svc := services.NewEpicService(epicRepo, entitySvc, entityRepo, featureRepo, taskRepo)
 	svc.SetTracer(GetTracer("shark/services/epic"))
 	svc.SetDocRepo(docAdapter)
-	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	svc.SetEnrichRepo(enrichRepo)
 	// E28-F04 T-008: pass the shared *TagService so EpicService can
 	// enforce `tag_required_for` on create and honour --tag on create/update.
@@ -276,10 +280,14 @@ func GetFeatureService() *services.FeatureService {
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
 	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
 	svc := services.NewFeatureService(featureRepo, entitySvc, entityRepo, taskRepo, epicRepo)
 	svc.SetTracer(GetTracer("shark/services/feature"))
 	svc.SetDocRepo(docAdapter)
-	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	svc.SetEnrichRepo(enrichRepo)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
 	// E28-F04 T-007: pass the shared *TagService so FeatureService can

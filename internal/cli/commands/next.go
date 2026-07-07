@@ -372,6 +372,9 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	// reach the harness — the engine traverses down to the first
 	// dispatchable child here, then returns that child's dispatch step.
 	internalAction := strings.TrimSpace(populated.Action)
+	if actionRequiresInstruction(internalAction) && strings.TrimSpace(populated.Instruction) == "" {
+		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
+	}
 	if internalAction == "cascade" {
 		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp)
 	}
@@ -404,6 +407,10 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	resp.Prompt = attached
 
 	return resp, nil
+}
+
+func actionRequiresInstruction(internalAction string) bool {
+	return internalAction == action.ActionSpawnAgent || internalAction == action.ActionCheckOrResume
 }
 
 // tryCascade owns the "cascade" verb's children-loop and resolved_via
