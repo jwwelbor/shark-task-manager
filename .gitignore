@@ -48,6 +48,7 @@ shark-tasks.*
 .sharkconfig.json.backup*
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 docs/workflow/activity.jsonl
 
