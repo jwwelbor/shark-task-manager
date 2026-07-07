@@ -654,6 +654,49 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"CurrentSchemaVersion should be 27 (E36 metrics: entity-generic work_sessions + note_type CHECK drop)")
 }
 
+func TestMigration_WorkSessionsTaskCascadePreserved(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO epics (key, title, status, priority)
+		VALUES ('E91', 'Work session cascade epic', 'active', 'medium')
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO features (epic_id, key, title, status)
+		VALUES ((SELECT id FROM epics WHERE key = 'E91'), 'E91-F01', 'Work session cascade feature', 'active')
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO tasks (feature_id, key, title, status, priority)
+		VALUES ((SELECT id FROM features WHERE key = 'E91-F01'), 'T-E91-F01-001', 'Work session cascade task', 'todo', 5)
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO work_sessions (entity_type, entity_key, task_id, started_at)
+		VALUES ('task', 'T-E91-F01-001', (SELECT id FROM tasks WHERE key = 'T-E91-F01-001'), CURRENT_TIMESTAMP)
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`DELETE FROM tasks WHERE key = 'T-E91-F01-001'`)
+	require.NoError(t, err)
+
+	var count int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM work_sessions WHERE entity_key = 'T-E91-F01-001'
+	`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "task delete should cascade to legacy-linked work_sessions rows")
+}
+
 func TestMigration_ApplySchemaIfNeeded_UpgradesV23SearchIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"

@@ -723,5 +723,6 @@ func GetClaimService() *services.ClaimService {
 	}
 	svc := services.NewClaimService(claimrepo.NewRepository(db), 0)
 	svc.SetSessionLog(worksession.NewWorkSessionRepository(db))
+	svc.SetTaskResolver(repository.NewTaskRepository(db))
 	return svc
 }

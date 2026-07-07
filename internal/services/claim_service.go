@@ -41,13 +41,20 @@ type WorkSessionLog interface {
 	CloseOpenForEntity(ctx context.Context, entityType, entityKey, outcome string, endedAt time.Time) (int64, error)
 }
 
+// TaskKeyResolver resolves a task key to its numeric task row so claim-created
+// task sessions remain visible to legacy task_id-based analytics/resume flows.
+type TaskKeyResolver interface {
+	GetByKey(ctx context.Context, key string) (*models.Task, error)
+}
+
 // ClaimService orchestrates the claim/session lease (E35-F03). Status is a pure
 // phase; the claim is the in-flight lease. The service owns lease policy (TTL
 // backstop, reclaim-before-claim, force-steal) on top of the repository.
 type ClaimService struct {
-	repo     ClaimRepository
-	ttl      time.Duration
-	sessions WorkSessionLog // optional; nil degrades gracefully
+	repo         ClaimRepository
+	ttl          time.Duration
+	sessions     WorkSessionLog // optional; nil degrades gracefully
+	taskResolver TaskKeyResolver
 }
 
 // SetSessionLog attaches the optional work-session journal. Session writes
@@ -55,6 +62,12 @@ type ClaimService struct {
 // broken journal can never wedge the lease machinery.
 func (s *ClaimService) SetSessionLog(log WorkSessionLog) {
 	s.sessions = log
+}
+
+// SetTaskResolver attaches the optional task-key resolver used to backfill
+// task_id when journaling task claims. Non-task entities ignore it.
+func (s *ClaimService) SetTaskResolver(resolver TaskKeyResolver) {
+	s.taskResolver = resolver
 }
 
 // NewClaimService constructs a ClaimService. A non-positive ttl falls back to
@@ -176,6 +189,14 @@ func (s *ClaimService) openSession(ctx context.Context, c *models.EntityClaim) {
 		AgentID:    &c.ClaimedBy,
 		SessionID:  &c.SessionID,
 		StartedAt:  time.Now().UTC(),
+	}
+	if c.EntityType == string(models.EntityTypeTask) && s.taskResolver != nil {
+		task, err := s.taskResolver.GetByKey(ctx, c.EntityKey)
+		if err != nil {
+			slog.Warn("failed to resolve task for work session", "task", c.EntityKey, "error", err)
+		} else if task != nil {
+			ws.TaskID = task.ID
+		}
 	}
 	if err := s.sessions.Open(ctx, ws); err != nil {
 		slog.Warn("failed to open work session", "entity", c.EntityKey, "error", err)

@@ -87,7 +87,7 @@ func (oa *OrchestratorAction) Validate() error {
 	}
 
 	// effort, when set, must be one of the recognized levels
-	if oa.Effort != "" && !stringSliceContains(ValidEffortLevels, strings.ToLower(oa.Effort)) {
+	if oa.Effort != "" && !stringSliceContains(ValidEffortLevels, strings.ToLower(strings.TrimSpace(oa.Effort))) {
 		return fmt.Errorf("invalid effort: %s (must be one of: %s)",
 			oa.Effort, strings.Join(ValidEffortLevels, ", "))
 	}
@@ -130,7 +130,7 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 	}
 
 	// 2b. Validate effort enum, when set
-	if oa.Effort != "" && !stringSliceContains(ValidEffortLevels, strings.ToLower(oa.Effort)) {
+	if oa.Effort != "" && !stringSliceContains(ValidEffortLevels, strings.ToLower(strings.TrimSpace(oa.Effort))) {
 		validEffortsStr := strings.Join(ValidEffortLevels, ", ")
 		return &OrchestratorValidationError{
 			StatusName:   statusName,

@@ -2,6 +2,8 @@ package models
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -38,6 +40,9 @@ type WorkSession struct {
 func (ws *WorkSession) Validate() error {
 	if ws.TaskID == 0 && ws.EntityKey == "" {
 		return ErrInvalidTaskID
+	}
+	if ws.EntityKey != "" && strings.TrimSpace(ws.EntityType) == "" {
+		return fmt.Errorf("entity type is required when entity key is specified")
 	}
 	if ws.StartedAt.IsZero() {
 		return ErrInvalidTimestamp

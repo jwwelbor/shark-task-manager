@@ -1079,7 +1079,8 @@ func migrateWorkSessionsEntityGeneric(db *sql.DB) error {
 			outcome TEXT,
 			session_notes TEXT,
 			context_snapshot TEXT,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 		);`,
 		`INSERT INTO work_sessions_new (
 			id, entity_type, entity_key, task_id, agent_id,

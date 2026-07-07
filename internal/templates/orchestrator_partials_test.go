@@ -131,11 +131,6 @@ func TestTDDProcessPartialRenders(t *testing.T) {
 	}
 }
 
-// TestExitGatePartialRenders validates the exit gate partial renders correctly
-// TestReadSectionPartialWithMinimalData validates _read_section with only primary doc
-// TestReadSectionPartialWithRelatedDocs validates _read_section with related docs
-// TestReadSectionPartialWithAllData validates _read_section with all data
-// TestReadSectionSmartNumbering validates smart numbering with only related_tasks
 // TestPartialsCanBeIncludedInTemplates validates partials work in template includes
 func TestPartialsCanBeIncludedInTemplates(t *testing.T) {
 	// Create a test template that includes the _tdd_process partial
@@ -199,7 +194,6 @@ func TestPartialNamingConvention(t *testing.T) {
 	}
 }
 
-// TestReadSectionNoEmptyLines validates _read_section doesn't create empty lines
 // Helper function to execute a template
 func executeTemplate(tmpl *template.Template, data map[string]interface{}) (string, error) {
 	var buf bytes.Buffer

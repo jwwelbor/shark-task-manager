@@ -247,6 +247,11 @@ type mockSessionLog struct {
 	closed []string // "entityKey:outcome"
 }
 
+type mockTaskResolver struct {
+	task *models.Task
+	err  error
+}
+
 func (m *mockSessionLog) Open(ctx context.Context, ws *models.WorkSession) error {
 	m.opened = append(m.opened, ws)
 	return nil
@@ -254,6 +259,10 @@ func (m *mockSessionLog) Open(ctx context.Context, ws *models.WorkSession) error
 func (m *mockSessionLog) CloseOpenForEntity(ctx context.Context, entityType, entityKey, outcome string, endedAt time.Time) (int64, error) {
 	m.closed = append(m.closed, entityKey+":"+outcome)
 	return 1, nil
+}
+
+func (m *mockTaskResolver) GetByKey(ctx context.Context, key string) (*models.Task, error) {
+	return m.task, m.err
 }
 
 // A claim must journal a work session (active wall-clock starts at claim, not
@@ -289,6 +298,33 @@ func TestClaimService_Claim_OpensWorkSession(t *testing.T) {
 	}
 	if ws.SessionID == nil || *ws.SessionID != claimed.SessionID {
 		t.Errorf("session not linked to the lease session id")
+	}
+}
+
+func TestClaimService_Claim_TaskSessionResolvesTaskID(t *testing.T) {
+	m := &mockClaimRepo{
+		ReclaimFn: func(ctx context.Context, ttl time.Duration) (int64, error) { return 0, nil },
+		ClaimFn: func(ctx context.Context, c *models.EntityClaim) (*models.EntityClaim, error) {
+			c.ID = 1
+			return c, nil
+		},
+	}
+	log := &mockSessionLog{}
+	svc := NewClaimService(m, time.Minute)
+	svc.SetSessionLog(log)
+	svc.SetTaskResolver(&mockTaskResolver{
+		task: &models.Task{BaseEntity: models.BaseEntity{ID: 41, Key: "T-E1-F1-001"}},
+	})
+
+	_, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "T-E1-F1-001", ClaimedBy: "dev-agent"})
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(log.opened) != 1 {
+		t.Fatalf("expected one session opened, got %d", len(log.opened))
+	}
+	if got := log.opened[0].TaskID; got != 41 {
+		t.Fatalf("opened task session TaskID = %d, want 41", got)
 	}
 }
 

@@ -60,6 +60,23 @@ func TestValidateWithContext_Archive_Valid(t *testing.T) {
 	}
 }
 
+func TestValidate_EffortWhitespaceTrimmed(t *testing.T) {
+	oa := &OrchestratorAction{
+		Action:              ActionSpawnAgent,
+		AgentType:           "developer",
+		Effort:              " high ",
+		Skills:              []string{"implementation"},
+		InstructionTemplate: "Implement task {task_id}",
+	}
+
+	if err := oa.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+	if err := oa.ValidateWithContext("ready_for_development"); err != nil {
+		t.Fatalf("ValidateWithContext() error = %v, want nil", err)
+	}
+}
+
 // TestValidateWithContext_InvalidActionType tests invalid action type error message
 func TestValidateWithContext_InvalidActionType(t *testing.T) {
 	oa := &OrchestratorAction{
