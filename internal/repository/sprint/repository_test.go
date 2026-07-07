@@ -2537,6 +2537,28 @@ func TestSprintRepository_RenumberAssignmentsTx(t *testing.T) {
 		err = tx.Commit()
 		require.NoError(t, err)
 	})
+
+	t.Run("nil transaction uses repository database handle", func(t *testing.T) {
+		pos1, pos2 := 3, 4
+		ops := []RenumberOp{
+			{AssignmentID: a1ID, NewPosition: &pos1},
+			{AssignmentID: a2ID, NewPosition: &pos2},
+		}
+
+		err := repo.RenumberAssignmentsTx(ctx, nil, sprint.ID, ops)
+		require.NoError(t, err)
+
+		var ord1, ord2 sql.NullInt64
+		err = database.QueryRowContext(ctx, `SELECT sprint_order FROM sprint_assignments WHERE id = ?`, a1ID).Scan(&ord1)
+		require.NoError(t, err)
+		assert.True(t, ord1.Valid)
+		assert.Equal(t, int64(3), ord1.Int64)
+
+		err = database.QueryRowContext(ctx, `SELECT sprint_order FROM sprint_assignments WHERE id = ?`, a2ID).Scan(&ord2)
+		require.NoError(t, err)
+		assert.True(t, ord2.Valid)
+		assert.Equal(t, int64(4), ord2.Int64)
+	})
 }
 
 // TestSprintRepository_RenumberAssignmentsTx_ShiftOnDensePartialIndex is a

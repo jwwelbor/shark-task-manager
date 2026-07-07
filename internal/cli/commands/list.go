@@ -99,12 +99,15 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	case "bug":
 		bugListCmd.SetContext(cmd.Context())
+		_ = bugListCmd.Flags().Set("status", statusFlag)
 		_ = bugListCmd.Flags().Set("all", formatBool(showAllFlag))
 		forwardTagFlags(bugListCmd, tagFlags)
 		return runBugList(bugListCmd, []string{})
 
 	case "change":
 		changeListCmd.SetContext(cmd.Context())
+		changeStatusFilter = statusFlag
+		_ = changeListCmd.Flags().Set("status", statusFlag)
 		_ = changeListCmd.Flags().Set("all", formatBool(showAllFlag))
 		forwardTagFlags(changeListCmd, tagFlags)
 		return runChangeList(changeListCmd, []string{})
@@ -113,6 +116,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		// Forward --all flag to tech-debt list command.
 		// --tag is forwarded as nil per REQ-F-009 (tech_debt out of scope).
 		tdListCmd.SetContext(cmd.Context())
+		_ = tdListCmd.Flags().Set("status", statusFlag)
 		_ = tdListCmd.Flags().Set("all", formatBool(showAllFlag))
 		return runTdList(tdListCmd, []string{})
 

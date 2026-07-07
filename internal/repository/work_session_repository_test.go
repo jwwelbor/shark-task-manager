@@ -785,6 +785,13 @@ func TestWorkSessionOpenCloseEntityGeneric(t *testing.T) {
 	if ws.ID == 0 {
 		t.Fatal("expected session ID after Open")
 	}
+	retrieved, err := sessionRepo.GetByID(ctx, ws.ID)
+	if err != nil {
+		t.Fatalf("GetByID for non-task session failed: %v", err)
+	}
+	if retrieved.TaskID != 0 {
+		t.Fatalf("non-task session TaskID = %d, want 0", retrieved.TaskID)
+	}
 
 	// The stored timestamp must be parseable text, not Go's debug layout.
 	// When the driver can parse the stored text it returns a time.Time and

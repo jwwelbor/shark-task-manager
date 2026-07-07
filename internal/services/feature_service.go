@@ -762,19 +762,18 @@ func (s *FeatureService) CompleteFeature(ctx context.Context, featureKey string,
 		}, nil
 	}
 
-	// Force-complete all incomplete tasks
-	agent := "shark-cli"
-	numCompleted := 0
+	// Force-complete all incomplete tasks in one repository-owned transaction.
 	affectedKeys := make([]string, 0)
 	for _, task := range tasks {
 		if task.Status == models.TaskStatus("completed") {
 			continue
 		}
-		if err := s.taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true); err != nil {
-			return nil, fmt.Errorf("failed to complete task %s: %w", task.Key, err)
-		}
-		numCompleted++
 		affectedKeys = append(affectedKeys, task.Key)
+	}
+	if len(affectedKeys) > 0 {
+		if err := s.repo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatus("completed")); err != nil {
+			return nil, fmt.Errorf("failed to complete tasks for feature %s: %w", featureKey, err)
+		}
 	}
 
 	// Recalculate progress (which may auto-complete the feature)

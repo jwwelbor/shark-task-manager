@@ -1308,7 +1308,12 @@ func (r *SprintRepository) RenumberAssignmentsTx(ctx context.Context, tx *sql.Tx
 		args = append(args, op.AssignmentID)
 	}
 
-	_, err := tx.ExecContext(ctx, query, args...)
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx, query, args...)
+	} else {
+		_, err = r.db.ExecContext(ctx, query, args...)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to renumber sprint_assignments for sprint %d: %w", sprintID, err)
 	}

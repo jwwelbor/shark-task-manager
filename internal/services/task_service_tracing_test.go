@@ -25,6 +25,7 @@ type mockTaskRepo struct {
 	listByFeatureFn     func(ctx context.Context, featureID int64) ([]*models.Task, error)
 	listByFeatureKeyFn  func(ctx context.Context, featureKey string) ([]*models.Task, error)
 	listByEpicFn        func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	getTaskDepsFn       func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	getTaskDependentsFn func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	listByKeyPrefixFn   func(ctx context.Context, prefix string) ([]*models.Task, error)
 }
@@ -86,6 +87,12 @@ func (m *mockTaskRepo) ListByFeatureKey(ctx context.Context, featureKey string) 
 func (m *mockTaskRepo) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
 	if m.listByEpicFn != nil {
 		return m.listByEpicFn(ctx, epicKey)
+	}
+	return nil, nil
+}
+func (m *mockTaskRepo) GetTaskDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
+	if m.getTaskDepsFn != nil {
+		return m.getTaskDepsFn(ctx, taskKey)
 	}
 	return nil, nil
 }

@@ -2006,12 +2006,20 @@ func TestEpicService_CompleteEpic_IncompleteTasksRequireForce(t *testing.T) {
 }
 
 func TestEpicService_CompleteEpic_Force(t *testing.T) {
-	forcedTaskIDs := make([]int64, 0)
+	var cascadeEpicID int64
+	var cascadeFeatureStatus models.FeatureStatus
+	var cascadeTaskStatus models.TaskStatus
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}, Status: models.EpicStatusActive}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			return nil
+		},
+		cascadeStatusToFeaturesAndTasksFn: func(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+			cascadeEpicID = epicID
+			cascadeFeatureStatus = targetFeatureStatus
+			cascadeTaskStatus = targetTaskStatus
 			return nil
 		},
 	}
@@ -2038,10 +2046,6 @@ func TestEpicService_CompleteEpic_Force(t *testing.T) {
 				{BaseEntity: models.BaseEntity{ID: 101, Key: "T-E01-F01-002", Title: "Done task"}, Status: models.TaskStatus("completed")},
 			}, nil
 		},
-		updateStatusForcedFn: func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
-			forcedTaskIDs = append(forcedTaskIDs, taskID)
-			return nil
-		},
 	}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), featureCounter, taskLister)
 
@@ -2052,9 +2056,14 @@ func TestEpicService_CompleteEpic_Force(t *testing.T) {
 	if result.RequiresForce {
 		t.Error("expected RequiresForce=false after forced completion")
 	}
-	// Only the non-completed task (ID 100) should be force-completed
-	if len(forcedTaskIDs) != 1 || forcedTaskIDs[0] != 100 {
-		t.Errorf("expected only task 100 to be force-completed, got: %v", forcedTaskIDs)
+	if cascadeEpicID != 1 {
+		t.Errorf("expected cascade for epic ID 1, got %d", cascadeEpicID)
+	}
+	if cascadeFeatureStatus != models.FeatureStatusCompleted {
+		t.Errorf("expected feature cascade status completed, got %s", cascadeFeatureStatus)
+	}
+	if cascadeTaskStatus != models.TaskStatus("completed") {
+		t.Errorf("expected task cascade status completed, got %s", cascadeTaskStatus)
 	}
 }
 

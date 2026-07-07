@@ -71,6 +71,7 @@ type TaskRepository interface {
 	ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
 
 	// Dependency operations
+	GetTaskDependencies(ctx context.Context, taskKey string) ([]*models.Task, error)
 	GetTaskDependents(ctx context.Context, taskKey string) ([]*models.Task, error)
 
 	// Status operations (service layer will wrap these with business logic)
@@ -838,6 +839,11 @@ func (s *TaskService) GetNextStatus(ctx context.Context, key string) (*NextStatu
 	if err != nil {
 		return nil, recordSpanError(span, err)
 	}
+	if info != nil && !info.IsTerminal {
+		if err := s.ValidateDependencies(ctx, key, info.CurrentStatus); err != nil {
+			return nil, recordSpanError(span, err)
+		}
+	}
 	return info, nil
 }
 
@@ -868,18 +874,18 @@ func (s *TaskService) ValidateStatus(status string) error {
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) ValidateDependencies(ctx context.Context, key string, targetStatus string) error {
-	dependents, err := s.repo.GetTaskDependents(ctx, key)
+	dependencies, err := s.repo.GetTaskDependencies(ctx, key)
 	if err != nil {
 		return fmt.Errorf("failed to get dependencies for task %s: %w", key, err)
 	}
 
-	if len(dependents) == 0 {
+	if len(dependencies) == 0 {
 		return nil
 	}
 
-	for _, dep := range dependents {
-		if dep.Status != models.TaskStatus("completed") {
-			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be completed)", key, dep.Key, dep.Status)
+	for _, dep := range dependencies {
+		if dep.Status != models.TaskStatus("completed") && dep.Status != models.TaskStatus("archived") {
+			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be completed or archived)", key, dep.Key, dep.Status)
 		}
 	}
 

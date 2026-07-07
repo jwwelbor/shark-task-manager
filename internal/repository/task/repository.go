@@ -150,6 +150,58 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (retErr 
 	return nil
 }
 
+// CreateWithTx creates a new task inside a caller-owned transaction.
+func (r *TaskRepository) CreateWithTx(ctx context.Context, tx *sql.Tx, task *models.Task) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	if err := task.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+		return fmt.Errorf("dependency validation failed: %w", err)
+	}
+	if task.Slug == nil {
+		generatedSlug := slug.Generate(task.Title)
+		task.Slug = &generatedSlug
+	}
+
+	query := `
+		INSERT INTO tasks (
+			feature_id, key, title, slug, description, status, agent_type, priority,
+			depends_on, assigned_agent, file_path, blocked_reason, execution_order, size
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := tx.ExecContext(ctx, query,
+		task.FeatureID,
+		task.Key,
+		task.Title,
+		task.Slug,
+		task.Description,
+		task.Status,
+		task.AgentType,
+		task.Priority,
+		task.DependsOn,
+		task.AssignedAgent,
+		task.FilePath,
+		task.BlockedReason,
+		task.ExecutionOrder,
+		task.Size,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create task: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	task.ID = id
+	return nil
+}
+
 // GetByID retrieves a task by its ID
 func (r *TaskRepository) GetByID(ctx context.Context, id int64) (_ *models.Task, retErr error) {
 	ctx, span := tracer.Start(ctx, "TaskRepository.GetByID",
@@ -493,6 +545,32 @@ func (r *TaskRepository) UpdateFilePath(ctx context.Context, taskKey string, new
 		return fmt.Errorf("task not found: %s", taskKey)
 	}
 
+	return nil
+}
+
+// UpdateFilePathWithTx updates the file_path for a task inside a caller-owned transaction.
+func (r *TaskRepository) UpdateFilePathWithTx(ctx context.Context, tx *sql.Tx, taskKey string, newFilePath *string) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	query := `
+		UPDATE tasks
+		SET file_path = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := tx.ExecContext(ctx, query, newFilePath, taskKey)
+	if err != nil {
+		return fmt.Errorf("failed to update file path: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("task not found: %s", taskKey)
+	}
 	return nil
 }
 

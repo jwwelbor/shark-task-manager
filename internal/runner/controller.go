@@ -225,6 +225,9 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 type stageOutcome struct {
 	// nextStatus is the status to use for the next iteration (when done == false).
 	nextStatus string
+	// nextInfo is the simulated status metadata to use for the next iteration.
+	// It is populated by dry-run paths that must not re-read live entity state.
+	nextInfo *services.NextStatusInfo
 	// done signals the loop should return result immediately.
 	done bool
 }
@@ -358,10 +361,10 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			return result, nil
 
 		case config.ActionAdvanceStatus:
-			outcome = c.handleAdvanceStatus(ctx, key, currentStatus, action, opts, result, stageStart, startTime)
+			outcome = c.handleAdvanceStatus(ctx, key, currentStatus, nextInfo, action, opts, result, stageStart, startTime)
 
 		case config.ActionSpawnAgent:
-			outcome = c.handleSpawnAgent(ctx, key, currentStatus, action, vars, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
+			outcome = c.handleSpawnAgent(ctx, key, currentStatus, nextInfo, action, vars, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
 
 		default:
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -378,6 +381,9 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			return result, nil
 		}
 		currentStatus = outcome.nextStatus
+		if outcome.nextInfo != nil {
+			nextInfo = outcome.nextInfo
+		}
 	}
 }
 
@@ -385,21 +391,11 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 // entity to the next status without dispatching an agent.
 func (c *RunController) handleAdvanceStatus(
 	ctx context.Context, key, currentStatus string,
+	nextInfo *services.NextStatusInfo,
 	action *config.PopulatedAction, opts RunOptions,
 	result *RunResult, stageStart, startTime time.Time,
 ) stageOutcome {
 	if opts.DryRun {
-		nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
-		if err != nil {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "advance_status",
-				Error:     err.Error(),
-				RunID:     opts.RunID,
-			})
-			return stageOutcome{done: true}
-		}
 		result.Stages = append(result.Stages, StageLog{
 			Status:    currentStatus,
 			Action:    action.Action,
@@ -408,13 +404,11 @@ func (c *RunController) handleAdvanceStatus(
 			Duration:  time.Since(stageStart),
 		})
 		result.StagesCompleted++
-		if len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
-			result.FinalStatus = currentStatus
-			result.Outcome = "completed"
-			result.TotalDuration = time.Since(startTime)
+		postInfo, ok := c.dryRunPostActionStatus(ctx, key, currentStatus, nextInfo, "advance_status", opts, result, startTime)
+		if !ok {
 			return stageOutcome{done: true}
 		}
-		return stageOutcome{nextStatus: nextInfo.AvailableTransitions[0].TargetStatus}
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
 	}
 
 	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
@@ -475,6 +469,72 @@ func (c *RunController) handleAdvanceStatus(
 	return stageOutcome{nextStatus: transResult.ToStatus}
 }
 
+func (c *RunController) dryRunNextOutcome(
+	currentStatus string,
+	nextInfo *services.NextStatusInfo,
+	result *RunResult,
+	startTime time.Time,
+) stageOutcome {
+	if nextInfo == nil || nextInfo.IsTerminal || len(nextInfo.AvailableTransitions) == 0 {
+		result.FinalStatus = currentStatus
+		result.Outcome = "completed"
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	nextStatus := nextInfo.AvailableTransitions[0].TargetStatus
+	return stageOutcome{
+		nextStatus: nextStatus,
+		nextInfo:   c.simulatedDryRunNextStatus(nextStatus),
+	}
+}
+
+func (c *RunController) simulatedDryRunNextStatus(status string) *services.NextStatusInfo {
+	transitions := c.workflowSvc.GetTransitionInfo(status)
+	wrapped := make([]services.TransitionInfoWithAction, 0, len(transitions))
+	for _, transition := range transitions {
+		wrapped = append(wrapped, services.TransitionInfoWithAction{
+			TransitionInfo: transition,
+		})
+	}
+	return &services.NextStatusInfo{
+		EntityKey:            "__dry_run_simulated__",
+		CurrentStatus:        status,
+		AvailableTransitions: wrapped,
+		IsTerminal:           c.workflowSvc.IsTerminalStatus(status),
+	}
+}
+
+func (c *RunController) dryRunPostActionStatus(
+	ctx context.Context,
+	key, currentStatus string,
+	nextInfo *services.NextStatusInfo,
+	phase string,
+	opts RunOptions,
+	result *RunResult,
+	startTime time.Time,
+) (*services.NextStatusInfo, bool) {
+	if nextInfo != nil && nextInfo.EntityKey == "__dry_run_simulated__" {
+		return nextInfo, true
+	}
+	if nextInfo != nil && !strings.EqualFold(nextInfo.CurrentStatus, currentStatus) {
+		return nextInfo, true
+	}
+
+	postInfo, err := c.transitioner.GetNextStatus(ctx, key)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     phase,
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
+		return nil, false
+	}
+	return postInfo, true
+}
+
 // handleSpawnAgent handles the spawn_agent action type: dispatches an agent,
 // gates status advancement on exit code 0.
 //
@@ -487,6 +547,7 @@ func (c *RunController) handleAdvanceStatus(
 // rest of the run.
 func (c *RunController) handleSpawnAgent(
 	ctx context.Context, key, currentStatus string,
+	nextInfo *services.NextStatusInfo,
 	action *config.PopulatedAction, vars map[string]string, opts RunOptions,
 	result *RunResult, stageStart, startTime time.Time,
 	stageN int, transcriptDisabled *bool,
@@ -538,30 +599,11 @@ func (c *RunController) handleSpawnAgent(
 		})
 		result.StagesCompleted++
 
-		// Dry-run still consults the transitioner to decide whether to loop
-		// onto the next status. A GetNextStatus failure after the dispatch
-		// simulation is an operator-visible failure in exactly the same way
-		// it is on the real path (see the post-dispatch handler below), so
-		// emit run.stage.error with phase="post_dispatch" and surface it as
-		// Outcome="failed" — do NOT silently report Outcome="completed".
-		nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
-		if err != nil {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "post_dispatch",
-				Error:     err.Error(),
-				RunID:     opts.RunID,
-			})
+		postInfo, ok := c.dryRunPostActionStatus(ctx, key, currentStatus, nextInfo, "post_dispatch", opts, result, startTime)
+		if !ok {
 			return stageOutcome{done: true}
 		}
-		if len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
-			result.FinalStatus = currentStatus
-			result.Outcome = "completed"
-			result.TotalDuration = time.Since(startTime)
-			return stageOutcome{done: true}
-		}
-		return stageOutcome{nextStatus: nextInfo.AvailableTransitions[0].TargetStatus}
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
 	}
 
 	// Emit run.stage.dispatch just before invoking the agent. The command string
@@ -676,7 +718,7 @@ func (c *RunController) handleSpawnAgent(
 
 	result.StagesCompleted++
 
-	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
+	nextInfo, err = c.transitioner.GetNextStatus(ctx, key)
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,

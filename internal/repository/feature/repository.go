@@ -1227,9 +1227,33 @@ func (r *FeatureRepository) UpdateStatusTx(
 // CascadeStatusToTasks updates the status of all child tasks to match a target task status
 // Used when --force is specified to override workflow validation
 func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
-	query := `UPDATE tasks SET status = ? WHERE feature_id = ?`
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 
-	result, err := r.db.ExecContext(ctx, query, targetTaskStatus, featureID)
+	historyQuery := `
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced)
+		SELECT id, status, ?, ?, ?, ?
+		FROM tasks
+		WHERE feature_id = ? AND status <> ?
+	`
+	agent := "shark-cli"
+	notes := "Force-completed via feature cascade"
+	if _, err := tx.ExecContext(ctx, historyQuery, targetTaskStatus, agent, notes, true, featureID, targetTaskStatus); err != nil {
+		return fmt.Errorf("failed to create cascade task history: %w", err)
+	}
+
+	query := `UPDATE tasks SET status = ?`
+	args := []interface{}{targetTaskStatus}
+	if targetTaskStatus == models.TaskStatus("completed") {
+		query += `, completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)`
+	}
+	query += ` WHERE feature_id = ? AND status <> ?`
+	args = append(args, featureID, targetTaskStatus)
+
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to cascade status to tasks: %w", err)
 	}
@@ -1241,6 +1265,10 @@ func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID 
 
 	// Log the number of tasks updated (optional, for debugging)
 	_ = rows
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit task status cascade: %w", err)
+	}
 
 	return nil
 }

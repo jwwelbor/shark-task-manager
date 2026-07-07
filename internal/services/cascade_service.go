@@ -26,6 +26,7 @@ type CascadeChild struct {
 // needs to enumerate tasks under a feature.
 type CascadeTaskRepo interface {
 	ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error)
+	GetTaskDependencies(ctx context.Context, taskKey string) ([]*models.Task, error)
 }
 
 // CascadeEpicLookup is the narrow epic repository interface the cascade
@@ -110,6 +111,13 @@ func (s *CascadeService) ListDispatchableChildren(ctx context.Context, entityTyp
 			if s.isTerminalStatus(taskWf, string(t.Status)) {
 				continue
 			}
+			ready, err := s.dependenciesSatisfied(ctx, t.Key)
+			if err != nil {
+				return nil, err
+			}
+			if !ready {
+				continue
+			}
 			out = append(out, CascadeChild{Key: t.Key, EntityType: models.EntityTypeTask})
 		}
 		return out, nil
@@ -155,4 +163,17 @@ func (s *CascadeService) isTerminalStatus(wf *workflow.Service, status string) b
 		return false
 	}
 	return wf.IsTerminalStatus(status)
+}
+
+func (s *CascadeService) dependenciesSatisfied(ctx context.Context, taskKey string) (bool, error) {
+	dependencies, err := s.taskRepo.GetTaskDependencies(ctx, taskKey)
+	if err != nil {
+		return false, fmt.Errorf("failed to list dependencies for task %s: %w", taskKey, err)
+	}
+	for _, dep := range dependencies {
+		if dep.Status != models.TaskStatus("completed") && dep.Status != models.TaskStatus("archived") {
+			return false, nil
+		}
+	}
+	return true, nil
 }

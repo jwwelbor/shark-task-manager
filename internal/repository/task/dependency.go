@@ -148,6 +148,69 @@ func (r *TaskRepository) GetTaskDependents(ctx context.Context, taskKey string) 
 	return dependents, nil
 }
 
+// GetTaskDependencies returns all tasks that the given task depends on.
+// This is the prerequisite-facing companion to GetTaskDependents and is used
+// for dispatch validation before work starts.
+func (r *TaskRepository) GetTaskDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
+	task, err := r.GetByKey(ctx, taskKey)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	dependencies := []*models.Task{}
+
+	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
+		var deps []string
+		if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err != nil {
+			return nil, fmt.Errorf("invalid depends_on JSON for %s: %w", task.Key, err)
+		}
+
+		for _, depKey := range deps {
+			if seen[depKey] {
+				continue
+			}
+			dep, err := r.GetByKey(ctx, depKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get dependency %s for %s: %w", depKey, task.Key, err)
+			}
+			dependencies = append(dependencies, dep)
+			seen[dep.Key] = true
+		}
+	}
+
+	relQuery := `
+		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status
+		FROM entity_relationships er
+		JOIN tasks t ON t.id = er.to_entity_id
+		WHERE er.from_entity_type = 'task' AND er.from_entity_id = ?
+		  AND er.to_entity_type = 'task'
+		  AND er.relationship_type = 'depends_on'
+	`
+	rows, err := r.db.QueryContext(ctx, relQuery, task.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query entity_relationships for dependencies: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		dep := &models.Task{}
+		if err := rows.Scan(&dep.ID, &dep.FeatureID, &dep.Key, &dep.Title, &dep.Description, &dep.Status); err != nil {
+			return nil, fmt.Errorf("failed to scan relationship dependency: %w", err)
+		}
+		if seen[dep.Key] {
+			continue
+		}
+		dependencies = append(dependencies, dep)
+		seen[dep.Key] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating relationship dependencies for %s: %w", task.Key, err)
+	}
+
+	return dependencies, nil
+}
+
 // ReopenTaskWithAutoBlock reopens a task and automatically blocks all dependent tasks.
 // This is the recommended method to use when reopening tasks with dependents.
 func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int64, agent *string, notes *string) error {
@@ -277,6 +340,9 @@ func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, 
 		}
 		allTasks = append(allTasks, task)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating tasks for dependents of %s: %w", taskKey, err)
+	}
 
 	// Build a map of task ID -> task for quick lookup
 	taskByID := make(map[int64]*models.Task)
@@ -332,6 +398,9 @@ func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, 
 			dependents = append(dependents, t)
 			seen[t.Key] = true
 		}
+	}
+	if err := relRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating relationship dependents for %s: %w", taskKey, err)
 	}
 
 	return dependents, nil
@@ -490,6 +559,9 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 		if depStatus != models.TaskStatus("completed") && depStatus != models.TaskStatus("archived") {
 			return false, nil
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("error iterating relationship dependencies for %s: %w", task.Key, err)
 	}
 
 	return true, nil

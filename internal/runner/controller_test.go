@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -1212,6 +1213,65 @@ func TestRunController_DryRun(t *testing.T) {
 	}
 	if result.StagesCompleted < 1 {
 		t.Errorf("expected at least 1 stage recorded in dry-run mode, got %d", result.StagesCompleted)
+	}
+}
+
+func TestRunController_DryRunUsesSimulatedStatusTransitions(t *testing.T) {
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "development",
+				IsTerminal:    false,
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "ready_for_review"}},
+				},
+			}, nil
+		},
+		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			t.Fatal("dry-run must not transition live status")
+			return nil, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{
+				Action:      config.ActionSpawnAgent,
+				AgentType:   "developer",
+				Provider:    "",
+				Instruction: "do work for " + status,
+			}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"": &MockDispatcher{
+			DispatchFunc: func(ctx context.Context, input DispatchInput) (*DispatchResult, error) {
+				t.Fatal("dry-run must not dispatch")
+				return nil, nil
+			},
+		},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	result, err := ctrl.Run(ctx, "CC-001", RunOptions{DryRun: true})
+
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if result.Outcome != "completed" {
+		t.Fatalf("Outcome = %q, want completed; error=%q", result.Outcome, result.Error)
+	}
+	if result.StagesCompleted != 2 {
+		t.Fatalf("StagesCompleted = %d, want 2", result.StagesCompleted)
+	}
+	if result.Stages[0].Status != "development" || result.Stages[1].Status != "ready_for_review" {
+		t.Fatalf("dry-run statuses = %q, %q; want development, ready_for_review",
+			result.Stages[0].Status, result.Stages[1].Status)
+	}
+	if result.FinalStatus != "ready_for_review" {
+		t.Fatalf("FinalStatus = %q, want ready_for_review", result.FinalStatus)
 	}
 }
 

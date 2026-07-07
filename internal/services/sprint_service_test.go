@@ -4651,6 +4651,50 @@ func TestBulkAddToSprint_TC012_AssignsSequentialSprintOrders(t *testing.T) {
 	assert.NotNil(t, renumberOpsCaptured, "RenumberAssignmentsTx must be called after a bulk skip")
 }
 
+func TestBulkAddToSprint_ReturnsRenumberRepairError(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := makeActiveSprint(10, "S001")
+	candidates := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 100, Key: "E07-F01-001", Status: "todo"},
+		{EntityType: "task", EntityID: 101, Key: "E07-F01-002", Status: "todo"},
+	}
+	orderedAfterBulk := []*models.SprintAssignment{
+		makeAssignment(12, 10, "task", 100, intPtr(1)),
+		makeAssignment(13, 10, "task", 101, intPtr(3)),
+	}
+	renumberErr := errors.New("renumber failed")
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc:       func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+		MaxSprintOrderFunc: func(_ context.Context, _ int64) (int, error) { return 0, nil },
+		ListOrderedAssignmentsFunc: func(_ context.Context, _ int64) ([]*models.SprintAssignment, error) {
+			return orderedAfterBulk, nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, _ *sql.Tx, _ int64, _ []sprint.RenumberOp) error {
+			return renumberErr
+		},
+	}
+	mockAssignmentRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(_ context.Context, _ []string) ([]sprint.BacklogItem, error) {
+			return candidates, nil
+		},
+		BulkAssignFunc: func(_ context.Context, _ int64, _ []models.SprintAssignment) (int, error) {
+			return 1, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), mockAssignmentRepo, nil, nil)
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{
+		SprintKey:  "S001",
+		FeatureKey: "E07-F01",
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, renumberErr)
+	assert.Nil(t, result)
+}
+
 // ---------------------------------------------------------------------------
 // TC-001: GetNextTask — sprint_order beats ExecutionOrder
 // ---------------------------------------------------------------------------

@@ -18,7 +18,8 @@ import (
 // -------------------------------------------------------------------------
 
 type mockCascadeTaskRepo struct {
-	ListByFeatureKeyFunc func(ctx context.Context, featureKey string) ([]*models.Task, error)
+	ListByFeatureKeyFunc    func(ctx context.Context, featureKey string) ([]*models.Task, error)
+	GetTaskDependenciesFunc func(ctx context.Context, taskKey string) ([]*models.Task, error)
 }
 
 func (m *mockCascadeTaskRepo) ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error) {
@@ -26,6 +27,13 @@ func (m *mockCascadeTaskRepo) ListByFeatureKey(ctx context.Context, featureKey s
 		return m.ListByFeatureKeyFunc(ctx, featureKey)
 	}
 	return nil, fmt.Errorf("ListByFeatureKey not implemented in mock")
+}
+
+func (m *mockCascadeTaskRepo) GetTaskDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
+	if m.GetTaskDependenciesFunc != nil {
+		return m.GetTaskDependenciesFunc(ctx, taskKey)
+	}
+	return []*models.Task{}, nil
 }
 
 type mockCascadeEpicLookup struct {
@@ -157,6 +165,47 @@ func TestCascadeService_FeatureChildren_FiltersTerminal(t *testing.T) {
 	}
 	if out[1].Key != "E07-F01-003" || out[1].EntityType != "task" {
 		t.Errorf("expected second child = (E07-F01-003, task); got %+v", out[1])
+	}
+}
+
+func TestCascadeService_FeatureChildren_SkipsUnmetDependencies(t *testing.T) {
+	wf := newWorkflowService(t, b029CustomWorkflowConfig)
+
+	taskRepo := &mockCascadeTaskRepo{
+		ListByFeatureKeyFunc: func(ctx context.Context, featureKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-001"}, Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-002"}, Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-003"}, Status: models.TaskStatus("todo")},
+			}, nil
+		},
+		GetTaskDependenciesFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			switch taskKey {
+			case "E07-F01-001":
+				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("todo")}}, nil
+			case "E07-F01-002":
+				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("completed")}}, nil
+			case "E07-F01-003":
+				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("archived")}}, nil
+			default:
+				return nil, fmt.Errorf("unexpected task key %s", taskKey)
+			}
+		},
+	}
+	svc := services.NewCascadeService(taskRepo, &mockCascadeEpicLookup{}, &mockCascadeFeatureLister{}, wf)
+
+	out, err := svc.ListDispatchableChildren(context.Background(), "feature", "E07-F01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected 2 dependency-ready tasks, got %d: %+v", len(out), out)
+	}
+	if out[0].Key != "E07-F01-002" {
+		t.Errorf("expected first ready child E07-F01-002, got %+v", out[0])
+	}
+	if out[1].Key != "E07-F01-003" {
+		t.Errorf("expected second ready child E07-F01-003, got %+v", out[1])
 	}
 }
 

@@ -12,13 +12,13 @@ import (
 	viewerserver "github.com/jwwelbor/shark-task-manager/internal/viewer/server"
 )
 
-// serverAddr returns the TCP address to bind. It checks the PORT environment
-// variable first, then falls back to ":8080".
+// serverAddr returns the loopback TCP address to bind. It checks the PORT
+// environment variable first, then falls back to 127.0.0.1:8080.
 func serverAddr() string {
 	if port := os.Getenv("PORT"); port != "" {
-		return ":" + port
+		return "127.0.0.1:" + port
 	}
-	return ":8080"
+	return "127.0.0.1:8080"
 }
 
 func main() {

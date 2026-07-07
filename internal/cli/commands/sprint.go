@@ -1002,8 +1002,7 @@ func runSprintSummary(cmd *cobra.Command, args []string) error {
 	svc := getSprintAnalyticsService()
 	result, err := svc.GetSummary(cmd.Context(), sprintKey, detailed)
 	if err != nil {
-		cli.Error(err.Error())
-		return nil
+		return err
 	}
 
 	// Step 3: Format output

@@ -120,7 +120,14 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, err
 	}
 
-	// 2. Generate or use custom task key
+	// 2. Begin database transaction before key allocation and writes.
+	tx, err := c.db.BeginTxContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 3. Generate or use custom task key within the transaction boundary.
 	var key string
 	if input.CustomKey != "" {
 		// Validate custom key doesn't already exist
@@ -132,18 +139,11 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	} else {
 		// Auto-generate task key
 		var err error
-		key, err = c.keygen.GenerateTaskKey(ctx, input.EpicKey, validated.NormalizedFeatureKey)
+		key, err = c.keygen.GenerateTaskKeyWithTx(ctx, tx, input.EpicKey, validated.NormalizedFeatureKey)
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	// 3. Begin database transaction
-	tx, err := c.db.BeginTxContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
 
 	// 4. Prepare task data
 	now := time.Now().UTC()
@@ -212,7 +212,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		}
 
 		// Force mode: clear file path from old task
-		if err := c.taskRepo.UpdateFilePath(ctx, existingTask.Key, nil); err != nil {
+		if err := c.taskRepo.UpdateFilePathWithTx(ctx, tx, existingTask.Key, nil); err != nil {
 			return nil, fmt.Errorf("failed to unassign file from %s: %w", existingTask.Key, err)
 		}
 	}
@@ -261,7 +261,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	}
 
 	// 5. Insert task into database
-	err = c.taskRepo.Create(ctx, task)
+	err = c.taskRepo.CreateWithTx(ctx, tx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task in database: %w", err)
 	}

@@ -143,7 +143,7 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 			ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { plainCalled = true; return true, nil },
 		}
 		svc := NewClaimService(m, time.Minute)
-		ok, err := svc.Release(context.Background(), "task", "E1-F1-001", "sess-1", "")
+		ok, err := svc.Release(context.Background(), "task", "E1-F1-001", "sess-1", "", false)
 		if err != nil || !ok {
 			t.Fatalf("Release = %v, %v", ok, err)
 		}
@@ -159,7 +159,7 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 			ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { plainCalled = true; return true, nil },
 		}
 		svc := NewClaimService(m, time.Minute)
-		if _, err := svc.Release(context.Background(), "task", "E1-F1-001", "", ""); err != nil {
+		if _, err := svc.Release(context.Background(), "task", "E1-F1-001", "", "", true); err != nil {
 			t.Fatalf("Release: %v", err)
 		}
 		if sessionCalled || !plainCalled {
@@ -339,15 +339,38 @@ func TestClaimService_Release_ClosesWorkSessionWithOutcome(t *testing.T) {
 	svc := NewClaimService(m, time.Minute)
 	svc.SetSessionLog(log)
 
-	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "sess-1", "pass"); err != nil {
+	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "sess-1", "pass", false); err != nil {
 		t.Fatalf("release: %v", err)
 	}
-	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "", ""); err != nil {
+	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "", "", true); err != nil {
 		t.Fatalf("release: %v", err)
 	}
 	want := []string{"E1-F1:pass", "E1-F1:released"}
 	if len(log.closed) != 2 || log.closed[0] != want[0] || log.closed[1] != want[1] {
 		t.Errorf("expected closes %v, got %v", want, log.closed)
+	}
+}
+
+func TestClaimService_Release_RequiresForceWithoutSession(t *testing.T) {
+	releaseCalled := false
+	m := &mockClaimRepo{
+		ReleaseFn: func(ctx context.Context, t, k string) (bool, error) {
+			releaseCalled = true
+			return true, nil
+		},
+	}
+	svc := NewClaimService(m, time.Minute)
+
+	released, err := svc.Release(context.Background(), "feature", "E1-F1", "", "", false)
+
+	if err == nil {
+		t.Fatal("expected error when releasing without session or force")
+	}
+	if released {
+		t.Fatal("release should be false when force is missing")
+	}
+	if releaseCalled {
+		t.Fatal("repository Release must not be called without session or force")
 	}
 }
 
@@ -361,7 +384,7 @@ func TestClaimService_Release_NoSessionCloseWhenNotReleased(t *testing.T) {
 	svc := NewClaimService(m, time.Minute)
 	svc.SetSessionLog(log)
 
-	released, err := svc.Release(context.Background(), "task", "E1-F1-001", "stale-session", "pass")
+	released, err := svc.Release(context.Background(), "task", "E1-F1-001", "stale-session", "pass", false)
 	if err != nil || released {
 		t.Fatalf("expected no-op release, got released=%v err=%v", released, err)
 	}

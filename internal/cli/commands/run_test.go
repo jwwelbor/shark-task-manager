@@ -10,11 +10,129 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
+type mockRunClaimService struct {
+	ttl        time.Duration
+	claims     []services.ClaimInput
+	releases   []runReleaseCall
+	heartbeats []runHeartbeatCall
+}
+
+type runReleaseCall struct {
+	entityType string
+	entityKey  string
+	sessionID  string
+	outcome    string
+	force      bool
+}
+
+type runHeartbeatCall struct {
+	entityType string
+	entityKey  string
+	sessionID  string
+	note       string
+}
+
+func (m *mockRunClaimService) Claim(ctx context.Context, in services.ClaimInput) (*models.EntityClaim, error) {
+	m.claims = append(m.claims, in)
+	return &models.EntityClaim{
+		EntityType: in.EntityType,
+		EntityKey:  in.EntityKey,
+		SessionID:  "run-session-1",
+	}, nil
+}
+
+func (m *mockRunClaimService) Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error) {
+	m.releases = append(m.releases, runReleaseCall{
+		entityType: entityType,
+		entityKey:  entityKey,
+		sessionID:  sessionID,
+		outcome:    outcome,
+		force:      force,
+	})
+	return true, nil
+}
+
+func (m *mockRunClaimService) Heartbeat(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) error {
+	m.heartbeats = append(m.heartbeats, runHeartbeatCall{
+		entityType: entityType,
+		entityKey:  entityKey,
+		sessionID:  sessionID,
+		note:       note,
+	})
+	return nil
+}
+
+func (m *mockRunClaimService) TTL() time.Duration {
+	if m.ttl > 0 {
+		return m.ttl
+	}
+	return time.Hour
+}
+
+func withRunClaimSvcOverride(t *testing.T, svc runClaimServicer) {
+	t.Helper()
+	orig := runClaimSvcOverride
+	runClaimSvcOverride = svc
+	t.Cleanup(func() { runClaimSvcOverride = orig })
+}
+
 // ─── buildTransitioner ────────────────────────────────────────────────────────
+
+func TestAcquireRunLease_DryRunSkipsClaim(t *testing.T) {
+	mock := &mockRunClaimService{}
+	withRunClaimSvcOverride(t, mock)
+
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", true)
+	if err != nil {
+		t.Fatalf("acquireRunLease dry-run: %v", err)
+	}
+	if lease != nil {
+		t.Fatalf("dry-run lease = %#v, want nil", lease)
+	}
+	if len(mock.claims) != 0 {
+		t.Fatalf("dry-run claimed %d times, want 0", len(mock.claims))
+	}
+}
+
+func TestRunLease_ReleasesAcquiredSession(t *testing.T) {
+	mock := &mockRunClaimService{}
+	withRunClaimSvcOverride(t, mock)
+
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", false)
+	if err != nil {
+		t.Fatalf("acquireRunLease: %v", err)
+	}
+	if len(mock.claims) != 1 {
+		t.Fatalf("claims = %d, want 1", len(mock.claims))
+	}
+	if got := mock.claims[0]; got.EntityType != "bug" || got.EntityKey != "B041" {
+		t.Fatalf("claim input = %#v, want bug B041", got)
+	}
+
+	if err := lease.Release("completed"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if len(mock.releases) != 1 {
+		t.Fatalf("releases = %d, want 1", len(mock.releases))
+	}
+	got := mock.releases[0]
+	if got.entityType != "bug" || got.entityKey != "B041" || got.sessionID != "run-session-1" {
+		t.Fatalf("release target = %#v, want bug B041 session run-session-1", got)
+	}
+	if got.outcome != "completed" {
+		t.Fatalf("release outcome = %q, want completed", got.outcome)
+	}
+	if got.force {
+		t.Fatal("run release used force; want session-scoped release")
+	}
+}
 
 // TestBuildTransitioner_UnsupportedType verifies that buildTransitioner returns
 // an error for an entity type it does not recognize. This code path does not

@@ -2,6 +2,7 @@ package epic
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -56,6 +57,83 @@ func TestEpicRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 
 	// Cleanup
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+func TestEpicRepository_CascadeStatusToFeaturesAndTasks_WritesTaskHistoryAndCompletedAt(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E85-F01-%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E85-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E85-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E85'")
+
+	testEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E85", Title: "Epic Cascade History"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E85-F01", Title: "Epic Cascade Feature"},
+		EpicID:     testEpic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	_, err := database.ExecContext(ctx, `
+		INSERT INTO tasks (feature_id, key, title, status, priority, created_at, updated_at)
+		VALUES
+			(?, 'T-E85-F01-001', 'Open task', 'todo', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			(?, 'T-E85-F01-002', 'Already done task', 'completed', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, testFeature.ID, testFeature.ID)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E85-F01-%')")
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E85-F01-%'")
+	}()
+
+	require.NoError(t, epicRepo.CascadeStatusToFeaturesAndTasks(ctx, testEpic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")))
+
+	var featureStatus string
+	err = database.QueryRowContext(ctx, `SELECT status FROM features WHERE key = 'E85-F01'`).Scan(&featureStatus)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", featureStatus)
+
+	var historyCount int
+	err = database.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM task_history th
+		JOIN tasks t ON t.id = th.task_id
+		WHERE t.key = 'T-E85-F01-001'
+		  AND th.old_status = 'todo'
+		  AND th.new_status = 'completed'
+		  AND th.forced = 1
+	`).Scan(&historyCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, historyCount)
+
+	var unchangedHistoryCount int
+	err = database.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM task_history th
+		JOIN tasks t ON t.id = th.task_id
+		WHERE t.key = 'T-E85-F01-002'
+		  AND th.new_status = 'completed'
+	`).Scan(&unchangedHistoryCount)
+	require.NoError(t, err)
+	assert.Equal(t, 0, unchangedHistoryCount, "unchanged completed tasks should not receive duplicate history")
+
+	var completedAt sql.NullTime
+	err = database.QueryRowContext(ctx, `SELECT completed_at FROM tasks WHERE key = 'T-E85-F01-001'`).Scan(&completedAt)
+	require.NoError(t, err)
+	require.True(t, completedAt.Valid)
 }
 
 // TestEpicRepository_Create_SlugHandlesSpecialCharacters tests slug generation with special characters

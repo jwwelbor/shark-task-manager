@@ -106,10 +106,22 @@ type relationshipMutationRequest struct {
 	ToKey            string `json:"to_key"`
 }
 
-func decodeMutationRequest(r *http.Request, dst any) error {
+const mutationBodySizeLimit = 2 * 1024 * 1024
+
+func decodeMutationRequest(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, mutationBodySizeLimit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
+}
+
+func respondMutationDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		respondError(w, http.StatusRequestEntityTooLarge, "request body exceeds 2 MiB limit")
+		return
+	}
+	respondError(w, http.StatusBadRequest, "invalid request body")
 }
 
 func validateAndNormalizeEpicKey(rawKey string) (string, error) {
@@ -147,7 +159,7 @@ func handleMutationServiceError(w http.ResponseWriter, entityLabel string, err e
 	}
 
 	slog.Error("viewer mutation failed", "entity", entityLabel, "error", err)
-	respondError(w, http.StatusInternalServerError, err.Error())
+	respondError(w, http.StatusInternalServerError, "mutation failed")
 }
 
 func isConflict(err error) bool {
@@ -173,8 +185,8 @@ func (h *MutationHandler) UpdateEpic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req epicMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 
@@ -210,8 +222,8 @@ func (h *MutationHandler) UpdateFeature(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req featureMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 
@@ -243,8 +255,8 @@ func (h *MutationHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req taskMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 
@@ -278,8 +290,8 @@ func (h *MutationHandler) TransitionEpic(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req transitionMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 	if req.TargetStatus == "" {
@@ -311,8 +323,8 @@ func (h *MutationHandler) TransitionFeature(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req transitionMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 	if req.TargetStatus == "" {
@@ -344,8 +356,8 @@ func (h *MutationHandler) TransitionTask(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req transitionMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 	if req.TargetStatus == "" {
@@ -377,8 +389,8 @@ func (h *MutationHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req noteMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 	if strings.TrimSpace(req.NoteType) == "" {
@@ -416,8 +428,8 @@ func (h *MutationHandler) CreateRelationship(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req relationshipMutationRequest
-	if err := decodeMutationRequest(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeMutationRequest(w, r, &req); err != nil {
+		respondMutationDecodeError(w, err)
 		return
 	}
 	if strings.TrimSpace(req.RelationshipType) == "" {

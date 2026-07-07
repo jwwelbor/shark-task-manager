@@ -568,7 +568,7 @@ func runBugTriage(cmd *cobra.Command, args []string) error {
 // parseBugLinkFlag parses a --link flag value into entity type and entity key.
 // It handles epic keys (E07), feature keys (E07-F01), and task keys (E07-F01-001).
 func parseBugLinkFlag(link string) (entityType, entityKey string) {
-	parts := strings.Split(link, "-")
+	parts := strings.Split(strings.ToUpper(link), "-")
 	switch {
 	case len(parts) >= 3 && strings.HasPrefix(parts[0], "E") && strings.HasPrefix(parts[1], "F"):
 		return "task", link
