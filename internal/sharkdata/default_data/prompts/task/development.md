@@ -41,6 +41,7 @@ Run the project's quality gate before advancing. Determine the commands from `do
 
 EXIT GATE:
 - All test cases from feature test-plan.md (for this task) pass
+- Each test names its TC-ID and calls its Caller-Path Contract entrypoint from test-plan.md, mocking no higher than the declared seam
 - Quality gate passes (commands from `docs/architecture/tech-stack.md` or inferred from the repo)
 - Implementation follows patterns from feature spec.md
 - No unrelated changes included
