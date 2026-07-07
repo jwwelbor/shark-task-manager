@@ -27,7 +27,7 @@ A SIMPLE feature does not require `spec.md`, `test-plan.md`, or a prior-art repo
 {{template "create_note" .}} --content="COMPLEXITY: STANDARD (supersedes SIMPLE; task-generation found <reason>)" --type=decision
 ```
 
-Then release the existing fail outcome: `shark status set {{.id}} test_planning --reason "COMPLEXITY escalated from SIMPLE to STANDARD: <reason>"`. Do not continue generating lite tasks after escalating — test_planning will produce the missing test-plan.md before task_generation runs again.
+Then release the existing fail outcome: `shark status advance {{.id}} --outcome fail --reason "COMPLEXITY escalated from SIMPLE to STANDARD: <reason>"`. Do not continue generating lite tasks after escalating — test_planning will produce the missing test-plan.md before task_generation runs again.
 
 {{include: skills/specification-writing/workflows/write-task.md}}
 

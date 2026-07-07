@@ -449,9 +449,14 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	23 — E19-F08 (drop idx_sprints_active_one — allow multiple concurrent active sprints)
 //	24 — E07-F43 (replace task_search_fts with unified entity_search_fts and backfill)
 //	25 — B036   (repair task_history rejection_reason migration ordering)
+//	26 — E36 metrics (rebuild work_sessions entity-generic: entity_type/
+//	             entity_key/session_id columns, nullable task_id, no outcome
+//	             CHECK — sessions open on claim, close on release)
+//	27 — E36 metrics (drop entity_notes.note_type CHECK — app-layer
+//	             validation only; adds 'review-finding' note type)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 25
+const CurrentSchemaVersion = 27
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -998,6 +1003,254 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate search FTS: %w", err)
 	}
 
+	// E36 metrics: rebuild work_sessions entity-generic so claim/release can
+	// log sessions for every entity type, not just tasks.
+	if err := migrateWorkSessionsEntityGeneric(db); err != nil {
+		return fmt.Errorf("failed to migrate work_sessions to entity-generic: %w", err)
+	}
+
+	// E36 metrics: drop the entity_notes.note_type CHECK so note types are
+	// validated only at the app layer (models.ValidateNoteType) — mirrors the
+	// v17 decision for entity_type CHECKs and unblocks the new
+	// 'review-finding' type without a DDL change per future type.
+	if err := migrateEntityNotesDropNoteTypeCheck(db); err != nil {
+		return fmt.Errorf("failed to drop entity_notes note_type CHECK: %w", err)
+	}
+
+	return nil
+}
+
+// migrateWorkSessionsEntityGeneric rebuilds work_sessions so a session can be
+// attached to any entity (epic, feature, task, bug, change, tech-debt), not
+// only tasks. Sessions are opened on `shark claim` and closed on `shark
+// release`/reclaim, giving an active-vs-idle wall-clock split that
+// entity_history alone cannot provide.
+//
+// Changes from the legacy shape:
+//   - entity_type/entity_key identify the leased entity (task_id becomes a
+//     nullable legacy column, preserved for existing task sessions)
+//   - session_id links the row to the entity_claims lease that opened it
+//   - the outcome CHECK is dropped — outcomes are workflow vocabulary and are
+//     validated at the app layer, never hardcoded in DDL
+func migrateWorkSessionsEntityGeneric(db *sql.DB) error {
+	// Idempotence: if entity_key already exists, the rebuild has run.
+	var colCount int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('work_sessions') WHERE name = 'entity_key'
+	`).Scan(&colCount)
+	if err != nil {
+		return fmt.Errorf("failed to inspect work_sessions columns: %w", err)
+	}
+	if colCount > 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Drop dependent views up front. SQLite re-validates view definitions
+	// during ALTER TABLE ... RENAME, so a stale view referencing a missing
+	// column would abort the rebuild (mirrors migrateEntityNotesExpandNoteTypes).
+	dropViewSteps := []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+	}
+	for _, step := range dropViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop view failed: %w (step: %s)", err, step)
+		}
+	}
+
+	statements := []string{
+		`CREATE TABLE work_sessions_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL DEFAULT 'task',
+			entity_key TEXT,
+			task_id INTEGER,
+			agent_id TEXT,
+			session_id TEXT,
+			started_at TIMESTAMP NOT NULL,
+			ended_at TIMESTAMP,
+			outcome TEXT,
+			session_notes TEXT,
+			context_snapshot TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+		);`,
+		`INSERT INTO work_sessions_new (
+			id, entity_type, entity_key, task_id, agent_id,
+			started_at, ended_at, outcome, session_notes, context_snapshot, created_at
+		)
+		SELECT ws.id, 'task', t.key, ws.task_id, ws.agent_id,
+		       ws.started_at, ws.ended_at, ws.outcome, ws.session_notes, ws.context_snapshot, ws.created_at
+		FROM work_sessions ws
+		LEFT JOIN tasks t ON t.id = ws.task_id;`,
+		`DROP TABLE work_sessions;`,
+		`ALTER TABLE work_sessions_new RENAME TO work_sessions;`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_task_id ON work_sessions(task_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_agent_id ON work_sessions(agent_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_started_at ON work_sessions(started_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_entity ON work_sessions(entity_type, entity_key);`,
+		`CREATE INDEX IF NOT EXISTS idx_work_sessions_active ON work_sessions(entity_type, entity_key, ended_at) WHERE ended_at IS NULL;`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to rebuild work_sessions: %w", err)
+		}
+	}
+
+	// Recreate views inside the same transaction so the schema is fully
+	// consistent on commit.
+	recreateViewSteps := []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+	}
+	for _, step := range recreateViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("recreate view failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit work_sessions rebuild: %w", err)
+	}
+	return nil
+}
+
+// migrateEntityNotesDropNoteTypeCheck rebuilds entity_notes WITHOUT the
+// note_type CHECK. Note types are workflow/product vocabulary validated by
+// models.ValidateNoteType; keeping the enum in DDL means a table rebuild for
+// every new type (B027 was exactly that). This mirrors schema v17, which
+// dropped the entity_type CHECKs from polymorphic-association tables for the
+// same reason. Idempotent: a no-op when no note_type CHECK is present.
+func migrateEntityNotesDropNoteTypeCheck(db *sql.DB) error {
+	tableSQL, err := readTableSQL(db, "entity_notes")
+	if err != nil {
+		return fmt.Errorf("failed to read entity_notes schema: %w", err)
+	}
+	if tableSQL == "" || !strings.Contains(tableSQL, "note_type IN") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Drop dependent views up front (SQLite re-validates view definitions
+	// during ALTER TABLE ... RENAME); recreated below in the same transaction.
+	dropViewSteps := []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+	}
+	for _, step := range dropViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop view failed: %w (step: %s)", err, step)
+		}
+	}
+
+	steps := []string{
+		`CREATE TABLE entity_notes_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			note_type TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT
+		);`,
+		`INSERT INTO entity_notes_new (id, entity_type, entity_id, note_type, content, created_by, created_at, metadata)
+			SELECT id, entity_type, entity_id, note_type, content, created_by, created_at, metadata FROM entity_notes;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_task;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_feature;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_epic;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_bug;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_change;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_idea;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_tech_debt;`,
+		`DROP TABLE entity_notes;`,
+		`ALTER TABLE entity_notes_new RENAME TO entity_notes;`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type_entity ON entity_notes(note_type, entity_type, entity_id);`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_change
+			AFTER DELETE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'change' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_idea
+			AFTER DELETE ON ideas
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'idea' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_tech_debt
+			AFTER DELETE ON tech_debts
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'tech_debt' AND entity_id = OLD.id;
+			END;`,
+	}
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("drop entity_notes note_type CHECK failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	// Recreate views inside the same transaction so the schema is fully
+	// consistent on commit.
+	recreateViewSteps := []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+	}
+	for _, step := range recreateViewSteps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("recreate view failed: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit entity_notes note_type CHECK drop: %w", err)
+	}
 	return nil
 }
 

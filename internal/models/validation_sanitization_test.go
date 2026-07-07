@@ -220,7 +220,7 @@ func TestValidateNoteType_ErrorMessageLocksAllowlist(t *testing.T) {
 		"comment": true, "decision": true, "blocker": true, "solution": true,
 		"reference": true, "implementation": true, "testing": true,
 		"future": true, "question": true, "rejection": true,
-		"requirement": true, "review": true,
+		"requirement": true, "review": true, "review-finding": true,
 	}
 	got := ValidNoteTypes()
 	if len(got) != len(want) {

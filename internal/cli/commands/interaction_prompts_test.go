@@ -191,8 +191,8 @@ func TestCrossEpicIntegrationLifecyclePrompts(t *testing.T) {
 			name: "feature code review checks X implementation ownership",
 			tmpl: "feature/code_review.md",
 			want: []string{
-				"every I-## and X-## declared",
-				"consistent",
+				"one row per CONTRACT-### and I-##",
+				"one row per X-## with contract/shape source",
 				"coverage pointer or explicit deferral",
 			},
 		},

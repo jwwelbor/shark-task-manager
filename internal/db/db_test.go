@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,15 +78,21 @@ func TestMigration_RejectionReason(t *testing.T) {
 	require.NoError(t, err, "failed to query rejection_reason column type")
 	assert.Equal(t, "TEXT", columnType, "rejection_reason column should be TEXT type")
 
-	// Verify entity_notes table has 'rejection' in note_type constraint
-	// (task_notes is renamed to task_notes_backup after entity_notes migration)
+	// entity_notes carries no note_type CHECK since schema v27 — note types
+	// are validated at the app layer (models.ValidateNoteType), so adding a
+	// type never requires a table rebuild again. Verify the CHECK is gone
+	// AND that 'rejection' still inserts (the behavior the old CHECK test
+	// guarded).
 	var noteTypesCheckSQL string
 	err = db.QueryRow(`
 		SELECT sql FROM sqlite_master
 		WHERE type='table' AND name='entity_notes'
 	`).Scan(&noteTypesCheckSQL)
 	require.NoError(t, err, "failed to query entity_notes table schema")
-	assert.Contains(t, noteTypesCheckSQL, "'rejection'", "entity_notes table should allow 'rejection' note type")
+	assert.NotContains(t, noteTypesCheckSQL, "note_type IN", "entity_notes note_type CHECK should be dropped (app-layer validation)")
+	_, err = db.Exec(`INSERT INTO entity_notes (entity_type, entity_id, note_type, content) VALUES ('task', 999999, 'rejection', 'test')`)
+	require.NoError(t, err, "'rejection' note type should insert without a CHECK")
+	_, _ = db.Exec(`DELETE FROM entity_notes WHERE entity_id = 999999`)
 }
 
 // TestMigration_RejectionReason_Idempotent verifies that the migration can be run
@@ -259,12 +266,18 @@ func TestMigration_EntityNotesNoteTypeConstraint(t *testing.T) {
 		"'rejection'",
 	}
 
+	// Since schema v27 the note_type CHECK is dropped (app-layer validation
+	// via models.ValidateNoteType). The invariant this test now guards is
+	// behavioral: every historical note type still INSERTs successfully
+	// after all migrations — the guarantee the old CHECK-text assertion
+	// was a proxy for.
+	assert.NotContains(t, tableSchema, "CHECK (note_type IN", "entity_notes note_type CHECK should be dropped (v27)")
 	for _, noteType := range expectedTypes {
-		assert.Contains(t, tableSchema, noteType, "entity_notes CHECK constraint should include note type: %s", noteType)
+		nt := strings.Trim(noteType, "'")
+		_, err := db.Exec(`INSERT INTO entity_notes (entity_type, entity_id, note_type, content) VALUES ('task', 999998, ?, 'test')`, nt)
+		assert.NoError(t, err, "note type %s should insert", nt)
 	}
-
-	// Verify CHECK constraint syntax
-	assert.Contains(t, tableSchema, "CHECK (note_type IN", "entity_notes should have CHECK constraint on note_type")
+	_, _ = db.Exec(`DELETE FROM entity_notes WHERE entity_id = 999998`)
 }
 
 // TestMigration_DisplayViewsExistAfterEntityNotesMigration verifies that the
@@ -637,8 +650,51 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 25, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 25 (B036 task_history rejection_reason repair)")
+	assert.Equal(t, 27, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 27 (E36 metrics: entity-generic work_sessions + note_type CHECK drop)")
+}
+
+func TestMigration_WorkSessionsTaskCascadePreserved(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO epics (key, title, status, priority)
+		VALUES ('E91', 'Work session cascade epic', 'active', 'medium')
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO features (epic_id, key, title, status)
+		VALUES ((SELECT id FROM epics WHERE key = 'E91'), 'E91-F01', 'Work session cascade feature', 'active')
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO tasks (feature_id, key, title, status, priority)
+		VALUES ((SELECT id FROM features WHERE key = 'E91-F01'), 'T-E91-F01-001', 'Work session cascade task', 'todo', 5)
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO work_sessions (entity_type, entity_key, task_id, started_at)
+		VALUES ('task', 'T-E91-F01-001', (SELECT id FROM tasks WHERE key = 'T-E91-F01-001'), CURRENT_TIMESTAMP)
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`DELETE FROM tasks WHERE key = 'T-E91-F01-001'`)
+	require.NoError(t, err)
+
+	var count int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM work_sessions WHERE entity_key = 'T-E91-F01-001'
+	`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "task delete should cascade to legacy-linked work_sessions rows")
 }
 
 func TestMigration_ApplySchemaIfNeeded_UpgradesV23SearchIndex(t *testing.T) {

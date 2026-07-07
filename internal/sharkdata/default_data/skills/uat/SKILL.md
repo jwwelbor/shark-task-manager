@@ -23,7 +23,7 @@ outputs:
   - evidence_document: markdown written to evidence_path
   - codex_assessment: raw codex output (the sole assessment)
   - results_document: markdown written to results_path
-  - rejected_tasks: list of {task_id, classification: "AC Violation" | "Spec Gap", unmet_criteria, fix_required}
+  - rejected_tasks: list of {task_id, classification: "AC Violation" | "Spec Gap", defect_class, unmet_criteria, fix_required}
   - non_blocking_findings: list of {description, codex_severity, ac_or_location_ref} ready for triage routing
   - approved_task_ids: list of task IDs the user approved
 user_invocable: false
@@ -85,9 +85,26 @@ Write all collected evidence to `evidence_path` so Codex can read it alongside t
 
 Codex is the **sole assessor**. Run `codex_command` and pass it the evidence file alongside the source artifact paths. The reviewer follows the assessment rubric in `references/redteam-rubric.md` — the enumeration discipline ("enumerate, don't iterate"), the five verification-check categories (wiring/reachability, contract consistency, AC enumeration, coverage gaps, standards), and the required output format (AC-assessment and E2E-wiring tables, verdict).
 
+Whoever assembles `codex_command` MUST follow the **Codex invocation contract** below — the flags, timeout, standing guardrails, and re-verification scoping rules are load-bearing; each was learned from a real multi-round rejection spiral.
+
 This step MUST complete before presenting anything to the user. If Codex fails after retries, the verdict is **"Insufficient Evidence"** — do not proceed to user review.
 
 The reason Codex is the sole assessor: Claude reviewing Claude's implementation is a monoculture blind spot. The independent codex review with explicit enumeration discipline catches things both Claude and Claude-the-reviewer would miss. Per the user's standing instruction, codex red-team is mandatory at UAT and is never skipped.
+
+#### Codex invocation contract (for whoever assembles `codex_command`)
+
+**Flags:** `codex exec -s read-only -c model_reasoning_effort=high --skip-git-repo-check`. Omit `-m` — model support is account-dependent and a wrong `-m` hard-errors the run.
+
+**Timeout:** at least 580 seconds. Five-minute budgets kill runs mid-investigation, and a retry after truncation burns a second full run — one long run beats two truncated ones. If it times out at the long budget, retry once.
+
+**Standing guardrails — include in every prompt:**
+
+- **Name the project's noise files as off-limits** ("Do NOT read uv.lock / package-lock.json / go.sum or other lockfiles") — reviewers have burned 5-minute budgets in lockfile rabbit holes.
+- **Declare what the sandbox cannot do** ("Do NOT attempt to run tests — no venv/toolchain in the sandbox; verify statically") so codex doesn't spend budget discovering it.
+- **Require a delimited verdict line**: "No matter how much investigation time remains, ALWAYS end with a final line `VERDICT: <verdict>`" — this guarantees a parseable verdict under timeout pressure.
+- **Stay outcome-neutral.** Never anchor the reviewer ("third and hopefully final re-verification" is verdict-anchoring). State the round number and scope; never the hoped-for result.
+
+**Re-verification rounds are NEVER fix-scoped.** A round ≥2 prompt always contains all three parts: (a) verify the named fixes, (b) re-run the defect-class sweep over the touched functions/modules, and (c) a full-rubric sanity pass over the feature surface. Narrow asks get narrow answers — every recorded rejection spiral happened because a re-review asked only "confirm finding N is fixed" and codex answered exactly the question asked. Make the broad ask the default so it doesn't depend on the orchestrator remembering.
 
 ### Step 4 — Compile the report (evidence + Codex assessment, NO Claude opinion)
 
@@ -132,24 +149,30 @@ For each failing task:
    - **AC Violation** — the task spec was clear; the implementation didn't meet it. The fix is implementation-only.
    - **Spec Gap** — the requirement was missing or ambiguous in the task spec. Needs refinement before re-implementation.
 
-2. **Record the rejection in the task spec** (append a section to the task `.md` file):
+2. **State the defect class** — one line naming the *general* class of the defect, not the point instance (e.g. "schema required-list omits fields the code dereferences unconditionally", not "field X missing from schema Y"). This is mandatory: the point finding tells the developer what to fix; the class statement tells them what to *sweep for*. A rejection without a class statement produces a point fix and another rejection round on the next instance of the same class.
+
+3. **Record the rejection in the task spec** (append a section to the task `.md` file):
 
    ```markdown
    ## UAT Rejection (<YYYY-MM-DD>)
 
    **Classification:** AC Violation | Spec Gap
+   **Defect class:** <one-line general class statement>
    **Unmet criteria:** <AC-ID> — <quote the AC text>
 
    **What happened:** <brief description of the failure>
 
    **Fix required:**
-   1. <concrete step>
-   2. <concrete step>
+   1. Enumeration sweep FIRST: find every code site in the touched module(s) matching the defect class above; fix all of them, not just the cited instance; list the swept sites in the completion note.
+   2. <concrete step for the cited instance>
+   3. <concrete step>
 
    **Full UAT results:** <results_path>
    ```
 
-3. Return the rejection in `rejected_tasks` so the host workflow can route the task back to development with the appropriate context (bug-fix flag, blocker note, status reset).
+4. Return the rejection in `rejected_tasks` (including `defect_class`) so the host workflow can route the task back to development with the appropriate context (bug-fix flag, blocker note, status reset).
+
+**Re-review mandate is class-scoped, never fix-scoped.** When the fixed work returns to UAT, the next codex round re-runs the full rubric over the touched surface plus the defect-class sweep (see the Codex invocation contract in Step 3) — never "confirm finding N is fixed."
 
 ### Step 8 — Triage non-blocking findings (MANDATORY for every verdict)
 
@@ -158,8 +181,7 @@ Regardless of verdict — Accept, Accept with Conditions, Reject, or Insufficien
 **Severity passthrough:** include each finding's Codex-assigned severity (CRITICAL / HIGH / MEDIUM / LOW) in the entry. Without severity, every triaged finding looks equally urgent and floods the backlog.
 
 **Severity mapping**:
-- **Codex CRITICAL** → re-open the gate (these aren't non-blocking; they belong in `rejected_tasks` or as blockers, not here).
-- **Codex HIGH** → severity=high (typically `bug` or high-priority `tech-debt`).
+- **Codex CRITICAL / HIGH** → re-open the gate (these aren't non-blocking; they belong in `rejected_tasks` or as blockers, not here — see Verdict rules).
 - **Codex MEDIUM** → severity=medium.
 - **Codex LOW / "nit"** → severity=low.
 
@@ -171,9 +193,17 @@ If there are zero non-blocking findings, return an empty list and state explicit
 
 ## Verdict rules
 
-- **Accept** — Codex returns PASS / Accept; user approves all scenarios.
-- **Accept with Conditions** — Codex returns PASS-with-concerns; user approves but requires the conditions be tracked (handled via `non_blocking_findings`).
-- **Reject** — Codex returns FAIL on blocking findings; or user rejects specific scenarios.
+The severity→verdict mapping is **pinned** so verdicts are comparable across rounds and map deterministically onto workflow outcomes — a "concerns" verdict carrying a HIGH finding is a category error:
+
+- **Any CRITICAL or HIGH finding → Reject.** No exceptions; HIGH findings never ride along as "conditions."
+- **MEDIUM findings only → Accept with Conditions** (each condition tracked via `non_blocking_findings`).
+- **LOW / nit findings only → Accept** with notes.
+
+Full verdict set:
+
+- **Accept** — Codex returns Accept; user approves all scenarios.
+- **Accept with Conditions** — Codex found MEDIUM-severity issues only; user approves but the conditions become tracked work (handled via `non_blocking_findings`).
+- **Reject** — any CRITICAL/HIGH or blocking finding; or user rejects specific scenarios.
 - **Insufficient Evidence** — Codex failed to complete OR evidence file is incomplete/missing key artifacts. Stop — do not present to user; instead, return a summary of what's missing.
 
 ## Output contract summary

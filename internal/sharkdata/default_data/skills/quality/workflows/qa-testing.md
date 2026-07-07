@@ -12,7 +12,6 @@ inputs:
   - acceptance_criteria: list of acceptance criteria text (extracted from spec)
   - has_frontend: bool — task involves frontend code (components, pages, styles, templates)
   - dev_server_command: string — how to start the project dev server (optional, only if has_frontend=true)
-  - codex_command: string — pre-rendered codex exec command for red-team verification
   - qa_report_path: absolute path where the structured QA results report should be written
   - qa_exploratory_path: absolute path where exploratory findings should be written
 outputs:
@@ -28,7 +27,7 @@ outputs:
 
 ## Purpose
 
-Perform quality assurance testing for an implemented change. Validate code against acceptance criteria, run automated tests, perform frontend visual verification, run independent codex red-team, and produce a structured report with a clear PASS/FAIL verdict.
+Perform quality assurance testing for an implemented change. Validate code against acceptance criteria, run automated tests, perform frontend visual verification, verify caller-path contract compliance, and produce a structured report with a clear PASS/FAIL verdict.
 
 ## Process
 
@@ -126,15 +125,19 @@ For each service / function / endpoint introduced or modified:
 
 **At least one test per service-contract change must drive the production signature exactly.** If you cannot find one, the verdict is FAIL — add it as a BLOCKER finding citing the production caller's `file:line` and the test's `file:line` so the developer can see the gap.
 
-### Step 8: Codex Red-Team Verification (mandatory)
+### Step 8: Caller-Path Contract Compliance (mandatory when a test plan exists)
 
-Run the provided `codex_command` to independently verify the implementation against the spec. This catches gaps that the primary QA pass may miss due to shared blind spots.
+The test plan's Caller-Path Contracts (test-planning Step 5.8) declare, per TC, the production entrypoint the test must drive, the lowest allowed mock seam, and forbidden mocks. This step verifies the committed tests actually honor those declarations — a mechanical locate-and-compare, not a judgment call. It closes the gap where a test suite passes while exercising a deeper "kernel" function than production ever calls.
 
-**Timeout**: 5 minutes. If it times out, retry once. After two failures, log `"Codex QA red-team: FAILED — [error]"` as a non-blocking note (do not skip QA because of codex failure, but document it).
+For every TC in the test plan that declares a contract (skip TCs marked `internal — function under test is the production entrypoint`):
 
-**Include codex findings in the QA report.** If codex finds blocking issues that your own testing missed, those are BLOCKERS.
+1. **Locate the committed test** implementing the TC — tests should name their TC-ID; otherwise match by behavior. A contracted TC with no locatable committed test is a BLOCKER.
+2. **Compare the call target** — the function the test invokes must be the declared entrypoint, called with the declared production argument shape (same positional args, same omitted kwargs). A test that exercises a deeper function instead is non-compliant even if it passes.
+3. **Compare the mocks** — everything mocked in the test must sit at or below the declared lowest-allowed seam, and nothing on the forbidden-mocks list may be mocked.
 
-The codex prompt is constructed by the caller; the methodology codex applies — enumerate every violation per attack/error class, group findings, never iterate one-finding-at-a-time — is preserved by passing a well-structured `codex_command`. Don't let codex degrade into iterative back-and-forth; the report should be enumerative.
+Any violation is a **BLOCKER naming the TC-ID**, citing the test `file:line` and the contract field it violates. Contract-compliance BLOCKERs make the verdict FAIL.
+
+Note: red-team verification is NOT run here — UAT owns the independent codex red-team (see `_qa_process.md`); running it in QA is redundant.
 
 ### Step 9: Integration Test Assertion Quality
 
@@ -206,8 +209,8 @@ Write a structured QA report to `qa_report_path`. Format:
 - Error messages: <observation>
 - Browser compatibility: <observation>
 
-## Codex Red-Team Findings
-<verbatim codex output, grouped by category>
+## Caller-Path Contract Compliance
+<per-TC results: test located, entrypoint match, mock-seam compliance; violations cited with file:line>
 
 ## Bugs (if any)
 
@@ -240,8 +243,8 @@ Never approve on the assumption that someone else will fix a prerequisite. If yo
 
 #### Verdict rules
 
-- All tests pass + all AC met + reachability verified + signature match verified + codex returns PASS → **PASS**.
-- Any blocker (failing test, unmet AC, missing call sites, signature mismatch, codex blocker, design mismatch) → **FAIL**.
+- All tests pass + all AC met + reachability verified + signature match verified + caller-path contracts honored → **PASS**.
+- Any blocker (failing test, unmet AC, missing call sites, signature mismatch, caller-path contract violation, design mismatch) → **FAIL**.
 - Missing or failing wiring coverage for CONTRACT-### or I-## rows → **FAIL**.
 - Minor issues only (typos, minor UX improvements, exploratory observations) → **PASS** with notes.
 
@@ -290,7 +293,7 @@ If integration tests need credentials and they're not present in the project's d
 - [ ] Design reference comparison completed — implementation matches proposed designs (if `design_refs` non-empty)
 - [ ] E2E reachability verified — all new components have call sites and connect to entry point
 - [ ] Production caller signature match — at least one test per service-contract change drives the production argument shape
-- [ ] Codex red-team verification run and findings incorporated
+- [ ] Caller-path contract compliance verified — every contracted TC has a committed test that drives the declared entrypoint with mocks at or below the declared seam
 - [ ] All acceptance criteria verified
 - [ ] Wiring coverage matrix completed for CONTRACT-### and I-## rows
 - [ ] Every I-## contract test exists, asserts the documented shape, and passes

@@ -250,6 +250,7 @@ func buildWorkflowMapsFromSteps(cfg *WorkflowConfig) {
 				AgentType:           st.Agent,
 				Provider:            st.Provider,
 				Model:               st.Model,
+				Effort:              st.Effort,
 				Skills:              st.Skills,
 				InstructionTemplate: st.Prompt,
 			}

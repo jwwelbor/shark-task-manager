@@ -88,6 +88,17 @@ When a **QA-authored test plan** exists for your task (created during the `test_
 - Minimal code to pass each test
 - Verify RED, then GREEN, then REFACTOR
 
+**Caller-Path Contract compliance (mandatory when the test plan declares contracts):**
+
+Each TC-NNN in the test plan carries a Caller-Path Contract — production entrypoint, lowest allowed mock seam, forbidden mocks, counter-factual (full definitions: `quality/context/caller-path-contracts.md`). The test you write for that TC MUST:
+
+1. **Call the declared entrypoint** with the declared production argument shape — same positional args, same omitted kwargs. Testing a deeper "kernel" function instead of the declared entrypoint does NOT satisfy the TC: the layer between the entrypoint and the kernel is exactly where wiring bugs live, and it is the layer independent red-team reviews keep catching after "all tests pass."
+2. **Mock no higher than the declared seam.** Mocking above the lowest-allowed seam short-circuits the production path the contract exists to exercise.
+3. **Never mock a forbidden seam.** Forbidden mocks are traps identified at test design; a test that mocks one is invalid even if it passes.
+4. **Name the TC-ID in the test** (test name or a comment) so reviewers can map each committed test back to its contract mechanically.
+
+Contracts marked `internal — function under test is the production entrypoint` are exempt. For everything else: a green test that violates its contract is a false positive — QA verifies contract compliance mechanically and FAILs the feature naming the TC, costing a full review round. Comply at red-phase, not at rework.
+
 **Why this matters:** Without this, you're self-grading — writing both the test scenarios and the code, validating your own interpretation of the spec. The QA test plan is an independent validation of what "correct" means, grounded in the feature PRD.
 
 **No test plan exists?** Follow standard TDD. Write tests from the task spec and acceptance criteria as usual.
@@ -429,6 +440,7 @@ Before marking work complete:
 - [ ] Output pristine (no errors, warnings)
 - [ ] Tests use real code (mocks only if unavoidable)
 - [ ] **Repository mocked in all service/business logic tests** (DB only in repo tests)
+- [ ] **Caller-Path Contracts honored** (when a test plan exists) — each TC-driven test names its TC-ID, calls the contract's entrypoint with the production argument shape, mocks no higher than the declared seam
 - [ ] Edge cases and errors covered
 
 Can't check all boxes? You skipped TDD. Start over.

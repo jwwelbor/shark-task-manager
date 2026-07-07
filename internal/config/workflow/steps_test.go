@@ -35,6 +35,7 @@ func sampleStepsConfig() *WorkflowConfig {
 				Agent:          "qa",
 				Provider:       "anthropic",
 				Model:          "sonnet",
+				Effort:         "xhigh",
 				Skills:         []string{"quality"},
 				Prompt:         "feature/qa.md",
 				Aliases:        []string{"ready_for_qa", "in_qa"},
@@ -254,4 +255,26 @@ func equalSlice(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// Effort must survive the steps -> legacy orchestrator-action projection —
+// it is the per-step reasoning-effort knob the dispatch adapter selects the
+// host worker by, and it rides the same path Model does.
+func TestDeriveLegacyFromSteps_EffortProjection(t *testing.T) {
+	cfg := sampleStepsConfig()
+	buildWorkflowMapsFromSteps(cfg)
+
+	qa, ok := cfg.StatusMetadata["qa"]
+	if !ok || qa.OrchestratorAction == nil {
+		t.Fatal("qa step missing projected orchestrator action")
+	}
+	if qa.OrchestratorAction.Effort != "xhigh" {
+		t.Errorf("qa effort = %q, want %q", qa.OrchestratorAction.Effort, "xhigh")
+	}
+
+	// Steps without effort project an empty effort (host default applies).
+	draft := cfg.StatusMetadata["draft"]
+	if draft.OrchestratorAction != nil && draft.OrchestratorAction.Effort != "" {
+		t.Errorf("draft effort = %q, want empty", draft.OrchestratorAction.Effort)
+	}
 }

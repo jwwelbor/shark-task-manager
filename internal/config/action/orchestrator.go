@@ -27,6 +27,11 @@ type OrchestratorAction struct {
 	// Optional — when empty, the agent uses its default model.
 	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 
+	// Effort specifies the reasoning-effort override for the dispatched agent.
+	// Valid values: low, medium, high, xhigh (case-insensitive).
+	// Optional — when empty, the host uses its default effort level.
+	Effort string `json:"effort,omitempty" yaml:"effort,omitempty"`
+
 	// Skills lists the skills required for the agent (required for spawn_agent action)
 	Skills []string `json:"skills,omitempty" yaml:"skills,omitempty"`
 
@@ -57,6 +62,17 @@ var ValidActionTypes = []string{
 	ActionCascade,
 }
 
+// Reasoning-effort levels a step/action may declare for the dispatched agent.
+const (
+	EffortLow    = "low"
+	EffortMedium = "medium"
+	EffortHigh   = "high"
+	EffortXHigh  = "xhigh"
+)
+
+// ValidEffortLevels defines the allowed values for OrchestratorAction.Effort.
+var ValidEffortLevels = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
+
 // Validate validates the OrchestratorAction configuration
 func (oa *OrchestratorAction) Validate() error {
 	// Check action type is valid
@@ -68,6 +84,12 @@ func (oa *OrchestratorAction) Validate() error {
 	// instruction_template is always required
 	if strings.TrimSpace(oa.InstructionTemplate) == "" {
 		return errors.New("instruction_template is required")
+	}
+
+	// effort, when set, must be one of the recognized levels
+	if oa.Effort != "" && !stringSliceContains(ValidEffortLevels, strings.ToLower(strings.TrimSpace(oa.Effort))) {
+		return fmt.Errorf("invalid effort: %s (must be one of: %s)",
+			oa.Effort, strings.Join(ValidEffortLevels, ", "))
 	}
 
 	// spawn_agent requires agent_type and skills
@@ -104,6 +126,17 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 			FieldName:    "instruction_template",
 			Problem:      "Missing required field",
 			SuggestedFix: "Add instruction_template with placeholders (e.g., {id}, {title}, {status}, {file_path})",
+		}
+	}
+
+	// 2b. Validate effort enum, when set
+	if oa.Effort != "" && !stringSliceContains(ValidEffortLevels, strings.ToLower(strings.TrimSpace(oa.Effort))) {
+		validEffortsStr := strings.Join(ValidEffortLevels, ", ")
+		return &OrchestratorValidationError{
+			StatusName:   statusName,
+			FieldName:    "effort",
+			Problem:      fmt.Sprintf("Invalid effort \"%s\"", oa.Effort),
+			SuggestedFix: fmt.Sprintf("Use one of: %s", validEffortsStr),
 		}
 	}
 
@@ -156,6 +189,7 @@ func (oa *OrchestratorAction) ToPopulatedAction(placeholders map[string]string) 
 		AgentType:   oa.AgentType,
 		Provider:    oa.Provider,
 		Model:       oa.Model,
+		Effort:      strings.ToLower(strings.TrimSpace(oa.Effort)),
 		Skills:      oa.Skills,
 		Instruction: oa.PopulateTemplate(placeholders),
 	}

@@ -82,6 +82,7 @@ Parse the JSON response:
 | `response.agent_type` | Shark persona metadata, not a native host subagent name |
 | `response.provider` | Provider metadata, e.g. `anthropic`, `openai`, `codex` |
 | `response.model` | Model metadata or override |
+| `response.effort` | Optional reasoning-effort override for the worker (`low`, `medium`, `high`, `xhigh`) |
 | `response.resolved_via` | Optional parent keys traversed by cascade resolution |
 | `response.error` | Error detail when action is `error` or pause carries a warning |
 
@@ -99,7 +100,9 @@ SID=$(shark claim {response.entity_key} --by "$CLAUDE_SID" --field session_id)
 
 Spawn the host worker using a host-safe adapter:
 
-- Claude Code Agent tool: `subagent_type = general-purpose`
+- Claude Code Agent tool: select `subagent_type` by `response.effort` —
+  `low`/`medium`/`high`/`xhigh` → `shark-worker-<effort>`; absent or
+  unrecognized effort → `general-purpose`
 - Prompt: exactly `response.prompt`
 - Metadata to record/pass through if the host supports it: `response.agent_type`,
   `response.provider`, `response.model`
@@ -120,13 +123,15 @@ When the worker returns:
    ```bash
    shark create note {response.entity_key} "<note>" --type comment
    ```
-2. Advance by the returned outcome:
+2. Advance by the returned outcome, attributing the transition to the agent
+   that did the work (this populates `entity_history.changed_by`):
    ```bash
-   shark status advance {response.entity_key} --outcome <pass|fail|blocked>
+   shark status advance {response.entity_key} --outcome <pass|fail|blocked> \
+     --agent "{response.agent_type}@{response.provider}/{response.model}"
    ```
-3. Release the lease, always:
+3. Release the lease, always, stamping the outcome on the work session:
    ```bash
-   shark release {response.entity_key} --session "$SID"
+   shark release {response.entity_key} --session "$SID" --outcome <pass|fail|blocked>
    ```
 4. Return to Step 1 with the original `{KEY}`.
 

@@ -10,7 +10,23 @@ package dbconn
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+// TimeFormat is the canonical layout for timestamp values bound as query
+// parameters. It matches SQLite's preferred text datetime format (and the
+// modernc driver's read-path parse formats), unlike the Go default
+// time.Time.String() debug layout that drivers fall back to when handed a
+// raw time.Time — which neither SQLite datetime() nor the driver read path
+// can parse. Always store UTC.
+const TimeFormat = "2006-01-02 15:04:05.999999999-07:00"
+
+// FormatTime renders a timestamp in the canonical parameter layout (UTC).
+// Repositories should bind FormatTime(t) instead of a raw time.Time so the
+// stored text is identical across drivers (modernc sqlite, libsql/Turso).
+func FormatTime(t time.Time) string {
+	return t.UTC().Format(TimeFormat)
+}
 
 // DB wraps the database connection for repositories.
 type DB struct {

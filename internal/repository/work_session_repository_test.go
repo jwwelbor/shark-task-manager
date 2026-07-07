@@ -105,7 +105,9 @@ func TestCreateWorkSessionDuplicateActive(t *testing.T) {
 // TestCreateWorkSessionValidation tests validation during session creation
 func TestCreateWorkSessionValidation(t *testing.T) {
 	outcome := models.SessionOutcomeCompleted
-	invalidOutcome := models.SessionOutcome("invalid")
+	// Outcomes carry config-driven workflow vocabulary, so structural
+	// validation only rejects empty/whitespace values (no allowlist).
+	invalidOutcome := models.SessionOutcome("   ")
 
 	tests := []struct {
 		name        string
@@ -134,6 +136,15 @@ func TestCreateWorkSessionValidation(t *testing.T) {
 				TaskID:    1,
 				StartedAt: time.Now(),
 				Outcome:   &invalidOutcome,
+			},
+			expectError: true,
+		},
+		{
+			name: "entity key requires entity type",
+			session: &models.WorkSession{
+				EntityKey:  "E98-F01",
+				StartedAt:  time.Now(),
+				EntityType: "",
 			},
 			expectError: true,
 		},
@@ -746,5 +757,114 @@ func TestGetSessionAnalyticsByEpic(t *testing.T) {
 	}
 	if analytics.PauseRate <= 0 {
 		t.Error("Expected positive pause rate")
+	}
+}
+
+// TestWorkSessionOpenCloseEntityGeneric verifies the claim/release session
+// journal: Open attaches a session to any entity (not just tasks), stores a
+// driver-parseable timestamp, and CloseOpenForEntity stamps the released
+// outcome — the mechanism that gives active-vs-idle wall-clock metrics.
+func TestWorkSessionOpenCloseEntityGeneric(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	sessionRepo := NewWorkSessionRepository(db)
+
+	agentID := "dev-agent"
+	sessionID := "sess-abc123"
+	ws := &models.WorkSession{
+		EntityType: "feature",
+		EntityKey:  "E98-F01",
+		AgentID:    &agentID,
+		SessionID:  &sessionID,
+		StartedAt:  time.Now().UTC(),
+	}
+	if err := sessionRepo.Open(ctx, ws); err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	if ws.ID == 0 {
+		t.Fatal("expected session ID after Open")
+	}
+
+	// The stored timestamp must be parseable text, not Go's debug layout.
+	// When the driver can parse the stored text it returns a time.Time and
+	// database/sql renders it as RFC3339; a debug-layout value would fail the
+	// driver's parse and come back verbatim with a " UTC"/" MST" suffix.
+	var startedAt string
+	if err := database.QueryRowContext(ctx,
+		"SELECT started_at FROM work_sessions WHERE id = ?", ws.ID).Scan(&startedAt); err != nil {
+		t.Fatalf("read started_at: %v", err)
+	}
+	parseable := false
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00"} {
+		if _, err := time.Parse(layout, startedAt); err == nil {
+			parseable = true
+			break
+		}
+	}
+	if !parseable {
+		t.Errorf("started_at %q is not parseable timestamp text (Go debug layout leaked into storage?)", startedAt)
+	}
+
+	// Close stamps the outcome and ends the session.
+	n, err := sessionRepo.CloseOpenForEntity(ctx, "feature", "E98-F01", "pass", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("CloseOpenForEntity failed: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 session closed, got %d", n)
+	}
+	var outcome string
+	var endedAt sql.NullString
+	if err := database.QueryRowContext(ctx,
+		"SELECT outcome, ended_at FROM work_sessions WHERE id = ?", ws.ID).Scan(&outcome, &endedAt); err != nil {
+		t.Fatalf("read closed session: %v", err)
+	}
+	if outcome != "pass" || !endedAt.Valid {
+		t.Errorf("expected outcome=pass with ended_at set, got outcome=%q ended_at.Valid=%v", outcome, endedAt.Valid)
+	}
+
+	// Closing again is a no-op, not an error.
+	n, err = sessionRepo.CloseOpenForEntity(ctx, "feature", "E98-F01", "pass", time.Now().UTC())
+	if err != nil || n != 0 {
+		t.Errorf("expected idempotent close (0 rows), got n=%d err=%v", n, err)
+	}
+}
+
+func TestWorkSessionOpenDefaultsTaskEntityType(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	sessionRepo := NewWorkSessionRepository(db)
+
+	_, _ = test.SeedTestData()
+
+	var taskID int64
+	if err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-001'").Scan(&taskID); err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
+
+	agentID := "dev-agent"
+	sessionID := "sess-task-default"
+	ws := &models.WorkSession{
+		TaskID:    taskID,
+		EntityKey: "T-E99-F99-001",
+		AgentID:   &agentID,
+		SessionID: &sessionID,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := sessionRepo.Open(ctx, ws); err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	if ws.EntityType != string(models.EntityTypeTask) {
+		t.Fatalf("EntityType = %q, want %q", ws.EntityType, models.EntityTypeTask)
+	}
+
+	var entityType string
+	if err := database.QueryRowContext(ctx, "SELECT entity_type FROM work_sessions WHERE id = ?", ws.ID).Scan(&entityType); err != nil {
+		t.Fatalf("read entity_type: %v", err)
+	}
+	if entityType != string(models.EntityTypeTask) {
+		t.Fatalf("stored entity_type = %q, want %q", entityType, models.EntityTypeTask)
 	}
 }

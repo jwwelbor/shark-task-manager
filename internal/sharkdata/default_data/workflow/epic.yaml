@@ -28,6 +28,7 @@ steps:
     agent: researcher
     provider: anthropic
     model: haiku
+    effort: low
     skills: [assessment, research]
     prompt: epic/assessment.md
     outcomes:
@@ -99,15 +100,16 @@ steps:
     agent: architect
     provider: anthropic
     model: opus
+    effort: high
     skills: [architecture, quality]
     prompt: epic/design.md
     outcomes:
       blocked: blocked
       cancelled: cancelled
       fail: research
+      needs_refinement: refinement
       on_hold: on_hold
       pass: decomposition
-      refinement: refinement
   draft:
     phase: planning
     color: gray
@@ -119,7 +121,7 @@ steps:
     action: advance_status
     prompt: epic/draft.md
     outcomes:
-      active: active
+      already_planned: active
       blocked: blocked
       cancelled: cancelled
       fail: draft
@@ -165,6 +167,7 @@ steps:
     agent: business-analyst
     provider: anthropic
     model: opus
+    effort: high
     skills: [specification-writing]
     prompt: epic/refinement.md
     outcomes:

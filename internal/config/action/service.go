@@ -73,6 +73,7 @@ type PopulatedAction struct {
 	AgentType   string   `json:"agent_type,omitempty"`
 	Provider    string   `json:"provider,omitempty"` // AI provider (e.g., "anthropic", "openai")
 	Model       string   `json:"model,omitempty"`    // Model override (e.g., "o3", "claude-opus-4-5")
+	Effort      string   `json:"effort,omitempty"`   // Reasoning-effort override (low, medium, high, xhigh)
 	Skills      []string `json:"skills,omitempty"`
 	Instruction string   `json:"instruction"` // Template populated
 }

@@ -116,12 +116,13 @@ var (
 type NextResponse struct {
 	EntityKey  string `json:"entity_key"`
 	EntityType string `json:"entity_type"`
-	Status     string `json:"status"`     // current status of the entity
-	Action     string `json:"action"`     // dispatch action (see above)
-	AgentType  string `json:"agent_type"` // agent type to spawn ("" when action != spawn_agent)
-	Provider   string `json:"provider"`   // AI provider (e.g., "anthropic", "openai")
-	Model      string `json:"model"`      // model override
-	Prompt     string `json:"prompt"`     // fully-rendered, skill-inlined prompt
+	Status     string `json:"status"`           // current status of the entity
+	Action     string `json:"action"`           // dispatch action (see above)
+	AgentType  string `json:"agent_type"`       // agent type to spawn ("" when action != spawn_agent)
+	Provider   string `json:"provider"`         // AI provider (e.g., "anthropic", "openai")
+	Model      string `json:"model"`            // model override
+	Effort     string `json:"effort,omitempty"` // reasoning-effort override (low, medium, high, xhigh)
+	Prompt     string `json:"prompt"`           // fully-rendered, skill-inlined prompt
 
 	// ResolvedVia records the parent entity keys the engine traversed when
 	// `shark next` was called on a parent whose status mapped to action
@@ -536,6 +537,7 @@ func applyWireAction(
 	resp.AgentType = populated.AgentType
 	resp.Provider = populated.Provider
 	resp.Model = populated.Model
+	resp.Effort = populated.Effort
 	resp.Prompt = populated.Instruction
 	return resp, false, nil
 }

@@ -5,6 +5,8 @@ Develop task {{.id}}: "{{.title}}".
 
 Check for existing implementation: review git diff and test files. If implementation exists and passes quality gate, advance immediately.
 
+REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, enumerate every code site in the touched module(s) matching that defect class, fix ALL of them, and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
+
 ---
 
 TDD IMPLEMENTATION
@@ -41,6 +43,7 @@ Run the project's quality gate before advancing. Determine the commands from `do
 
 EXIT GATE:
 - All test cases from feature test-plan.md (for this task) pass
+- Each test names its TC-ID and calls its Caller-Path Contract entrypoint from test-plan.md, mocking no higher than the declared seam
 - Quality gate passes (commands from `docs/architecture/tech-stack.md` or inferred from the repo)
 - Implementation follows patterns from feature spec.md
 - No unrelated changes included

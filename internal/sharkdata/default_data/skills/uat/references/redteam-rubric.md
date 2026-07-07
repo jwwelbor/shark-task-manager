@@ -26,6 +26,25 @@ Within each class, list every distinct case you can construct. Better to over-re
 user triage than to find one and stop. If you find yourself summarizing rather than listing, you
 are under-reporting.
 
+For every blocking finding, also emit a one-line **defect-class statement** — the general class
+the finding instantiates ("schema required-list omits fields the code dereferences
+unconditionally"), not the point instance. The class statement drives the developer's enumeration
+sweep and the next round's re-review scope.
+
+## Re-verification rounds — never fix-scoped
+
+When reviewing work that was previously rejected, the round always has three parts, regardless of
+how the prompt was phrased:
+
+1. **Verify the named fixes** — confirm each previously cited finding is resolved.
+2. **Defect-class sweep** — re-audit the touched functions/modules for every remaining instance of
+   each prior finding's defect class.
+3. **Full-rubric sanity pass** — re-run the verification checks above over the feature surface.
+
+"Confirm finding N is fixed" is never the whole job. Narrow asks get narrow answers, and each
+narrowly-answered round costs a full fix/review cycle when the next instance of the same class
+surfaces.
+
 ## Critical verification checks — enumerate every instance
 
 1. **Wiring & reachability.** For every new function/class/service introduced, search for call
@@ -90,10 +109,10 @@ are under-reporting.
 ### Risks and Issues
 
 **Blocking:**
-- [issue with evidence reference]
+- [issue with evidence reference + one-line defect-class statement]
 
 **Non-blocking:**
-- [observation with severity: CRITICAL / HIGH / MEDIUM / LOW]
+- [observation with severity: MEDIUM / LOW — CRITICAL and HIGH findings are always blocking]
 
 **Missing evidence:**
 - [what's absent and how it affects confidence]
@@ -109,12 +128,25 @@ are under-reporting.
 
 ## Verdict definitions
 
+The severity→verdict mapping is pinned: **any CRITICAL or HIGH finding ⇒ Reject** (never "with
+conditions"); MEDIUM-only ⇒ Accept with Conditions; LOW-only ⇒ Accept with notes.
+
 - **Accept** — evidence and checks support every AC; no blocking findings.
-- **Accept with Conditions** — acceptable, but specific conditions must be tracked as work (route
-  them through triage; see `SKILL.md` Step 8).
-- **Reject** — at least one blocking finding (unmet AC with evidence, or a wiring/contract BLOCKER).
+- **Accept with Conditions** — acceptable; only MEDIUM-severity conditions remain, and each must be
+  tracked as work (route them through triage; see `SKILL.md` Step 8).
+- **Reject** — at least one blocking finding (unmet AC with evidence, a wiring/contract BLOCKER, or
+  any CRITICAL/HIGH-severity finding).
 - **Insufficient Evidence** — the review could not be completed or key artifacts are missing. Do
   not present a pass; report what's missing.
 
 Wiring failures (no call sites, unregistered components, unmounted routes) are **always** blockers
 — never downgrade them to non-blocking conditions.
+
+**Always end the assessment with a final delimited line, no matter how much investigation time
+remains:**
+
+```
+VERDICT: Accept | Accept with Conditions | Reject | Insufficient Evidence
+```
+
+This guarantees a parseable verdict even under timeout pressure.

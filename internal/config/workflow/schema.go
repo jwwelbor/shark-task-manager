@@ -147,6 +147,11 @@ type Step struct {
 	// Model is the model override for the dispatched agent.
 	Model string `json:"model,omitempty"`
 
+	// Effort is the reasoning-effort override for the dispatched agent (one of
+	// low, medium, high, xhigh). Route-based analogue of
+	// orchestrator_action.effort. When empty, the host uses its default effort.
+	Effort string `json:"effort,omitempty"`
+
 	// Skills lists the skills the dispatched agent should load.
 	Skills []string `json:"skills,omitempty"`
 

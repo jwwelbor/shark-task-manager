@@ -143,7 +143,7 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 			ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { plainCalled = true; return true, nil },
 		}
 		svc := NewClaimService(m, time.Minute)
-		ok, err := svc.Release(context.Background(), "task", "E1-F1-001", "sess-1")
+		ok, err := svc.Release(context.Background(), "task", "E1-F1-001", "sess-1", "")
 		if err != nil || !ok {
 			t.Fatalf("Release = %v, %v", ok, err)
 		}
@@ -159,7 +159,7 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 			ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { plainCalled = true; return true, nil },
 		}
 		svc := NewClaimService(m, time.Minute)
-		if _, err := svc.Release(context.Background(), "task", "E1-F1-001", ""); err != nil {
+		if _, err := svc.Release(context.Background(), "task", "E1-F1-001", "", ""); err != nil {
 			t.Fatalf("Release: %v", err)
 		}
 		if sessionCalled || !plainCalled {
@@ -237,5 +237,135 @@ func TestClaimService_IsClaimable(t *testing.T) {
 				t.Errorf("IsClaimable = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// mockSessionLog records Open/Close calls for verifying the claim/release
+// work-session journal wiring.
+type mockSessionLog struct {
+	opened []*models.WorkSession
+	closed []string // "entityKey:outcome"
+}
+
+type mockTaskResolver struct {
+	task *models.Task
+	err  error
+}
+
+func (m *mockSessionLog) Open(ctx context.Context, ws *models.WorkSession) error {
+	m.opened = append(m.opened, ws)
+	return nil
+}
+func (m *mockSessionLog) CloseOpenForEntity(ctx context.Context, entityType, entityKey, outcome string, endedAt time.Time) (int64, error) {
+	m.closed = append(m.closed, entityKey+":"+outcome)
+	return 1, nil
+}
+
+func (m *mockTaskResolver) GetByKey(ctx context.Context, key string) (*models.Task, error) {
+	return m.task, m.err
+}
+
+// A claim must journal a work session (active wall-clock starts at claim, not
+// at status transition) and self-heal any dangling open session first.
+func TestClaimService_Claim_OpensWorkSession(t *testing.T) {
+	m := &mockClaimRepo{
+		ReclaimFn: func(ctx context.Context, ttl time.Duration) (int64, error) { return 0, nil },
+		ClaimFn: func(ctx context.Context, c *models.EntityClaim) (*models.EntityClaim, error) {
+			c.ID = 1
+			return c, nil
+		},
+	}
+	log := &mockSessionLog{}
+	svc := NewClaimService(m, time.Minute)
+	svc.SetSessionLog(log)
+
+	claimed, err := svc.Claim(context.Background(), ClaimInput{EntityType: "feature", EntityKey: "E1-F1", ClaimedBy: "dev-agent"})
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(log.closed) != 1 || log.closed[0] != "E1-F1:superseded" {
+		t.Errorf("expected dangling sessions closed as superseded before open, got %v", log.closed)
+	}
+	if len(log.opened) != 1 {
+		t.Fatalf("expected one session opened, got %d", len(log.opened))
+	}
+	ws := log.opened[0]
+	if ws.EntityType != "feature" || ws.EntityKey != "E1-F1" {
+		t.Errorf("session not entity-scoped: %+v", ws)
+	}
+	if ws.AgentID == nil || *ws.AgentID != "dev-agent" {
+		t.Errorf("session missing agent attribution: %+v", ws.AgentID)
+	}
+	if ws.SessionID == nil || *ws.SessionID != claimed.SessionID {
+		t.Errorf("session not linked to the lease session id")
+	}
+}
+
+func TestClaimService_Claim_TaskSessionResolvesTaskID(t *testing.T) {
+	m := &mockClaimRepo{
+		ReclaimFn: func(ctx context.Context, ttl time.Duration) (int64, error) { return 0, nil },
+		ClaimFn: func(ctx context.Context, c *models.EntityClaim) (*models.EntityClaim, error) {
+			c.ID = 1
+			return c, nil
+		},
+	}
+	log := &mockSessionLog{}
+	svc := NewClaimService(m, time.Minute)
+	svc.SetSessionLog(log)
+	svc.SetTaskResolver(&mockTaskResolver{
+		task: &models.Task{BaseEntity: models.BaseEntity{ID: 41, Key: "T-E1-F1-001"}},
+	})
+
+	_, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "T-E1-F1-001", ClaimedBy: "dev-agent"})
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(log.opened) != 1 {
+		t.Fatalf("expected one session opened, got %d", len(log.opened))
+	}
+	if got := log.opened[0].TaskID; got != 41 {
+		t.Fatalf("opened task session TaskID = %d, want 41", got)
+	}
+}
+
+// Release must close the journaled session with the released outcome so
+// review-round time is attributable; empty outcome defaults to "released".
+func TestClaimService_Release_ClosesWorkSessionWithOutcome(t *testing.T) {
+	m := &mockClaimRepo{
+		ReleaseSessionFn: func(ctx context.Context, t, k, s string) (bool, error) { return true, nil },
+		ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { return true, nil },
+	}
+	log := &mockSessionLog{}
+	svc := NewClaimService(m, time.Minute)
+	svc.SetSessionLog(log)
+
+	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "sess-1", "pass"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "", ""); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	want := []string{"E1-F1:pass", "E1-F1:released"}
+	if len(log.closed) != 2 || log.closed[0] != want[0] || log.closed[1] != want[1] {
+		t.Errorf("expected closes %v, got %v", want, log.closed)
+	}
+}
+
+// A failed release must NOT close the session — otherwise a lease still held
+// by another agent would have its active session ended out from under it.
+func TestClaimService_Release_NoSessionCloseWhenNotReleased(t *testing.T) {
+	m := &mockClaimRepo{
+		ReleaseSessionFn: func(ctx context.Context, t, k, s string) (bool, error) { return false, nil },
+	}
+	log := &mockSessionLog{}
+	svc := NewClaimService(m, time.Minute)
+	svc.SetSessionLog(log)
+
+	released, err := svc.Release(context.Background(), "task", "E1-F1-001", "stale-session", "pass")
+	if err != nil || released {
+		t.Fatalf("expected no-op release, got released=%v err=%v", released, err)
+	}
+	if len(log.closed) != 0 {
+		t.Errorf("session must not be closed when the lease was not released, got %v", log.closed)
 	}
 }

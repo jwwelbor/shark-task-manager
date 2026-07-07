@@ -100,4 +100,4 @@ Return: `reclassified` (bool), `new_entity_key`, `new_entity_type`.
 
 ## Step 3: Route
 
-Genuine epic -> `shark status set E07-F01 refinement`
+Genuine epic -> `shark status advance E07-F01 --outcome pass`

@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // TestEntityNotesAcceptsBugEntityType tests that entity_notes accepts 'bug' as entity_type (TC-S5-01)
@@ -363,17 +365,17 @@ func TestEntityNotesNoteTypeCheckListsAllValidatorTypes(t *testing.T) {
 		t.Fatalf("Failed to read entity_notes schema: %v", err)
 	}
 
-	// Mirror models.ValidateNoteType allowlist; any new entry added there
-	// must also appear in the DB CHECK.
-	required := []string{
-		"comment", "decision", "blocker", "solution", "reference",
-		"implementation", "testing", "future", "question", "rejection",
-		"requirement", "review",
+	// Since schema v27 there is no note_type CHECK — the Go validator is the
+	// single source of truth, so validator↔DDL drift (the B027 bug class)
+	// is impossible. Guard the new invariant: no CHECK in the DDL, and
+	// every validator-allowed type actually inserts.
+	if strings.Contains(tableSQL, "note_type IN") {
+		t.Errorf("entity_notes.note_type CHECK should be dropped (v27), schema:\n%s", tableSQL)
 	}
-	for _, nt := range required {
-		needle := "'" + nt + "'"
-		if !strings.Contains(tableSQL, needle) {
-			t.Errorf("Expected entity_notes.note_type CHECK to include %s, but it is missing from schema:\n%s", needle, tableSQL)
+	for _, nt := range models.ValidNoteTypes() {
+		if _, err := db.Exec(`INSERT INTO entity_notes (entity_type, entity_id, note_type, content) VALUES ('task', 999997, ?, 'test')`, nt); err != nil {
+			t.Errorf("validator-allowed note type %q failed to insert: %v", nt, err)
 		}
 	}
+	_, _ = db.Exec(`DELETE FROM entity_notes WHERE entity_id = 999997`)
 }

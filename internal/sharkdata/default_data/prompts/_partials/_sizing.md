@@ -11,9 +11,6 @@
 - 8 / XL  — very large; ~1 week; many components or significant unknowns. SHOULD be split.
 - 13 / XXL — too large; MUST be split into smaller items before work begins.{{end}}
 
-{{define "_sizing_required"}}REQUIRED: Specify --size on every {{template "create_feature" .}} / {{template "create_task" .}} call. Items rated 5/L, 8/XL, or 13/XXL must be broken down further before the workflow advances. Tasks should target 1/XS – 3/M whenever possible.
-
-{{template "_sizing_scale"}}{{end}}
 
 {{define "_sizing_task"}}REQUIRED: Every task must carry a size. Pass --size=<1|2|3|5|8|13> (or XS|S|M|L|XL|XXL) on {{template "create_task" .}}. Aim for 1/XS – 3/M per task; if you reach 5/L or higher, decompose before creating.
 

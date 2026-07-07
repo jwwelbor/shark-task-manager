@@ -1,4 +1,4 @@
-Feature code review passed for {{.id}} ("{{.title}}"). Launch QA agent for feature-level testing.
+Verification gate (craft review) passed for COMPLEX feature {{.id}} ("{{.title}}"). Launch QA agent for the deep second verification gate. (SIMPLE/STANDARD features skip this gate — their review, test run, wiring matrix, and contract compliance were merged into the verification gate.)
 
 {{include: skills/quality/SKILL.md}}
 
@@ -43,6 +43,7 @@ VALIDATE:
 - Quality gates pass (fmt, lint)
 - All targeted tests pass — zero failures introduced by this feature
 - Every AC from the feature test-plan is exercised by a named test
+- Caller-Path Contract compliance: every contracted TC's committed test calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam (violations are BLOCKERs naming the TC-ID)
 - No regressions in targeted scope
 - Pre-existing failures in scope are explicitly identified (not silently ignored)
 - Wiring coverage matrix includes one row per CONTRACT-### and I-## with
@@ -65,6 +66,9 @@ PRODUCE QA report to docs/review/{epic-folder}/{feature-folder}/qa/<timestamp>-{
   test-exists, and test-passes columns
 - Edge cases tested
 - Any pre-existing failures encountered
+
+REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on PASS or FAIL):
+- One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"qa","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
 
 ON PASS → {{template "advance" .}}
 ON FAIL:

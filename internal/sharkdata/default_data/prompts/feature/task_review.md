@@ -87,4 +87,4 @@ PRODUCE task review report at docs/review/{epic-folder}/{feature-folder}/task_re
 
 DECISION:
 - ALL PASS -> shark status advance {{.id}}
-- ANY FAIL -> shark status set {{.id}} task_generation --reason "<specific gaps or issues to fix>"
+- ANY FAIL -> shark status advance {{.id}} --outcome fail --reason "<specific gaps or issues to fix>"

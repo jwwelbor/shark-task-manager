@@ -43,6 +43,7 @@ steps:
     agent: developer
     provider: anthropic
     model: sonnet
+    effort: high
     skills: [implementation, test-driven-development]
     prompt: task/development.md
     outcomes:

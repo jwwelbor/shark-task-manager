@@ -360,7 +360,7 @@ Codex must return one of: **PASS** (test plan is solid), **CONCERNS** (specific 
 
 The codex methodology — enumerate by class, never iterate one-finding-at-a-time, cite the AC ID and a concrete fix — is preserved by the prompt body. Don't let codex degrade into iterative back-and-forth.
 
-**Timeout:** 5 minutes. If it times out, retry once. After two failures, log "Codex test-plan review: FAILED — [error]" as a non-blocking note in the test plan and proceed (do not gate on codex availability, but document the gap).
+**Timeout:** at least 580 seconds — five-minute budgets kill codex runs mid-investigation, and a retry after truncation just burns a second full run; prefer one long run over two truncated ones. If it times out at the long budget, retry once. After two failures, log "Codex test-plan review: FAILED — [error]" as a non-blocking note in the test plan and proceed (do not gate on codex availability, but document the gap).
 
 **Incorporate codex findings into the test plan:**
 - BLOCKER findings (open-ended ACs, missing technique application) → revise the test plan before returning. The whole point of this gate is to prevent these from reaching dev.

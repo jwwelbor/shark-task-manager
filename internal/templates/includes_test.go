@@ -348,11 +348,11 @@ func TestIncludeResolverWithEmbed_FallsBackToEmbed(t *testing.T) {
 	dataRoot := t.TempDir()
 	r := NewIncludeResolverWithEmbed(dataRoot)
 
-	// "prompts/_partials/_advance.md" is a real file in the embedded FS.
+	// "prompts/_partials/_commands.md" is a real file in the embedded FS.
 	// We verify resolution succeeds and produces non-empty content.
-	out, err := r.Resolve("{{include: prompts/_partials/_advance.md}}")
+	out, err := r.Resolve("{{include: prompts/_partials/_commands.md}}")
 	require.NoError(t, err, "embed fallback must resolve a known embedded file")
-	assert.NotEqual(t, "{{include: prompts/_partials/_advance.md}}", out,
+	assert.NotEqual(t, "{{include: prompts/_partials/_commands.md}}", out,
 		"resolved output must differ from the original directive")
 	assert.NotEmpty(t, strings.TrimSpace(out), "embedded file content must be non-empty")
 }
@@ -367,13 +367,13 @@ func TestIncludeResolverWithEmbed_DiskWinsOverEmbed(t *testing.T) {
 	require.NoError(t, os.MkdirAll(partialDir, 0755))
 	localContent := "LOCAL DISK CONTENT"
 	require.NoError(t, os.WriteFile(
-		filepath.Join(partialDir, "_advance.md"),
+		filepath.Join(partialDir, "_commands.md"),
 		[]byte(localContent),
 		0644,
 	))
 
 	r := NewIncludeResolverWithEmbed(dataRoot)
-	out, err := r.Resolve("{{include: prompts/_partials/_advance.md}}")
+	out, err := r.Resolve("{{include: prompts/_partials/_commands.md}}")
 	require.NoError(t, err)
 	assert.Equal(t, localContent, out,
 		"disk file must win over embedded canonical")
@@ -395,7 +395,7 @@ func TestIncludeResolverWithEmbed_MissingFromBoth(t *testing.T) {
 func TestNewIncludeResolverWithEmbed_EmptyDataRoot(t *testing.T) {
 	r := NewIncludeResolverWithEmbed("")
 
-	out, err := r.Resolve("{{include: prompts/_partials/_advance.md}}")
+	out, err := r.Resolve("{{include: prompts/_partials/_commands.md}}")
 	require.NoError(t, err, "embed-only mode (empty dataRoot) must resolve from embed")
 	assert.NotEmpty(t, strings.TrimSpace(out))
 }

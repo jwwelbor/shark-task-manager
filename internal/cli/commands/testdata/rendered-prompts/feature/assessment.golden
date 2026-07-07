@@ -206,6 +206,8 @@ STORE: shark create note E07-F01 --content="COMPLEXITY: {tier} (score: {score}/2
 
 ## Step 3: Route
 
-- SIMPLE -> shark status set E07-F01 task_generation
-- STANDARD -> shark status set E07-F01 specification
-- COMPLEX -> shark status set E07-F01 research
+Release the tier as a semantic outcome — never name a target status:
+
+- SIMPLE -> shark status advance E07-F01 --outcome simple
+- STANDARD -> shark status advance E07-F01 --outcome standard
+- COMPLEX -> shark status advance E07-F01 --outcome pass
