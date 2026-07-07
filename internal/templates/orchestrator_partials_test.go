@@ -19,8 +19,8 @@ func canonicalPromptPath(elem ...string) string {
 func corePartialFiles() []string {
 	return []string{
 		canonicalPromptPath("_partials", "_tdd_process.md"),
-		canonicalPromptPath("_partials", "_exit_gate.md"),
-		canonicalPromptPath("_partials", "_read_section.md"),
+		canonicalPromptPath("_partials", "_sizing.md"),
+		canonicalPromptPath("_partials", "_commands.md"),
 	}
 }
 
@@ -71,8 +71,8 @@ func TestPartialsDirectoryStructure(t *testing.T) {
 func TestPartialsExist(t *testing.T) {
 	expectedPartials := []string{
 		canonicalPromptPath("_partials", "_tdd_process.md"),
-		canonicalPromptPath("_partials", "_exit_gate.md"),
-		canonicalPromptPath("_partials", "_read_section.md"),
+		canonicalPromptPath("_partials", "_sizing.md"),
+		canonicalPromptPath("_partials", "_commands.md"),
 	}
 
 	for _, partial := range expectedPartials {
@@ -90,7 +90,7 @@ func TestPartialsExist(t *testing.T) {
 func TestPartialsLoadViaParseGlob(t *testing.T) {
 	tmpl := parseCanonicalPartials(t)
 
-	expectedPartials := []string{"_tdd_process", "_exit_gate", "_read_section"}
+	expectedPartials := []string{"_tdd_process", "_sizing_scale", "advance"}
 	for _, partialName := range expectedPartials {
 		partial := tmpl.Lookup(partialName)
 		if partial == nil {
@@ -132,153 +132,10 @@ func TestTDDProcessPartialRenders(t *testing.T) {
 }
 
 // TestExitGatePartialRenders validates the exit gate partial renders correctly
-func TestExitGatePartialRenders(t *testing.T) {
-	tmpl := parseCanonicalPartials(t)
-
-	partial := tmpl.Lookup("_exit_gate")
-	if partial == nil {
-		t.Fatal("_exit_gate partial not found")
-	}
-
-	result, err := executeTemplate(partial, map[string]interface{}{})
-	if err != nil {
-		t.Fatalf("Failed to render _exit_gate: %v", err)
-	}
-
-	// Verify output contains expected exit gate items
-	expectedPhrases := []string{
-		"EXIT GATE:",
-		"acceptance criteria",
-		"Tests passing",
-		"Code reviewed",
-		"Documentation",
-	}
-
-	for _, phrase := range expectedPhrases {
-		if !strings.Contains(result, phrase) {
-			t.Errorf("Expected phrase '%s' not found in rendered output", phrase)
-		}
-	}
-}
-
 // TestReadSectionPartialWithMinimalData validates _read_section with only primary doc
-func TestReadSectionPartialWithMinimalData(t *testing.T) {
-	tmpl := parseCanonicalPartials(t)
-
-	partial := tmpl.Lookup("_read_section")
-	if partial == nil {
-		t.Fatal("_read_section partial not found")
-	}
-
-	data := map[string]interface{}{
-		"primary_doc": "docs/task.md",
-	}
-
-	result, err := executeTemplate(partial, data)
-	if err != nil {
-		t.Fatalf("Failed to render _read_section: %v", err)
-	}
-
-	// With only primary_doc, should have (1) but not (2) or (3)
-	if !strings.Contains(result, "(1)") {
-		t.Error("Expected '(1)' in output")
-	}
-	if strings.Contains(result, "(2)") || strings.Contains(result, "(3)") {
-		t.Error("Should not have (2) or (3) with only primary_doc")
-	}
-	if !strings.Contains(result, "docs/task.md") {
-		t.Error("Expected primary_doc value in output")
-	}
-}
-
 // TestReadSectionPartialWithRelatedDocs validates _read_section with related docs
-func TestReadSectionPartialWithRelatedDocs(t *testing.T) {
-	tmpl := parseCanonicalPartials(t)
-
-	partial := tmpl.Lookup("_read_section")
-	if partial == nil {
-		t.Fatal("_read_section partial not found")
-	}
-
-	data := map[string]interface{}{
-		"primary_doc":  "docs/task.md",
-		"related_docs": "docs/api.md, docs/design.md",
-	}
-
-	result, err := executeTemplate(partial, data)
-	if err != nil {
-		t.Fatalf("Failed to render _read_section: %v", err)
-	}
-
-	// Should have (1) and (2) but not (3)
-	if !strings.Contains(result, "(1)") || !strings.Contains(result, "(2)") {
-		t.Error("Expected '(1)' and '(2)' in output")
-	}
-	if strings.Contains(result, "(3)") {
-		t.Error("Should not have (3) with related_docs but no related_tasks")
-	}
-	if !strings.Contains(result, "docs/api.md") {
-		t.Error("Expected related_docs value in output")
-	}
-}
-
 // TestReadSectionPartialWithAllData validates _read_section with all data
-func TestReadSectionPartialWithAllData(t *testing.T) {
-	tmpl := parseCanonicalPartials(t)
-
-	partial := tmpl.Lookup("_read_section")
-	if partial == nil {
-		t.Fatal("_read_section partial not found")
-	}
-
-	data := map[string]interface{}{
-		"primary_doc":   "docs/task.md",
-		"related_docs":  "docs/api.md",
-		"related_tasks": "E07-F30-001",
-	}
-
-	result, err := executeTemplate(partial, data)
-	if err != nil {
-		t.Fatalf("Failed to render _read_section: %v", err)
-	}
-
-	// Should have (1), (2), and (3)
-	if !strings.Contains(result, "(1)") || !strings.Contains(result, "(2)") || !strings.Contains(result, "(3)") {
-		t.Error("Expected '(1)', '(2)', and '(3)' in output")
-	}
-	if !strings.Contains(result, "E07-F30-001") {
-		t.Error("Expected related_tasks value in output")
-	}
-}
-
 // TestReadSectionSmartNumbering validates smart numbering with only related_tasks
-func TestReadSectionSmartNumbering(t *testing.T) {
-	tmpl := parseCanonicalPartials(t)
-
-	partial := tmpl.Lookup("_read_section")
-	if partial == nil {
-		t.Fatal("_read_section partial not found")
-	}
-
-	data := map[string]interface{}{
-		"primary_doc":   "docs/task.md",
-		"related_tasks": "E07-F30-001",
-	}
-
-	result, err := executeTemplate(partial, data)
-	if err != nil {
-		t.Fatalf("Failed to render _read_section: %v", err)
-	}
-
-	// Should have (1) and (2), not (3)
-	if !strings.Contains(result, "(1)") || !strings.Contains(result, "(2)") {
-		t.Error("Expected '(1)' and '(2)' in output when no related_docs")
-	}
-	if strings.Contains(result, "(3)") {
-		t.Error("Should not have (3) when related_docs is empty")
-	}
-}
-
 // TestPartialsCanBeIncludedInTemplates validates partials work in template includes
 func TestPartialsCanBeIncludedInTemplates(t *testing.T) {
 	// Create a test template that includes the _tdd_process partial
@@ -343,39 +200,6 @@ func TestPartialNamingConvention(t *testing.T) {
 }
 
 // TestReadSectionNoEmptyLines validates _read_section doesn't create empty lines
-func TestReadSectionNoEmptyLines(t *testing.T) {
-	tmpl := parseCanonicalPartials(t)
-
-	partial := tmpl.Lookup("_read_section")
-	if partial == nil {
-		t.Fatal("_read_section partial not found")
-	}
-
-	// Test with only primary doc
-	data := map[string]interface{}{
-		"primary_doc": "docs/task.md",
-	}
-
-	result, err := executeTemplate(partial, data)
-	if err != nil {
-		t.Fatalf("Failed to render _read_section: %v", err)
-	}
-
-	// Count blank lines - should be minimal
-	lines := strings.Split(result, "\n")
-	blankCount := 0
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			blankCount++
-		}
-	}
-
-	// Allow 1-2 blank lines max (beginning/end)
-	if blankCount > 2 {
-		t.Errorf("Too many blank lines in output: %d, output:\n%s", blankCount, result)
-	}
-}
-
 // Helper function to execute a template
 func executeTemplate(tmpl *template.Template, data map[string]interface{}) (string, error) {
 	var buf bytes.Buffer

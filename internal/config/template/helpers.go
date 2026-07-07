@@ -255,7 +255,7 @@ func EntityPlaceholders(entity models.Entity) map[string]string {
 		if rb := deriveReviewBase(fp); rb != "" {
 			m["review_base"] = rb
 		}
-		// epic_dir / feature_dir feed the _resolve_spec_paths partial so it
+		// epic_dir / feature_dir let prompt partials compute artifact paths that
 		// can reference the actual on-disk parent directories (slug-suffixed
 		// or otherwise) rather than concatenating bare entity keys, which
 		// produced the wrong path in B021.

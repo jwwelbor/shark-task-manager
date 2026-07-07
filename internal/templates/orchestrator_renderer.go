@@ -485,9 +485,9 @@ func orchestratorFuncs() template.FuncMap {
 		// Sprig-parity helpers for partial composition.
 		//
 		// `dict` builds a map[string]interface{} from alternating key/value
-		// pairs. Used as: {{template "_advance" (dict "note_type" "review" "summary" "QA PASS")}}.
+		// pairs. Used as: {{template "some_partial" (dict "note_type" "review" "summary" "QA PASS")}}.
 		//
-		// `list` builds a []interface{}. Used as: {{template "_resolve_spec_paths" (dict "domains" (list "QA_REPORTS"))}}.
+		// `list` builds a []interface{}. Used as: (dict "domains" (list "QA_REPORTS")).
 		//
 		// `default` returns the first non-empty value: {{.x | default "fallback"}}.
 		"dict": func(pairs ...interface{}) (map[string]interface{}, error) {

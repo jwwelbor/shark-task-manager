@@ -23,16 +23,16 @@ func TestPartialTemplates_Syntax(t *testing.T) {
 			expectedText: "TDD PROCESS:",
 		},
 		{
-			name:         "Exit gate partial",
-			templateFile: canonicalPromptPath("_partials", "_exit_gate.md"),
-			templateName: "_exit_gate",
-			expectedText: "EXIT GATE:",
+			name:         "Sizing scale partial",
+			templateFile: canonicalPromptPath("_partials", "_sizing.md"),
+			templateName: "_sizing_scale",
+			expectedText: "SIZE SCALE",
 		},
 		{
-			name:         "Read section partial",
-			templateFile: canonicalPromptPath("_partials", "_read_section.md"),
-			templateName: "_read_section",
-			expectedText: "READ:",
+			name:         "Advance command partial",
+			templateFile: canonicalPromptPath("_partials", "_commands.md"),
+			templateName: "advance",
+			expectedText: "shark status advance",
 		},
 	}
 
@@ -82,108 +82,14 @@ func TestPartialTemplates_TDDProcess(t *testing.T) {
 	assert.Contains(t, output, "Commit when test suite passes")
 }
 
-func TestPartialTemplates_ExitGate(t *testing.T) {
-	tmpl, err := template.ParseFiles(canonicalPromptPath("_partials", "_exit_gate.md"))
-	require.NoError(t, err)
-
-	definedTemplate := tmpl.Lookup("_exit_gate")
-	require.NotNil(t, definedTemplate)
-
-	var buf bytes.Buffer
-	err = definedTemplate.Execute(&buf, nil)
-	require.NoError(t, err)
-
-	output := buf.String()
-	assert.Contains(t, output, "All acceptance criteria met")
-	assert.Contains(t, output, "Tests passing (unit + integration)")
-	assert.Contains(t, output, "Code reviewed and approved")
-	assert.Contains(t, output, "Documentation updated")
-}
-
-func TestPartialTemplates_ReadSection_SmartNumbering(t *testing.T) {
-	tmpl, err := template.ParseFiles(canonicalPromptPath("_partials", "_read_section.md"))
-	require.NoError(t, err)
-
-	definedTemplate := tmpl.Lookup("_read_section")
-	require.NotNil(t, definedTemplate)
-
-	tests := []struct {
-		name           string
-		data           map[string]string
-		expectedOutput []string
-	}{
-		{
-			name: "Only primary doc",
-			data: map[string]string{
-				"primary_doc":   "task.md",
-				"related_docs":  "",
-				"related_tasks": "",
-			},
-			expectedOutput: []string{
-				"(1) task.md",
-			},
-		},
-		{
-			name: "Primary doc and related docs",
-			data: map[string]string{
-				"primary_doc":   "task.md",
-				"related_docs":  "prd.md, arch.md",
-				"related_tasks": "",
-			},
-			expectedOutput: []string{
-				"(1) task.md",
-				"(2) Related docs: prd.md, arch.md",
-			},
-		},
-		{
-			name: "All fields populated",
-			data: map[string]string{
-				"primary_doc":   "task.md",
-				"related_docs":  "prd.md",
-				"related_tasks": "E07-F29-003",
-			},
-			expectedOutput: []string{
-				"(1) task.md",
-				"(2) Related docs: prd.md",
-				"(3) Related tasks: E07-F29-003",
-			},
-		},
-		{
-			name: "Primary doc and related tasks (no docs)",
-			data: map[string]string{
-				"primary_doc":   "task.md",
-				"related_docs":  "",
-				"related_tasks": "E07-F29-003",
-			},
-			expectedOutput: []string{
-				"(1) task.md",
-				"(2) Related tasks: E07-F29-003",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var buf bytes.Buffer
-			err = definedTemplate.Execute(&buf, tt.data)
-			require.NoError(t, err)
-
-			output := buf.String()
-			for _, expected := range tt.expectedOutput {
-				assert.Contains(t, output, expected, "Output should contain: %s", expected)
-			}
-		})
-	}
-}
-
 func TestPartialTemplates_LoadAll(t *testing.T) {
 	// Load the core Go-template partials at once to verify they can coexist.
 	tmpl := parseCanonicalPartials(t)
 
 	// Verify all three partials are defined
 	assert.NotNil(t, tmpl.Lookup("_tdd_process"), "TDD process partial should be defined")
-	assert.NotNil(t, tmpl.Lookup("_exit_gate"), "Exit gate partial should be defined")
-	assert.NotNil(t, tmpl.Lookup("_read_section"), "Read section partial should be defined")
+	assert.NotNil(t, tmpl.Lookup("_sizing_scale"), "Sizing scale partial should be defined")
+	assert.NotNil(t, tmpl.Lookup("advance"), "Advance command partial should be defined")
 }
 
 func TestPartialTemplates_Include(t *testing.T) {
