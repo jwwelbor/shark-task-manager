@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -823,6 +824,24 @@ func DetectEntityType(key string) string {
 	}
 
 	return "unknown"
+}
+
+// normalizeEntityTypeForWorkflow maps a raw CLI/DB entity-type string onto
+// the canonical workflow-action slot used by the action/config layers.
+// Callers keep using this local seam so tests can cover the CLI narrowing
+// behavior directly, while the action package owns the actual alias map.
+func normalizeEntityTypeForWorkflow(entityType string) string {
+	return action.NormalizeEntityType(entityType)
+}
+
+// narrowActionServiceForEntity narrows a root action.ActionService to the
+// given entity type, applying normalizeEntityTypeForWorkflow first. `shark
+// next` (next.go) and `shark run` (run.go) both call this single seam rather
+// than each inlining ForEntity(normalizeEntityTypeForWorkflow(entityType)),
+// so the B034 fix has one directly-testable implementation instead of two
+// independently-verified copies.
+func narrowActionServiceForEntity(root action.ActionService, entityType string) action.ActionService {
+	return root.ForEntity(normalizeEntityTypeForWorkflow(entityType))
 }
 
 // applySizeLabelToMap injects "size_label" into a JSON map when the entity carries a

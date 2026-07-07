@@ -12,7 +12,6 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
@@ -122,7 +121,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
-	actionSvc := actionSvcRoot.ForEntity(action.NormalizeEntityType(entityType))
+	actionSvc := narrowActionServiceForEntity(actionSvcRoot, entityType)
 
 	workflowSvc := cli.GetWorkflowService()
 

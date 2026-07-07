@@ -154,12 +154,15 @@ func TestNextAdapterCache_ReturnsSameInstanceOnRepeatedGet(t *testing.T) {
 	assert.Same(t, first, second, "repeated get() for the same entity type must return the same *nextAdapters")
 }
 
-// TestNextAdapterCache_NormalizesChangeCardActionService verifies CC-### keys
-// use the canonical "change" workflow action slot. DetectEntityType returns
-// "change_card", while workflow config stores change-card statuses under
-// "change"; passing the raw detected type makes shark next pause with
-// "status not defined" for valid change-card statuses.
-func TestNextAdapterCache_NormalizesChangeCardActionService(t *testing.T) {
+// TestNextAdapterCache_NormalizesChangeCardEntityType is the B034 regression
+// test: DetectEntityType/ParseScope hand `resolveNext` the raw entity-type
+// string "change_card" for CC-### keys, but the workflow-loading subsystem
+// only ever registers a "change" slot in the action service's per-entity
+// map. Before the fix, cache.get() called actionSvcRoot.ForEntity("change_card")
+// directly, so every change-card status lookup missed the map and degraded
+// to the B022 pause path regardless of status. The cache must narrow against
+// "change", never the unregistered "change_card" key.
+func TestNextAdapterCache_NormalizesChangeCardEntityType(t *testing.T) {
 	_, _, restore := installCountingBuilders(t)
 	defer restore()
 
@@ -169,11 +172,15 @@ func TestNextAdapterCache_NormalizesChangeCardActionService(t *testing.T) {
 		actionSvcRoot: actionSvc.MockActionService,
 	}
 
-	_, err := cache.get(context.Background(), "change_card")
+	ctx := context.Background()
+
+	_, err := cache.get(ctx, "change_card")
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, actionSvc.forEntityCounts["change"], "change_card should narrow action service to canonical change workflow")
-	assert.Equal(t, 0, actionSvc.forEntityCounts["change_card"], "raw change_card must not be used for action lookup")
+	assert.Equal(t, 1, actionSvc.forEntityCounts["change"],
+		"change_card must narrow the action service against the \"change\" workflow (B034)")
+	assert.Equal(t, 0, actionSvc.forEntityCounts["change_card"],
+		"action service must never be narrowed against the unregistered \"change_card\" key")
 }
 
 // TestNextAdapterCache_PropagatesBuilderError verifies error handling: when

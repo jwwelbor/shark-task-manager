@@ -154,3 +154,93 @@ func TestB028_IsArchivedStatus_DelegatesToWorkflowService(t *testing.T) {
 		t.Error("expected feature-level terminal \"shipped\" to be classified as archived")
 	}
 }
+
+// b034ChangeCardWorkflowConfig defines distinct terminal statuses for task
+// ("completed") and change ("resolved") so a lookup that fails to normalize
+// "change_card" -> "change" and silently falls back to the task workflow is
+// observable: it would treat "completed" (task's terminal, not change's) as
+// archived for a change-card and fail to recognize "resolved" (change's own
+// terminal) at all.
+const b034ChangeCardWorkflowConfig = `{
+  "task_workflow": {
+    "statuses": ["todo", "in_progress", "completed"],
+    "status_flow": {
+      "todo": ["in_progress"],
+      "in_progress": ["completed"],
+      "completed": []
+    },
+    "special_statuses": {
+      "_start_": ["todo"],
+      "_complete_": ["completed"]
+    },
+    "status_metadata": {
+      "todo": {"color": "gray", "phase": "planning"},
+      "in_progress": {"color": "blue", "phase": "development"},
+      "completed": {"color": "green", "phase": "done"}
+    }
+  },
+  "change_workflow": {
+    "statuses": ["draft", "development", "resolved"],
+    "status_flow": {
+      "draft": ["development"],
+      "development": ["resolved"],
+      "resolved": []
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["resolved"]
+    },
+    "status_metadata": {
+      "draft": {"color": "gray", "phase": "planning"},
+      "development": {"color": "blue", "phase": "development"},
+      "resolved": {"color": "green", "phase": "done"}
+    }
+  }
+}`
+
+// TestB034_IsArchivedStatus_NormalizesChangeCardEntityType verifies
+// isArchivedStatus normalizes "change_card" -> "change" before narrowing
+// wf.ForLevel, mirroring the ActionService.ForEntity fix for B034. Without
+// the fix, GetWorkflowForLevel("change_card") falls through defaultForType's
+// default branch to the TASK workflow instead of the change workflow.
+// NOTE: Must run serially (no t.Parallel()) — see
+// TestB028_IsArchivedStatus_DelegatesToWorkflowService above for why.
+func TestB034_IsArchivedStatus_NormalizesChangeCardEntityType(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".sharkconfig.json"), []byte(b034ChangeCardWorkflowConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(origCwd)
+		cli.ResetWorkflowService()
+	})
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	cli.ResetWorkflowService()
+
+	// change's own terminal status. Pre-fix, entityType="change_card" resolves
+	// to the task workflow (which has no "resolved" status at all), so this
+	// assertion fails on the regressed code.
+	if !isArchivedStatus("change_card", "resolved") {
+		t.Error("expected isArchivedStatus(\"change_card\", \"resolved\") = true; entityType not normalized to \"change\" before ForLevel lookup")
+	}
+
+	// task's terminal, NOT change's. Pre-fix, entityType="change_card" falls
+	// back to the task workflow, which *does* recognize "completed" as
+	// terminal, so this assertion is true on the regressed code and false
+	// once the fix correctly resolves the change workflow instead.
+	if isArchivedStatus("change_card", "completed") {
+		t.Error("expected isArchivedStatus(\"change_card\", \"completed\") = false; change workflow does not define this status as terminal")
+	}
+
+	// Non-terminal change status remains non-archived.
+	if isArchivedStatus("change_card", "development") {
+		t.Error("expected isArchivedStatus(\"change_card\", \"development\") = false")
+	}
+}
