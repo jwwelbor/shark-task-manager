@@ -1187,67 +1187,94 @@ func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
 	requireViewerHTMLMarkers(t, content, "viewer.html API client", expectedFunctions...)
 }
 
-func TestViewerHTMLFeatureTasksNormalizationMarkers(t *testing.T) {
-	content := viewerHTMLContent()
-
-	requireViewerHTMLMarkers(t, content, "viewer.html feature-task normalization",
-		"function normalizeFeatureTasksPayload(payload)",
-		"if (Array.isArray(payload)) return payload;",
-		"if (payload && Array.isArray(payload.tasks)) return payload.tasks;",
-		"return null;",
-		"return normalizeFeatureTasksPayload(await resp.json());",
-	)
-}
-
 func TestViewerHTMLFeatureTasksNormalizationBehavior(t *testing.T) {
 	content := viewerHTMLContent()
 
-	start := strings.Index(content, "function normalizeFeatureTasksPayload(payload) {")
+	start := strings.Index(content, "// === API CLIENT ===")
 	if start < 0 {
-		t.Fatal("viewer.html missing normalizeFeatureTasksPayload helper")
+		t.Fatal("viewer.html missing API client section")
 	}
-	end := strings.Index(content[start:], "\n\n/**\n * Fetches all tasks for a feature.")
+	end := strings.Index(content[start:], "// ============================================================\n// SECTION: UI Feedback Helpers")
 	if end < 0 {
-		t.Fatal("viewer.html missing apiGetFeatureTasks docblock after normalizeFeatureTasksPayload")
+		t.Fatal("viewer.html missing UI feedback helper section after API client section")
 	}
 	fnSource := content[start : start+end]
 
 	nodePath, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("node not available for viewer payload normalization behavior test")
+		t.Fatalf("node is required for viewer payload normalization behavior test: %v", err)
 	}
 
 	script := fnSource + `
-const legacy = normalizeFeatureTasksPayload([{ key: 'T-E01-F01-001' }]);
-if (!Array.isArray(legacy) || legacy.length !== 1 || legacy[0].key !== 'T-E01-F01-001') {
-  throw new Error('legacy array payload was not preserved');
+async function run() {
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    async json() {
+      return [{ key: 'T-E01-F01-001' }];
+    }
+  });
+  const legacy = await apiGetFeatureTasks('E01-F01');
+  if (!Array.isArray(legacy) || legacy.length !== 1 || legacy[0].key !== 'T-E01-F01-001') {
+    throw new Error('legacy array payload was not preserved by apiGetFeatureTasks');
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        feature_key: 'E01-F01',
+        total: 1,
+        tasks: [{ key: 'T-E01-F01-002' }]
+      };
+    }
+  });
+  const wrapped = await apiGetFeatureTasks('E01-F01');
+  if (!Array.isArray(wrapped) || wrapped.length !== 1 || wrapped[0].key !== 'T-E01-F01-002') {
+    throw new Error('wrapped tasks payload was not unwrapped by apiGetFeatureTasks');
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        feature_key: 'E01-F01',
+        total: 0,
+        tasks: []
+      };
+    }
+  });
+  const emptyWrapped = await apiGetFeatureTasks('E01-F01');
+  if (!Array.isArray(emptyWrapped) || emptyWrapped.length !== 0) {
+    throw new Error('empty wrapped tasks payload was not preserved by apiGetFeatureTasks');
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {};
+    }
+  });
+  if (await apiGetFeatureTasks('E01-F01')) {
+    throw new Error('malformed payload should return null');
+  }
+
+  globalThis.fetch = async () => ({ ok: false, async json() { return []; } });
+  if (await apiGetFeatureTasks('E01-F01')) {
+    throw new Error('non-OK response should return null');
+  }
+
+  globalThis.fetch = async () => {
+    throw new Error('boom');
+  };
+  if (await apiGetFeatureTasks('E01-F01')) {
+    throw new Error('thrown fetch should return null');
+  }
 }
 
-const wrapped = normalizeFeatureTasksPayload({
-  feature_key: 'E01-F01',
-  total: 1,
-  tasks: [{ key: 'T-E01-F01-002' }]
+run().catch(err => {
+  console.error(err);
+  process.exit(1);
 });
-if (!Array.isArray(wrapped) || wrapped.length !== 1 || wrapped[0].key !== 'T-E01-F01-002') {
-  throw new Error('wrapped tasks payload was not unwrapped');
-}
-
-const emptyWrapped = normalizeFeatureTasksPayload({
-  feature_key: 'E01-F01',
-  total: 0,
-  tasks: []
-});
-if (!Array.isArray(emptyWrapped) || emptyWrapped.length !== 0) {
-  throw new Error('empty wrapped tasks payload was not preserved');
-}
-
-if (normalizeFeatureTasksPayload({}) !== null) {
-  throw new Error('malformed payload should return null');
-}
-
-if (normalizeFeatureTasksPayload({ tasks: null }) !== null) {
-  throw new Error('non-array tasks payload should return null');
-}
 `
 
 	cmd := exec.Command(nodePath, "-e", script)
