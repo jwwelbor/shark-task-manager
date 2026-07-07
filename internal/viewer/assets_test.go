@@ -1,12 +1,141 @@
 package viewer_test
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	viewer "github.com/jwwelbor/shark-task-manager/internal/viewer"
 )
+
+func viewerHTMLContent() string {
+	return string(viewer.ViewerHTML)
+}
+
+func requireViewerHTMLMarkers(t *testing.T, content string, label string, markers ...string) {
+	t.Helper()
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("%s missing marker: %q", label, marker)
+		}
+	}
+}
+
+func extractJSFunction(t *testing.T, content string, signature string) string {
+	t.Helper()
+
+	start := strings.Index(content, signature)
+	if start < 0 {
+		t.Fatalf("viewer.html missing function signature: %q", signature)
+	}
+
+	bodyStart := strings.Index(content[start:], "{")
+	if bodyStart < 0 {
+		t.Fatalf("viewer.html missing function body for signature: %q", signature)
+	}
+	bodyStart += start
+
+	depth := 0
+	inSingle := false
+	inDouble := false
+	inBacktick := false
+	inLineComment := false
+	inBlockComment := false
+	escaped := false
+
+	for i := bodyStart; i < len(content); i++ {
+		ch := content[i]
+
+		if inLineComment {
+			if ch == '\n' {
+				inLineComment = false
+			}
+			continue
+		}
+		if inBlockComment {
+			if ch == '*' && i+1 < len(content) && content[i+1] == '/' {
+				inBlockComment = false
+				i++
+			}
+			continue
+		}
+		if inSingle {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		if inDouble {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inDouble = false
+			}
+			continue
+		}
+		if inBacktick {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '`' {
+				inBacktick = false
+			}
+			continue
+		}
+
+		if ch == '/' && i+1 < len(content) {
+			switch content[i+1] {
+			case '/':
+				inLineComment = true
+				i++
+				continue
+			case '*':
+				inBlockComment = true
+				i++
+				continue
+			}
+		}
+
+		switch ch {
+		case '\'':
+			inSingle = true
+		case '"':
+			inDouble = true
+		case '`':
+			inBacktick = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return content[start : i+1]
+			}
+		}
+	}
+
+	t.Fatalf("viewer.html function %q did not terminate", signature)
+	return ""
+}
 
 // TestViewerHTMLEmbedded verifies that the go:embed directive populated
 // ViewerHTML and that it contains the structural markers required by the SPA.
@@ -1158,7 +1287,7 @@ func TestViewerHTMLPropertiesPanelRegressionGate(t *testing.T) {
 // TestViewerHTMLNoNewAPIEndpoints verifies that the seven existing API fetch wrapper
 // functions remain unchanged — no new apiGet* functions were added. TC-F08-020, AC-NF-001.1.
 func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
-	content := string(viewer.ViewerHTML)
+	content := viewerHTMLContent()
 
 	// All 7 existing functions must be present
 	expectedFunctions := []string{
@@ -1170,10 +1299,96 @@ func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
 		"apiGetHistory",
 		"apiGetFeatureTasks",
 	}
-	for _, fn := range expectedFunctions {
-		if !strings.Contains(content, fn) {
-			t.Errorf("viewer.html missing expected API function: %q", fn)
-		}
+	requireViewerHTMLMarkers(t, content, "viewer.html API client", expectedFunctions...)
+}
+
+func TestViewerHTMLFeatureTasksNormalizationBehavior(t *testing.T) {
+	content := viewerHTMLContent()
+	fnSource := extractJSFunction(t, content, "function normalizeFeatureTasksPayload(payload)") +
+		"\n" +
+		extractJSFunction(t, content, "async function apiGetFeatureTasks(key, tags)")
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("node is required for viewer payload normalization behavior test: %v", err)
+	}
+
+	script := fnSource + `
+async function run() {
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    async json() {
+      return [{ key: 'T-E01-F01-001' }];
+    }
+  });
+  const legacy = await apiGetFeatureTasks('E01-F01');
+  if (!Array.isArray(legacy) || legacy.length !== 1 || legacy[0].key !== 'T-E01-F01-001') {
+    throw new Error('legacy array payload was not preserved by apiGetFeatureTasks');
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        feature_key: 'E01-F01',
+        total: 1,
+        tasks: [{ key: 'T-E01-F01-002' }]
+      };
+    }
+  });
+  const wrapped = await apiGetFeatureTasks('E01-F01');
+  if (!Array.isArray(wrapped) || wrapped.length !== 1 || wrapped[0].key !== 'T-E01-F01-002') {
+    throw new Error('wrapped tasks payload was not unwrapped by apiGetFeatureTasks');
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        feature_key: 'E01-F01',
+        total: 0,
+        tasks: []
+      };
+    }
+  });
+  const emptyWrapped = await apiGetFeatureTasks('E01-F01');
+  if (!Array.isArray(emptyWrapped) || emptyWrapped.length !== 0) {
+    throw new Error('empty wrapped tasks payload was not preserved by apiGetFeatureTasks');
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {};
+    }
+  });
+  if (await apiGetFeatureTasks('E01-F01')) {
+    throw new Error('malformed payload should return null');
+  }
+
+  globalThis.fetch = async () => ({ ok: false, async json() { return []; } });
+  if (await apiGetFeatureTasks('E01-F01')) {
+    throw new Error('non-OK response should return null');
+  }
+
+  globalThis.fetch = async () => {
+    throw new Error('boom');
+  };
+  if (await apiGetFeatureTasks('E01-F01')) {
+    throw new Error('thrown fetch should return null');
+  }
+}
+
+run().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+`
+
+	cmd := exec.Command(nodePath, "-e", script)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node-based viewer payload normalization test failed: %v\n%s", err, output)
 	}
 }
 

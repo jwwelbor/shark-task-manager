@@ -3015,10 +3015,22 @@ async function apiGetHistory(key) {
 }
 
 /**
+ * Normalizes feature-task payloads across the legacy bare-array response and
+ * the current wrapped `{ feature_key, total, tasks }` response shape.
+ * @param {unknown} payload
+ * @returns {Array|null}
+ */
+function normalizeFeatureTasksPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.tasks)) return payload.tasks;
+  return null;
+}
+
+/**
  * Fetches all tasks for a feature.
  * @param {string} key - feature key (e.g. "E07-F01")
  * @param {string[]} [tags] - Optional tag filter (AND semantics, E28-F06 REQ-F-017, AC-12, AC-T3)
- * @returns {Promise<Array|null>} parsed JSON array or null on error
+ * @returns {Promise<Array|null>} parsed task array or null on error
  */
 async function apiGetFeatureTasks(key, tags) {
   try {
@@ -3029,7 +3041,7 @@ async function apiGetFeatureTasks(key, tags) {
     }
     const resp = await fetch(url);
     if (!resp.ok) return null;
-    return await resp.json();
+    return normalizeFeatureTasksPayload(await resp.json());
   } catch {
     return null;
   }
