@@ -94,6 +94,11 @@ func (m *Manager) Load() (*Config, error) {
 		config.SharkDataPath = &sharkDataPath
 	}
 
+	if claimTTLSeconds, ok := rawData["claim_ttl_seconds"].(float64); ok {
+		ttl := int(claimTTLSeconds)
+		config.ClaimTTLSeconds = &ttl
+	}
+
 	// Parse console_width if present (CC-036). JSON numbers decode as float64.
 	// A zero or negative value means "auto-detect" (handled in GetConsoleWidth).
 	if consoleWidth, ok := rawData["console_width"].(float64); ok {

@@ -994,6 +994,67 @@ func TestManager_Load_TagRequiredFor(t *testing.T) {
 	})
 }
 
+func TestManager_Load_ClaimTTLSeconds(t *testing.T) {
+	t.Run("claim_ttl_seconds populated from JSON including zero", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"claim_ttl_seconds": 0,
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("Load() returned nil config")
+		}
+		if cfg.ClaimTTLSeconds == nil {
+			t.Fatal("ClaimTTLSeconds is nil; expected explicit zero to be preserved")
+		}
+		if *cfg.ClaimTTLSeconds != 0 {
+			t.Fatalf("ClaimTTLSeconds = %d, want 0", *cfg.ClaimTTLSeconds)
+		}
+	})
+
+	t.Run("claim_ttl_seconds absent leaves pointer nil", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+		configData := map[string]interface{}{
+			"color_enabled": true,
+		}
+		data, err := json.MarshalIndent(configData, "", "  ")
+		if err != nil {
+			t.Fatalf("failed to marshal config: %v", err)
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		mgr := NewManager(configPath)
+		cfg, err := mgr.Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("Load() returned nil config")
+		}
+		if cfg.ClaimTTLSeconds != nil {
+			t.Fatalf("ClaimTTLSeconds = %d, want nil when key is absent", *cfg.ClaimTTLSeconds)
+		}
+	})
+}
+
 // TestManager_GetActionService_Caching returns same instance on multiple calls
 func TestManager_GetActionService_Caching(t *testing.T) {
 	// Arrange

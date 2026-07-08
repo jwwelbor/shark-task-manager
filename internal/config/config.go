@@ -62,6 +62,7 @@ type Config struct {
 	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Optional explicit prompt directory path. Absent means derive from shark_data_path.
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow YAML directory or index. Empty uses embedded defaults.
 	SharkDataPath          *string                `json:"shark_data_path,omitempty"`          // Content-bundle root (skills/, prompts/, agents/, overrides/) relative to project root. Default: "shark-data". SEPARATE from workflow_config.
+	ClaimTTLSeconds        *int                   `json:"claim_ttl_seconds,omitempty"`        // Optional claim/lease TTL in seconds. Nil falls back to env/default; 0 disables claim expiry.
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields

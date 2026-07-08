@@ -70,13 +70,11 @@ func (s *ClaimService) SetTaskResolver(resolver TaskKeyResolver) {
 	s.taskResolver = resolver
 }
 
-// NewClaimService constructs a ClaimService. A non-positive ttl falls back to
-// DefaultClaimTTL (or the SHARK_CLAIM_TTL_SECONDS override).
-func NewClaimService(repo ClaimRepository, ttl time.Duration) *ClaimService {
-	if ttl <= 0 {
-		ttl = claimTTLFromEnv()
-	}
-	return &ClaimService{repo: repo, ttl: ttl}
+// NewClaimService constructs a ClaimService. A nil ttl falls back to
+// DefaultClaimTTL (or the SHARK_CLAIM_TTL_SECONDS override). A non-nil zero
+// ttl explicitly disables claim expiry.
+func NewClaimService(repo ClaimRepository, ttl *time.Duration) *ClaimService {
+	return &ClaimService{repo: repo, ttl: resolveClaimTTL(ttl)}
 }
 
 // TTL returns the configured lease time-to-live.
@@ -97,8 +95,10 @@ type ClaimInput struct {
 // and release).
 func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.EntityClaim, error) {
 	// Always sweep expired leases first so a dead holder never wedges an entity.
-	if _, err := s.repo.ReclaimExpired(ctx, s.ttl); err != nil {
-		return nil, fmt.Errorf("reclaim expired before claim: %w", err)
+	if s.ttl > 0 {
+		if _, err := s.repo.ReclaimExpired(ctx, s.ttl); err != nil {
+			return nil, fmt.Errorf("reclaim expired before claim: %w", err)
+		}
 	}
 
 	by := in.ClaimedBy
@@ -252,8 +252,10 @@ func (s *ClaimService) IsClaimable(ctx context.Context, entityType, entityKey st
 
 // List returns all current claims, sweeping expired leases first.
 func (s *ClaimService) List(ctx context.Context) ([]*models.EntityClaim, error) {
-	if _, err := s.repo.ReclaimExpired(ctx, s.ttl); err != nil {
-		return nil, err
+	if s.ttl > 0 {
+		if _, err := s.repo.ReclaimExpired(ctx, s.ttl); err != nil {
+			return nil, err
+		}
 	}
 	return s.repo.List(ctx)
 }
@@ -261,10 +263,20 @@ func (s *ClaimService) List(ctx context.Context) ([]*models.EntityClaim, error) 
 // ReclaimExpired frees all leases whose heartbeats are stale and returns the
 // count reclaimed.
 func (s *ClaimService) ReclaimExpired(ctx context.Context) (int64, error) {
+	if s.ttl <= 0 {
+		return 0, nil
+	}
 	return s.repo.ReclaimExpired(ctx, s.ttl)
 }
 
 // --- helpers ---
+
+func resolveClaimTTL(ttl *time.Duration) time.Duration {
+	if ttl != nil {
+		return *ttl
+	}
+	return claimTTLFromEnv()
+}
 
 func claimTTLFromEnv() time.Duration {
 	if v := os.Getenv("SHARK_CLAIM_TTL_SECONDS"); v != "" {

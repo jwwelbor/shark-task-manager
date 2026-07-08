@@ -44,6 +44,44 @@ func (m *mockClaimRepo) List(ctx context.Context) ([]*models.EntityClaim, error)
 	return m.ListFn(ctx)
 }
 
+func durationPtr(d time.Duration) *time.Duration {
+	return &d
+}
+
+func TestNewClaimService_TTLResolution(t *testing.T) {
+	t.Run("nil override uses env", func(t *testing.T) {
+		t.Setenv("SHARK_CLAIM_TTL_SECONDS", "42")
+		svc := NewClaimService(&mockClaimRepo{}, nil)
+		if got := svc.TTL(); got != 42*time.Second {
+			t.Fatalf("TTL() = %v, want 42s", got)
+		}
+	})
+
+	t.Run("nil override falls back to default", func(t *testing.T) {
+		t.Setenv("SHARK_CLAIM_TTL_SECONDS", "")
+		svc := NewClaimService(&mockClaimRepo{}, nil)
+		if got := svc.TTL(); got != DefaultClaimTTL {
+			t.Fatalf("TTL() = %v, want %v", got, DefaultClaimTTL)
+		}
+	})
+
+	t.Run("explicit zero disables expiry", func(t *testing.T) {
+		t.Setenv("SHARK_CLAIM_TTL_SECONDS", "42")
+		svc := NewClaimService(&mockClaimRepo{}, durationPtr(0))
+		if got := svc.TTL(); got != 0 {
+			t.Fatalf("TTL() = %v, want 0", got)
+		}
+	})
+
+	t.Run("explicit positive overrides env", func(t *testing.T) {
+		t.Setenv("SHARK_CLAIM_TTL_SECONDS", "42")
+		svc := NewClaimService(&mockClaimRepo{}, durationPtr(5*time.Minute))
+		if got := svc.TTL(); got != 5*time.Minute {
+			t.Fatalf("TTL() = %v, want 5m", got)
+		}
+	})
+}
+
 func TestClaimService_Claim_ReclaimsBeforeClaiming(t *testing.T) {
 	reclaimCalled := false
 	m := &mockClaimRepo{
@@ -53,7 +91,7 @@ func TestClaimService_Claim_ReclaimsBeforeClaiming(t *testing.T) {
 			return c, nil
 		},
 	}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	got, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "E1-F1-001"})
 	if err != nil {
 		t.Fatalf("claim: %v", err)
@@ -76,7 +114,7 @@ func TestClaimService_Claim_BlockedWhenLive(t *testing.T) {
 			return &models.EntityClaim{EntityType: t, EntityKey: k, ClaimedBy: "other", SessionID: "s9", ClaimedAt: time.Now()}, nil
 		},
 	}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	_, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "E1-F1-001"})
 	if err == nil {
 		t.Fatal("expected error claiming a live-claimed entity")
@@ -98,7 +136,7 @@ func TestClaimService_Claim_ForceSteals(t *testing.T) {
 		},
 		ReleaseFn: func(ctx context.Context, t, k string) (bool, error) { released = true; return true, nil },
 	}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	got, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "E1-F1-001", Force: true})
 	if err != nil {
 		t.Fatalf("force claim: %v", err)
@@ -122,7 +160,7 @@ func TestClaimService_ForceSteal_LostRaceWrapsContext(t *testing.T) {
 		},
 		ReleaseFn: func(ctx context.Context, t, k string) (bool, error) { return true, nil },
 	}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	_, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "E1-F1-001", Force: true})
 	if err == nil {
 		t.Fatal("expected error when re-claim loses the steal race")
@@ -142,7 +180,7 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 			ReleaseSessionFn: func(ctx context.Context, t, k, s string) (bool, error) { sessionCalled = true; return true, nil },
 			ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { plainCalled = true; return true, nil },
 		}
-		svc := NewClaimService(m, time.Minute)
+		svc := NewClaimService(m, durationPtr(time.Minute))
 		ok, err := svc.Release(context.Background(), "task", "E1-F1-001", "sess-1", "", false)
 		if err != nil || !ok {
 			t.Fatalf("Release = %v, %v", ok, err)
@@ -158,7 +196,7 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 			ReleaseSessionFn: func(ctx context.Context, t, k, s string) (bool, error) { sessionCalled = true; return true, nil },
 			ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { plainCalled = true; return true, nil },
 		}
-		svc := NewClaimService(m, time.Minute)
+		svc := NewClaimService(m, durationPtr(time.Minute))
 		if _, err := svc.Release(context.Background(), "task", "E1-F1-001", "", "", true); err != nil {
 			t.Fatalf("Release: %v", err)
 		}
@@ -173,7 +211,7 @@ func TestClaimService_Heartbeat(t *testing.T) {
 		m := &mockClaimRepo{
 			RenewFn: func(ctx context.Context, t, k, s string, p *float64, n string) (bool, error) { return false, nil },
 		}
-		svc := NewClaimService(m, time.Minute)
+		svc := NewClaimService(m, durationPtr(time.Minute))
 		err := svc.Heartbeat(context.Background(), "task", "E1-F1-001", "sess-1", nil, "")
 		if err == nil {
 			t.Fatal("expected error when no active claim for the session")
@@ -184,7 +222,7 @@ func TestClaimService_Heartbeat(t *testing.T) {
 		m := &mockClaimRepo{
 			RenewFn: func(ctx context.Context, t, k, s string, p *float64, n string) (bool, error) { return true, nil },
 		}
-		svc := NewClaimService(m, time.Minute)
+		svc := NewClaimService(m, durationPtr(time.Minute))
 		if err := svc.Heartbeat(context.Background(), "task", "E1-F1-001", "sess-1", nil, "note"); err != nil {
 			t.Fatalf("Heartbeat: %v", err)
 		}
@@ -203,7 +241,7 @@ func TestClaimService_List_ReclaimsFirst(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	if _, err := svc.List(context.Background()); err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -228,7 +266,7 @@ func TestClaimService_IsClaimable(t *testing.T) {
 			m := &mockClaimRepo{
 				GetFn: func(ctx context.Context, t, k string) (*models.EntityClaim, error) { return tc.get, nil },
 			}
-			svc := NewClaimService(m, time.Hour)
+			svc := NewClaimService(m, durationPtr(time.Hour))
 			got, err := svc.IsClaimable(context.Background(), "task", "E1-F1-001")
 			if err != nil {
 				t.Fatal(err)
@@ -237,6 +275,41 @@ func TestClaimService_IsClaimable(t *testing.T) {
 				t.Errorf("IsClaimable = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestClaimService_DisabledTTL_SkipsExpirySweep(t *testing.T) {
+	reclaimCalled := false
+	m := &mockClaimRepo{
+		ReclaimFn: func(ctx context.Context, ttl time.Duration) (int64, error) {
+			reclaimCalled = true
+			return 0, nil
+		},
+		ClaimFn: func(ctx context.Context, c *models.EntityClaim) (*models.EntityClaim, error) {
+			c.ID = 1
+			return c, nil
+		},
+		ListFn: func(ctx context.Context) ([]*models.EntityClaim, error) {
+			return nil, nil
+		},
+	}
+	svc := NewClaimService(m, durationPtr(0))
+
+	if _, err := svc.Claim(context.Background(), ClaimInput{EntityType: "task", EntityKey: "E1-F1-001"}); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if _, err := svc.List(context.Background()); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	reclaimed, err := svc.ReclaimExpired(context.Background())
+	if err != nil {
+		t.Fatalf("reclaim expired: %v", err)
+	}
+	if reclaimCalled {
+		t.Fatal("expected disabled TTL to skip repository ReclaimExpired")
+	}
+	if reclaimed != 0 {
+		t.Fatalf("ReclaimExpired() = %d, want 0 when TTL is disabled", reclaimed)
 	}
 }
 
@@ -276,7 +349,7 @@ func TestClaimService_Claim_OpensWorkSession(t *testing.T) {
 		},
 	}
 	log := &mockSessionLog{}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	svc.SetSessionLog(log)
 
 	claimed, err := svc.Claim(context.Background(), ClaimInput{EntityType: "feature", EntityKey: "E1-F1", ClaimedBy: "dev-agent"})
@@ -310,7 +383,7 @@ func TestClaimService_Claim_TaskSessionResolvesTaskID(t *testing.T) {
 		},
 	}
 	log := &mockSessionLog{}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	svc.SetSessionLog(log)
 	svc.SetTaskResolver(&mockTaskResolver{
 		task: &models.Task{BaseEntity: models.BaseEntity{ID: 41, Key: "T-E1-F1-001"}},
@@ -336,7 +409,7 @@ func TestClaimService_Release_ClosesWorkSessionWithOutcome(t *testing.T) {
 		ReleaseFn:        func(ctx context.Context, t, k string) (bool, error) { return true, nil },
 	}
 	log := &mockSessionLog{}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	svc.SetSessionLog(log)
 
 	if _, err := svc.Release(context.Background(), "feature", "E1-F1", "sess-1", "pass", false); err != nil {
@@ -359,7 +432,7 @@ func TestClaimService_Release_RequiresForceWithoutSession(t *testing.T) {
 			return true, nil
 		},
 	}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 
 	released, err := svc.Release(context.Background(), "feature", "E1-F1", "", "", false)
 
@@ -381,7 +454,7 @@ func TestClaimService_Release_NoSessionCloseWhenNotReleased(t *testing.T) {
 		ReleaseSessionFn: func(ctx context.Context, t, k, s string) (bool, error) { return false, nil },
 	}
 	log := &mockSessionLog{}
-	svc := NewClaimService(m, time.Minute)
+	svc := NewClaimService(m, durationPtr(time.Minute))
 	svc.SetSessionLog(log)
 
 	released, err := svc.Release(context.Background(), "task", "E1-F1-001", "stale-session", "pass", false)

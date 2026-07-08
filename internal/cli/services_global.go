@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -714,14 +715,20 @@ func ResetServices() {
 
 // GetClaimService returns a ClaimService backed by the global DB connection.
 // Creates a new instance per call (the underlying repo is stateless); the TTL
-// is read from SHARK_CLAIM_TTL_SECONDS or defaults to services.DefaultClaimTTL.
+// is read from .sharkconfig.json when claim_ttl_seconds is set, otherwise from
+// SHARK_CLAIM_TTL_SECONDS or services.DefaultClaimTTL.
 // Panics on DB failure (fail-fast, matching the other CLI accessors).
 func GetClaimService() *services.ClaimService {
 	db, err := GetDB(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	svc := services.NewClaimService(claimrepo.NewRepository(db), 0)
+	var ttl *time.Duration
+	if cfg, cfgErr := GetConfig(); cfgErr == nil && cfg != nil && cfg.ClaimTTLSeconds != nil {
+		resolved := time.Duration(*cfg.ClaimTTLSeconds) * time.Second
+		ttl = &resolved
+	}
+	svc := services.NewClaimService(claimrepo.NewRepository(db), ttl)
 	svc.SetSessionLog(worksession.NewWorkSessionRepository(db))
 	svc.SetTaskResolver(repository.NewTaskRepository(db))
 	return svc
