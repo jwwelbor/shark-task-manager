@@ -38,10 +38,11 @@ var unclaimCmd = &cobra.Command{
 	Short: "Release an entity's claim (lease)",
 	Long: `Release the lease on an entity. With --session the release is session-scoped
 (a safe sync-release that will not steal a lease re-issued to another agent);
-without --session it is an unconditional administrative release.
+without --session it is an unconditional administrative release and requires
+--force.
 
 Examples:
-  shark release E07-F01-001                      Administrative release
+  shark release E07-F01-001 --force              Administrative release
   shark release E07-F01-001 --session=$SID        Safe session-scoped release
   shark release E07-F01-001 --session=$SID --outcome=pass   Stamp the work session's outcome
 
@@ -60,6 +61,7 @@ func newReleaseAlias(name string) *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE:   runUnclaim,
 	}
+	c.Flags().Bool("force", false, "Administrative release without a session id")
 	c.Flags().String("session", "", "Session id for a safe session-scoped release")
 	c.Flags().String("outcome", "", "Outcome stamped on the closed work session (default: released)")
 	return c
@@ -92,6 +94,7 @@ func init() {
 	claimCmd.Flags().String("session", "", "Explicit session id (default: generated)")
 	claimCmd.Flags().Bool("force", false, "Steal an existing (even live) claim")
 
+	unclaimCmd.Flags().Bool("force", false, "Administrative release without a session id")
 	unclaimCmd.Flags().String("session", "", "Session id for a safe session-scoped release")
 	unclaimCmd.Flags().String("outcome", "", "Outcome stamped on the closed work session (default: released)")
 

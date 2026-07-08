@@ -22,7 +22,7 @@ Maintenance:      /shark update-docs | amend <key> "change" | revalidate <key> |
 Read:             shark status [key] | shark list [epic] [feature] | shark get <key> | shark view <key> | shark search "query"
 Create:           shark create epic|feature|task|bug|change|tech-debt|idea|note ...
 Workflow:         shark status advance <key> --outcome pass|fail|blocked | shark status set <key> <status>
-Leases:           shark claim <key> | shark heartbeat <key> | shark release <key> | shark claims
+Leases:           shark claim <key> | shark heartbeat <key> | shark release <key> [--session SID | --force] | shark claims
 Notes:            shark create note <key> "text" --type=comment | shark notes search "query"
 Next preview:     shark next <key> --preview
 Bundle content:   shark skill get <name> [path] | shark agent get <name>

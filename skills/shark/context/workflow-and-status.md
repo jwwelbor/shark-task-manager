@@ -59,7 +59,7 @@ shark claim E01-F02-001 --by dev-agent          # acquire lease → prints a ses
 shark claim E01-F02-001 --force                 # steal a live claim
 shark heartbeat E01-F02-001 --session $SID --progress 0.5 --note "tests passing"
 shark release E01-F02-001 --session $SID         # safe, session-scoped release (alias: unclaim)
-shark release E01-F02-001                        # unconditional administrative release
+shark release E01-F02-001 --force                # unconditional administrative release
 shark claims                                     # list active leases
 ```
 
