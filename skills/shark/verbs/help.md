@@ -38,7 +38,7 @@ entry. Do not run Shark state calls.
 | `project bootstrap` | Bootstrap architecture docs through `shark skill get research workflows/bootstrap.md`. Afterward suggest product design, vision capture, or `/shark run <key>`. |
 | `product-design` | Run the bundled product-design D01-D14 methodology through `shark skill get product-design`. |
 | `vision` | Turn an idea into a Shark epic through the bundled epic-writing workflow, then offer `/shark run <epic-key>`. |
-| `run` | Drive an epic, feature, task, bug, change-card, or tech-debt item through its workflow. Use `/shark run <key>`. |
+| `run` | Drive an epic, feature, task, bug, change-card, or tech-debt item through its workflow. Use `/shark run <key>` or collection aliases `bugs`, `change-cards`, `tech-debt`. |
 | `triage` | Capture, classify, confirm, create, and stop. Use `/shark triage "thing to track"`. |
 | `code-review` | Multi-angle review. Flags: `--fix` for safe fixes, `--comment` for GitHub PR comments. |
 | `brownfield-analysis` | Deep existing-codebase analysis and documentation. |

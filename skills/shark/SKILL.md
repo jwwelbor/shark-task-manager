@@ -98,7 +98,9 @@ NL prose routes here via `verbs/query.md`. If the user wants to *drive* an entit
 The CLI owns routing **and** prompt assembly; the skill is the outer loop. Never
 reconstruct the prompt (see the golden invariant above).
 
-**`/shark run <key>`** (alias `/run`) — the core loop (`verbs/run.md`):
+**`/shark run <key>`** (alias `/run`) — the core loop (`verbs/run.md`).
+Collection aliases `bugs`, `change-cards`, and `tech-debt` enumerate concrete
+items first, then reuse the same per-entity loop:
 
 ```
 loop:
