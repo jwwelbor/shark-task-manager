@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // setupAccessorTestDB sets up a temporary database and returns a cleanup function.
@@ -292,4 +293,79 @@ func TestNoTODOsInServiceAccessors(t *testing.T) {
 	if count > 0 {
 		t.Errorf("service_accessors.go contains %d TODO comment(s); expected 0", count)
 	}
+}
+
+func TestGetClaimService_UsesConfigClaimTTLSeconds(t *testing.T) {
+	t.Run("zero disables expiry", func(t *testing.T) {
+		ResetDB()
+		tmpDir := t.TempDir()
+		testDB := filepath.Join(tmpDir, "claim-zero.db")
+		configContent := `{
+			"database": {
+				"backend": "local",
+				"url": "` + testDB + `"
+			},
+			"claim_ttl_seconds": 0
+		}`
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to write test config: %v", err)
+		}
+
+		origWd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get working directory: %v", err)
+		}
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to chdir to tmpDir: %v", err)
+		}
+		defer func() {
+			ResetDB()
+			if err := os.Chdir(origWd); err != nil {
+				t.Errorf("Failed to restore working directory: %v", err)
+			}
+		}()
+
+		svc := GetClaimService()
+		if got := svc.TTL(); got != 0 {
+			t.Fatalf("TTL() = %v, want 0", got)
+		}
+	})
+
+	t.Run("config overrides env", func(t *testing.T) {
+		ResetDB()
+		t.Setenv("SHARK_CLAIM_TTL_SECONDS", "7")
+		tmpDir := t.TempDir()
+		testDB := filepath.Join(tmpDir, "claim-config.db")
+		configContent := `{
+			"database": {
+				"backend": "local",
+				"url": "` + testDB + `"
+			},
+			"claim_ttl_seconds": 120
+		}`
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to write test config: %v", err)
+		}
+
+		origWd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get working directory: %v", err)
+		}
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to chdir to tmpDir: %v", err)
+		}
+		defer func() {
+			ResetDB()
+			if err := os.Chdir(origWd); err != nil {
+				t.Errorf("Failed to restore working directory: %v", err)
+			}
+		}()
+
+		svc := GetClaimService()
+		if got := svc.TTL(); got != 120*time.Second {
+			t.Fatalf("TTL() = %v, want 120s", got)
+		}
+	})
 }

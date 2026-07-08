@@ -137,7 +137,9 @@ shark claims                                     # list active claims
 
 - One claim per entity (atomic single-grab).
 - `--force` steals a live claim; expired leases are reclaimed automatically.
-- TTL defaults to 15 minutes (`SHARK_CLAIM_TTL_SECONDS` to override).
+- TTL defaults to 15 minutes. Override with `.sharkconfig.json` `claim_ttl_seconds`,
+  or `SHARK_CLAIM_TTL_SECONDS` when the config field is absent. Set
+  `claim_ttl_seconds` to `0` to disable lease expiry entirely.
 - Updates do triple duty: lease renewal + progress + telemetry.
 
 ### Dispatch loop (claim → run → release)

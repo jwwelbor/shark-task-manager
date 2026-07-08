@@ -64,7 +64,8 @@ shark claims                                     # list active leases
 ```
 
 - One claim per entity (atomic single-grab); expired leases are reclaimed
-  automatically (TTL default 15 min, `SHARK_CLAIM_TTL_SECONDS` to override).
+  automatically (TTL default 15 min; `.sharkconfig.json` `claim_ttl_seconds`
+  overrides first, then `SHARK_CLAIM_TTL_SECONDS`; `0` disables expiry).
 - `shark next <root>` hands out only **unclaimed** entities.
 
 ## Orchestrator actions in responses
