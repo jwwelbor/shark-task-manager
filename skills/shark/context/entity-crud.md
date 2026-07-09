@@ -10,6 +10,27 @@ Do not leave placeholder content behind. Fill in the investigation, scope, or
 breadcrumbs you have at creation time, but do not expand the work into a full
 research or specification pass unless the current workflow explicitly calls for it.
 
+### Registering an already-authored file (preferred for filesystem-first docs)
+
+When the entity's doc already exists on disk, register it directly — `--file`
+links the existing file instead of generating a placeholder (the CLI prints
+`LINKED TO EXISTING FILE`). Epics, features, and tasks all support `--file`
+(+ `--key` to pin the key):
+
+```bash
+shark create epic "Epic Title" --key=E16 --file="docs/plan/E16-slug/epic.md"
+shark create feature E16 "Feature Title" --key=F01 --file="docs/plan/E16-slug/E16-F01-slug/feature.md"
+shark create task E16-F01 "Task Title" --file="docs/plan/E16-slug/E16-F01-slug/tasks/T-E16-F01-001.md"
+```
+
+Verify afterward: `shark get <KEY> --field status`.
+
+**Never reach for a filesystem sync to register a single new entity.** A sync
+sweeps a whole tree and can touch entities under active leases or review;
+`create --file` is additive-only and safe while other agents work against live
+shark state. Sync flows are for genuine bulk drift reconciliation, run at a
+quiet moment on explicit user request only.
+
 ### Epics
 
 ```bash

@@ -84,7 +84,7 @@ patterns in the `context/*.md` references.
 |-----------|--------|
 | Read state | `shark status [key]` · `shark list [epic] [feature]` · `shark get <key> [--field f]` · `shark view <key>` · `shark search "q"` · `shark claims` |
 | Status & leases by hand | `shark status advance <key> --outcome pass\|fail\|blocked` · `shark status set <key> <status> [--force]` · `shark status transitions\|history <key>` · `shark claim\|heartbeat\|release <key>` → `context/workflow-and-status.md` |
-| Entity CRUD | `shark create epic\|feature\|task\|bug\|change\|idea …` · after create, fill any shark-generated placeholder file with available context · `shark update <key> …` (no `--status`) · `shark delete <key>` · `shark link <a> <b> --type=…` → `context/entity-crud.md` |
+| Entity CRUD | `shark create epic\|feature\|task\|bug\|change\|idea …` · doc already on disk? add `--key=<KEY> --file=<path>` to link it (never a tree sync for one entity) · after create, fill any shark-generated placeholder file with available context · `shark update <key> …` (no `--status`) · `shark delete <key>` · `shark link <a> <b> --type=…` → `context/entity-crud.md` |
 | Notes · context · docs | `shark create note <key> "…" --type=…` · `shark context set <key> --field … --value …` · `shark related-docs add\|list …` → `context/notes-context-docs.md` |
 | Workflow inspection | `/shark workflow [entity-type\|entity-key]` → show compact workflow by default; for concrete keys, read current status and transitions first → `verbs/workflow.md` |
 | Web dashboard | `/shark viewer` → `shark web` → `verbs/viewer.md` |
@@ -145,6 +145,7 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Spec ↔ tasks ↔ status audit | `/shark revalidate <key>` → inline audit from `shark get`/`shark list`; optional `shark skill get quality workflows/validate-*.md` → READY/WARNINGS/NOT READY → `verbs/revalidate.md` |
 | Apply spec change & rewind | `/shark amend <key> "change"` → edit spec → `shark create note <key> "Amended: …" --type=requirement` → resolve target from workflow YAML → `shark status set <key> <target> --force` → `verbs/amend.md` |
 | Refresh architecture docs | `/shark update-docs` → diff-driven refresh of `docs/architecture/*` → `verbs/update-docs.md` |
+| Reconcile filesystem → shark | `/shark sync <epic-key>` → bulk-sync one epic folder's docs into shark entities (filesystem is source of truth). **Explicit user invocation only**; for one authored doc use `shark create … --key --file` instead → `verbs/sync.md` |
 
 **Plan & advise**
 
@@ -192,9 +193,9 @@ shark next <key> --preview        # what the engine would dispatch next (no clai
 Recognized verbs: `project`, `product-design`, `vision`, `run`, `triage`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
 `viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
-`retro-sprint`, `update-docs`, `amend`, `revalidate`, `help`. Everything else
-(including `status` / `list` / `get`) falls through to `query`. `/run` and
-`/shark run` both route to `verbs/run.md`.
+`retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,
+`revalidate`, `help`. Everything else (including `status` / `list` / `get`)
+falls through to `query`. `/run` and `/shark run` both route to `verbs/run.md`.
 
 ## Content bundle retrieval (used by Mode 3 verbs)
 
