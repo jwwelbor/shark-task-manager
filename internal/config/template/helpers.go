@@ -69,11 +69,9 @@ func parseFeatureKeyFromTaskKey(taskKey string) string {
 }
 
 // deriveReviewBase computes the review-base directory for an entity from its
-// file_path, matching the convention documented in the code-review / QA /
-// UAT process partials: replace the leading "docs/plan/" with "docs/review/",
-// drop the entity's filename, and strip a trailing "tasks/" segment if
-// present (so a task's review base lives alongside its feature's, not under
-// a per-task tasks/ subdirectory).
+// file_path, key, and type. Feature, task, and epic paths preserve the
+// slugged directories from file_path. Standalone entities use a per-entity
+// review folder under their collection so gate reports do not collide.
 //
 // Examples:
 //
@@ -82,18 +80,32 @@ func parseFeatureKeyFromTaskKey(taskKey string) string {
 //	docs/plan/E19-sprint/E19-F04-analytics/feature.md
 //	  → docs/review/E19-sprint/E19-F04-analytics/
 //	docs/plan/bugs/B025.md
-//	  → docs/review/bugs/
+//	  → docs/review/bugs/b025/
+//	docs/plan/changes/CC-042.md
+//	  → docs/review/changes/cc-042/
+//	docs/plan/tech-debt/TD-014.md
+//	  → docs/review/tech-debt/td-014/
 //
 // Returns the empty string if filePath is empty so callers can decide
 // whether to omit the placeholder entirely. The result always ends with a
 // trailing slash when non-empty, matching the partials' usage as a
-// path prefix (e.g. <review-base>/code_review/...).
-func deriveReviewBase(filePath string) string {
+// path prefix.
+func deriveReviewBase(filePath, key string, entityType models.EntityType) string {
 	if filePath == "" {
 		return ""
 	}
 
 	p := strings.TrimPrefix(filePath, "./")
+
+	if collection := standaloneReviewCollection(entityType); collection != "" {
+		if strings.HasPrefix(p, "docs/plan/"+collection+"/") {
+			normalizedKey, ok := normalizeStandaloneReviewKey(key, entityType)
+			if ok {
+				return "docs/review/" + collection + "/" + strings.ToLower(normalizedKey) + "/"
+			}
+		}
+	}
+
 	// Rewrite the plan-tree root to the review-tree root. We only rewrite the
 	// leading occurrence — paths that don't live under docs/plan/ pass through
 	// unchanged so callers see the original prefix in the result (useful for
@@ -114,6 +126,45 @@ func deriveReviewBase(filePath string) string {
 	}
 
 	return p
+}
+
+func standaloneReviewCollection(entityType models.EntityType) string {
+	switch entityType {
+	case models.EntityTypeBug:
+		return "bugs"
+	case models.EntityTypeChange:
+		return "changes"
+	case models.EntityTypeTechDebt:
+		return "tech-debt"
+	default:
+		return ""
+	}
+}
+
+func normalizeStandaloneReviewKey(key string, entityType models.EntityType) (string, bool) {
+	normalizedKey := keyParser.Normalize(strings.TrimSpace(key))
+	if normalizedKey == "" {
+		return "", false
+	}
+
+	switch entityType {
+	case models.EntityTypeBug:
+		if err := models.ValidateBugKey(normalizedKey); err != nil {
+			return "", false
+		}
+	case models.EntityTypeChange:
+		if err := models.ValidateChangeCardKey(normalizedKey); err != nil {
+			return "", false
+		}
+	case models.EntityTypeTechDebt:
+		if err := models.ValidateTechDebtKey(normalizedKey); err != nil {
+			return "", false
+		}
+	default:
+		return "", false
+	}
+
+	return normalizedKey, true
 }
 
 // deriveEpicDir computes the epic-level directory from a `file_path` value.
@@ -252,7 +303,7 @@ func EntityPlaceholders(entity models.Entity) map[string]string {
 	}
 	if fp := entity.GetFilePath(); fp != "" {
 		m["file_path"] = fp
-		if rb := deriveReviewBase(fp); rb != "" {
+		if rb := deriveReviewBase(fp, entity.GetKey(), entity.GetEntityType()); rb != "" {
 			m["review_base"] = rb
 		}
 		// epic_dir / feature_dir let prompt partials compute artifact paths that

@@ -77,8 +77,7 @@ All validation activities must:
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria and scope
 (2) Feature test-plan.md for all test cases and expected coverage
-(3) Code review report from docs/review/{epic-folder}/{feature-folder}/code_review/*-E07-F01-review.md
-  (derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders) for scope of changes
+(3) Code review report from docs/review/E07/E07-F01/code-review-*-E07-F01.md for scope of changes
 (4) All task specs: `shark list E07-F01 --json` → collect every task's Scope file list
 (5) `git diff $(git merge-base HEAD main)..HEAD` to derive all touched paths
 (6) Parent interaction map and spec.md "Cross-feature interactions" section if present
@@ -127,7 +126,7 @@ VALIDATE:
   does not assert the documented shape, a mismatched shape source, missing
   coverage disposition, or a failing test is an automatic FAIL
 
-PRODUCE QA report to docs/review/{epic-folder}/{feature-folder}/qa/<timestamp>-E07-F01-qa.md:
+PRODUCE QA report to docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md:
 - Verdict: PASS or FAIL
 - Test scope rationale: touched files from git diff and why each test path was chosen
 - Test results summary (counts, durations)

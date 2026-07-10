@@ -17,7 +17,7 @@ REVIEW:
 - [ ] Acceptance criteria from task spec verified against implementation
 - [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
 
-PRODUCE code review report at {{.review_base}}code_review/`<timestamp>`-{{.id}}-review.md:
+PRODUCE code review report at {{.review_base}}code-review-<timestamp>-{{.id}}.md:
 - Verdict: PASS or FAIL
 - Findings (if any)
 - AC verification status
@@ -25,5 +25,5 @@ PRODUCE code review report at {{.review_base}}code_review/`<timestamp>`-{{.id}}-
 DECISION:
 - ALL PASS → {{template "advance" .}}
 - ANY FAIL → shark status set {{.id}} development --reason "<specific findings to fix>"
-  (Check report at {{.review_base}}code_review/ on resume)
+  (Check report at {{.review_base}} on resume)
 {{end}}

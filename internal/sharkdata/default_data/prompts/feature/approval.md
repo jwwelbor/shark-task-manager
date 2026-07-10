@@ -5,9 +5,8 @@ This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find
 READ:
 (1) Feature spec at {{.file_path}} for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases
-(3) Code review report: docs/review/{epic-folder}/{feature-folder}/code_review/*-{{.id}}-review.md
-(4) QA report: docs/review/{epic-folder}/{feature-folder}/qa/*-{{.id}}-qa.md
-(Derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+(3) Code review report: {{.review_base}}code-review-*-{{.id}}.md
+(4) QA report: {{.review_base}}qa-*-{{.id}}.md
 (5) All task specs: `{{template "list_json" .}}` → read each task's file_path
 (6) Full implementation: `git diff $(git merge-base HEAD main)..HEAD` — read the actual changed files
 
@@ -21,9 +20,9 @@ RED-TEAM REVIEW:
 - Verify the feature integrates correctly with the broader system
 - Challenge assumptions in the code review and QA reports — they may have missed things
 
-RE-VERIFICATION ROUND (a prior UAT report exists in the uat/ folder)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
+RE-VERIFICATION ROUND (a prior UAT report matching {{.review_base}}uat-*-{{.id}}.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
-PRODUCE UAT report to docs/review/{epic-folder}/{feature-folder}/uat/<timestamp>-{{.id}}-uat.md:
+PRODUCE UAT report to {{.review_base}}uat-<timestamp>-{{.id}}.md:
 - Verdict: APPROVED or REJECTED — any CRITICAL or HIGH severity finding means REJECTED (never "approved with concerns")
 - Independent findings (do not just echo prior reports)
 - Evidence for each AC: cite specific file and line number
@@ -32,7 +31,7 @@ PRODUCE UAT report to docs/review/{epic-folder}/{feature-folder}/uat/<timestamp>
 
 REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on APPROVED or REJECTED):
 - One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="codex" --metadata='{"gate":"uat","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = count of prior UAT reports in the uat/ folder + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
+- round = count of prior UAT reports matching {{.review_base}}uat-*-{{.id}}.md + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
 
 ON APPROVED:
 - Add note: {{template "create_note" .}} --type=review "Feature UAT approved — red-team passed"

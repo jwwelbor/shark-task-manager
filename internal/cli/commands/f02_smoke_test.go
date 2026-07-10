@@ -44,7 +44,7 @@ func standardVars() map[string]string {
 		"doc_friendly_name":   "Feature spec",
 		"related_docs":        "docs/plan/E07/E07-F01/spec.md",
 		"related_tasks":       "E07-F01-001, E07-F01-002",
-		"review_base":         "main",
+		"review_base":         "docs/review/E07/E07-F01/",
 		"is_resume":           "false",
 		"advance_summary":     "Advancing entity to next status",
 		"blocked_reason":      "External dependency unavailable",
