@@ -168,6 +168,15 @@ type Step struct {
 	// (E35-F05, §7).
 	Aliases []string `json:"aliases,omitempty"`
 
+	// Primary designates this step as the canonical choice when a semantic
+	// selection (the aggregation/reopen status, the status of a phase, the
+	// archive terminal) has more than one candidate. With a single candidate
+	// the tag is unnecessary; with several, exactly one candidate must carry
+	// primary: true or validation fails — Shark never breaks a tie by
+	// alphabetical or declaration order. See the named selectors in
+	// selectors.go for the full designation rule.
+	Primary bool `json:"primary,omitempty"`
+
 	// Parking marks a step whose resume target is computed from history rather
 	// than a static outcome (e.g. blocked, on_hold).
 	Parking bool `json:"parking,omitempty"`
