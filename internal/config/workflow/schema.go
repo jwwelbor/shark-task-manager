@@ -326,8 +326,10 @@ func (w *WorkflowConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// GetStatusesByAgentType returns all statuses that include the given agent type
-// Returns empty slice if no statuses match
+// GetStatusesByAgentType returns all statuses that include the given agent
+// type, sorted alphabetically for deterministic ordering (StatusMetadata is a
+// map, so unsorted iteration order would vary between calls).
+// Returns empty slice if no statuses match.
 func (w *WorkflowConfig) GetStatusesByAgentType(agentType string) []string {
 	if w.StatusMetadata == nil {
 		return []string{}
@@ -342,6 +344,7 @@ func (w *WorkflowConfig) GetStatusesByAgentType(agentType string) []string {
 			}
 		}
 	}
+	sort.Strings(statuses)
 	return statuses
 }
 
