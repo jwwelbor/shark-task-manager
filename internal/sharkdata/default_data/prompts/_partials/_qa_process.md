@@ -41,13 +41,23 @@ DO NOT RUN:
 - Full integration suite (too slow for per-task QA; may have pre-existing failures)
 - Codex red-team (UAT owns red-team; running it here is redundant)
 
+{{template "_review_output_policy" .}}
+
 PRODUCE QA report at {{.review_base}}qa-<timestamp>-{{.id}}.md:
-- Verdict: PASS or FAIL
-- Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
-- Test results summary (counts, durations)
-- AC verification status — name the test that proves each AC
-- Edge cases tested
-- Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: task scope, touched paths, feature context, and targeted test surface
+  - Checks run: format/lint/tests summarized, not pasted
+  - AC count reviewed
+  - Duration if known
+  - `0 defects found`
+- If any failed command/test, missing AC proof, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
+  - Test results summary (counts, durations)
+  - AC verification status — name the test that proves each AC
+  - Edge cases tested
+  - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
 
 DECISION:
 - ALL PASS → {{template "advance" .}}

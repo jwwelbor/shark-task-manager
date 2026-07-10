@@ -22,16 +22,38 @@ RED-TEAM REVIEW:
 
 RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
-PRODUCE UAT report to docs/review/E07/E07-F01/uat-<timestamp>-E07-F01.md:
-- Verdict: APPROVED or REJECTED — any CRITICAL or HIGH severity finding means REJECTED (never "approved with concerns")
-- Independent findings (do not just echo prior reports)
-- Evidence for each AC: cite specific file and line number
-- Red-team findings (if any): severity, description, recommendation, and a one-line defect-class statement (the general class, not the point instance)
-- End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
 
-REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on APPROVED or REJECTED):
+
+PRODUCE UAT report to docs/review/E07/E07-F01/uat-<timestamp>-E07-F01.md:
+- If zero findings: compact APPROVED artifact only
+  - Verdict: APPROVED
+  - Scope reviewed: spec, test-plan, prior reports, tasks, diff, and red-team surface
+  - AC count reviewed and any re-verification scope covered
+  - Duration if known
+  - `0 defects found`
+  - End the report with a final delimited line: `VERDICT: APPROVED`
+- If any finding, rejection, failed verification step, or non-blocking observation exists: full detailed report
+  - Verdict: APPROVED or REJECTED — any CRITICAL or HIGH severity finding means REJECTED (never "approved with concerns")
+  - Independent findings (do not just echo prior reports)
+  - Evidence for each AC: cite specific file and line number
+  - Red-team findings (if any): severity, description, recommendation, and a one-line defect-class statement (the general class, not the point instance)
+  - Concrete fix guidance for each finding
+  - End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
+
+REVIEW-FINDING LOG (structured, queryable — only when findings exist, on APPROVED or REJECTED):
 - One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="codex" --metadata='{"gate":"uat","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
 - round = count of prior UAT reports matching docs/review/E07/E07-F01/uat-*-E07-F01.md + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
+- Zero-finding APPROVED writes no `review-finding` notes.
 
 ON APPROVED:
 - Add note: shark create note E07-F01 --type=review "Feature UAT approved — red-team passed"

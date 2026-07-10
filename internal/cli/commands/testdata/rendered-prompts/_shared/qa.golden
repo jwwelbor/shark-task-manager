@@ -115,13 +115,33 @@ DO NOT RUN:
 - Full integration suite (too slow for per-task QA; may have pre-existing failures)
 - Codex red-team (UAT owns red-team; running it here is redundant)
 
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
+
+
 PRODUCE QA report at docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md:
-- Verdict: PASS or FAIL
-- Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
-- Test results summary (counts, durations)
-- AC verification status — name the test that proves each AC
-- Edge cases tested
-- Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: task scope, touched paths, feature context, and targeted test surface
+  - Checks run: format/lint/tests summarized, not pasted
+  - AC count reviewed
+  - Duration if known
+  - `0 defects found`
+- If any failed command/test, missing AC proof, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
+  - Test results summary (counts, durations)
+  - AC verification status — name the test that proves each AC
+  - Edge cases tested
+  - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
 
 DECISION:
 - ALL PASS → shark status advance E07-F01

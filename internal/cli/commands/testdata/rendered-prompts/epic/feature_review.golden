@@ -70,21 +70,37 @@ contains X-## rows relevant to this epic, verify:
 - No orphans: an X-## with missing producer feature, missing consumer feature,
   mismatched shape source, or missing coverage disposition is FAIL
 
-PRODUCE feature review report at docs/review/E07/E07-F01/E07-F01-feature-review.md:
-- Verdict: PASS or FAIL
-- Requirements coverage matrix (epic requirement -> feature mapping)
-- Interaction-map closure table (multi-feature epics): one row per I-## with
-  producer, consumer(s), shape source, and closure status
-- Cross-epic integration closure table: one row per relevant X-## with producer
-  epic/feature, consumer epic(s)/feature(s), shape source, coverage pointer or
-  deferral, and closure status
-- Gaps identified (if any)
-- Overlaps identified (if any)
-- Ordering issues (if any)
-- Recommendations
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
 
-Print interaction-map closure table and cross-epic integration closure table in
-the report before the final verdict.
+
+PRODUCE feature review report at docs/review/E07/E07-F01/E07-F01-feature-review.md:
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: epic PRD, feature count, and which supporting docs/maps were checked
+  - Checklist section totals: Requirements Coverage, Feature Quality, Ordering & Dependencies, Scope Alignment
+  - Interaction-map rows reviewed count and cross-epic rows reviewed count (if applicable)
+  - Duration if known
+  - `0 defects found`
+- If any gap, overlap, ordering issue, closure issue, or other finding exists: full detailed report
+  - Verdict: FAIL
+  - Requirements coverage matrix (epic requirement -> feature mapping)
+  - Interaction-map closure table (multi-feature epics): one row per I-## with producer, consumer(s), shape source, and closure status
+  - Cross-epic integration closure table: one row per relevant X-## with producer epic/feature, consumer epic(s)/feature(s), shape source, coverage pointer or deferral, and closure status
+  - Gaps identified
+  - Overlaps identified
+  - Ordering issues
+  - Recommendations
+
+Print interaction-map closure table and cross-epic integration closure table in the detailed report before the final verdict.
 
 DECISION:
 - ALL PASS -> shark status advance E07-F01

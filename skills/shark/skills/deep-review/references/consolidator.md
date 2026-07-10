@@ -70,7 +70,27 @@ Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocke
 
 ## Output: Markdown report
 
-Produce the following sections. Omit any empty section entirely.
+If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 non-blockers / 0 nits, write a compact saved report only. Do NOT emit the full section set for a clean pass.
+
+### Compact PASS report (zero findings only)
+
+Produce only these sections:
+
+### A. Executive Summary
+- What the diff accomplishes (1-2 lines)
+- Overall risk level
+- Verdict: **PASS**
+- Reviewed scope: changed file count, reviewed file count / coverage result
+- Checks performed: 6 angles + consolidator, standards path if relevant
+- Duration if known
+- `0 defects found`
+
+### J. Verdict
+**PASS**
+
+One short paragraph summarizing the clean review state and confidence level.
+
+For **PASS-with-triage** or **FAIL**, produce the full detailed report below. Omit any empty section entirely.
 
 ### A. Executive Summary
 - What the diff accomplishes (1–2 lines)
@@ -129,4 +149,5 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 - [ ] Standards crosswalk cites real sections (no fabricated citations)
 - [ ] Rubric scores are justified with evidence
 - [ ] Verdict matches findings: PASS only if zero; PASS-with-triage if no blockers; FAIL otherwise
+- [ ] Clean PASS returns only the compact PASS report, not the full section set
 - [ ] Do NOT block for: stylistic preferences within acceptable bounds, pre-existing issues the task didn't substantially worsen, minor optimizations, naming nits when standards are met, missing nice-to-have tests, file-organization preferences without concrete maintainability impact
