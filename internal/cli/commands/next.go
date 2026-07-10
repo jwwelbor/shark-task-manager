@@ -30,6 +30,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -748,14 +749,23 @@ func isStatusNotFoundError(err error) bool {
 // pickAutoAdvanceTarget returns the natural forward transition for an
 // auto-advance status. Workflow authors who use `advance_status` without
 // an agent_type implicitly declare the status is a no-op placeholder with
-// exactly one productive forward path. We filter out the obviously
-// non-productive transitions (a self-loop back to the current status, a
-// terminal/abandonment state, a parking step, or any step in the blocked
-// phase) and take the first remaining option.
+// exactly one productive forward path.
 //
-// Classification is derived from the workflow step metadata via the
-// workflow.Service, not from hardcoded status names (B028) — so custom
-// workflows that rename "completed"/"blocked"/etc. still route correctly.
+// For route-based workflows that path is declared explicitly: the step's
+// `pass` outcome. Selecting by outcome key (rather than scanning the ordered
+// transition slice for the first "forward-looking" status) means a terminal
+// pass target — e.g. a placeholder whose pass ends the workflow — is honored
+// instead of being skipped in favor of the fail target. A pass self-loop
+// yields "" (pause): the step declares no forward motion.
+//
+// When the pass outcome cannot be resolved (legacy workflow, or a status not
+// in the step graph), we fall back to the transition scan: filter out the
+// obviously non-productive transitions (a self-loop back to the current
+// status, a terminal/abandonment state, a parking step, or any step in the
+// blocked phase) and take the first remaining option. Classification is
+// derived from the workflow step metadata via the workflow.Service, not from
+// hardcoded status names (B028) — so custom workflows that rename
+// "completed"/"blocked"/etc. still route correctly.
 //
 // Returns "" when there is no safe forward transition — the caller treats
 // that as "pause" so a misconfigured workflow is surfaced to the user
@@ -767,6 +777,14 @@ func pickAutoAdvanceTarget(nextInfo *services.NextStatusInfo) string {
 	wf := cli.GetWorkflowService()
 	if nextInfo.EntityType != "" {
 		wf = wf.ForLevel(string(nextInfo.EntityType))
+	}
+	if wf.IsRouteBased() {
+		if target, err := wf.Release(nextInfo.CurrentStatus, configworkflow.OutcomePass); err == nil {
+			if strings.EqualFold(target, nextInfo.CurrentStatus) {
+				return ""
+			}
+			return target
+		}
 	}
 	for _, t := range nextInfo.AvailableTransitions {
 		// A transition back to the current status (e.g. a fail self-loop) is
