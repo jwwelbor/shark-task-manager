@@ -72,16 +72,24 @@ VERIFY:
 - Missing X-## producer task, consumer task, validation task, mismatched shape
   source, or missing coverage disposition is FAIL
 
+{{template "_review_output_policy" .}}
+
 PRODUCE task review report at {{.review_base}}{{.id}}-task-review.md:
-- Verdict: PASS or FAIL
-- Requirements coverage matrix (spec requirement -> task mapping)
-- Integration coverage matrix for CONTRACT-###, I-##, and X-## rows, including
-  producer task, consumer task(s), shape source, contract-test pointer, and
-  closure status
-- Gaps identified (if any)
-- Ordering issues (if any)
-- Task quality issues (if any)
-- Recommendations
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: feature spec, test-plan, task count, and parent integration context checked
+  - Checklist section totals: Requirements Coverage, Task Quality, Ordering & Dependencies, Scope Alignment
+  - Integration row counts reviewed for CONTRACT-###, I-##, and X-## (if applicable)
+  - Duration if known
+  - `0 defects found`
+- If any requirement gap, ordering issue, task quality issue, integration mismatch, or other finding exists: full detailed report
+  - Verdict: FAIL
+  - Requirements coverage matrix (spec requirement -> task mapping)
+  - Integration coverage matrix for CONTRACT-###, I-##, and X-## rows, including producer task, consumer task(s), shape source, contract-test pointer, and closure status
+  - Gaps identified
+  - Ordering issues
+  - Task quality issues
+  - Recommendations
 
 DECISION:
 - ALL PASS -> shark status advance {{.id}}

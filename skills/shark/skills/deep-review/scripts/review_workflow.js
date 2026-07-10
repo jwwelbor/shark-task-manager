@@ -1,9 +1,9 @@
 export const meta = {
   name: 'code-review',
-  description: 'Multi-angle parallel code review: 6 specialist subagents read their angle prompts from the skill references directory, run in parallel, then a consolidator verifies and ranks findings.',
+  description: 'Multi-angle parallel code review: 6 specialist subagents read their angle prompts from the skill references directory, run in parallel, then a consolidator verifies and ranks findings into a compact PASS report or a detailed PASS-with-triage/FAIL report.',
   phases: [
     { title: 'Review', detail: 'Angles A–F run in parallel from .md prompt files' },
-    { title: 'Consolidate', detail: 'Deduplicate, verify, triage, emit PASS/PASS-with-triage/FAIL report' },
+    { title: 'Consolidate', detail: 'Deduplicate, verify, triage, emit compact PASS or detailed PASS-with-triage/FAIL report' },
   ],
 }
 
@@ -137,7 +137,7 @@ ${specContext}
 
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
 
-Read that file completely, then execute the consolidation and produce the full markdown report.
+Read that file completely, then execute the consolidation and produce the compact-or-detailed markdown report it specifies.
 Return the report as plain text (markdown). No JSON wrapper.`
 
 const report = await agent(consolidatorPreamble, { label: 'consolidator', phase: 'Consolidate', effort: reviewEffort })

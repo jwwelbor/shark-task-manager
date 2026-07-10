@@ -70,21 +70,27 @@ contains X-## rows relevant to this epic, verify:
 - No orphans: an X-## with missing producer feature, missing consumer feature,
   mismatched shape source, or missing coverage disposition is FAIL
 
-PRODUCE feature review report at {{.review_base}}{{.id}}-feature-review.md:
-- Verdict: PASS or FAIL
-- Requirements coverage matrix (epic requirement -> feature mapping)
-- Interaction-map closure table (multi-feature epics): one row per I-## with
-  producer, consumer(s), shape source, and closure status
-- Cross-epic integration closure table: one row per relevant X-## with producer
-  epic/feature, consumer epic(s)/feature(s), shape source, coverage pointer or
-  deferral, and closure status
-- Gaps identified (if any)
-- Overlaps identified (if any)
-- Ordering issues (if any)
-- Recommendations
+{{template "_review_output_policy" .}}
 
-Print interaction-map closure table and cross-epic integration closure table in
-the report before the final verdict.
+PRODUCE feature review report at {{.review_base}}{{.id}}-feature-review.md:
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: epic PRD, feature count, and which supporting docs/maps were checked
+  - Checklist section totals: Requirements Coverage, Feature Quality, Ordering & Dependencies, Scope Alignment
+  - Interaction-map rows reviewed count and cross-epic rows reviewed count (if applicable)
+  - Duration if known
+  - `0 defects found`
+- If any gap, overlap, ordering issue, closure issue, or other finding exists: full detailed report
+  - Verdict: FAIL
+  - Requirements coverage matrix (epic requirement -> feature mapping)
+  - Interaction-map closure table (multi-feature epics): one row per I-## with producer, consumer(s), shape source, and closure status
+  - Cross-epic integration closure table: one row per relevant X-## with producer epic/feature, consumer epic(s)/feature(s), shape source, coverage pointer or deferral, and closure status
+  - Gaps identified
+  - Overlaps identified
+  - Ordering issues
+  - Recommendations
+
+Print interaction-map closure table and cross-epic integration closure table in the detailed report before the final verdict.
 
 DECISION:
 - ALL PASS -> shark status advance {{.id}}

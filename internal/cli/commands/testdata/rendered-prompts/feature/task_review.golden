@@ -72,16 +72,34 @@ VERIFY:
 - Missing X-## producer task, consumer task, validation task, mismatched shape
   source, or missing coverage disposition is FAIL
 
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
+
+
 PRODUCE task review report at docs/review/E07/E07-F01/E07-F01-task-review.md:
-- Verdict: PASS or FAIL
-- Requirements coverage matrix (spec requirement -> task mapping)
-- Integration coverage matrix for CONTRACT-###, I-##, and X-## rows, including
-  producer task, consumer task(s), shape source, contract-test pointer, and
-  closure status
-- Gaps identified (if any)
-- Ordering issues (if any)
-- Task quality issues (if any)
-- Recommendations
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: feature spec, test-plan, task count, and parent integration context checked
+  - Checklist section totals: Requirements Coverage, Task Quality, Ordering & Dependencies, Scope Alignment
+  - Integration row counts reviewed for CONTRACT-###, I-##, and X-## (if applicable)
+  - Duration if known
+  - `0 defects found`
+- If any requirement gap, ordering issue, task quality issue, integration mismatch, or other finding exists: full detailed report
+  - Verdict: FAIL
+  - Requirements coverage matrix (spec requirement -> task mapping)
+  - Integration coverage matrix for CONTRACT-###, I-##, and X-## rows, including producer task, consumer task(s), shape source, contract-test pointer, and closure status
+  - Gaps identified
+  - Ordering issues
+  - Task quality issues
+  - Recommendations
 
 DECISION:
 - ALL PASS -> shark status advance E07-F01

@@ -41,16 +41,28 @@ PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 - For every TC in the test plan with a Caller-Path Contract (skip `internal — function under test is the production entrypoint`): locate the committed test, confirm it calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam, and mocks nothing on the forbidden list
 - Any violation (or a contracted TC with no locatable test) is a BLOCKER naming the TC-ID → FAIL
 
-PRODUCE verification report to {{.review_base}}code-review-<timestamp>-{{.id}}.md:
-- Verdict: PASS or FAIL, and which parts ran (tier)
-- AC verification: list each AC with the code/test that satisfies it (SIMPLE/STANDARD)
-- Integration verification: I-##/X-## rows with implementation owner, contract/shape source, coverage pointer or deferral (SIMPLE/STANDARD)
-- Test run summary and caller-path compliance results (SIMPLE/STANDARD)
-- Notes on any non-blocking observations
+{{template "_review_output_policy" .}}
 
-REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on PASS or FAIL):
+PRODUCE verification report to {{.review_base}}code-review-<timestamp>-{{.id}}.md:
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS, and which parts ran (tier)
+  - Scope reviewed: spec, test-plan, task set, diff, and implementation surface
+  - Checks run: format/lint/tests/caller-path sweep summarized, not pasted
+  - AC count reviewed and wiring row counts reviewed (SIMPLE/STANDARD)
+  - Duration if known
+  - `0 defects found`
+- If any blocker, failed command/test, missing AC or wiring proof, spec drift, or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL, and which parts ran (tier)
+  - AC verification: list each AC with the code/test that satisfies it (SIMPLE/STANDARD)
+  - Integration verification: I-##/X-## rows with implementation owner, contract/shape source, coverage pointer or deferral (SIMPLE/STANDARD)
+  - Test run summary and caller-path compliance results (SIMPLE/STANDARD)
+  - Findings grouped by task with file paths, evidence, failed commands/tests, affected AC/TC/I-##/X-## IDs, defect-class statements for blocking findings, and concrete fix guidance
+  - Notes on any non-blocking observations
+
+REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS or FAIL):
 - One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"code_review","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
 - round = how many times this gate has run for this feature (count prior code-review reports in {{.review_base}}). The fingerprint lets the same finding resurfacing across rounds group mechanically.
+- Zero-finding PASS writes no `review-finding` notes.
 
 ON PASS:
 - Add note: {{template "create_note" .}} --type=review "Feature verification gate passed — see report"
@@ -58,7 +70,7 @@ ON PASS:
 - COMPLEX → route to the deep QA gate: {{template "advance" .}} --outcome deep_verify
 
 ON FAIL (blockers, spec drift, missing ACs, contract violations):
-- Write the report with findings grouped by task
+- Write the detailed report with findings grouped by task
   - Verdict: FAIL
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
 - For each failing task, kick back: `shark status set <task-id> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`

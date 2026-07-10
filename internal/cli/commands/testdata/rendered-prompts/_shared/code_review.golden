@@ -382,10 +382,30 @@ REVIEW:
 - [ ] Acceptance criteria from task spec verified against implementation
 - [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
 
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
+
+
 PRODUCE code review report at docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md:
-- Verdict: PASS or FAIL
-- Findings (if any)
-- AC verification status
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: task spec, feature context, diff, and implementation surface
+  - Checks run: review checklist and tests/commands referenced, summarized
+  - AC count reviewed
+  - Duration if known
+  - `0 defects found`
+- If any blocker or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Findings with file paths, evidence, failed commands/tests if any, affected ACs, and concrete fix guidance
+  - AC verification status
 
 DECISION:
 - ALL PASS → shark status advance E07-F01

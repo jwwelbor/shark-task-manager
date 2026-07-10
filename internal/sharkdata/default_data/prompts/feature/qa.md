@@ -54,20 +54,28 @@ VALIDATE:
   does not assert the documented shape, a mismatched shape source, missing
   coverage disposition, or a failing test is an automatic FAIL
 
-PRODUCE QA report to {{.review_base}}qa-<timestamp>-{{.id}}.md:
-- Verdict: PASS or FAIL
-- Test scope rationale: touched files from git diff and why each test path was chosen
-- Test results summary (counts, durations)
-- AC verification: name the test that proves each AC
-- Wiring coverage matrix: CONTRACT-### and I-## rows with producer/consumer,
-  contract test, test-exists, and test-passes columns; include X-## rows with
-  producer/consumer, contract / shape source, contract test or deferral,
-  test-exists, and test-passes columns
-- Edge cases tested
-- Any pre-existing failures encountered
+{{template "_review_output_policy" .}}
 
-REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on PASS or FAIL):
+PRODUCE QA report to {{.review_base}}qa-<timestamp>-{{.id}}.md:
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: diff, task scopes, spec, test-plan, and integration context
+  - Checks run: format/lint/tests summarized, not pasted
+  - AC count reviewed and wiring row counts reviewed
+  - Duration if known
+  - `0 defects found`
+- If any failed command/test, missing coverage, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Test scope rationale: touched files from git diff and why each test path was chosen
+  - Test results summary (counts, durations)
+  - AC verification: name the test that proves each AC
+  - Wiring coverage matrix: CONTRACT-### and I-## rows with producer/consumer, contract test, test-exists, and test-passes columns; include X-## rows with producer/consumer, contract / shape source, contract test or deferral, test-exists, and test-passes columns
+  - Edge cases tested
+  - Any pre-existing failures encountered
+
+REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS or FAIL):
 - One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"qa","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
+- Zero-finding PASS writes no `review-finding` notes.
 
 ON PASS → {{template "advance" .}}
 ON FAIL:

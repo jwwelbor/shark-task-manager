@@ -65,7 +65,7 @@ Workflow({
 })
 ```
 
-The workflow runs all 6 angle agents in parallel, then the consolidator. The return value is the final markdown report — print it to the user.
+The workflow runs all 6 angle agents in parallel, then the consolidator. The return value is the final markdown report body: compact on a clean PASS, full only for PASS-with-triage or FAIL. Save it first; do not dump the full report inline on a clean PASS.
 
 ### 4. Persist the report
 
@@ -75,7 +75,7 @@ Always save the report to `review_output_path` (from `get_diff.sh`) so the gate 
 mkdir -p "$(dirname "<review_output_path>")"
 ```
 
-Then Write the file with a self-describing header followed by the report body:
+Then write the file with a self-describing header followed by the report body:
 
 ```markdown
 # Overall Code Review — <branch>
@@ -85,10 +85,10 @@ Then Write the file with a self-describing header followed by the report body:
 
 ---
 
-<full markdown report returned by the workflow>
+<markdown report returned by the workflow — compact on clean PASS, full otherwise>
 ```
 
-Tell the user where it was saved (`review_output_path`). If the write fails (e.g. read-only path), print the report inline and note that persistence was skipped — never drop the report.
+Tell the user only a short verdict summary plus `review_output_path`. On a clean PASS, keep it to one line with the report path. On PASS-with-triage or FAIL, keep the console summary terse and point to the saved report. If the write fails (e.g. read-only path), print the report inline and note that persistence was skipped — never drop the report.
 
 ---
 
@@ -125,11 +125,11 @@ Once all angles return, build a final agent prompt:
 - Preamble with DIFF_PATH, CHANGED_FILES, REVIEWED_FILES_REPORTED_BY_ANGLES, and ALL_FINDINGS (the combined JSON arrays)
 - Full contents of `references/consolidator.md`
 
-The consolidator returns the markdown report.
+The consolidator returns the markdown report body: compact on a clean PASS, full only for PASS-with-triage or FAIL.
 
 ### 5. Persist the report
 
-Save it to `review_output_path` exactly as in the primary path's step 4 (header + report body), then tell the user where it landed.
+Save it to `review_output_path` exactly as in the primary path's step 4 (header + report body), then tell the user only the short verdict summary plus the saved path.
 
 ---
 

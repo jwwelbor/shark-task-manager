@@ -22,16 +22,28 @@ RED-TEAM REVIEW:
 
 RE-VERIFICATION ROUND (a prior UAT report matching {{.review_base}}uat-*-{{.id}}.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
-PRODUCE UAT report to {{.review_base}}uat-<timestamp>-{{.id}}.md:
-- Verdict: APPROVED or REJECTED — any CRITICAL or HIGH severity finding means REJECTED (never "approved with concerns")
-- Independent findings (do not just echo prior reports)
-- Evidence for each AC: cite specific file and line number
-- Red-team findings (if any): severity, description, recommendation, and a one-line defect-class statement (the general class, not the point instance)
-- End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
+{{template "_review_output_policy" .}}
 
-REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on APPROVED or REJECTED):
+PRODUCE UAT report to {{.review_base}}uat-<timestamp>-{{.id}}.md:
+- If zero findings: compact APPROVED artifact only
+  - Verdict: APPROVED
+  - Scope reviewed: spec, test-plan, prior reports, tasks, diff, and red-team surface
+  - AC count reviewed and any re-verification scope covered
+  - Duration if known
+  - `0 defects found`
+  - End the report with a final delimited line: `VERDICT: APPROVED`
+- If any finding, rejection, failed verification step, or non-blocking observation exists: full detailed report
+  - Verdict: APPROVED or REJECTED — any CRITICAL or HIGH severity finding means REJECTED (never "approved with concerns")
+  - Independent findings (do not just echo prior reports)
+  - Evidence for each AC: cite specific file and line number
+  - Red-team findings (if any): severity, description, recommendation, and a one-line defect-class statement (the general class, not the point instance)
+  - Concrete fix guidance for each finding
+  - End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
+
+REVIEW-FINDING LOG (structured, queryable — only when findings exist, on APPROVED or REJECTED):
 - One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="codex" --metadata='{"gate":"uat","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
 - round = count of prior UAT reports matching {{.review_base}}uat-*-{{.id}}.md + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
+- Zero-finding APPROVED writes no `review-finding` notes.
 
 ON APPROVED:
 - Add note: {{template "create_note" .}} --type=review "Feature UAT approved — red-team passed"
