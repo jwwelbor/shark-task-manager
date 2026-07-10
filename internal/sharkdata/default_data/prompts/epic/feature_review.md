@@ -1,6 +1,6 @@
 Review features for epic {{.id}}: "{{.title}}".
 
-Check for existing feature review report in feature_reviews/ directory. If report exists with PASS verdict, advance immediately. If FAIL, send back to decomposition.
+Check for existing feature review report at {{.review_base}}{{.id}}-feature-review.md. If report exists with PASS verdict, advance immediately. If FAIL, send back to decomposition.
 
 ---
 
@@ -70,7 +70,7 @@ contains X-## rows relevant to this epic, verify:
 - No orphans: an X-## with missing producer feature, missing consumer feature,
   mismatched shape source, or missing coverage disposition is FAIL
 
-PRODUCE feature review report at feature_reviews/{{.id}}-feature-review.md:
+PRODUCE feature review report at {{.review_base}}{{.id}}-feature-review.md:
 - Verdict: PASS or FAIL
 - Requirements coverage matrix (epic requirement -> feature mapping)
 - Interaction-map closure table (multi-feature epics): one row per I-## with

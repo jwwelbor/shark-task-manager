@@ -4,7 +4,7 @@ READ:
 (1) Task spec at {{.file_path}} for acceptance criteria and **Scope file list**
 (2) Feature test-plan.md for test cases mapped to this task
 (3) Feature spec.md for feature-level intent
-(4) Code review report from {{.review_base}}code_review/
+(4) Code review report from {{.review_base}}code-review-*-{{.id}}.md
 (5) Implementation code and existing test results
 (6) `git diff` of the task's changes to derive the actual touched paths
 
@@ -41,7 +41,7 @@ DO NOT RUN:
 - Full integration suite (too slow for per-task QA; may have pre-existing failures)
 - Codex red-team (UAT owns red-team; running it here is redundant)
 
-PRODUCE QA report at {{.review_base}}qa/`<timestamp>`-{{.id}}-qa.md:
+PRODUCE QA report at {{.review_base}}qa-<timestamp>-{{.id}}.md:
 - Verdict: PASS or FAIL
 - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
 - Test results summary (counts, durations)

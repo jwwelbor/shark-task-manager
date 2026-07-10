@@ -382,7 +382,7 @@ REVIEW:
 - [ ] Acceptance criteria from task spec verified against implementation
 - [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
 
-PRODUCE code review report at maincode_review/`<timestamp>`-E07-F01-review.md:
+PRODUCE code review report at docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md:
 - Verdict: PASS or FAIL
 - Findings (if any)
 - AC verification status
@@ -390,4 +390,4 @@ PRODUCE code review report at maincode_review/`<timestamp>`-E07-F01-review.md:
 DECISION:
 - ALL PASS → shark status advance E07-F01
 - ANY FAIL → shark status set E07-F01 development --reason "<specific findings to fix>"
-  (Check report at maincode_review/ on resume)
+  (Check report at docs/review/E07/E07-F01/ on resume)

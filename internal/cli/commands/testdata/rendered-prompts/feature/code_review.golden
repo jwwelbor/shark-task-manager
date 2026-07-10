@@ -402,8 +402,7 @@ PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 - For every TC in the test plan with a Caller-Path Contract (skip `internal — function under test is the production entrypoint`): locate the committed test, confirm it calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam, and mocks nothing on the forbidden list
 - Any violation (or a contracted TC with no locatable test) is a BLOCKER naming the TC-ID → FAIL
 
-PRODUCE verification report to docs/review/{epic-folder}/{feature-folder}/code_review/<timestamp>-E07-F01-review.md
-(derive path from docs/plan/E07/E07-F01/E07-F01.md: replace "docs/plan/" → "docs/review/", keep epic/feature folders):
+PRODUCE verification report to docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md:
 - Verdict: PASS or FAIL, and which parts ran (tier)
 - AC verification: list each AC with the code/test that satisfies it (SIMPLE/STANDARD)
 - Integration verification: I-##/X-## rows with implementation owner, contract/shape source, coverage pointer or deferral (SIMPLE/STANDARD)
@@ -412,7 +411,7 @@ PRODUCE verification report to docs/review/{epic-folder}/{feature-folder}/code_r
 
 REVIEW-FINDING LOG (structured, queryable — do this for EVERY finding, blocking or not, on PASS or FAIL):
 - One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"code_review","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = how many times this gate has run for this feature (count prior reports in the code_review/ folder). The fingerprint lets the same finding resurfacing across rounds group mechanically.
+- round = how many times this gate has run for this feature (count prior code-review reports in docs/review/E07/E07-F01/). The fingerprint lets the same finding resurfacing across rounds group mechanically.
 
 ON PASS:
 - Add note: shark create note E07-F01 --type=review "Feature verification gate passed — see report"
@@ -425,5 +424,5 @@ ON FAIL (blockers, spec drift, missing ACs, contract violations):
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
 - For each failing task, kick back: `shark status set <task-id> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
 - Set feature back to active: `shark status set E07-F01 active --reason "Verification gate failed — see report, tasks kicked back"`
-  (report lives at docs/review/{epic-folder}/{feature-folder}/code_review/)
+  (report lives at docs/review/E07/E07-F01/)
 - Do NOT advance the feature.

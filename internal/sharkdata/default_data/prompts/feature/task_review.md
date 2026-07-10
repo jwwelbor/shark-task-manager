@@ -1,7 +1,6 @@
 Review tasks for feature {{.id}}: "{{.title}}".
 
-Check for existing task review report at docs/review/{epic-folder}/{feature-folder}/task_review/{{.id}}-task-review.md.
-(Derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+Check for existing task review report at {{.review_base}}{{.id}}-task-review.md.
 If report exists with PASS verdict, advance immediately. If FAIL, send back to task_generation.
 
 ---
@@ -73,8 +72,7 @@ VERIFY:
 - Missing X-## producer task, consumer task, validation task, mismatched shape
   source, or missing coverage disposition is FAIL
 
-PRODUCE task review report at docs/review/{epic-folder}/{feature-folder}/task_review/{{.id}}-task-review.md:
-(Derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders.)
+PRODUCE task review report at {{.review_base}}{{.id}}-task-review.md:
 - Verdict: PASS or FAIL
 - Requirements coverage matrix (spec requirement -> task mapping)
 - Integration coverage matrix for CONTRACT-###, I-##, and X-## rows, including

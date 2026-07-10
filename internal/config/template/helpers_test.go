@@ -283,47 +283,89 @@ func TestEpicPlaceholders_AllFields(t *testing.T) {
 // ready_for_code_review because no key populated <review-base>.
 func TestDeriveReviewBase(t *testing.T) {
 	tests := []struct {
-		name string
-		in   string
-		want string
+		name       string
+		in         string
+		key        string
+		entityType models.EntityType
+		want       string
 	}{
-		{"empty", "", ""},
+		{"empty", "", "", models.EntityTypeTask, ""},
 		{
 			"task under feature",
 			"docs/plan/E19-sprint/E19-F04-analytics/tasks/T-E19-F04-001.md",
+			"T-E19-F04-001",
+			models.EntityTypeTask,
 			"docs/review/E19-sprint/E19-F04-analytics/",
 		},
 		{
 			"feature spec",
 			"docs/plan/E19-sprint/E19-F04-analytics/feature.md",
+			"E19-F04",
+			models.EntityTypeFeature,
 			"docs/review/E19-sprint/E19-F04-analytics/",
 		},
 		{
 			"bug under docs/plan/bugs",
-			"docs/plan/bugs/B025.md",
-			"docs/review/bugs/",
+			"docs/plan/bugs/B001.md",
+			"B001",
+			models.EntityTypeBug,
+			"docs/review/bugs/b001/",
+		},
+		{
+			"change-card under docs/plan/changes",
+			"docs/plan/changes/CC001.md",
+			"CC001",
+			models.EntityTypeChange,
+			"docs/review/changes/cc-001/",
+		},
+		{
+			"tech-debt under docs/plan/tech-debt",
+			"docs/plan/tech-debt/TD-001.md",
+			"TD-001",
+			models.EntityTypeTechDebt,
+			"docs/review/tech-debt/td-001/",
 		},
 		{
 			"epic top-level file",
 			"docs/plan/E19-sprint/epic.md",
+			"E19",
+			models.EntityTypeEpic,
 			"docs/review/E19-sprint/",
 		},
 		{
 			"non-plan path passes through with trailing slash",
 			"custom/E07-F01/tasks/T-E07-F01-001.md",
+			"T-E07-F01-001",
+			models.EntityTypeTask,
 			"custom/E07-F01/",
+		},
+		{
+			"standalone custom path preserves file path layout",
+			"custom/bugs/B001.md",
+			"B001",
+			models.EntityTypeBug,
+			"custom/bugs/",
+		},
+		{
+			"standalone invalid key falls back to file path layout",
+			"docs/plan/bugs/B001.md",
+			"../B001",
+			models.EntityTypeBug,
+			"docs/review/bugs/",
 		},
 		{
 			"leading ./ stripped",
 			"./docs/plan/bugs/B025.md",
-			"docs/review/bugs/",
+			"B025",
+			models.EntityTypeBug,
+			"docs/review/bugs/b025/",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := deriveReviewBase(tt.in); got != tt.want {
-				t.Errorf("deriveReviewBase(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := deriveReviewBase(tt.in, tt.key, tt.entityType); got != tt.want {
+				t.Errorf("deriveReviewBase(%q, %q, %q) = %q, want %q", tt.in, tt.key, tt.entityType, got, tt.want)
 			}
 		})
 	}
@@ -349,6 +391,25 @@ func TestEntityPlaceholders_PopulatesReviewBase(t *testing.T) {
 	m := EntityPlaceholders(task)
 	if m["review_base"] != "docs/review/E07-feat/E07-F01-impl/" {
 		t.Errorf("review_base = %q, want docs/review/E07-feat/E07-F01-impl/", m["review_base"])
+	}
+}
+
+func TestEntityPlaceholders_PopulatesStandaloneReviewBase(t *testing.T) {
+	filePath := "docs/plan/changes/CC-042.md"
+	change := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{
+			Key:       "CC-042",
+			Title:     "Test change",
+			FilePath:  &filePath,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status: "code_review",
+	}
+
+	m := EntityPlaceholders(change)
+	if m["review_base"] != "docs/review/changes/cc-042/" {
+		t.Errorf("review_base = %q, want docs/review/changes/cc-042/", m["review_base"])
 	}
 }
 

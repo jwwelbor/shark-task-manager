@@ -5,8 +5,7 @@ Verification gate (craft review) passed for COMPLEX feature {{.id}} ("{{.title}}
 READ:
 (1) Feature spec at {{.file_path}} for acceptance criteria and scope
 (2) Feature test-plan.md for all test cases and expected coverage
-(3) Code review report from docs/review/{epic-folder}/{feature-folder}/code_review/*-{{.id}}-review.md
-  (derive path from {{.file_path}}: replace "docs/plan/" → "docs/review/", keep epic/feature folders) for scope of changes
+(3) Code review report from {{.review_base}}code-review-*-{{.id}}.md for scope of changes
 (4) All task specs: `{{template "list_json" .}}` → collect every task's Scope file list
 (5) `git diff $(git merge-base HEAD main)..HEAD` to derive all touched paths
 (6) Parent interaction map and spec.md "Cross-feature interactions" section if present
@@ -55,7 +54,7 @@ VALIDATE:
   does not assert the documented shape, a mismatched shape source, missing
   coverage disposition, or a failing test is an automatic FAIL
 
-PRODUCE QA report to docs/review/{epic-folder}/{feature-folder}/qa/<timestamp>-{{.id}}-qa.md:
+PRODUCE QA report to {{.review_base}}qa-<timestamp>-{{.id}}.md:
 - Verdict: PASS or FAIL
 - Test scope rationale: touched files from git diff and why each test path was chosen
 - Test results summary (counts, durations)
