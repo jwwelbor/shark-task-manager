@@ -240,6 +240,37 @@ result, err := writer.WriteEntityFile(fileops.WriteOptions{
 - `ForLevel(level)` — scopes to epic/feature/task level
 - No hardcoded statuses anywhere in code
 
+### Status ordering and selection contract
+
+Never derive meaning from alphabetical or map-iteration order. The workflow
+layer guarantees exactly two ordering/selection contracts:
+
+- **`StatusFlow` slices are pass-first.** Every `StatusFlow` slice for a
+  route-based workflow is produced by a single function,
+  `uniqueSortedOutcomeTargets` (`internal/config/workflow/steps.go`), which
+  orders targets by the semantic priority of their outcome key (pass, fail,
+  blocked, extras). `AvailableTransitions[0]` is therefore always the
+  happy-path route — a contract, not an accident. Sites that rely on it carry
+  a `//shark:ordered` annotation.
+- **Semantic selection goes through named selectors.** When code needs "the"
+  status of a kind — the aggregation/reopen status, the status of a phase,
+  the archive terminal, the done-but-not-archived sprint status — it calls a
+  named selector in `internal/config/workflow/selectors.go`
+  (`PrimaryAggregationStatus`, `StatusForPhase`, `ArchiveTerminalStatus`,
+  `CompletedSprintStatus`, `DefaultTransition`).
+
+Selectors apply the **designation rule**: one candidate wins trivially;
+several candidates require exactly one step tagged `primary: true` in the
+workflow YAML. Zero or multiple tags is a config error (`shark admin workflow
+validate` rejects it for the selections it can see), and at runtime the
+selectors return an `AmbiguousSelectionError` naming the candidates and the
+fix — an arbitrary pick never happens. "No candidate" is a distinct error
+(`NoCandidateError`) so callers can fall back or skip.
+
+`make lint` enforces the boundary: a positional `[0]` / `[len-1]` pick on an
+identifier matching `Statuses|Transitions|Targets` outside the selector file
+fails CI unless the line is annotated `//shark:ordered <reason>`.
+
 ---
 
 ## 10. Template Renderer

@@ -271,7 +271,7 @@ func buildOrderedStatuses(wfCfg *config.WorkflowConfig) []string {
 	// Build the "happy path" by following first transitions
 	seen := make(map[string]bool)
 	var ordered []string
-	current := startStatuses[0]
+	current := startStatuses[0] //shark:ordered _start_ preserves the author's declaration order
 
 	for {
 		if seen[current] {

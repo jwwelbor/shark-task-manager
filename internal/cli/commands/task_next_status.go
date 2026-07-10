@@ -214,7 +214,7 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 			return cli.OutputJSON(result)
 		}
 
-		targetStatus = info.AvailableTransitions[0].TargetStatus
+		targetStatus = info.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 		cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", targetStatus, len(info.AvailableTransitions)))
 		return doTransition(svc, cmd, taskKey, targetStatus, force, reason, documentPath, &result)
 	}

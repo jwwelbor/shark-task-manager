@@ -430,7 +430,7 @@ func (c *RunController) handleAdvanceStatus(
 		return stageOutcome{done: true}
 	}
 
-	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -482,7 +482,7 @@ func (c *RunController) dryRunNextOutcome(
 		return stageOutcome{done: true}
 	}
 
-	nextStatus := nextInfo.AvailableTransitions[0].TargetStatus
+	nextStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	return stageOutcome{
 		nextStatus: nextStatus,
 		nextInfo:   c.simulatedDryRunNextStatus(nextStatus),
@@ -781,7 +781,7 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 
 	// Write the per-dispatch transcript when capture is enabled. Stdout is
 	// DELIBERATELY excluded from the run.stage.complete event because

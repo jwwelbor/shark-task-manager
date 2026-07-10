@@ -100,7 +100,7 @@ func (s *Service) GetInitialStatusString() string {
 			return "todo"
 		}
 	}
-	return startStatuses[0]
+	return startStatuses[0] //shark:ordered _start_ preserves the author's declaration order
 }
 
 // ValidateTransition checks if a transition is valid and returns a descriptive error if not.
@@ -117,7 +117,7 @@ func (s *Service) GetInitialStatus() models.TaskStatus {
 	if !exists || len(startStatuses) == 0 {
 		return models.TaskStatus("todo")
 	}
-	return models.TaskStatus(startStatuses[0])
+	return models.TaskStatus(startStatuses[0]) //shark:ordered _start_ preserves the author's declaration order
 }
 
 // GetEntryStatuses returns all valid entry statuses for new tasks.

@@ -101,6 +101,7 @@ test-coverage:
 
 # Lint code
 lint:
+	@./scripts/lint-positional-selection.sh
 	@if ! command -v golangci-lint > /dev/null; then \
 		echo "Installing golangci-lint..."; \
 		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.9.0; \
