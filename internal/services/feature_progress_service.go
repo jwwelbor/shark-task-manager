@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -139,7 +140,11 @@ func (s *FeatureProgressService) RecalculateAndSetProgress(ctx context.Context, 
 	}
 
 	feature.ProgressPct = progressInfo.WeightedProgress
-	feature.Status = s.deriveFeatureProgressStatus(feature, progressInfo)
+	derivedStatus, err := s.deriveFeatureProgressStatus(feature, progressInfo)
+	if err != nil {
+		return fmt.Errorf("failed to derive status for feature %d: %w", featureID, err)
+	}
+	feature.Status = derivedStatus
 
 	if err := s.repo.Update(ctx, feature); err != nil {
 		return fmt.Errorf("failed to update feature progress: %w", err)
@@ -170,36 +175,42 @@ func (s *FeatureProgressService) RecalculateAndSetProgressByKey(ctx context.Cont
 //   - weighted progress >= 100%: advance one workflow step only from cascade statuses
 //   - weighted progress < 100%: reopen completed features to the aggregation status
 //   - other terminal statuses (e.g. archived) are preserved
-func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Feature, progressInfo *FeatureProgressInfo) models.FeatureStatus {
+func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Feature, progressInfo *FeatureProgressInfo) (models.FeatureStatus, error) {
 	if feature.StatusOverride || progressInfo == nil || progressInfo.TotalTasks == 0 {
-		return feature.Status
+		return feature.Status, nil
 	}
 
 	featureWorkflow := s.workflowSvc.ForLevel(workflow.LevelFeature)
-	aggregationStatuses := featureWorkflow.GetAggregationStatuses()
-	aggregationStatus := models.FeatureStatus(featureWorkflow.GetInitialStatusString())
-	if len(aggregationStatuses) > 0 {
-		aggregationStatus = models.FeatureStatus(aggregationStatuses[0])
-	}
 
 	if progressInfo.WeightedProgress >= 100.0 {
 		if featureWorkflow.IsTerminalStatus(string(feature.Status)) && feature.Status != models.FeatureStatusCompleted {
-			return feature.Status
+			return feature.Status, nil
 		}
 		if !featureWorkflow.HasOrchestratorAction(string(feature.Status), config.ActionCascade) {
-			return feature.Status
+			return feature.Status, nil
 		}
 		if nextStatus, ok := featureWorkflow.GetSingleNextStatus(string(feature.Status)); ok {
-			return models.FeatureStatus(nextStatus)
+			return models.FeatureStatus(nextStatus), nil
 		}
-		return feature.Status
+		return feature.Status, nil
 	}
 
 	if feature.Status == models.FeatureStatusCompleted {
-		return aggregationStatus
+		reopenStatus, err := featureWorkflow.PrimaryAggregationStatus()
+		if err != nil {
+			var noCandidate *config.NoCandidateError
+			if errors.As(err, &noCandidate) {
+				// No aggregation step configured: reopen to the initial status.
+				return models.FeatureStatus(featureWorkflow.GetInitialStatusString()), nil
+			}
+			// Ambiguous config: surface the actionable error and leave the
+			// status unchanged rather than picking a candidate arbitrarily.
+			return feature.Status, err
+		}
+		return models.FeatureStatus(reopenStatus), nil
 	}
 
-	return feature.Status
+	return feature.Status, nil
 }
 
 // GetTaskCounts returns the total task count for each of the given feature IDs in a

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -886,10 +887,13 @@ func TestResolveReopenTarget_FallbackAggregation(t *testing.T) {
 		},
 	}
 
-	// Use a workflow service that has aggregation statuses.
-	// The basic profile uses "active" as _aggregation_.
-	wfAdapter := &workflowProviderAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
-	levelWf := wfAdapter.ForLevel("epic")
+	// Use a workflow with a designated aggregation status.
+	levelWf := &mockLevelWorkflow{
+		isTerminalFunc:               func(s string) bool { return s == "completed" || s == "archived" },
+		getTerminalStatusesFunc:      func() []string { return []string{"completed", "archived"} },
+		primaryAggregationStatusFunc: func() (string, error) { return "active", nil },
+		getInitialStatusStringFunc:   func() string { return "draft" },
+	}
 
 	status, fallbackKind, err := resolveReopenTarget(ctx, histQuerier, models.EntityTypeEpic, 99, levelWf)
 
@@ -899,13 +903,8 @@ func TestResolveReopenTarget_FallbackAggregation(t *testing.T) {
 	if fallbackKind != "aggregation" {
 		t.Errorf("expected fallbackKind=aggregation, got %q", fallbackKind)
 	}
-	// Should return the first aggregation status from the workflow.
-	aggStatuses := levelWf.GetAggregationStatuses()
-	if len(aggStatuses) == 0 {
-		t.Skip("test workflow has no aggregation statuses — fallback path untestable")
-	}
-	if status != aggStatuses[0] {
-		t.Errorf("expected status=%q (first aggregation status), got %q", aggStatuses[0], status)
+	if status != "active" {
+		t.Errorf("expected status=%q (designated aggregation status), got %q", "active", status)
 	}
 }
 
@@ -947,9 +946,11 @@ func TestResolveReopenTarget_FallbackInitial(t *testing.T) {
 
 	// Build a mock levelWorkflow with no aggregation statuses.
 	levelWf := &mockLevelWorkflow{
-		isTerminalFunc:             func(s string) bool { return s == "completed" || s == "archived" },
-		getTerminalStatusesFunc:    func() []string { return []string{"completed", "archived"} },
-		getAggregationStatusesFunc: func() []string { return []string{} }, // empty!
+		isTerminalFunc:          func(s string) bool { return s == "completed" || s == "archived" },
+		getTerminalStatusesFunc: func() []string { return []string{"completed", "archived"} },
+		primaryAggregationStatusFunc: func() (string, error) {
+			return "", &config.NoCandidateError{Selection: "aggregation (reopen-target)"} // none configured
+		},
 		getInitialStatusStringFunc: func() string { return "draft" },
 	}
 
@@ -1590,10 +1591,10 @@ func TestCascade_OuterLookupFailureIsNonBlocking(t *testing.T) {
 // ============================================================
 
 type mockLevelWorkflow struct {
-	isTerminalFunc             func(string) bool
-	getTerminalStatusesFunc    func() []string
-	getAggregationStatusesFunc func() []string
-	getInitialStatusStringFunc func() string
+	isTerminalFunc               func(string) bool
+	getTerminalStatusesFunc      func() []string
+	primaryAggregationStatusFunc func() (string, error)
+	getInitialStatusStringFunc   func() string
 }
 
 func (m *mockLevelWorkflow) IsTerminalStatus(status string) bool {
@@ -1610,11 +1611,11 @@ func (m *mockLevelWorkflow) GetTerminalStatuses() []string {
 	return nil
 }
 
-func (m *mockLevelWorkflow) GetAggregationStatuses() []string {
-	if m.getAggregationStatusesFunc != nil {
-		return m.getAggregationStatusesFunc()
+func (m *mockLevelWorkflow) PrimaryAggregationStatus() (string, error) {
+	if m.primaryAggregationStatusFunc != nil {
+		return m.primaryAggregationStatusFunc()
 	}
-	return nil
+	return "", &config.NoCandidateError{Selection: "aggregation (reopen-target)"}
 }
 
 func (m *mockLevelWorkflow) GetInitialStatusString() string {
@@ -1949,8 +1950,8 @@ func TestResolveReopenTarget_EmptyTerminalSetFallsBackToAggregation(t *testing.T
 
 	levelWf := &mockLevelWorkflow{
 		getTerminalStatusesFunc: func() []string { return nil }, // empty
-		getAggregationStatusesFunc: func() []string {
-			return []string{"in_development"}
+		primaryAggregationStatusFunc: func() (string, error) {
+			return "in_development", nil
 		},
 		getInitialStatusStringFunc: func() string { return "draft" },
 	}
@@ -1980,8 +1981,10 @@ func TestResolveReopenTarget_EmptyTerminalSetFallsBackToInitial(t *testing.T) {
 	}
 
 	levelWf := &mockLevelWorkflow{
-		getTerminalStatusesFunc:    func() []string { return []string{} }, // empty slice
-		getAggregationStatusesFunc: func() []string { return nil },
+		getTerminalStatusesFunc: func() []string { return []string{} }, // empty slice
+		primaryAggregationStatusFunc: func() (string, error) {
+			return "", &config.NoCandidateError{Selection: "aggregation (reopen-target)"}
+		},
 		getInitialStatusStringFunc: func() string { return "draft" },
 	}
 

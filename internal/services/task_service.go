@@ -1349,12 +1349,15 @@ func (s *TaskService) legacyMaybeReopenParentFeature(ctx context.Context, featur
 		return
 	}
 
-	aggStatuses := featureWf.GetAggregationStatuses()
-	if len(aggStatuses) == 0 {
-		slog.Warn("auto-reopen of feature skipped: workflow defines no aggregation statuses", "feature", featureKey)
+	// Best-effort side effect: on no candidate OR an ambiguous config we skip
+	// the reopen and warn rather than guessing a target (the error text names
+	// the candidates and the primary-tag fix).
+	target, err := featureWf.PrimaryAggregationStatus()
+	if err != nil {
+		slog.Warn("auto-reopen of feature skipped", "feature", featureKey, "error", err)
 		return
 	}
-	targetStatus := models.FeatureStatus(aggStatuses[0])
+	targetStatus := models.FeatureStatus(target)
 
 	oldStatus := string(feature.Status)
 	_, err = s.featureService.UpdateFeature(ctx, feature.Key, FeatureUpdates{
