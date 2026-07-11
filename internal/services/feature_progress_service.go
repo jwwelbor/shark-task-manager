@@ -203,9 +203,9 @@ func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Fea
 				// No aggregation step configured: reopen to the initial status.
 				return models.FeatureStatus(featureWorkflow.GetInitialStatusString()), nil
 			}
-			// Ambiguous config: surface the actionable error and leave the
-			// status unchanged rather than picking a candidate arbitrarily.
-			return feature.Status, err
+			// Ambiguous config: surface the actionable error; the caller
+			// aborts the recalculation so the status is never changed.
+			return "", err
 		}
 		return models.FeatureStatus(reopenStatus), nil
 	}

@@ -875,6 +875,14 @@ func (s *SprintService) assignableSprintStatuses() []string {
 // the sprint lifecycle never picks one arbitrarily.
 func (s *SprintService) statusInPhase(phase, fallback string) (string, error) {
 	status, err := s.workflowSvc.StatusForPhase(phase)
+	return selectorWithFallback(fallback, status, err)
+}
+
+// selectorWithFallback resolves a named-selector result: the selected status
+// on success, the literal fallback when the workflow defines no candidate,
+// and the error itself when the selection is ambiguous (never an arbitrary
+// pick).
+func selectorWithFallback(fallback, status string, err error) (string, error) {
 	if err == nil {
 		return status, nil
 	}
@@ -906,14 +914,7 @@ func (s *SprintService) reviewPhaseStatus() (string, error) {
 // code changes.
 func (s *SprintService) terminalSprintStatus() (string, error) {
 	status, err := s.workflowSvc.ArchiveTerminalStatus()
-	if err == nil {
-		return status, nil
-	}
-	var noCandidate *config.NoCandidateError
-	if errors.As(err, &noCandidate) {
-		return "archived", nil
-	}
-	return "", err
+	return selectorWithFallback("archived", status, err)
 }
 
 // completedSprintStatus returns the "done"-phase status a sprint moves to
@@ -924,14 +925,7 @@ func (s *SprintService) terminalSprintStatus() (string, error) {
 // CompletedSprintStatus).
 func (s *SprintService) completedSprintStatus() (string, error) {
 	status, err := s.workflowSvc.CompletedSprintStatus()
-	if err == nil {
-		return status, nil
-	}
-	var noCandidate *config.NoCandidateError
-	if errors.As(err, &noCandidate) {
-		return "completed", nil
-	}
-	return "", err
+	return selectorWithFallback("completed", status, err)
 }
 
 // sprintAcceptsAssignments reports whether a sprint in the given status may

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -134,44 +135,29 @@ func validateRouteBased(workflow *WorkflowConfig) error {
 // selections Shark performs against a workflow: with one candidate the choice
 // is trivial; with several, exactly one candidate must be tagged
 // primary: true. Checked selections:
-//   - aggregation steps (aggregates_from / action: cascade) — the reopen target
-//   - steps in the "execution" and "review" phases — sprint lifecycle statuses
-//   - terminal steps, unless an action: archive step already designates the
-//     archive endpoint
+//   - aggregation steps — the reopen target (PrimaryAggregationStatus)
+//   - the "execution" and "review" phases — sprint lifecycle (StatusForPhase)
+//   - terminal steps — the archive endpoint (ArchiveTerminalStatus); when
+//     action: archive terminals exist, only that subset must be unambiguous
+//
+// Each check consumes the same derived candidate set and the same designate
+// rule the runtime selector uses, so validate-time and runtime can never
+// disagree about what is ambiguous.
 func validatePrimaryDesignations(workflow *WorkflowConfig) error {
-	aggregation := stepsMatching(workflow, func(st *Step) bool {
-		return st.AggregatesFrom != "" || strings.EqualFold(st.Action, action.ActionCascade)
-	})
-	if err := requireSinglePrimary(workflow, aggregation, "aggregation (reopen-target)"); err != nil {
+	if err := requireDesignation(workflow, "aggregation (reopen-target)", workflow.SpecialStatuses[AggregationStatusKey]); err != nil {
 		return err
 	}
 
 	for _, phase := range []string{"execution", "review"} {
-		inPhase := stepsMatching(workflow, func(st *Step) bool {
-			return strings.EqualFold(st.Phase, phase)
-		})
-		if err := requireSinglePrimary(workflow, inPhase, fmt.Sprintf("%q-phase", phase)); err != nil {
+		if err := requireDesignation(workflow, fmt.Sprintf("%q-phase", phase), workflow.GetStatusesByPhase(phase)); err != nil {
 			return err
 		}
 	}
 
-	terminals := stepsMatching(workflow, func(st *Step) bool { return st.Terminal })
-	if len(terminals) > 1 {
-		hasArchive := false
-		for _, name := range terminals {
-			if st, ok := workflow.GetStep(name); ok && strings.EqualFold(st.Action, action.ActionArchive) {
-				hasArchive = true
-				break
-			}
-		}
-		if !hasArchive {
-			if err := requireSinglePrimary(workflow, terminals, "terminal"); err != nil {
-				return err
-			}
-		}
+	if archival := workflow.archiveActionTerminals(); len(archival) > 0 {
+		return requireDesignation(workflow, "archive terminal", archival)
 	}
-
-	return nil
+	return requireDesignation(workflow, "terminal", workflow.SpecialStatuses[CompleteStatusKey])
 }
 
 // validateParkingActions rejects parking steps whose action is advance_status:
@@ -189,17 +175,6 @@ func validateParkingActions(workflow *WorkflowConfig) error {
 	return nil
 }
 
-// stepsMatching returns the sorted names of steps satisfying the predicate.
-func stepsMatching(workflow *WorkflowConfig, match func(*Step) bool) []string {
-	var names []string
-	for _, name := range sortedStepNames(workflow) {
-		if st := workflow.Steps[name]; st != nil && match(st) {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
 // sortedStepNames returns the workflow's step names in sorted order for
 // deterministic validation output.
 func sortedStepNames(workflow *WorkflowConfig) []string {
@@ -211,32 +186,25 @@ func sortedStepNames(workflow *WorkflowConfig) []string {
 	return names
 }
 
-// requireSinglePrimary applies the shared designation rule to one candidate
-// set: zero or one candidate is always fine; with several, exactly one must be
-// tagged primary: true.
-func requireSinglePrimary(workflow *WorkflowConfig, candidates []string, kind string) error {
-	if len(candidates) <= 1 {
+// requireDesignation applies the runtime designation rule (designate) to one
+// candidate set and translates an ambiguity into a validation error. A
+// missing candidate set is fine at validate time — there is simply nothing to
+// select.
+func requireDesignation(workflow *WorkflowConfig, kind string, candidates []string) error {
+	_, err := workflow.designate(kind, candidates)
+	var ambiguous *AmbiguousSelectionError
+	if !errors.As(err, &ambiguous) {
 		return nil
 	}
-	var primaries []string
-	for _, name := range candidates {
-		if st, ok := workflow.GetStep(name); ok && st.Primary {
-			primaries = append(primaries, name)
-		}
-	}
-	switch len(primaries) {
-	case 1:
-		return nil
-	case 0:
+	if len(ambiguous.Primaries) > 1 {
 		return &WorkflowValidationError{
-			Message: fmt.Sprintf("ambiguous %s selection: %d candidate steps (%s) and none is tagged primary", kind, len(candidates), strings.Join(candidates, ", ")),
-			Fix:     "tag exactly one of these steps with primary: true, then run 'shark admin workflow validate'",
-		}
-	default:
-		return &WorkflowValidationError{
-			Message: fmt.Sprintf("ambiguous %s selection: multiple steps tagged primary (%s)", kind, strings.Join(primaries, ", ")),
+			Message: fmt.Sprintf("ambiguous %s selection: multiple steps tagged primary (%s)", kind, strings.Join(ambiguous.Primaries, ", ")),
 			Fix:     "keep primary: true on exactly one of these steps, then run 'shark admin workflow validate'",
 		}
+	}
+	return &WorkflowValidationError{
+		Message: fmt.Sprintf("ambiguous %s selection: %d candidate steps (%s) and none is tagged primary", kind, len(ambiguous.Candidates), strings.Join(ambiguous.Candidates, ", ")),
+		Fix:     "tag exactly one of these steps with primary: true, then run 'shark admin workflow validate'",
 	}
 }
 

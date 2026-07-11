@@ -67,6 +67,7 @@ steps:
     responsibility: none
     action: archive
     terminal: true
+    primary: true
     prompt: epic/completed.md
   decomposition:
     phase: decomposition

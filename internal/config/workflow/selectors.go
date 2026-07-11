@@ -3,6 +3,8 @@ package workflow
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 )
 
 // Named selectors: the single place where "which status do we mean?" is
@@ -41,11 +43,18 @@ func (e *NoCandidateError) Error() string {
 type AmbiguousSelectionError struct {
 	// Selection names what was being selected.
 	Selection string
-	// Candidates are the competing status names, sorted.
+	// Candidates are the competing status names.
 	Candidates []string
+	// Primaries are the candidates tagged primary: true — empty when none is
+	// tagged, more than one when the tag itself is ambiguous.
+	Primaries []string
 }
 
 func (e *AmbiguousSelectionError) Error() string {
+	if len(e.Primaries) > 1 {
+		return fmt.Sprintf("ambiguous %s selection: multiple steps tagged primary (%s); keep primary: true on exactly one, then run 'shark admin workflow validate'",
+			e.Selection, strings.Join(e.Primaries, ", "))
+	}
 	return fmt.Sprintf("ambiguous %s selection: candidates are %s; tag exactly one of these steps with primary: true, then run 'shark admin workflow validate'",
 		e.Selection, strings.Join(e.Candidates, ", "))
 }
@@ -67,7 +76,16 @@ func (w *WorkflowConfig) designate(selection string, candidates []string) (strin
 	if len(primaries) == 1 {
 		return primaries[0], nil
 	}
-	return "", &AmbiguousSelectionError{Selection: selection, Candidates: candidates}
+	if !w.HasSteps() {
+		// A legacy (status_flow schema) config cannot express primary: true,
+		// so the strict rule would hard-fail with a fix the author cannot
+		// apply. Preserve the pre-2.x behavior for legacy configs: first
+		// candidate wins (declaration order for special_statuses arrays,
+		// sorted order for phase lookups). The strict designation rule applies
+		// only to route-based (steps:) workflows.
+		return candidates[0], nil //shark:ordered legacy-schema back-compat, see designate doc
+	}
+	return "", &AmbiguousSelectionError{Selection: selection, Candidates: candidates, Primaries: primaries}
 }
 
 // DefaultTransition returns the default (happy-path) transition out of a
@@ -126,16 +144,23 @@ func (w *WorkflowConfig) CompletedSprintStatus() (string, error) {
 // whose action is "archive" take precedence; the designation rule then breaks
 // any remaining tie.
 func (w *WorkflowConfig) ArchiveTerminalStatus() (string, error) {
-	terminals := w.SpecialStatuses[CompleteStatusKey]
+	if archival := w.archiveActionTerminals(); len(archival) > 0 {
+		return w.designate("archive terminal", archival)
+	}
+	return w.designate("terminal", w.SpecialStatuses[CompleteStatusKey])
+}
+
+// archiveActionTerminals returns the terminal statuses whose orchestrator
+// action is archive — the operation-specific subset ArchiveTerminalStatus
+// prefers and validatePrimaryDesignations checks, so validate-time and
+// runtime always agree on the candidate set.
+func (w *WorkflowConfig) archiveActionTerminals() []string {
 	var archival []string
-	for _, status := range terminals {
+	for _, status := range w.SpecialStatuses[CompleteStatusKey] {
 		if meta, ok := w.GetStatusMetadata(status); ok &&
-			meta.OrchestratorAction != nil && strings.EqualFold(meta.OrchestratorAction.Action, "archive") {
+			meta.OrchestratorAction != nil && strings.EqualFold(meta.OrchestratorAction.Action, action.ActionArchive) {
 			archival = append(archival, status)
 		}
 	}
-	if len(archival) > 0 {
-		return w.designate("archive terminal", archival)
-	}
-	return w.designate("terminal", terminals)
+	return archival
 }

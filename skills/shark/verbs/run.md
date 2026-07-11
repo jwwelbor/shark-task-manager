@@ -34,8 +34,16 @@ The parent loop owns the lease and every status transition. Per spawned step:
 
 1. Parent claims `response.entity_key`.
 2. Parent spawns a host-safe worker with `response.prompt`.
-3. Worker returns only `{ "outcome": "pass" | "fail" | "blocked", "summary": "...", "note": "..." }`.
-4. Parent runs `shark status advance {response.entity_key} --outcome <outcome>`.
+3. Worker reports its result in its final response — no Shark commands. The
+   result is an outcome plus optional parent-loop directives (see "When the
+   worker returns"). The outcome may be **any outcome key defined for the
+   current step** (`shark status transitions <key> --json`), not just
+   pass/fail/blocked — workflow prompts route through extra outcomes such as
+   `simple`, `standard`, or `deep_verify`. Workers signal it with a trailing
+   `RECOMMENDED OUTCOME: <key>` line; a worker that instead returns a JSON
+   `{ "outcome": ... }` object means the same thing.
+4. Parent applies any directives (kickbacks, notes), then runs
+   `shark status advance {response.entity_key} --outcome <key>`.
 5. Parent releases the lease on every success, failure, or exception path.
 
 The child never claims, advances, releases, or heartbeats.
@@ -121,23 +129,50 @@ For long steps, periodically renew the parent lease:
 shark heartbeat {response.entity_key} --session "$SID" --progress <0..1> --note "<step>"
 ```
 
-When the worker returns:
+When the worker returns, parse its final response for the directive markers
+the workflow prompts emit, apply them in this order, then advance:
 
-1. If it returned `note`, record it:
+1. **Resolve the outcome.** Take the trailing `RECOMMENDED OUTCOME: <key>`
+   line (or the `outcome` field of a JSON return). Any outcome key defined
+   for the current step is valid — `shark status advance` rejects unknown
+   keys, so pass the worker's key through verbatim rather than coercing it to
+   pass/fail/blocked. No outcome at all → treat as `blocked` and record a
+   blocker note quoting the tail of the response.
+2. **Persist notes.**
+   - A `COMPLEXITY NOTE: <text>` line (complexity-triage steps) must be
+     stored as a decision so later steps can read the tier:
+     ```bash
+     shark create note {response.entity_key} "<text>" --type decision
+     ```
+   - A `PARENT NOTE: <text>` line records the gate result:
+     ```bash
+     shark create note {response.entity_key} "<text>" --type comment
+     ```
+   - Any other `note` the worker returned:
+     ```bash
+     shark create note {response.entity_key} "<note>" --type comment
+     ```
+3. **Apply task kickbacks.** Gate steps (code review, QA, UAT) that fail list
+   kickback lines in the form
+   `<task-id> -> <status> --reason "<why>"`.
+   Apply each one BEFORE advancing the parent, so the reopened tasks are
+   already in place when the feature drops back:
    ```bash
-   shark create note {response.entity_key} "<note>" --type comment
+   shark status set <task-id> <status> --reason "<why>" --force
    ```
-2. Advance by the returned outcome, attributing the transition to the agent
-   that did the work (this populates `entity_history.changed_by`):
+   A `fail` outcome whose response names no kickbacks is suspicious — record a
+   blocker note and surface it to the user rather than silently advancing.
+4. **Advance by the resolved outcome**, attributing the transition to the
+   agent that did the work (this populates `entity_history.changed_by`):
    ```bash
-   shark status advance {response.entity_key} --outcome <pass|fail|blocked> \
+   shark status advance {response.entity_key} --outcome <key> \
      --agent "{response.agent_type}@{response.provider}/{response.model}"
    ```
-3. Release the lease, always, stamping the outcome on the work session:
+5. **Release the lease, always**, stamping the outcome on the work session:
    ```bash
-   shark release {response.entity_key} --session "$SID" --outcome <pass|fail|blocked>
+   shark release {response.entity_key} --session "$SID" --outcome <key>
    ```
-4. Return to Step 1 with the original `{KEY}`.
+6. Return to Step 1 with the original `{KEY}`.
 
 If the worker fails or throws, still release the lease, record a blocker note if
 possible, and surface the failure before deciding whether to retry.

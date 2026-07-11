@@ -79,7 +79,7 @@ type CascadeService struct {
 // NewCascadeService constructs a CascadeService.
 //
 // All four dependencies are required; passing nil for any of them will cause
-// ListDispatchableChildren to panic the first time the corresponding branch
+// DescribeDispatchableChildren to panic the first time the corresponding branch
 // is exercised. This is a deliberate fail-fast posture for a service that
 // must produce correct dispatch decisions.
 func NewCascadeService(
@@ -174,15 +174,6 @@ func (s *CascadeService) DescribeDispatchableChildren(ctx context.Context, entit
 	return CascadeChildrenState{}, nil
 }
 
-// ListDispatchableChildren returns the ordered list of currently dispatchable
-// children for the given cascade parent.
-func (s *CascadeService) ListDispatchableChildren(ctx context.Context, entityType, key string) ([]CascadeChild, error) {
-	state, err := s.DescribeDispatchableChildren(ctx, entityType, key)
-	if err != nil {
-		return nil, err
-	}
-	return state.Children, nil
-}
 
 // isTerminalStatus reports whether a status is terminal (no productive
 // dispatch possible) for the given workflow level. Delegates to

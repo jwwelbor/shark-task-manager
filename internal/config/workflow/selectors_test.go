@@ -116,6 +116,28 @@ func TestCompletedSprintStatus_ExcludesTerminalsAndPicksPrimary(t *testing.T) {
 	}
 }
 
+func TestCompletedSprintStatus_Ambiguous(t *testing.T) {
+	cfg := designationFixture()
+	cfg.Steps["completed"].Primary = false
+
+	_, err := cfg.CompletedSprintStatus()
+	var ambiguous *AmbiguousSelectionError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("expected AmbiguousSelectionError, got %v", err)
+	}
+	// The candidate list must name only the non-terminal done-phase steps —
+	// terminals are a different selection (ArchiveTerminalStatus).
+	want := []string{"aaa_wrong_completed", "completed"}
+	if len(ambiguous.Candidates) != len(want) {
+		t.Fatalf("expected candidates %v, got %v", want, ambiguous.Candidates)
+	}
+	for i, name := range want {
+		if ambiguous.Candidates[i] != name {
+			t.Errorf("candidate %d: expected %q, got %v", i, name, ambiguous.Candidates)
+		}
+	}
+}
+
 func TestCompletedSprintStatus_NoCandidate(t *testing.T) {
 	cfg := designationFixture()
 	cfg.Steps["completed"].Phase = "development"
@@ -187,6 +209,60 @@ func TestArchiveTerminalStatus_NoCandidate(t *testing.T) {
 	var noCandidate *NoCandidateError
 	if !errors.As(err, &noCandidate) {
 		t.Fatalf("expected NoCandidateError, got %v", err)
+	}
+}
+
+func TestDesignate_LegacySchemaFallsBackToFirstCandidate(t *testing.T) {
+	// A legacy (status_flow) config cannot express primary: true, so the
+	// designation rule preserves the pre-2.x behavior: first candidate wins
+	// (declaration order for special_statuses arrays). Only route-based
+	// (steps:) workflows get the strict ambiguity error.
+	cfg := &WorkflowConfig{
+		StatusFlow: map[string][]string{
+			"draft":     {"zz_active"},
+			"zz_active": {"done"},
+			"aa_other":  {"done"},
+			"done":      {},
+		},
+		SpecialStatuses: map[string][]string{
+			StartStatusKey:       {"draft"},
+			CompleteStatusKey:    {"done"},
+			AggregationStatusKey: {"zz_active", "aa_other"}, // declaration order, not alphabetical
+		},
+	}
+
+	got, err := cfg.PrimaryAggregationStatus()
+	if err != nil {
+		t.Fatalf("unexpected error for legacy config: %v", err)
+	}
+	if got != "zz_active" {
+		t.Errorf("expected declaration-order first %q, got %q", "zz_active", got)
+	}
+}
+
+// TestGetStatusesByAgentType_Sorted pins the determinism guarantee added with
+// the selectors: StatusMetadata is a map, so without the sort the output
+// order would vary between calls (an intermittent regression if removed).
+func TestGetStatusesByAgentType_Sorted(t *testing.T) {
+	cfg := &WorkflowConfig{
+		StatusMetadata: map[string]StatusMetadata{
+			"zebra": {AgentTypes: []string{"qa"}},
+			"alpha": {AgentTypes: []string{"qa"}},
+			"mango": {AgentTypes: []string{"qa"}},
+			"other": {AgentTypes: []string{"dev"}},
+		},
+	}
+	want := []string{"alpha", "mango", "zebra"}
+	for i := 0; i < 20; i++ {
+		got := cfg.GetStatusesByAgentType("qa")
+		if len(got) != len(want) {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+		for j := range want {
+			if got[j] != want[j] {
+				t.Fatalf("iteration %d: expected sorted %v, got %v", i, want, got)
+			}
+		}
 	}
 }
 

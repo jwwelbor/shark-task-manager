@@ -265,7 +265,10 @@ workflow YAML. Zero or multiple tags is a config error (`shark admin workflow
 validate` rejects it for the selections it can see), and at runtime the
 selectors return an `AmbiguousSelectionError` naming the candidates and the
 fix — an arbitrary pick never happens. "No candidate" is a distinct error
-(`NoCandidateError`) so callers can fall back or skip.
+(`NoCandidateError`) so callers can fall back or skip. Legacy (`status_flow`
+schema) configs cannot express `primary: true`, so for them the pre-2.x
+first-candidate behavior is preserved; the strict rule applies only to
+route-based (`steps:`) workflows.
 
 `make lint` enforces the boundary: a positional `[0]` / `[len-1]` pick on an
 identifier matching `Statuses|Transitions|Targets` outside the selector file

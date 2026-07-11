@@ -100,14 +100,42 @@ func TestValidateWorkflow_AmbiguousTerminals_NoArchiveNoPrimary(t *testing.T) {
 }
 
 func TestValidateWorkflow_MultipleTerminals_ArchiveActionSuffices(t *testing.T) {
-	// An action: archive terminal designates the archive endpoint, so no
-	// primary tag is required (matches the shipped default workflows, which
-	// have several archive-action terminals).
+	// A single action: archive terminal designates the archive endpoint, so
+	// no primary tag is required.
 	cfg := designationFixture()
 	cfg.Steps["archived"].Primary = false
 	cfg.Steps["archived"].Action = "archive"
+	cfg.DeriveLegacy()
 	if err := ValidateWorkflow(cfg); err != nil {
 		t.Errorf("archive-action terminal should satisfy the terminal rule, got %v", err)
+	}
+}
+
+func TestValidateWorkflow_MultipleArchiveTerminals_RequirePrimary(t *testing.T) {
+	// Several action: archive terminals narrow the candidate set but still
+	// need a primary tag — mirroring ArchiveTerminalStatus, so a workflow that
+	// validates clean can never hard-fail the runtime selector (and vice
+	// versa).
+	cfg := designationFixture()
+	cfg.Steps["archived"].Primary = false
+	cfg.Steps["archived"].Action = "archive"
+	cfg.Steps["aaa_wrong_archived"].Action = "archive"
+	cfg.DeriveLegacy()
+
+	err := ValidateWorkflow(cfg)
+	if err == nil || !strings.Contains(err.Error(), "archive terminal") {
+		t.Errorf("expected ambiguous archive-terminal error, got %v", err)
+	}
+
+	// Tagging one of the archive terminals satisfies both validator and
+	// runtime selector.
+	cfg.Steps["archived"].Primary = true
+	if err := ValidateWorkflow(cfg); err != nil {
+		t.Errorf("primary-tagged archive terminal should validate clean, got %v", err)
+	}
+	got, selErr := cfg.ArchiveTerminalStatus()
+	if selErr != nil || got != "archived" {
+		t.Errorf("expected runtime selector to agree (archived, nil), got (%q, %v)", got, selErr)
 	}
 }
 

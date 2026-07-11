@@ -479,26 +479,52 @@ func tryCascade(
 		}
 	}
 	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
-		if nextInfo == nil || len(nextInfo.AvailableTransitions) != 1 {
-			resp.Action = "pause"
-			resp.Error = fmt.Sprintf(
-				"all child work is terminal, but %s %s at status %q does not have exactly one forward transition",
-				entityType, normalizedKey, resp.Status,
-			)
-			return resp, nil
-		}
-		targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract
-		if _, err := transitioner.TransitionStatus(ctx, normalizedKey, targetStatus, services.TransitionOptions{}); err != nil {
-			return NextResponse{}, fmt.Errorf(
-				"cascade completion advance from %s to %s failed for %s: %w",
-				resp.Status, targetStatus, normalizedKey, err,
-			)
-		}
-		return resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
+		return autoAdvanceCascadeParent(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
 	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
 	return resp, nil
+}
+
+// autoAdvanceCascadeParent handles tryCascade's all-children-terminal case:
+// the parent is advanced one happy-path step and resolveNext recurses on the
+// same entity, so feature/epic workflows move into code_review/completed
+// instead of stalling at 100% child completion.
+//
+// The target is the pass-first default transition (AvailableTransitions[0]) —
+// cascade statuses normally expose several transitions (pass/fail/blocked
+// targets), so demanding exactly one would never fire against the shipped
+// workflows. A status with no forward transition pauses the parent with a
+// descriptive error.
+func autoAdvanceCascadeParent(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	resp NextResponse,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+) (NextResponse, error) {
+	if nextInfo == nil || len(nextInfo.AvailableTransitions) == 0 {
+		resp.Action = "pause"
+		resp.Error = fmt.Sprintf(
+			"all child work is terminal, but %s %s at status %q has no forward transition to auto-advance to",
+			entityType, normalizedKey, resp.Status,
+		)
+		return resp, nil
+	}
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	opts := services.TransitionOptions{
+		Reason: "cascade completion: all child work terminal",
+		Agent:  "shark-cascade",
+	}
+	if _, err := transitioner.TransitionStatus(ctx, normalizedKey, targetStatus, opts); err != nil {
+		return NextResponse{}, fmt.Errorf(
+			"cascade completion advance from %s to %s failed for %s: %w",
+			resp.Status, targetStatus, normalizedKey, err,
+		)
+	}
+	return resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
 }
 
 // applyWireAction maps the YAML internal verb onto a wire-vocabulary action
@@ -605,12 +631,13 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 
 const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
 - You are a spawned worker inside a Shark parent-run loop.
-- Do NOT run Shark workflow-state commands yourself.
-- Never run: shark claim, shark heartbeat, shark release, shark status advance, shark status set, shark task next-status, shark task set-status, shark feature next-status, or shark epic next-status.
+- Do NOT run Shark workflow-state commands against the entity this prompt dispatched you for.
+- Never run against the dispatched entity: shark claim, shark heartbeat, shark release, shark status advance, shark status set, shark task next-status, shark task set-status, shark feature next-status, or shark epic next-status.
+- Exception: if the workflow prompt below explicitly makes you an orchestration loop over OTHER entities (e.g. a sprint step iterating "shark sprint next" and dispatching each child), driving those child entities is the requested work — the prohibition above still applies to the dispatched entity itself.
 - Operate in single-worker mode by default. Do NOT spawn or delegate to additional host-native subagents, agent teams, or external AI CLIs unless the workflow prompt explicitly tells you to run a multi-agent skill or recipe.
 - If the bundled agent persona describes broader coordination behavior, treat that as background context only. This contract and the concrete workflow prompt override it for the current dispatched step.
 - Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
-- The parent loop owns leases and workflow transitions.`
+- The parent loop owns the dispatched entity's lease and workflow transitions.`
 
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
 // by `shark next` and `shark run`: take the already-rendered workflow prompt,

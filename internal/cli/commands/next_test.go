@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -259,11 +260,18 @@ func (c *cascadeAutoAdvanceTransitioner) TransitionStatus(ctx context.Context, k
 func (c *cascadeAutoAdvanceTransitioner) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
 	switch c.currentStatus {
 	case "active":
+		// Realistic production shape: the shipped feature workflow's "active"
+		// status exposes every unique outcome target, pass-first — never
+		// exactly one transition. (StatusFlow[active] = [code_review
+		// task_review blocked on_hold] in the canonical feature.yaml.)
 		return &services.NextStatusInfo{
 			EntityKey:     key,
 			CurrentStatus: "active",
 			AvailableTransitions: []services.TransitionInfoWithAction{
 				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "code_review"}},
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "task_review"}},
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "blocked"}},
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "on_hold"}},
 			},
 		}, nil
 	case "code_review":
@@ -331,7 +339,7 @@ func TestResolveNext_ReturnsSelfContainedPrompt(t *testing.T) {
 	assert.Equal(t, "researcher", resp.AgentType)
 	assert.Equal(t, "anthropic", resp.Provider)
 	assert.Equal(t, "haiku", resp.Model)
-	assert.Contains(t, resp.Prompt, "PARENT LOOP OWNERSHIP CONTRACT:",
+	assert.True(t, strings.HasPrefix(resp.Prompt, "PARENT LOOP OWNERSHIP CONTRACT:"),
 		"response.prompt must lead with the worker ownership contract")
 	assert.Contains(t, resp.Prompt, "Operate in single-worker mode by default.",
 		"response.prompt must explicitly constrain nested worker spawning by default")
@@ -416,6 +424,120 @@ func TestResolveNext_CascadeParentAutoAdvancesWhenAllChildrenAreTerminal(t *test
 	assert.Contains(t, resp.Prompt, "review completed feature E03-F02")
 }
 
+// failingCascadeTransitioner reports "active" with no forward transitions, or
+// fails TransitionStatus, to exercise autoAdvanceCascadeParent's guard paths.
+type failingCascadeTransitioner struct {
+	transitions   []services.TransitionInfoWithAction
+	transitionErr error
+}
+
+func (f *failingCascadeTransitioner) TransitionStatus(ctx context.Context, key, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+	if f.transitionErr != nil {
+		return nil, f.transitionErr
+	}
+	return &services.TransitionResult{ToStatus: targetStatus}, nil
+}
+
+func (f *failingCascadeTransitioner) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+	return &services.NextStatusInfo{
+		EntityKey:            key,
+		CurrentStatus:        "active",
+		AvailableTransitions: f.transitions,
+	}, nil
+}
+
+// TestResolveNext_CascadeGuardBranches covers tryCascade's non-happy paths:
+// a childless parent pauses quietly; an all-terminal parent with no forward
+// transition pauses with a descriptive error; a failing transition propagates.
+func TestResolveNext_CascadeGuardBranches(t *testing.T) {
+	forwardTransitions := []services.TransitionInfoWithAction{
+		{TransitionInfo: workflow.TransitionInfo{TargetStatus: "code_review"}},
+		{TransitionInfo: workflow.TransitionInfo{TargetStatus: "blocked"}},
+	}
+
+	tests := []struct {
+		name          string
+		childrenState services.CascadeChildrenState
+		transitioner  *failingCascadeTransitioner
+		wantAction    string
+		wantErrField  string // substring of resp.Error; "" means must be empty
+		wantErr       bool   // hard error returned from resolveNext
+	}{
+		{
+			name:          "childless parent pauses without error",
+			childrenState: services.CascadeChildrenState{TotalChildren: 0, NonTerminalChildren: 0},
+			transitioner:  &failingCascadeTransitioner{transitions: forwardTransitions},
+			wantAction:    "pause",
+		},
+		{
+			name:          "non-terminal children but none dispatchable pauses",
+			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 2},
+			transitioner:  &failingCascadeTransitioner{transitions: forwardTransitions},
+			wantAction:    "pause",
+		},
+		{
+			name:          "all terminal but no forward transition pauses with error",
+			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
+			transitioner:  &failingCascadeTransitioner{transitions: nil},
+			wantAction:    "pause",
+			wantErrField:  "no forward transition",
+		},
+		{
+			name:          "transition failure propagates as hard error",
+			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
+			transitioner: &failingCascadeTransitioner{
+				transitions:   forwardTransitions,
+				transitionErr: errors.New("simulated transition failure"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origTransitionerBuilder := nextBuildTransitioner
+			origPlaceholderBuilder := nextBuildPlaceholderGenerator
+			origDescribeChildren := nextDescribeDispatchableChildren
+			defer func() {
+				nextBuildTransitioner = origTransitionerBuilder
+				nextBuildPlaceholderGenerator = origPlaceholderBuilder
+				nextDescribeDispatchableChildren = origDescribeChildren
+			}()
+
+			nextBuildTransitioner = func(_ context.Context, entityType string) (runner.EntityTransitioner, error) {
+				return tt.transitioner, nil
+			}
+			nextBuildPlaceholderGenerator = func(_ context.Context, entityType string) runner.PlaceholderGenerator {
+				return fixedNextPlaceholders{vars: map[string]string{"id": "E03-F02", "key": "E03-F02"}}
+			}
+			nextDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+				return tt.childrenState, nil
+			}
+
+			actionSvc := &action.MockActionService{
+				GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*action.PopulatedAction, error) {
+					return &action.PopulatedAction{Action: "cascade", Instruction: "delegate child work"}, nil
+				},
+			}
+			cache := &nextAdapterCache{entries: map[string]*nextAdapters{}, actionSvcRoot: actionSvc}
+
+			resp, err := resolveNext(context.Background(), cache, "feature", "E03-F02", 0)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cascade completion advance")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAction, resp.Action)
+			if tt.wantErrField == "" {
+				assert.Empty(t, resp.Error)
+			} else {
+				assert.Contains(t, resp.Error, tt.wantErrField)
+			}
+		})
+	}
+}
+
 func TestRenderedDispatchPromptsDoNotTellWorkersToTransitionSharkState(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
@@ -444,6 +566,9 @@ func TestRenderedDispatchPromptsDoNotTellWorkersToTransitionSharkState(t *testin
 		"tech_debt/identified.md",
 		"tech_debt/in_progress.md",
 		"tech_debt/triaged.md",
+		"sprint/planning.md",
+		"sprint/active.md",
+		"sprint/closing.md",
 	}
 	forbidden := []string{
 		"shark status advance",
@@ -452,6 +577,9 @@ func TestRenderedDispatchPromptsDoNotTellWorkersToTransitionSharkState(t *testin
 		"shark task set-status",
 		"shark feature next-status",
 		"shark epic next-status",
+		"shark claim",
+		"shark heartbeat",
+		"shark release",
 	}
 
 	for _, tmplName := range dispatchPrompts {

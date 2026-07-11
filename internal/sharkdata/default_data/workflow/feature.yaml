@@ -107,6 +107,7 @@ steps:
     responsibility: none
     action: archive
     terminal: true
+    primary: true
     prompt: feature/completed.md
   draft:
     phase: planning

@@ -60,7 +60,7 @@ func (m *mockCascadeFeatureLister) ListByEpic(ctx context.Context, epicID int64)
 
 // b029CustomWorkflowConfig is a multi-level workflow whose task / feature /
 // epic terminal status is renamed to "shipped". Used to verify that
-// CascadeService.ListDispatchableChildren consults
+// CascadeService.DescribeDispatchableChildren consults
 // workflow.Service.IsTerminalStatus rather than any hardcoded list.
 const b029CustomWorkflowConfig = `{
   "task_workflow": {
@@ -150,13 +150,20 @@ func TestCascadeService_FeatureChildren_FiltersTerminal(t *testing.T) {
 	}
 	svc := services.NewCascadeService(taskRepo, &mockCascadeEpicLookup{}, &mockCascadeFeatureLister{}, wf)
 
-	out, err := svc.ListDispatchableChildren(context.Background(), "feature", "E07-F01")
+	state, err := svc.DescribeDispatchableChildren(context.Background(), "feature", "E07-F01")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if capturedFeatureKey != "E07-F01" {
 		t.Errorf("expected feature key passed through to repo as %q, got %q", "E07-F01", capturedFeatureKey)
 	}
+	if state.TotalChildren != 4 {
+		t.Errorf("expected TotalChildren=4 (every task counted), got %d", state.TotalChildren)
+	}
+	if state.NonTerminalChildren != 2 {
+		t.Errorf("expected NonTerminalChildren=2 (terminals excluded), got %d", state.NonTerminalChildren)
+	}
+	out := state.Children
 	if len(out) != 2 {
 		t.Fatalf("expected 2 dispatchable tasks after filtering terminals, got %d: %+v", len(out), out)
 	}
@@ -194,10 +201,20 @@ func TestCascadeService_FeatureChildren_SkipsUnmetDependencies(t *testing.T) {
 	}
 	svc := services.NewCascadeService(taskRepo, &mockCascadeEpicLookup{}, &mockCascadeFeatureLister{}, wf)
 
-	out, err := svc.ListDispatchableChildren(context.Background(), "feature", "E07-F01")
+	state, err := svc.DescribeDispatchableChildren(context.Background(), "feature", "E07-F01")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// The critical distinction: a dependency-blocked task is NOT dispatchable
+	// but IS non-terminal — its work is unfinished, so the parent must not be
+	// treated as complete (counts feed tryCascade's auto-advance decision).
+	if state.TotalChildren != 3 {
+		t.Errorf("expected TotalChildren=3, got %d", state.TotalChildren)
+	}
+	if state.NonTerminalChildren != 3 {
+		t.Errorf("expected NonTerminalChildren=3 (dependency-blocked tasks still count), got %d", state.NonTerminalChildren)
+	}
+	out := state.Children
 	if len(out) != 2 {
 		t.Fatalf("expected 2 dependency-ready tasks, got %d: %+v", len(out), out)
 	}
@@ -236,13 +253,20 @@ func TestCascadeService_EpicChildren_FiltersTerminal(t *testing.T) {
 	}
 	svc := services.NewCascadeService(&mockCascadeTaskRepo{}, epicRepo, featureRepo, wf)
 
-	out, err := svc.ListDispatchableChildren(context.Background(), "epic", "E07")
+	state, err := svc.DescribeDispatchableChildren(context.Background(), "epic", "E07")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if capturedEpicID != 42 {
 		t.Errorf("expected ListByEpic called with id=42 (from GetByKey), got %d", capturedEpicID)
 	}
+	if state.TotalChildren != 3 {
+		t.Errorf("expected TotalChildren=3, got %d", state.TotalChildren)
+	}
+	if state.NonTerminalChildren != 2 {
+		t.Errorf("expected NonTerminalChildren=2, got %d", state.NonTerminalChildren)
+	}
+	out := state.Children
 	if len(out) != 2 {
 		t.Fatalf("expected 2 dispatchable features after filtering terminals, got %d: %+v", len(out), out)
 	}
@@ -263,12 +287,15 @@ func TestCascadeService_LeafEntity_NoChildren(t *testing.T) {
 
 	for _, et := range []string{"task", "bug", "change", "tech-debt", "unknown"} {
 		t.Run(et, func(t *testing.T) {
-			out, err := svc.ListDispatchableChildren(context.Background(), et, "X")
+			state, err := svc.DescribeDispatchableChildren(context.Background(), et, "X")
 			if err != nil {
 				t.Errorf("expected no error for leaf entity type %q, got %v", et, err)
 			}
-			if out != nil {
-				t.Errorf("expected nil slice for leaf entity type %q, got %+v", et, out)
+			if state.Children != nil {
+				t.Errorf("expected nil children for leaf entity type %q, got %+v", et, state.Children)
+			}
+			if state.TotalChildren != 0 || state.NonTerminalChildren != 0 {
+				t.Errorf("expected zero counts for leaf entity type %q, got %+v", et, state)
 			}
 		})
 	}
@@ -286,7 +313,7 @@ func TestCascadeService_FeatureChildren_RepoError(t *testing.T) {
 	}
 	svc := services.NewCascadeService(taskRepo, &mockCascadeEpicLookup{}, &mockCascadeFeatureLister{}, wf)
 
-	_, err := svc.ListDispatchableChildren(context.Background(), "feature", "E07-F01")
+	_, err := svc.DescribeDispatchableChildren(context.Background(), "feature", "E07-F01")
 	if err == nil {
 		t.Fatal("expected error from repo failure, got nil")
 	}
@@ -307,7 +334,7 @@ func TestCascadeService_EpicChildren_GetByKeyError(t *testing.T) {
 	}
 	svc := services.NewCascadeService(&mockCascadeTaskRepo{}, epicRepo, &mockCascadeFeatureLister{}, wf)
 
-	_, err := svc.ListDispatchableChildren(context.Background(), "epic", "E99")
+	_, err := svc.DescribeDispatchableChildren(context.Background(), "epic", "E99")
 	if err == nil {
 		t.Fatal("expected error from GetByKey failure, got nil")
 	}
@@ -333,7 +360,7 @@ func TestCascadeService_EpicChildren_ListByEpicError(t *testing.T) {
 	}
 	svc := services.NewCascadeService(&mockCascadeTaskRepo{}, epicRepo, featureRepo, wf)
 
-	_, err := svc.ListDispatchableChildren(context.Background(), "epic", "E07")
+	_, err := svc.DescribeDispatchableChildren(context.Background(), "epic", "E07")
 	if err == nil {
 		t.Fatal("expected error from ListByEpic failure, got nil")
 	}
@@ -360,10 +387,11 @@ func TestCascadeService_FeatureChildren_OrderingPreserved(t *testing.T) {
 	}
 	svc := services.NewCascadeService(taskRepo, &mockCascadeEpicLookup{}, &mockCascadeFeatureLister{}, wf)
 
-	out, err := svc.ListDispatchableChildren(context.Background(), "feature", "E07-F01")
+	state, err := svc.DescribeDispatchableChildren(context.Background(), "feature", "E07-F01")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	out := state.Children
 	wantOrder := []string{"E07-F01-003", "E07-F01-001", "E07-F01-002"}
 	if len(out) != len(wantOrder) {
 		t.Fatalf("expected %d children, got %d", len(wantOrder), len(out))

@@ -51,6 +51,8 @@ func TestPickAutoAdvanceTarget_TerminalPassTargetWins(t *testing.T) {
 		t.Fatalf("getwd failed: %v", err)
 	}
 	t.Cleanup(func() {
+		// Chdir back is best-effort: origCwd came from os.Getwd moments ago,
+		// so failure is practically impossible and unactionable in cleanup.
 		_ = os.Chdir(origCwd)
 		cli.ResetWorkflowService()
 	})
@@ -79,6 +81,9 @@ func TestPickAutoAdvanceTarget_TerminalPassTargetWins(t *testing.T) {
 // TestPickAutoAdvanceTarget_PassSelfLoopPauses: a pass outcome that loops back
 // to the current status declares no forward motion — auto-advance must pause
 // ("") rather than fall through to another outcome's target.
+//
+// NOTE: Must run serially (no t.Parallel()), like the test above — it
+// os.Chdir()s and resets the global workflow-service singleton.
 func TestPickAutoAdvanceTarget_PassSelfLoopPauses(t *testing.T) {
 	selfLoopConfig := `{
 	"task_workflow": {
@@ -107,6 +112,8 @@ func TestPickAutoAdvanceTarget_PassSelfLoopPauses(t *testing.T) {
 		t.Fatalf("getwd failed: %v", err)
 	}
 	t.Cleanup(func() {
+		// Chdir back is best-effort: origCwd came from os.Getwd moments ago,
+		// so failure is practically impossible and unactionable in cleanup.
 		_ = os.Chdir(origCwd)
 		cli.ResetWorkflowService()
 	})

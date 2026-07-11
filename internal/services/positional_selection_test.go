@@ -170,9 +170,11 @@ func TestFeatureProgress_AmbiguousAggregation_ErrorsWithoutStatusChange(t *testi
 
 // --- Sites #4/#5: sprint lifecycle statuses --------------------------------
 
-// twoExecutionSprintWorkflow writes a sprint workflow with TWO execution-phase
-// steps into a temp project root and returns a workflow.Service for it. With
-// primaryTagged, "burn" (alphabetically second) carries primary: true.
+// twoExecutionSprintWorkflow writes a sprint workflow in which every sprint
+// lifecycle selection (execution phase, review phase, terminal) has TWO
+// candidates whose alphabetical order contradicts semantic order, into a temp
+// project root, and returns a workflow.Service for it. With primaryTagged,
+// the semantically right candidate of each pair carries primary: true.
 func twoExecutionSprintWorkflow(t *testing.T, primaryTagged bool) *workflow.Service {
 	t.Helper()
 
@@ -198,22 +200,31 @@ steps:
       fail: aaa_wrong_active
       blocked: aaa_wrong_active
   burn:
-    phase: execution%s
+    phase: execution%[1]s
     action: advance_status
     outcomes:
       pass: closing
       fail: burn
       blocked: burn
-  closing:
+  aaa_wrong_closing:
     phase: review
     action: advance_status
     outcomes:
-      pass: archived
+      pass: closed_out
+      fail: aaa_wrong_closing
+      blocked: aaa_wrong_closing
+  closing:
+    phase: review%[1]s
+    action: advance_status
+    outcomes:
+      pass: closed_out
       fail: closing
       blocked: closing
-  archived:
+  aaa_wrong_done:
     phase: done
-    action: archive
+    terminal: true
+  closed_out:
+    phase: done%[1]s
     terminal: true
 `, primary)
 
@@ -275,4 +286,88 @@ func TestSprintService_StartSprint_AmbiguousExecutionPhase_ErrorsWithoutStatusCh
 			t.Errorf("error message missing %q: %s", want, err.Error())
 		}
 	}
+}
+
+func TestSprintService_CloseSprint_PicksPrimaryReviewStatus(t *testing.T) {
+	ctx := context.Background()
+	workflowSvc := twoExecutionSprintWorkflow(t, true)
+
+	var updatedTo models.SprintStatus
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "burn"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			updatedTo = status
+			return nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	_, err := svc.CloseSprint(ctx, "S001")
+	require.NoError(t, err)
+	assert.Equal(t, models.SprintStatus("closing"), updatedTo,
+		"must close into the primary-tagged review status, not the alphabetical first")
+}
+
+func TestSprintService_CloseSprint_AmbiguousReviewPhase_ErrorsWithoutStatusChange(t *testing.T) {
+	ctx := context.Background()
+	workflowSvc := twoExecutionSprintWorkflow(t, false)
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "burn"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			t.Errorf("UpdateStatus must not be called on an ambiguous workflow (attempted %q)", status)
+			return nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	_, err := svc.CloseSprint(ctx, "S001")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "primary: true")
+}
+
+func TestSprintService_ArchiveSprint_PicksPrimaryTerminal(t *testing.T) {
+	ctx := context.Background()
+	workflowSvc := twoExecutionSprintWorkflow(t, true)
+
+	var updatedTo models.SprintStatus
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "closing"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			updatedTo = status
+			return nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	_, err := svc.ArchiveSprint(ctx, "S001")
+	require.NoError(t, err)
+	assert.Equal(t, models.SprintStatus("closed_out"), updatedTo,
+		"must archive into the primary-tagged terminal, not the alphabetical first")
+}
+
+func TestSprintService_ArchiveSprint_AmbiguousTerminals_ErrorsWithoutStatusChange(t *testing.T) {
+	ctx := context.Background()
+	workflowSvc := twoExecutionSprintWorkflow(t, false)
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "closing"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			t.Errorf("UpdateStatus must not be called on an ambiguous workflow (attempted %q)", status)
+			return nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	_, err := svc.ArchiveSprint(ctx, "S001")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "primary: true")
 }
