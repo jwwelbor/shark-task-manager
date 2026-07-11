@@ -16,9 +16,11 @@ import (
 // loudly rather than spinning.
 const maxCascadeDepth = 4
 
-// listDispatchableChildren returns the ordered list of child entities to
-// consider for cascade dispatch from parent (entityType, key). Thin wrapper
-// around services.CascadeService.
-func listDispatchableChildren(ctx context.Context, entityType, key string) ([]services.CascadeChild, error) {
-	return cli.GetCascadeService().ListDispatchableChildren(ctx, entityType, key)
+// describeDispatchableChildren returns the ordered dispatchable children plus
+// summary counts for the parent. Thin wrapper around services.CascadeService.
+func describeDispatchableChildren(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+	return cli.GetCascadeService().DescribeDispatchableChildren(ctx, entityType, key)
 }
+
+// nextDescribeDispatchableChildren is a test seam for resolveNext/tryCascade.
+var nextDescribeDispatchableChildren = describeDispatchableChildren

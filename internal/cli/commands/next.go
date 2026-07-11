@@ -378,7 +378,7 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
 	}
 	if internalAction == "cascade" {
-		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp)
+		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
 	}
 
 	// Step 8: Verb normalization + action application. The YAML's internal
@@ -421,14 +421,24 @@ func actionRequiresInstruction(internalAction string) bool {
 // action. The first parent on the chain is prepended to ResolvedVia so the
 // harness can audit which entities were traversed.
 //
-// When all children are non-dispatchable (or absent), the parent's response
-// is returned with action="pause" — the cascade verb never leaks onto the
-// wire.
+// When all children are non-dispatchable, the parent normally pauses. The one
+// exception is when the service can prove there were children and every one of
+// them is terminal; in that case the parent is auto-advanced one configured
+// step and resolveNext recurses on the same entity so feature/epic workflows
+// move into code_review/completed instead of stalling at 100% child completion.
 //
 // resp is the partially-filled NextResponse for the parent entity; the
 // function mutates and returns it on the all-paused path.
-func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normalizedKey string, depth int, resp NextResponse) (NextResponse, error) {
-	children, err := listDispatchableChildren(ctx, entityType, normalizedKey)
+func tryCascade(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	resp NextResponse,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+) (NextResponse, error) {
+	childrenState, err := nextDescribeDispatchableChildren(ctx, entityType, normalizedKey)
 	if err != nil {
 		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
 	}
@@ -438,7 +448,7 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 	// claim lookup errors, the child is treated as claimable (no skip), so the
 	// claim layer can never wedge dispatch.
 	claimSvc := cli.GetClaimService()
-	for _, child := range children {
+	for _, child := range childrenState.Children {
 		claimable, cerr := claimSvc.IsClaimable(ctx, string(child.EntityType), child.Key)
 		if cerr != nil {
 			// Fail-soft: treat as claimable so the claim layer can never wedge
@@ -467,6 +477,24 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 			childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
 			return childResp, nil
 		}
+	}
+	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
+		if nextInfo == nil || len(nextInfo.AvailableTransitions) != 1 {
+			resp.Action = "pause"
+			resp.Error = fmt.Sprintf(
+				"all child work is terminal, but %s %s at status %q does not have exactly one forward transition",
+				entityType, normalizedKey, resp.Status,
+			)
+			return resp, nil
+		}
+		targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract
+		if _, err := transitioner.TransitionStatus(ctx, normalizedKey, targetStatus, services.TransitionOptions{}); err != nil {
+			return NextResponse{}, fmt.Errorf(
+				"cascade completion advance from %s to %s failed for %s: %w",
+				resp.Status, targetStatus, normalizedKey, err,
+			)
+		}
+		return resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
 	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
@@ -575,6 +603,15 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 	return rendered + "\n\n---\n\n" + prompt, nil
 }
 
+const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
+- You are a spawned worker inside a Shark parent-run loop.
+- Do NOT run Shark workflow-state commands yourself.
+- Never run: shark claim, shark heartbeat, shark release, shark status advance, shark status set, shark task next-status, shark task set-status, shark feature next-status, or shark epic next-status.
+- Operate in single-worker mode by default. Do NOT spawn or delegate to additional host-native subagents, agent teams, or external AI CLIs unless the workflow prompt explicitly tells you to run a multi-agent skill or recipe.
+- If the bundled agent persona describes broader coordination behavior, treat that as background context only. This contract and the concrete workflow prompt override it for the current dispatched step.
+- Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
+- The parent loop owns leases and workflow transitions.`
+
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
 // by `shark next` and `shark run`: take the already-rendered workflow prompt,
 // inline the Shark specialist persona, and return the exact prompt the host
@@ -584,7 +621,11 @@ func assembleDispatchPrompt(prompt, agentType string, vars map[string]string) (s
 		vars = map[string]string{}
 	}
 	templates.AugmentPlaceholderAliases(vars)
-	return attachAgentBody(prompt, agentType, vars)
+	attached, err := attachAgentBody(prompt, agentType, vars)
+	if err != nil {
+		return "", err
+	}
+	return workerOwnershipPreamble + "\n\n---\n\n" + attached, nil
 }
 
 // LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/

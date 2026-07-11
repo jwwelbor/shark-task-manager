@@ -1,6 +1,6 @@
 {{/* ===== Status Commands ===== */}}
 {{define "advance"}}shark status advance {{.id}}{{end}}
-{{define "advance_preamble"}}After completing ALL work below, exit with: {{template "advance" .}}{{end}}
+{{define "advance_preamble"}}After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.{{end}}
 {{define "status_set"}}shark status set {{.id}}{{end}}
 {{define "status_set_task"}}shark status set {{.task_id}}{{end}}
 

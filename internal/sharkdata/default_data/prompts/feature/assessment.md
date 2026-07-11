@@ -38,12 +38,14 @@ SCORE using 9 dimensions (max 27):
 
 TIER: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX
 
-STORE: {{template "create_note" .}} --content="COMPLEXITY: {tier} (score: {score}/27)" --type=decision
+STORE: include this exact line in your final response so the parent loop can persist it as the decision note:
+`COMPLEXITY NOTE: COMPLEXITY: {tier} (score: {score}/27)`
 
 ## Step 3: Route
 
 Release the tier as a semantic outcome — never name a target status:
 
-- SIMPLE -> shark status advance {{.id}} --outcome simple
-- STANDARD -> shark status advance {{.id}} --outcome standard
-- COMPLEX -> shark status advance {{.id}} --outcome pass
+- SIMPLE -> end with `RECOMMENDED OUTCOME: simple`
+- STANDARD -> end with `RECOMMENDED OUTCOME: standard`
+- COMPLEX -> end with `RECOMMENDED OUTCOME: pass`
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.

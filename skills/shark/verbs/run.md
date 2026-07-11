@@ -106,6 +106,10 @@ Spawn the host worker using a host-safe adapter:
 - Prompt: exactly `response.prompt`
 - Metadata to record/pass through if the host supports it: `response.agent_type`,
   `response.provider`, `response.model`
+- Worker execution mode: single worker by default. Do not infer recursive
+  delegation from Shark persona names alone. Only recurse when the workflow
+  prompt explicitly invokes a multi-agent skill or recipe (for example the
+  sprint-execution skill or UAT's Codex red-team step).
 
 Do not set the host `subagent_type` to Shark names such as `business-analyst`,
 `product-manager`, or `tech-director`; those personas are already inside

@@ -144,5 +144,6 @@ PRODUCE QA report at docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md:
   - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
 
 DECISION:
-- ALL PASS → shark status advance E07-F01
-- ANY FAIL → shark status set E07-F01 development --reason "<specific failures to fix>"
+- ALL PASS → end with `RECOMMENDED OUTCOME: pass`
+- ANY FAIL → end with `RECOMMENDED OUTCOME: fail` and include the specific failures to fix in your final summary
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.

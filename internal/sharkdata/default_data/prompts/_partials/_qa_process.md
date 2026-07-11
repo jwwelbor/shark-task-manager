@@ -60,6 +60,7 @@ PRODUCE QA report at {{.review_base}}qa-<timestamp>-{{.id}}.md:
   - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
 
 DECISION:
-- ALL PASS → {{template "advance" .}}
-- ANY FAIL → shark status set {{.id}} development --reason "<specific failures to fix>"
+- ALL PASS → end with `RECOMMENDED OUTCOME: pass`
+- ANY FAIL → end with `RECOMMENDED OUTCOME: fail` and include the specific failures to fix in your final summary
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
 {{end}}

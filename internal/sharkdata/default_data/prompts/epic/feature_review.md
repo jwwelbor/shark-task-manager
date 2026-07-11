@@ -93,5 +93,6 @@ PRODUCE feature review report at {{.review_base}}{{.id}}-feature-review.md:
 Print interaction-map closure table and cross-epic integration closure table in the detailed report before the final verdict.
 
 DECISION:
-- ALL PASS -> shark status advance {{.id}}
-- ANY FAIL -> shark status set {{.id}} decomposition --reason "<specific gaps or issues to fix>"
+- ALL PASS -> end with `RECOMMENDED OUTCOME: pass`
+- ANY FAIL -> end with `RECOMMENDED OUTCOME: fail` and include the specific gaps or issues to fix in your final summary
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome and route the epic.

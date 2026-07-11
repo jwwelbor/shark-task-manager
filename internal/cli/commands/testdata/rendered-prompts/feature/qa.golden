@@ -159,13 +159,19 @@ REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS 
 - One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"qa","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
 - Zero-finding PASS writes no `review-finding` notes.
 
-ON PASS → shark status advance E07-F01
+ON PASS:
+- End with `RECOMMENDED OUTCOME: pass`
+- Do NOT run Shark status commands yourself; the parent loop will advance the feature.
 ON FAIL:
-- For each failing task, kick back: `shark status set <task-id> development --reason "<specific failures>"`
+- In your final response, list the exact task kickbacks the parent loop should apply:
+  `<task-id> -> development --reason "<specific failures>"`
 - For a missing or broken I-## contract test: reopen the producer task in this
-  feature and add a blocker note to each consuming feature:
-  `shark feature note add <consumer_feature_id> --type blocker "Cross-feature I-## contract test failing at producer feature E07-F01"`
+  feature and explicitly name each consuming feature that needs a blocker note:
+  `Cross-feature I-## contract test failing at producer feature E07-F01`
 - For a missing or broken X-## contract test or handoff test: reopen the
-  producer or validating task in this feature, add blocker notes to consuming
-  features, and append the failed X-## coverage status to docs/product/progress.md
-- Set feature back: `shark status set E07-F01 active --reason "QA failed — see report, tasks kicked back"`
+  producer or validating task in this feature, name the consuming features
+  that need blocker notes, and describe the failed X-## coverage status the
+  parent loop should append to docs/product/progress.md
+- Include `PARENT NOTE: QA failed — see report, tasks kicked back`
+- End with `RECOMMENDED OUTCOME: fail`
+- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.

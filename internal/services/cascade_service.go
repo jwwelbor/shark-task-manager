@@ -22,6 +22,19 @@ type CascadeChild struct {
 	EntityType models.EntityType
 }
 
+// CascadeChildrenState describes the children under a cascade parent at the
+// moment dispatch is evaluated.
+//
+// Children contains the ordered subset that is currently dispatchable:
+// non-terminal children whose dependencies are satisfied. TotalChildren and
+// NonTerminalChildren retain the broader classification so callers can
+// distinguish "nothing ready right now" from "all child work is finished".
+type CascadeChildrenState struct {
+	Children            []CascadeChild
+	TotalChildren       int
+	NonTerminalChildren int
+}
+
 // CascadeTaskRepo is the narrow task repository interface the cascade service
 // needs to enumerate tasks under a feature.
 type CascadeTaskRepo interface {
@@ -83,8 +96,9 @@ func NewCascadeService(
 	}
 }
 
-// ListDispatchableChildren returns the ordered list of child entities to
-// consider for cascade dispatch from parent (entityType, key).
+// DescribeDispatchableChildren returns the ordered list of currently
+// dispatchable children plus summary counts that let callers tell whether a
+// cascade parent is truly finished versus merely waiting.
 //
 // Behavior:
 //
@@ -98,54 +112,76 @@ func NewCascadeService(
 //
 // Repository query order is preserved untouched so the caller picks "first
 // in-progress task; else first todo by order" simply by iterating.
-func (s *CascadeService) ListDispatchableChildren(ctx context.Context, entityType, key string) ([]CascadeChild, error) {
+func (s *CascadeService) DescribeDispatchableChildren(ctx context.Context, entityType, key string) (CascadeChildrenState, error) {
 	switch entityType {
 	case "feature":
 		tasks, err := s.taskRepo.ListByFeatureKey(ctx, key)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list tasks for feature %s: %w", key, err)
+			return CascadeChildrenState{}, fmt.Errorf("failed to list tasks for feature %s: %w", key, err)
 		}
 		taskWf := s.workflowSvc.ForLevel(workflow.LevelTask)
 		out := make([]CascadeChild, 0, len(tasks))
+		nonTerminal := 0
 		for _, t := range tasks {
 			if s.isTerminalStatus(taskWf, string(t.Status)) {
 				continue
 			}
+			nonTerminal++
 			ready, err := s.dependenciesSatisfied(ctx, t.Key)
 			if err != nil {
-				return nil, err
+				return CascadeChildrenState{}, err
 			}
 			if !ready {
 				continue
 			}
 			out = append(out, CascadeChild{Key: t.Key, EntityType: models.EntityTypeTask})
 		}
-		return out, nil
+		return CascadeChildrenState{
+			Children:            out,
+			TotalChildren:       len(tasks),
+			NonTerminalChildren: nonTerminal,
+		}, nil
 
 	case "epic":
 		epic, err := s.epicRepo.GetByKey(ctx, key)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+			return CascadeChildrenState{}, fmt.Errorf("failed to get epic %s: %w", key, err)
 		}
 		features, err := s.featureRepo.ListByEpic(ctx, epic.ID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list features for epic %s: %w", key, err)
+			return CascadeChildrenState{}, fmt.Errorf("failed to list features for epic %s: %w", key, err)
 		}
 		featureWf := s.workflowSvc.ForLevel(workflow.LevelFeature)
 		out := make([]CascadeChild, 0, len(features))
+		nonTerminal := 0
 		for _, f := range features {
 			if s.isTerminalStatus(featureWf, string(f.Status)) {
 				continue
 			}
+			nonTerminal++
 			out = append(out, CascadeChild{Key: f.Key, EntityType: models.EntityTypeFeature})
 		}
-		return out, nil
+		return CascadeChildrenState{
+			Children:            out,
+			TotalChildren:       len(features),
+			NonTerminalChildren: nonTerminal,
+		}, nil
 	}
 
 	// Leaf entities (task, bug, change-card, tech-debt) have no children.
 	// Returning (nil, nil) — not an error — lets the caller fall through to
 	// "no dispatchable child → pause".
-	return nil, nil
+	return CascadeChildrenState{}, nil
+}
+
+// ListDispatchableChildren returns the ordered list of currently dispatchable
+// children for the given cascade parent.
+func (s *CascadeService) ListDispatchableChildren(ctx context.Context, entityType, key string) ([]CascadeChild, error) {
+	state, err := s.DescribeDispatchableChildren(ctx, entityType, key)
+	if err != nil {
+		return nil, err
+	}
+	return state.Children, nil
 }
 
 // isTerminalStatus reports whether a status is terminal (no productive
