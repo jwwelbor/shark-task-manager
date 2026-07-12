@@ -570,7 +570,7 @@ func GetTechDebtService() *services.TechDebtService {
 // Usage:
 //
 //	svc := cli.GetCascadeService()
-//	children, err := svc.ListDispatchableChildren(ctx, "feature", "E07-F01")
+//	state, err := svc.DescribeDispatchableChildren(ctx, "feature", "E07-F01")
 func GetCascadeService() *services.CascadeService {
 	db, err := GetDB(context.Background())
 	if err != nil {

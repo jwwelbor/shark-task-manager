@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -1349,8 +1350,21 @@ func (s *TaskService) legacyMaybeReopenParentFeature(ctx context.Context, featur
 		return
 	}
 
-	aggStatuses := featureWf.GetAggregationStatuses()
-	targetStatus := models.FeatureStatus(aggStatuses[0])
+	// Best-effort side effect: on no candidate OR an ambiguous config we skip
+	// the reopen and warn rather than guessing a target, EXCEPT that a workflow
+	// with no aggregation step still falls back to its initial status, matching
+	// the other reopen paths.
+	target, err := featureWf.PrimaryAggregationStatus()
+	if err != nil {
+		var noCandidate *config.NoCandidateError
+		if errors.As(err, &noCandidate) {
+			target = featureWf.GetInitialStatusString()
+		} else {
+			slog.Warn("auto-reopen of feature skipped", "feature", featureKey, "error", err)
+			return
+		}
+	}
+	targetStatus := models.FeatureStatus(target)
 
 	oldStatus := string(feature.Status)
 	_, err = s.featureService.UpdateFeature(ctx, feature.Key, FeatureUpdates{

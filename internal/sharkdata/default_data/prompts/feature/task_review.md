@@ -92,5 +92,6 @@ PRODUCE task review report at {{.review_base}}{{.id}}-task-review.md:
   - Recommendations
 
 DECISION:
-- ALL PASS -> shark status advance {{.id}}
-- ANY FAIL -> shark status advance {{.id}} --outcome fail --reason "<specific gaps or issues to fix>"
+- ALL PASS -> end with `RECOMMENDED OUTCOME: pass`
+- ANY FAIL -> end with `RECOMMENDED OUTCOME: fail` and include the specific gaps or issues to fix in your final summary
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome and route the feature.

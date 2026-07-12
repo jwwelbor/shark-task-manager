@@ -33,7 +33,8 @@ PRODUCE code review report at {{.review_base}}code-review-<timestamp>-{{.id}}.md
   - AC verification status
 
 DECISION:
-- ALL PASS → {{template "advance" .}}
-- ANY FAIL → shark status set {{.id}} development --reason "<specific findings to fix>"
+- ALL PASS → end with `RECOMMENDED OUTCOME: pass`
+- ANY FAIL → end with `RECOMMENDED OUTCOME: fail` and include the specific findings to fix in your final summary
   (Check report at {{.review_base}} on resume)
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
 {{end}}

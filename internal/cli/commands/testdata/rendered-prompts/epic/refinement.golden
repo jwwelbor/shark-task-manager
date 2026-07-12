@@ -1,5 +1,5 @@
 
-After completing ALL work below, exit with: shark status advance E07-F01
+After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
 Write epic PRD for E07-F01: "Sample feature for golden test".
 

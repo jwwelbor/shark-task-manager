@@ -48,4 +48,4 @@ EXIT GATE:
 - Implementation follows patterns from feature spec.md
 - No unrelated changes included
 
-When done: {{template "advance" .}} (advances to completed — code review, QA, and UAT run at feature level once all tasks are done)
+When done: stop and summarize what changed, what tests ran, and whether the task is ready for the parent loop to advance to completed. Do NOT run Shark status commands yourself — code review, QA, and UAT still run at feature level once all tasks are done.

@@ -46,10 +46,12 @@ REVIEW-FINDING LOG (structured, queryable — only when findings exist, on APPRO
 - Zero-finding APPROVED writes no `review-finding` notes.
 
 ON APPROVED:
-- Add note: {{template "create_note" .}} --type=review "Feature UAT approved — red-team passed"
-- Advance: {{template "advance" .}}
+- Include `PARENT NOTE: Feature UAT approved — red-team passed` in your final response
+- End with `RECOMMENDED OUTCOME: pass`
 
 ON REJECTED:
-- For each failing task, kick back: `shark status set <task-id> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
-- Set feature back: `{{template "status_set" .}} active --reason "UAT rejected — see report, tasks kicked back"`
-- Do NOT advance the feature.
+- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
+  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
+- Include `PARENT NOTE: UAT rejected — see report, tasks kicked back`
+- End with `RECOMMENDED OUTCOME: fail`
+- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.

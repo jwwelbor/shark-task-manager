@@ -49,6 +49,7 @@ steps:
     responsibility: none
     action: archive
     terminal: true
+    primary: true
     prompt: bug/completed.md
   development:
     phase: development

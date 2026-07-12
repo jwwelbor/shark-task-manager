@@ -22,10 +22,12 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -95,7 +97,7 @@ type txBeginner interface {
 type levelWorkflow interface {
 	IsTerminalStatus(status string) bool
 	GetTerminalStatuses() []string
-	GetAggregationStatuses() []string
+	PrimaryAggregationStatus() (string, error)
 	GetInitialStatusString() string
 }
 
@@ -459,10 +461,17 @@ func resolveReopenTarget(
 		)
 	}
 
-	// Step 2: aggregation status fallback.
-	aggStatuses := levelWf.GetAggregationStatuses()
-	if len(aggStatuses) > 0 {
-		return aggStatuses[0], "aggregation", nil
+	// Step 2: aggregation status fallback — the workflow's designated
+	// aggregation step (primary: true breaks a multi-candidate tie).
+	target, aggErr := levelWf.PrimaryAggregationStatus()
+	if aggErr == nil {
+		return target, "aggregation", nil
+	}
+	var noCandidate *config.NoCandidateError
+	if !errors.As(aggErr, &noCandidate) {
+		// An ambiguous designation must surface to the caller, never be
+		// swallowed into an arbitrary pick.
+		return "", "", aggErr
 	}
 
 	// Step 3: initial status fallback.

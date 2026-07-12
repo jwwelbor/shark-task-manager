@@ -30,6 +30,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -377,7 +378,7 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
 	}
 	if internalAction == "cascade" {
-		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp)
+		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
 	}
 
 	// Step 8: Verb normalization + action application. The YAML's internal
@@ -420,14 +421,24 @@ func actionRequiresInstruction(internalAction string) bool {
 // action. The first parent on the chain is prepended to ResolvedVia so the
 // harness can audit which entities were traversed.
 //
-// When all children are non-dispatchable (or absent), the parent's response
-// is returned with action="pause" — the cascade verb never leaks onto the
-// wire.
+// When all children are non-dispatchable, the parent normally pauses. The one
+// exception is when the service can prove there were children and every one of
+// them is terminal; in that case the parent is auto-advanced one configured
+// step and resolveNext recurses on the same entity so feature/epic workflows
+// move into code_review/completed instead of stalling at 100% child completion.
 //
 // resp is the partially-filled NextResponse for the parent entity; the
 // function mutates and returns it on the all-paused path.
-func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normalizedKey string, depth int, resp NextResponse) (NextResponse, error) {
-	children, err := listDispatchableChildren(ctx, entityType, normalizedKey)
+func tryCascade(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	resp NextResponse,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+) (NextResponse, error) {
+	childrenState, err := nextDescribeDispatchableChildren(ctx, entityType, normalizedKey)
 	if err != nil {
 		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
 	}
@@ -437,7 +448,7 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 	// claim lookup errors, the child is treated as claimable (no skip), so the
 	// claim layer can never wedge dispatch.
 	claimSvc := cli.GetClaimService()
-	for _, child := range children {
+	for _, child := range childrenState.Children {
 		claimable, cerr := claimSvc.IsClaimable(ctx, string(child.EntityType), child.Key)
 		if cerr != nil {
 			// Fail-soft: treat as claimable so the claim layer can never wedge
@@ -467,9 +478,53 @@ func tryCascade(ctx context.Context, cache *nextAdapterCache, entityType, normal
 			return childResp, nil
 		}
 	}
+	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
+		return autoAdvanceCascadeParent(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
+	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
 	return resp, nil
+}
+
+// autoAdvanceCascadeParent handles tryCascade's all-children-terminal case:
+// the parent is advanced one happy-path step and resolveNext recurses on the
+// same entity, so feature/epic workflows move into code_review/completed
+// instead of stalling at 100% child completion.
+//
+// The target is the pass-first default transition (AvailableTransitions[0]) —
+// cascade statuses normally expose several transitions (pass/fail/blocked
+// targets), so demanding exactly one would never fire against the shipped
+// workflows. A status with no forward transition pauses the parent with a
+// descriptive error.
+func autoAdvanceCascadeParent(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	resp NextResponse,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+) (NextResponse, error) {
+	if nextInfo == nil || len(nextInfo.AvailableTransitions) == 0 {
+		resp.Action = "pause"
+		resp.Error = fmt.Sprintf(
+			"all child work is terminal, but %s %s at status %q has no forward transition to auto-advance to",
+			entityType, normalizedKey, resp.Status,
+		)
+		return resp, nil
+	}
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	opts := services.TransitionOptions{
+		Reason: "cascade completion: all child work terminal",
+		Agent:  "shark-cascade",
+	}
+	if _, err := transitioner.TransitionStatus(ctx, normalizedKey, targetStatus, opts); err != nil {
+		return NextResponse{}, fmt.Errorf(
+			"cascade completion advance from %s to %s failed for %s: %w",
+			resp.Status, targetStatus, normalizedKey, err,
+		)
+	}
+	return resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
 }
 
 // applyWireAction maps the YAML internal verb onto a wire-vocabulary action
@@ -574,6 +629,16 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 	return rendered + "\n\n---\n\n" + prompt, nil
 }
 
+const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
+- You are a spawned worker inside a Shark parent-run loop.
+- Do NOT run Shark workflow-state commands against the entity this prompt dispatched you for.
+- Never run against the dispatched entity: shark claim, shark heartbeat, shark release, shark status advance, shark status set, shark task next-status, shark task set-status, shark feature next-status, or shark epic next-status.
+- Exception: if the workflow prompt below explicitly makes you an orchestration loop over OTHER entities (e.g. a sprint step iterating "shark sprint next" and dispatching each child), driving those child entities is the requested work — the prohibition above still applies to the dispatched entity itself.
+- Operate in single-worker mode by default. Do NOT spawn or delegate to additional host-native subagents, agent teams, or external AI CLIs unless the workflow prompt explicitly tells you to run a multi-agent skill or recipe.
+- If the bundled agent persona describes broader coordination behavior, treat that as background context only. This contract and the concrete workflow prompt override it for the current dispatched step.
+- Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
+- The parent loop owns the dispatched entity's lease and workflow transitions.`
+
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
 // by `shark next` and `shark run`: take the already-rendered workflow prompt,
 // inline the Shark specialist persona, and return the exact prompt the host
@@ -583,7 +648,11 @@ func assembleDispatchPrompt(prompt, agentType string, vars map[string]string) (s
 		vars = map[string]string{}
 	}
 	templates.AugmentPlaceholderAliases(vars)
-	return attachAgentBody(prompt, agentType, vars)
+	attached, err := attachAgentBody(prompt, agentType, vars)
+	if err != nil {
+		return "", err
+	}
+	return workerOwnershipPreamble + "\n\n---\n\n" + attached, nil
 }
 
 // LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/
@@ -748,14 +817,23 @@ func isStatusNotFoundError(err error) bool {
 // pickAutoAdvanceTarget returns the natural forward transition for an
 // auto-advance status. Workflow authors who use `advance_status` without
 // an agent_type implicitly declare the status is a no-op placeholder with
-// exactly one productive forward path. We filter out the obviously
-// non-productive transitions (a self-loop back to the current status, a
-// terminal/abandonment state, a parking step, or any step in the blocked
-// phase) and take the first remaining option.
+// exactly one productive forward path.
 //
-// Classification is derived from the workflow step metadata via the
-// workflow.Service, not from hardcoded status names (B028) — so custom
-// workflows that rename "completed"/"blocked"/etc. still route correctly.
+// For route-based workflows that path is declared explicitly: the step's
+// `pass` outcome. Selecting by outcome key (rather than scanning the ordered
+// transition slice for the first "forward-looking" status) means a terminal
+// pass target — e.g. a placeholder whose pass ends the workflow — is honored
+// instead of being skipped in favor of the fail target. A pass self-loop
+// yields "" (pause): the step declares no forward motion.
+//
+// When the pass outcome cannot be resolved (legacy workflow, or a status not
+// in the step graph), we fall back to the transition scan: filter out the
+// obviously non-productive transitions (a self-loop back to the current
+// status, a terminal/abandonment state, a parking step, or any step in the
+// blocked phase) and take the first remaining option. Classification is
+// derived from the workflow step metadata via the workflow.Service, not from
+// hardcoded status names (B028) — so custom workflows that rename
+// "completed"/"blocked"/etc. still route correctly.
 //
 // Returns "" when there is no safe forward transition — the caller treats
 // that as "pause" so a misconfigured workflow is surfaced to the user
@@ -767,6 +845,14 @@ func pickAutoAdvanceTarget(nextInfo *services.NextStatusInfo) string {
 	wf := cli.GetWorkflowService()
 	if nextInfo.EntityType != "" {
 		wf = wf.ForLevel(string(nextInfo.EntityType))
+	}
+	if wf.IsRouteBased() {
+		if target, err := wf.Release(nextInfo.CurrentStatus, configworkflow.OutcomePass); err == nil {
+			if strings.EqualFold(target, nextInfo.CurrentStatus) {
+				return ""
+			}
+			return target
+		}
 	}
 	for _, t := range nextInfo.AvailableTransitions {
 		// A transition back to the current status (e.g. a fail self-loop) is

@@ -50,6 +50,7 @@ steps:
     responsibility: none
     action: archive
     terminal: true
+    primary: true
     prompt: change/completed.md
   development:
     phase: development

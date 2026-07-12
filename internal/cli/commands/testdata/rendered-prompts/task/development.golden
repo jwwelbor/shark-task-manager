@@ -1,5 +1,5 @@
 
-After completing ALL work below, exit with: shark status advance E07-F01
+After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
 Develop task E07-F01: "Sample feature for golden test".
 
@@ -770,4 +770,4 @@ EXIT GATE:
 - Implementation follows patterns from feature spec.md
 - No unrelated changes included
 
-When done: shark status advance E07-F01 (advances to completed — code review, QA, and UAT run at feature level once all tasks are done)
+When done: stop and summarize what changed, what tests ran, and whether the task is ready for the parent loop to advance to completed. Do NOT run Shark status commands yourself — code review, QA, and UAT still run at feature level once all tasks are done.

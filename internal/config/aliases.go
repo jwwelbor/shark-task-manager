@@ -58,6 +58,14 @@ type WorkflowValidationError = workflow.WorkflowValidationError
 // WorkflowValidationFinding is an alias for workflow.WorkflowValidationFinding.
 type WorkflowValidationFinding = workflow.WorkflowValidationFinding
 
+// NoCandidateError is an alias for workflow.NoCandidateError (named selectors,
+// selectors.go).
+type NoCandidateError = workflow.NoCandidateError
+
+// AmbiguousSelectionError is an alias for workflow.AmbiguousSelectionError
+// (named selectors, selectors.go).
+type AmbiguousSelectionError = workflow.AmbiguousSelectionError
+
 // --- workflow/ constants ---
 // Go does not allow const X = pkg.X for string constants.
 // These are re-declared with identical values; the canonical definition

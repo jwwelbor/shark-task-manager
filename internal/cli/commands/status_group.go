@@ -407,7 +407,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		agent = advanceActor()
 	}
 
-	autoTarget := info.AvailableTransitions[0].TargetStatus
+	autoTarget := info.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	opts := services.TransitionOptions{Reason: reason, Agent: agent}
 
 	if strings.TrimSpace(outcome) != "" {

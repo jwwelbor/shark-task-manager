@@ -65,15 +65,16 @@ REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS 
 - Zero-finding PASS writes no `review-finding` notes.
 
 ON PASS:
-- Add note: {{template "create_note" .}} --type=review "Feature verification gate passed — see report"
-- SIMPLE / STANDARD → advance to approval: {{template "advance" .}} --outcome pass
-- COMPLEX → route to the deep QA gate: {{template "advance" .}} --outcome deep_verify
+- Include `PARENT NOTE: Feature verification gate passed — see report` in your final response
+- SIMPLE / STANDARD → end with `RECOMMENDED OUTCOME: pass`
+- COMPLEX → end with `RECOMMENDED OUTCOME: deep_verify`
 
 ON FAIL (blockers, spec drift, missing ACs, contract violations):
 - Write the detailed report with findings grouped by task
   - Verdict: FAIL
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
-- For each failing task, kick back: `shark status set <task-id> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
-- Set feature back to active: `{{template "status_set" .}} active --reason "Verification gate failed — see report, tasks kicked back"`
-  (report lives at {{.review_base}})
-- Do NOT advance the feature.
+- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
+  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
+- Include `PARENT NOTE: Verification gate failed — see report, tasks kicked back`
+- End with `RECOMMENDED OUTCOME: fail`
+- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.

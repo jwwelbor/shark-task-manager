@@ -154,7 +154,7 @@ func makeRunNextStatus(entityName string, getSvc func() nextStatusGetter) func(c
 			return performEntityTransition(ctx, svc, info.EntityKey, targetStatus, opts, result)
 		}
 
-		targetStatus = info.AvailableTransitions[0].TargetStatus
+		targetStatus = info.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 
 		if cli.GlobalConfig.JSON {
 			result.Message = "Use --status=<name> to specify target status for JSON output"

@@ -2,12 +2,14 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -244,6 +246,47 @@ func (f fixedNextPlaceholders) GeneratePlaceholders(ctx context.Context, key str
 	return f.vars, nil
 }
 
+type cascadeAutoAdvanceTransitioner struct {
+	currentStatus  string
+	transitionedTo []string
+}
+
+func (c *cascadeAutoAdvanceTransitioner) TransitionStatus(ctx context.Context, key, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+	c.currentStatus = targetStatus
+	c.transitionedTo = append(c.transitionedTo, targetStatus)
+	return &services.TransitionResult{ToStatus: targetStatus}, nil
+}
+
+func (c *cascadeAutoAdvanceTransitioner) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+	switch c.currentStatus {
+	case "active":
+		// Realistic production shape: the shipped feature workflow's "active"
+		// status exposes every unique outcome target, pass-first — never
+		// exactly one transition. (StatusFlow[active] = [code_review
+		// task_review blocked on_hold] in the canonical feature.yaml.)
+		return &services.NextStatusInfo{
+			EntityKey:     key,
+			CurrentStatus: "active",
+			AvailableTransitions: []services.TransitionInfoWithAction{
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "code_review"}},
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "task_review"}},
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "blocked"}},
+				{TransitionInfo: workflow.TransitionInfo{TargetStatus: "on_hold"}},
+			},
+		}, nil
+	case "code_review":
+		return &services.NextStatusInfo{
+			EntityKey:     key,
+			CurrentStatus: "code_review",
+		}, nil
+	default:
+		return &services.NextStatusInfo{
+			EntityKey:     key,
+			CurrentStatus: c.currentStatus,
+		}, nil
+	}
+}
+
 func TestResolveNext_ReturnsSelfContainedPrompt(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
@@ -296,6 +339,10 @@ func TestResolveNext_ReturnsSelfContainedPrompt(t *testing.T) {
 	assert.Equal(t, "researcher", resp.AgentType)
 	assert.Equal(t, "anthropic", resp.Provider)
 	assert.Equal(t, "haiku", resp.Model)
+	assert.True(t, strings.HasPrefix(resp.Prompt, "PARENT LOOP OWNERSHIP CONTRACT:"),
+		"response.prompt must lead with the worker ownership contract")
+	assert.Contains(t, resp.Prompt, "Operate in single-worker mode by default.",
+		"response.prompt must explicitly constrain nested worker spawning by default")
 	assert.Contains(t, resp.Prompt, "# Researcher Agent",
 		"response.prompt must include Shark agent persona content")
 	assert.Contains(t, resp.Prompt, "# Workflow: Complexity Triage",
@@ -308,6 +355,243 @@ func TestResolveNext_ReturnsSelfContainedPrompt(t *testing.T) {
 		strings.Index(resp.Prompt, "# Researcher Agent"),
 		strings.Index(resp.Prompt, "# Workflow: Complexity Triage"),
 		"agent persona should be prepended before the workflow prompt")
+}
+
+func TestResolveNext_CascadeParentAutoAdvancesWhenAllChildrenAreTerminal(t *testing.T) {
+	origTransitionerBuilder := nextBuildTransitioner
+	origPlaceholderBuilder := nextBuildPlaceholderGenerator
+	origDescribeChildren := nextDescribeDispatchableChildren
+	defer func() {
+		nextBuildTransitioner = origTransitionerBuilder
+		nextBuildPlaceholderGenerator = origPlaceholderBuilder
+		nextDescribeDispatchableChildren = origDescribeChildren
+	}()
+
+	transitioner := &cascadeAutoAdvanceTransitioner{currentStatus: "active"}
+	nextBuildTransitioner = func(_ context.Context, entityType string) (runner.EntityTransitioner, error) {
+		return transitioner, nil
+	}
+	nextBuildPlaceholderGenerator = func(_ context.Context, entityType string) runner.PlaceholderGenerator {
+		return fixedNextPlaceholders{vars: map[string]string{
+			"id":         "E03-F02",
+			"feature_id": "E03-F02",
+			"title":      "Unified Local Search And Session Browse Entry",
+			"key":        "E03-F02",
+		}}
+	}
+	nextDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+		return services.CascadeChildrenState{
+			TotalChildren:       4,
+			NonTerminalChildren: 0,
+		}, nil
+	}
+
+	actionSvc := &action.MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*action.PopulatedAction, error) {
+			switch status {
+			case "active":
+				return &action.PopulatedAction{
+					Action:      "cascade",
+					Instruction: "delegate child work",
+				}, nil
+			case "code_review":
+				return &action.PopulatedAction{
+					Action:      "spawn_agent",
+					AgentType:   "tech-lead",
+					Provider:    "anthropic",
+					Model:       "sonnet",
+					Instruction: "review completed feature E03-F02",
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	cache := &nextAdapterCache{
+		entries:       map[string]*nextAdapters{},
+		actionSvcRoot: actionSvc,
+	}
+
+	resp, err := resolveNext(context.Background(), cache, "feature", "E03-F02", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"code_review"}, transitioner.transitionedTo)
+	assert.Equal(t, "E03-F02", resp.EntityKey)
+	assert.Equal(t, "feature", resp.EntityType)
+	assert.Equal(t, "code_review", resp.Status)
+	assert.Equal(t, "spawn_agent", resp.Action)
+	assert.Equal(t, "tech-lead", resp.AgentType)
+	assert.Contains(t, resp.Prompt, "review completed feature E03-F02")
+}
+
+// failingCascadeTransitioner reports "active" with no forward transitions, or
+// fails TransitionStatus, to exercise autoAdvanceCascadeParent's guard paths.
+type failingCascadeTransitioner struct {
+	transitions   []services.TransitionInfoWithAction
+	transitionErr error
+}
+
+func (f *failingCascadeTransitioner) TransitionStatus(ctx context.Context, key, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+	if f.transitionErr != nil {
+		return nil, f.transitionErr
+	}
+	return &services.TransitionResult{ToStatus: targetStatus}, nil
+}
+
+func (f *failingCascadeTransitioner) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+	return &services.NextStatusInfo{
+		EntityKey:            key,
+		CurrentStatus:        "active",
+		AvailableTransitions: f.transitions,
+	}, nil
+}
+
+// TestResolveNext_CascadeGuardBranches covers tryCascade's non-happy paths:
+// a childless parent pauses quietly; an all-terminal parent with no forward
+// transition pauses with a descriptive error; a failing transition propagates.
+func TestResolveNext_CascadeGuardBranches(t *testing.T) {
+	forwardTransitions := []services.TransitionInfoWithAction{
+		{TransitionInfo: workflow.TransitionInfo{TargetStatus: "code_review"}},
+		{TransitionInfo: workflow.TransitionInfo{TargetStatus: "blocked"}},
+	}
+
+	tests := []struct {
+		name          string
+		childrenState services.CascadeChildrenState
+		transitioner  *failingCascadeTransitioner
+		wantAction    string
+		wantErrField  string // substring of resp.Error; "" means must be empty
+		wantErr       bool   // hard error returned from resolveNext
+	}{
+		{
+			name:          "childless parent pauses without error",
+			childrenState: services.CascadeChildrenState{TotalChildren: 0, NonTerminalChildren: 0},
+			transitioner:  &failingCascadeTransitioner{transitions: forwardTransitions},
+			wantAction:    "pause",
+		},
+		{
+			name:          "non-terminal children but none dispatchable pauses",
+			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 2},
+			transitioner:  &failingCascadeTransitioner{transitions: forwardTransitions},
+			wantAction:    "pause",
+		},
+		{
+			name:          "all terminal but no forward transition pauses with error",
+			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
+			transitioner:  &failingCascadeTransitioner{transitions: nil},
+			wantAction:    "pause",
+			wantErrField:  "no forward transition",
+		},
+		{
+			name:          "transition failure propagates as hard error",
+			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
+			transitioner: &failingCascadeTransitioner{
+				transitions:   forwardTransitions,
+				transitionErr: errors.New("simulated transition failure"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origTransitionerBuilder := nextBuildTransitioner
+			origPlaceholderBuilder := nextBuildPlaceholderGenerator
+			origDescribeChildren := nextDescribeDispatchableChildren
+			defer func() {
+				nextBuildTransitioner = origTransitionerBuilder
+				nextBuildPlaceholderGenerator = origPlaceholderBuilder
+				nextDescribeDispatchableChildren = origDescribeChildren
+			}()
+
+			nextBuildTransitioner = func(_ context.Context, entityType string) (runner.EntityTransitioner, error) {
+				return tt.transitioner, nil
+			}
+			nextBuildPlaceholderGenerator = func(_ context.Context, entityType string) runner.PlaceholderGenerator {
+				return fixedNextPlaceholders{vars: map[string]string{"id": "E03-F02", "key": "E03-F02"}}
+			}
+			nextDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+				return tt.childrenState, nil
+			}
+
+			actionSvc := &action.MockActionService{
+				GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*action.PopulatedAction, error) {
+					return &action.PopulatedAction{Action: "cascade", Instruction: "delegate child work"}, nil
+				},
+			}
+			cache := &nextAdapterCache{entries: map[string]*nextAdapters{}, actionSvcRoot: actionSvc}
+
+			resp, err := resolveNext(context.Background(), cache, "feature", "E03-F02", 0)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cascade completion advance")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAction, resp.Action)
+			if tt.wantErrField == "" {
+				assert.Empty(t, resp.Error)
+			} else {
+				assert.Contains(t, resp.Error, tt.wantErrField)
+			}
+		})
+	}
+}
+
+func TestRenderedDispatchPromptsDoNotTellWorkersToTransitionSharkState(t *testing.T) {
+	promptsDir := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err)
+
+	vars := standardVars()
+	dispatchPrompts := []string{
+		"epic/assessment.md",
+		"epic/decomposition.md",
+		"epic/design.md",
+		"epic/feature_review.md",
+		"epic/refinement.md",
+		"epic/research.md",
+		"feature/assessment.md",
+		"feature/approval.md",
+		"feature/code_review.md",
+		"feature/qa.md",
+		"feature/research.md",
+		"feature/specification.md",
+		"feature/task_generation.md",
+		"feature/task_review.md",
+		"feature/test_planning.md",
+		"task/development.md",
+		"bug/development.md",
+		"change/development.md",
+		"tech_debt/identified.md",
+		"tech_debt/in_progress.md",
+		"tech_debt/triaged.md",
+		"sprint/planning.md",
+		"sprint/active.md",
+		"sprint/closing.md",
+	}
+	forbidden := []string{
+		"shark status advance",
+		"shark status set",
+		"shark task next-status",
+		"shark task set-status",
+		"shark feature next-status",
+		"shark epic next-status",
+		"shark claim",
+		"shark heartbeat",
+		"shark release",
+	}
+
+	for _, tmplName := range dispatchPrompts {
+		t.Run(tmplName, func(t *testing.T) {
+			rendered, err := renderer.Render(tmplName, vars)
+			require.NoError(t, err, "render %s", tmplName)
+			for _, snippet := range forbidden {
+				assert.NotContainsf(t, rendered, snippet,
+					"dispatch prompt %s must not instruct the worker to mutate Shark workflow state directly", tmplName)
+			}
+		})
+	}
 }
 
 func TestSharkRunVerbUsesNextDispatchContract(t *testing.T) {
@@ -323,6 +607,9 @@ func TestSharkRunVerbUsesNextDispatchContract(t *testing.T) {
 	assert.Contains(t, body, "response.provider")
 	assert.Contains(t, body, "response.model")
 	assert.Contains(t, body, "general-purpose")
+	assert.Contains(t, body, "single worker by default")
+	assert.Contains(t, body, "Only recurse when the workflow")
+	assert.Contains(t, body, "explicitly invokes a multi-agent skill or recipe")
 
 	for _, forbidden := range []string{
 		"loop:  shark get {KEY} --json",

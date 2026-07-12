@@ -21,13 +21,13 @@ A SIMPLE feature does not require `spec.md`, `test-plan.md`, or a prior-art repo
 - Each task file's Acceptance Criteria and Test Cases sections are written **inline and concrete** rather than by TC-ID reference: for code changes, enumerable pass/fail conditions; for doc-only tasks, verification steps (links resolve, lint/format passes, reviewer checklist).
 - Prior art degrades to the quick codebase grep assessment already performed during complexity triage — do not block on a full prior-art report.
 
-**Escalation valve**: if lite decomposition would need more than 3 tasks, or any task is sized 5 or larger, this feature is not actually SIMPLE. Append a new decision note:
+**Escalation valve**: if lite decomposition would need more than 3 tasks, or any task is sized 5 or larger, this feature is not actually SIMPLE. Stop immediately, explain the reason, and include BOTH of these lines in your final response so the parent loop can persist the superseding decision and route back through test_planning:
 
-```
-{{template "create_note" .}} --content="COMPLEXITY: STANDARD (supersedes SIMPLE; task-generation found <reason>)" --type=decision
-```
+`COMPLEXITY NOTE: COMPLEXITY: STANDARD (supersedes SIMPLE; task-generation found <reason>)`
 
-Then release the existing fail outcome: `shark status advance {{.id}} --outcome fail --reason "COMPLEXITY escalated from SIMPLE to STANDARD: <reason>"`. Do not continue generating lite tasks after escalating — test_planning will produce the missing test-plan.md before task_generation runs again.
+`RECOMMENDED OUTCOME: fail`
+
+Do not continue generating lite tasks after escalating — test_planning will produce the missing test-plan.md before task_generation runs again.
 
 {{include: skills/specification-writing/workflows/write-task.md}}
 

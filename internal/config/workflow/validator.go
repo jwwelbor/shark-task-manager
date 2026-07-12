@@ -2,9 +2,13 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 )
 
 // WorkflowValidationError represents a workflow configuration validation error
@@ -110,7 +114,103 @@ func validateRouteBased(workflow *WorkflowConfig) error {
 		}
 	}
 
+	// Ambiguity is a config problem, not a runtime-pick problem: when a
+	// semantic selection has several candidates, exactly one must be tagged
+	// primary: true (see selectors.go).
+	if err := validatePrimaryDesignations(workflow); err != nil {
+		return err
+	}
+
+	// A parking step's resume target is computed from history; combining it
+	// with action: advance_status would route through the positional
+	// StatusFlow view and reproduce the blocked-routing bug PR #103 fixed.
+	if err := validateParkingActions(workflow); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// validatePrimaryDesignations enforces the designation rule for the semantic
+// selections Shark performs against a workflow: with one candidate the choice
+// is trivial; with several, exactly one candidate must be tagged
+// primary: true. Checked selections:
+//   - aggregation steps — the reopen target (PrimaryAggregationStatus)
+//   - the "planning", "execution", and "review" phases — sprint lifecycle
+//     phase selections (StatusForPhase)
+//   - the done-phase, non-terminal sprint close target (CompletedSprintStatus)
+//   - terminal steps — the archive endpoint (ArchiveTerminalStatus); when
+//     action: archive terminals exist, only that subset must be unambiguous
+//
+// Each check consumes the same derived candidate set and the same designate
+// rule the runtime selector uses, so validate-time and runtime can never
+// disagree about what is ambiguous.
+func validatePrimaryDesignations(workflow *WorkflowConfig) error {
+	if err := requireDesignation(workflow, "aggregation (reopen-target)", workflow.SpecialStatuses[AggregationStatusKey]); err != nil {
+		return err
+	}
+
+	for _, phase := range []string{"planning", "execution", "review"} {
+		if err := requireDesignation(workflow, fmt.Sprintf("%q-phase", phase), workflow.GetStatusesByPhase(phase)); err != nil {
+			return err
+		}
+	}
+	if err := requireDesignation(workflow, "completed (done-phase, non-terminal)", workflow.completedSprintCandidates()); err != nil {
+		return err
+	}
+
+	if archival := workflow.archiveActionTerminals(); len(archival) > 0 {
+		return requireDesignation(workflow, "archive terminal", archival)
+	}
+	return requireDesignation(workflow, "terminal", workflow.SpecialStatuses[CompleteStatusKey])
+}
+
+// validateParkingActions rejects parking steps whose action is advance_status:
+// parking steps resume from history, never from the static outcome graph.
+func validateParkingActions(workflow *WorkflowConfig) error {
+	for _, name := range sortedStepNames(workflow) {
+		st := workflow.Steps[name]
+		if st != nil && st.Parking && strings.EqualFold(st.Action, action.ActionAdvanceStatus) {
+			return &WorkflowValidationError{
+				Message: fmt.Sprintf("parking step %q must not use action: advance_status (a parking step's resume target comes from history, not the outcome graph)", name),
+				Fix:     fmt.Sprintf("use action: pause (or check_or_resume) on %q, or remove parking: true", name),
+			}
+		}
+	}
+	return nil
+}
+
+// sortedStepNames returns the workflow's step names in sorted order for
+// deterministic validation output.
+func sortedStepNames(workflow *WorkflowConfig) []string {
+	names := make([]string, 0, len(workflow.Steps))
+	for name := range workflow.Steps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// requireDesignation applies the runtime designation rule (designate) to one
+// candidate set and translates an ambiguity into a validation error. A
+// missing candidate set is fine at validate time — there is simply nothing to
+// select.
+func requireDesignation(workflow *WorkflowConfig, kind string, candidates []string) error {
+	_, err := workflow.designate(kind, candidates)
+	var ambiguous *AmbiguousSelectionError
+	if !errors.As(err, &ambiguous) {
+		return nil
+	}
+	if len(ambiguous.Primaries) > 1 {
+		return &WorkflowValidationError{
+			Message: fmt.Sprintf("ambiguous %s selection: multiple steps tagged primary (%s)", kind, strings.Join(ambiguous.Primaries, ", ")),
+			Fix:     "keep primary: true on exactly one of these steps, then run 'shark admin workflow validate'",
+		}
+	}
+	return &WorkflowValidationError{
+		Message: fmt.Sprintf("ambiguous %s selection: %d candidate steps (%s) and none is tagged primary", kind, len(ambiguous.Candidates), strings.Join(ambiguous.Candidates, ", ")),
+		Fix:     "tag exactly one of these steps with primary: true, then run 'shark admin workflow validate'",
+	}
 }
 
 // validateSpecialStatuses checks that _start_ and _complete_ are defined

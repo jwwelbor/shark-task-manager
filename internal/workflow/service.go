@@ -100,7 +100,7 @@ func (s *Service) GetInitialStatusString() string {
 			return "todo"
 		}
 	}
-	return startStatuses[0]
+	return startStatuses[0] //shark:ordered _start_ preserves the author's declaration order
 }
 
 // ValidateTransition checks if a transition is valid and returns a descriptive error if not.
@@ -117,7 +117,7 @@ func (s *Service) GetInitialStatus() models.TaskStatus {
 	if !exists || len(startStatuses) == 0 {
 		return models.TaskStatus("todo")
 	}
-	return models.TaskStatus(startStatuses[0])
+	return models.TaskStatus(startStatuses[0]) //shark:ordered _start_ preserves the author's declaration order
 }
 
 // GetEntryStatuses returns all valid entry statuses for new tasks.
@@ -149,6 +149,50 @@ func (s *Service) GetAggregationStatuses() []string {
 		return []string{"active"}
 	}
 	return aggStatuses
+}
+
+// --- Named selectors (positional-selection defect class) ---
+//
+// These wrap the WorkflowConfig selectors, prefixing errors with the entity
+// level so an ambiguity error names the workflow the user must fix. See
+// config/workflow/selectors.go for the designation rule.
+
+// selected prefixes selector errors with the workflow level.
+func (s *Service) selected(status string, err error) (string, error) {
+	if err != nil {
+		return "", fmt.Errorf("%s workflow: %w", s.level, err)
+	}
+	return status, nil
+}
+
+// PrimaryAggregationStatus returns the designated aggregation (reopen-target)
+// status for this level. Unlike GetAggregationStatuses it applies no "active"
+// fallback: a workflow without aggregation statuses yields a *NoCandidateError.
+func (s *Service) PrimaryAggregationStatus() (string, error) {
+	return s.selected(s.workflow.PrimaryAggregationStatus())
+}
+
+// StatusForPhase returns the designated status of a phase for this level.
+func (s *Service) StatusForPhase(phase string) (string, error) {
+	return s.selected(s.workflow.StatusForPhase(phase))
+}
+
+// CompletedSprintStatus returns the designated done-phase, non-terminal status.
+func (s *Service) CompletedSprintStatus() (string, error) {
+	return s.selected(s.workflow.CompletedSprintStatus())
+}
+
+// ArchiveTerminalStatus returns the designated terminal status for archive
+// operations (archive-action terminals take precedence).
+func (s *Service) ArchiveTerminalStatus() (string, error) {
+	return s.selected(s.workflow.ArchiveTerminalStatus())
+}
+
+// DefaultTransition returns the happy-path transition out of a status
+// (StatusFlow[from][0], a guaranteed pass-first contract for route-based
+// workflows).
+func (s *Service) DefaultTransition(from string) (string, error) {
+	return s.selected(s.workflow.DefaultTransition(from))
 }
 
 // IsTerminalStatus returns true if the given status is a terminal status.

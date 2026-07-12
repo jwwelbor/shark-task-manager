@@ -38,8 +38,8 @@ Classify using the same signals as `/triage`, scoped to the EPIC-vs-lighter-enti
 
 An epic has no natural existing container, so **Feature** and **Task** targets need a container chosen first:
 
-- **Feature**: choose a clearly related, non-cancelled parent epic for this capability: `shark list`. If no safe parent exists, add a note explaining why, then `shark status set {{.id}} on_hold --reason "Reclassified as feature; needs human parent-epic selection"` and STOP — do NOT create the feature under the epic being cancelled.
-- **Task**: choose a parent epic, then find or create an enhancement feature under that parent: `shark list <parent-epic>` | grep -i enhance. If no safe parent exists, add a note explaining why, then `shark status set {{.id}} on_hold --reason "Reclassified as task; needs human parent-epic selection"` and STOP — do NOT create the task under the epic being cancelled.
+- **Feature**: choose a clearly related, non-cancelled parent epic for this capability: `shark list`. If no safe parent exists, explain why in your final response, end with `RECOMMENDED OUTCOME: blocked`, and STOP — do NOT create the feature under the epic being cancelled.
+- **Task**: choose a parent epic, then find or create an enhancement feature under that parent: `shark list <parent-epic>` | grep -i enhance. If no safe parent exists, explain why in your final response, end with `RECOMMENDED OUTCOME: blocked`, and STOP — do NOT create the task under the epic being cancelled.
 
 Once the target type (and container, for Feature/Task) is determined:
 
@@ -47,4 +47,6 @@ Once the target type (and container, for Feature/Task) is determined:
 
 ## Step 3: Route
 
-Genuine epic -> `shark status advance {{.id}} --outcome pass`
+Genuine epic -> end with `RECOMMENDED OUTCOME: pass`
+
+Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
