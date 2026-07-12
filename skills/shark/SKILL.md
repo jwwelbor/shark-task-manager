@@ -25,19 +25,19 @@ thin **router**: it picks a verb and reads `verbs/<verb>.md` for the procedure.
 Everything downstream depends on getting this split right.
 
 ```
-┌─────────────────────────── shark CLI (owns) ───────────────────────────┐
-│ Data plane      entities, status, leases, notes, context, docs, search  │
-│ Workflow engine routing + prompt assembly: shark next renders the step   │
+┌─────────────────────────── shark CLI (owns) ──────────────────────────────┐
+│ Data plane      entities, status, leases, notes, context, docs, search    │
+│ Workflow engine routing + prompt assembly: shark next renders the step    │
 │                 prompt, inlines skill content, resolves the agent persona │
-│                 from the shark-data bundle                               │
-└──────────────────────────────────────────────────────────────────────────┘
+│                 from the shark-data bundle                                │
+└───────────────────────────────────────────────────────────────────────────┘
              ▲ CLI calls                         │ response.prompt (verbatim)
              │                                    ▼
-┌─────────────────────────── this skill (drives) ─────────────────────────┐
-│ Outer loop      claim → spawn host agent with the prompt → advance → release │
-│ Translation     NL / verbs → shark data commands, then summarize          │
-│ Local recipes   multi-agent / craft procedures the CLI does not provide   │
-└──────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────── this skill (drives) ───────────────────────────────┐
+│ Outer loop      claim → spawn host agent with the prompt → advance → release  │
+│ Translation     NL / verbs → shark data commands, then summarize              │
+│ Local recipes   multi-agent / craft procedures the CLI does not provide       │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **The golden invariant (for driving workflows):** `shark next <key> --json` is
@@ -163,7 +163,7 @@ The end-to-end lifecycle (run only the steps you need):
 
 ```
 /shark project bootstrap          # 1. one-time: architecture docs for a new/brownfield repo
-/shark product-design             #    optional: product design D01–D14
+/shark project product-design             #    optional: product design D01–D14
 /shark vision "one-line idea"     # 2. idea → epic + spec
 /shark run <epic-key>             # 3. drive it: refinement → features → tasks → review
 /shark triage "found a bug"       #    anytime: capture & classify discovered work
