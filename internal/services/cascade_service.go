@@ -174,7 +174,6 @@ func (s *CascadeService) DescribeDispatchableChildren(ctx context.Context, entit
 	return CascadeChildrenState{}, nil
 }
 
-
 // isTerminalStatus reports whether a status is terminal (no productive
 // dispatch possible) for the given workflow level. Delegates to
 // workflow.Service.IsTerminalStatus, which reads the configured terminal set

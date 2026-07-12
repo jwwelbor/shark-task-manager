@@ -17,10 +17,14 @@ func pfb(pass, fail, blocked string) map[string]string {
 // clean; tests mutate it to produce the ambiguous variants.
 func designationFixture() *WorkflowConfig {
 	cfg := &WorkflowConfig{
-		Start: "reopen",
+		Start: "planning",
 		Steps: map[string]*Step{
+			// Planning-phase pair.
+			"planning":           {Phase: "planning", Primary: true, Outcomes: pfb("reopen", "planning", "hold")},
+			"aaa_wrong_planning": {Phase: "planning", Outcomes: pfb("reopen", "aaa_wrong_planning", "hold")},
+
 			// Aggregation (reopen-target) pair — phase deliberately not one of
-			// the validated phases so the dimensions stay independent.
+			// the sprint-specific phases so the dimensions stay independent.
 			"reopen":           {Phase: "development", AggregatesFrom: "tasks", Primary: true, Outcomes: pfb("aaa_wrong_reopen", "reopen", "hold")},
 			"aaa_wrong_reopen": {Phase: "development", AggregatesFrom: "tasks", Outcomes: pfb("active", "aaa_wrong_reopen", "hold")},
 
@@ -78,6 +82,7 @@ func TestValidateWorkflow_AmbiguousAggregation_MultiplePrimary(t *testing.T) {
 
 func TestValidateWorkflow_AmbiguousPhase_NoPrimary(t *testing.T) {
 	for _, tc := range []struct{ phase, step string }{
+		{"planning", "planning"},
 		{"execution", "active"},
 		{"review", "closing"},
 	} {
@@ -87,6 +92,15 @@ func TestValidateWorkflow_AmbiguousPhase_NoPrimary(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.phase) || !strings.Contains(err.Error(), "primary") {
 			t.Errorf("phase %s: expected ambiguous-phase error, got %v", tc.phase, err)
 		}
+	}
+}
+
+func TestValidateWorkflow_AmbiguousCompletedSprintStatus_NoPrimary(t *testing.T) {
+	cfg := designationFixture()
+	cfg.Steps["completed"].Primary = false
+	err := ValidateWorkflow(cfg)
+	if err == nil || !strings.Contains(err.Error(), "completed (done-phase, non-terminal)") || !strings.Contains(err.Error(), "primary") {
+		t.Errorf("expected ambiguous completed-sprint-status error, got %v", err)
 	}
 }
 

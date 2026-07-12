@@ -136,7 +136,9 @@ func validateRouteBased(workflow *WorkflowConfig) error {
 // is trivial; with several, exactly one candidate must be tagged
 // primary: true. Checked selections:
 //   - aggregation steps — the reopen target (PrimaryAggregationStatus)
-//   - the "execution" and "review" phases — sprint lifecycle (StatusForPhase)
+//   - the "planning", "execution", and "review" phases — sprint lifecycle
+//     phase selections (StatusForPhase)
+//   - the done-phase, non-terminal sprint close target (CompletedSprintStatus)
 //   - terminal steps — the archive endpoint (ArchiveTerminalStatus); when
 //     action: archive terminals exist, only that subset must be unambiguous
 //
@@ -148,10 +150,13 @@ func validatePrimaryDesignations(workflow *WorkflowConfig) error {
 		return err
 	}
 
-	for _, phase := range []string{"execution", "review"} {
+	for _, phase := range []string{"planning", "execution", "review"} {
 		if err := requireDesignation(workflow, fmt.Sprintf("%q-phase", phase), workflow.GetStatusesByPhase(phase)); err != nil {
 			return err
 		}
+	}
+	if err := requireDesignation(workflow, "completed (done-phase, non-terminal)", workflow.completedSprintCandidates()); err != nil {
+		return err
 	}
 
 	if archival := workflow.archiveActionTerminals(); len(archival) > 0 {

@@ -119,12 +119,11 @@ func (w *WorkflowConfig) StatusForPhase(phase string) (string, error) {
 	return w.designate(fmt.Sprintf("%q-phase", phase), w.GetStatusesByPhase(phase))
 }
 
-// CompletedSprintStatus returns the done-phase, non-terminal status a sprint
-// moves to once its carryover is processed but before it is archived. Phase
-// alone can't disambiguate this from the archive terminal (both typically
-// share the "done" phase), so terminal statuses are excluded from the
-// candidate set.
-func (w *WorkflowConfig) CompletedSprintStatus() (string, error) {
+// completedSprintCandidates returns the done-phase, non-terminal candidates a
+// sprint may transition into once carryover is processed but before archive.
+// Terminal statuses are excluded because "done" usually contains both the
+// completed step and the archive endpoint.
+func (w *WorkflowConfig) completedSprintCandidates() []string {
 	terminal := make(map[string]bool)
 	for _, status := range w.SpecialStatuses[CompleteStatusKey] {
 		terminal[strings.ToLower(status)] = true
@@ -135,7 +134,16 @@ func (w *WorkflowConfig) CompletedSprintStatus() (string, error) {
 			candidates = append(candidates, status)
 		}
 	}
-	return w.designate("completed (done-phase, non-terminal)", candidates)
+	return candidates
+}
+
+// CompletedSprintStatus returns the done-phase, non-terminal status a sprint
+// moves to once its carryover is processed but before it is archived. Phase
+// alone can't disambiguate this from the archive terminal (both typically
+// share the "done" phase), so terminal statuses are excluded from the
+// candidate set.
+func (w *WorkflowConfig) CompletedSprintStatus() (string, error) {
+	return w.designate("completed (done-phase, non-terminal)", w.completedSprintCandidates())
 }
 
 // ArchiveTerminalStatus returns the terminal status an archive operation

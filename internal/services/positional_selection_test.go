@@ -45,9 +45,10 @@ func twoAggregationFeatureConfig(primaryTagged bool) string {
 
 // --- Site #1: TaskService.legacyMaybeReopenParentFeature -------------------
 
-// A workflow with no aggregation statuses must skip the auto-reopen (warn and
-// return) instead of indexing into an empty slice or guessing a target.
-func TestLegacyMaybeReopenParentFeature_NoAggregationStatuses_SkipsReopen(t *testing.T) {
+// A workflow with no aggregation statuses must fall back to the initial
+// status, matching the other reopen paths, instead of skipping the reopen and
+// leaving the parent terminal.
+func TestLegacyMaybeReopenParentFeature_NoAggregationStatuses_FallsBackToInitial(t *testing.T) {
 	ctx := context.Background()
 
 	// Legacy feature workflow with a terminal "completed" and no _aggregation_.
@@ -79,7 +80,9 @@ func TestLegacyMaybeReopenParentFeature_NoAggregationStatuses_SkipsReopen(t *tes
 			}, nil
 		},
 		updateFn: func(ctx context.Context, feature *models.Feature) error {
-			t.Errorf("UpdateFeature must not be called when the workflow has no aggregation statuses (attempted status %q)", feature.Status)
+			if feature.Status != models.FeatureStatus("draft") {
+				t.Errorf("expected fallback reopen to initial status %q, got %q", "draft", feature.Status)
+			}
 			return nil
 		},
 	}
@@ -89,7 +92,7 @@ func TestLegacyMaybeReopenParentFeature_NoAggregationStatuses_SkipsReopen(t *tes
 	taskSvc := NewTaskService(&MockTaskRepository{}, entitySvc, nil)
 	taskSvc.SetFeatureService(featureSvc)
 
-	// Must not panic and must not reopen.
+	// Must not panic and must reopen to the initial status.
 	taskSvc.legacyMaybeReopenParentFeature(ctx, "E01-F01", "T-E01-F01-001")
 }
 
