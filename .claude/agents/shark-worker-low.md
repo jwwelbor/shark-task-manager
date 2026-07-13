@@ -1,6 +1,6 @@
 ---
 name: shark-worker-low
-description: Shark workflow worker executing a dispatched step prompt at low reasoning effort. Used by /shark run when the workflow step declares effort: low.
+description: Shark workflow worker executing a dispatched step prompt at low reasoning effort. Used by /shark-rider run when the workflow step declares effort: low.
 effort: low
 ---
 

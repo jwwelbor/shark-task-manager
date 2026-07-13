@@ -1,6 +1,6 @@
 ---
 name: shark-worker-medium
-description: Shark workflow worker executing a dispatched step prompt at medium reasoning effort. Used by /shark run when the workflow step declares effort: medium.
+description: Shark workflow worker executing a dispatched step prompt at medium reasoning effort. Used by /shark-rider run when the workflow step declares effort: medium.
 effort: medium
 ---
 
