@@ -167,6 +167,25 @@ func (r *Repository) GetRun(ctx context.Context, id int64) (*TeamRun, error) {
 	return run, nil
 }
 
+// FindRunByRoot returns the most recently confirmed run for a canonical root.
+// The service compares its plan hash to enforce confirmation idempotency and
+// detect drift before attempting another insert.
+func (r *Repository) FindRunByRoot(ctx context.Context, rootType, rootKey string) (*TeamRun, error) {
+	const query = `
+		SELECT id, root_key, root_type, status, execution_mode, concurrency_limit,
+			plan_hash, aggregate_outcome, next_action, root_session_id, started_at,
+			completed_at, created_at, updated_at
+		FROM team_runs WHERE root_type = ? AND root_key = ? ORDER BY id DESC LIMIT 1`
+	run, err := scanRun(r.db.QueryRowContext(ctx, query, rootType, rootKey))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("team run for %s/%s not found: %w", rootType, rootKey, repoerr.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find team run for %s/%s: %w", rootType, rootKey, err)
+	}
+	return run, nil
+}
+
 // ListItems returns a run's items in deterministic wave/order/key order.
 func (r *Repository) ListItems(ctx context.Context, runID int64) ([]*TeamRunItem, error) {
 	const query = `
