@@ -19,6 +19,15 @@ type dbContainer struct {
 	initErr  error
 }
 
+// DBInitializer is the narrow seam used by Cobra caller-path tests to keep
+// service construction independent of SQLite. Production code always uses
+// initDatabase; tests may replace it temporarily and restore it afterward.
+type DBInitializer func(context.Context) (*repository.DB, error)
+
+// dbInitializer is intentionally process-local. CLI tests run serially because
+// they also replace Cobra's global command state and service singletons.
+var dbInitializer DBInitializer = initDatabase
+
 // globalDBContainer is accessed only through loadDBContainer / storeDBContainer.
 // Using atomic pointer operations ensures that a call to ResetDB()
 // is immediately visible to any goroutine that subsequently calls
@@ -59,7 +68,7 @@ func GetDB(ctx context.Context) (*repository.DB, error) {
 
 	c := loadDBContainer()
 	c.initOnce.Do(func() {
-		c.db, c.initErr = initDatabase(ctx)
+		c.db, c.initErr = dbInitializer(ctx)
 	})
 
 	if c.initErr != nil {
@@ -67,6 +76,30 @@ func GetDB(ctx context.Context) (*repository.DB, error) {
 	}
 
 	return c.db, nil
+}
+
+// SetDBInitializerForTest replaces the lazy database initializer and returns a
+// cleanup function that restores the previous initializer and clears cached
+// database state. It is intended for caller-path tests only.
+func SetDBInitializerForTest(initializer DBInitializer) func() {
+	if initializer == nil {
+		panic("SetDBInitializerForTest: initializer is required")
+	}
+	previous := dbInitializer
+	dbInitializer = initializer
+	ResetDB()
+	return func() {
+		dbInitializer = previous
+		ResetDB()
+	}
+}
+
+// ResetDBInitializerForTest restores the production initializer and clears
+// cached database state. It is provided for tests whose cleanup is not scoped
+// to a SetDBInitializerForTest call.
+func ResetDBInitializerForTest() {
+	dbInitializer = initDatabase
+	ResetDB()
 }
 
 // CloseDB closes the global database connection.

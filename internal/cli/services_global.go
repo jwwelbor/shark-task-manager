@@ -4,19 +4,25 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	teamrunrepo "github.com/jwwelbor/shark-task-manager/internal/repository/teamrun"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/team"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/jwwelbor/shark-task-manager/internal/view"
@@ -581,6 +587,427 @@ func GetCascadeService() *services.CascadeService {
 	featureRepo := repository.NewFeatureRepository(db)
 	workflowSvc := GetWorkflowService()
 	return services.NewCascadeService(taskRepo, epicRepo, featureRepo, workflowSvc)
+}
+
+// GetTeamPlanner returns the read-only team planner wired to the same child,
+// dependency, workflow, and claim sources used by ordinary Shark services.
+// It deliberately constructs no command, dispatcher, or mutation path.
+func GetTeamPlanner() *team.TeamPlanner {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for TeamPlanner: %v", err))
+	}
+	actionSvc, err := GetActionService(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to create action service for TeamPlanner: %v", err))
+	}
+
+	taskRepo := repository.NewTaskRepository(db)
+	dependencyAdapter, err := team.NewDependencyAdapter(
+		&teamLegacyDependencySource{repo: taskRepo},
+		&teamRelationshipDependencySource{
+			repo:     repository.NewEntityRelationshipRepository(db),
+			registry: GetEntityRegistry(),
+		},
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create team dependency adapter: %v", err))
+	}
+	return newTeamPlanner(team.PlannerDeps{
+		Children:     &teamCascadeChildReader{cascade: GetCascadeService()},
+		Dependencies: dependencyAdapter,
+		Dispatch:     newTeamDispatchStepResolver(actionSvc),
+		Claims:       &teamClaimDiagnosticReader{claims: GetClaimService()},
+		SuccessfulStatus: func(entityType models.EntityType, status string) bool {
+			return GetWorkflowService().ForLevel(string(entityType)).IsCompletedStatus(status)
+		},
+	})
+}
+
+func newTeamPlanner(deps team.PlannerDeps) *team.TeamPlanner {
+	planner, err := team.NewTeamPlanner(deps)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create TeamPlanner: %v", err))
+	}
+	return planner
+}
+
+// GetTeamLedger returns the durable team ledger backed by the normalized
+// team-run repository. The service owns validation and idempotency; this
+// accessor only supplies the repository dependency.
+func GetTeamLedger() *team.LedgerService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for TeamLedger: %v", err))
+	}
+	projectRoot, err := FindProjectRoot()
+	if err != nil || projectRoot == "" {
+		projectRoot = "."
+	}
+	return newTeamLedger(teamrunrepo.NewTeamRunRepository(db), projectRoot)
+}
+
+func newTeamLedger(repo team.LedgerRepository, projectRoot string) *team.LedgerService {
+	return team.NewLedgerService(repo, projectRoot)
+}
+
+// GetTeamScheduler wires the durable team ledger to the canonical dispatch
+// resolver, claim service, and default agent dispatcher. Public commands own
+// presentation and root routing; the scheduler only executes the confirmed
+// child snapshot and returns its result.
+func GetTeamScheduler() *team.Scheduler {
+	return getTeamScheduler("")
+}
+
+func getTeamScheduler(expectedPlanHash string) *team.Scheduler {
+	actionSvc, err := GetActionService(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to create action service for TeamScheduler: %v", err))
+	}
+	return newTeamScheduler(team.SchedulerDeps{
+		Ledger:           GetTeamLedger(),
+		Claims:           GetClaimService(),
+		Resolver:         newTeamDispatchStepResolver(actionSvc),
+		Dispatcher:       runner.NewClaudeDispatcher(),
+		Resource:         newProductionResourcePolicy(team.CapabilityFacts{}),
+		ExpectedPlanHash: expectedPlanHash,
+		Communication: &team.CouncilCommunication{
+			SenderRole: "chair", RecipientRole: "developer", Subject: "confirmed team execution",
+			RequestedAction: "execute the confirmed child snapshot", Urgency: "normal",
+			Handoff:  &team.CouncilHandoff{Summary: "Execute only the confirmed team-run membership."},
+			Decision: &team.CouncilDecision{Outcome: "proceed", Rationale: "The chair confirmed this team run."},
+		},
+		CoordinatorTransition: transitionTeamEntity,
+	})
+}
+
+func transitionTeamEntity(ctx context.Context, entityType models.EntityType, key string, info *services.NextStatusInfo) error {
+	if info == nil || len(info.AvailableTransitions) == 0 {
+		return fmt.Errorf("no workflow transition available for %s", key)
+	}
+	target := info.AvailableTransitions[0].TargetStatus //shark:ordered pass-first workflow transition contract
+	var transitioner interface {
+		TransitionStatus(context.Context, string, string, services.TransitionOptions) (*services.TransitionResult, error)
+	}
+	switch entityType {
+	case models.EntityTypeTask:
+		transitioner = GetTaskService()
+	case models.EntityTypeFeature:
+		transitioner = GetFeatureService()
+	case models.EntityTypeEpic:
+		transitioner = GetEpicService()
+	case models.EntityTypeBug:
+		transitioner = GetBugService()
+	case models.EntityTypeChange:
+		transitioner = GetChangeCardService()
+	case models.EntityTypeTechDebt:
+		transitioner = GetTechDebtService()
+	default:
+		return fmt.Errorf("unsupported coordinator transition entity type %q", entityType)
+	}
+	_, err := transitioner.TransitionStatus(ctx, key, target, services.TransitionOptions{})
+	return err
+}
+
+// RunTeamScheduler is the production execution boundary for a confirmed team
+// run. Keeping this caller here makes the scheduler wiring reachable without
+// putting orchestration policy or result formatting in a CLI command.
+func RunTeamScheduler(ctx context.Context, runID int64, rootSessionID string) (*team.TeamRunResult, error) {
+	return teamSchedulerFactory().Start(ctx, runID, rootSessionID)
+}
+
+// RunTeamSchedulerWithPlanHash is the confirmed-plan caller boundary. The
+// captured hash is checked before any lifecycle or child claim mutation.
+func RunTeamSchedulerWithPlanHash(ctx context.Context, runID int64, rootSessionID, expectedPlanHash string) (*team.TeamRunResult, error) {
+	return getTeamScheduler(expectedPlanHash).Start(ctx, runID, rootSessionID)
+}
+
+type teamSchedulerStarter interface {
+	Start(context.Context, int64, string) (*team.TeamRunResult, error)
+}
+
+var teamSchedulerFactory = func() teamSchedulerStarter { return GetTeamScheduler() }
+
+// productionResourcePolicy is deliberately conservative. Production wiring
+// has no verified ownership capability source yet, so its zero-value facts
+// select sequential execution with an explicit diagnostic. Tests and a future
+// capability adapter may supply verified facts, but unknown or overlapping
+// ownership can never enable parallel execution.
+type productionResourcePolicy struct {
+	facts team.CapabilityFacts
+}
+
+func newProductionResourcePolicy(facts team.CapabilityFacts) productionResourcePolicy {
+	return productionResourcePolicy{facts: facts}
+}
+
+func (p productionResourcePolicy) Select(context.Context, *team.TeamRun, []*team.TeamRunItem) (team.ExecutionMode, int, string, error) {
+	f := p.facts
+	if f.OverlappingResourceOwnership || f.ResourceOwnershipOverlap {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonOverlappingOwnership, nil
+	}
+	if f.UnknownResourceOwnership || !f.ResourceOwnershipKnown {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonUnknownResourceOwnership, nil
+	}
+	if !f.TeamExecutionAvailable && !f.SafeTeamExecution {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonParallelUnavailable, nil
+	}
+	if !f.WorktreeIsolationAvailable && !f.WorktreeIsolation {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonParallelUnavailable, nil
+	}
+	limit := f.MaxConcurrency
+	if limit <= 0 {
+		limit = f.MaxParallelism
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	return team.ExecutionModeParallel, limit, "", nil
+}
+
+func newTeamScheduler(deps team.SchedulerDeps) *team.Scheduler {
+	scheduler, err := team.NewScheduler(deps)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create TeamScheduler: %v", err))
+	}
+	return scheduler
+}
+
+type teamCascadeChildReader struct {
+	cascade *services.CascadeService
+}
+
+func (r *teamCascadeChildReader) ListChildren(ctx context.Context, rootType models.EntityType, rootKey string) ([]team.ChildSnapshot, error) {
+	children, err := r.cascade.ListChildren(ctx, string(rootType), rootKey)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]team.ChildSnapshot, 0, len(children))
+	for _, child := range children {
+		item := team.ChildSnapshot{
+			Key:                child.Key,
+			EntityType:         child.EntityType,
+			Status:             child.Status,
+			LegacyDependencies: valueOrEmpty(child.DependsOn),
+		}
+		if child.ExecutionOrder != nil {
+			item.ExecutionOrder = *child.ExecutionOrder
+		}
+		if child.Priority != nil {
+			item.Priority = *child.Priority
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+type teamLegacyDependencySource struct {
+	repo interface {
+		GetByKey(context.Context, string) (*models.Task, error)
+	}
+}
+
+func (s *teamLegacyDependencySource) ListLegacyDependencies(ctx context.Context, child team.ChildIdentity) (string, error) {
+	if child.EntityType != models.EntityTypeTask {
+		return "", nil
+	}
+	task, err := s.repo.GetByKey(ctx, child.Key)
+	if err != nil {
+		return "", fmt.Errorf("get legacy dependencies for %s: %w", child.Key, err)
+	}
+	if task == nil || task.DependsOn == nil {
+		return "", nil
+	}
+	return *task.DependsOn, nil
+}
+
+type teamRelationshipDependencySource struct {
+	repo     teamRelationshipReader
+	registry teamEntityRegistry
+}
+
+type teamRelationshipReader interface {
+	GetOutgoing(context.Context, models.EntityType, int64, []models.EntityRelationshipType) ([]*models.EntityRelationship, error)
+}
+
+type teamEntityRegistry interface {
+	GetRepository(models.EntityType) (services.EntityRepository, error)
+}
+
+func (s *teamRelationshipDependencySource) ListRelationshipDependencies(ctx context.Context, child team.ChildIdentity) ([]team.DependencyEdge, error) {
+	entityRepo, err := s.registry.GetRepository(child.EntityType)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s repository: %w", child.Key, err)
+	}
+	entity, err := entityRepo.GetByKey(ctx, child.Key)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s for relationships: %w", child.Key, err)
+	}
+	if entity == nil {
+		return nil, fmt.Errorf("resolve %s for relationships: empty entity", child.Key)
+	}
+	rels, err := s.repo.GetOutgoing(ctx, child.EntityType, entity.GetID(), []models.EntityRelationshipType{models.EntityRelDependsOn})
+	if err != nil {
+		return nil, fmt.Errorf("list relationships for %s: %w", child.Key, err)
+	}
+	edges := make([]team.DependencyEdge, 0, len(rels))
+	for _, rel := range rels {
+		if rel == nil {
+			return nil, fmt.Errorf("list relationships for %s: nil relationship", child.Key)
+		}
+		targetRepo, err := s.registry.GetRepository(rel.ToEntityType)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dependency repository for %s: %w", child.Key, err)
+		}
+		target, err := targetRepo.GetByID(ctx, rel.ToEntityID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dependency for %s: %w", child.Key, err)
+		}
+		if target == nil {
+			return nil, fmt.Errorf("resolve dependency for %s: empty entity", child.Key)
+		}
+		edges = append(edges, team.DependencyEdge{
+			ChildKey:         child.Key,
+			ChildType:        child.EntityType,
+			DependencyKey:    target.GetKey(),
+			DependencyType:   rel.ToEntityType,
+			DependencyStatus: target.GetStatus(),
+			Satisfied:        teamDependencyStatusSatisfied(target.GetStatus()),
+			Resolved:         true,
+			Source:           "relationship",
+		})
+	}
+	return edges, nil
+}
+
+func teamDependencyStatusSatisfied(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "archived", "shipped", "success", "passed":
+		return true
+	default:
+		return false
+	}
+}
+
+type teamClaimDiagnosticReader struct {
+	claims *services.ClaimService
+}
+
+func (r *teamClaimDiagnosticReader) Diagnose(ctx context.Context, child team.ChildIdentity) (team.ClaimDiagnostic, error) {
+	claim, err := r.claims.Get(ctx, string(child.EntityType), child.Key)
+	if err != nil {
+		return team.ClaimDiagnostic{}, fmt.Errorf("read claim for %s: %w", child.Key, err)
+	}
+	if claim == nil {
+		return team.ClaimDiagnostic{}, nil
+	}
+	return team.ClaimDiagnostic{Claimed: true, ClaimSessionID: claim.SessionID, Reason: fmt.Sprintf("claimed by %s", claim.ClaimedBy)}, nil
+}
+
+type teamDispatchStepResolver struct {
+	actionService action.ActionService
+	transitioners map[models.EntityType]dispatch.EntityTransitioner
+	placeholders  map[models.EntityType]dispatch.PlaceholderGenerator
+}
+
+func newTeamDispatchStepResolver(actionService action.ActionService) dispatch.DispatchStepResolver {
+	return &teamDispatchStepResolver{
+		actionService: actionService,
+		transitioners: map[models.EntityType]dispatch.EntityTransitioner{
+			models.EntityTypeTask:     GetTaskService(),
+			models.EntityTypeFeature:  GetFeatureService(),
+			models.EntityTypeEpic:     GetEpicService(),
+			models.EntityTypeBug:      GetBugService(),
+			models.EntityTypeChange:   GetChangeCardService(),
+			models.EntityTypeTechDebt: GetTechDebtService(),
+		},
+		placeholders: map[models.EntityType]dispatch.PlaceholderGenerator{
+			models.EntityTypeTask: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetTaskService().GetTask(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.TaskPlaceholders(entity), nil
+			}),
+			models.EntityTypeFeature: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetFeatureService().GetFeature(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.FeaturePlaceholders(entity), nil
+			}),
+			models.EntityTypeEpic: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetEpicService().GetEpic(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.EpicPlaceholders(entity), nil
+			}),
+			models.EntityTypeBug: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetBugService().GetBug(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.BugPlaceholders(entity), nil
+			}),
+			models.EntityTypeChange: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetChangeCardService().GetChangeCard(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.ChangeCardPlaceholders(entity), nil
+			}),
+			models.EntityTypeTechDebt: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetTechDebtService().GetTechDebt(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.TechDebtPlaceholders(entity), nil
+			}),
+		},
+	}
+}
+
+type teamPlaceholderGeneratorFunc func(context.Context, string) (map[string]string, error)
+
+func (f teamPlaceholderGeneratorFunc) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
+	return f(ctx, key)
+}
+
+func (r *teamDispatchStepResolver) Resolve(ctx context.Context, entityType models.EntityType, key string) (dispatch.DispatchStep, error) {
+	transitioner, ok := r.transitioners[entityType]
+	if !ok {
+		return dispatch.DispatchStep{}, fmt.Errorf("resolve team dispatch step: unsupported entity type %q", entityType)
+	}
+	resolver, err := dispatch.NewDispatchStepResolver(dispatch.StepResolverDeps{
+		Transitioner:  transitioner,
+		Placeholders:  r.placeholders[entityType],
+		ActionService: r.actionService.ForEntity(action.NormalizeEntityType(string(entityType))),
+		PromptAssembler: dispatch.PromptAssemblerFunc(func(ctx context.Context, input dispatch.PromptAssemblyInput) (string, error) {
+			return dispatch.AssembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+		}),
+		IsArchivedStatus: isArchivedTeamStatus,
+	})
+	if err != nil {
+		return dispatch.DispatchStep{}, fmt.Errorf("create team dispatch-step resolver: %w", err)
+	}
+	return resolver.Resolve(ctx, entityType, key)
+}
+
+// isArchivedTeamStatus keeps team dispatch resolution on the same workflow
+// terminal-status source as the ordinary next/run command paths.
+func isArchivedTeamStatus(entityType models.EntityType, status string) bool {
+	if strings.HasSuffix(strings.ToLower(status), "_archived") {
+		return true
+	}
+	return GetWorkflowService().ForLevel(string(entityType)).IsTerminalStatus(status)
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.
