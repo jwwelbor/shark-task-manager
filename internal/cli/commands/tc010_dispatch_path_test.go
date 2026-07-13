@@ -20,6 +20,7 @@ import (
 type tc010ActionService struct {
 	populated *action.PopulatedAction
 	err       error
+	calls     int
 }
 
 func (s *tc010ActionService) GetStatusAction(context.Context, string) (*action.OrchestratorAction, error) {
@@ -27,6 +28,7 @@ func (s *tc010ActionService) GetStatusAction(context.Context, string) (*action.O
 }
 
 func (s *tc010ActionService) GetStatusActionPopulated(context.Context, string, map[string]string) (*action.PopulatedAction, error) {
+	s.calls++
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -70,7 +72,6 @@ func TestTC010_CobraNextAndRunUseSharedDispatchResolver(t *testing.T) {
 	projectDir := t.TempDir()
 	configPath := filepath.Join(projectDir, ".sharkconfig.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("{}\n"), 0o644))
-	dbPath := filepath.Join(projectDir, "shark-tasks.db")
 
 	origActionService := getDispatchActionService
 	origNextTransitioner := nextBuildTransitioner
@@ -110,13 +111,15 @@ func TestTC010_CobraNextAndRunUseSharedDispatchResolver(t *testing.T) {
 	}
 
 	t.Run("next invokes production resolver path", func(t *testing.T) {
+		actionService := &tc010ActionService{populated: &action.PopulatedAction{
+			Action: action.ActionPause,
+		}}
 		getDispatchActionService = func(context.Context) (action.ActionService, error) {
-			return &tc010ActionService{populated: &action.PopulatedAction{
-				Action: action.ActionPause,
-			}}, nil
+			return actionService, nil
 		}
-		stdout, stderr, execErr := executeTC010Root(t, configPath, dbPath, "next", "T-E38-F01-001", "--json")
+		stdout, stderr, execErr := executeTC010Root(t, configPath, "next", "T-E38-F01-001", "--json")
 		require.NoError(t, execErr, "stderr: %s", stderr)
+		assert.Equal(t, 1, actionService.calls, "next must reach the shared dispatch resolver through the action seam")
 		var response struct {
 			Action string `json:"action"`
 			Status string `json:"status"`
@@ -128,18 +131,20 @@ func TestTC010_CobraNextAndRunUseSharedDispatchResolver(t *testing.T) {
 
 	t.Run("run propagates shared resolver failure", func(t *testing.T) {
 		providerErr := errors.New("provider configuration unavailable")
+		actionService := &tc010ActionService{err: providerErr}
 		getDispatchActionService = func(context.Context) (action.ActionService, error) {
-			return &tc010ActionService{err: providerErr}, nil
+			return actionService, nil
 		}
-		_, stderr, execErr := executeTC010Root(t, configPath, dbPath, "run", "T-E38-F01-001", "--dry-run", "--json")
+		_, stderr, execErr := executeTC010Root(t, configPath, "run", "T-E38-F01-001", "--dry-run", "--json")
 		require.Error(t, execErr)
+		assert.Equal(t, 1, actionService.calls, "run must reach the shared dispatch resolver through the action seam")
 		assert.Contains(t, execErr.Error(), "failed to resolve dispatch step")
 		assert.Contains(t, execErr.Error(), "populate action")
 		assert.NotContains(t, stderr, "panic")
 	})
 }
 
-func executeTC010Root(t *testing.T, configPath, dbPath string, args ...string) (stdout, stderr string, execErr error) {
+func executeTC010Root(t *testing.T, configPath string, args ...string) (stdout, stderr string, execErr error) {
 	t.Helper()
 	oldStdout, oldStderr := os.Stdout, os.Stderr
 	rOut, wOut, err := os.Pipe()
@@ -151,7 +156,7 @@ func executeTC010Root(t *testing.T, configPath, dbPath string, args ...string) (
 		os.Stdout, os.Stderr = oldStdout, oldStderr
 	}()
 
-	cli.RootCmd.SetArgs(append([]string{"--config", configPath, "--db", dbPath}, args...))
+	cli.RootCmd.SetArgs(append([]string{"--config", configPath}, args...))
 	execErr = cli.RootCmd.Execute()
 	require.NoError(t, wOut.Close())
 	require.NoError(t, wErr.Close())
@@ -168,13 +173,14 @@ func resetTC010RootState(t *testing.T) {
 	t.Helper()
 	flags := cli.RootCmd.PersistentFlags()
 	for name, value := range map[string]string{
-		"config": "", "db": "shark-tasks.db", "field": "", "json": "false",
+		"config": "", "field": "", "json": "false",
 		"no-color": "false", "verbose": "false",
 	} {
 		require.NoError(t, flags.Set(name, value))
 	}
+	require.NoError(t, flags.Set("db", flags.Lookup("db").DefValue))
 	cli.GlobalConfig.ConfigFile = ""
-	cli.GlobalConfig.DBPath = "shark-tasks.db"
+	cli.GlobalConfig.DBPath = flags.Lookup("db").DefValue
 	cli.GlobalConfig.Field = ""
 	cli.GlobalConfig.JSON = false
 	cli.GlobalConfig.NoColor = false
