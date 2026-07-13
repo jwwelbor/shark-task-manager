@@ -40,30 +40,31 @@ type TeamRun struct {
 
 // TeamRunItem is the SQL-facing durable membership record.
 type TeamRunItem struct {
-	ID               int64
-	TeamRunID        int64
-	ChildKey         string
-	ChildType        string
-	Wave             int
-	ExecutionOrder   int
-	DependencyKeys   string
-	PlannedRole      *string
-	PlannedAction    *string
-	PlannedAgentType *string
-	PlannedProvider  *string
-	PlannedModel     *string
-	PlannedEffort    *string
-	ItemStatus       string
-	ClaimSessionID   *string
-	WorkerSessionID  *string
-	Outcome          *string
-	SkipReason       *string
-	Evidence         *string
-	Attempt          int
-	StartedAt        *time.Time
-	CompletedAt      *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                 int64
+	TeamRunID          int64
+	ChildKey           string
+	ChildType          string
+	Wave               int
+	ExecutionOrder     int
+	DependencyKeys     string
+	DependencyMetadata string
+	PlannedRole        *string
+	PlannedAction      *string
+	PlannedAgentType   *string
+	PlannedProvider    *string
+	PlannedModel       *string
+	PlannedEffort      *string
+	ItemStatus         string
+	ClaimSessionID     *string
+	WorkerSessionID    *string
+	Outcome            *string
+	SkipReason         *string
+	Evidence           *string
+	Attempt            int
+	StartedAt          *time.Time
+	CompletedAt        *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // Repository handles pure SQL access to the team-run ledger.
@@ -333,7 +334,7 @@ func (r *Repository) FindRunByRoot(ctx context.Context, rootType, rootKey string
 func (r *Repository) ListItems(ctx context.Context, runID int64) ([]*TeamRunItem, error) {
 	const query = `
 		SELECT id, team_run_id, child_key, child_type, wave, execution_order,
-			dependency_keys, planned_role, planned_action, planned_agent_type,
+			dependency_keys, dependency_metadata, planned_role, planned_action, planned_agent_type,
 			planned_provider, planned_model, planned_effort, item_status,
 			claim_session_id, worker_session_id, outcome, skip_reason, evidence,
 			attempt, started_at, completed_at, created_at, updated_at
@@ -448,15 +449,19 @@ func insertRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun) (int64, error) {
 }
 
 func insertItemTx(ctx context.Context, tx *sql.Tx, runID int64, item *TeamRunItem) (int64, error) {
+	dependencyMetadata := item.DependencyMetadata
+	if dependencyMetadata == "" {
+		dependencyMetadata = "[]"
+	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO team_run_items (
-			team_run_id, child_key, child_type, wave, execution_order, dependency_keys,
+			team_run_id, child_key, child_type, wave, execution_order, dependency_keys, dependency_metadata,
 			planned_role, planned_action, planned_agent_type, planned_provider,
 			planned_model, planned_effort, item_status, claim_session_id,
 			worker_session_id, outcome, skip_reason, evidence, attempt, started_at,
 			completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		runID, item.ChildKey, item.ChildType, item.Wave, item.ExecutionOrder, item.DependencyKeys,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		runID, item.ChildKey, item.ChildType, item.Wave, item.ExecutionOrder, item.DependencyKeys, dependencyMetadata,
 		stringValue(item.PlannedRole), stringValue(item.PlannedAction), stringValue(item.PlannedAgentType),
 		stringValue(item.PlannedProvider), stringValue(item.PlannedModel), stringValue(item.PlannedEffort),
 		item.ItemStatus, stringValue(item.ClaimSessionID), stringValue(item.WorkerSessionID),
@@ -581,7 +586,7 @@ func scanItem(scanner interface{ Scan(...any) error }) (*TeamRunItem, error) {
 	updatedAt.target = &item.UpdatedAt
 	err := scanner.Scan(
 		&item.ID, &item.TeamRunID, &item.ChildKey, &item.ChildType, &item.Wave,
-		&item.ExecutionOrder, &item.DependencyKeys, optionalStringValue(&item.PlannedRole),
+		&item.ExecutionOrder, &item.DependencyKeys, &item.DependencyMetadata, optionalStringValue(&item.PlannedRole),
 		optionalStringValue(&item.PlannedAction), optionalStringValue(&item.PlannedAgentType),
 		optionalStringValue(&item.PlannedProvider), optionalStringValue(&item.PlannedModel),
 		optionalStringValue(&item.PlannedEffort), &item.ItemStatus,

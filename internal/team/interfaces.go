@@ -35,10 +35,11 @@ type ClaimDiagnosticReader interface {
 }
 
 type PlannerDeps struct {
-	Children     ChildSnapshotReader
-	Dependencies DependencyReader
-	Dispatch     DispatchStepResolver
-	Claims       ClaimDiagnosticReader
+	Children         ChildSnapshotReader
+	Dependencies     DependencyReader
+	Dispatch         DispatchStepResolver
+	Claims           ClaimDiagnosticReader
+	SuccessfulStatus func(models.EntityType, string) bool
 }
 
 // LegacyDependencySource is the compatibility input for tasks.depends_on.
@@ -144,4 +145,7 @@ type SchedulerDeps struct {
 	Communication *CouncilCommunication
 	// ExpectedPlanHash is captured at confirmation and checked before mutation.
 	ExpectedPlanHash string
+	// CoordinatorTransition performs promptless workflow transitions such as
+	// advance_status. It is coordinator-owned and never delegated to workers.
+	CoordinatorTransition func(context.Context, models.EntityType, string, *services.NextStatusInfo) error
 }

@@ -133,6 +133,15 @@ func (s *Scheduler) start(ctx context.Context, runID int64, rootSessionID string
 		}
 		run.NextAction = &next
 	}
+	// The coordinator owns the parent lease. Establish ownership before the
+	// first lifecycle or child mutation. A failed initial renewal is fail-closed:
+	// leave every child planned and make the run resumable.
+	if err := s.deps.Claims.Heartbeat(ctx, string(run.RootType), run.RootKey, rootSessionID, nil, "team scheduler active"); err != nil {
+		s.setNextAction(run, "root heartbeat failed: "+bounded(err.Error()))
+		return s.finishWithoutChildren(ctx, run, confirmedMode, confirmedLimit, RunStatusPaused)
+	}
+	rootCtx, stopRootHeartbeat, rootLost := s.startRootHeartbeat(ctx, run.RootType, run.RootKey, rootSessionID, run)
+	defer stopRootHeartbeat()
 	// Persist the actual capacity selected by the resource policy. The result
 	// must describe the mode that was really used, even when the confirmed
 	// request was degraded before any child claim.
@@ -146,16 +155,15 @@ func (s *Scheduler) start(ctx context.Context, runID int64, rootSessionID string
 	// Keep the selected runtime capacity in the result while leaving the
 	// confirmed snapshot immutable in the durable ledger.
 	run.ExecutionMode, run.ConcurrencyLimit = mode, limit
-	// The coordinator owns the parent lease. Renew it before any child work and
-	// keep renewing it while workers are active; workers never receive this seam.
-	if err := s.deps.Claims.Heartbeat(ctx, string(run.RootType), run.RootKey, rootSessionID, nil, "team scheduler active"); err != nil {
-		s.setNextAction(run, "root heartbeat failed: "+bounded(err.Error()))
+	s.execute(rootCtx, run, items, limit, rootLost)
+	rootHeartbeatErr := rootLoss(rootLost)
+	if rootHeartbeatErr != nil {
+		s.setNextAction(run, "root heartbeat failed: "+bounded(rootHeartbeatErr.Error()))
 	}
-	stopRootHeartbeat := s.startHeartbeat(ctx, run.RootType, run.RootKey, rootSessionID, run)
-	defer stopRootHeartbeat()
-	s.execute(ctx, run, items, limit)
-	stopRootHeartbeat()
 	status := RunStatusCompleted
+	if rootHeartbeatErr != nil {
+		status = RunStatusPaused
+	}
 	for _, item := range items {
 		if item.ItemStatus == ItemStatusFailed {
 			status = RunStatusFailed
@@ -170,6 +178,20 @@ func (s *Scheduler) start(ctx context.Context, runID int64, rootSessionID string
 	cleanupCancel()
 	if updateErr != nil && !errors.Is(updateErr, ErrInvalidRunTransition) {
 		return nil, fmt.Errorf("complete team run %d: %w", runID, updateErr)
+	}
+	return NewTeamRunResult(run, items)
+}
+
+func (s *Scheduler) finishWithoutChildren(ctx context.Context, run *TeamRun, mode ExecutionMode, limit int, status RunStatus) (*TeamRunResult, error) {
+	run.Status = status
+	cleanupCtx, cleanupCancel := s.cleanupContext(ctx)
+	defer cleanupCancel()
+	if _, err := s.deps.Ledger.UpdateRun(cleanupCtx, RunUpdate{RunID: run.ID, Status: status, ExecutionMode: mode, ConcurrencyLimit: limit, PlanHash: run.PlanHash, RootSessionID: run.RootSessionID, NextAction: run.NextAction, CompletedAt: ptrTime(s.now())}); err != nil && !errors.Is(err, ErrInvalidRunTransition) {
+		return nil, fmt.Errorf("pause team run %d: %w", run.ID, err)
+	}
+	items, err := s.deps.Ledger.ListItems(cleanupCtx, run.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load paused team run %d items: %w", run.ID, err)
 	}
 	return NewTeamRunResult(run, items)
 }
@@ -195,14 +217,20 @@ func (s *Scheduler) selectCapacity(ctx context.Context, run *TeamRun, items []*T
 	return selected, selectedLimit, reason, nil
 }
 
-func (s *Scheduler) execute(ctx context.Context, run *TeamRun, items []*TeamRunItem, limit int) {
+func (s *Scheduler) execute(ctx context.Context, run *TeamRun, items []*TeamRunItem, limit int, rootLost <-chan struct{}) {
 	for {
+		if err := rootLoss(rootLost); err != nil {
+			s.setNextAction(run, "root heartbeat failed: "+bounded(err.Error()))
+			return
+		}
 		ready := s.ready(items)
 		if len(ready) == 0 {
 			s.blockDependents(ctx, run, items)
 			return
 		}
-		if limit < 1 {
+		if run.ExecutionMode == ExecutionModeSequential {
+			limit = 1
+		} else if limit < 1 {
 			limit = 1
 		}
 		for start := 0; start < len(ready); start += limit {
@@ -271,6 +299,21 @@ func (s *Scheduler) executeItem(ctx context.Context, run *TeamRun, item *TeamRun
 	// Resolve first: pause, terminal, and unresolved steps are not dispatchable
 	// and therefore must never acquire a claim.
 	step, err := s.deps.Resolver.Resolve(ctx, item.ChildType, item.ChildKey)
+	if err == nil && step.GateClassification == dispatch.GateNone && step.Error == "" && len(step.UnresolvedPlaceholders) == 0 && strings.TrimSpace(step.Prompt) == "" && step.Action == "advance_status" && s.deps.CoordinatorTransition != nil {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		if transitionErr := s.deps.CoordinatorTransition(ctx, item.ChildType, item.ChildKey, step.NextStatus); transitionErr != nil {
+			if recordErr := s.record(ctx, run, item, ItemStatusFailed, "advance_status_failed", bounded(transitionErr.Error()), ""); recordErr != nil {
+				s.setNextAction(run, "result persistence failed for "+item.ChildKey+": "+bounded(recordErr.Error()))
+			}
+			return
+		}
+		if recordErr := s.record(ctx, run, item, ItemStatusCompleted, "success", "coordinator advance_status", ""); recordErr != nil {
+			s.setNextAction(run, "result persistence failed for "+item.ChildKey+": "+bounded(recordErr.Error()))
+		}
+		return
+	}
 	if err != nil || step.GateClassification != dispatch.GateNone || step.Error != "" || len(step.UnresolvedPlaceholders) > 0 || strings.TrimSpace(step.Prompt) == "" {
 		reason := "dispatch_step_unresolved"
 		evidence := ""
@@ -281,6 +324,9 @@ func (s *Scheduler) executeItem(ctx context.Context, run *TeamRun, item *TeamRun
 			evidence = bounded(step.Error)
 			if step.GateClassification != "" {
 				reason = string(step.GateClassification)
+				if step.GateClassification == dispatch.GateTerminal && step.Action != "" {
+					reason = step.Action
+				}
 			} else if len(step.UnresolvedPlaceholders) > 0 {
 				reason = "unresolved_placeholder"
 			}
@@ -438,6 +484,45 @@ func (s *Scheduler) startHeartbeat(ctx context.Context, typ models.EntityType, k
 		}
 	}()
 	return cancel
+}
+
+func (s *Scheduler) startRootHeartbeat(ctx context.Context, typ models.EntityType, key, session string, run *TeamRun) (context.Context, func(), <-chan struct{}) {
+	rootCtx, cancel := context.WithCancel(ctx)
+	lost := make(chan struct{})
+	interval := s.deps.HeartbeatInterval
+	if interval <= 0 || strings.TrimSpace(session) == "" {
+		return rootCtx, cancel, lost
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := s.deps.Claims.Heartbeat(rootCtx, string(typ), key, session, nil, "team scheduler active"); err != nil {
+					s.setNextAction(run, "root heartbeat failed: "+bounded(err.Error()))
+					close(lost)
+					cancel()
+					return
+				}
+			case <-rootCtx.Done():
+				return
+			}
+		}
+	}()
+	return rootCtx, cancel, lost
+}
+
+func rootLoss(lost <-chan struct{}) error {
+	if lost == nil {
+		return nil
+	}
+	select {
+	case <-lost:
+		return errors.New("root heartbeat lost")
+	default:
+		return nil
+	}
 }
 
 func (s *Scheduler) setNextAction(run *TeamRun, diagnostic string) {

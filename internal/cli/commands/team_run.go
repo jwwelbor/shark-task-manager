@@ -38,7 +38,11 @@ var teamPlanHash string
 func init() {
 	teamRunCmd.Flags().StringVar(&teamRootSession, "root-session", "", "confirmed root claim session")
 	teamRunCmd.Flags().StringVar(&teamPlanHash, "plan-hash", "", "hash captured from the confirmed plan")
-	_ = teamRunCmd.MarkFlagRequired("root-session")
-	_ = teamRunCmd.MarkFlagRequired("plan-hash")
+	if err := teamRunCmd.MarkFlagRequired("root-session"); err != nil {
+		panic(fmt.Sprintf("mark team run root-session required: %v", err))
+	}
+	if err := teamRunCmd.MarkFlagRequired("plan-hash"); err != nil {
+		panic(fmt.Sprintf("mark team run plan-hash required: %v", err))
+	}
 	teamCmd.AddCommand(teamRunCmd)
 }

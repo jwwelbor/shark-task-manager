@@ -290,31 +290,32 @@ type TeamRun struct {
 
 // TeamRunItem is the domain representation of a persisted child membership.
 type TeamRunItem struct {
-	ID               int64             `json:"id"`
-	TeamRunID        int64             `json:"team_run_id"`
-	ChildKey         string            `json:"child_key"`
-	ChildType        models.EntityType `json:"child_type"`
-	Wave             int               `json:"wave"`
-	ExecutionOrder   int               `json:"execution_order"`
-	DependencyKeys   []string          `json:"dependency_keys,omitempty"`
-	PlannedRole      *string           `json:"planned_role,omitempty"`
-	PlannedAction    *string           `json:"planned_action,omitempty"`
-	PlannedAgentType *string           `json:"planned_agent_type,omitempty"`
-	PlannedProvider  *string           `json:"planned_provider,omitempty"`
-	PlannedModel     *string           `json:"planned_model,omitempty"`
-	PlannedEffort    *string           `json:"planned_effort,omitempty"`
-	ItemStatus       ItemStatus        `json:"item_status"`
-	ClaimSessionID   *string           `json:"claim_session_id,omitempty"`
-	WorkerSessionID  *string           `json:"worker_session_id,omitempty"`
-	Outcome          *string           `json:"outcome,omitempty"`
-	SkipReason       *string           `json:"skip_reason,omitempty"`
-	Evidence         string            `json:"evidence,omitempty"`
-	ArtifactRefs     []string          `json:"artifact_refs,omitempty"`
-	Attempt          int               `json:"attempt"`
-	StartedAt        *time.Time        `json:"started_at,omitempty"`
-	CompletedAt      *time.Time        `json:"completed_at,omitempty"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
+	ID                 int64             `json:"id"`
+	TeamRunID          int64             `json:"team_run_id"`
+	ChildKey           string            `json:"child_key"`
+	ChildType          models.EntityType `json:"child_type"`
+	Wave               int               `json:"wave"`
+	ExecutionOrder     int               `json:"execution_order"`
+	DependencyKeys     []string          `json:"dependency_keys,omitempty"`
+	DependencyMetadata []DependencyEdge  `json:"dependency_metadata,omitempty"`
+	PlannedRole        *string           `json:"planned_role,omitempty"`
+	PlannedAction      *string           `json:"planned_action,omitempty"`
+	PlannedAgentType   *string           `json:"planned_agent_type,omitempty"`
+	PlannedProvider    *string           `json:"planned_provider,omitempty"`
+	PlannedModel       *string           `json:"planned_model,omitempty"`
+	PlannedEffort      *string           `json:"planned_effort,omitempty"`
+	ItemStatus         ItemStatus        `json:"item_status"`
+	ClaimSessionID     *string           `json:"claim_session_id,omitempty"`
+	WorkerSessionID    *string           `json:"worker_session_id,omitempty"`
+	Outcome            *string           `json:"outcome,omitempty"`
+	SkipReason         *string           `json:"skip_reason,omitempty"`
+	Evidence           string            `json:"evidence,omitempty"`
+	ArtifactRefs       []string          `json:"artifact_refs,omitempty"`
+	Attempt            int               `json:"attempt"`
+	StartedAt          *time.Time        `json:"started_at,omitempty"`
+	CompletedAt        *time.Time        `json:"completed_at,omitempty"`
+	CreatedAt          time.Time         `json:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at"`
 }
 
 // ItemResultUpdate is the validated, bounded result accepted from a worker.

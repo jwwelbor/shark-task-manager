@@ -15,10 +15,11 @@ import (
 // TeamPlanner builds complete immutable plan snapshots from injected read
 // seams. It has no mutation-capable dependency by design.
 type TeamPlanner struct {
-	children     ChildSnapshotReader
-	dependencies DependencyReader
-	dispatch     DispatchStepResolver
-	claims       ClaimDiagnosticReader
+	children         ChildSnapshotReader
+	dependencies     DependencyReader
+	dispatch         DispatchStepResolver
+	claims           ClaimDiagnosticReader
+	successfulStatus func(models.EntityType, string) bool
 }
 
 func NewPlanner(deps PlannerDeps) (*TeamPlanner, error) {
@@ -28,7 +29,7 @@ func NewPlanner(deps PlannerDeps) (*TeamPlanner, error) {
 	if deps.Dispatch == nil {
 		return nil, errors.New("team planner: dispatch-step resolver is required")
 	}
-	return &TeamPlanner{children: deps.Children, dependencies: deps.Dependencies, dispatch: deps.Dispatch, claims: deps.Claims}, nil
+	return &TeamPlanner{children: deps.Children, dependencies: deps.Dependencies, dispatch: deps.Dispatch, claims: deps.Claims, successfulStatus: deps.SuccessfulStatus}, nil
 }
 
 // NewTeamPlanner is the descriptive constructor alias used by service
@@ -54,7 +55,7 @@ func (p *TeamPlanner) Plan(ctx context.Context, input PlanInput) (*TeamPlan, err
 	if err := p.attachDependencies(ctx, children, items, byKey, rootKey); err != nil {
 		return nil, err
 	}
-	if err := validateGraphAndEligibility(rootKey, items, byKey); err != nil {
+	if err := validateGraphAndEligibility(rootKey, items, byKey, p.successfulStatus); err != nil {
 		return nil, err
 	}
 	return finalizePlan(rootKey, input, items)
@@ -140,7 +141,7 @@ func (p *TeamPlanner) attachDependencies(ctx context.Context, children []ChildSn
 	return nil
 }
 
-func validateGraphAndEligibility(rootKey string, items []TeamPlanItem, byKey map[string]int) error {
+func validateGraphAndEligibility(rootKey string, items []TeamPlanItem, byKey map[string]int, configuredSuccess func(models.EntityType, string) bool) error {
 	if err := detectCycles(rootKey, items, byKey); err != nil {
 		return err
 	}
@@ -154,7 +155,11 @@ func validateGraphAndEligibility(rootKey string, items []TeamPlanItem, byKey map
 				continue
 			}
 			depIndex := byKey[string(edge.DependencyType)+":"+edge.DependencyKey]
-			if !dependencySatisfied(edge) && !successfulStatus(items[depIndex].Status) {
+			isSuccess := successfulStatus(items[depIndex].Status)
+			if configuredSuccess != nil {
+				isSuccess = configuredSuccess(items[depIndex].ChildType, items[depIndex].Status)
+			}
+			if !dependencySatisfied(edge) && !isSuccess {
 				items[i].Eligible, items[i].ExclusionReason = false, ExclusionDependencyIneligible
 			}
 		}
@@ -350,17 +355,11 @@ type DependencyAdapter struct {
 	relationship RelationshipDependencySource
 }
 
-func NewDependencyAdapter(sources ...any) *DependencyAdapter {
-	adapter := &DependencyAdapter{}
-	for _, source := range sources {
-		switch typed := source.(type) {
-		case LegacyDependencySource:
-			adapter.legacy = typed
-		case RelationshipDependencySource:
-			adapter.relationship = typed
-		}
+func NewDependencyAdapter(legacy LegacyDependencySource, relationship RelationshipDependencySource) (*DependencyAdapter, error) {
+	if legacy == nil && relationship == nil {
+		return nil, errors.New("team dependency adapter: at least one source is required")
 	}
-	return adapter
+	return &DependencyAdapter{legacy: legacy, relationship: relationship}, nil
 }
 
 func (a *DependencyAdapter) ListDependencies(ctx context.Context, child ChildIdentity) ([]DependencyEdge, error) {

@@ -40,6 +40,40 @@ func TestScheduler_BoundsParallelism_TC001(t *testing.T) {
 	}
 }
 
+func TestScheduler_InitialRootHeartbeatFailureIsFailClosed(t *testing.T) {
+	ledger := newSchedulerLedger(testRun(41, ExecutionModeParallel, 4), item(1, "T-E38-F02-001", 0))
+	claims := &schedulerClaims{heartbeatErr: errors.New(strings.Repeat("lease lost ", 300))}
+	s, err := NewScheduler(SchedulerDeps{Ledger: ledger, Claims: claims, Resolver: schedulerResolver{}, Dispatcher: &schedulerDispatcher{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.Start(context.Background(), 41, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims.claims != 0 || ledger.items[0].ItemStatus != ItemStatusPlanned {
+		t.Fatalf("initial lease loss mutated child: claims=%d status=%s", claims.claims, ledger.items[0].ItemStatus)
+	}
+	if result.Status != RunStatusPaused || result.NextAction == nil || len([]byte(*result.NextAction)) > maxBoundedText {
+		t.Fatalf("root lease diagnostic/status not bounded and resumable: %+v", result)
+	}
+}
+
+func TestScheduler_SequentialModeIgnoresOversizedPersistedLimit(t *testing.T) {
+	ledger := newSchedulerLedger(testRun(41, ExecutionModeSequential, 99), item(1, "T-E38-F02-001", 0), item(2, "T-E38-F02-002", 0))
+	dispatcher := &schedulerDispatcher{active: &activeCounter{}}
+	s, err := NewScheduler(SchedulerDeps{Ledger: ledger, Claims: &schedulerClaims{}, Resolver: schedulerResolver{}, Dispatcher: dispatcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Start(context.Background(), 41, "root"); err != nil {
+		t.Fatal(err)
+	}
+	if dispatcher.active.max() != 1 {
+		t.Fatalf("sequential execution reached concurrency %d", dispatcher.active.max())
+	}
+}
+
 func TestScheduler_RejectsConfirmedPlanDriftBeforeClaim_TC001(t *testing.T) {
 	ledger := newSchedulerLedger(testRun(41, ExecutionModeSequential, 1), item(1, "T-E38-F02-001", 0))
 	claims := &schedulerClaims{}
@@ -764,6 +798,7 @@ type schedulerClaims struct {
 	releaseCtxErr   []error
 	releaseDeadline []time.Time
 	panicOnRelease  bool
+	heartbeatErr    error
 }
 
 type releaseCall struct {
@@ -784,7 +819,7 @@ func (c *schedulerClaims) Heartbeat(_ context.Context, entityType, entityKey, se
 	c.mu.Lock()
 	c.heart = append(c.heart, heartbeatCall{entityType, entityKey, sessionID})
 	c.mu.Unlock()
-	return nil
+	return c.heartbeatErr
 }
 func (c *schedulerClaims) heartbeats() []heartbeatCall {
 	c.mu.Lock()

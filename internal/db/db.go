@@ -1115,6 +1115,7 @@ func createTeamRunSchema(db *sql.DB) error {
 			wave                INTEGER NOT NULL CHECK (wave >= 0),
 			execution_order     INTEGER NOT NULL CHECK (execution_order >= 0),
 			dependency_keys     TEXT NOT NULL CHECK (json_valid(dependency_keys) AND json_type(dependency_keys) = 'array'),
+			dependency_metadata TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(dependency_metadata) AND json_type(dependency_metadata) = 'array'),
 			planned_role        TEXT,
 			planned_action      TEXT,
 			planned_agent_type  TEXT,
@@ -1135,6 +1136,39 @@ func createTeamRunSchema(db *sql.DB) error {
 			UNIQUE (team_run_id, child_type, child_key)
 		)`); err != nil {
 		return fmt.Errorf("create team_run_items: %w", err)
+	}
+	if err := ensureTeamRunDependencyMetadataColumn(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureTeamRunDependencyMetadataColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(team_run_items)`)
+	if err != nil {
+		return fmt.Errorf("inspect team_run_items columns: %w", err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "dependency_metadata" {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE team_run_items ADD COLUMN dependency_metadata TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return fmt.Errorf("add team-run dependency metadata: %w", err)
 	}
 	return nil
 }

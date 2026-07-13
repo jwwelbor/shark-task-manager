@@ -532,7 +532,11 @@ func planItemToRepository(item TeamPlanItem) (*teamrunrepo.TeamRunItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &teamrunrepo.TeamRunItem{ChildKey: item.ChildKey, ChildType: string(item.ChildType), Wave: item.Wave, ExecutionOrder: item.ExecutionOrder, DependencyKeys: string(dependencyJSON), PlannedRole: optionalString(item.Planned.AgentType), PlannedAction: optionalString(item.Planned.Action), PlannedAgentType: optionalString(item.Planned.AgentType), PlannedProvider: optionalString(item.Planned.Provider), PlannedModel: optionalString(item.Planned.Model), PlannedEffort: optionalString(item.Planned.Effort), ItemStatus: string(ItemStatusPlanned), Attempt: 0}, nil
+	metadataJSON, err := json.Marshal(item.Dependencies)
+	if err != nil {
+		return nil, err
+	}
+	return &teamrunrepo.TeamRunItem{ChildKey: item.ChildKey, ChildType: string(item.ChildType), Wave: item.Wave, ExecutionOrder: item.ExecutionOrder, DependencyKeys: string(dependencyJSON), DependencyMetadata: string(metadataJSON), PlannedRole: optionalString(item.Planned.AgentType), PlannedAction: optionalString(item.Planned.Action), PlannedAgentType: optionalString(item.Planned.AgentType), PlannedProvider: optionalString(item.Planned.Provider), PlannedModel: optionalString(item.Planned.Model), PlannedEffort: optionalString(item.Planned.Effort), ItemStatus: string(ItemStatusPlanned), Attempt: 0}, nil
 }
 
 func sameTerminalResult(item *teamrunrepo.TeamRunItem, status ItemStatus, update ItemResultUpdate, encodedEvidence string) bool {
@@ -596,7 +600,13 @@ func toDomainItem(item *teamrunrepo.TeamRunItem) (*TeamRunItem, error) {
 	if err := json.Unmarshal([]byte(item.DependencyKeys), &deps); err != nil {
 		return nil, fmt.Errorf("%w: decode item %d dependencies: %v", ErrMalformedDependency, item.ID, err)
 	}
-	return &TeamRunItem{ID: item.ID, TeamRunID: item.TeamRunID, ChildKey: item.ChildKey, ChildType: models.EntityType(item.ChildType), Wave: item.Wave, ExecutionOrder: item.ExecutionOrder, DependencyKeys: deps, PlannedRole: item.PlannedRole, PlannedAction: item.PlannedAction, PlannedAgentType: item.PlannedAgentType, PlannedProvider: item.PlannedProvider, PlannedModel: item.PlannedModel, PlannedEffort: item.PlannedEffort, ItemStatus: ItemStatus(item.ItemStatus), ClaimSessionID: item.ClaimSessionID, WorkerSessionID: item.WorkerSessionID, Outcome: item.Outcome, SkipReason: item.SkipReason, Evidence: summary, ArtifactRefs: refs, Attempt: item.Attempt, StartedAt: item.StartedAt, CompletedAt: item.CompletedAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, nil
+	metadata := []DependencyEdge{}
+	if strings.TrimSpace(item.DependencyMetadata) != "" {
+		if err := json.Unmarshal([]byte(item.DependencyMetadata), &metadata); err != nil {
+			return nil, fmt.Errorf("%w: decode item %d dependency metadata: %v", ErrMalformedDependency, item.ID, err)
+		}
+	}
+	return &TeamRunItem{ID: item.ID, TeamRunID: item.TeamRunID, ChildKey: item.ChildKey, ChildType: models.EntityType(item.ChildType), Wave: item.Wave, ExecutionOrder: item.ExecutionOrder, DependencyKeys: deps, DependencyMetadata: metadata, PlannedRole: item.PlannedRole, PlannedAction: item.PlannedAction, PlannedAgentType: item.PlannedAgentType, PlannedProvider: item.PlannedProvider, PlannedModel: item.PlannedModel, PlannedEffort: item.PlannedEffort, ItemStatus: ItemStatus(item.ItemStatus), ClaimSessionID: item.ClaimSessionID, WorkerSessionID: item.WorkerSessionID, Outcome: item.Outcome, SkipReason: item.SkipReason, Evidence: summary, ArtifactRefs: refs, Attempt: item.Attempt, StartedAt: item.StartedAt, CompletedAt: item.CompletedAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, nil
 }
 
 func decodeEvidence(raw string) ([]string, string, error) {

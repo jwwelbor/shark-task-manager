@@ -603,18 +603,24 @@ func GetTeamPlanner() *team.TeamPlanner {
 	}
 
 	taskRepo := repository.NewTaskRepository(db)
-	dependencyAdapter := team.NewDependencyAdapter(
+	dependencyAdapter, err := team.NewDependencyAdapter(
 		&teamLegacyDependencySource{repo: taskRepo},
 		&teamRelationshipDependencySource{
 			repo:     repository.NewEntityRelationshipRepository(db),
 			registry: GetEntityRegistry(),
 		},
 	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create team dependency adapter: %v", err))
+	}
 	return newTeamPlanner(team.PlannerDeps{
 		Children:     &teamCascadeChildReader{cascade: GetCascadeService()},
 		Dependencies: dependencyAdapter,
 		Dispatch:     newTeamDispatchStepResolver(actionSvc),
 		Claims:       &teamClaimDiagnosticReader{claims: GetClaimService()},
+		SuccessfulStatus: func(entityType models.EntityType, status string) bool {
+			return GetWorkflowService().ForLevel(string(entityType)).IsCompletedStatus(status)
+		},
 	})
 }
 
@@ -671,7 +677,36 @@ func getTeamScheduler(expectedPlanHash string) *team.Scheduler {
 			Handoff:  &team.CouncilHandoff{Summary: "Execute only the confirmed team-run membership."},
 			Decision: &team.CouncilDecision{Outcome: "proceed", Rationale: "The chair confirmed this team run."},
 		},
+		CoordinatorTransition: transitionTeamEntity,
 	})
+}
+
+func transitionTeamEntity(ctx context.Context, entityType models.EntityType, key string, info *services.NextStatusInfo) error {
+	if info == nil || len(info.AvailableTransitions) == 0 {
+		return fmt.Errorf("no workflow transition available for %s", key)
+	}
+	target := info.AvailableTransitions[0].TargetStatus //shark:ordered pass-first workflow transition contract
+	var transitioner interface {
+		TransitionStatus(context.Context, string, string, services.TransitionOptions) (*services.TransitionResult, error)
+	}
+	switch entityType {
+	case models.EntityTypeTask:
+		transitioner = GetTaskService()
+	case models.EntityTypeFeature:
+		transitioner = GetFeatureService()
+	case models.EntityTypeEpic:
+		transitioner = GetEpicService()
+	case models.EntityTypeBug:
+		transitioner = GetBugService()
+	case models.EntityTypeChange:
+		transitioner = GetChangeCardService()
+	case models.EntityTypeTechDebt:
+		transitioner = GetTechDebtService()
+	default:
+		return fmt.Errorf("unsupported coordinator transition entity type %q", entityType)
+	}
+	_, err := transitioner.TransitionStatus(ctx, key, target, services.TransitionOptions{})
+	return err
 }
 
 // RunTeamScheduler is the production execution boundary for a confirmed team
@@ -945,9 +980,12 @@ func (r *teamDispatchStepResolver) Resolve(ctx context.Context, entityType model
 		return dispatch.DispatchStep{}, fmt.Errorf("resolve team dispatch step: unsupported entity type %q", entityType)
 	}
 	resolver, err := dispatch.NewDispatchStepResolver(dispatch.StepResolverDeps{
-		Transitioner:     transitioner,
-		Placeholders:     r.placeholders[entityType],
-		ActionService:    r.actionService.ForEntity(action.NormalizeEntityType(string(entityType))),
+		Transitioner:  transitioner,
+		Placeholders:  r.placeholders[entityType],
+		ActionService: r.actionService.ForEntity(action.NormalizeEntityType(string(entityType))),
+		PromptAssembler: dispatch.PromptAssemblerFunc(func(ctx context.Context, input dispatch.PromptAssemblyInput) (string, error) {
+			return dispatch.AssembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+		}),
 		IsArchivedStatus: isArchivedTeamStatus,
 	})
 	if err != nil {
