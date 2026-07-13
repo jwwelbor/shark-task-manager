@@ -552,4 +552,4 @@ This workflow is the **lightweight bootstrap**: it reverse-engineers the four
 
 For a comprehensive enterprise handoff — full technical debt audit, security assessment, migration
 readiness, behavior documentation, and ~10–20 output documents — use the standalone
-**`brownfield-analysis` sub-skill** (`/shark brownfield-analysis` or `/brownfield-analysis`).
+**`brownfield-analysis` sub-skill** (`/shark-rider brownfield-analysis` or `/brownfield-analysis`).

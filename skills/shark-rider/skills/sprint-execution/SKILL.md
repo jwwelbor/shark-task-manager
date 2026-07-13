@@ -1,0 +1,51 @@
+---
+name: Sprint Execution
+description: Solo and team sprint pull-loop skills that drive an active sprint to completion by pulling entities from shark sprint next and delegating per-entity dispatch to the existing /run (or /run-agent-team) orchestration skill.
+---
+
+# Sprint Execution
+
+## What This Is
+
+A **sprint-shaped harness around the existing orchestration skill**. It knows how to loop over a sprint's work queue by calling `shark sprint next --json`, then hands each returned entity to `/run` (or `/run-agent-team` for team mode) for per-entity execution. It does not re-implement dispatch logic — that lives in the orchestration skill and shark's `orchestrator_action` field.
+
+```
+shark sprint next --json → entity key → /run {entity_key} → loop until empty
+```
+
+This skill covers **two execution modes**:
+
+- **`/shark-rider run-sprint S###`** (solo) — sequential pull-loop for a single Claude session. Pulls one entity at a time, drives it to terminal status via `/run`, then pulls the next. Suitable for any sprint regardless of entity mix.
+- **`/shark-rider run-sprint-team S###`** (team) — groups sprint entities by feature and bootstraps a Claude Code agent team per feature group via `/run-agent-team`. Features are dispatched serially (one team at a time, per the agent-teams primitive constraint). Standalone entities (bugs, change-cards, tech-debt without a feature parent) fall back to sequential `/run` dispatch.
+
+Both modes gate the sprint close operation on explicit user confirmation.
+
+## Commands
+
+```
+/shark-rider run-sprint S###                              # Solo sequential execution
+/shark-rider run-sprint S### --agent=backend              # Pull only backend-agent slice
+/shark-rider run-sprint S### --max-iterations=N           # Cap loop at N (default 50)
+/shark-rider run-sprint S### --carryover=backlog          # Carryover strategy if user confirms close
+
+/shark-rider run-sprint-team S###                                    # Team execution, one feature at a time
+/shark-rider run-sprint-team S### --size=N                           # Override teammate count per feature team
+/shark-rider run-sprint-team S### --features=E##-F##,...             # Restrict to specific features
+/shark-rider run-sprint-team S### --carryover=backlog                # Carryover strategy if user confirms close
+```
+
+**Read `workflows/run-sprint.md`** to get the solo pull-loop step-by-step procedure.
+**Read `workflows/run-sprint-team.md`** to get the team execution step-by-step procedure.
+
+## Key Design Decisions
+
+- **Delegation to `/run`**: Sprint execution delegates per-entity dispatch to the existing orchestration skill rather than re-implementing it. This ensures `orchestrator_action.instruction` is always honored and workflow source-of-truth stays in shark.
+- **`--max-iterations` cap**: Prevents runaway loops when `shark sprint next` returns the same entity repeatedly (e.g., an entity that bounced back to a non-terminal state). Default cap is 50.
+- **Explicit close gate**: Closing a sprint with carryover is a planning decision. Both skills require explicit user confirmation before calling `shark sprint close`.
+- **JSON-only shark consumption**: All shark calls use `--json` or `--field`. Human-readable output is not a stable contract.
+
+## JSON Handling
+
+- All shark calls use `--json` or `--field`
+- Never truncate output with `head`, `tail`, or `grep`
+- `shark sprint next --json` returns the next entity object or an empty result; both cases are handled

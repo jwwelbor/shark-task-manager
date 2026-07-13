@@ -8,7 +8,7 @@ Produce the feasibility report (`D04-feasibility-report.md`) by assessing techni
 
 **Reads the real stack.** Before assessing, read `docs/architecture/tech-stack.md` and `docs/architecture/integration-map.md` when they exist (bootstrap writes them), plus the bootstrap marker `docs/architecture/bootstrap.md` for the **track**. Assess the proposal against the recorded stack, not in the abstract. The track decides how you treat that stack:
 
-- **Brownfield** — the stack is a *fixed* constraint. A gap is a risk to mitigate or a constraint that is violated; you cannot wish it away.
+- **Brownfield** — the observed stack is the current-state baseline. Classify each relevant element as hard, soft, or unresolved from its source and initiative posture; do not treat the whole stack as universally fixed.
 - **Greenfield** — the stack is a *provisional proposal*. You may challenge it; a gap becomes a required change that feeds back into `tech-stack.md` (see § Recommendation).
 - If no architecture docs or marker exist, assess in the abstract as before.
 
@@ -52,10 +52,10 @@ State clearly: **Feasible as-described / Feasible with changes / Not feasible**.
 If "with changes": name the specific changes required and who decides on them.
 If "not feasible": name the blocking constraint and what would need to change for it to become feasible.
 
-**Return a stack-feedback signal** when the verdict is "feasible with changes" or "not feasible" — so the host can act on it (the gap must not be silently absorbed). Record it in the report's *Stack feedback* block (below) as {verdict, gap, driver, recommended route}; D04 does **not** perform the action itself — the `/shark product-design` host reads this and acts:
+**Return a stack-feedback signal** when the verdict is "feasible with changes" or "not feasible" — so the host can act on it (the gap must not be silently absorbed). Record it in the report's *Stack feedback* block (below) as {verdict, gap, driver, recommended route}; D04 does **not** perform the action itself — the owning `/shark-rider project product-design` action reads this and acts:
 
 - **Greenfield** (provisional stack): recommended route = re-run bootstrap in **reconcile mode**, so `greenfield-scaffold.md` revises `tech-stack.md` against this report (its Phase 3.5).
-- **Brownfield** (fixed stack): the stack cannot be rewritten, so the gap is *tracked*, not absorbed. Recommended route = file a tech-debt entry (or a constraint note on the affected entity) capturing the required change and its driver.
+- **Brownfield**: apply the initiative posture to the gap. Preserve integration obligations, but evaluate target options for `new-capability`, `extend`, `modernize`, or `replace`; route only genuinely deferred remediation to a tech-debt entry or constraint note with its driver.
 
 ## Quality Criteria
 
@@ -72,7 +72,7 @@ If "not feasible": name the blocking constraint and what would need to change fo
 # D04 — Feasibility Report
 
 *Scoped from: D01-vision-statement.md, D03-market-research.md (if available), docs/architecture/tech-stack.md + integration-map.md (if present)*
-*Track: brownfield (stack fixed) | greenfield (stack provisional) | unknown (no marker)*
+*Estate: brownfield (observed baseline) | greenfield (proposed/provisional) | unknown (no marker)*
 
 ## Technical Feasibility
 
@@ -114,7 +114,7 @@ If "not feasible": name the blocking constraint and what would need to change fo
 - [Change] — decision owner: [name]
 
 **Stack feedback (if "with changes" / "not feasible"):**
-- Greenfield → re-run `/shark project bootstrap` in reconcile mode to revise tech-stack.md
+- Greenfield → re-run `/shark-rider project bootstrap` in reconcile mode to revise tech-stack.md
 - Brownfield → tech-debt entry / constraint note: [key or summary]
 
 ---

@@ -1,6 +1,6 @@
 # Brownfield Detection Rules
 
-**Purpose**: Determine whether a project is brownfield (existing codebase) or greenfield (new/empty) to route `/shark project bootstrap` to the correct track.
+**Purpose**: Determine whether a project is brownfield (existing codebase) or greenfield (new/empty) to route `/shark-rider project bootstrap` to the correct estate.
 
 ## Detection Algorithm
 
@@ -98,14 +98,14 @@ A single entry point file (e.g., lone `main.py`, `index.ts`, `main.go`) with no 
 - Someone just started coding (greenfield with a file)
 - A minimal project (brownfield)
 
-Default to **greenfield** but mention: "Found a single source file. Treating as greenfield — if this is an existing project, re-run with `/shark project bootstrap --force-brownfield`."
+Default to **greenfield** but mention: "Found a single source file. Treating as greenfield — if this is an existing project, re-run with `/shark-rider project bootstrap --force-brownfield`."
 
 ## Output
 
 The detection step produces:
 
 ```yaml
-track: brownfield | greenfield
+estate: brownfield | greenfield
 confidence: HIGH | MEDIUM | LOW
 signals:
   - type: manifest | source_files | git_history | default
@@ -115,4 +115,4 @@ monorepo: true | false
 template_clone: true | false
 ```
 
-This output is consumed by the bootstrap orchestrator to route to the correct track workflow.
+This output is consumed by the bootstrap orchestrator to route to the correct estate workflow.

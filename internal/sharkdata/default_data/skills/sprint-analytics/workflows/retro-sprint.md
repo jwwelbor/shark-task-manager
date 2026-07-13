@@ -22,7 +22,7 @@ Parse `$ARGUMENTS`:
 ## Step 1: Verify Sprint Is Closed
 
 ```bash
-/shark query: get {S###} --json --field=status
+/shark-rider query: get {S###} --json --field=status
 ```
 
 Parse the returned value as `STATUS`.
@@ -82,7 +82,7 @@ Store the full JSON response as `VELOCITY`. Key fields to extract:
 For each entity key in `SUMMARY.carryover` and `SUMMARY.rejected` (deduplicated):
 
 ```bash
-/shark query: notes {entity_key}
+/shark-rider query: notes {entity_key}
 ```
 
 Store results as `NOTES[entity_key]` — the raw notes output for that entity. If an entity has no notes, store an empty result (do not error).

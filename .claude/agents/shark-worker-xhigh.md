@@ -1,6 +1,6 @@
 ---
 name: shark-worker-xhigh
-description: Shark workflow worker executing a dispatched step prompt at extra-high reasoning effort. Used by /shark run when the workflow step declares effort: xhigh.
+description: Shark workflow worker executing a dispatched step prompt at extra-high reasoning effort. Used by /shark-rider run when the workflow step declares effort: xhigh.
 effort: xhigh
 ---
 
