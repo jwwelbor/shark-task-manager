@@ -13,9 +13,8 @@ import (
 func TestSharkRiderHostContract(t *testing.T) {
 	root := findRepoRootForAudit(t)
 
-	if _, err := os.Stat(filepath.Join(root, "skills", "shark")); !os.IsNotExist(err) {
-		require.Truef(t, os.IsNotExist(err), "legacy host skill directory must not remain: err=%v", err)
-	}
+	_, err := os.Stat(filepath.Join(root, "skills", "shark"))
+	require.True(t, os.IsNotExist(err), "legacy host skill directory must not remain")
 
 	skill := readContractFile(t, root, "skills", "shark-rider", "SKILL.md")
 	assertContainsAll(t, skill, "host skill identity", []string{
@@ -128,7 +127,8 @@ func TestActiveBundleAndRiderInstructionsUseRiderSyntax(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if strings.Contains(string(contents), "/shark ") {
+			sanitized := strings.ReplaceAll(string(contents), "/shark-rider", "")
+			if strings.Contains(sanitized, "/shark") {
 				t.Errorf("active Rider or bundle instruction uses the legacy host syntax: %s", path)
 			}
 			return nil
@@ -141,7 +141,7 @@ func TestActiveBundleAndRiderInstructionsUseRiderSyntax(t *testing.T) {
 
 func readContractFile(t *testing.T, root string, parts ...string) string {
 	t.Helper()
-	path := filepath.Join(append([]string{root}, parts...)...)
+	path := filepath.Join(root, filepath.Join(parts...))
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		require.NoErrorf(t, err, "read %s", path)
