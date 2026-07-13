@@ -1,9 +1,38 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/team"
+	"github.com/stretchr/testify/require"
 )
+
+// TestGetTeamServices_Wiring_TC010 verifies that the established global
+// accessor seam exposes the already-implemented planner and ledger services.
+// The accessors must construct the real injected services without adding a
+// team-specific command or bypassing the service layer.
+func TestGetTeamServices_Wiring_TC010(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".sharkconfig.json"), []byte(`{}`), 0o644))
+	originalWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() { require.NoError(t, os.Chdir(originalWD)) }()
+	defer ResetDB()
+	ResetServices()
+	defer ResetServices()
+
+	planner := GetTeamPlanner()
+	require.NotNil(t, planner)
+	var _ team.Planner = planner
+
+	ledger := GetTeamLedger()
+	require.NotNil(t, ledger)
+	var _ team.Ledger = ledger
+}
 
 // TestResetServices_ReplacesContainer verifies that ResetServices() replaces
 // the container with a fresh one, so subsequent Get* calls re-initialize.

@@ -10,13 +10,17 @@ import (
 	"unsafe"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	teamrunrepo "github.com/jwwelbor/shark-task-manager/internal/repository/teamrun"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/team"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/jwwelbor/shark-task-manager/internal/view"
@@ -581,6 +585,257 @@ func GetCascadeService() *services.CascadeService {
 	featureRepo := repository.NewFeatureRepository(db)
 	workflowSvc := GetWorkflowService()
 	return services.NewCascadeService(taskRepo, epicRepo, featureRepo, workflowSvc)
+}
+
+// GetTeamPlanner returns the read-only team planner wired to the same child,
+// dependency, workflow, and claim sources used by ordinary Shark services.
+// It deliberately constructs no command, dispatcher, or mutation path.
+func GetTeamPlanner() *team.TeamPlanner {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for TeamPlanner: %v", err))
+	}
+	actionSvc, err := GetActionService(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to create action service for TeamPlanner: %v", err))
+	}
+
+	taskRepo := repository.NewTaskRepository(db)
+	dependencyAdapter := team.NewDependencyAdapter(
+		&teamLegacyDependencySource{repo: taskRepo},
+		&teamRelationshipDependencySource{
+			repo:     repository.NewEntityRelationshipRepository(db),
+			registry: GetEntityRegistry(),
+		},
+	)
+	planner, err := team.NewTeamPlanner(team.PlannerDeps{
+		Children:     &teamCascadeChildReader{cascade: GetCascadeService()},
+		Dependencies: dependencyAdapter,
+		Dispatch:     newTeamDispatchStepResolver(actionSvc),
+		Claims:       &teamClaimDiagnosticReader{claims: GetClaimService()},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to create TeamPlanner: %v", err))
+	}
+	return planner
+}
+
+// GetTeamLedger returns the durable team ledger backed by the normalized
+// team-run repository. The service owns validation and idempotency; this
+// accessor only supplies the repository dependency.
+func GetTeamLedger() *team.LedgerService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for TeamLedger: %v", err))
+	}
+	return team.NewLedgerService(teamrunrepo.NewTeamRunRepository(db))
+}
+
+type teamCascadeChildReader struct {
+	cascade *services.CascadeService
+}
+
+func (r *teamCascadeChildReader) ListChildren(ctx context.Context, rootType models.EntityType, rootKey string) ([]team.ChildSnapshot, error) {
+	children, err := r.cascade.ListChildren(ctx, string(rootType), rootKey)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]team.ChildSnapshot, 0, len(children))
+	for _, child := range children {
+		item := team.ChildSnapshot{
+			Key:                child.Key,
+			EntityType:         child.EntityType,
+			Status:             child.Status,
+			LegacyDependencies: valueOrEmpty(child.DependsOn),
+		}
+		if child.ExecutionOrder != nil {
+			item.ExecutionOrder = *child.ExecutionOrder
+		}
+		if child.Priority != nil {
+			item.Priority = *child.Priority
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+type teamLegacyDependencySource struct {
+	repo interface {
+		GetByKey(context.Context, string) (*models.Task, error)
+	}
+}
+
+func (s *teamLegacyDependencySource) ListLegacyDependencies(ctx context.Context, child team.ChildIdentity) (string, error) {
+	if child.EntityType != models.EntityTypeTask {
+		return "", nil
+	}
+	task, err := s.repo.GetByKey(ctx, child.Key)
+	if err != nil {
+		return "", fmt.Errorf("get legacy dependencies for %s: %w", child.Key, err)
+	}
+	if task == nil || task.DependsOn == nil {
+		return "", nil
+	}
+	return *task.DependsOn, nil
+}
+
+type teamRelationshipDependencySource struct {
+	repo     *repository.EntityRelationshipRepository
+	registry *services.EntityRegistry
+}
+
+func (s *teamRelationshipDependencySource) ListRelationshipDependencies(ctx context.Context, child team.ChildIdentity) ([]team.DependencyEdge, error) {
+	entityRepo, err := s.registry.GetRepository(child.EntityType)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s repository: %w", child.Key, err)
+	}
+	entity, err := entityRepo.GetByKey(ctx, child.Key)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s for relationships: %w", child.Key, err)
+	}
+	if entity == nil {
+		return nil, fmt.Errorf("resolve %s for relationships: empty entity", child.Key)
+	}
+	rels, err := s.repo.GetOutgoing(ctx, child.EntityType, entity.GetID(), []models.EntityRelationshipType{models.EntityRelDependsOn})
+	if err != nil {
+		return nil, fmt.Errorf("list relationships for %s: %w", child.Key, err)
+	}
+	edges := make([]team.DependencyEdge, 0, len(rels))
+	for _, rel := range rels {
+		if rel == nil {
+			return nil, fmt.Errorf("list relationships for %s: nil relationship", child.Key)
+		}
+		targetRepo, err := s.registry.GetRepository(rel.ToEntityType)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dependency repository for %s: %w", child.Key, err)
+		}
+		target, err := targetRepo.GetByID(ctx, rel.ToEntityID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dependency for %s: %w", child.Key, err)
+		}
+		if target == nil {
+			return nil, fmt.Errorf("resolve dependency for %s: empty entity", child.Key)
+		}
+		edges = append(edges, team.DependencyEdge{
+			ChildKey:         child.Key,
+			ChildType:        child.EntityType,
+			DependencyKey:    target.GetKey(),
+			DependencyType:   rel.ToEntityType,
+			DependencyStatus: target.GetStatus(),
+			Satisfied:        false,
+			Source:           "relationship",
+		})
+	}
+	return edges, nil
+}
+
+type teamClaimDiagnosticReader struct {
+	claims *services.ClaimService
+}
+
+func (r *teamClaimDiagnosticReader) Diagnose(ctx context.Context, child team.ChildIdentity) (team.ClaimDiagnostic, error) {
+	claim, err := r.claims.Get(ctx, string(child.EntityType), child.Key)
+	if err != nil {
+		return team.ClaimDiagnostic{}, fmt.Errorf("read claim for %s: %w", child.Key, err)
+	}
+	if claim == nil {
+		return team.ClaimDiagnostic{}, nil
+	}
+	return team.ClaimDiagnostic{Claimed: true, ClaimSessionID: claim.SessionID, Reason: fmt.Sprintf("claimed by %s", claim.ClaimedBy)}, nil
+}
+
+type teamDispatchStepResolver struct {
+	actionService action.ActionService
+	transitioners map[models.EntityType]dispatch.EntityTransitioner
+	placeholders  map[models.EntityType]dispatch.PlaceholderGenerator
+}
+
+func newTeamDispatchStepResolver(actionService action.ActionService) dispatch.DispatchStepResolver {
+	return &teamDispatchStepResolver{
+		actionService: actionService,
+		transitioners: map[models.EntityType]dispatch.EntityTransitioner{
+			models.EntityTypeTask:     GetTaskService(),
+			models.EntityTypeFeature:  GetFeatureService(),
+			models.EntityTypeEpic:     GetEpicService(),
+			models.EntityTypeBug:      GetBugService(),
+			models.EntityTypeChange:   GetChangeCardService(),
+			models.EntityTypeTechDebt: GetTechDebtService(),
+		},
+		placeholders: map[models.EntityType]dispatch.PlaceholderGenerator{
+			models.EntityTypeTask: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetTaskService().GetTask(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.TaskPlaceholders(entity), nil
+			}),
+			models.EntityTypeFeature: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetFeatureService().GetFeature(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.FeaturePlaceholders(entity), nil
+			}),
+			models.EntityTypeEpic: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetEpicService().GetEpic(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.EpicPlaceholders(entity), nil
+			}),
+			models.EntityTypeBug: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetBugService().GetBug(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.BugPlaceholders(entity), nil
+			}),
+			models.EntityTypeChange: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetChangeCardService().GetChangeCard(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.ChangeCardPlaceholders(entity), nil
+			}),
+			models.EntityTypeTechDebt: teamPlaceholderGeneratorFunc(func(ctx context.Context, key string) (map[string]string, error) {
+				entity, err := GetTechDebtService().GetTechDebt(ctx, key)
+				if err != nil {
+					return nil, err
+				}
+				return config.TechDebtPlaceholders(entity), nil
+			}),
+		},
+	}
+}
+
+type teamPlaceholderGeneratorFunc func(context.Context, string) (map[string]string, error)
+
+func (f teamPlaceholderGeneratorFunc) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
+	return f(ctx, key)
+}
+
+func (r *teamDispatchStepResolver) Resolve(ctx context.Context, entityType models.EntityType, key string) (dispatch.DispatchStep, error) {
+	transitioner, ok := r.transitioners[entityType]
+	if !ok {
+		return dispatch.DispatchStep{}, fmt.Errorf("resolve team dispatch step: unsupported entity type %q", entityType)
+	}
+	resolver, err := dispatch.NewDispatchStepResolver(dispatch.StepResolverDeps{
+		Transitioner:     transitioner,
+		Placeholders:     r.placeholders[entityType],
+		ActionService:    r.actionService.ForEntity(action.NormalizeEntityType(string(entityType))),
+		IsArchivedStatus: func(models.EntityType, string) bool { return false },
+	})
+	if err != nil {
+		return dispatch.DispatchStep{}, fmt.Errorf("create team dispatch-step resolver: %w", err)
+	}
+	return resolver.Resolve(ctx, entityType, key)
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.
