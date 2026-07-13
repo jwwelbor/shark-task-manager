@@ -6,6 +6,7 @@ Drive an entity through its workflow. Usage:
 /shark-rider run <entity-key>     # E01, E01-F02, E01-F02-003, B001, CC-001
 /shark-rider run bugs             # collection: every non-terminal bug
 /shark-rider run change-cards     # collection: every non-terminal change-card
+/shark-rider run tech-debt  # collection: every non-terminal tech-debt item
 ```
 
 `/run <key>` is an alias for this verb.
@@ -53,9 +54,10 @@ The child never claims, advances, releases, or heartbeats.
 - A specific key is worked by repeatedly calling `shark next <that-key> --json`.
 - An epic or feature key may resolve to an unclaimed child; execute the returned
   `response.entity_key`, then call `shark next <original-root> --json` again.
-- Collection keywords are not valid `shark next` roots. For `bugs` and
-  `change-cards`, enumerate non-terminal items with `shark bug list --json` or
-  `shark change list --json`, then run this loop for each concrete key.
+- Collection keywords are not valid `shark next` roots. For `bugs`,
+  `change-cards`, and `tech-debt`, enumerate non-terminal items with
+  `shark bug list --json`, `shark change list --json`, or
+  `shark td list --json`, then run this loop for each concrete key.
 
 ## Step 0 — Branch check
 
@@ -89,7 +91,7 @@ Parse the JSON response:
 | `response.prompt` | Self-contained execution prompt |
 | `response.agent_type` | Shark persona metadata, not a native host subagent name |
 | `response.provider` | Provider metadata, e.g. `anthropic`, `openai`, `codex` |
-| `response.model` | Model metadata or override |
+| `response.model` | Model to dispatch the worker with (e.g. `sonnet`, `opus`, `haiku`, `fable`) when `response.provider` is `anthropic` |
 | `response.effort` | Optional reasoning-effort override for the worker (`low`, `medium`, `high`, `xhigh`) |
 | `response.resolved_via` | Optional parent keys traversed by cascade resolution |
 | `response.error` | Error detail when action is `error` or pause carries a warning |
@@ -109,8 +111,16 @@ SID=$(shark claim {response.entity_key} --by "$CLAUDE_SID" --field session_id)
 Spawn the host worker using a host-safe adapter:
 
 - Claude Code Agent tool: select `subagent_type` by `response.effort` —
-  `low`/`medium`/`high`/`xhigh` → `shark-worker-<effort>`; absent or
-  unrecognized effort → `general-purpose`
+  `low`/`medium`/`high`/`xhigh` → `shark-worker-<effort>`; absent,
+  unrecognized, or not defined in this project → `general-purpose`
+- Model: when `response.provider` is `anthropic` and `response.model` is
+  non-empty, pass it as the Agent tool's `model` parameter (accepts
+  `sonnet`/`opus`/`haiku`/`fable`, or a full model name). `subagent_type`
+  only controls reasoning effort — `model` is what actually selects the
+  model, so both must be set together; do not skip this and assume effort
+  routing covers it. Omit `model` when `response.model` is empty. Do not pass
+  a non-Claude value (e.g. `codex`) as the Agent tool's `model` — that param
+  only accepts Claude models.
 - Prompt: exactly `response.prompt`
 - Metadata to record/pass through if the host supports it: `response.agent_type`,
   `response.provider`, `response.model`
