@@ -194,55 +194,71 @@ func (s *CascadeService) DescribeDispatchableChildren(ctx context.Context, entit
 func (s *CascadeService) ListChildren(ctx context.Context, entityType, key string) ([]CascadeChildSnapshot, error) {
 	switch entityType {
 	case string(models.EntityTypeFeature):
-		tasks, err := s.taskRepo.ListByFeatureKey(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list child snapshots for feature %s: %w", key, err)
-		}
-		children := make([]CascadeChildSnapshot, 0, len(tasks))
-		for _, task := range tasks {
-			if task == nil {
-				return nil, fmt.Errorf("list child snapshots for feature %s: nil task", key)
-			}
-			priority := task.Priority
-			children = append(children, CascadeChildSnapshot{
-				Key:            task.Key,
-				EntityType:     models.EntityTypeTask,
-				Status:         string(task.Status),
-				ExecutionOrder: task.ExecutionOrder,
-				Priority:       &priority,
-				DependsOn:      task.DependsOn,
-			})
-		}
-		return children, nil
+		return s.loadFeatureChildSnapshots(ctx, key)
 
 	case string(models.EntityTypeEpic):
-		epic, err := s.epicRepo.GetByKey(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get epic %s for child snapshots: %w", key, err)
-		}
-		if epic == nil {
-			return nil, fmt.Errorf("failed to get epic %s for child snapshots: empty result", key)
-		}
-		features, err := s.featureRepo.ListByEpic(ctx, epic.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list child snapshots for epic %s: %w", key, err)
-		}
-		children := make([]CascadeChildSnapshot, 0, len(features))
-		for _, feature := range features {
-			if feature == nil {
-				return nil, fmt.Errorf("list child snapshots for epic %s: nil feature", key)
-			}
-			children = append(children, CascadeChildSnapshot{
-				Key:            feature.Key,
-				EntityType:     models.EntityTypeFeature,
-				Status:         string(feature.Status),
-				ExecutionOrder: feature.ExecutionOrder,
-			})
-		}
-		return children, nil
+		return s.loadEpicChildSnapshots(ctx, key)
 	default:
 		return nil, fmt.Errorf("unsupported parent entity type %q for child snapshots", entityType)
 	}
+}
+
+func (s *CascadeService) loadFeatureChildSnapshots(ctx context.Context, featureKey string) ([]CascadeChildSnapshot, error) {
+	tasks, err := s.taskRepo.ListByFeatureKey(ctx, featureKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list child snapshots for feature %s: %w", featureKey, err)
+	}
+	return normalizeTaskSnapshots(featureKey, tasks)
+}
+
+func (s *CascadeService) loadEpicChildSnapshots(ctx context.Context, epicKey string) ([]CascadeChildSnapshot, error) {
+	epic, err := s.epicRepo.GetByKey(ctx, epicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic %s for child snapshots: %w", epicKey, err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("failed to get epic %s for child snapshots: empty result", epicKey)
+	}
+	features, err := s.featureRepo.ListByEpic(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list child snapshots for epic %s: %w", epicKey, err)
+	}
+	return normalizeFeatureSnapshots(epicKey, features)
+}
+
+func normalizeTaskSnapshots(featureKey string, tasks []*models.Task) ([]CascadeChildSnapshot, error) {
+	children := make([]CascadeChildSnapshot, 0, len(tasks))
+	for _, task := range tasks {
+		if task == nil {
+			return nil, fmt.Errorf("list child snapshots for feature %s: nil task", featureKey)
+		}
+		priority := task.Priority
+		children = append(children, CascadeChildSnapshot{
+			Key:            task.Key,
+			EntityType:     models.EntityTypeTask,
+			Status:         string(task.Status),
+			ExecutionOrder: task.ExecutionOrder,
+			Priority:       &priority,
+			DependsOn:      task.DependsOn,
+		})
+	}
+	return children, nil
+}
+
+func normalizeFeatureSnapshots(epicKey string, features []*models.Feature) ([]CascadeChildSnapshot, error) {
+	children := make([]CascadeChildSnapshot, 0, len(features))
+	for _, feature := range features {
+		if feature == nil {
+			return nil, fmt.Errorf("list child snapshots for epic %s: nil feature", epicKey)
+		}
+		children = append(children, CascadeChildSnapshot{
+			Key:            feature.Key,
+			EntityType:     models.EntityTypeFeature,
+			Status:         string(feature.Status),
+			ExecutionOrder: feature.ExecutionOrder,
+		})
+	}
+	return children, nil
 }
 
 // isTerminalStatus reports whether a status is terminal (no productive

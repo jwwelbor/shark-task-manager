@@ -57,6 +57,57 @@ func NewLedgerService(repo LedgerRepository, artifactBasePath ...string) *Ledger
 
 var _ LedgerRepository = (*teamrunrepo.Repository)(nil)
 var _ Ledger = (*LedgerService)(nil)
+var _ SchedulerLedger = (*LedgerService)(nil)
+
+// ClaimItem atomically records the scheduler's claim session without opening
+// a transaction around external worker execution.
+func (l *LedgerService) ClaimItem(ctx context.Context, runID, itemID int64, attempt int, claimSessionID string) (bool, error) {
+	return l.transitionItem(ctx, runID, itemID, ItemStatusPlanned, attempt, func(item *teamrunrepo.TeamRunItem) {
+		item.ItemStatus = string(ItemStatusClaimed)
+		item.ClaimSessionID = optionalString(claimSessionID)
+	})
+}
+
+// StartItem atomically attaches the worker session after the canonical step
+// has been resolved and immediately before the external dispatch starts.
+func (l *LedgerService) StartItem(ctx context.Context, runID, itemID int64, attempt int, claimSessionID, workerSessionID string) (bool, error) {
+	return l.transitionItem(ctx, runID, itemID, ItemStatusClaimed, attempt, func(item *teamrunrepo.TeamRunItem) {
+		item.ItemStatus = string(ItemStatusRunning)
+		item.ClaimSessionID = optionalString(claimSessionID)
+		item.WorkerSessionID = optionalString(workerSessionID)
+		now := time.Now().UTC()
+		item.StartedAt = &now
+	})
+}
+
+func (l *LedgerService) transitionItem(ctx context.Context, runID, itemID int64, expectedStatus ItemStatus, expectedAttempt int, apply func(*teamrunrepo.TeamRunItem)) (bool, error) {
+	if err := contextError(ctx); err != nil {
+		return false, err
+	}
+	if l == nil || l.repo == nil {
+		return false, errors.New("team ledger repository is required")
+	}
+	if itemID <= 0 || expectedAttempt < 0 {
+		return false, ErrInvalidAttempt
+	}
+	if runID <= 0 {
+		return false, ErrInvalidPlanInput
+	}
+	items, err := l.repo.ListItems(ctx, runID)
+	if err != nil {
+		return false, fmt.Errorf("load item %d for transition: %w", itemID, err)
+	}
+	for _, item := range items {
+		if item != nil && item.ID == itemID {
+			if item.ItemStatus != string(expectedStatus) || item.Attempt != expectedAttempt {
+				return false, nil
+			}
+			apply(item)
+			return l.repo.CompareAndSetItem(ctx, item, string(expectedStatus), expectedAttempt)
+		}
+	}
+	return false, ErrRepositoryNotFound
+}
 
 // PersistConfirmedPlan inserts a complete plan before any worker claim. A
 // matching root/hash returns the existing run; a changed hash is drift.
@@ -146,36 +197,123 @@ func (l *LedgerService) UpdateRun(ctx context.Context, update RunUpdate) (*TeamR
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	if update.RunID <= 0 || !validRunStatus(update.Status) || update.ConcurrencyLimit <= 0 || (update.ExecutionMode != ExecutionModeParallel && update.ExecutionMode != ExecutionModeSequential) || !sha256Hex.MatchString(update.PlanHash) {
-		return nil, fmt.Errorf("update team run %d: %w", update.RunID, ErrInvalidPlanInput)
+	if err := validateRunUpdate(update); err != nil {
+		return nil, err
 	}
 	run, err := l.repo.GetRun(ctx, update.RunID)
 	if err != nil {
 		return nil, fmt.Errorf("load team run %d for update: %w", update.RunID, err)
 	}
-	if err := validateRepositoryRunIdentity(run); err != nil {
-		return nil, fmt.Errorf("validate team run %d for update: %w", update.RunID, err)
+	if err := validateRunSnapshot(run, update); err != nil {
+		return nil, err
 	}
-	if update.PlanHash != run.PlanHash {
-		return nil, &PlanDriftError{RootKey: run.RootKey, ExistingHash: run.PlanHash, RequestedHash: update.PlanHash}
+	if err := validateRunLifecycle(run, update); err != nil {
+		return nil, err
 	}
-	if update.ExecutionMode != ExecutionMode(run.ExecutionMode) || update.ConcurrencyLimit != run.ConcurrencyLimit {
-		return nil, fmt.Errorf("update team run %d: %w", update.RunID, ErrImmutablePlanSnapshot)
-	}
-	currentStatus := RunStatus(run.Status)
-	if !validRunTransition(currentStatus, update.Status) {
-		return nil, fmt.Errorf("update team run %d from %s to %s: %w", update.RunID, currentStatus, update.Status, ErrInvalidRunTransition)
-	}
-	run.Status = string(update.Status)
-	run.AggregateOutcome = update.AggregateOutcome
-	run.NextAction = update.NextAction
-	run.RootSessionID = update.RootSessionID
-	run.StartedAt = update.StartedAt
-	run.CompletedAt = update.CompletedAt
+	applyRunUpdate(run, update)
 	if err := l.repo.UpdateRun(ctx, run); err != nil {
 		return nil, fmt.Errorf("update team run %d: %w", update.RunID, err)
 	}
 	return toDomainRun(run), nil
+}
+
+// RecordPreClaimResult is the coordinator-owned CAS path for diagnostics
+// discovered before a child claim exists. Normal result recording requires a
+// claim session, but resolver gates, dependency blocks, and cancellation can
+// happen while the item is still planned. The root session authorizes this
+// narrow transition and the item CAS prevents a competing scheduler from
+// overwriting it.
+func (l *LedgerService) RecordPreClaimResult(ctx context.Context, update ItemResultUpdate, coordinatorSessionID string) (*TeamRunItem, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(coordinatorSessionID) == "" {
+		return nil, ErrInvalidItemOwnership
+	}
+	validated, err := l.validateResult(update)
+	if err != nil {
+		return nil, err
+	}
+	if update.ClaimSessionID != "" || update.WorkerSessionID != "" {
+		return nil, ErrInvalidItemOwnership
+	}
+	switch validated.status {
+	case ItemStatusBlocked, ItemStatusSkipped, ItemStatusPaused, ItemStatusCancelled:
+	default:
+		return nil, fmt.Errorf("record pre-claim result for item %d: %w", update.ItemID, ErrInvalidItemTransition)
+	}
+	run, err := l.repo.GetRun(ctx, update.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("load team run %d for pre-claim result: %w", update.RunID, err)
+	}
+	if stringValue(run.RootSessionID) != coordinatorSessionID {
+		return nil, fmt.Errorf("record pre-claim result for item %d: %w", update.ItemID, ErrInvalidItemOwnership)
+	}
+	current, err := l.loadResultItem(ctx, update.RunID, update.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	if ItemStatus(current.ItemStatus) != ItemStatusPlanned || current.Attempt != update.Attempt {
+		return nil, fmt.Errorf("record pre-claim result for item %d: %w", update.ItemID, ErrInvalidAttempt)
+	}
+	current.ItemStatus = string(validated.status)
+	current.Attempt = update.Attempt
+	current.Outcome = optionalString(update.Outcome)
+	current.SkipReason = optionalString(update.SkipReason)
+	current.Evidence = optionalString(validated.storedEvidence)
+	current.ClaimSessionID = nil
+	current.WorkerSessionID = nil
+	current.StartedAt = update.StartedAt
+	current.CompletedAt = update.CompletedAt
+	if current.CompletedAt == nil {
+		now := time.Now().UTC()
+		current.CompletedAt = &now
+	}
+	updated, err := l.repo.CompareAndSetItem(ctx, current, string(ItemStatusPlanned), update.Attempt)
+	if err != nil {
+		return nil, fmt.Errorf("record pre-claim result for item %d: %w", update.ItemID, err)
+	}
+	if !updated {
+		return nil, fmt.Errorf("record pre-claim result for item %d: %w", update.ItemID, ErrInvalidAttempt)
+	}
+	return toDomainItem(current)
+}
+
+func validateRunUpdate(update RunUpdate) error {
+	if update.RunID <= 0 || !validRunStatus(update.Status) || update.ConcurrencyLimit <= 0 || !validExecutionMode(update.ExecutionMode) || !sha256Hex.MatchString(update.PlanHash) {
+		return fmt.Errorf("update team run %d: %w", update.RunID, ErrInvalidPlanInput)
+	}
+	return nil
+}
+
+func validExecutionMode(mode ExecutionMode) bool {
+	return mode == ExecutionModeParallel || mode == ExecutionModeSequential
+}
+
+func validateRunSnapshot(run *teamrunrepo.TeamRun, update RunUpdate) error {
+	if err := validateRepositoryRunIdentity(run); err != nil {
+		return fmt.Errorf("validate team run %d for update: %w", update.RunID, err)
+	}
+	if update.PlanHash != run.PlanHash {
+		return &PlanDriftError{RootKey: run.RootKey, ExistingHash: run.PlanHash, RequestedHash: update.PlanHash}
+	}
+	if update.ExecutionMode != ExecutionMode(run.ExecutionMode) || update.ConcurrencyLimit != run.ConcurrencyLimit {
+		return fmt.Errorf("update team run %d: %w", update.RunID, ErrImmutablePlanSnapshot)
+	}
+	return nil
+}
+
+func validateRunLifecycle(run *teamrunrepo.TeamRun, update RunUpdate) error {
+	if validRunTransition(RunStatus(run.Status), update.Status) {
+		return nil
+	}
+	return fmt.Errorf("update team run %d from %s to %s: %w", update.RunID, run.Status, update.Status, ErrInvalidRunTransition)
+}
+
+func applyRunUpdate(run *teamrunrepo.TeamRun, update RunUpdate) {
+	run.Status = string(update.Status)
+	run.AggregateOutcome, run.NextAction, run.RootSessionID = update.AggregateOutcome, update.NextAction, update.RootSessionID
+	run.StartedAt, run.CompletedAt = update.StartedAt, update.CompletedAt
 }
 
 // RecordItemResult validates a terminal result and applies it idempotently.
@@ -247,31 +385,40 @@ type resultDecision struct{ idempotent bool }
 
 func classifyResult(current *teamrunrepo.TeamRunItem, result validatedResult) (resultDecision, error) {
 	if terminalItemStatus(ItemStatus(current.ItemStatus)) && result.update.Attempt == current.Attempt {
-		if sameTerminalResult(current, result.status, result.update, result.storedEvidence) {
-			return resultDecision{idempotent: true}, nil
-		}
-		return resultDecision{}, &ConflictingTerminalResultError{RunID: result.update.RunID, ItemID: result.update.ItemID, Attempt: result.update.Attempt}
+		return classifyTerminalRepeat(current, result)
 	}
-	currentStatus := ItemStatus(current.ItemStatus)
-	if result.update.ExplicitRetry && terminalItemStatus(currentStatus) {
-		if result.update.Attempt != current.Attempt+1 {
-			return resultDecision{}, fmt.Errorf("record result for item %d: %w", result.update.ItemID, ErrInvalidAttempt)
-		}
-		if err := validateItemOwnership(current, result.update); err != nil {
-			return resultDecision{}, err
-		}
-		return resultDecision{}, nil
+	if result.update.ExplicitRetry && terminalItemStatus(ItemStatus(current.ItemStatus)) {
+		return validateExplicitRetry(current, result)
 	}
-	if !validItemTransition(currentStatus, result.status) {
-		return resultDecision{}, fmt.Errorf("record result for item %d from %s to %s: %w", result.update.ItemID, currentStatus, result.status, ErrInvalidItemTransition)
-	}
-	if err := validateItemOwnership(current, result.update); err != nil {
+	if err := validateItemTransitionAndAttempt(current, result); err != nil {
 		return resultDecision{}, err
 	}
-	if result.update.Attempt != current.Attempt {
+	return resultDecision{}, validateItemOwnership(current, result.update)
+}
+
+func classifyTerminalRepeat(current *teamrunrepo.TeamRunItem, result validatedResult) (resultDecision, error) {
+	if sameTerminalResult(current, result.status, result.update, result.storedEvidence) {
+		return resultDecision{idempotent: true}, nil
+	}
+	return resultDecision{}, &ConflictingTerminalResultError{RunID: result.update.RunID, ItemID: result.update.ItemID, Attempt: result.update.Attempt}
+}
+
+func validateExplicitRetry(current *teamrunrepo.TeamRunItem, result validatedResult) (resultDecision, error) {
+	if result.update.Attempt != current.Attempt+1 {
 		return resultDecision{}, fmt.Errorf("record result for item %d: %w", result.update.ItemID, ErrInvalidAttempt)
 	}
-	return resultDecision{}, nil
+	return resultDecision{}, validateItemOwnership(current, result.update)
+}
+
+func validateItemTransitionAndAttempt(current *teamrunrepo.TeamRunItem, result validatedResult) error {
+	currentStatus := ItemStatus(current.ItemStatus)
+	if !validItemTransition(currentStatus, result.status) {
+		return fmt.Errorf("record result for item %d from %s to %s: %w", result.update.ItemID, currentStatus, result.status, ErrInvalidItemTransition)
+	}
+	if result.update.Attempt != current.Attempt {
+		return fmt.Errorf("record result for item %d: %w", result.update.ItemID, ErrInvalidAttempt)
+	}
+	return nil
 }
 
 func validateItemOwnership(current *teamrunrepo.TeamRunItem, update ItemResultUpdate) error {
@@ -367,26 +514,12 @@ func validateConfirmedPlan(plan *TeamPlan, rootSessionID string) error {
 	if err := plan.Validate(); err != nil {
 		return err
 	}
-	if err := validateEntityIdentity(plan.RootKey, plan.RootType); err != nil {
-		return fmt.Errorf("validate plan root identity: %w", err)
-	}
 	if strings.TrimSpace(rootSessionID) == "" || len([]byte(rootSessionID)) > maxBoundedText {
 		return fmt.Errorf("%w: root session is required", ErrInvalidPlanInput)
 	}
 	for _, item := range plan.Items {
-		if err := validateEntityIdentity(item.ChildKey, item.ChildType); err != nil {
-			return fmt.Errorf("validate plan item identity: %w", err)
-		}
 		if item.Wave < 0 || item.ExecutionOrder < 0 {
 			return fmt.Errorf("%w: invalid item %s", ErrInvalidPlanInput, item.ChildKey)
-		}
-		for _, edge := range item.Dependencies {
-			if err := validateEntityIdentity(edge.ChildKey, edge.ChildType); err != nil {
-				return fmt.Errorf("validate dependency child identity: %w", err)
-			}
-			if err := validateEntityIdentity(edge.DependencyKey, edge.DependencyType); err != nil {
-				return fmt.Errorf("validate dependency target identity: %w", err)
-			}
 		}
 	}
 	return nil

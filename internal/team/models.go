@@ -349,6 +349,14 @@ type RunUpdate struct {
 	CompletedAt      *time.Time
 }
 
+// TeamRunCounts is the operator-facing aggregate for a complete item
+// snapshot. ByStatus is keyed by the durable item-status string so the JSON
+// contract remains stable for configured consumers.
+type TeamRunCounts struct {
+	Total    int            `json:"total"`
+	ByStatus map[string]int `json:"by_status"`
+}
+
 // TeamRunResult is the stable I-01 read shape shared with later E38 features.
 type TeamRunResult struct {
 	RunID            int64             `json:"run_id"`
@@ -360,6 +368,7 @@ type TeamRunResult struct {
 	PlanHash         string            `json:"plan_hash"`
 	AggregateOutcome *string           `json:"aggregate_outcome,omitempty"`
 	NextAction       *string           `json:"next_action,omitempty"`
+	Counts           TeamRunCounts     `json:"counts"`
 	Items            []*TeamRunItem    `json:"items"`
 }
 
@@ -369,14 +378,28 @@ func NewTeamRunResult(run *TeamRun, items []*TeamRunItem) (*TeamRunResult, error
 	if err := run.Validate(); err != nil {
 		return nil, err
 	}
-	result := &TeamRunResult{RunID: run.ID, RootKey: run.RootKey, RootType: run.RootType, Status: run.Status, ExecutionMode: run.ExecutionMode, ConcurrencyLimit: run.ConcurrencyLimit, PlanHash: run.PlanHash, AggregateOutcome: run.AggregateOutcome, NextAction: run.NextAction, Items: make([]*TeamRunItem, 0, len(items))}
+	result := &TeamRunResult{RunID: run.ID, RootKey: run.RootKey, RootType: run.RootType, Status: run.Status, ExecutionMode: run.ExecutionMode, ConcurrencyLimit: run.ConcurrencyLimit, PlanHash: run.PlanHash, AggregateOutcome: run.AggregateOutcome, NextAction: run.NextAction, Counts: newTeamRunCounts(), Items: make([]*TeamRunItem, 0, len(items))}
 	for _, item := range items {
 		if err := item.Validate(); err != nil {
 			return nil, err
 		}
 		result.Items = append(result.Items, item)
+		result.Counts.Total++
+		result.Counts.ByStatus[string(item.ItemStatus)]++
 	}
 	return result, nil
+}
+
+func newTeamRunCounts() TeamRunCounts {
+	counts := TeamRunCounts{ByStatus: make(map[string]int, 9)}
+	for _, status := range []ItemStatus{
+		ItemStatusPlanned, ItemStatusClaimed, ItemStatusRunning,
+		ItemStatusCompleted, ItemStatusFailed, ItemStatusBlocked,
+		ItemStatusPaused, ItemStatusSkipped, ItemStatusCancelled,
+	} {
+		counts.ByStatus[string(status)] = 0
+	}
+	return counts
 }
 
 // Validate checks the persisted run invariants before repository access.
@@ -384,20 +407,27 @@ func (r *TeamRun) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: run is nil", ErrInvalidPlanInput)
 	}
+	if err := validateRunIdentity(r); err != nil {
+		return err
+	}
+	if !validRunStatus(r.Status) {
+		return fmt.Errorf("%w: %q", ErrInvalidRunStatus, r.Status)
+	}
+	if !validExecutionMode(r.ExecutionMode) {
+		return fmt.Errorf("%w: %q", ErrInvalidPlanInput, r.ExecutionMode)
+	}
+	if r.ConcurrencyLimit <= 0 || !sha256Hex.MatchString(r.PlanHash) {
+		return fmt.Errorf("%w: run limit and plan hash are invalid", ErrInvalidPlanInput)
+	}
+	return nil
+}
+
+func validateRunIdentity(r *TeamRun) error {
 	if r.RootType != models.EntityTypeEpic && r.RootType != models.EntityTypeFeature {
 		return fmt.Errorf("%w: %q", ErrInvalidPlanInput, r.RootType)
 	}
 	if err := validateEntityIdentity(r.RootKey, r.RootType); err != nil {
 		return fmt.Errorf("validate run root identity: %w", err)
-	}
-	if !validRunStatus(r.Status) {
-		return fmt.Errorf("%w: %q", ErrInvalidRunStatus, r.Status)
-	}
-	if r.ExecutionMode != ExecutionModeParallel && r.ExecutionMode != ExecutionModeSequential {
-		return fmt.Errorf("%w: %q", ErrInvalidPlanInput, r.ExecutionMode)
-	}
-	if r.ConcurrencyLimit <= 0 || !sha256Hex.MatchString(r.PlanHash) {
-		return fmt.Errorf("%w: run limit and plan hash are invalid", ErrInvalidPlanInput)
 	}
 	return nil
 }
@@ -407,15 +437,26 @@ func (i *TeamRunItem) Validate() error {
 	if i == nil {
 		return fmt.Errorf("%w: item is nil", ErrInvalidPlanInput)
 	}
+	if err := validateItemIdentity(i); err != nil {
+		return err
+	}
+	if !validItemStatus(i.ItemStatus) {
+		return fmt.Errorf("%w: %q", ErrInvalidItemStatus, i.ItemStatus)
+	}
+	return validateStoredEvidence(i)
+}
+
+func validateItemIdentity(i *TeamRunItem) error {
 	if err := validateEntityIdentity(i.ChildKey, i.ChildType); err != nil {
 		return fmt.Errorf("validate item identity: %w", err)
 	}
 	if i.Wave < 0 || i.ExecutionOrder < 0 || i.Attempt < 0 {
 		return fmt.Errorf("%w: item identity, wave, order, or attempt is invalid", ErrInvalidPlanInput)
 	}
-	if !validItemStatus(i.ItemStatus) {
-		return fmt.Errorf("%w: %q", ErrInvalidItemStatus, i.ItemStatus)
-	}
+	return nil
+}
+
+func validateStoredEvidence(i *TeamRunItem) error {
 	if len([]byte(i.Evidence)) > MaxEvidenceBytes || sensitiveEvidencePattern.MatchString(i.Evidence) {
 		return fmt.Errorf("%w: item evidence is not safe", ErrInvalidEvidence)
 	}
@@ -436,6 +477,20 @@ func (u ItemResultUpdate) Validate() error {
 // project root before any repository access. Artifact references are stored as
 // canonical project-relative paths, never as caller-provided path strings.
 func (u ItemResultUpdate) ValidateWithArtifactBase(artifactBase string) error {
+	if err := validateResultIdentity(u); err != nil {
+		return err
+	}
+	if err := validateResultContent(u); err != nil {
+		return err
+	}
+	normalized, err := u.NormalizeArtifactRefs(artifactBase)
+	if err != nil {
+		return err
+	}
+	return rejectDuplicateArtifactRefs(normalized)
+}
+
+func validateResultIdentity(u ItemResultUpdate) error {
 	if u.RunID <= 0 || u.ItemID <= 0 {
 		return fmt.Errorf("%w: run and item IDs must be positive", ErrInvalidPlanInput)
 	}
@@ -449,6 +504,10 @@ func (u ItemResultUpdate) ValidateWithArtifactBase(artifactBase string) error {
 	if !validItemStatus(status) || !terminalItemStatus(status) {
 		return fmt.Errorf("%w: result status %q", ErrInvalidItemStatus, status)
 	}
+	return nil
+}
+
+func validateResultContent(u ItemResultUpdate) error {
 	if len([]byte(u.Evidence)) > MaxEvidenceBytes {
 		return ErrEvidenceTooLarge
 	}
@@ -461,12 +520,12 @@ func (u ItemResultUpdate) ValidateWithArtifactBase(artifactBase string) error {
 	if len(u.ArtifactRefs) > maxArtifactRefs {
 		return fmt.Errorf("%w: too many artifact references", ErrInvalidArtifactPath)
 	}
-	normalized, err := u.NormalizeArtifactRefs(artifactBase)
-	if err != nil {
-		return err
-	}
-	seen := make(map[string]struct{}, len(normalized))
-	for _, ref := range normalized {
+	return nil
+}
+
+func rejectDuplicateArtifactRefs(refs []string) error {
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
 		if _, exists := seen[ref]; exists {
 			return fmt.Errorf("%w: duplicate artifact reference %q", ErrInvalidArtifactPath, ref)
 		}
@@ -538,16 +597,8 @@ func validateEntityIdentity(key string, declaredType models.EntityType) error {
 
 func normalizeArtifactRef(base, ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
-	if trimmed == "" || len([]byte(trimmed)) > maxArtifactPath || filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "\\") || strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || isWindowsAbsolute(trimmed) {
-		return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
-	}
-	for _, part := range strings.Split(trimmed, "/") {
-		if part == ".." {
-			return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
-		}
-	}
-	if filepath.Clean(trimmed) == "." || strings.Contains(trimmed, "\x00") {
-		return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
+	if err := rejectArtifactLexicalPath(trimmed, ref); err != nil {
+		return "", err
 	}
 	candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(trimmed)))
 	relative, err := filepath.Rel(base, candidate)
@@ -555,6 +606,29 @@ func normalizeArtifactRef(base, ref string) (string, error) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
 	}
 	return filepath.ToSlash(relative), nil
+}
+
+func rejectArtifactLexicalPath(trimmed, original string) error {
+	if artifactPathHasForbiddenShape(trimmed) || filepath.Clean(trimmed) == "." || strings.Contains(trimmed, "\x00") {
+		return fmt.Errorf("%w: %q", ErrInvalidArtifactPath, original)
+	}
+	if strings.Contains(trimmed, "..") && artifactPathHasParentSegment(trimmed) {
+		return fmt.Errorf("%w: %q", ErrInvalidArtifactPath, original)
+	}
+	return nil
+}
+
+func artifactPathHasForbiddenShape(path string) bool {
+	return path == "" || len([]byte(path)) > maxArtifactPath || filepath.IsAbs(path) || strings.HasPrefix(path, "\\") || strings.Contains(path, "\\") || strings.HasPrefix(path, "~") || isWindowsAbsolute(path)
+}
+
+func artifactPathHasParentSegment(path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func isWindowsAbsolute(path string) bool {
@@ -629,22 +703,33 @@ func (p *TeamPlan) Validate() error {
 	if p == nil {
 		return fmt.Errorf("%w: plan is nil", ErrInvalidPlanInput)
 	}
+	if err := validatePlanIdentity(p); err != nil {
+		return err
+	}
+	if p.ConcurrencyLimit <= 0 {
+		return fmt.Errorf("%w: root key and positive concurrency limit are required", ErrInvalidPlanInput)
+	}
+	if !validExecutionMode(p.ExecutionMode) {
+		return fmt.Errorf("%w: invalid execution mode %q", ErrInvalidPlanInput, p.ExecutionMode)
+	}
+	if !sha256Hex.MatchString(p.PlanHash) {
+		return fmt.Errorf("%w: plan hash must be lowercase SHA-256", ErrInvalidPlanInput)
+	}
+	return validatePlanItems(p.Items)
+}
+
+func validatePlanIdentity(p *TeamPlan) error {
 	if p.RootType != models.EntityTypeEpic && p.RootType != models.EntityTypeFeature {
 		return fmt.Errorf("%w: root type %q must be epic or feature", ErrInvalidPlanInput, p.RootType)
 	}
 	if err := validateEntityIdentity(p.RootKey, p.RootType); err != nil {
 		return fmt.Errorf("validate plan root identity: %w", err)
 	}
-	if p.ConcurrencyLimit <= 0 {
-		return fmt.Errorf("%w: root key and positive concurrency limit are required", ErrInvalidPlanInput)
-	}
-	if p.ExecutionMode != ExecutionModeParallel && p.ExecutionMode != ExecutionModeSequential {
-		return fmt.Errorf("%w: invalid execution mode %q", ErrInvalidPlanInput, p.ExecutionMode)
-	}
-	if !sha256Hex.MatchString(p.PlanHash) {
-		return fmt.Errorf("%w: plan hash must be lowercase SHA-256", ErrInvalidPlanInput)
-	}
-	for _, item := range p.Items {
+	return nil
+}
+
+func validatePlanItems(items []TeamPlanItem) error {
+	for _, item := range items {
 		if err := validateEntityIdentity(item.ChildKey, item.ChildType); err != nil {
 			return fmt.Errorf("validate plan item identity: %w", err)
 		}

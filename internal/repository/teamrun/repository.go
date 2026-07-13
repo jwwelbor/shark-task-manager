@@ -125,10 +125,12 @@ func (r *Repository) CreateRunWithItems(ctx context.Context, run *TeamRun, items
 	return nil
 }
 
-// CreateRunWithItemsIfAbsent atomically confirms a run snapshot. The unique
-// confirmation index makes the insert-or-select decision safe when multiple
-// coordinators confirm the same root and plan hash concurrently. Item rows
-// are inserted only by the coordinator that wins the run insert.
+// CreateRunWithItemsIfAbsent atomically confirms a run snapshot. The
+// root-level confirmation policy, including its legacy duplicate-root
+// compatibility mode, makes the insert-or-select decision safe when multiple
+// coordinators confirm the same root concurrently. Item rows are inserted
+// only by the coordinator that wins the run insert; the service compares the
+// returned snapshot hash and reports plan drift when it differs.
 func (r *Repository) CreateRunWithItemsIfAbsent(ctx context.Context, run *TeamRun, items []*TeamRunItem) (*TeamRun, bool, error) {
 	if run == nil {
 		return nil, false, errors.New("team-run is nil")
@@ -156,6 +158,19 @@ type confirmedRunResult struct {
 }
 
 func (r *Repository) confirmRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun, items []*TeamRunItem, result *confirmedRunResult) error {
+	// Legacy databases may contain multiple hashes for one root. Resolve an
+	// existing root before inserting so an incompatible hash is reported by
+	// LedgerService as drift instead of creating another snapshot.
+	existing, err := findExistingRunTx(ctx, tx, run)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		result.selected = existing
+		result.idempotent = true
+		return nil
+	}
+
 	inserted, runID, err := insertConfirmedRunTx(ctx, tx, run)
 	if err != nil {
 		return err
@@ -174,7 +189,7 @@ func insertConfirmedRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun) (bool, 
 			root_key, root_type, status, execution_mode, concurrency_limit, plan_hash,
 			aggregate_outcome, next_action, root_session_id, started_at, completed_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(root_type, root_key, plan_hash) DO NOTHING`,
+		ON CONFLICT DO NOTHING`,
 		run.RootKey, run.RootType, run.Status, run.ExecutionMode, run.ConcurrencyLimit,
 		run.PlanHash, stringValue(run.AggregateOutcome), stringValue(run.NextAction),
 		stringValue(run.RootSessionID), sqlTimeValue(run.StartedAt), sqlTimeValue(run.CompletedAt))
@@ -196,18 +211,34 @@ func insertConfirmedRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun) (bool, 
 }
 
 func selectExistingRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun, result *confirmedRunResult) error {
-	selected, err := scanRun(tx.QueryRowContext(ctx, `
-		SELECT id, root_key, root_type, status, execution_mode, concurrency_limit,
-			plan_hash, aggregate_outcome, next_action, root_session_id, started_at,
-			completed_at, created_at, updated_at
-		FROM team_runs WHERE root_type = ? AND root_key = ? AND plan_hash = ?`,
-		run.RootType, run.RootKey, run.PlanHash))
+	selected, err := findExistingRunTx(ctx, tx, run)
 	if err != nil {
 		return fmt.Errorf("select existing confirmed team run: %w", err)
+	}
+	if selected == nil {
+		return fmt.Errorf("select existing confirmed team run for %s/%s: %w", run.RootType, run.RootKey, repoerr.ErrNotFound)
 	}
 	result.selected = selected
 	result.idempotent = true
 	return nil
+}
+
+func findExistingRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun) (*TeamRun, error) {
+	selected, err := scanRun(tx.QueryRowContext(ctx, `
+		SELECT id, root_key, root_type, status, execution_mode, concurrency_limit,
+			plan_hash, aggregate_outcome, next_action, root_session_id, started_at,
+			completed_at, created_at, updated_at
+		FROM team_runs
+		WHERE root_type = ? AND root_key = ?
+		ORDER BY CASE WHEN plan_hash = ? THEN 0 ELSE 1 END, id
+		LIMIT 1`, run.RootType, run.RootKey, run.PlanHash))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return selected, nil
 }
 
 func insertItemsTx(ctx context.Context, tx *sql.Tx, runID int64, items []*TeamRunItem) ([]int64, error) {

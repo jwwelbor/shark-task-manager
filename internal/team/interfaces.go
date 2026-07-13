@@ -57,6 +57,9 @@ type RelationshipDependencySource interface {
 // deliberately narrow so workers never run inside a database transaction.
 type SchedulerLedger interface {
 	Ledger
+	// RecordPreClaimResult is the coordinator-only CAS path for terminal
+	// diagnostics discovered before a child claim exists.
+	RecordPreClaimResult(ctx context.Context, update ItemResultUpdate, coordinatorSessionID string) (*TeamRunItem, error)
 	ClaimItem(ctx context.Context, runID, itemID int64, attempt int, claimSessionID string) (bool, error)
 	StartItem(ctx context.Context, runID, itemID int64, attempt int, claimSessionID, workerSessionID string) (bool, error)
 }
@@ -87,6 +90,35 @@ type SchedulerEvent struct {
 	ClaimSession  string
 	WorkerSession string
 	Outcome       string
+	// Communication carries the bounded council context that informed this
+	// execution. It is metadata only; claims and workflow remain authoritative.
+	Communication *CouncilCommunication
+}
+
+// CouncilCommunication is the scheduler's read-only projection of the F04
+// council contract. Keeping it here lets execution consume the shared shape
+// without making roster YAML a mutation or routing authority.
+type CouncilCommunication struct {
+	SenderRole      string           `json:"sender_role"`
+	RecipientRole   string           `json:"recipient_role"`
+	RootKey         string           `json:"root_key"`
+	ChildKey        string           `json:"child_key"`
+	Subject         string           `json:"subject"`
+	RequestedAction string           `json:"requested_action"`
+	Urgency         string           `json:"urgency"`
+	EvidenceLinks   []string         `json:"evidence_links,omitempty"`
+	Handoff         *CouncilHandoff  `json:"handoff,omitempty"`
+	Decision        *CouncilDecision `json:"decision,omitempty"`
+}
+
+type CouncilHandoff struct {
+	Summary       string   `json:"summary,omitempty"`
+	OpenQuestions []string `json:"open_questions,omitempty"`
+}
+
+type CouncilDecision struct {
+	Outcome   string `json:"outcome,omitempty"`
+	Rationale string `json:"rationale,omitempty"`
 }
 
 type EventSink interface {
@@ -104,4 +136,12 @@ type SchedulerDeps struct {
 	// HeartbeatInterval controls coordinator lease renewal. A non-positive
 	// value disables periodic renewal while preserving the initial heartbeat.
 	HeartbeatInterval time.Duration
+	// CleanupTimeout bounds release/result/final-run persistence after the
+	// caller cancels. Zero uses the scheduler default.
+	CleanupTimeout time.Duration
+	// Communication is optional execution metadata supplied by the council
+	// protocol. The scheduler never derives workflow authority from it.
+	Communication *CouncilCommunication
+	// ExpectedPlanHash is captured at confirmation and checked before mutation.
+	ExpectedPlanHash string
 }

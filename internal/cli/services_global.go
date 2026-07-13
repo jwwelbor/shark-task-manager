@@ -19,6 +19,7 @@ import (
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	teamrunrepo "github.com/jwwelbor/shark-task-manager/internal/repository/teamrun"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/team"
@@ -644,6 +645,99 @@ func newTeamLedger(repo team.LedgerRepository, projectRoot string) *team.LedgerS
 	return team.NewLedgerService(repo, projectRoot)
 }
 
+// GetTeamScheduler wires the durable team ledger to the canonical dispatch
+// resolver, claim service, and default agent dispatcher. Public commands own
+// presentation and root routing; the scheduler only executes the confirmed
+// child snapshot and returns its result.
+func GetTeamScheduler() *team.Scheduler {
+	return getTeamScheduler("")
+}
+
+func getTeamScheduler(expectedPlanHash string) *team.Scheduler {
+	actionSvc, err := GetActionService(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to create action service for TeamScheduler: %v", err))
+	}
+	return newTeamScheduler(team.SchedulerDeps{
+		Ledger:           GetTeamLedger(),
+		Claims:           GetClaimService(),
+		Resolver:         newTeamDispatchStepResolver(actionSvc),
+		Dispatcher:       runner.NewClaudeDispatcher(),
+		Resource:         newProductionResourcePolicy(team.CapabilityFacts{}),
+		ExpectedPlanHash: expectedPlanHash,
+		Communication: &team.CouncilCommunication{
+			SenderRole: "chair", RecipientRole: "developer", Subject: "confirmed team execution",
+			RequestedAction: "execute the confirmed child snapshot", Urgency: "normal",
+			Handoff:  &team.CouncilHandoff{Summary: "Execute only the confirmed team-run membership."},
+			Decision: &team.CouncilDecision{Outcome: "proceed", Rationale: "The chair confirmed this team run."},
+		},
+	})
+}
+
+// RunTeamScheduler is the production execution boundary for a confirmed team
+// run. Keeping this caller here makes the scheduler wiring reachable without
+// putting orchestration policy or result formatting in a CLI command.
+func RunTeamScheduler(ctx context.Context, runID int64, rootSessionID string) (*team.TeamRunResult, error) {
+	return teamSchedulerFactory().Start(ctx, runID, rootSessionID)
+}
+
+// RunTeamSchedulerWithPlanHash is the confirmed-plan caller boundary. The
+// captured hash is checked before any lifecycle or child claim mutation.
+func RunTeamSchedulerWithPlanHash(ctx context.Context, runID int64, rootSessionID, expectedPlanHash string) (*team.TeamRunResult, error) {
+	return getTeamScheduler(expectedPlanHash).Start(ctx, runID, rootSessionID)
+}
+
+type teamSchedulerStarter interface {
+	Start(context.Context, int64, string) (*team.TeamRunResult, error)
+}
+
+var teamSchedulerFactory = func() teamSchedulerStarter { return GetTeamScheduler() }
+
+// productionResourcePolicy is deliberately conservative. Production wiring
+// has no verified ownership capability source yet, so its zero-value facts
+// select sequential execution with an explicit diagnostic. Tests and a future
+// capability adapter may supply verified facts, but unknown or overlapping
+// ownership can never enable parallel execution.
+type productionResourcePolicy struct {
+	facts team.CapabilityFacts
+}
+
+func newProductionResourcePolicy(facts team.CapabilityFacts) productionResourcePolicy {
+	return productionResourcePolicy{facts: facts}
+}
+
+func (p productionResourcePolicy) Select(context.Context, *team.TeamRun, []*team.TeamRunItem) (team.ExecutionMode, int, string, error) {
+	f := p.facts
+	if f.OverlappingResourceOwnership || f.ResourceOwnershipOverlap {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonOverlappingOwnership, nil
+	}
+	if f.UnknownResourceOwnership || !f.ResourceOwnershipKnown {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonUnknownResourceOwnership, nil
+	}
+	if !f.TeamExecutionAvailable && !f.SafeTeamExecution {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonParallelUnavailable, nil
+	}
+	if !f.WorktreeIsolationAvailable && !f.WorktreeIsolation {
+		return team.ExecutionModeSequential, 1, team.DegradedReasonParallelUnavailable, nil
+	}
+	limit := f.MaxConcurrency
+	if limit <= 0 {
+		limit = f.MaxParallelism
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	return team.ExecutionModeParallel, limit, "", nil
+}
+
+func newTeamScheduler(deps team.SchedulerDeps) *team.Scheduler {
+	scheduler, err := team.NewScheduler(deps)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create TeamScheduler: %v", err))
+	}
+	return scheduler
+}
+
 type teamCascadeChildReader struct {
 	cascade *services.CascadeService
 }
@@ -854,12 +948,21 @@ func (r *teamDispatchStepResolver) Resolve(ctx context.Context, entityType model
 		Transitioner:     transitioner,
 		Placeholders:     r.placeholders[entityType],
 		ActionService:    r.actionService.ForEntity(action.NormalizeEntityType(string(entityType))),
-		IsArchivedStatus: func(models.EntityType, string) bool { return false },
+		IsArchivedStatus: isArchivedTeamStatus,
 	})
 	if err != nil {
 		return dispatch.DispatchStep{}, fmt.Errorf("create team dispatch-step resolver: %w", err)
 	}
 	return resolver.Resolve(ctx, entityType, key)
+}
+
+// isArchivedTeamStatus keeps team dispatch resolution on the same workflow
+// terminal-status source as the ordinary next/run command paths.
+func isArchivedTeamStatus(entityType models.EntityType, status string) bool {
+	if strings.HasSuffix(strings.ToLower(status), "_archived") {
+		return true
+	}
+	return GetWorkflowService().ForLevel(string(entityType)).IsTerminalStatus(status)
 }
 
 func valueOrEmpty(value *string) string {

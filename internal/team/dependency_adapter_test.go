@@ -29,7 +29,7 @@ func TestDependencySources_TC003(t *testing.T) {
 	adapter := NewDependencyAdapter(
 		legacyDependencyMock{value: `["t-e38-f01-001", "T-E38-F01-002"]`},
 		relationshipDependencyMock{edges: []DependencyEdge{
-			{ChildKey: "T-E38-F01-003", DependencyKey: "T-E38-F01-001", DependencyType: models.EntityTypeTask},
+			{ChildKey: "T-E38-F01-003", DependencyKey: "T-E38-F01-001", DependencyType: models.EntityTypeTask, DependencyStatus: "completed", External: true},
 			{ChildKey: "T-E38-F01-003", DependencyKey: "T-E38-F01-003", DependencyType: models.EntityTypeTask},
 		}},
 	)
@@ -42,6 +42,9 @@ func TestDependencySources_TC003(t *testing.T) {
 	}
 	if edges[0].DependencyKey != "T-E38-F01-001" || edges[1].DependencyKey != "T-E38-F01-002" || edges[2].DependencyKey != "T-E38-F01-003" {
 		t.Errorf("edges are not canonical/sorted: %+v", edges)
+	}
+	if !edges[0].Resolved || !edges[0].External || edges[0].DependencyStatus != "completed" || edges[0].Source != "relationship" {
+		t.Fatalf("relationship metadata did not enrich duplicate legacy edge: %+v", edges[0])
 	}
 }
 

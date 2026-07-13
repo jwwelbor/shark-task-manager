@@ -3,6 +3,7 @@ package team
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
@@ -292,6 +293,37 @@ func TestPlanner_UsesExplicitSequentialFallback_TC005(t *testing.T) {
 	}
 }
 
+func TestPlanner_CapabilityDecisionTable_TC005(t *testing.T) {
+	tests := []struct {
+		name       string
+		facts      CapabilityFacts
+		wantReason string
+		wantErr    error
+	}{
+		{name: "unknown ownership falls back", facts: CapabilityFacts{TeamExecutionAvailable: true, WorktreeIsolationAvailable: true, ResourceOwnershipKnown: false, SingleWorkerAvailable: true}, wantReason: DegradedReasonUnknownResourceOwnership},
+		{name: "overlap falls back", facts: CapabilityFacts{TeamExecutionAvailable: true, WorktreeIsolationAvailable: true, ResourceOwnershipKnown: true, OverlappingResourceOwnership: true, SingleWorkerAvailable: true}, wantReason: DegradedReasonOverlappingOwnership},
+		{name: "unavailable host errors", facts: CapabilityFacts{WorktreeIsolationAvailable: false}, wantErr: ErrCapabilityUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			planner, err := NewPlanner(plannerFixture())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := planner.Plan(context.Background(), PlanInput{RootType: models.EntityTypeFeature, RootKey: "E38-F01", RequestedConcurrency: 4, Capabilities: tt.facts})
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Plan() error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || plan.ExecutionMode != ExecutionModeSequential || plan.DegradedReason != tt.wantReason {
+				t.Fatalf("fallback = %+v, error = %v", plan, err)
+			}
+		})
+	}
+}
+
 // TestPlanHash_DetectsMaterialDrift_TC008 verifies material child state changes
 // drift the hash while equivalent reader ordering does not.
 func TestPlanHash_DetectsMaterialDrift_TC008(t *testing.T) {
@@ -328,5 +360,93 @@ func TestPlanHash_DetectsMaterialDrift_TC008(t *testing.T) {
 	}
 	if first.PlanHash == third.PlanHash {
 		t.Fatal("material status change did not change plan hash")
+	}
+}
+
+// TestPlanner_CanonicalHashPermutation_TC013 exercises the public planner
+// entrypoint with equivalent reader permutations. Empty/absent optional
+// values and transient resolver fields must not make an equivalent snapshot
+// hash differently.
+func TestPlanner_CanonicalHashPermutation_TC013(t *testing.T) {
+	firstDeps := plannerFixture()
+	firstDispatch := firstDeps.Dispatch.(plannerDispatchMock)
+	firstDispatch.byKey["T-E38-F01-002"] = dispatch.DispatchStep{
+		EntityKey:              "T-E38-F01-002",
+		EntityType:             models.EntityTypeTask,
+		Status:                 "todo",
+		Action:                 "spawn_agent",
+		AgentType:              "developer",
+		Provider:               "anthropic",
+		Model:                  "claude-sonnet",
+		Effort:                 "medium",
+		UnresolvedPlaceholders: []string{"<worker>", "<action>"},
+		Prompt:                 "volatile rendered prompt with secret-like runtime data",
+		Vars:                   map[string]string{"runtime": "first"},
+	}
+	firstDeps.Dispatch = firstDispatch
+
+	secondDeps := plannerFixture()
+	secondChildren := secondDeps.Children.(plannerChildrenMock)
+	sort.Slice(secondChildren.children, func(i, j int) bool {
+		return secondChildren.children[i].Key > secondChildren.children[j].Key
+	})
+	secondDeps.Children = secondChildren
+	secondDependencies := secondDeps.Dependencies.(plannerDependenciesMock)
+	for key, edges := range secondDependencies.byKey {
+		sort.Slice(edges, func(i, j int) bool {
+			return edges[i].DependencyKey > edges[j].DependencyKey
+		})
+		secondDependencies.byKey[key] = edges
+	}
+	secondDeps.Dependencies = secondDependencies
+	secondDispatch := secondDeps.Dispatch.(plannerDispatchMock)
+	secondDispatch.byKey["T-E38-F01-002"] = dispatch.DispatchStep{
+		EntityKey:              "T-E38-F01-002",
+		EntityType:             models.EntityTypeTask,
+		Status:                 "todo",
+		Action:                 "spawn_agent",
+		AgentType:              "developer",
+		Provider:               "anthropic",
+		Model:                  "claude-sonnet",
+		Effort:                 "medium",
+		UnresolvedPlaceholders: []string{"<action>", "<worker>"},
+		Prompt:                 "different volatile prompt and runtime data",
+		Vars:                   map[string]string{},
+	}
+	emptyOptionalStep := secondDispatch.byKey["T-E38-F01-005"]
+	emptyOptionalStep.UnresolvedPlaceholders = []string{}
+	secondDispatch.byKey["T-E38-F01-005"] = emptyOptionalStep
+	secondDeps.Dispatch = secondDispatch
+
+	input := PlanInput{
+		RootType:             models.EntityTypeFeature,
+		RootKey:              "E38-F01",
+		RequestedConcurrency: 2,
+		Capabilities: CapabilityFacts{
+			TeamExecutionAvailable:     true,
+			SingleWorkerAvailable:      true,
+			WorktreeIsolationAvailable: true,
+			ResourceOwnershipKnown:     true,
+			MaxConcurrency:             2,
+		},
+	}
+	firstPlanner, err := NewPlanner(firstDeps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := firstPlanner.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPlanner, err := NewPlanner(secondDeps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := secondPlanner.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.PlanHash != second.PlanHash {
+		t.Fatalf("equivalent reader permutation changed plan hash: %s != %s", first.PlanHash, second.PlanHash)
 	}
 }

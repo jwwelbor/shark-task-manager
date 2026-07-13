@@ -496,6 +496,7 @@ func needsSchemaRepair(db *sql.DB) (bool, error) {
 		needsDisplayViewRepair,
 		needsSearchFTSRepair,
 		needsLegacyRelationshipCleanup,
+		needsTeamRunConfirmationIndexRepair,
 	}
 
 	for _, check := range checks {
@@ -557,6 +558,47 @@ func needsLegacyRelationshipCleanup(db *sql.DB) (bool, error) {
 		return false, fmt.Errorf("check legacy relationship tables: %w", err)
 	}
 	return count > 0, nil
+}
+
+func needsTeamRunConfirmationIndexRepair(db *sql.DB) (bool, error) {
+	var duplicateRoots int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT root_type, root_key
+			FROM team_runs
+			GROUP BY root_type, root_key
+			HAVING COUNT(*) > 1
+		)`).Scan(&duplicateRoots); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return true, nil
+		}
+		return false, fmt.Errorf("check duplicate team-run roots: %w", err)
+	}
+
+	var indexSQL sql.NullString
+	err := db.QueryRow(`
+		SELECT sql FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_team_runs_confirmation'`).Scan(&indexSQL)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check team-run confirmation index: %w", err)
+	}
+	if !indexSQL.Valid {
+		return true, nil
+	}
+	definition := strings.ToLower(indexSQL.String)
+	if duplicateRoots > 0 {
+		var legacyIndex int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM sqlite_master
+			WHERE type = 'index' AND name = 'idx_team_runs_confirmation_legacy'`).Scan(&legacyIndex); err != nil {
+			return false, fmt.Errorf("check legacy team-run confirmation index: %w", err)
+		}
+		return legacyIndex == 0 || !strings.Contains(definition, "where"), nil
+	}
+	return !strings.Contains(definition, "(root_type, root_key)"), nil
 }
 
 // getSchemaVersion reads the current schema version from the database.
@@ -1031,6 +1073,19 @@ func runMigrations(db *sql.DB) error {
 // statement is idempotent so an interrupted migration can be safely resumed,
 // including when only one of the two tables was created before interruption.
 func migrateTeamRunTables(db *sql.DB) error {
+	if err := createTeamRunSchema(db); err != nil {
+		return err
+	}
+	if err := createTeamRunIndexes(db); err != nil {
+		return err
+	}
+	if err := repairTeamRunConfirmationIndex(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func createTeamRunSchema(db *sql.DB) error {
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS team_runs (
 			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1081,12 +1136,16 @@ func migrateTeamRunTables(db *sql.DB) error {
 		)`); err != nil {
 		return fmt.Errorf("create team_run_items: %w", err)
 	}
+	return nil
+}
 
+func createTeamRunIndexes(db *sql.DB) error {
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_team_runs_root_status ON team_runs(root_type, root_key, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_runs_status ON team_runs(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_runs_plan_hash ON team_runs(plan_hash)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_runs_confirmation ON team_runs(root_type, root_key, plan_hash)`,
+		`DROP INDEX IF EXISTS idx_team_runs_confirmation`,
+		`DROP INDEX IF EXISTS idx_team_runs_confirmation_legacy`,
 		`CREATE INDEX IF NOT EXISTS idx_team_run_items_run_wave_status ON team_run_items(team_run_id, wave, item_status)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_run_items_child ON team_run_items(child_type, child_key)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_run_items_claim_session ON team_run_items(claim_session_id)`,
@@ -1097,8 +1156,73 @@ func migrateTeamRunTables(db *sql.DB) error {
 			return fmt.Errorf("create team-run index: %w", err)
 		}
 	}
+	return nil
+}
+
+func repairTeamRunConfirmationIndex(db *sql.DB) error {
+	duplicateRoots, err := duplicateTeamRunRoots(db)
+	if err != nil {
+		return err
+	}
+	if len(duplicateRoots) == 0 {
+		if _, err := db.Exec(`CREATE UNIQUE INDEX idx_team_runs_confirmation ON team_runs(root_type, root_key)`); err != nil {
+			return fmt.Errorf("create team-run root confirmation index: %w", err)
+		}
+		return nil
+	}
+
+	// Existing databases may contain multiple confirmed snapshots for a root
+	// under the original (root, hash) policy. Preserve those rows with the
+	// legacy composite index and exclude only those roots from the tightened
+	// index. Clean roots remain protected by the partial root-level index.
+	if _, err := db.Exec(`CREATE UNIQUE INDEX idx_team_runs_confirmation_legacy ON team_runs(root_type, root_key, plan_hash)`); err != nil {
+		return fmt.Errorf("create legacy team-run confirmation index: %w", err)
+	}
+	where := make([]string, 0, len(duplicateRoots))
+	for _, root := range duplicateRoots {
+		where = append(where, fmt.Sprintf("(root_type = %s AND root_key = %s)", quoteSQLiteString(root.rootType), quoteSQLiteString(root.rootKey)))
+	}
+	query := "CREATE UNIQUE INDEX idx_team_runs_confirmation ON team_runs(root_type, root_key) WHERE NOT (" + strings.Join(where, " OR ") + ")"
+	if _, err := db.Exec(query); err != nil {
+		return fmt.Errorf("create partial team-run root confirmation index: %w", err)
+	}
 
 	return nil
+}
+
+type teamRunRoot struct {
+	rootType string
+	rootKey  string
+}
+
+func duplicateTeamRunRoots(db *sql.DB) ([]teamRunRoot, error) {
+	rows, err := db.Query(`
+		SELECT root_type, root_key
+		FROM team_runs
+		GROUP BY root_type, root_key
+		HAVING COUNT(*) > 1
+		ORDER BY root_type, root_key`)
+	if err != nil {
+		return nil, fmt.Errorf("find duplicate team-run roots: %w", err)
+	}
+	defer rows.Close()
+
+	var roots []teamRunRoot
+	for rows.Next() {
+		var root teamRunRoot
+		if err := rows.Scan(&root.rootType, &root.rootKey); err != nil {
+			return nil, fmt.Errorf("scan duplicate team-run root: %w", err)
+		}
+		roots = append(roots, root)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate duplicate team-run roots: %w", err)
+	}
+	return roots, nil
+}
+
+func quoteSQLiteString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 // migrateWorkSessionsEntityGeneric rebuilds work_sessions so a session can be

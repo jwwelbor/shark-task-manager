@@ -187,6 +187,63 @@ func TestRepository_CreateRunWithItemsIfAbsent_IsAtomicUnderConcurrentConfirmati
 	require.Equal(t, 1, count)
 }
 
+func TestRepository_CreateRunWithItemsIfAbsent_ReturnsExistingRootForPlanDrift(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+	ctx := context.Background()
+
+	first, idempotent, err := repo.CreateRunWithItemsIfAbsent(ctx, testRun(), []*TeamRunItem{testItem("T-E38-F01-001", 1)})
+	require.NoError(t, err)
+	require.False(t, idempotent)
+
+	drifted := testRun()
+	drifted.PlanHash = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	second, idempotent, err := repo.CreateRunWithItemsIfAbsent(ctx, drifted, []*TeamRunItem{testItem("T-E38-F01-001", 1)})
+	require.NoError(t, err, "root-level uniqueness must return the existing snapshot")
+	require.True(t, idempotent)
+	require.Equal(t, first.ID, second.ID)
+	require.Equal(t, first.PlanHash, second.PlanHash)
+
+	var runCount, itemCount int
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM team_runs WHERE root_type = 'feature' AND root_key = 'E38-F01'").Scan(&runCount))
+	require.Equal(t, 1, runCount)
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM team_run_items WHERE team_run_id = ?", first.ID).Scan(&itemCount))
+	require.Equal(t, 1, itemCount)
+}
+
+func TestRepository_CreateRunWithItemsIfAbsent_DoesNotExtendLegacyDuplicateRoot(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+	ctx := context.Background()
+	hashA := testRun().PlanHash
+	hashB := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+	_, err := database.ExecContext(ctx, "DROP INDEX IF EXISTS idx_team_runs_confirmation")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "CREATE UNIQUE INDEX idx_team_runs_confirmation ON team_runs(root_type, root_key, plan_hash)")
+	require.NoError(t, err)
+	for _, hash := range []string{hashA, hashB} {
+		_, err = database.ExecContext(ctx, `
+			INSERT INTO team_runs
+				(root_key, root_type, status, execution_mode, concurrency_limit, plan_hash)
+			VALUES ('E38-LEGACY', 'feature', 'planned', 'sequential', 1, ?)`, hash)
+		require.NoError(t, err)
+	}
+
+	requested := testRun()
+	requested.RootKey = "E38-LEGACY"
+	requested.PlanHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	confirmed, idempotent, err := repo.CreateRunWithItemsIfAbsent(ctx, requested, []*TeamRunItem{testItem("T-E38-F01-001", 1)})
+	require.NoError(t, err)
+	require.True(t, idempotent)
+	require.NotEqual(t, requested.PlanHash, confirmed.PlanHash)
+
+	var count int
+	require.NoError(t, database.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM team_runs WHERE root_type = 'feature' AND root_key = 'E38-LEGACY'").Scan(&count))
+	require.Equal(t, 2, count)
+}
+
 func TestRepository_CompareAndSetItem_RejectsStaleWriter_TC007(t *testing.T) {
 	database := test.NewIsolatedTestDB(t)
 	repo := NewRepository(dbconn.NewDB(database))

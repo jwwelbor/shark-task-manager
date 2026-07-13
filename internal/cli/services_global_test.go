@@ -29,6 +29,66 @@ func TestGetTeamServices_Wiring_TC010(t *testing.T) {
 	var _ team.Ledger = ledger
 }
 
+func TestProductionResourcePolicy_FailsClosedForUnknownAndOverlap_TC003(t *testing.T) {
+	tests := []struct {
+		name   string
+		facts  team.CapabilityFacts
+		reason string
+	}{
+		{
+			name:   "unknown ownership",
+			facts:  team.CapabilityFacts{TeamExecutionAvailable: true, WorktreeIsolationAvailable: true, SingleWorkerAvailable: true},
+			reason: team.DegradedReasonUnknownResourceOwnership,
+		},
+		{
+			name: "overlapping ownership",
+			facts: team.CapabilityFacts{
+				TeamExecutionAvailable: true, WorktreeIsolationAvailable: true,
+				ResourceOwnershipKnown: true, OverlappingResourceOwnership: true,
+				SingleWorkerAvailable: true,
+			},
+			reason: team.DegradedReasonOverlappingOwnership,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newProductionResourcePolicy(tt.facts)
+			mode, limit, reason, err := policy.Select(context.Background(), &team.TeamRun{ExecutionMode: team.ExecutionModeParallel, ConcurrencyLimit: 4}, nil)
+			require.NoError(t, err)
+			require.Equal(t, team.ExecutionModeSequential, mode)
+			require.Equal(t, 1, limit)
+			require.Equal(t, tt.reason, reason)
+		})
+	}
+}
+
+func TestRunTeamScheduler_InvokesSchedulerWithProductionArguments_TC003(t *testing.T) {
+	called := false
+	var gotRunID int64
+	var gotRootSession string
+	original := teamSchedulerFactory
+	teamSchedulerFactory = func() teamSchedulerStarter {
+		return teamSchedulerStarterFunc(func(ctx context.Context, runID int64, rootSessionID string) (*team.TeamRunResult, error) {
+			called = ctx != nil
+			gotRunID, gotRootSession = runID, rootSessionID
+			return &team.TeamRunResult{}, nil
+		})
+	}
+	t.Cleanup(func() { teamSchedulerFactory = original })
+
+	_, err := RunTeamScheduler(context.Background(), 41, "root-session-001")
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Equal(t, int64(41), gotRunID)
+	require.Equal(t, "root-session-001", gotRootSession)
+}
+
+type teamSchedulerStarterFunc func(context.Context, int64, string) (*team.TeamRunResult, error)
+
+func (f teamSchedulerStarterFunc) Start(ctx context.Context, runID int64, rootSessionID string) (*team.TeamRunResult, error) {
+	return f(ctx, runID, rootSessionID)
+}
+
 type testTeamPlannerDeps struct{}
 
 func (testTeamPlannerDeps) ListChildren(context.Context, models.EntityType, string) ([]team.ChildSnapshot, error) {

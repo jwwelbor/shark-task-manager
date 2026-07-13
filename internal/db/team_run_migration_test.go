@@ -109,3 +109,92 @@ func TestMigrateTeamRunTables_RepairsPartialMigrationAndEnforcesCascade_TC011(t 
 			'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef')`)
 	require.Error(t, err)
 }
+
+func TestMigrateTeamRunTables_EnforcesOneConfirmedSnapshotPerRoot(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	ctx := context.Background()
+
+	_, err := database.ExecContext(ctx, "DROP INDEX IF EXISTS idx_team_runs_confirmation")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "CREATE UNIQUE INDEX idx_team_runs_confirmation ON team_runs(root_type, root_key, plan_hash)")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM schema_version")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "INSERT INTO schema_version (version) VALUES (?)", db.CurrentSchemaVersion)
+	require.NoError(t, err)
+
+	_, err = db.ApplySchemaIfNeeded(database)
+	require.NoError(t, err)
+
+	var indexSQL string
+	require.NoError(t, database.QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_team_runs_confirmation'").Scan(&indexSQL))
+	require.Contains(t, indexSQL, "(root_type, root_key)")
+	require.NotContains(t, indexSQL, "plan_hash")
+
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO team_runs
+			(root_key, root_type, status, execution_mode, concurrency_limit, plan_hash)
+		VALUES ('E38-F01', 'feature', 'planned', 'sequential', 1,
+			'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef')`)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO team_runs
+			(root_key, root_type, status, execution_mode, concurrency_limit, plan_hash)
+		VALUES ('E38-F01', 'feature', 'planned', 'sequential', 1,
+			'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210')`)
+	require.Error(t, err)
+}
+
+func TestMigrateTeamRunTables_PreservesLegacyDuplicateRootsAndProtectsCleanRoots(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	ctx := context.Background()
+	hashA := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	hashB := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+	_, err := database.ExecContext(ctx, "DROP INDEX IF EXISTS idx_team_runs_confirmation")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, `CREATE UNIQUE INDEX idx_team_runs_confirmation ON team_runs(root_type, root_key, plan_hash)`)
+	require.NoError(t, err)
+	for _, hash := range []string{hashA, hashB} {
+		_, err = database.ExecContext(ctx, `
+			INSERT INTO team_runs
+				(root_key, root_type, status, execution_mode, concurrency_limit, plan_hash)
+			VALUES ('E38-DUP', 'feature', 'planned', 'sequential', 1, ?)`, hash)
+		require.NoError(t, err)
+	}
+	_, err = database.ExecContext(ctx, "DELETE FROM schema_version")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "INSERT INTO schema_version (version) VALUES (?)", db.CurrentSchemaVersion)
+	require.NoError(t, err)
+
+	_, err = db.ApplySchemaIfNeeded(database)
+	require.NoError(t, err)
+
+	var preserved int
+	require.NoError(t, database.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM team_runs WHERE root_type = 'feature' AND root_key = 'E38-DUP'").Scan(&preserved))
+	require.Equal(t, 2, preserved, "migration must preserve every legacy snapshot")
+
+	var legacyIndexSQL string
+	require.NoError(t, database.QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_team_runs_confirmation_legacy'").Scan(&legacyIndexSQL))
+	require.Contains(t, legacyIndexSQL, "(root_type, root_key, plan_hash)")
+
+	var rootIndexSQL string
+	require.NoError(t, database.QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_team_runs_confirmation'").Scan(&rootIndexSQL))
+	require.Contains(t, rootIndexSQL, "(root_type, root_key)")
+	require.Contains(t, rootIndexSQL, "WHERE")
+
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO team_runs
+			(root_key, root_type, status, execution_mode, concurrency_limit, plan_hash)
+		VALUES ('E38-CLEAN', 'feature', 'planned', 'sequential', 1, ?)`, hashA)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO team_runs
+			(root_key, root_type, status, execution_mode, concurrency_limit, plan_hash)
+		VALUES ('E38-CLEAN', 'feature', 'planned', 'sequential', 1, ?)`, hashB)
+	require.Error(t, err, "clean roots must retain root-level uniqueness")
+}

@@ -138,6 +138,40 @@ func TestLedger_RecordItemResult_RejectsPlannedToTerminalTransition(t *testing.T
 	}
 }
 
+func TestLedger_RecordPreClaimResult_CASesPlannedItemWithCoordinatorSession(t *testing.T) {
+	coordinator := "root-session-001"
+	repo := &ledgerRepositoryMock{
+		run:   &teamrunrepo.TeamRun{ID: 1, RootSessionID: &coordinator},
+		items: []*teamrunrepo.TeamRunItem{{ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned)}},
+	}
+	got, err := NewLedger(repo).RecordPreClaimResult(context.Background(), ItemResultUpdate{
+		RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusSkipped, SkipReason: "unresolved_workflow",
+	}, coordinator)
+	if err != nil {
+		t.Fatalf("RecordPreClaimResult() error = %v", err)
+	}
+	if got.ItemStatus != ItemStatusSkipped || stringValue(got.SkipReason) != "unresolved_workflow" {
+		t.Fatalf("pre-claim result = %+v, want skipped diagnostic", got)
+	}
+	if repo.updatedItems != 1 {
+		t.Fatalf("CAS updates = %d, want 1", repo.updatedItems)
+	}
+}
+
+func TestLedger_RecordPreClaimResult_RejectsWrongCoordinatorSession(t *testing.T) {
+	coordinator := "root-session-001"
+	repo := &ledgerRepositoryMock{
+		run:   &teamrunrepo.TeamRun{ID: 1, RootSessionID: &coordinator},
+		items: []*teamrunrepo.TeamRunItem{{ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned)}},
+	}
+	_, err := NewLedger(repo).RecordPreClaimResult(context.Background(), ItemResultUpdate{
+		RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusBlocked, SkipReason: "dependency_not_satisfied",
+	}, "other-session")
+	if !errors.Is(err, ErrInvalidItemOwnership) || repo.updatedItems != 0 {
+		t.Fatalf("wrong coordinator error = %v, updates = %d", err, repo.updatedItems)
+	}
+}
+
 func TestLedger_UpdateRun_RejectsInvalidTransitions(t *testing.T) {
 	run := ledgerTestRepoRun()
 	repo := &ledgerRepositoryMock{run: run}

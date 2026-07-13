@@ -227,43 +227,105 @@ func (p *TeamPlanner) listDependencies(ctx context.Context, child ChildIdentity,
 }
 
 func normalizeEdges(child ChildIdentity, edges []DependencyEdge) ([]DependencyEdge, error) {
-	seen := make(map[string]bool, len(edges))
+	seen := make(map[string]int, len(edges))
 	out := make([]DependencyEdge, 0, len(edges))
 	for _, edge := range edges {
-		if edge.ChildKey == "" {
-			edge.ChildKey = child.Key
+		normalized, err := normalizeEdge(child, edge)
+		if err != nil {
+			return nil, err
 		}
-		if edge.ChildType == "" {
-			edge.ChildType = child.EntityType
-		}
-		edge.ChildKey = canonicalKey(edge.ChildKey)
-		edge.DependencyKey = canonicalKey(edge.DependencyKey)
-		if edge.DependencyType == "" {
-			edge.DependencyType = child.EntityType
-		}
-		if err := validateEntityIdentity(edge.ChildKey, edge.ChildType); err != nil {
-			return nil, fmt.Errorf("dependency child identity: %w", err)
-		}
-		if err := validateEntityIdentity(edge.DependencyKey, edge.DependencyType); err != nil {
-			return nil, fmt.Errorf("dependency target identity: %w", err)
-		}
-		if edge.ChildKey != child.Key || edge.ChildType != child.EntityType {
-			return nil, fmt.Errorf("dependency edge child %s/%s does not match requested child %s/%s", edge.ChildType, edge.ChildKey, child.EntityType, child.Key)
-		}
+		edge = normalized
 		identity := string(edge.DependencyType) + ":" + edge.DependencyKey
-		if seen[identity] {
+		if index, exists := seen[identity]; exists {
+			out[index] = mergeDependencyEdge(out[index], edge)
 			continue
 		}
-		seen[identity] = true
+		seen[identity] = len(out)
 		out = append(out, edge)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].DependencyType != out[j].DependencyType {
-			return out[i].DependencyType < out[j].DependencyType
-		}
-		return out[i].DependencyKey < out[j].DependencyKey
-	})
+	sort.Slice(out, func(i, j int) bool { return edgeLess(out[i], out[j]) })
 	return out, nil
+}
+
+// mergeDependencyEdge combines duplicate typed identities without losing
+// source metadata. Relationship rows are authoritative for their resolved
+// state and dependency status; legacy data remains a compatibility fallback
+// for fields the relationship row does not provide.
+func mergeDependencyEdge(existing, incoming DependencyEdge) DependencyEdge {
+	if incoming.Source == "relationship" {
+		return mergeRelationshipEdge(existing, incoming)
+	}
+	if existing.Source == "relationship" {
+		return preserveRelationshipEdge(existing, incoming)
+	}
+	return mergeLegacyEdge(existing, incoming)
+}
+
+func mergeRelationshipEdge(existing, incoming DependencyEdge) DependencyEdge {
+	existing.Resolved = incoming.Resolved
+	existing.External = incoming.External
+	existing.Satisfied = incoming.Satisfied
+	existing.Source = incoming.Source
+	if incoming.DependencyStatus != "" {
+		existing.DependencyStatus = incoming.DependencyStatus
+	}
+	return existing
+}
+
+func preserveRelationshipEdge(existing, incoming DependencyEdge) DependencyEdge {
+	if existing.DependencyStatus == "" && incoming.DependencyStatus != "" {
+		existing.DependencyStatus = incoming.DependencyStatus
+	}
+	return existing
+}
+
+func mergeLegacyEdge(existing, incoming DependencyEdge) DependencyEdge {
+	if incoming.Resolved {
+		existing.Resolved = true
+	}
+	if incoming.Satisfied {
+		existing.Satisfied = true
+	}
+	if incoming.External {
+		existing.External = true
+	}
+	if incoming.DependencyStatus != "" {
+		existing.DependencyStatus = incoming.DependencyStatus
+	}
+	if incoming.Source != "" {
+		existing.Source = incoming.Source
+	}
+	return existing
+}
+
+func normalizeEdge(child ChildIdentity, edge DependencyEdge) (DependencyEdge, error) {
+	if edge.ChildKey == "" {
+		edge.ChildKey = child.Key
+	}
+	if edge.ChildType == "" {
+		edge.ChildType = child.EntityType
+	}
+	edge.ChildKey, edge.DependencyKey = canonicalKey(edge.ChildKey), canonicalKey(edge.DependencyKey)
+	if edge.DependencyType == "" {
+		edge.DependencyType = child.EntityType
+	}
+	if err := validateEntityIdentity(edge.ChildKey, edge.ChildType); err != nil {
+		return edge, fmt.Errorf("dependency child identity: %w", err)
+	}
+	if err := validateEntityIdentity(edge.DependencyKey, edge.DependencyType); err != nil {
+		return edge, fmt.Errorf("dependency target identity: %w", err)
+	}
+	if edge.ChildKey != child.Key || edge.ChildType != child.EntityType {
+		return edge, fmt.Errorf("dependency edge child %s/%s does not match requested child %s/%s", edge.ChildType, edge.ChildKey, child.EntityType, child.Key)
+	}
+	return edge, nil
+}
+
+func edgeLess(a, b DependencyEdge) bool {
+	if a.DependencyType != b.DependencyType {
+		return a.DependencyType < b.DependencyType
+	}
+	return a.DependencyKey < b.DependencyKey
 }
 
 func parseLegacyDependencies(child ChildIdentity, raw string) ([]DependencyEdge, error) {
@@ -323,6 +385,7 @@ func (a *DependencyAdapter) ListDependencies(ctx context.Context, child ChildIde
 			// The relationship source resolved the target entity. Scope is
 			// intentionally classified by TeamPlanner against the root roster.
 			relationships[i].Resolved = true
+			relationships[i].Source = "relationship"
 		}
 		edges = append(edges, relationships...)
 	}
@@ -433,29 +496,73 @@ func planItemLess(a, b TeamPlanItem) bool {
 }
 
 func selectMode(requested int, facts CapabilityFacts, root string) (ExecutionMode, int, string, error) {
-	teamAvailable := facts.TeamExecutionAvailable || facts.SafeTeamExecution
-	singleAvailable := facts.SingleWorkerAvailable || facts.SafeSingleWorkerExecution || facts.SafeWorkerExecutionAvailable
-	isolationAvailable := facts.WorktreeIsolationAvailable || facts.WorktreeIsolation
-	max := facts.MaxConcurrency
-	if max == 0 {
-		max = facts.MaxParallelism
+	decision := chooseCapability(facts)
+	if decision.parallel {
+		return ExecutionModeParallel, minPositive(requested, capabilityLimit(requested, facts)), "", nil
 	}
-	if max <= 0 {
-		max = requested
+	if decision.single {
+		return ExecutionModeSequential, 1, decision.reason, nil
 	}
-	if teamAvailable && isolationAvailable && !facts.UnknownResourceOwnership && !facts.OverlappingResourceOwnership && !facts.ResourceOwnershipOverlap && facts.ResourceOwnershipKnown {
-		return ExecutionModeParallel, minPositive(requested, max), "", nil
+	return "", 0, "", &CapabilityError{RootKey: root, Reason: decision.reason}
+}
+
+type capabilitySelection struct {
+	parallel bool
+	single   bool
+	reason   string
+}
+
+func chooseCapability(facts CapabilityFacts) capabilitySelection {
+	team, isolation := teamExecutionAvailable(facts), worktreeIsolationAvailable(facts)
+	unknown, overlap := unknownOwnership(facts), overlappingOwnership(facts)
+	single := singleWorkerAvailable(facts)
+
+	// Keep the safety-sensitive combinations ordered from strongest guarantee
+	// to degraded fallback so adding a capability flag cannot silently widen
+	// the parallel case.
+	switch {
+	case parallelCapabilities(team, isolation, unknown, overlap):
+		return capabilitySelection{parallel: true}
+	case unknownCapability(team, isolation, unknown):
+		return capabilitySelection{single: single, reason: DegradedReasonUnknownResourceOwnership}
+	case overlapCapability(team, isolation, overlap):
+		return capabilitySelection{single: single, reason: DegradedReasonOverlappingOwnership}
+	default:
+		return capabilitySelection{single: single, reason: DegradedReasonParallelUnavailable}
 	}
-	reason := DegradedReasonParallelUnavailable
-	if teamAvailable && isolationAvailable && (facts.UnknownResourceOwnership || !facts.ResourceOwnershipKnown) {
-		reason = DegradedReasonUnknownResourceOwnership
-	} else if teamAvailable && isolationAvailable && (facts.OverlappingResourceOwnership || facts.ResourceOwnershipOverlap) {
-		reason = DegradedReasonOverlappingOwnership
+}
+
+func parallelCapabilities(team, isolation, unknown, overlap bool) bool {
+	return team && isolation && !unknown && !overlap
+}
+func unknownCapability(team, isolation, unknown bool) bool { return team && isolation && unknown }
+func overlapCapability(team, isolation, overlap bool) bool { return team && isolation && overlap }
+
+func teamExecutionAvailable(f CapabilityFacts) bool {
+	return f.TeamExecutionAvailable || f.SafeTeamExecution
+}
+func worktreeIsolationAvailable(f CapabilityFacts) bool {
+	return f.WorktreeIsolationAvailable || f.WorktreeIsolation
+}
+func unknownOwnership(f CapabilityFacts) bool {
+	return f.UnknownResourceOwnership || !f.ResourceOwnershipKnown
+}
+func overlappingOwnership(f CapabilityFacts) bool {
+	return f.OverlappingResourceOwnership || f.ResourceOwnershipOverlap
+}
+func singleWorkerAvailable(f CapabilityFacts) bool {
+	return f.SingleWorkerAvailable || f.SafeSingleWorkerExecution || f.SafeWorkerExecutionAvailable
+}
+
+func capabilityLimit(requested int, facts CapabilityFacts) int {
+	limit := facts.MaxConcurrency
+	if limit == 0 {
+		limit = facts.MaxParallelism
 	}
-	if singleAvailable {
-		return ExecutionModeSequential, 1, reason, nil
+	if limit <= 0 {
+		return requested
 	}
-	return "", 0, "", &CapabilityError{RootKey: root, Reason: reason}
+	return limit
 }
 
 func minPositive(a, b int) int {
