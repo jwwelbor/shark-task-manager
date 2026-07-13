@@ -37,14 +37,23 @@ type Ledger interface {
 // LedgerService owns confirmed-plan and item-result semantics without
 // scheduling or Shark entity lifecycle mutations.
 type LedgerService struct {
-	repo LedgerRepository
+	repo             LedgerRepository
+	artifactBasePath string
 }
 
 // NewLedger constructs a ledger service with an injected repository.
-func NewLedger(repo LedgerRepository) *LedgerService { return &LedgerService{repo: repo} }
+func NewLedger(repo LedgerRepository, artifactBasePath ...string) *LedgerService {
+	base := "."
+	if len(artifactBasePath) > 0 && strings.TrimSpace(artifactBasePath[0]) != "" {
+		base = artifactBasePath[0]
+	}
+	return &LedgerService{repo: repo, artifactBasePath: base}
+}
 
 // NewLedgerService is the descriptive constructor alias used by service wiring.
-func NewLedgerService(repo LedgerRepository) *LedgerService { return NewLedger(repo) }
+func NewLedgerService(repo LedgerRepository, artifactBasePath ...string) *LedgerService {
+	return NewLedger(repo, artifactBasePath...)
+}
 
 var _ LedgerRepository = (*teamrunrepo.Repository)(nil)
 var _ Ledger = (*LedgerService)(nil)
@@ -159,78 +168,108 @@ func (l *LedgerService) RecordItemResult(ctx context.Context, update ItemResultU
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	if err := update.Validate(); err != nil {
-		return nil, fmt.Errorf("validate result for item %d: %w", update.ItemID, err)
-	}
-	items, err := l.repo.ListItems(ctx, update.RunID)
+	validated, err := l.validateResult(update)
 	if err != nil {
-		return nil, fmt.Errorf("load item %d for result: %w", update.ItemID, err)
+		return nil, err
 	}
-	var current *teamrunrepo.TeamRunItem
+	current, err := l.loadResultItem(ctx, update.RunID, update.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	decision, err := classifyResult(current, validated)
+	if err != nil {
+		return nil, err
+	}
+	if decision.idempotent {
+		return toDomainItem(current)
+	}
+	return l.applyResult(ctx, current, validated)
+}
+
+type validatedResult struct {
+	update         ItemResultUpdate
+	status         ItemStatus
+	storedEvidence string
+}
+
+func (l *LedgerService) validateResult(update ItemResultUpdate) (validatedResult, error) {
+	if err := update.ValidateWithArtifactBase(l.artifactBasePath); err != nil {
+		return validatedResult{}, fmt.Errorf("validate result for item %d: %w", update.ItemID, err)
+	}
+	normalizedRefs, err := update.NormalizeArtifactRefs(l.artifactBasePath)
+	if err != nil {
+		return validatedResult{}, fmt.Errorf("normalize result artifacts for item %d: %w", update.ItemID, err)
+	}
+	update.ArtifactRefs = normalizedRefs
+	storedEvidence, err := encodeEvidence(update.Evidence, normalizedRefs)
+	if err != nil {
+		return validatedResult{}, fmt.Errorf("encode result evidence for item %d: %w", update.ItemID, err)
+	}
+	return validatedResult{update: update, status: update.effectiveStatus(), storedEvidence: storedEvidence}, nil
+}
+
+func (l *LedgerService) loadResultItem(ctx context.Context, runID, itemID int64) (*teamrunrepo.TeamRunItem, error) {
+	items, err := l.repo.ListItems(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load item %d for result: %w", itemID, err)
+	}
 	for _, item := range items {
-		if item != nil && item.ID == update.ItemID {
-			current = item
-			break
+		if item != nil && item.ID == itemID {
+			if item.TeamRunID != runID {
+				break
+			}
+			return item, nil
 		}
 	}
-	if current == nil {
-		return nil, fmt.Errorf("load item %d for result: %w", update.ItemID, ErrRepositoryNotFound)
-	}
-	if current.TeamRunID != update.RunID {
-		return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, ErrRepositoryNotFound)
-	}
+	return nil, fmt.Errorf("load item %d for result: %w", itemID, ErrRepositoryNotFound)
+}
 
-	status := update.effectiveStatus()
-	storedEvidence, err := encodeEvidence(update.Evidence, update.ArtifactRefs)
-	if err != nil {
-		return nil, fmt.Errorf("encode result evidence for item %d: %w", update.ItemID, err)
-	}
-	if terminalItemStatus(ItemStatus(current.ItemStatus)) && update.Attempt == current.Attempt {
-		if sameTerminalResult(current, status, update, storedEvidence) {
-			return toDomainItem(current), nil
-		}
-		return nil, &ConflictingTerminalResultError{RunID: update.RunID, ItemID: update.ItemID, Attempt: update.Attempt}
-	}
-	if update.Attempt != current.Attempt {
-		if !update.ExplicitRetry || update.Attempt != current.Attempt+1 || !terminalItemStatus(ItemStatus(current.ItemStatus)) {
-			return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidAttempt)
-		}
-	}
+type resultDecision struct{ idempotent bool }
 
-	expectedStatus := current.ItemStatus
-	expectedAttempt := current.Attempt
-	current.ItemStatus = string(status)
-	current.Attempt = update.Attempt
-	current.Outcome = optionalString(update.Outcome)
-	current.SkipReason = optionalString(update.SkipReason)
-	current.Evidence = optionalString(storedEvidence)
-	current.ClaimSessionID = optionalString(update.ClaimSessionID)
-	current.WorkerSessionID = optionalString(update.WorkerSessionID)
+func classifyResult(current *teamrunrepo.TeamRunItem, result validatedResult) (resultDecision, error) {
+	if terminalItemStatus(ItemStatus(current.ItemStatus)) && result.update.Attempt == current.Attempt {
+		if sameTerminalResult(current, result.status, result.update, result.storedEvidence) {
+			return resultDecision{idempotent: true}, nil
+		}
+		return resultDecision{}, &ConflictingTerminalResultError{RunID: result.update.RunID, ItemID: result.update.ItemID, Attempt: result.update.Attempt}
+	}
+	if result.update.Attempt != current.Attempt && (!result.update.ExplicitRetry || result.update.Attempt != current.Attempt+1 || !terminalItemStatus(ItemStatus(current.ItemStatus))) {
+		return resultDecision{}, fmt.Errorf("record result for item %d: %w", result.update.ItemID, ErrInvalidAttempt)
+	}
+	return resultDecision{}, nil
+}
+
+func (l *LedgerService) applyResult(ctx context.Context, current *teamrunrepo.TeamRunItem, result validatedResult) (*TeamRunItem, error) {
+	update := result.update
+	expectedStatus, expectedAttempt := current.ItemStatus, current.Attempt
+	current.ItemStatus, current.Attempt = string(result.status), update.Attempt
+	current.Outcome, current.SkipReason = optionalString(update.Outcome), optionalString(update.SkipReason)
+	current.Evidence = optionalString(result.storedEvidence)
+	current.ClaimSessionID, current.WorkerSessionID = optionalString(update.ClaimSessionID), optionalString(update.WorkerSessionID)
 	current.StartedAt = update.StartedAt
-	completedAt := update.CompletedAt
-	if completedAt == nil {
+	current.CompletedAt = update.CompletedAt
+	if current.CompletedAt == nil {
 		now := time.Now().UTC()
-		completedAt = &now
+		current.CompletedAt = &now
 	}
-	current.CompletedAt = completedAt
 	updated, err := l.repo.CompareAndSetItem(ctx, current, expectedStatus, expectedAttempt)
 	if err != nil {
 		return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, err)
 	}
-	if !updated {
-		latest, loadErr := l.findItem(ctx, update.RunID, update.ItemID)
-		if loadErr != nil {
-			return nil, fmt.Errorf("reload item %d after concurrent result: %w", update.ItemID, loadErr)
-		}
-		if terminalItemStatus(ItemStatus(latest.ItemStatus)) && update.Attempt == latest.Attempt {
-			if sameTerminalResult(latest, status, update, storedEvidence) {
-				return toDomainItem(latest), nil
-			}
-			return nil, &ConflictingTerminalResultError{RunID: update.RunID, ItemID: update.ItemID, Attempt: update.Attempt}
-		}
-		return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidAttempt)
+	if updated {
+		return toDomainItem(current)
 	}
-	return toDomainItem(current), nil
+	latest, err := l.findItem(ctx, update.RunID, update.ItemID)
+	if err != nil {
+		return nil, fmt.Errorf("reload item %d after concurrent result: %w", update.ItemID, err)
+	}
+	if terminalItemStatus(ItemStatus(latest.ItemStatus)) && update.Attempt == latest.Attempt {
+		if sameTerminalResult(latest, result.status, update, result.storedEvidence) {
+			return toDomainItem(latest)
+		}
+		return nil, &ConflictingTerminalResultError{RunID: update.RunID, ItemID: update.ItemID, Attempt: update.Attempt}
+	}
+	return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidAttempt)
 }
 
 func (l *LedgerService) findItem(ctx context.Context, runID, itemID int64) (*teamrunrepo.TeamRunItem, error) {
@@ -329,34 +368,39 @@ func toDomainRun(run *teamrunrepo.TeamRun) *TeamRun {
 func toDomainItems(items []*teamrunrepo.TeamRunItem) ([]*TeamRunItem, error) {
 	result := make([]*TeamRunItem, 0, len(items))
 	for _, item := range items {
-		converted := toDomainItem(item)
-		if converted == nil {
-			return nil, fmt.Errorf("%w: nil item", ErrInvalidPlanInput)
+		converted, err := toDomainItem(item)
+		if err != nil {
+			return nil, fmt.Errorf("convert team-run item: %w", err)
 		}
 		result = append(result, converted)
 	}
 	return result, nil
 }
 
-func toDomainItem(item *teamrunrepo.TeamRunItem) *TeamRunItem {
+func toDomainItem(item *teamrunrepo.TeamRunItem) (*TeamRunItem, error) {
 	if item == nil {
-		return nil
+		return nil, fmt.Errorf("%w: nil item", ErrInvalidPlanInput)
 	}
-	refs, summary := decodeEvidence(stringValue(item.Evidence))
+	refs, summary, err := decodeEvidence(stringValue(item.Evidence))
+	if err != nil {
+		return nil, fmt.Errorf("%w: decode item %d evidence: %v", ErrInvalidEvidence, item.ID, err)
+	}
 	deps := []string{}
-	_ = json.Unmarshal([]byte(item.DependencyKeys), &deps)
-	return &TeamRunItem{ID: item.ID, TeamRunID: item.TeamRunID, ChildKey: item.ChildKey, ChildType: models.EntityType(item.ChildType), Wave: item.Wave, ExecutionOrder: item.ExecutionOrder, DependencyKeys: deps, PlannedRole: item.PlannedRole, PlannedAction: item.PlannedAction, PlannedAgentType: item.PlannedAgentType, PlannedProvider: item.PlannedProvider, PlannedModel: item.PlannedModel, PlannedEffort: item.PlannedEffort, ItemStatus: ItemStatus(item.ItemStatus), ClaimSessionID: item.ClaimSessionID, WorkerSessionID: item.WorkerSessionID, Outcome: item.Outcome, SkipReason: item.SkipReason, Evidence: summary, ArtifactRefs: refs, Attempt: item.Attempt, StartedAt: item.StartedAt, CompletedAt: item.CompletedAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+	if err := json.Unmarshal([]byte(item.DependencyKeys), &deps); err != nil {
+		return nil, fmt.Errorf("%w: decode item %d dependencies: %v", ErrMalformedDependency, item.ID, err)
+	}
+	return &TeamRunItem{ID: item.ID, TeamRunID: item.TeamRunID, ChildKey: item.ChildKey, ChildType: models.EntityType(item.ChildType), Wave: item.Wave, ExecutionOrder: item.ExecutionOrder, DependencyKeys: deps, PlannedRole: item.PlannedRole, PlannedAction: item.PlannedAction, PlannedAgentType: item.PlannedAgentType, PlannedProvider: item.PlannedProvider, PlannedModel: item.PlannedModel, PlannedEffort: item.PlannedEffort, ItemStatus: ItemStatus(item.ItemStatus), ClaimSessionID: item.ClaimSessionID, WorkerSessionID: item.WorkerSessionID, Outcome: item.Outcome, SkipReason: item.SkipReason, Evidence: summary, ArtifactRefs: refs, Attempt: item.Attempt, StartedAt: item.StartedAt, CompletedAt: item.CompletedAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, nil
 }
 
-func decodeEvidence(raw string) ([]string, string) {
+func decodeEvidence(raw string) ([]string, string, error) {
 	if raw == "" {
-		return nil, ""
+		return nil, "", nil
 	}
 	var stored storedEvidence
-	if err := json.Unmarshal([]byte(raw), &stored); err == nil {
-		return stored.ArtifactRefs, stored.Summary
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
+		return nil, "", err
 	}
-	return nil, raw
+	return stored.ArtifactRefs, stored.Summary, nil
 }
 
 func optionalString(value string) *string {

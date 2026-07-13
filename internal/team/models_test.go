@@ -2,6 +2,7 @@ package team
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,6 +44,12 @@ func TestLedgerOutput_RejectsSensitiveContent_TC009(t *testing.T) {
 		{name: "duplicate artifact", mutate: func(update *ItemResultUpdate) {
 			update.ArtifactRefs = []string{"artifacts/result.md", "artifacts/result.md"}
 		}, cause: ErrInvalidArtifactPath},
+		{name: "foreign drive path", mutate: func(update *ItemResultUpdate) {
+			update.ArtifactRefs = []string{`C:\\outside\\result.md`}
+		}, cause: ErrInvalidArtifactPath},
+		{name: "home path", mutate: func(update *ItemResultUpdate) {
+			update.ArtifactRefs = []string{"~/outside/result.md"}
+		}, cause: ErrInvalidArtifactPath},
 	}
 
 	for _, tt := range tests {
@@ -57,6 +64,34 @@ func TestLedgerOutput_RejectsSensitiveContent_TC009(t *testing.T) {
 
 	if err := base.Validate(); err != nil {
 		t.Fatalf("valid result rejected: %v", err)
+	}
+}
+
+func TestItemResultUpdate_ArtifactRefsStayWithinAllowedProjectBase_TC009(t *testing.T) {
+	projectRoot := t.TempDir()
+	valid := ItemResultUpdate{RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted, ArtifactRefs: []string{"artifacts/./result.md"}}
+
+	normalized, err := valid.NormalizeArtifactRefs(projectRoot)
+	if err != nil {
+		t.Fatalf("valid project-relative artifact rejected: %v", err)
+	}
+	want := filepath.ToSlash(filepath.Join("artifacts", "result.md"))
+	if len(normalized) != 1 || normalized[0] != want {
+		t.Fatalf("normalized refs = %v, want [%q]", normalized, want)
+	}
+
+	for _, ref := range []string{
+		filepath.Join(projectRoot, "outside.md"),
+		"../../outside.md",
+		`C:\outside\result.md`,
+		`\\server\share\result.md`,
+		"~/outside/result.md",
+	} {
+		update := valid
+		update.ArtifactRefs = []string{ref}
+		if _, err := update.NormalizeArtifactRefs(projectRoot); !errors.Is(err, ErrInvalidArtifactPath) {
+			t.Errorf("NormalizeArtifactRefs(%q) error = %v, want ErrInvalidArtifactPath", ref, err)
+		}
 	}
 }
 

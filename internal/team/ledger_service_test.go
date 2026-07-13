@@ -117,7 +117,7 @@ func TestLedger_RecordItemResult_AllTerminalOutcomes_TC007(t *testing.T) {
 	statuses := []ItemStatus{ItemStatusCompleted, ItemStatusFailed, ItemStatusBlocked, ItemStatusPaused, ItemStatusSkipped, ItemStatusCancelled}
 	for index, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
-			repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{{ID: int64(index + 1), TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", ItemStatus: string(ItemStatusPlanned)}}}
+			repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{{ID: int64(index + 1), TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned)}}}
 			ledger := NewLedger(repo)
 			got, err := ledger.RecordItemResult(context.Background(), ItemResultUpdate{RunID: 1, ItemID: int64(index + 1), Status: status, Outcome: string(status)})
 			if err != nil || got.ItemStatus != status {
@@ -183,6 +183,55 @@ func TestLedger_RejectsInvalidResultBeforePersistence_TC015(t *testing.T) {
 	_, err := ledger.RecordItemResult(context.Background(), ItemResultUpdate{RunID: 1, ItemID: 1, Attempt: -1, Status: ItemStatusCompleted})
 	if !errors.Is(err, ErrInvalidAttempt) || repo.updatedItems != 0 {
 		t.Fatalf("invalid result error = %v, updates=%d", err, repo.updatedItems)
+	}
+}
+
+func TestLedger_ListItems_RejectsMalformedDependencyJSON_TC014(t *testing.T) {
+	repo := &ledgerRepositoryMock{items: []*teamrunrepo.TeamRunItem{{
+		ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task",
+		DependencyKeys: `[1]`, ItemStatus: string(ItemStatusPlanned),
+	}}}
+	ledger := NewLedger(repo)
+
+	if _, err := ledger.ListItems(context.Background(), 1); !errors.Is(err, ErrMalformedDependency) {
+		t.Fatalf("malformed dependency error = %v, want ErrMalformedDependency", err)
+	}
+}
+
+func TestLedger_ListItems_RejectsMalformedEvidenceJSON_TC014(t *testing.T) {
+	repo := &ledgerRepositoryMock{items: []*teamrunrepo.TeamRunItem{{
+		ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task",
+		DependencyKeys: `[]`, Evidence: stringPtr(`{bad`), ItemStatus: string(ItemStatusCompleted),
+	}}}
+	ledger := NewLedger(repo)
+
+	if _, err := ledger.ListItems(context.Background(), 1); !errors.Is(err, ErrInvalidEvidence) {
+		t.Fatalf("malformed evidence error = %v, want ErrInvalidEvidence", err)
+	}
+}
+
+func TestLedger_RecordItemResult_UsesAllowedArtifactBase_TC009(t *testing.T) {
+	projectRoot := t.TempDir()
+	repo := &ledgerRepositoryMock{items: []*teamrunrepo.TeamRunItem{{
+		ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned),
+	}}}
+	ledger := NewLedger(repo, projectRoot)
+
+	result, err := ledger.RecordItemResult(context.Background(), ItemResultUpdate{
+		RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted,
+		ArtifactRefs: []string{"artifacts/./result.md"},
+	})
+	if err != nil || len(result.ArtifactRefs) != 1 || result.ArtifactRefs[0] != "artifacts/result.md" {
+		t.Fatalf("canonical artifact result = %+v, error = %v", result, err)
+	}
+	updatesBeforeReject := repo.updatedItems
+
+	_, err = ledger.RecordItemResult(context.Background(), ItemResultUpdate{
+		RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted,
+		ArtifactRefs: []string{"../../outside.md"},
+	})
+	if !errors.Is(err, ErrInvalidArtifactPath) || repo.updatedItems != updatesBeforeReject {
+		t.Fatalf("outside-base artifact error = %v, updates=%d", err, repo.updatedItems)
 	}
 }
 

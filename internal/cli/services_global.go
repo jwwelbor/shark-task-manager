@@ -628,7 +628,11 @@ func GetTeamLedger() *team.LedgerService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database for TeamLedger: %v", err))
 	}
-	return team.NewLedgerService(teamrunrepo.NewTeamRunRepository(db))
+	projectRoot, err := FindProjectRoot()
+	if err != nil || projectRoot == "" {
+		projectRoot = "."
+	}
+	return team.NewLedgerService(teamrunrepo.NewTeamRunRepository(db), projectRoot)
 }
 
 type teamCascadeChildReader struct {

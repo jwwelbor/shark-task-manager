@@ -425,6 +425,13 @@ func (i *TeamRunItem) Validate() error {
 
 // Validate checks worker result boundaries before any persistence call.
 func (u ItemResultUpdate) Validate() error {
+	return u.ValidateWithArtifactBase(".")
+}
+
+// ValidateWithArtifactBase validates a worker result against the configured
+// project root before any repository access. Artifact references are stored as
+// canonical project-relative paths, never as caller-provided path strings.
+func (u ItemResultUpdate) ValidateWithArtifactBase(artifactBase string) error {
 	if u.RunID <= 0 || u.ItemID <= 0 {
 		return fmt.Errorf("%w: run and item IDs must be positive", ErrInvalidPlanInput)
 	}
@@ -450,17 +457,43 @@ func (u ItemResultUpdate) Validate() error {
 	if len(u.ArtifactRefs) > maxArtifactRefs {
 		return fmt.Errorf("%w: too many artifact references", ErrInvalidArtifactPath)
 	}
-	seen := make(map[string]struct{}, len(u.ArtifactRefs))
-	for _, ref := range u.ArtifactRefs {
-		if err := validateArtifactRef(ref); err != nil {
-			return err
-		}
+	normalized, err := u.NormalizeArtifactRefs(artifactBase)
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(normalized))
+	for _, ref := range normalized {
 		if _, exists := seen[ref]; exists {
 			return fmt.Errorf("%w: duplicate artifact reference %q", ErrInvalidArtifactPath, ref)
 		}
 		seen[ref] = struct{}{}
 	}
 	return nil
+}
+
+// NormalizeArtifactRefs validates and canonicalizes artifact references under
+// an allowed project base. It is intentionally separate so the service can
+// persist exactly the validated representation.
+func (u ItemResultUpdate) NormalizeArtifactRefs(artifactBase string) ([]string, error) {
+	base, err := filepath.Abs(strings.TrimSpace(artifactBase))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid artifact base %q", ErrInvalidArtifactPath, artifactBase)
+	}
+	base = filepath.Clean(base)
+	refs := make([]string, 0, len(u.ArtifactRefs))
+	for _, ref := range u.ArtifactRefs {
+		normalized, err := normalizeArtifactRef(base, ref)
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, normalized)
+	}
+	return refs, nil
+}
+
+func validateArtifactRef(ref string) error {
+	_, err := normalizeArtifactRef(".", ref)
+	return err
 }
 
 func (u ItemResultUpdate) effectiveStatus() ItemStatus {
@@ -480,20 +513,29 @@ func validateEntityKey(key string) error {
 	return nil
 }
 
-func validateArtifactRef(ref string) error {
+func normalizeArtifactRef(base, ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
-	if trimmed == "" || len([]byte(trimmed)) > maxArtifactPath || filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "\\") {
-		return fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
+	if trimmed == "" || len([]byte(trimmed)) > maxArtifactPath || filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "\\") || strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || isWindowsAbsolute(trimmed) {
+		return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
 	}
-	for _, part := range strings.FieldsFunc(trimmed, func(r rune) bool { return r == '/' || r == '\\' }) {
+	for _, part := range strings.Split(trimmed, "/") {
 		if part == ".." {
-			return fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
+			return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
 		}
 	}
 	if filepath.Clean(trimmed) == "." || strings.Contains(trimmed, "\x00") {
-		return fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
+		return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
 	}
-	return nil
+	candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(trimmed)))
+	relative, err := filepath.Rel(base, candidate)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %q", ErrInvalidArtifactPath, ref)
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+func isWindowsAbsolute(path string) bool {
+	return len(path) >= 3 && ((path[0] >= 'a' && path[0] <= 'z') || (path[0] >= 'A' && path[0] <= 'Z')) && path[1] == ':' && path[2] == '/'
 }
 
 func validRunStatus(status RunStatus) bool {
