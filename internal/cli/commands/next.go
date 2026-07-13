@@ -65,7 +65,7 @@ type nextAdapterCache struct {
 // resolved once. The root is shared across all entity types — only the
 // ForEntity-narrowed view differs per type.
 func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
-	root, err := cli.GetActionService(ctx)
+	root, err := getDispatchActionService(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize action service: %w", err)
 	}
@@ -115,6 +115,7 @@ func (c *nextAdapterCache) get(ctx context.Context, entityType string) (*nextAda
 var (
 	nextBuildTransitioner         = buildTransitioner
 	nextBuildPlaceholderGenerator = buildPlaceholderGenerator
+	getDispatchActionService      = cli.GetActionService
 )
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is

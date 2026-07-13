@@ -41,7 +41,7 @@ func (s stepPromptAssembler) AssemblePrompt(context.Context, PromptAssemblyInput
 	return s.prompt, nil
 }
 
-func TestStepResolver_Resolve_TC010(t *testing.T) {
+func TestStepResolver_Resolve_UnitCoverage(t *testing.T) {
 	tests := []struct {
 		name           string
 		entityType     models.EntityType
@@ -165,7 +165,7 @@ func TestStepResolver_Resolve_TC010(t *testing.T) {
 	}
 }
 
-func TestStepResolver_PropagatesActionProviderFailure_TC010(t *testing.T) {
+func TestStepResolver_PropagatesActionProviderFailure_UnitCoverage(t *testing.T) {
 	wantErr := errors.New("provider configuration unavailable")
 	resolver, err := NewStepResolver(StepResolverDeps{
 		Transitioner: stepTransitioner{info: &services.NextStatusInfo{CurrentStatus: "in_development"}},
@@ -183,7 +183,7 @@ func TestStepResolver_PropagatesActionProviderFailure_TC010(t *testing.T) {
 	assert.True(t, strings.Contains(err.Error(), "populate action"), "error should identify the resolution phase: %v", err)
 }
 
-func TestStepResolver_PropagatesPromptAssemblyFailure_TC010(t *testing.T) {
+func TestStepResolver_PropagatesPromptAssemblyFailure_UnitCoverage(t *testing.T) {
 	wantErr := errors.New("prompt renderer unavailable")
 	resolver, err := NewStepResolver(StepResolverDeps{
 		Transitioner: stepTransitioner{info: &services.NextStatusInfo{CurrentStatus: "in_development"}},

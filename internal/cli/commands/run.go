@@ -24,6 +24,9 @@ var (
 	runVerbose  bool
 	runWorkDir  string
 	runWorktree bool
+
+	buildRunTransitioner         = buildTransitioner
+	buildRunPlaceholderGenerator = buildPlaceholderGenerator
 )
 
 type runClaimServicer interface {
@@ -143,18 +146,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Build entity-type adapters.
-	transitioner, err := buildTransitioner(ctx, entityType)
+	transitioner, err := buildRunTransitioner(ctx, entityType)
 	if err != nil {
 		return fmt.Errorf("failed to build transitioner for %s: %w", entityType, err)
 	}
 
-	placeholderGen := buildPlaceholderGenerator(ctx, entityType)
+	placeholderGen := buildRunPlaceholderGenerator(ctx, entityType)
 
 	// Step 3: Get shared services. Narrow the action service to this entity
 	// type so status lookups in the run loop resolve against the right
 	// per-entity workflow (cross-entity status name collisions like
 	// "completed" become unambiguous).
-	actionSvcRoot, err := cli.GetActionService(ctx)
+	actionSvcRoot, err := getDispatchActionService(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
