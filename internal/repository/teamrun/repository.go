@@ -68,7 +68,8 @@ type TeamRunItem struct {
 
 // Repository handles pure SQL access to the team-run ledger.
 type Repository struct {
-	db *dbconn.DB
+	db                   *dbconn.DB
+	transactionBeginHook func(attempt int)
 }
 
 // NewRepository creates a team-run repository backed by db.
@@ -119,6 +120,77 @@ func (r *Repository) CreateRunWithItems(ctx context.Context, run *TeamRun, items
 		item.TeamRunID = runID
 	}
 	return nil
+}
+
+// CreateRunWithItemsIfAbsent atomically confirms a run snapshot. The unique
+// confirmation index makes the insert-or-select decision safe when multiple
+// coordinators confirm the same root and plan hash concurrently. Item rows
+// are inserted only by the coordinator that wins the run insert.
+func (r *Repository) CreateRunWithItemsIfAbsent(ctx context.Context, run *TeamRun, items []*TeamRunItem) (*TeamRun, bool, error) {
+	if run == nil {
+		return nil, false, errors.New("team-run is nil")
+	}
+
+	var selected *TeamRun
+	idempotent := false
+	itemIDs := make([]int64, len(items))
+	err := r.withTransactionRetry(ctx, func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO team_runs (
+				root_key, root_type, status, execution_mode, concurrency_limit, plan_hash,
+				aggregate_outcome, next_action, root_session_id, started_at, completed_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(root_type, root_key, plan_hash) DO NOTHING`,
+			run.RootKey, run.RootType, run.Status, run.ExecutionMode, run.ConcurrencyLimit,
+			run.PlanHash, stringValue(run.AggregateOutcome), stringValue(run.NextAction),
+			stringValue(run.RootSessionID), sqlTimeValue(run.StartedAt), sqlTimeValue(run.CompletedAt))
+		if err != nil {
+			return fmt.Errorf("insert confirmed team run: %w", err)
+		}
+
+		if affected, err := result.RowsAffected(); err != nil {
+			return fmt.Errorf("insert confirmed team run rows affected: %w", err)
+		} else if affected == 0 {
+			selected, err = scanRun(tx.QueryRowContext(ctx, `
+				SELECT id, root_key, root_type, status, execution_mode, concurrency_limit,
+					plan_hash, aggregate_outcome, next_action, root_session_id, started_at,
+					completed_at, created_at, updated_at
+				FROM team_runs WHERE root_type = ? AND root_key = ? AND plan_hash = ?`,
+				run.RootType, run.RootKey, run.PlanHash))
+			if err != nil {
+				return fmt.Errorf("select existing confirmed team run: %w", err)
+			}
+			idempotent = true
+			return nil
+		}
+
+		runID, err := result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("insert confirmed team run last insert id: %w", err)
+		}
+		for i, item := range items {
+			if item == nil {
+				return errors.New("team-run item is nil")
+			}
+			itemIDs[i], err = insertItemTx(ctx, tx, runID, item)
+			if err != nil {
+				return err
+			}
+		}
+		run.ID = runID
+		return nil
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("confirm team run with items: %w", err)
+	}
+	if idempotent {
+		return selected, true, nil
+	}
+	for i, item := range items {
+		item.ID = itemIDs[i]
+		item.TeamRunID = run.ID
+	}
+	return run, false, nil
 }
 
 // CreateRun inserts a run without item rows. CreateRunWithItems is preferred
@@ -248,11 +320,15 @@ func (r *Repository) UpdateRun(ctx context.Context, run *TeamRun) error {
 	return nil
 }
 
-// UpdateItem persists a membership row and refreshes updated_at.
-func (r *Repository) UpdateItem(ctx context.Context, item *TeamRunItem) error {
+// CompareAndSetItem applies an item update only when its ID, owning run,
+// current status, and current attempt still match the caller's snapshot.
+// The affected-row result is the concurrency decision: false means another
+// writer changed the item before this update committed.
+func (r *Repository) CompareAndSetItem(ctx context.Context, item *TeamRunItem, expectedStatus string, expectedAttempt int) (bool, error) {
 	if item == nil {
-		return errors.New("team-run item is nil")
+		return false, errors.New("team-run item is nil")
 	}
+	var updated bool
 	err := r.withTransactionRetry(ctx, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
 			UPDATE team_run_items
@@ -262,27 +338,28 @@ func (r *Repository) UpdateItem(ctx context.Context, item *TeamRunItem) error {
 				claim_session_id = ?, worker_session_id = ?, outcome = ?, skip_reason = ?,
 				evidence = ?, attempt = ?, started_at = ?, completed_at = ?,
 				updated_at = CURRENT_TIMESTAMP
-			WHERE id = ?`,
+			WHERE id = ? AND team_run_id = ? AND item_status = ? AND attempt = ?`,
 			item.Wave, item.ExecutionOrder, item.DependencyKeys,
 			stringValue(item.PlannedRole), stringValue(item.PlannedAction), stringValue(item.PlannedAgentType),
 			stringValue(item.PlannedProvider), stringValue(item.PlannedModel), stringValue(item.PlannedEffort),
 			item.ItemStatus, stringValue(item.ClaimSessionID), stringValue(item.WorkerSessionID),
 			stringValue(item.Outcome), stringValue(item.SkipReason), stringValue(item.Evidence), item.Attempt,
-			sqlTimeValue(item.StartedAt), sqlTimeValue(item.CompletedAt), item.ID)
+			sqlTimeValue(item.StartedAt), sqlTimeValue(item.CompletedAt), item.ID, item.TeamRunID,
+			expectedStatus, expectedAttempt)
 		if err != nil {
-			return fmt.Errorf("update team-run item %d: %w", item.ID, err)
+			return fmt.Errorf("compare-and-set team-run item %d: %w", item.ID, err)
 		}
-		if affected, err := result.RowsAffected(); err != nil {
-			return fmt.Errorf("update team-run item %d rows affected: %w", item.ID, err)
-		} else if affected == 0 {
-			return fmt.Errorf("team-run item %d not found: %w", item.ID, repoerr.ErrNotFound)
+		count, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("compare-and-set team-run item %d rows affected: %w", item.ID, err)
 		}
+		updated = count == 1
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("update team-run item %d: %w", item.ID, err)
+		return false, err
 	}
-	return nil
+	return updated, nil
 }
 
 func insertRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun) (int64, error) {
@@ -344,10 +421,16 @@ func (r *Repository) withTransactionRetry(ctx context.Context, fn func(*sql.Tx) 
 			}
 			continue
 		}
+		if r.transactionBeginHook != nil {
+			r.transactionBeginHook(attempt)
+		}
 
 		err = fn(tx)
 		if err != nil {
-			_ = tx.Rollback()
+			rollbackErr := tx.Rollback()
+			if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+				return errors.Join(err, fmt.Errorf("rollback transaction: %w", rollbackErr))
+			}
 			if !isBusyError(err) || attempt == transactionAttempts-1 {
 				return err
 			}

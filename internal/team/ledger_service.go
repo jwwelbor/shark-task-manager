@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	teamrunrepo "github.com/jwwelbor/shark-task-manager/internal/repository/teamrun"
 )
 
@@ -19,10 +18,11 @@ import (
 type LedgerRepository interface {
 	FindRunByRoot(ctx context.Context, rootType, rootKey string) (*teamrunrepo.TeamRun, error)
 	CreateRunWithItems(ctx context.Context, run *teamrunrepo.TeamRun, items []*teamrunrepo.TeamRunItem) error
+	CreateRunWithItemsIfAbsent(ctx context.Context, run *teamrunrepo.TeamRun, items []*teamrunrepo.TeamRunItem) (*teamrunrepo.TeamRun, bool, error)
 	GetRun(ctx context.Context, runID int64) (*teamrunrepo.TeamRun, error)
 	ListItems(ctx context.Context, runID int64) ([]*teamrunrepo.TeamRunItem, error)
 	UpdateRun(ctx context.Context, run *teamrunrepo.TeamRun) error
-	UpdateItem(ctx context.Context, item *teamrunrepo.TeamRunItem) error
+	CompareAndSetItem(ctx context.Context, item *teamrunrepo.TeamRunItem, expectedStatus string, expectedAttempt int) (bool, error)
 }
 
 // Ledger is the consumer-facing service contract for durable team-run state.
@@ -63,17 +63,6 @@ func (l *LedgerService) PersistConfirmedPlan(ctx context.Context, plan *TeamPlan
 	}
 
 	rootKey := strings.ToUpper(strings.TrimSpace(plan.RootKey))
-	existing, err := l.repo.FindRunByRoot(ctx, string(plan.RootType), rootKey)
-	if err == nil {
-		if existing.PlanHash != plan.PlanHash {
-			return nil, &PlanDriftError{RootKey: rootKey, ExistingHash: existing.PlanHash, RequestedHash: plan.PlanHash}
-		}
-		return toDomainRun(existing), nil
-	}
-	if !isNotFound(err) {
-		return nil, fmt.Errorf("find confirmed team run for %s: %w", rootKey, err)
-	}
-
 	session := rootSessionID
 	run := &teamrunrepo.TeamRun{RootKey: rootKey, RootType: string(plan.RootType), Status: string(RunStatusPlanned), ExecutionMode: string(plan.ExecutionMode), ConcurrencyLimit: plan.ConcurrencyLimit, PlanHash: plan.PlanHash, RootSessionID: &session}
 	items := make([]*teamrunrepo.TeamRunItem, 0, len(plan.Items))
@@ -84,10 +73,14 @@ func (l *LedgerService) PersistConfirmedPlan(ctx context.Context, plan *TeamPlan
 		}
 		items = append(items, item)
 	}
-	if err := l.repo.CreateRunWithItems(ctx, run, items); err != nil {
+	confirmed, _, err := l.repo.CreateRunWithItemsIfAbsent(ctx, run, items)
+	if err != nil {
 		return nil, fmt.Errorf("persist confirmed team plan for %s: %w", rootKey, err)
 	}
-	return toDomainRun(run), nil
+	if confirmed.PlanHash != plan.PlanHash {
+		return nil, &PlanDriftError{RootKey: rootKey, ExistingHash: confirmed.PlanHash, RequestedHash: plan.PlanHash}
+	}
+	return toDomainRun(confirmed), nil
 }
 
 // GetRun retrieves a durable run by ID.
@@ -204,6 +197,8 @@ func (l *LedgerService) RecordItemResult(ctx context.Context, update ItemResultU
 		}
 	}
 
+	expectedStatus := current.ItemStatus
+	expectedAttempt := current.Attempt
 	current.ItemStatus = string(status)
 	current.Attempt = update.Attempt
 	current.Outcome = optionalString(update.Outcome)
@@ -218,10 +213,37 @@ func (l *LedgerService) RecordItemResult(ctx context.Context, update ItemResultU
 		completedAt = &now
 	}
 	current.CompletedAt = completedAt
-	if err := l.repo.UpdateItem(ctx, current); err != nil {
+	updated, err := l.repo.CompareAndSetItem(ctx, current, expectedStatus, expectedAttempt)
+	if err != nil {
 		return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, err)
 	}
+	if !updated {
+		latest, loadErr := l.findItem(ctx, update.RunID, update.ItemID)
+		if loadErr != nil {
+			return nil, fmt.Errorf("reload item %d after concurrent result: %w", update.ItemID, loadErr)
+		}
+		if terminalItemStatus(ItemStatus(latest.ItemStatus)) && update.Attempt == latest.Attempt {
+			if sameTerminalResult(latest, status, update, storedEvidence) {
+				return toDomainItem(latest), nil
+			}
+			return nil, &ConflictingTerminalResultError{RunID: update.RunID, ItemID: update.ItemID, Attempt: update.Attempt}
+		}
+		return nil, fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidAttempt)
+	}
 	return toDomainItem(current), nil
+}
+
+func (l *LedgerService) findItem(ctx context.Context, runID, itemID int64) (*teamrunrepo.TeamRunItem, error) {
+	items, err := l.repo.ListItems(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item != nil && item.ID == itemID {
+			return item, nil
+		}
+	}
+	return nil, ErrRepositoryNotFound
 }
 
 // PlanDriftError identifies an incompatible repeated confirmation.
@@ -355,7 +377,4 @@ func contextError(ctx context.Context) error {
 		return errors.New("team ledger context is nil")
 	}
 	return ctx.Err()
-}
-func isNotFound(err error) bool {
-	return errors.Is(err, ErrRepositoryNotFound) || errors.Is(err, repoerr.ErrNotFound)
 }

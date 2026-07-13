@@ -1086,6 +1086,7 @@ func migrateTeamRunTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_team_runs_root_status ON team_runs(root_type, root_key, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_runs_status ON team_runs(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_runs_plan_hash ON team_runs(plan_hash)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_runs_confirmation ON team_runs(root_type, root_key, plan_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_run_items_run_wave_status ON team_run_items(team_run_id, wave, item_status)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_run_items_child ON team_run_items(child_type, child_key)`,
 		`CREATE INDEX IF NOT EXISTS idx_team_run_items_claim_session ON team_run_items(claim_session_id)`,

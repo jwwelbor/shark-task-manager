@@ -103,6 +103,8 @@ func TestRepository_CreateRunWithItems_RetriesTransientBusyWithoutDuplicates_TC0
 	database := test.NewIsolatedTestDB(t)
 	repo := NewRepository(dbconn.NewDB(database))
 	ctx := context.Background()
+	_, err := database.ExecContext(ctx, "PRAGMA busy_timeout = 0")
+	require.NoError(t, err)
 
 	lock, err := database.BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -113,6 +115,14 @@ func TestRepository_CreateRunWithItems_RetriesTransientBusyWithoutDuplicates_TC0
 			'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210')`)
 	require.NoError(t, err)
 
+	transactionStarted := make(chan struct{})
+	release := make(chan struct{})
+	repo.transactionBeginHook = func(attempt int) {
+		if attempt == 0 {
+			close(transactionStarted)
+			<-release
+		}
+	}
 	done := make(chan error, 1)
 	go func() {
 		run := testRun()
@@ -120,8 +130,9 @@ func TestRepository_CreateRunWithItems_RetriesTransientBusyWithoutDuplicates_TC0
 		done <- repo.CreateRunWithItems(ctx, run, []*TeamRunItem{testItem("T-E38-F01-001", 1)})
 	}()
 
-	time.Sleep(10 * time.Millisecond)
+	<-transactionStarted
 	require.NoError(t, lock.Rollback())
+	close(release)
 	require.NoError(t, <-done)
 
 	var count int
@@ -129,3 +140,74 @@ func TestRepository_CreateRunWithItems_RetriesTransientBusyWithoutDuplicates_TC0
 		"SELECT COUNT(*) FROM team_runs WHERE root_key = 'E38-BUSY'").Scan(&count))
 	require.Equal(t, 1, count)
 }
+
+func TestRepository_CreateRunWithItemsIfAbsent_IsAtomicUnderConcurrentConfirmation_TC006(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+	ctx := context.Background()
+	start := make(chan struct{})
+	results := make(chan struct {
+		run        *TeamRun
+		idempotent bool
+		err        error
+	}, 2)
+
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			run, idempotent, err := repo.CreateRunWithItemsIfAbsent(ctx, testRun(), []*TeamRunItem{testItem("T-E38-F01-001", 1)})
+			results <- struct {
+				run        *TeamRun
+				idempotent bool
+				err        error
+			}{run, idempotent, err}
+		}()
+	}
+	close(start)
+
+	var runs []*TeamRun
+	var idempotentCount int
+	for i := 0; i < 2; i++ {
+		result := <-results
+		require.NoError(t, result.err)
+		runs = append(runs, result.run)
+		if result.idempotent {
+			idempotentCount++
+		}
+	}
+	require.Equal(t, 1, idempotentCount)
+	require.Equal(t, runs[0].ID, runs[1].ID)
+
+	var count int
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM team_runs").Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM team_run_items").Scan(&count))
+	require.Equal(t, 1, count)
+}
+
+func TestRepository_CompareAndSetItem_RejectsStaleWriter_TC007(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+	ctx := context.Background()
+	run := testRun()
+	item := testItem("T-E38-F01-001", 1)
+	require.NoError(t, repo.CreateRunWithItems(ctx, run, []*TeamRunItem{item}))
+
+	item.ItemStatus = "completed"
+	item.Attempt = 0
+	updated, err := repo.CompareAndSetItem(ctx, item, "planned", 0)
+	require.NoError(t, err)
+	require.True(t, updated)
+
+	item.Outcome = stringPtr("different")
+	updated, err = repo.CompareAndSetItem(ctx, item, "planned", 0)
+	require.NoError(t, err)
+	require.False(t, updated, "a stale writer must not overwrite the terminal result")
+
+	got, err := repo.ListItems(ctx, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", got[0].ItemStatus)
+	require.Nil(t, got[0].Outcome)
+}
+
+func stringPtr(value string) *string { return &value }

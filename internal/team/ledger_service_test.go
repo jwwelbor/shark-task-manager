@@ -46,6 +46,22 @@ func (m *ledgerRepositoryMock) CreateRunWithItems(_ context.Context, run *teamru
 	return nil
 }
 
+func (m *ledgerRepositoryMock) CreateRunWithItemsIfAbsent(_ context.Context, run *teamrunrepo.TeamRun, items []*teamrunrepo.TeamRunItem) (*teamrunrepo.TeamRun, bool, error) {
+	if m.findErr != nil {
+		return nil, false, m.findErr
+	}
+	if m.run != nil {
+		if m.run.PlanHash != run.PlanHash {
+			return cloneRepoRun(m.run), true, nil
+		}
+		return cloneRepoRun(m.run), true, nil
+	}
+	if err := m.CreateRunWithItems(context.Background(), run, items); err != nil {
+		return nil, false, err
+	}
+	return cloneRepoRun(run), false, nil
+}
+
 func (m *ledgerRepositoryMock) GetRun(context.Context, int64) (*teamrunrepo.TeamRun, error) {
 	return cloneRepoRun(m.run), nil
 }
@@ -54,7 +70,12 @@ func (m *ledgerRepositoryMock) ListItems(context.Context, int64) ([]*teamrunrepo
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
-	return m.items, nil
+	items := make([]*teamrunrepo.TeamRunItem, 0, len(m.items))
+	for _, item := range m.items {
+		copy := *item
+		items = append(items, &copy)
+	}
+	return items, nil
 }
 
 func (m *ledgerRepositoryMock) UpdateRun(_ context.Context, run *teamrunrepo.TeamRun) error {
@@ -62,18 +83,19 @@ func (m *ledgerRepositoryMock) UpdateRun(_ context.Context, run *teamrunrepo.Tea
 	return nil
 }
 
-func (m *ledgerRepositoryMock) UpdateItem(_ context.Context, item *teamrunrepo.TeamRunItem) error {
+func (m *ledgerRepositoryMock) CompareAndSetItem(_ context.Context, item *teamrunrepo.TeamRunItem, expectedStatus string, expectedAttempt int) (bool, error) {
 	if m.updateErr != nil {
-		return m.updateErr
+		return false, m.updateErr
 	}
-	m.updatedItems++
 	for index, existing := range m.items {
-		if existing.ID == item.ID {
-			m.items[index] = item
-			return nil
+		if existing.ID != item.ID || existing.TeamRunID != item.TeamRunID || existing.ItemStatus != expectedStatus || existing.Attempt != expectedAttempt {
+			continue
 		}
+		m.items[index] = item
+		m.updatedItems++
+		return true, nil
 	}
-	return errors.New("item not found")
+	return false, nil
 }
 
 func TestLedger_ContextCancellationAndWrappedErrors_TC015(t *testing.T) {

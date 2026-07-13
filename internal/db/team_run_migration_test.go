@@ -52,6 +52,7 @@ func TestMigrateTeamRunTables_IsAdditiveAndIdempotent_TC011(t *testing.T) {
 		"idx_team_runs_root_status",
 		"idx_team_runs_status",
 		"idx_team_runs_plan_hash",
+		"idx_team_runs_confirmation",
 		"idx_team_run_items_run_wave_status",
 		"idx_team_run_items_child",
 		"idx_team_run_items_claim_session",
