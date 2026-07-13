@@ -529,7 +529,8 @@ func (s *Scheduler) setNextAction(run *TeamRun, diagnostic string) {
 	s.diagnosticMu.Lock()
 	defer s.diagnosticMu.Unlock()
 	if run.NextAction == nil || *run.NextAction == "" {
-		run.NextAction = &diagnostic
+		boundedDiagnostic := bounded(diagnostic)
+		run.NextAction = &boundedDiagnostic
 	}
 }
 
