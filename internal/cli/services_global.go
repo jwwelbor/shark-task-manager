@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -608,12 +609,16 @@ func GetTeamPlanner() *team.TeamPlanner {
 			registry: GetEntityRegistry(),
 		},
 	)
-	planner, err := team.NewTeamPlanner(team.PlannerDeps{
+	return newTeamPlanner(team.PlannerDeps{
 		Children:     &teamCascadeChildReader{cascade: GetCascadeService()},
 		Dependencies: dependencyAdapter,
 		Dispatch:     newTeamDispatchStepResolver(actionSvc),
 		Claims:       &teamClaimDiagnosticReader{claims: GetClaimService()},
 	})
+}
+
+func newTeamPlanner(deps team.PlannerDeps) *team.TeamPlanner {
+	planner, err := team.NewTeamPlanner(deps)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create TeamPlanner: %v", err))
 	}
@@ -632,7 +637,11 @@ func GetTeamLedger() *team.LedgerService {
 	if err != nil || projectRoot == "" {
 		projectRoot = "."
 	}
-	return team.NewLedgerService(teamrunrepo.NewTeamRunRepository(db), projectRoot)
+	return newTeamLedger(teamrunrepo.NewTeamRunRepository(db), projectRoot)
+}
+
+func newTeamLedger(repo team.LedgerRepository, projectRoot string) *team.LedgerService {
+	return team.NewLedgerService(repo, projectRoot)
 }
 
 type teamCascadeChildReader struct {
@@ -684,8 +693,16 @@ func (s *teamLegacyDependencySource) ListLegacyDependencies(ctx context.Context,
 }
 
 type teamRelationshipDependencySource struct {
-	repo     *repository.EntityRelationshipRepository
-	registry *services.EntityRegistry
+	repo     teamRelationshipReader
+	registry teamEntityRegistry
+}
+
+type teamRelationshipReader interface {
+	GetOutgoing(context.Context, models.EntityType, int64, []models.EntityRelationshipType) ([]*models.EntityRelationship, error)
+}
+
+type teamEntityRegistry interface {
+	GetRepository(models.EntityType) (services.EntityRepository, error)
 }
 
 func (s *teamRelationshipDependencySource) ListRelationshipDependencies(ctx context.Context, child team.ChildIdentity) ([]team.DependencyEdge, error) {
@@ -726,12 +743,21 @@ func (s *teamRelationshipDependencySource) ListRelationshipDependencies(ctx cont
 			DependencyKey:    target.GetKey(),
 			DependencyType:   rel.ToEntityType,
 			DependencyStatus: target.GetStatus(),
-			Satisfied:        false,
+			Satisfied:        teamDependencyStatusSatisfied(target.GetStatus()),
 			Resolved:         true,
 			Source:           "relationship",
 		})
 	}
 	return edges, nil
+}
+
+func teamDependencyStatusSatisfied(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "archived", "shipped", "success", "passed":
+		return true
+	default:
+		return false
+	}
 }
 
 type teamClaimDiagnosticReader struct {

@@ -1,37 +1,106 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"sync"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	teamrunrepo "github.com/jwwelbor/shark-task-manager/internal/repository/teamrun"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/team"
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetTeamServices_Wiring_TC010 verifies that the established global
-// accessor seam exposes the already-implemented planner and ledger services.
-// The accessors must construct the real injected services without adding a
-// team-specific command or bypassing the service layer.
+// TestGetTeamServices_Wiring_TC010 verifies the construction helpers used by
+// the established global accessors. It uses injected seams so CLI wiring tests
+// do not open a real database while preserving production-shaped construction.
 func TestGetTeamServices_Wiring_TC010(t *testing.T) {
-	tmpDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".sharkconfig.json"), []byte(`{}`), 0o644))
-	originalWD, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmpDir))
-	defer func() { require.NoError(t, os.Chdir(originalWD)) }()
-	defer ResetDB()
-	ResetServices()
-	defer ResetServices()
-
-	planner := GetTeamPlanner()
+	planner := newTeamPlanner(team.PlannerDeps{
+		Children: testTeamPlannerDeps{},
+		Dispatch: testTeamPlannerDeps{},
+	})
 	require.NotNil(t, planner)
 	var _ team.Planner = planner
 
-	ledger := GetTeamLedger()
+	ledger := newTeamLedger(&testTeamLedgerRepository{}, t.TempDir())
 	require.NotNil(t, ledger)
 	var _ team.Ledger = ledger
+}
+
+type testTeamPlannerDeps struct{}
+
+func (testTeamPlannerDeps) ListChildren(context.Context, models.EntityType, string) ([]team.ChildSnapshot, error) {
+	return nil, nil
+}
+
+func (testTeamPlannerDeps) Resolve(context.Context, models.EntityType, string) (dispatch.DispatchStep, error) {
+	return dispatch.DispatchStep{}, nil
+}
+
+type testTeamLedgerRepository struct{}
+
+func (*testTeamLedgerRepository) FindRunByRoot(context.Context, string, string) (*teamrunrepo.TeamRun, error) {
+	return nil, team.ErrRepositoryNotFound
+}
+func (*testTeamLedgerRepository) CreateRunWithItems(context.Context, *teamrunrepo.TeamRun, []*teamrunrepo.TeamRunItem) error {
+	return nil
+}
+func (*testTeamLedgerRepository) CreateRunWithItemsIfAbsent(context.Context, *teamrunrepo.TeamRun, []*teamrunrepo.TeamRunItem) (*teamrunrepo.TeamRun, bool, error) {
+	return nil, false, nil
+}
+func (*testTeamLedgerRepository) GetRun(context.Context, int64) (*teamrunrepo.TeamRun, error) {
+	return nil, team.ErrRepositoryNotFound
+}
+func (*testTeamLedgerRepository) ListItems(context.Context, int64) ([]*teamrunrepo.TeamRunItem, error) {
+	return nil, nil
+}
+func (*testTeamLedgerRepository) UpdateRun(context.Context, *teamrunrepo.TeamRun) error { return nil }
+func (*testTeamLedgerRepository) CompareAndSetItem(context.Context, *teamrunrepo.TeamRunItem, string, int) (bool, error) {
+	return false, nil
+}
+
+type testRelationshipReader struct{}
+
+func (testRelationshipReader) GetOutgoing(context.Context, models.EntityType, int64, []models.EntityRelationshipType) ([]*models.EntityRelationship, error) {
+	return []*models.EntityRelationship{{
+		FromEntityType:   models.EntityTypeTask,
+		FromEntityID:     1,
+		ToEntityType:     models.EntityTypeTask,
+		ToEntityID:       2,
+		RelationshipType: models.EntityRelDependsOn,
+	}}, nil
+}
+
+type testEntityRegistry struct{}
+
+func (testEntityRegistry) GetRepository(models.EntityType) (services.EntityRepository, error) {
+	return testEntityRepository{}, nil
+}
+
+type testEntityRepository struct{}
+
+func (testEntityRepository) GetByKey(context.Context, string) (models.Entity, error) {
+	return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E38-F01-001"}, Status: "todo"}, nil
+}
+func (testEntityRepository) GetByID(context.Context, int64) (models.Entity, error) {
+	return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: "T-E37-F01-001"}, Status: "completed"}, nil
+}
+func (testEntityRepository) UpdateStatus(context.Context, int64, string) error       { return nil }
+func (testEntityRepository) Update(context.Context, models.Entity) error             { return nil }
+func (testEntityRepository) GetContextData(context.Context, int64) (*string, error)  { return nil, nil }
+func (testEntityRepository) UpdateContextData(context.Context, int64, *string) error { return nil }
+
+func TestTeamRelationshipDependencySource_ReportsSatisfiedExternalMetadata(t *testing.T) {
+	source := teamRelationshipDependencySource{repo: testRelationshipReader{}, registry: testEntityRegistry{}}
+	edges, err := source.ListRelationshipDependencies(context.Background(), team.ChildIdentity{Key: "T-E38-F01-001", EntityType: models.EntityTypeTask})
+	require.NoError(t, err)
+	require.Len(t, edges, 1)
+	require.True(t, edges[0].Resolved)
+	require.True(t, edges[0].Satisfied)
+	require.Equal(t, "completed", edges[0].DependencyStatus)
+	require.Equal(t, "T-E37-F01-001", edges[0].DependencyKey)
 }
 
 // TestResetServices_ReplacesContainer verifies that ResetServices() replaces
