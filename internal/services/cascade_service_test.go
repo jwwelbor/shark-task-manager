@@ -402,3 +402,62 @@ func TestCascadeService_FeatureChildren_OrderingPreserved(t *testing.T) {
 		}
 	}
 }
+
+// TestCascadeService_ListChildren_TC001 verifies the planner-facing seam
+// returns every direct child, including terminal children, without applying
+// dispatchability or dependency filtering.
+func TestCascadeService_ListChildren_TC001(t *testing.T) {
+	wf := newWorkflowService(t, b029CustomWorkflowConfig)
+	priority := 4
+	order := 2
+	taskRepo := &mockCascadeTaskRepo{
+		ListByFeatureKeyFunc: func(context.Context, string) ([]*models.Task, error) {
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "T-E07-F01-002"}, Status: "shipped", Priority: priority, ExecutionOrder: &order},
+				{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001"}, Status: "todo", Priority: 1},
+			}, nil
+		},
+	}
+	svc := services.NewCascadeService(taskRepo, &mockCascadeEpicLookup{}, &mockCascadeFeatureLister{}, wf)
+
+	children, err := svc.ListChildren(context.Background(), string(models.EntityTypeFeature), "E07-F01")
+	if err != nil {
+		t.Fatalf("ListChildren() error = %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("ListChildren() returned %d children, want 2", len(children))
+	}
+	if children[0].Key != "T-E07-F01-002" || children[0].Status != "shipped" {
+		t.Errorf("ListChildren() must preserve repository order and terminal status: %+v", children[0])
+	}
+	if children[0].Priority == nil || *children[0].Priority != priority {
+		t.Errorf("ListChildren() priority = %v, want %d", children[0].Priority, priority)
+	}
+	if children[0].ExecutionOrder == nil || *children[0].ExecutionOrder != order {
+		t.Errorf("ListChildren() execution order = %v, want %d", children[0].ExecutionOrder, order)
+	}
+}
+
+// TestCascadeService_ListChildren_EpicSnapshot_TC001 verifies epic snapshots
+// include terminal feature children as well as active ones.
+func TestCascadeService_ListChildren_EpicSnapshot_TC001(t *testing.T) {
+	wf := newWorkflowService(t, b029CustomWorkflowConfig)
+	epicRepo := &mockCascadeEpicLookup{GetByKeyFunc: func(context.Context, string) (*models.Epic, error) {
+		return &models.Epic{BaseEntity: models.BaseEntity{ID: 42, Key: "E07"}}, nil
+	}}
+	featureRepo := &mockCascadeFeatureLister{ListByEpicFunc: func(context.Context, int64) ([]*models.Feature, error) {
+		return []*models.Feature{
+			{BaseEntity: models.BaseEntity{Key: "E07-F01"}, Status: "shipped"},
+			{BaseEntity: models.BaseEntity{Key: "E07-F02"}, Status: "active"},
+		}, nil
+	}}
+	svc := services.NewCascadeService(&mockCascadeTaskRepo{}, epicRepo, featureRepo, wf)
+
+	children, err := svc.ListChildren(context.Background(), string(models.EntityTypeEpic), "E07")
+	if err != nil {
+		t.Fatalf("ListChildren() error = %v", err)
+	}
+	if len(children) != 2 || children[0].Status != "shipped" || children[1].Status != "active" {
+		t.Fatalf("ListChildren() = %+v, want both ordered feature snapshots", children)
+	}
+}
