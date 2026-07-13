@@ -14,6 +14,7 @@ type ledgerRepositoryMock struct {
 	run          *teamrunrepo.TeamRun
 	items        []*teamrunrepo.TeamRunItem
 	createdRuns  int
+	updatedRuns  int
 	updatedItems int
 	findErr      error
 	listErr      error
@@ -80,6 +81,7 @@ func (m *ledgerRepositoryMock) ListItems(context.Context, int64) ([]*teamrunrepo
 }
 
 func (m *ledgerRepositoryMock) UpdateRun(_ context.Context, run *teamrunrepo.TeamRun) error {
+	m.updatedRuns++
 	m.run = cloneRepoRun(run)
 	return nil
 }
@@ -118,11 +120,103 @@ func TestLedger_RecordItemResult_AllTerminalOutcomes_TC007(t *testing.T) {
 	statuses := []ItemStatus{ItemStatusCompleted, ItemStatusFailed, ItemStatusBlocked, ItemStatusPaused, ItemStatusSkipped, ItemStatusCancelled}
 	for index, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
-			repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{{ID: int64(index + 1), TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned)}}}
+			repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{{ID: int64(index + 1), TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusClaimed), ClaimSessionID: stringPtr("claim-1")}}}
 			ledger := NewLedger(repo)
-			got, err := ledger.RecordItemResult(context.Background(), ItemResultUpdate{RunID: 1, ItemID: int64(index + 1), Status: status, Outcome: string(status)})
+			got, err := ledger.RecordItemResult(context.Background(), ItemResultUpdate{RunID: 1, ItemID: int64(index + 1), Status: status, Outcome: string(status), ClaimSessionID: "claim-1"})
 			if err != nil || got.ItemStatus != status {
 				t.Fatalf("result = %+v, error = %v, want status %q", got, err, status)
+			}
+		})
+	}
+}
+
+func TestLedger_RecordItemResult_RejectsPlannedToTerminalTransition(t *testing.T) {
+	repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{{ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned)}}}
+	_, err := NewLedger(repo).RecordItemResult(context.Background(), ItemResultUpdate{RunID: 1, ItemID: 1, Status: ItemStatusCompleted, ClaimSessionID: "claim-1", WorkerSessionID: "worker-1"})
+	if !errors.Is(err, ErrInvalidItemTransition) || repo.updatedItems != 0 {
+		t.Fatalf("planned terminal result error = %v, updates = %d, want ErrInvalidItemTransition and no update", err, repo.updatedItems)
+	}
+}
+
+func TestLedger_UpdateRun_RejectsInvalidTransitions(t *testing.T) {
+	run := ledgerTestRepoRun()
+	repo := &ledgerRepositoryMock{run: run}
+	ledger := NewLedger(repo)
+	for _, status := range []RunStatus{RunStatusCompleted, RunStatusCancelled} {
+		if _, err := ledger.UpdateRun(context.Background(), RunUpdate{RunID: run.ID, Status: status, ExecutionMode: ExecutionModeSequential, ConcurrencyLimit: 1, PlanHash: run.PlanHash}); !errors.Is(err, ErrInvalidRunTransition) {
+			t.Errorf("planned -> %s error = %v, want ErrInvalidRunTransition", status, err)
+		}
+	}
+	if repo.updatedRuns != 0 {
+		t.Fatalf("invalid run transitions updated %d times", repo.updatedRuns)
+	}
+}
+
+func TestLedger_UpdateRun_RejectsPlanSnapshotMutation(t *testing.T) {
+	run := ledgerTestRepoRun()
+	repo := &ledgerRepositoryMock{run: run}
+	ledger := NewLedger(repo)
+	mutations := []RunUpdate{
+		{RunID: run.ID, Status: RunStatusPlanned, ExecutionMode: ExecutionModeSequential, ConcurrencyLimit: 2, PlanHash: run.PlanHash},
+		{RunID: run.ID, Status: RunStatusPlanned, ExecutionMode: ExecutionModeSequential, ConcurrencyLimit: 1, PlanHash: strings.Repeat("b", 64)},
+	}
+	for index, update := range mutations {
+		if _, err := ledger.UpdateRun(context.Background(), update); !errors.Is(err, ErrPlanDrift) && !errors.Is(err, ErrImmutablePlanSnapshot) {
+			t.Errorf("mutation %d error = %v, want snapshot rejection", index, err)
+		}
+	}
+	if repo.updatedRuns != 0 || repo.run.PlanHash != run.PlanHash || repo.run.ExecutionMode != run.ExecutionMode || repo.run.ConcurrencyLimit != run.ConcurrencyLimit {
+		t.Fatalf("snapshot mutated: run=%+v updates=%d", repo.run, repo.updatedRuns)
+	}
+}
+
+func TestLedger_RecordItemResult_AllowsClaimedAndRunningOwnershipFlows(t *testing.T) {
+	tests := []struct {
+		name   string
+		status ItemStatus
+		claim  string
+		worker *string
+		update ItemResultUpdate
+	}{
+		{name: "claimed", status: ItemStatusClaimed, claim: "claim-1", update: ItemResultUpdate{ClaimSessionID: "claim-1"}},
+		{name: "running", status: ItemStatusRunning, claim: "claim-2", worker: stringPtr("worker-2"), update: ItemResultUpdate{ClaimSessionID: "claim-2", WorkerSessionID: "worker-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{{ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(tt.status), ClaimSessionID: stringPtr(tt.claim), WorkerSessionID: tt.worker}}}
+			update := tt.update
+			update.RunID, update.ItemID, update.Attempt, update.Status = 1, 1, 0, ItemStatusCompleted
+			got, err := NewLedger(repo).RecordItemResult(context.Background(), update)
+			if err != nil || got.ItemStatus != ItemStatusCompleted {
+				t.Fatalf("result = %+v, error = %v", got, err)
+			}
+		})
+	}
+}
+
+func TestLedger_RecordItemResult_RejectsWrongClaimOrMissingWorkerSession(t *testing.T) {
+	tests := []struct {
+		name   string
+		item   *teamrunrepo.TeamRunItem
+		update ItemResultUpdate
+	}{
+		{
+			name:   "wrong claim session",
+			item:   &teamrunrepo.TeamRunItem{ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusClaimed), ClaimSessionID: stringPtr("claim-owner")},
+			update: ItemResultUpdate{ClaimSessionID: "claim-other"},
+		},
+		{
+			name:   "running requires worker session",
+			item:   &teamrunrepo.TeamRunItem{ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusRunning), ClaimSessionID: stringPtr("claim-owner"), WorkerSessionID: stringPtr("worker-owner")},
+			update: ItemResultUpdate{ClaimSessionID: "claim-owner"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.update.RunID, tt.update.ItemID, tt.update.Status = 1, 1, ItemStatusCompleted
+			repo := &ledgerRepositoryMock{run: &teamrunrepo.TeamRun{ID: 1}, items: []*teamrunrepo.TeamRunItem{tt.item}}
+			if _, err := NewLedger(repo).RecordItemResult(context.Background(), tt.update); !errors.Is(err, ErrInvalidItemOwnership) || repo.updatedItems != 0 {
+				t.Fatalf("ownership error = %v, updates = %d", err, repo.updatedItems)
 			}
 		})
 	}
@@ -185,6 +279,8 @@ func TestLedger_Idempotency_TC007(t *testing.T) {
 	if first.ID != second.ID || repo.createdRuns != 1 {
 		t.Fatalf("idempotent persistence created duplicate: first=%+v second=%+v runs=%d", first, second, repo.createdRuns)
 	}
+	repo.items[0].ItemStatus = string(ItemStatusClaimed)
+	repo.items[0].ClaimSessionID = stringPtr("claim-1")
 
 	drifted := ledgerTestPlan()
 	drifted.PlanHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -192,7 +288,7 @@ func TestLedger_Idempotency_TC007(t *testing.T) {
 		t.Fatalf("drift error = %v, want ErrPlanDrift", err)
 	}
 
-	completed := ItemResultUpdate{RunID: first.ID, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted, Outcome: "passed", Evidence: "done", ArtifactRefs: []string{"artifacts/result.md"}}
+	completed := ItemResultUpdate{RunID: first.ID, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted, Outcome: "passed", Evidence: "done", ArtifactRefs: []string{"artifacts/result.md"}, ClaimSessionID: "claim-1"}
 	result, err := ledger.RecordItemResult(context.Background(), completed)
 	if err != nil {
 		t.Fatalf("terminal result error = %v", err)
@@ -255,13 +351,14 @@ func TestLedger_ListItems_RejectsMalformedEvidenceJSON_TC014(t *testing.T) {
 func TestLedger_RecordItemResult_UsesAllowedArtifactBase_TC009(t *testing.T) {
 	projectRoot := t.TempDir()
 	repo := &ledgerRepositoryMock{items: []*teamrunrepo.TeamRunItem{{
-		ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusPlanned),
+		ID: 1, TeamRunID: 1, ChildKey: "T-E38-F01-001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: string(ItemStatusClaimed), ClaimSessionID: stringPtr("claim-1"),
 	}}}
 	ledger := NewLedger(repo, projectRoot)
 
 	result, err := ledger.RecordItemResult(context.Background(), ItemResultUpdate{
 		RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted,
-		ArtifactRefs: []string{"artifacts/./result.md"},
+		ClaimSessionID: "claim-1",
+		ArtifactRefs:   []string{"artifacts/./result.md"},
 	})
 	if err != nil || len(result.ArtifactRefs) != 1 || result.ArtifactRefs[0] != "artifacts/result.md" {
 		t.Fatalf("canonical artifact result = %+v, error = %v", result, err)
@@ -270,7 +367,8 @@ func TestLedger_RecordItemResult_UsesAllowedArtifactBase_TC009(t *testing.T) {
 
 	_, err = ledger.RecordItemResult(context.Background(), ItemResultUpdate{
 		RunID: 1, ItemID: 1, Attempt: 0, Status: ItemStatusCompleted,
-		ArtifactRefs: []string{"../../outside.md"},
+		ClaimSessionID: "claim-1",
+		ArtifactRefs:   []string{"../../outside.md"},
 	})
 	if !errors.Is(err, ErrInvalidArtifactPath) || repo.updatedItems != updatesBeforeReject {
 		t.Fatalf("outside-base artifact error = %v, updates=%d", err, repo.updatedItems)
@@ -288,6 +386,13 @@ func ledgerTestPlan() *TeamPlan {
 			ChildKey: "T-E38-F01-001", ChildType: models.EntityTypeTask,
 			ExecutionOrder: 1, Wave: 0, Planned: DispatchMetadata{AgentType: "developer"}, Eligible: true,
 		}},
+	}
+}
+
+func ledgerTestRepoRun() *teamrunrepo.TeamRun {
+	return &teamrunrepo.TeamRun{
+		ID: 1, RootKey: "E38-F01", RootType: "feature", PlanHash: strings.Repeat("a", 64),
+		Status: string(RunStatusPlanned), ExecutionMode: string(ExecutionModeSequential), ConcurrencyLimit: 1,
 	}
 }
 

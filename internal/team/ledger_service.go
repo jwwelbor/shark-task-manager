@@ -156,10 +156,17 @@ func (l *LedgerService) UpdateRun(ctx context.Context, update RunUpdate) (*TeamR
 	if err := validateRepositoryRunIdentity(run); err != nil {
 		return nil, fmt.Errorf("validate team run %d for update: %w", update.RunID, err)
 	}
+	if update.PlanHash != run.PlanHash {
+		return nil, &PlanDriftError{RootKey: run.RootKey, ExistingHash: run.PlanHash, RequestedHash: update.PlanHash}
+	}
+	if update.ExecutionMode != ExecutionMode(run.ExecutionMode) || update.ConcurrencyLimit != run.ConcurrencyLimit {
+		return nil, fmt.Errorf("update team run %d: %w", update.RunID, ErrImmutablePlanSnapshot)
+	}
+	currentStatus := RunStatus(run.Status)
+	if !validRunTransition(currentStatus, update.Status) {
+		return nil, fmt.Errorf("update team run %d from %s to %s: %w", update.RunID, currentStatus, update.Status, ErrInvalidRunTransition)
+	}
 	run.Status = string(update.Status)
-	run.ExecutionMode = string(update.ExecutionMode)
-	run.ConcurrencyLimit = update.ConcurrencyLimit
-	run.PlanHash = update.PlanHash
 	run.AggregateOutcome = update.AggregateOutcome
 	run.NextAction = update.NextAction
 	run.RootSessionID = update.RootSessionID
@@ -245,10 +252,41 @@ func classifyResult(current *teamrunrepo.TeamRunItem, result validatedResult) (r
 		}
 		return resultDecision{}, &ConflictingTerminalResultError{RunID: result.update.RunID, ItemID: result.update.ItemID, Attempt: result.update.Attempt}
 	}
-	if result.update.Attempt != current.Attempt && (!result.update.ExplicitRetry || result.update.Attempt != current.Attempt+1 || !terminalItemStatus(ItemStatus(current.ItemStatus))) {
+	currentStatus := ItemStatus(current.ItemStatus)
+	if result.update.ExplicitRetry && terminalItemStatus(currentStatus) {
+		if result.update.Attempt != current.Attempt+1 {
+			return resultDecision{}, fmt.Errorf("record result for item %d: %w", result.update.ItemID, ErrInvalidAttempt)
+		}
+		if err := validateItemOwnership(current, result.update); err != nil {
+			return resultDecision{}, err
+		}
+		return resultDecision{}, nil
+	}
+	if !validItemTransition(currentStatus, result.status) {
+		return resultDecision{}, fmt.Errorf("record result for item %d from %s to %s: %w", result.update.ItemID, currentStatus, result.status, ErrInvalidItemTransition)
+	}
+	if err := validateItemOwnership(current, result.update); err != nil {
+		return resultDecision{}, err
+	}
+	if result.update.Attempt != current.Attempt {
 		return resultDecision{}, fmt.Errorf("record result for item %d: %w", result.update.ItemID, ErrInvalidAttempt)
 	}
 	return resultDecision{}, nil
+}
+
+func validateItemOwnership(current *teamrunrepo.TeamRunItem, update ItemResultUpdate) error {
+	claimSession := stringValue(current.ClaimSessionID)
+	if claimSession == "" || update.ClaimSessionID == "" || update.ClaimSessionID != claimSession {
+		return fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidItemOwnership)
+	}
+	workerSession := stringValue(current.WorkerSessionID)
+	if ItemStatus(current.ItemStatus) == ItemStatusRunning && (workerSession == "" || update.WorkerSessionID == "" || update.WorkerSessionID != workerSession) {
+		return fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidItemOwnership)
+	}
+	if workerSession != "" && update.WorkerSessionID != workerSession {
+		return fmt.Errorf("record result for item %d: %w", update.ItemID, ErrInvalidItemOwnership)
+	}
+	return nil
 }
 
 func (l *LedgerService) applyResult(ctx context.Context, current *teamrunrepo.TeamRunItem, result validatedResult) (*TeamRunItem, error) {

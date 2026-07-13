@@ -33,6 +33,10 @@ var (
 	ErrConflictingTerminalResult = errors.New("conflicting terminal item result")
 	ErrInvalidRunStatus          = errors.New("invalid team run status")
 	ErrInvalidItemStatus         = errors.New("invalid team run item status")
+	ErrInvalidRunTransition      = errors.New("invalid team run status transition")
+	ErrInvalidItemTransition     = errors.New("invalid team run item status transition")
+	ErrImmutablePlanSnapshot     = errors.New("confirmed team plan snapshot is immutable")
+	ErrInvalidItemOwnership      = errors.New("team run item result is not owned by the submitting session")
 	ErrInvalidAttempt            = errors.New("invalid team run attempt")
 	ErrInvalidEvidence           = errors.New("invalid team result evidence")
 	ErrEvidenceTooLarge          = errors.New("team result evidence exceeds bound")
@@ -565,12 +569,50 @@ func validRunStatus(status RunStatus) bool {
 	return false
 }
 
+// runTransitions is the only allowed lifecycle graph for a confirmed run.
+// Repeating the current status is handled as an idempotent update by the
+// service; it is intentionally not represented as a state change here.
+var runTransitions = map[RunStatus]map[RunStatus]struct{}{
+	RunStatusPlanned: {RunStatusRunning: {}, RunStatusPaused: {}},
+	RunStatusRunning: {RunStatusPaused: {}, RunStatusFailed: {}, RunStatusCompleted: {}, RunStatusCancelled: {}},
+	RunStatusPaused:  {RunStatusRunning: {}, RunStatusFailed: {}, RunStatusCancelled: {}},
+	RunStatusFailed:  {RunStatusRunning: {}, RunStatusCancelled: {}},
+}
+
 func validItemStatus(status ItemStatus) bool {
 	switch status {
 	case ItemStatusPlanned, ItemStatusClaimed, ItemStatusRunning, ItemStatusCompleted, ItemStatusFailed, ItemStatusBlocked, ItemStatusPaused, ItemStatusSkipped, ItemStatusCancelled:
 		return true
 	}
 	return false
+}
+
+// itemTransitions separates claim/worker lifecycle from terminal result
+// recording. In particular, planned items cannot be completed by a result
+// submission that bypasses claim ownership.
+var itemTransitions = map[ItemStatus]map[ItemStatus]struct{}{
+	ItemStatusPlanned: {ItemStatusClaimed: {}},
+	ItemStatusClaimed: {
+		ItemStatusRunning: {}, ItemStatusCompleted: {}, ItemStatusFailed: {}, ItemStatusBlocked: {},
+		ItemStatusPaused: {}, ItemStatusSkipped: {}, ItemStatusCancelled: {},
+	},
+	ItemStatusRunning: {
+		ItemStatusCompleted: {}, ItemStatusFailed: {}, ItemStatusBlocked: {}, ItemStatusPaused: {},
+		ItemStatusSkipped: {}, ItemStatusCancelled: {},
+	},
+}
+
+func validRunTransition(from, to RunStatus) bool {
+	if from == to {
+		return true
+	}
+	_, ok := runTransitions[from][to]
+	return ok
+}
+
+func validItemTransition(from, to ItemStatus) bool {
+	_, ok := itemTransitions[from][to]
+	return ok
 }
 
 func terminalItemStatus(status ItemStatus) bool {

@@ -210,4 +210,34 @@ func TestRepository_CompareAndSetItem_RejectsStaleWriter_TC007(t *testing.T) {
 	require.Nil(t, got[0].Outcome)
 }
 
+func TestRepository_CompareAndSetItem_PreservesConfirmedSnapshot(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+	ctx := context.Background()
+	run := testRun()
+	item := testItem("T-E38-F01-001", 1)
+	item.PlannedAction = stringPtr("develop")
+	item.PlannedModel = stringPtr("model-a")
+	require.NoError(t, repo.CreateRunWithItems(ctx, run, []*TeamRunItem{item}))
+
+	item.Wave = 99
+	item.ExecutionOrder = 99
+	item.DependencyKeys = `["T-E38-F01-999"]`
+	item.PlannedAction = stringPtr("rewrite")
+	item.PlannedModel = stringPtr("model-b")
+	item.ItemStatus = "claimed"
+	updated, err := repo.CompareAndSetItem(ctx, item, "planned", 0)
+	require.NoError(t, err)
+	require.True(t, updated)
+
+	got, err := repo.ListItems(ctx, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, got[0].Wave)
+	require.Equal(t, 1, got[0].ExecutionOrder)
+	require.Equal(t, "[]", got[0].DependencyKeys)
+	require.Equal(t, "develop", *got[0].PlannedAction)
+	require.Equal(t, "model-a", *got[0].PlannedModel)
+	require.Equal(t, "claimed", got[0].ItemStatus)
+}
+
 func stringPtr(value string) *string { return &value }

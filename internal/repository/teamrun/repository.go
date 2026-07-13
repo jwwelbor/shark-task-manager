@@ -332,16 +332,11 @@ func (r *Repository) CompareAndSetItem(ctx context.Context, item *TeamRunItem, e
 	err := r.withTransactionRetry(ctx, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
 			UPDATE team_run_items
-			SET wave = ?, execution_order = ?, dependency_keys = ?, planned_role = ?,
-				planned_action = ?, planned_agent_type = ?, planned_provider = ?,
-				planned_model = ?, planned_effort = ?, item_status = ?,
+			SET item_status = ?,
 				claim_session_id = ?, worker_session_id = ?, outcome = ?, skip_reason = ?,
 				evidence = ?, attempt = ?, started_at = ?, completed_at = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND team_run_id = ? AND item_status = ? AND attempt = ?`,
-			item.Wave, item.ExecutionOrder, item.DependencyKeys,
-			stringValue(item.PlannedRole), stringValue(item.PlannedAction), stringValue(item.PlannedAgentType),
-			stringValue(item.PlannedProvider), stringValue(item.PlannedModel), stringValue(item.PlannedEffort),
 			item.ItemStatus, stringValue(item.ClaimSessionID), stringValue(item.WorkerSessionID),
 			stringValue(item.Outcome), stringValue(item.SkipReason), stringValue(item.Evidence), item.Attempt,
 			sqlTimeValue(item.StartedAt), sqlTimeValue(item.CompletedAt), item.ID, item.TeamRunID,
