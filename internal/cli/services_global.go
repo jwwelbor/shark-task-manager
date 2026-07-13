@@ -723,6 +723,7 @@ func (s *teamRelationshipDependencySource) ListRelationshipDependencies(ctx cont
 			DependencyType:   rel.ToEntityType,
 			DependencyStatus: target.GetStatus(),
 			Satisfied:        false,
+			Resolved:         true,
 			Source:           "relationship",
 		})
 	}

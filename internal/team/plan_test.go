@@ -132,6 +132,37 @@ func TestPlanner_ReadOnlyCompleteSnapshot_TC001(t *testing.T) {
 	}
 }
 
+func TestPlanner_ClassifiesResolvedRelationshipOutsideRootAsExternal_TC003(t *testing.T) {
+	planner, err := NewPlanner(PlannerDeps{
+		Children: plannerChildrenMock{children: []ChildSnapshot{
+			{Key: "T-E38-F01-001", EntityType: models.EntityTypeTask, Status: "todo"},
+		}},
+		Dependencies: plannerDependenciesMock{byKey: map[string][]DependencyEdge{
+			"T-E38-F01-001": {{ChildKey: "T-E38-F01-001", DependencyKey: "T-E37-F01-001", DependencyType: models.EntityTypeTask, Resolved: true, DependencyStatus: "completed", Source: "relationship"}},
+		}},
+		Dispatch: plannerDispatchMock{byKey: map[string]dispatch.DispatchStep{
+			"T-E38-F01-001": {EntityKey: "T-E38-F01-001", EntityType: models.EntityTypeTask, Status: "todo", Action: "spawn_agent"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := planner.Plan(context.Background(), PlanInput{RootType: models.EntityTypeFeature, RootKey: "E38-F01", RequestedConcurrency: 1, Capabilities: CapabilityFacts{SingleWorkerAvailable: true}})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(plan.Items) != 1 || len(plan.Items[0].Dependencies) != 1 {
+		t.Fatalf("unexpected plan dependencies: %+v", plan.Items)
+	}
+	edge := plan.Items[0].Dependencies[0]
+	if !edge.External {
+		t.Fatalf("resolved relationship outside root labeled internal: %+v", edge)
+	}
+	if plan.Items[0].ExclusionReason != "" {
+		t.Fatalf("satisfied external prerequisite excluded: %q", plan.Items[0].ExclusionReason)
+	}
+}
+
 // TestPlanner_RejectsInvalidGraph_TC002 verifies cycle, missing-reference,
 // and unresolved-workflow failures are typed and never become partial plans.
 func TestPlanner_RejectsInvalidGraph_TC002(t *testing.T) {

@@ -138,7 +138,11 @@ type DependencyEdge struct {
 	DependencyStatus string            `json:"dependency_status,omitempty"`
 	External         bool              `json:"external,omitempty"`
 	Satisfied        bool              `json:"satisfied"`
-	Source           string            `json:"source,omitempty"`
+	// Resolved means the source successfully looked up the prerequisite entity.
+	// The planner uses this to classify the edge against the root roster: a
+	// resolved target outside the roster is an external prerequisite.
+	Resolved bool   `json:"resolved,omitempty"`
+	Source   string `json:"source,omitempty"`
 }
 
 // DispatchMetadata is the durable subset of a resolved dispatch step. Prompt,
@@ -568,6 +572,7 @@ type canonicalEdge struct {
 	DependencyStatus string            `json:"dependency_status"`
 	External         bool              `json:"external"`
 	Satisfied        bool              `json:"satisfied"`
+	Resolved         bool              `json:"resolved"`
 }
 
 func (p *TeamPlan) computeHash() (string, error) {
@@ -575,7 +580,7 @@ func (p *TeamPlan) computeHash() (string, error) {
 	for _, item := range p.Items {
 		edges := make([]canonicalEdge, 0, len(item.Dependencies))
 		for _, edge := range item.Dependencies {
-			edges = append(edges, canonicalEdge{ChildKey: edge.ChildKey, ChildType: edge.ChildType, DependencyKey: edge.DependencyKey, DependencyType: edge.DependencyType, DependencyStatus: edge.DependencyStatus, External: edge.External, Satisfied: edge.Satisfied})
+			edges = append(edges, canonicalEdge{ChildKey: edge.ChildKey, ChildType: edge.ChildType, DependencyKey: edge.DependencyKey, DependencyType: edge.DependencyType, DependencyStatus: edge.DependencyStatus, External: edge.External, Satisfied: edge.Satisfied, Resolved: edge.Resolved})
 		}
 		sort.Slice(edges, func(i, j int) bool {
 			if edges[i].DependencyType != edges[j].DependencyType {

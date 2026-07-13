@@ -45,6 +45,19 @@ func TestDependencySources_TC003(t *testing.T) {
 	}
 }
 
+func TestDependencyAdapter_MarksRelationshipTargetsResolved_TC003(t *testing.T) {
+	adapter := NewDependencyAdapter(relationshipDependencyMock{edges: []DependencyEdge{{
+		ChildKey: "T-E38-F01-003", DependencyKey: "T-E37-F01-001", DependencyType: models.EntityTypeTask, Source: "relationship",
+	}}})
+	edges, err := adapter.ListDependencies(context.Background(), ChildIdentity{Key: "T-E38-F01-003", EntityType: models.EntityTypeTask})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 || !edges[0].Resolved {
+		t.Fatalf("relationship target was not marked resolved: %+v", edges)
+	}
+}
+
 // TestDependencySources_RejectMalformedLegacy_TC002 verifies malformed legacy
 // JSON fails loudly instead of silently dropping a dependency edge.
 func TestDependencySources_RejectMalformedLegacy_TC002(t *testing.T) {

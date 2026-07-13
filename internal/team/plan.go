@@ -48,93 +48,113 @@ func (p *TeamPlanner) Plan(ctx context.Context, input PlanInput) (*TeamPlan, err
 		return nil, err
 	}
 	rootKey := canonicalKey(input.RootKey)
+	children, items, byKey, err := p.snapshotChildren(ctx, input, rootKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.attachDependencies(ctx, children, items, byKey, rootKey); err != nil {
+		return nil, err
+	}
+	if err := validateGraphAndEligibility(rootKey, items, byKey); err != nil {
+		return nil, err
+	}
+	return finalizePlan(rootKey, input, items)
+}
+
+func (p *TeamPlanner) snapshotChildren(ctx context.Context, input PlanInput, rootKey string) ([]ChildSnapshot, []TeamPlanItem, map[string]int, error) {
 	children, err := p.children.ListChildren(ctx, input.RootType, input.RootKey)
 	if err != nil {
-		return nil, fmt.Errorf("list direct children for root %s: %w", rootKey, err)
+		return nil, nil, nil, fmt.Errorf("list direct children for root %s: %w", rootKey, err)
 	}
-
 	items := make([]TeamPlanItem, 0, len(children))
 	byKey := make(map[string]int, len(children))
-	for _, child := range children {
+	for i := range children {
+		child := &children[i]
 		child.Key = canonicalKey(child.Key)
 		if child.EntityType == "" {
-			return nil, validationError(ErrInvalidPlanInput, rootKey, child.Key, "", "child type is required")
+			return nil, nil, nil, validationError(ErrInvalidPlanInput, rootKey, child.Key, "", "child type is required")
 		}
 		if child.Key == "" {
-			return nil, validationError(ErrInvalidPlanInput, rootKey, "", "", "child key is required")
+			return nil, nil, nil, validationError(ErrInvalidPlanInput, rootKey, "", "", "child key is required")
 		}
 		identity := ChildIdentity{Key: child.Key, EntityType: child.EntityType}
 		identityKey := string(identity.EntityType) + ":" + identity.Key
 		if _, exists := byKey[identityKey]; exists {
-			return nil, validationError(ErrDuplicateChild, rootKey, child.Key, "", "direct child appears more than once")
+			return nil, nil, nil, validationError(ErrDuplicateChild, rootKey, child.Key, "", "direct child appears more than once")
 		}
 		byKey[identityKey] = len(items)
 		step, err := p.dispatch.Resolve(ctx, child.EntityType, child.Key)
 		if err != nil {
-			return nil, validationErrorf(ErrUnresolvedWorkflow, rootKey, child.Key, "", "resolve dispatch step: %v", err)
+			return nil, nil, nil, validationErrorf(ErrUnresolvedWorkflow, rootKey, child.Key, "", "resolve dispatch step: %v", err)
 		}
 		if step.Error != "" {
-			return nil, validationError(ErrUnresolvedWorkflow, rootKey, child.Key, "", step.Error)
+			return nil, nil, nil, validationError(ErrUnresolvedWorkflow, rootKey, child.Key, "", step.Error)
 		}
-		item := TeamPlanItem{
-			ChildKey:       child.Key,
-			ChildType:      child.EntityType,
-			Status:         child.Status,
-			ExecutionOrder: child.ExecutionOrder,
-			Priority:       child.Priority,
-			Planned:        metadataFromStep(step),
-			Eligible:       true,
-		}
+		item := TeamPlanItem{ChildKey: child.Key, ChildType: child.EntityType, Status: child.Status, ExecutionOrder: child.ExecutionOrder, Priority: child.Priority, Planned: metadataFromStep(step), Eligible: true}
 		if p.claims != nil {
 			item.Claim, err = p.claims.Diagnose(ctx, identity)
 			if err != nil {
-				return nil, fmt.Errorf("diagnose claim for child %s: %w", child.Key, err)
+				return nil, nil, nil, fmt.Errorf("diagnose claim for child %s: %w", child.Key, err)
 			}
 		}
-		switch {
-		case step.GateClassification == dispatch.GateTerminal:
-			item.Eligible, item.ExclusionReason = false, ExclusionTerminal
-		case item.Claim.Claimed:
-			item.Eligible, item.ExclusionReason = false, ExclusionClaimed
-		case step.GateClassification == dispatch.GateHuman:
-			item.Eligible, item.ExclusionReason = false, ExclusionHumanGate
-		case step.GateClassification == dispatch.GatePause:
-			item.Eligible, item.ExclusionReason = false, ExclusionPause
-		}
+		applyStepExclusion(&item, step)
 		items = append(items, item)
 	}
+	return children, items, byKey, nil
+}
 
+func applyStepExclusion(item *TeamPlanItem, step dispatch.DispatchStep) {
+	switch {
+	case step.GateClassification == dispatch.GateTerminal:
+		item.Eligible, item.ExclusionReason = false, ExclusionTerminal
+	case item.Claim.Claimed:
+		item.Eligible, item.ExclusionReason = false, ExclusionClaimed
+	case step.GateClassification == dispatch.GateHuman:
+		item.Eligible, item.ExclusionReason = false, ExclusionHumanGate
+	case step.GateClassification == dispatch.GatePause:
+		item.Eligible, item.ExclusionReason = false, ExclusionPause
+	}
+}
+
+func (p *TeamPlanner) attachDependencies(ctx context.Context, children []ChildSnapshot, items []TeamPlanItem, byKey map[string]int, rootKey string) error {
 	for i := range items {
 		identity := ChildIdentity{Key: items[i].ChildKey, EntityType: items[i].ChildType}
 		edges, err := p.listDependencies(ctx, identity, children[i].LegacyDependencies)
 		if err != nil {
-			return nil, validationErrorf(ErrMalformedDependency, rootKey, identity.Key, "", "read dependencies: %v", err)
+			return validationErrorf(ErrMalformedDependency, rootKey, identity.Key, "", "read dependencies: %v", err)
 		}
 		normalized, err := normalizeEdges(identity, edges)
 		if err != nil {
-			return nil, validationError(ErrMalformedDependency, rootKey, identity.Key, "", err.Error())
+			return validationError(ErrMalformedDependency, rootKey, identity.Key, "", err.Error())
 		}
 		for _, edge := range normalized {
 			key := string(edge.DependencyType) + ":" + edge.DependencyKey
+			if edge.Resolved {
+				_, edgeIsInternal := byKey[key]
+				edge.External = !edgeIsInternal
+			}
 			if _, exists := byKey[key]; !exists && !edge.External {
-				return nil, validationError(ErrMissingDependency, rootKey, identity.Key, edge.DependencyKey, "dependency is not a direct child and was not marked external")
+				return validationError(ErrMissingDependency, rootKey, identity.Key, edge.DependencyKey, "dependency is not a direct child and was not marked external")
 			}
 			items[i].Dependencies = append(items[i].Dependencies, edge)
 			items[i].DependencyKeys = append(items[i].DependencyKeys, edge.DependencyKey)
-			if edge.External && !dependencySatisfied(edge) {
-				items[i].Eligible, items[i].ExclusionReason = false, ExclusionDependencyIneligible
-			}
 		}
 		sort.Strings(items[i].DependencyKeys)
 	}
+	return nil
+}
 
+func validateGraphAndEligibility(rootKey string, items []TeamPlanItem, byKey map[string]int) error {
 	if err := detectCycles(rootKey, items, byKey); err != nil {
-		return nil, err
+		return err
 	}
 	assignWaves(items, byKey)
 	for i := range items {
 		for _, edge := range items[i].Dependencies {
 			if edge.External {
+				if !dependencySatisfied(edge) {
+					items[i].Eligible, items[i].ExclusionReason = false, ExclusionDependencyIneligible
+				}
 				continue
 			}
 			depIndex := byKey[string(edge.DependencyType)+":"+edge.DependencyKey]
@@ -143,7 +163,10 @@ func (p *TeamPlanner) Plan(ctx context.Context, input PlanInput) (*TeamPlan, err
 			}
 		}
 	}
+	return nil
+}
 
+func finalizePlan(rootKey string, input PlanInput, items []TeamPlanItem) (*TeamPlan, error) {
 	mode, limit, reason, err := selectMode(input.RequestedConcurrency, input.Capabilities, rootKey)
 	if err != nil {
 		return nil, err
@@ -152,9 +175,7 @@ func (p *TeamPlanner) Plan(ctx context.Context, input PlanInput) (*TeamPlan, err
 	if reason != "" {
 		plan.CapabilityExclusions = []string{reason}
 	}
-	sort.Slice(plan.Items, func(i, j int) bool {
-		return planItemLess(plan.Items[i], plan.Items[j])
-	})
+	sort.Slice(plan.Items, func(i, j int) bool { return planItemLess(plan.Items[i], plan.Items[j]) })
 	plan.PlanHash, err = plan.computeHash()
 	if err != nil {
 		return nil, fmt.Errorf("hash team plan for root %s: %w", rootKey, err)
@@ -299,6 +320,11 @@ func (a *DependencyAdapter) ListDependencies(ctx context.Context, child ChildIde
 		relationships, err := a.relationship.ListRelationshipDependencies(ctx, child)
 		if err != nil {
 			return nil, fmt.Errorf("read relationship dependencies for %s: %w", child.Key, err)
+		}
+		for i := range relationships {
+			// The relationship source resolved the target entity. Scope is
+			// intentionally classified by TeamPlanner against the root roster.
+			relationships[i].Resolved = true
 		}
 		edges = append(edges, relationships...)
 	}
