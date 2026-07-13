@@ -1,6 +1,6 @@
 # Stack Research Guide
 
-**Purpose**: Authoritative sources and research patterns per technology stack. Used by `/shark project bootstrap` for both greenfield (stack recommendation + prescriptive docs) and brownfield (coding standards reconciliation).
+**Purpose**: Authoritative sources and research patterns per technology stack. Used by `/shark-rider project bootstrap` for both greenfield (stack recommendation + prescriptive docs) and brownfield (coding standards reconciliation).
 
 ## Per-Stack Entries
 

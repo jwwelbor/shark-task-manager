@@ -2,7 +2,7 @@
 
 Recurring operational work — deploy runs, infrastructure changes, devops tasks,
 on-call remediations — belongs as **shark entities** (tasks or change-cards),
-not as checklist items inside the `/shark project` namespace.
+not as checklist items inside the `/shark-rider project` namespace.
 
 ---
 
@@ -23,7 +23,7 @@ entity:
 
 ## Why Not a Checklist Item?
 
-The `/shark project` checklist is for **pre-epic, one-time, human-driven
+The `/shark-rider project` checklist is for **pre-epic, one-time, human-driven
 activities** that produce a durable artifact (a design doc, a decision record, a
 validated assumption). It is not a general-purpose to-do list.
 
@@ -41,9 +41,9 @@ assignee. Shark entities give you:
 
 ---
 
-## `/shark project` Namespace Membership Rule
+## `/shark-rider project` Namespace Membership Rule
 
-An activity belongs in the `/shark project` namespace only if it meets **all
+An activity belongs in the `/shark-rider project` namespace only if it meets **all
 four criteria**:
 
 | Criterion | Description |
@@ -67,8 +67,8 @@ doesn't produce a durable artifact — it belongs as a shark entity instead.
 | Daily deploy to staging | Checklist item "Deploy to staging" | `shark task create E05 F02 "Deploy build #312 to staging"` |
 | Monthly cert rotation | Checklist item "Rotate TLS cert" | `shark create change "Rotate TLS cert — July 2026" --tag ops` |
 | Terraform drift fix | Note in a doc | `shark create change "Remediate Terraform drift in prod VPC"` |
-| Infrastructure audit (one-time, produces report) | Shark task | `/shark project` checklist item — produces a durable audit report |
-| "Set up CI pipeline" (one-time, pre-epic) | Recurring ops task | `/shark project` checklist item — done once, produces a CI config artifact |
+| Infrastructure audit (one-time, produces report) | Shark task | `/shark-rider project` checklist item — produces a durable audit report |
+| "Set up CI pipeline" (one-time, pre-epic) | Recurring ops task | `/shark-rider project` checklist item — done once, produces a CI config artifact |
 | On-call incident response | Jira only | `shark create change "Incident CC-042: redis OOM — 2026-06-29"` |
 
 ### Grouping Recurring Ops Work
@@ -90,7 +90,7 @@ shark create change "Upgrade k8s node pool to 1.30"
 ## Summary
 
 - **Recurring or repeatable work** → shark task or change-card
-- **One-time, pre-epic, human-driven, produces a durable doc** → `/shark project` checklist
+- **One-time, pre-epic, human-driven, produces a durable doc** → `/shark-rider project` checklist
 - **Ambiguous?** Default to a shark entity — history and queryability are almost
   always more valuable than a checkbox
 

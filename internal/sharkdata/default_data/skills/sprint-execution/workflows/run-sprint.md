@@ -27,7 +27,7 @@ Store as `SPRINT_KEY`, `AGENT_FILTER`, `MAX_ITERATIONS`, `CARRYOVER_VALUE`.
 ## Step 1: Sprint Status Check
 
 ```bash
-/shark query: get {SPRINT_KEY} --json
+/shark-rider query: get {SPRINT_KEY} --json
 ```
 
 Parse the JSON response. Extract:

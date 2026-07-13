@@ -30,7 +30,7 @@ See: `workflows/retro-sprint.md` for the full step-by-step workflow.
 |---|---|
 | **Outcome** | `shark sprint summary --detailed --json` (planned vs. completed count and Σ size) |
 | **Velocity Context** | `shark sprint velocity --json` (this sprint vs. trailing average, with delta) |
-| **Carryover Analysis** | `/shark` notes lookup for each carryover and rejected entity |
+| **Carryover Analysis** | `/shark-rider` notes lookup for each carryover and rejected entity |
 | **Cycle-Time Highlights** | Per-phase cycle times from the `--detailed` summary |
 | **Recommendations** | Pattern-matched from the above data; 3–5 items; always quantitative triggers |
 

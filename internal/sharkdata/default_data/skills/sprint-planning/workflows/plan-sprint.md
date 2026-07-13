@@ -23,7 +23,7 @@ Parse `$ARGUMENTS`:
 ## Step 1: Read Sprint State
 
 ```bash
-/shark query: get {S###} --json
+/shark-rider query: get {S###} --json
 ```
 
 Parse the JSON response:
