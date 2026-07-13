@@ -409,6 +409,16 @@ restored.
 
 Decomposition should create feature boundaries matching the interaction map:
 
+* Team plan/ledger
+* Scheduler/claims
+* Aggregate routing/reporting
+* The `shark-attack` skill/council protocol
+
+Feature specifications must reference
+the I-## IDs and the exact architecture sections above. Any change to the
+workflow outcome shape, ledger fields, or council message contract must update
+the maps before implementation gates pass.
+
 The interaction map is a data-contract map, not an automatic execution-order
 map. Before decomposition exits, derive a separate feature dependency graph
 from each feature’s explicit `Dependencies:` declaration and run a complete
@@ -418,11 +428,6 @@ for a consumer, but a consumer must not be made a prerequisite of its producer
 merely because the producer later observes the consumer’s result. This guard
 prevents communication contracts such as I-04 from creating circular feature
 execution plans.
-team plan/ledger, scheduler/claims, aggregate routing/reporting, and the
-`shark-attack` skill/council protocol. Feature specifications must reference
-the I-## IDs and the exact architecture sections above. Any change to the
-workflow outcome shape, ledger fields, or council message contract must update
-the maps before implementation gates pass.
 
 ### Architect and CX review record
 
