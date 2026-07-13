@@ -11,6 +11,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
@@ -78,6 +79,11 @@ func TestTC010_CobraNextAndRunUseSharedDispatchResolver(t *testing.T) {
 	origNextPlaceholderGenerator := nextBuildPlaceholderGenerator
 	origRunTransitioner := buildRunTransitioner
 	origRunPlaceholderGenerator := buildRunPlaceholderGenerator
+	dbInitCalls := 0
+	restoreDBInitializer := cli.SetDBInitializerForTest(func(context.Context) (*repository.DB, error) {
+		dbInitCalls++
+		return nil, errors.New("TC-010 must not initialize SQLite")
+	})
 	t.Cleanup(func() {
 		getDispatchActionService = origActionService
 		nextBuildTransitioner = origNextTransitioner
@@ -90,6 +96,7 @@ func TestTC010_CobraNextAndRunUseSharedDispatchResolver(t *testing.T) {
 		cli.ResetWorkflowService()
 		cli.ResetDB()
 	})
+	t.Cleanup(restoreDBInitializer)
 	resetTC010RootState(t)
 
 	transitioner := tc010Transitioner{info: &services.NextStatusInfo{
@@ -142,6 +149,7 @@ func TestTC010_CobraNextAndRunUseSharedDispatchResolver(t *testing.T) {
 		assert.Contains(t, execErr.Error(), "populate action")
 		assert.NotContains(t, stderr, "panic")
 	})
+	assert.Zero(t, dbInitCalls, "TC-010 Cobra paths must not fall back to SQLite initialization")
 }
 
 func executeTC010Root(t *testing.T, configPath string, args ...string) (stdout, stderr string, execErr error) {

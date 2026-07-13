@@ -2,10 +2,26 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
+
+func TestSetDBInitializerForTest_OverridesLazyInitialization(t *testing.T) {
+	wantErr := errors.New("database initialization must not run")
+	restore := SetDBInitializerForTest(func(context.Context) (*repository.DB, error) {
+		return nil, wantErr
+	})
+	t.Cleanup(restore)
+
+	_, err := GetDB(context.Background())
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("GetDB() error = %v, want %v", err, wantErr)
+	}
+}
 
 func TestGetDB_InitializesOnce(t *testing.T) {
 	// Setup: Create a temporary directory for test database
