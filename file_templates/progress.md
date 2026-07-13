@@ -1,16 +1,29 @@
 ---
 type: progress-record
+schema_version: 2
+estate: ""
+initiative_posture: ""
+product_design_scope: D01-D07
+brownfield_depth: lightweight
+architecture_state: absent
+stack_summary: ""
+artifact_paths: []
+last_refreshed: ""
 ---
 # Project Progress Record
 
 ## Setup Checklist
 
 <!-- DERIVED — regenerated after each project activity. Do not edit manually. -->
+<!-- States: [x] complete, [~] partial or provisional, [ ] not started, [-] deferred/not applicable. -->
 
-- [ ] Architecture docs (`docs/architecture/`) — not present
-- [ ] Tech stack (`tech-stack.md`) — not present
-- [ ] Vision statement (D01-vision-statement.md) — not present
-- [ ] Feasibility report (D04-feasibility-report.md) — not present
+- [ ] Local Shark configuration and store — not checked
+- [ ] Planning folder and content bundle — not checked
+- [ ] Setup parameters (estate, posture, scope, depth, constraints) — not confirmed
+- [ ] Brownfield evidence and selected analysis areas — not applicable or not started
+- [ ] Product design D01–D07 — not started
+- [ ] Architecture integration (D01/D04/D07) — not started
+- [ ] Setup handoff — not ready
 
 ## Cross-Epic Integration Map
 

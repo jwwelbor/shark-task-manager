@@ -142,7 +142,7 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 	}{
 		{
 			name: "consolidator compact pass contract",
-			path: filepath.Join(repoRoot, "skills", "shark", "skills", "deep-review", "references", "consolidator.md"),
+			path: filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md"),
 			want: []string{
 				"If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 non-blockers / 0 nits, write a compact saved report only.",
 				"`0 defects found`",
@@ -151,7 +151,7 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 		},
 		{
 			name: "skill persistence guidance stays terse on pass",
-			path: filepath.Join(repoRoot, "skills", "shark", "skills", "deep-review", "SKILL.md"),
+			path: filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "SKILL.md"),
 			want: []string{
 				"compact on a clean PASS",
 				"Tell the user only a short verdict summary plus `review_output_path`.",
@@ -160,7 +160,7 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 		},
 		{
 			name: "workflow prompt asks for compact-or-detailed report",
-			path: filepath.Join(repoRoot, "skills", "shark", "skills", "deep-review", "scripts", "review_workflow.js"),
+			path: filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "scripts", "review_workflow.js"),
 			want: []string{
 				"compact PASS report or a detailed PASS-with-triage/FAIL report",
 				"produce the compact-or-detailed markdown report it specifies",

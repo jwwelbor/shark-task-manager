@@ -91,7 +91,17 @@ Bootstrap runs before product-design and lays down `docs/architecture/`. Product
 Feed this forward:
 
 - **D01** may surface the recorded stack as a *stated constraint* — it does not design it (the stack stays in `docs/architecture/`; D01's redirect principle still holds).
-- **D04** assesses feasibility against the recorded stack and frames it by track: **fixed** for brownfield, a **revisable proposal** for greenfield. On a "feasible with changes" / "not feasible" verdict it **returns a stack-feedback signal** (verdict + gap + driver + recommended route) in its report. Acting on it is the **host's** job, not the skill's: the `/shark product-design` verb re-runs bootstrap in reconcile mode (greenfield) or files a tech-debt entry / constraint note (brownfield).
+- **D04** assesses feasibility against the recorded stack and frames it by initiative posture: observed current state and classified constraints for brownfield, a revisable proposal for greenfield. On a "feasible with changes" / "not feasible" verdict it **returns a stack-feedback signal** (verdict + gap + driver + recommended route) in its report. Acting on it is the **owning Rider action's** job, not the bundle skill's: `/shark-rider project product-design` re-enters bootstrap in reconcile mode (greenfield) or routes a genuinely deferred gap for classification (brownfield).
+
+## Checkpoint boundary
+
+This bundle owns methodology and artifact quality. It does not own ordering,
+resumability, progress records, CLI commands, or retrieval of another skill.
+After each D01–D14 artifact is durably written or materially revised, return
+the artifact path, evidence dependencies, provenance/maturity, and any
+decision, approval, reason, deferral, or D04 stack-feedback signal to the
+owning `/shark-rider project product-design` action. The Rider action updates
+`docs/product/progress.md` immediately and derives its checklist from files.
 
 If no marker or architecture docs exist, product-design runs exactly as before.
 

@@ -595,7 +595,7 @@ func TestRenderedDispatchPromptsDoNotTellWorkersToTransitionSharkState(t *testin
 }
 
 func TestSharkRunVerbUsesNextDispatchContract(t *testing.T) {
-	path := findRepoPath(t, filepath.Join("skills", "shark", "verbs", "run.md"))
+	path := findRepoPath(t, filepath.Join("skills", "shark-rider", "verbs", "run.md"))
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	body := string(data)

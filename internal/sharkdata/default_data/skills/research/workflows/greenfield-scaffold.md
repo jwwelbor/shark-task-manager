@@ -8,7 +8,7 @@ inputs:
   - patterns_catalog_path: absolute path for patterns-catalog.md output
   - integration_map_path: absolute path for integration-map.md output
   - generation_date: ISO date for the greenfield header on each doc
-  - track: brownfield | greenfield (optional; from the bootstrap marker — greenfield-scaffold only runs on the greenfield track, but the field keeps the contract explicit)
+  - estate: brownfield | greenfield (optional; from the bootstrap marker — greenfield-scaffold only runs on the greenfield estate, but the field keeps the contract explicit)
   - mode: provisional | reconcile (optional, default provisional — provisional = first pass before product context exists; reconcile = re-run after D04 to revise the stack against the vision + feasibility)
   - vision_path: absolute path to D01-vision-statement.md, if it exists (optional — enables the evidence-aware path in Phase 0/1b)
   - feasibility_path: absolute path to D04-feasibility-report.md, if it exists (optional — required for reconcile mode)
@@ -85,9 +85,9 @@ Record the answer — it determines the "next steps" suggestion at the end.
 
 | Answer | After Init Suggestion (full text in Phase 4) |
 |--------|-----------------------|
-| 1 — Just tech stack | Stack is the deliverable — run `/shark product-design` when an idea is ready |
-| 2 — Needs refinement | **Lightweight path** — capture stack constraint, write `tech-stack.md` placeholder only, then run `/shark product-design`. Re-run `/shark project bootstrap` in reconcile mode after D04 to expand the placeholder. |
-| 3 — Solid idea | Provisional stack — run `/shark product-design` → D04, then re-run `/shark project bootstrap` to reconcile |
+| 1 — Just tech stack | Stack is the deliverable — run `/shark-rider project product-design` when an idea is ready |
+| 2 — Needs refinement | **Lightweight path** — capture stack constraint, write `tech-stack.md` placeholder only, then run `/shark-rider project product-design`. Re-run `/shark-rider project bootstrap` in reconcile mode after D04 to expand the placeholder. |
+| 3 — Solid idea | Provisional stack — run `/shark-rider project product-design` → D04, then re-run `/shark-rider project bootstrap` to reconcile |
 
 > **Readiness 2** routes to **Phase 1c** (Lightweight Placeholder Output) immediately after Phase 1b.
 > Skip Phases 2 and 3. No web research, no architecture docs — just a `tech-stack.md` placeholder.
@@ -160,7 +160,7 @@ Write to `tech_stack_path` (typically `docs/architecture/tech-stack.md`):
 ```markdown
 > **Greenfield — Provisional placeholder** · generated {generation_date}
 > Stack captured at intake, before product-design. Expand this after D04 feasibility by
-> re-running `/shark project bootstrap` in reconcile mode.
+> re-running `/shark-rider project bootstrap` in reconcile mode.
 
 # Tech Stack (Provisional)
 
@@ -177,7 +177,7 @@ To be defined after tech-stack is finalized and D04 has confirmed the approach.
 
 ---
 
-*This document is intentionally minimal. Re-run `/shark project bootstrap` in reconcile mode
+*This document is intentionally minimal. Re-run `/shark-rider project bootstrap` in reconcile mode
 after completing product-design (D01–D04) to expand it into a complete tech-stack document.*
 ```
 
@@ -224,7 +224,7 @@ All greenfield documents include this header:
 **Provisional labeling (idea readiness 2 or 3).** When an idea exists but vision/feasibility have not run yet, the stack was chosen before the problem was fully understood. Add a second header line to every doc so the reader knows it is pending reconciliation:
 
 ```markdown
-> **Provisional**: chosen before feasibility (D04). Re-run `/shark project bootstrap` in reconcile mode after product-design to confirm or revise.
+> **Provisional**: chosen before feasibility (D04). Re-run `/shark-rider project bootstrap` in reconcile mode after product-design to confirm or revise.
 ```
 
 When idea readiness is **1** (the stack *is* the deliverable), the standard greenfield header is sufficient — there is nothing to reconcile against.
@@ -464,13 +464,13 @@ After reconcile, **skip Phase 4** — the next step is to resume product-design 
 Skip this phase entirely when `mode` is `reconcile` (Phase 3.5 owns the next step). Otherwise, base the suggestion on the Phase 1 answer:
 
 **Answer 1 (just tech stack)** — the stack *is* the deliverable; there is no vision to reconcile against:
-> Foundation documents generated. When you're ready to develop an idea, run `/shark product-design` (or `/brainstorming` to refine a rough one first).
+> Foundation documents generated. When you're ready to develop an idea, run `/shark-rider project product-design` (or `/brainstorming` to refine a rough one first).
 
 **Answer 2 (needs refinement)** — lightweight placeholder only; idea refinement comes first:
-> Placeholder `tech-stack.md` created. Run `/shark product-design` (D01–D04) to define vision, user needs, and feasibility. Then re-run `/shark project bootstrap` in **reconcile mode** to expand the placeholder into a complete tech-stack document. `/brainstorming` can sharpen the idea first.
+> Placeholder `tech-stack.md` created. Run `/shark-rider project product-design` (D01–D04) to define vision, user needs, and feasibility. Then re-run `/shark-rider project bootstrap` in **reconcile mode** to expand the placeholder into a complete tech-stack document. `/brainstorming` can sharpen the idea first.
 
 **Answer 3 (solid idea)** — also **provisional** until feasibility confirms it:
-> Provisional foundation generated. Run `/shark product-design` to capture the vision and feasibility (D01–D04), then re-run `/shark project bootstrap` to **reconcile** `tech-stack.md` against the D04 verdict before building.
+> Provisional foundation generated. Run `/shark-rider project product-design` to capture the vision and feasibility (D01–D04), then re-run `/shark-rider project bootstrap` to **reconcile** `tech-stack.md` against the D04 verdict before building.
 
 ---
 
@@ -499,6 +499,6 @@ Skip this phase entirely when `mode` is `reconcile` (Phase 3.5 owns the next ste
 ## Related Files
 
 - `../context/stack-research-guide.md` — Authoritative sources per stack
-- `bootstrap.md` — Orchestrator that invokes this workflow (supplies `track`, `mode`, and product-artifact paths)
-- `brownfield-analysis.md` — Alternative track for existing codebases
+- `bootstrap.md` — Orchestrator that invokes this workflow (supplies `estate`, `mode`, and product-artifact paths)
+- `brownfield-analysis.md` — Alternative estate for existing codebases
 - `../../product-design/workflows/d04-feasibility.md` — Produces the verdict that triggers reconcile mode
