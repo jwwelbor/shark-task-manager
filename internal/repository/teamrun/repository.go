@@ -68,8 +68,11 @@ type TeamRunItem struct {
 
 // Repository handles pure SQL access to the team-run ledger.
 type Repository struct {
-	db                   *dbconn.DB
-	transactionBeginHook func(attempt int)
+	db                        *dbconn.DB
+	transactionBeginHook      func(attempt int)
+	transactionBeginErrorHook func(attempt int) error
+	transactionRollbackHook   func(error) error
+	transactionCommitHook     func(error) error
 }
 
 // NewRepository creates a team-run repository backed by db.
@@ -131,66 +134,103 @@ func (r *Repository) CreateRunWithItemsIfAbsent(ctx context.Context, run *TeamRu
 		return nil, false, errors.New("team-run is nil")
 	}
 
-	var selected *TeamRun
-	idempotent := false
-	itemIDs := make([]int64, len(items))
+	result := &confirmedRunResult{itemIDs: make([]int64, len(items))}
 	err := r.withTransactionRetry(ctx, func(tx *sql.Tx) error {
-		result, err := tx.ExecContext(ctx, `
-			INSERT INTO team_runs (
-				root_key, root_type, status, execution_mode, concurrency_limit, plan_hash,
-				aggregate_outcome, next_action, root_session_id, started_at, completed_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(root_type, root_key, plan_hash) DO NOTHING`,
-			run.RootKey, run.RootType, run.Status, run.ExecutionMode, run.ConcurrencyLimit,
-			run.PlanHash, stringValue(run.AggregateOutcome), stringValue(run.NextAction),
-			stringValue(run.RootSessionID), sqlTimeValue(run.StartedAt), sqlTimeValue(run.CompletedAt))
-		if err != nil {
-			return fmt.Errorf("insert confirmed team run: %w", err)
-		}
-
-		if affected, err := result.RowsAffected(); err != nil {
-			return fmt.Errorf("insert confirmed team run rows affected: %w", err)
-		} else if affected == 0 {
-			selected, err = scanRun(tx.QueryRowContext(ctx, `
-				SELECT id, root_key, root_type, status, execution_mode, concurrency_limit,
-					plan_hash, aggregate_outcome, next_action, root_session_id, started_at,
-					completed_at, created_at, updated_at
-				FROM team_runs WHERE root_type = ? AND root_key = ? AND plan_hash = ?`,
-				run.RootType, run.RootKey, run.PlanHash))
-			if err != nil {
-				return fmt.Errorf("select existing confirmed team run: %w", err)
-			}
-			idempotent = true
-			return nil
-		}
-
-		runID, err := result.LastInsertId()
-		if err != nil {
-			return fmt.Errorf("insert confirmed team run last insert id: %w", err)
-		}
-		for i, item := range items {
-			if item == nil {
-				return errors.New("team-run item is nil")
-			}
-			itemIDs[i], err = insertItemTx(ctx, tx, runID, item)
-			if err != nil {
-				return err
-			}
-		}
-		run.ID = runID
-		return nil
+		return r.confirmRunTx(ctx, tx, run, items, result)
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("confirm team run with items: %w", err)
 	}
-	if idempotent {
-		return selected, true, nil
+	if result.idempotent {
+		return result.selected, true, nil
 	}
+	applyConfirmedRunIDs(run, items, result)
+	return run, false, nil
+}
+
+type confirmedRunResult struct {
+	selected   *TeamRun
+	runID      int64
+	itemIDs    []int64
+	idempotent bool
+}
+
+func (r *Repository) confirmRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun, items []*TeamRunItem, result *confirmedRunResult) error {
+	inserted, runID, err := insertConfirmedRunTx(ctx, tx, run)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		return selectExistingRunTx(ctx, tx, run, result)
+	}
+	result.runID = runID
+	result.itemIDs, err = insertItemsTx(ctx, tx, result.runID, items)
+	return err
+}
+
+func insertConfirmedRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun) (bool, int64, error) {
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO team_runs (
+			root_key, root_type, status, execution_mode, concurrency_limit, plan_hash,
+			aggregate_outcome, next_action, root_session_id, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(root_type, root_key, plan_hash) DO NOTHING`,
+		run.RootKey, run.RootType, run.Status, run.ExecutionMode, run.ConcurrencyLimit,
+		run.PlanHash, stringValue(run.AggregateOutcome), stringValue(run.NextAction),
+		stringValue(run.RootSessionID), sqlTimeValue(run.StartedAt), sqlTimeValue(run.CompletedAt))
+	if err != nil {
+		return false, 0, fmt.Errorf("insert confirmed team run: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, 0, fmt.Errorf("insert confirmed team run rows affected: %w", err)
+	}
+	if affected == 0 {
+		return false, 0, nil
+	}
+	runID, err := result.LastInsertId()
+	if err != nil {
+		return false, 0, fmt.Errorf("insert confirmed team run last insert id: %w", err)
+	}
+	return true, runID, nil
+}
+
+func selectExistingRunTx(ctx context.Context, tx *sql.Tx, run *TeamRun, result *confirmedRunResult) error {
+	selected, err := scanRun(tx.QueryRowContext(ctx, `
+		SELECT id, root_key, root_type, status, execution_mode, concurrency_limit,
+			plan_hash, aggregate_outcome, next_action, root_session_id, started_at,
+			completed_at, created_at, updated_at
+		FROM team_runs WHERE root_type = ? AND root_key = ? AND plan_hash = ?`,
+		run.RootType, run.RootKey, run.PlanHash))
+	if err != nil {
+		return fmt.Errorf("select existing confirmed team run: %w", err)
+	}
+	result.selected = selected
+	result.idempotent = true
+	return nil
+}
+
+func insertItemsTx(ctx context.Context, tx *sql.Tx, runID int64, items []*TeamRunItem) ([]int64, error) {
+	itemIDs := make([]int64, len(items))
 	for i, item := range items {
-		item.ID = itemIDs[i]
+		if item == nil {
+			return nil, errors.New("team-run item is nil")
+		}
+		id, err := insertItemTx(ctx, tx, runID, item)
+		if err != nil {
+			return nil, err
+		}
+		itemIDs[i] = id
+	}
+	return itemIDs, nil
+}
+
+func applyConfirmedRunIDs(run *TeamRun, items []*TeamRunItem, result *confirmedRunResult) {
+	run.ID = result.runID
+	for i, item := range items {
+		item.ID = result.itemIDs[i]
 		item.TeamRunID = run.ID
 	}
-	return run, false, nil
 }
 
 // CreateRun inserts a run without item rows. CreateRunWithItems is preferred
@@ -406,42 +446,70 @@ func insertItemTx(ctx context.Context, tx *sql.Tx, runID int64, item *TeamRunIte
 
 func (r *Repository) withTransactionRetry(ctx context.Context, fn func(*sql.Tx) error) error {
 	for attempt := 0; attempt < transactionAttempts; attempt++ {
-		tx, err := r.db.BeginTxContext(ctx)
+		tx, err := r.beginTransaction(ctx, attempt)
 		if err != nil {
-			if !isBusyError(err) || attempt == transactionAttempts-1 {
-				return err
-			}
-			if err := waitForRetry(ctx, attempt); err != nil {
-				return err
+			if retryErr := retryBusyError(ctx, attempt, err); retryErr != nil {
+				return retryErr
 			}
 			continue
 		}
-		if r.transactionBeginHook != nil {
-			r.transactionBeginHook(attempt)
+		err = r.executeTransaction(tx, fn)
+		if err == nil {
+			return r.commitTransaction(tx)
 		}
-
-		err = fn(tx)
-		if err != nil {
-			rollbackErr := tx.Rollback()
-			if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-				return errors.Join(err, fmt.Errorf("rollback transaction: %w", rollbackErr))
-			}
-			if !isBusyError(err) || attempt == transactionAttempts-1 {
-				return err
-			}
-			if err := waitForRetry(ctx, attempt); err != nil {
-				return err
-			}
-			continue
+		if retryErr := r.retryCallbackError(ctx, tx, attempt, err); retryErr != nil {
+			return retryErr
 		}
-		if err := tx.Commit(); err != nil {
-			// Do not retry a commit error: a driver may have committed before
-			// reporting the error, and retrying could duplicate a run.
-			return err
-		}
-		return nil
 	}
 	return errors.New("team-run transaction retry limit exceeded")
+}
+
+func (r *Repository) beginTransaction(ctx context.Context, attempt int) (*sql.Tx, error) {
+	if r.transactionBeginErrorHook != nil {
+		if err := r.transactionBeginErrorHook(attempt); err != nil {
+			return nil, err
+		}
+	}
+	tx, err := r.db.BeginTxContext(ctx)
+	if err == nil && r.transactionBeginHook != nil {
+		r.transactionBeginHook(attempt)
+	}
+	return tx, err
+}
+
+func (r *Repository) executeTransaction(tx *sql.Tx, fn func(*sql.Tx) error) error {
+	return fn(tx)
+}
+
+func retryBusyError(ctx context.Context, attempt int, err error) error {
+	if !isBusyError(err) || attempt == transactionAttempts-1 {
+		return err
+	}
+	return waitForRetry(ctx, attempt)
+}
+
+func (r *Repository) retryCallbackError(ctx context.Context, tx *sql.Tx, attempt int, callbackErr error) error {
+	rollbackErr := tx.Rollback()
+	if r.transactionRollbackHook != nil {
+		rollbackErr = r.transactionRollbackHook(rollbackErr)
+	}
+	if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		return errors.Join(callbackErr, fmt.Errorf("rollback transaction: %w", rollbackErr))
+	}
+	if !isBusyError(callbackErr) || attempt == transactionAttempts-1 {
+		return callbackErr
+	}
+	return waitForRetry(ctx, attempt)
+}
+
+func (r *Repository) commitTransaction(tx *sql.Tx) error {
+	err := tx.Commit()
+	if r.transactionCommitHook != nil {
+		err = r.transactionCommitHook(err)
+	}
+	// Do not retry a commit error: a driver may have committed before
+	// reporting it, and retrying could duplicate a run.
+	return err
 }
 
 func waitForRetry(ctx context.Context, attempt int) error {

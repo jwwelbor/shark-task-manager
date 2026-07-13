@@ -2,6 +2,8 @@ package teamrun
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -238,6 +240,84 @@ func TestRepository_CompareAndSetItem_PreservesConfirmedSnapshot(t *testing.T) {
 	require.Equal(t, "develop", *got[0].PlannedAction)
 	require.Equal(t, "model-a", *got[0].PlannedModel)
 	require.Equal(t, "claimed", got[0].ItemStatus)
+}
+
+func TestRepository_TransactionRetry_CoversBeginCallbackRollbackAndCancel(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+
+	t.Run("busy begin retries", func(t *testing.T) {
+		attempts := 0
+		repo.transactionBeginErrorHook = func(attempt int) error {
+			attempts++
+			if attempt == 0 {
+				return errors.New("database is locked")
+			}
+			return nil
+		}
+		callbackCalls := 0
+		require.NoError(t, repo.withTransactionRetry(context.Background(), func(*sql.Tx) error {
+			callbackCalls++
+			return nil
+		}))
+		require.Equal(t, 2, attempts)
+		require.Equal(t, 1, callbackCalls)
+		repo.transactionBeginErrorHook = nil
+	})
+
+	t.Run("begin callback runs after transaction starts", func(t *testing.T) {
+		callbackAttempt := -1
+		repo.transactionBeginHook = func(attempt int) { callbackAttempt = attempt }
+		require.NoError(t, repo.withTransactionRetry(context.Background(), func(*sql.Tx) error { return nil }))
+		require.Equal(t, 0, callbackAttempt)
+		repo.transactionBeginHook = nil
+	})
+
+	t.Run("rollback error is joined with callback error", func(t *testing.T) {
+		callbackErr := errors.New("callback failed")
+		rollbackErr := errors.New("rollback failed")
+		repo.transactionRollbackHook = func(error) error { return rollbackErr }
+		err := repo.withTransactionRetry(context.Background(), func(*sql.Tx) error { return callbackErr })
+		require.ErrorIs(t, err, callbackErr)
+		require.ErrorIs(t, err, rollbackErr)
+		repo.transactionRollbackHook = nil
+	})
+
+	t.Run("cancelled context does not retry", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		attempts := 0
+		repo.transactionBeginErrorHook = func(int) error { attempts++; return nil }
+		err := repo.withTransactionRetry(ctx, func(*sql.Tx) error { return nil })
+		require.ErrorIs(t, err, context.Canceled)
+		require.Equal(t, 1, attempts)
+		repo.transactionBeginErrorHook = nil
+	})
+}
+
+func TestRepository_TransactionRetry_CommitAndBusyExhaustion(t *testing.T) {
+	database := test.NewIsolatedTestDB(t)
+	repo := NewRepository(dbconn.NewDB(database))
+
+	t.Run("commit error is not retried", func(t *testing.T) {
+		commitErr := errors.New("commit failed")
+		calls := 0
+		repo.transactionCommitHook = func(error) error { return commitErr }
+		err := repo.withTransactionRetry(context.Background(), func(*sql.Tx) error { calls++; return nil })
+		require.ErrorIs(t, err, commitErr)
+		require.Equal(t, 1, calls)
+		repo.transactionCommitHook = nil
+	})
+
+	t.Run("busy callback exhausts retries", func(t *testing.T) {
+		calls := 0
+		err := repo.withTransactionRetry(context.Background(), func(*sql.Tx) error {
+			calls++
+			return errors.New("database is locked")
+		})
+		require.Equal(t, transactionAttempts, calls)
+		require.ErrorContains(t, err, "database is locked")
+	})
 }
 
 func stringPtr(value string) *string { return &value }
