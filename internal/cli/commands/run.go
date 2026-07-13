@@ -13,6 +13,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -158,6 +159,17 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
 	actionSvc := narrowActionServiceForEntity(actionSvcRoot, entityType)
+	stepResolver, err := dispatch.NewStepResolver(dispatch.StepResolverDeps{
+		Transitioner:  transitioner,
+		Placeholders:  placeholderGen,
+		ActionService: actionSvc,
+		IsArchivedStatus: func(_ models.EntityType, status string) bool {
+			return isArchivedStatus(entityType, status)
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize dispatch-step resolver for %s: %w", entityType, err)
+	}
 
 	workflowSvc := cli.GetWorkflowService()
 
@@ -192,6 +204,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Transitioner: transitioner,
 		Placeholders: placeholderGen,
 		ActionSvc:    actionSvc,
+		StepResolver: stepResolver,
+		EntityType:   models.EntityType(entityType),
 		WorkflowSvc:  workflowSvc,
 		Dispatchers:  dispatchers,
 		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
