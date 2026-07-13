@@ -132,58 +132,106 @@ var _ DispatchStepResolver = (*StepResolver)(nil)
 // Resolve reads and classifies the current workflow step. It performs no
 // claims, status transitions, file writes, or dispatches.
 func (r *StepResolver) Resolve(ctx context.Context, entityType models.EntityType, key string) (DispatchStep, error) {
+	info, err := r.getNextStatus(ctx, key)
+	if err != nil {
+		return DispatchStep{}, err
+	}
+	step := newDispatchStep(entityType, key, info)
+	if r.isTerminal(entityType, info) {
+		return terminalStep(step), nil
+	}
+
+	vars, err := r.generatePlaceholders(ctx, key)
+	if err != nil {
+		return DispatchStep{}, err
+	}
+	resolved, err := r.resolveAction(ctx, key, info.CurrentStatus, vars)
+	if err != nil {
+		return DispatchStep{}, err
+	}
+	if resolved.pauseError != "" {
+		return pausedStep(step, resolved.pauseError), nil
+	}
+	if resolved.populated == nil {
+		return pausedStep(step, ""), nil
+	}
+
+	step = applyActionMetadata(step, resolved.populated, vars)
+	step.Prompt, step.UnresolvedPlaceholders, err = r.assemblePrompt(ctx, key, info.CurrentStatus, resolved.populated, vars)
+	if err != nil {
+		return DispatchStep{}, err
+	}
+	return step, nil
+}
+
+func (r *StepResolver) getNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
 	info, err := r.transitioner.GetNextStatus(ctx, key)
 	if err != nil {
-		return DispatchStep{}, fmt.Errorf("resolve dispatch step status for %s: %w", key, err)
+		return nil, fmt.Errorf("resolve dispatch step status for %s: %w", key, err)
 	}
 	if info == nil {
-		return DispatchStep{}, fmt.Errorf("resolve dispatch step status for %s: empty status response", key)
+		return nil, fmt.Errorf("resolve dispatch step status for %s: empty status response", key)
 	}
+	return info, nil
+}
 
-	step := DispatchStep{
-		EntityKey:  key,
-		EntityType: entityType,
-		Status:     info.CurrentStatus,
-		NextStatus: info,
-	}
-	if info.IsTerminal || (r.isArchivedStatus != nil && r.isArchivedStatus(entityType, info.CurrentStatus)) {
-		step.Action = action.ActionArchive
-		step.GateClassification = GateTerminal
-		return step, nil
-	}
+func newDispatchStep(entityType models.EntityType, key string, info *services.NextStatusInfo) DispatchStep {
+	return DispatchStep{EntityKey: key, EntityType: entityType, Status: info.CurrentStatus, NextStatus: info}
+}
 
+func (r *StepResolver) isTerminal(entityType models.EntityType, info *services.NextStatusInfo) bool {
+	return info.IsTerminal || (r.isArchivedStatus != nil && r.isArchivedStatus(entityType, info.CurrentStatus))
+}
+
+func terminalStep(step DispatchStep) DispatchStep {
+	step.Action = action.ActionArchive
+	step.GateClassification = GateTerminal
+	return step
+}
+
+func (r *StepResolver) generatePlaceholders(ctx context.Context, key string) (map[string]string, error) {
 	vars := map[string]string{}
 	if r.placeholders != nil {
-		vars, err = r.placeholders.GeneratePlaceholders(ctx, key)
+		generated, err := r.placeholders.GeneratePlaceholders(ctx, key)
 		if err != nil {
-			return DispatchStep{}, fmt.Errorf("generate dispatch placeholders for %s: %w", key, err)
+			return nil, fmt.Errorf("generate dispatch placeholders for %s: %w", key, err)
 		}
-		if vars == nil {
-			vars = map[string]string{}
+		if generated != nil {
+			vars = generated
 		}
 	}
 	templates.AugmentPlaceholderAliases(vars)
+	return vars, nil
+}
+
+type actionResolution struct {
+	populated  *action.PopulatedAction
+	pauseError string
+}
+
+func (r *StepResolver) resolveAction(ctx context.Context, key, status string, vars map[string]string) (actionResolution, error) {
 	if r.actionService == nil {
-		return DispatchStep{}, errors.New("resolve dispatch step: action service is required for a non-terminal step")
+		return actionResolution{}, errors.New("resolve dispatch step: action service is required for a non-terminal step")
 	}
+	populated, err := r.actionService.GetStatusActionPopulated(ctx, status, vars)
+	if err == nil {
+		return actionResolution{populated: populated}, nil
+	}
+	var statusNotFound *action.StatusNotFoundError
+	if errors.As(err, &statusNotFound) {
+		return actionResolution{pauseError: fmt.Sprintf("status %q is not defined in the workflow configuration; this may be a legacy status that has been removed", status)}, nil
+	}
+	return actionResolution{}, fmt.Errorf("populate action for status %q on %s: %w", status, key, err)
+}
 
-	populated, err := r.actionService.GetStatusActionPopulated(ctx, info.CurrentStatus, vars)
-	if err != nil {
-		var statusNotFound *action.StatusNotFoundError
-		if errors.As(err, &statusNotFound) {
-			step.Action = action.ActionPause
-			step.GateClassification = GatePause
-			step.Error = fmt.Sprintf("status %q is not defined in the workflow configuration; this may be a legacy status that has been removed", info.CurrentStatus)
-			return step, nil
-		}
-		return DispatchStep{}, fmt.Errorf("populate action for status %q on %s: %w", info.CurrentStatus, key, err)
-	}
-	if populated == nil {
-		step.Action = action.ActionPause
-		step.GateClassification = GatePause
-		return step, nil
-	}
+func pausedStep(step DispatchStep, reason string) DispatchStep {
+	step.Action = action.ActionPause
+	step.GateClassification = GatePause
+	step.Error = reason
+	return step
+}
 
+func applyActionMetadata(step DispatchStep, populated *action.PopulatedAction, vars map[string]string) DispatchStep {
 	step.HasAction = true
 	step.Vars = vars
 	step.Action = populated.Action
@@ -192,27 +240,25 @@ func (r *StepResolver) Resolve(ctx context.Context, entityType models.EntityType
 	step.Model = populated.Model
 	step.Effort = populated.Effort
 	step.GateClassification = classifyGate(populated.Action)
+	return step
+}
 
-	if requiresPrompt(populated) {
-		if populated.Instruction == "" {
-			return DispatchStep{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", key, info.CurrentStatus)
-		}
-		if r.promptAssembler != nil {
-			step.Prompt, err = r.promptAssembler.AssemblePrompt(ctx, PromptAssemblyInput{
-				Instruction: populated.Instruction,
-				AgentType:   populated.AgentType,
-				Vars:        vars,
-			})
-			if err != nil {
-				return DispatchStep{}, fmt.Errorf("assemble dispatch prompt for %s: %w", key, err)
-			}
-		} else {
-			step.Prompt = populated.Instruction
-		}
-		step.UnresolvedPlaceholders = templates.UnrenderedTokens(step.Prompt)
+func (r *StepResolver) assemblePrompt(ctx context.Context, key, status string, populated *action.PopulatedAction, vars map[string]string) (string, []string, error) {
+	if !requiresPrompt(populated) {
+		return "", nil, nil
 	}
-
-	return step, nil
+	if populated.Instruction == "" {
+		return "", nil, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", key, status)
+	}
+	prompt := populated.Instruction
+	if r.promptAssembler != nil {
+		var err error
+		prompt, err = r.promptAssembler.AssemblePrompt(ctx, PromptAssemblyInput{Instruction: populated.Instruction, AgentType: populated.AgentType, Vars: vars})
+		if err != nil {
+			return "", nil, fmt.Errorf("assemble dispatch prompt for %s: %w", key, err)
+		}
+	}
+	return prompt, templates.UnrenderedTokens(prompt), nil
 }
 
 func requiresPrompt(populated *action.PopulatedAction) bool {

@@ -182,3 +182,24 @@ func TestStepResolver_PropagatesActionProviderFailure_TC010(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 	assert.True(t, strings.Contains(err.Error(), "populate action"), "error should identify the resolution phase: %v", err)
 }
+
+func TestStepResolver_PropagatesPromptAssemblyFailure_TC010(t *testing.T) {
+	wantErr := errors.New("prompt renderer unavailable")
+	resolver, err := NewStepResolver(StepResolverDeps{
+		Transitioner: stepTransitioner{info: &services.NextStatusInfo{CurrentStatus: "in_development"}},
+		ActionService: &action.MockActionService{
+			GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*action.PopulatedAction, error) {
+				return &action.PopulatedAction{Action: action.ActionSpawnAgent, AgentType: "developer", Instruction: "implement"}, nil
+			},
+		},
+		PromptAssembler: PromptAssemblerFunc(func(context.Context, PromptAssemblyInput) (string, error) {
+			return "", wantErr
+		}),
+	})
+	require.NoError(t, err)
+
+	_, err = resolver.Resolve(context.Background(), models.EntityTypeTask, "T-E38-F01-001")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+	assert.Contains(t, err.Error(), "assemble dispatch prompt")
+}
