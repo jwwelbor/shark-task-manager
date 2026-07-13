@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
-	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -71,11 +70,8 @@ func (p *TeamPlanner) snapshotChildren(ctx context.Context, input PlanInput, roo
 	for i := range children {
 		child := &children[i]
 		child.Key = canonicalKey(child.Key)
-		if child.EntityType == "" {
-			return nil, nil, nil, validationError(ErrInvalidPlanInput, rootKey, child.Key, "", "child type is required")
-		}
-		if child.Key == "" {
-			return nil, nil, nil, validationError(ErrInvalidPlanInput, rootKey, "", "", "child key is required")
+		if err := validateEntityIdentity(child.Key, child.EntityType); err != nil {
+			return nil, nil, nil, validationErrorf(ErrInvalidPlanInput, rootKey, child.Key, "", "child identity: %v", err)
 		}
 		identity := ChildIdentity{Key: child.Key, EntityType: child.EntityType}
 		identityKey := string(identity.EntityType) + ":" + identity.Key
@@ -190,9 +186,8 @@ func validatePlanInput(input PlanInput) error {
 	if strings.TrimSpace(input.RootKey) == "" {
 		return fmt.Errorf("%w: root key is required", ErrInvalidPlanInput)
 	}
-	parsed := keys.NewKeyService().Parse(input.RootKey)
-	if parsed.EntityType == keys.EntityTypeUnknown || models.EntityType(parsed.EntityType) != input.RootType {
-		return fmt.Errorf("%w: root key %q does not identify a %s", ErrInvalidPlanInput, input.RootKey, input.RootType)
+	if err := validateEntityIdentity(input.RootKey, input.RootType); err != nil {
+		return fmt.Errorf("%w: root identity: %v", ErrInvalidPlanInput, err)
 	}
 	if input.RequestedConcurrency <= 0 {
 		return fmt.Errorf("%w: requested concurrency must be positive", ErrInvalidPlanInput)
@@ -246,8 +241,11 @@ func normalizeEdges(child ChildIdentity, edges []DependencyEdge) ([]DependencyEd
 		if edge.DependencyType == "" {
 			edge.DependencyType = child.EntityType
 		}
-		if edge.DependencyKey == "" {
-			return nil, errors.New("dependency key is required")
+		if err := validateEntityIdentity(edge.ChildKey, edge.ChildType); err != nil {
+			return nil, fmt.Errorf("dependency child identity: %w", err)
+		}
+		if err := validateEntityIdentity(edge.DependencyKey, edge.DependencyType); err != nil {
+			return nil, fmt.Errorf("dependency target identity: %w", err)
 		}
 		if edge.ChildKey != child.Key || edge.ChildType != child.EntityType {
 			return nil, fmt.Errorf("dependency edge child %s/%s does not match requested child %s/%s", edge.ChildType, edge.ChildKey, child.EntityType, child.Key)

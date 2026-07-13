@@ -59,7 +59,7 @@ func plannerFixture() PlannerDeps {
 				{ChildKey: "T-E38-F01-003", DependencyKey: "T-E38-F01-001", DependencyType: models.EntityTypeTask},
 				{ChildKey: "T-E38-F01-003", DependencyKey: "T-E38-F01-002", DependencyType: models.EntityTypeTask},
 			},
-			"T-E38-F01-005": {{ChildKey: "T-E38-F01-005", DependencyKey: "T-EXTERNAL-001", DependencyType: models.EntityTypeTask, External: true, DependencyStatus: "blocked"}},
+			"T-E38-F01-005": {{ChildKey: "T-E38-F01-005", DependencyKey: "T-E37-F01-001", DependencyType: models.EntityTypeTask, External: true, DependencyStatus: "blocked"}},
 		}},
 		Dispatch: plannerDispatchMock{byKey: map[string]dispatch.DispatchStep{
 			"T-E38-F01-001": {EntityKey: "T-E38-F01-001", EntityType: models.EntityTypeTask, Status: "completed", Action: "archive", GateClassification: dispatch.GateTerminal},
@@ -132,6 +132,60 @@ func TestPlanner_ReadOnlyCompleteSnapshot_TC001(t *testing.T) {
 	}
 }
 
+func TestPlanner_RejectsRootIdentityMismatches(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		root models.EntityType
+		key  string
+	}{
+		{name: "epic declared feature", root: models.EntityTypeFeature, key: "E38"},
+		{name: "feature declared epic", root: models.EntityTypeEpic, key: "E38-F01"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			planner, err := NewPlanner(plannerFixture())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = planner.Plan(context.Background(), PlanInput{RootType: tt.root, RootKey: tt.key, RequestedConcurrency: 1, Capabilities: CapabilityFacts{SingleWorkerAvailable: true}})
+			if err == nil || !errors.Is(err, ErrInvalidPlanInput) {
+				t.Fatalf("Planner.Plan() error = %v, want root identity validation error", err)
+			}
+		})
+	}
+}
+
+func TestPlanner_RejectsSnapshotIdentityMismatches(t *testing.T) {
+	keysByType := map[models.EntityType]string{
+		models.EntityTypeEpic:    "E38",
+		models.EntityTypeFeature: "E38-F01",
+		models.EntityTypeTask:    "T-E38-F01-001",
+		models.EntityTypeBug:     "B001",
+		models.EntityTypeChange:  "CC-001",
+		models.EntityTypeSprint:  "S001",
+	}
+	for actualType, key := range keysByType {
+		for declaredType := range models.ValidEntityTypes {
+			if declaredType == actualType {
+				continue
+			}
+			t.Run(string(actualType)+"_as_"+string(declaredType), func(t *testing.T) {
+				deps := PlannerDeps{
+					Children: plannerChildrenMock{children: []ChildSnapshot{{Key: key, EntityType: declaredType}}},
+					Dispatch: plannerDispatchMock{byKey: map[string]dispatch.DispatchStep{key: {EntityKey: key, EntityType: declaredType}}},
+				}
+				planner, err := NewPlanner(deps)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = planner.Plan(context.Background(), PlanInput{RootType: models.EntityTypeFeature, RootKey: "E38-F01", RequestedConcurrency: 1, Capabilities: CapabilityFacts{SingleWorkerAvailable: true}})
+				if err == nil || !errors.Is(err, ErrInvalidPlanInput) {
+					t.Fatalf("Planner.Plan() error = %v, want child identity validation error", err)
+				}
+			})
+		}
+	}
+}
+
 func TestPlanner_ClassifiesResolvedRelationshipOutsideRootAsExternal_TC003(t *testing.T) {
 	planner, err := NewPlanner(PlannerDeps{
 		Children: plannerChildrenMock{children: []ChildSnapshot{
@@ -186,7 +240,7 @@ func TestPlanner_RejectsInvalidGraph_TC002(t *testing.T) {
 			if tt.cause == ErrDependencyCycle {
 				depMock.byKey["T-E38-F01-001"] = []DependencyEdge{{ChildKey: "T-E38-F01-001", DependencyKey: "T-E38-F01-002", DependencyType: models.EntityTypeTask}}
 			} else if tt.cause == ErrMissingDependency {
-				depMock.byKey["T-E38-F01-002"] = []DependencyEdge{{ChildKey: "T-E38-F01-002", DependencyKey: "T-MISSING-999", DependencyType: models.EntityTypeTask}}
+				depMock.byKey["T-E38-F01-002"] = []DependencyEdge{{ChildKey: "T-E38-F01-002", DependencyKey: "T-E38-F99-999", DependencyType: models.EntityTypeTask}}
 			} else {
 				steps := deps.Dispatch.(plannerDispatchMock)
 				steps.byKey["T-E38-F01-002"] = dispatch.DispatchStep{EntityKey: "T-E38-F01-002", Error: "unresolved placeholder workflow"}

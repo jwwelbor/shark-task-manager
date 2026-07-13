@@ -89,6 +89,9 @@ func (l *LedgerService) PersistConfirmedPlan(ctx context.Context, plan *TeamPlan
 	if confirmed.PlanHash != plan.PlanHash {
 		return nil, &PlanDriftError{RootKey: rootKey, ExistingHash: confirmed.PlanHash, RequestedHash: plan.PlanHash}
 	}
+	if err := validateRepositoryRunIdentity(confirmed); err != nil {
+		return nil, err
+	}
 	return toDomainRun(confirmed), nil
 }
 
@@ -103,6 +106,9 @@ func (l *LedgerService) GetRun(ctx context.Context, runID int64) (*TeamRun, erro
 	run, err := l.repo.GetRun(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("get team run %d: %w", runID, err)
+	}
+	if err := validateRepositoryRunIdentity(run); err != nil {
+		return nil, fmt.Errorf("validate team run %d: %w", runID, err)
 	}
 	return toDomainRun(run), nil
 }
@@ -146,6 +152,9 @@ func (l *LedgerService) UpdateRun(ctx context.Context, update RunUpdate) (*TeamR
 	run, err := l.repo.GetRun(ctx, update.RunID)
 	if err != nil {
 		return nil, fmt.Errorf("load team run %d for update: %w", update.RunID, err)
+	}
+	if err := validateRepositoryRunIdentity(run); err != nil {
+		return nil, fmt.Errorf("validate team run %d for update: %w", update.RunID, err)
 	}
 	run.Status = string(update.Status)
 	run.ExecutionMode = string(update.ExecutionMode)
@@ -218,6 +227,9 @@ func (l *LedgerService) loadResultItem(ctx context.Context, runID, itemID int64)
 			if item.TeamRunID != runID {
 				break
 			}
+			if err := validateEntityIdentity(item.ChildKey, models.EntityType(item.ChildType)); err != nil {
+				return nil, fmt.Errorf("validate result item %d identity: %w", itemID, err)
+			}
 			return item, nil
 		}
 	}
@@ -279,6 +291,9 @@ func (l *LedgerService) findItem(ctx context.Context, runID, itemID int64) (*tea
 	}
 	for _, item := range items {
 		if item != nil && item.ID == itemID {
+			if err := validateEntityIdentity(item.ChildKey, models.EntityType(item.ChildType)); err != nil {
+				return nil, fmt.Errorf("validate item %d identity: %w", itemID, err)
+			}
 			return item, nil
 		}
 	}
@@ -314,18 +329,26 @@ func validateConfirmedPlan(plan *TeamPlan, rootSessionID string) error {
 	if err := plan.Validate(); err != nil {
 		return err
 	}
-	if err := validateEntityKey(plan.RootKey); err != nil {
-		return fmt.Errorf("validate plan root key: %w", err)
+	if err := validateEntityIdentity(plan.RootKey, plan.RootType); err != nil {
+		return fmt.Errorf("validate plan root identity: %w", err)
 	}
 	if strings.TrimSpace(rootSessionID) == "" || len([]byte(rootSessionID)) > maxBoundedText {
 		return fmt.Errorf("%w: root session is required", ErrInvalidPlanInput)
 	}
 	for _, item := range plan.Items {
-		if err := validateEntityKey(item.ChildKey); err != nil {
-			return err
+		if err := validateEntityIdentity(item.ChildKey, item.ChildType); err != nil {
+			return fmt.Errorf("validate plan item identity: %w", err)
 		}
-		if !models.ValidEntityTypes[item.ChildType] || item.Wave < 0 || item.ExecutionOrder < 0 {
+		if item.Wave < 0 || item.ExecutionOrder < 0 {
 			return fmt.Errorf("%w: invalid item %s", ErrInvalidPlanInput, item.ChildKey)
+		}
+		for _, edge := range item.Dependencies {
+			if err := validateEntityIdentity(edge.ChildKey, edge.ChildType); err != nil {
+				return fmt.Errorf("validate dependency child identity: %w", err)
+			}
+			if err := validateEntityIdentity(edge.DependencyKey, edge.DependencyType); err != nil {
+				return fmt.Errorf("validate dependency target identity: %w", err)
+			}
 		}
 	}
 	return nil
@@ -365,6 +388,16 @@ func toDomainRun(run *teamrunrepo.TeamRun) *TeamRun {
 	return &TeamRun{ID: run.ID, RootKey: run.RootKey, RootType: models.EntityType(run.RootType), Status: RunStatus(run.Status), ExecutionMode: ExecutionMode(run.ExecutionMode), ConcurrencyLimit: run.ConcurrencyLimit, PlanHash: run.PlanHash, AggregateOutcome: run.AggregateOutcome, NextAction: run.NextAction, RootSessionID: run.RootSessionID, StartedAt: run.StartedAt, CompletedAt: run.CompletedAt, CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt}
 }
 
+func validateRepositoryRunIdentity(run *teamrunrepo.TeamRun) error {
+	if run == nil {
+		return fmt.Errorf("%w: nil run", ErrInvalidPlanInput)
+	}
+	if err := validateEntityIdentity(run.RootKey, models.EntityType(run.RootType)); err != nil {
+		return fmt.Errorf("validate persisted root identity: %w", err)
+	}
+	return nil
+}
+
 func toDomainItems(items []*teamrunrepo.TeamRunItem) ([]*TeamRunItem, error) {
 	result := make([]*TeamRunItem, 0, len(items))
 	for _, item := range items {
@@ -380,6 +413,9 @@ func toDomainItems(items []*teamrunrepo.TeamRunItem) ([]*TeamRunItem, error) {
 func toDomainItem(item *teamrunrepo.TeamRunItem) (*TeamRunItem, error) {
 	if item == nil {
 		return nil, fmt.Errorf("%w: nil item", ErrInvalidPlanInput)
+	}
+	if err := validateEntityIdentity(item.ChildKey, models.EntityType(item.ChildType)); err != nil {
+		return nil, fmt.Errorf("validate item %d identity: %w", item.ID, err)
 	}
 	refs, summary, err := decodeEvidence(stringValue(item.Evidence))
 	if err != nil {

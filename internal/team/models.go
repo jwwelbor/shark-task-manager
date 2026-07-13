@@ -380,11 +380,11 @@ func (r *TeamRun) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: run is nil", ErrInvalidPlanInput)
 	}
-	if err := validateEntityKey(r.RootKey); err != nil {
-		return fmt.Errorf("validate run root key: %w", err)
-	}
 	if r.RootType != models.EntityTypeEpic && r.RootType != models.EntityTypeFeature {
 		return fmt.Errorf("%w: %q", ErrInvalidPlanInput, r.RootType)
+	}
+	if err := validateEntityIdentity(r.RootKey, r.RootType); err != nil {
+		return fmt.Errorf("validate run root identity: %w", err)
 	}
 	if !validRunStatus(r.Status) {
 		return fmt.Errorf("%w: %q", ErrInvalidRunStatus, r.Status)
@@ -403,10 +403,10 @@ func (i *TeamRunItem) Validate() error {
 	if i == nil {
 		return fmt.Errorf("%w: item is nil", ErrInvalidPlanInput)
 	}
-	if err := validateEntityKey(i.ChildKey); err != nil {
-		return fmt.Errorf("validate item key: %w", err)
+	if err := validateEntityIdentity(i.ChildKey, i.ChildType); err != nil {
+		return fmt.Errorf("validate item identity: %w", err)
 	}
-	if !models.ValidEntityTypes[i.ChildType] || i.Wave < 0 || i.ExecutionOrder < 0 || i.Attempt < 0 {
+	if i.Wave < 0 || i.ExecutionOrder < 0 || i.Attempt < 0 {
 		return fmt.Errorf("%w: item identity, wave, order, or attempt is invalid", ErrInvalidPlanInput)
 	}
 	if !validItemStatus(i.ItemStatus) {
@@ -513,6 +513,25 @@ func validateEntityKey(key string) error {
 	return nil
 }
 
+// validateEntityIdentity verifies that a key's syntax agrees with its
+// declared entity type. Keys are case-insensitive and may include slugs, but
+// a valid key for one entity type must never cross a typed planner or ledger
+// boundary as another type.
+func validateEntityIdentity(key string, declaredType models.EntityType) error {
+	if !models.ValidEntityTypes[declaredType] {
+		return fmt.Errorf("%w: unsupported declared entity type %q", ErrInvalidEntityKey, declaredType)
+	}
+	if err := validateEntityKey(key); err != nil {
+		return fmt.Errorf("%w: key %q", err, key)
+	}
+	parsed := keys.NewKeyService().Parse(strings.TrimSpace(key))
+	actualType := models.EntityType(parsed.EntityType)
+	if actualType != declaredType {
+		return fmt.Errorf("%w: key %q identifies %s, declared %s", ErrInvalidEntityKey, key, actualType, declaredType)
+	}
+	return nil
+}
+
 func normalizeArtifactRef(base, ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" || len([]byte(trimmed)) > maxArtifactPath || filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "\\") || strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || isWindowsAbsolute(trimmed) {
@@ -571,7 +590,10 @@ func (p *TeamPlan) Validate() error {
 	if p.RootType != models.EntityTypeEpic && p.RootType != models.EntityTypeFeature {
 		return fmt.Errorf("%w: root type %q must be epic or feature", ErrInvalidPlanInput, p.RootType)
 	}
-	if strings.TrimSpace(p.RootKey) == "" || p.ConcurrencyLimit <= 0 {
+	if err := validateEntityIdentity(p.RootKey, p.RootType); err != nil {
+		return fmt.Errorf("validate plan root identity: %w", err)
+	}
+	if p.ConcurrencyLimit <= 0 {
 		return fmt.Errorf("%w: root key and positive concurrency limit are required", ErrInvalidPlanInput)
 	}
 	if p.ExecutionMode != ExecutionModeParallel && p.ExecutionMode != ExecutionModeSequential {
@@ -579,6 +601,19 @@ func (p *TeamPlan) Validate() error {
 	}
 	if !sha256Hex.MatchString(p.PlanHash) {
 		return fmt.Errorf("%w: plan hash must be lowercase SHA-256", ErrInvalidPlanInput)
+	}
+	for _, item := range p.Items {
+		if err := validateEntityIdentity(item.ChildKey, item.ChildType); err != nil {
+			return fmt.Errorf("validate plan item identity: %w", err)
+		}
+		for _, edge := range item.Dependencies {
+			if err := validateEntityIdentity(edge.ChildKey, edge.ChildType); err != nil {
+				return fmt.Errorf("validate plan dependency child identity: %w", err)
+			}
+			if err := validateEntityIdentity(edge.DependencyKey, edge.DependencyType); err != nil {
+				return fmt.Errorf("validate plan dependency target identity: %w", err)
+			}
+		}
 	}
 	return nil
 }

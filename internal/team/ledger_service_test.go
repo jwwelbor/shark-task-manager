@@ -3,6 +3,7 @@ package team
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -124,6 +125,47 @@ func TestLedger_RecordItemResult_AllTerminalOutcomes_TC007(t *testing.T) {
 				t.Fatalf("result = %+v, error = %v, want status %q", got, err, status)
 			}
 		})
+	}
+}
+
+func TestLedger_PersistRejectsRootAndItemIdentityMismatches(t *testing.T) {
+	keysByType := map[models.EntityType]string{
+		models.EntityTypeEpic:    "E38",
+		models.EntityTypeFeature: "E38-F01",
+		models.EntityTypeTask:    "T-E38-F01-001",
+		models.EntityTypeBug:     "B001",
+		models.EntityTypeChange:  "CC-001",
+		models.EntityTypeSprint:  "S001",
+	}
+	for actualType, key := range keysByType {
+		for declaredType := range models.ValidEntityTypes {
+			if declaredType == actualType {
+				continue
+			}
+			t.Run(string(actualType)+"_as_"+string(declaredType), func(t *testing.T) {
+				plan := &TeamPlan{
+					RootKey: "E38-F01", RootType: models.EntityTypeFeature,
+					ExecutionMode: ExecutionModeSequential, ConcurrencyLimit: 1,
+					PlanHash: strings.Repeat("a", 64),
+					Items:    []TeamPlanItem{{ChildKey: key, ChildType: declaredType}},
+				}
+				ledger := NewLedger(&ledgerRepositoryMock{})
+				if _, err := ledger.PersistConfirmedPlan(context.Background(), plan, "root-session-001"); err == nil {
+					t.Fatalf("PersistConfirmedPlan accepted %s declared as %s", key, declaredType)
+				}
+			})
+		}
+	}
+}
+
+func TestLedger_ResultLookupRejectsPersistedIdentityMismatch(t *testing.T) {
+	repo := &ledgerRepositoryMock{
+		run:   &teamrunrepo.TeamRun{ID: 1, RootKey: "E38-F01", RootType: "feature", PlanHash: strings.Repeat("a", 64), Status: "planned", ExecutionMode: "sequential", ConcurrencyLimit: 1},
+		items: []*teamrunrepo.TeamRunItem{{ID: 1, TeamRunID: 1, ChildKey: "B001", ChildType: "task", DependencyKeys: `[]`, ItemStatus: "planned"}},
+	}
+	_, err := NewLedger(repo).RecordItemResult(context.Background(), ItemResultUpdate{RunID: 1, ItemID: 1, Status: ItemStatusCompleted})
+	if err == nil || !errors.Is(err, ErrInvalidEntityKey) {
+		t.Fatalf("RecordItemResult() error = %v, want persisted identity validation error", err)
 	}
 }
 

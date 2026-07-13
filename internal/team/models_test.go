@@ -5,7 +5,39 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
+
+func TestValidateEntityIdentity_RejectsDeclaredTypeMismatches(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want models.EntityType
+	}{
+		{name: "epic", key: "E38", want: models.EntityTypeEpic},
+		{name: "feature", key: "E38-F01", want: models.EntityTypeFeature},
+		{name: "task", key: "T-E38-F01-001", want: models.EntityTypeTask},
+		{name: "bug", key: "B001", want: models.EntityTypeBug},
+		{name: "change", key: "CC-001", want: models.EntityTypeChange},
+		{name: "sprint", key: "S001", want: models.EntityTypeSprint},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for declared := range models.ValidEntityTypes {
+				if declared == tt.want {
+					continue
+				}
+				if err := validateEntityIdentity(tt.key, declared); err == nil {
+					t.Errorf("validateEntityIdentity(%q, %q) accepted key owned by %q", tt.key, declared, tt.want)
+				}
+			}
+			if err := validateEntityIdentity(tt.key, tt.want); err != nil {
+				t.Errorf("validateEntityIdentity(%q, %q) rejected matching identity: %v", tt.key, tt.want, err)
+			}
+		})
+	}
+}
 
 func TestLedgerOutput_RejectsSensitiveContent_TC009(t *testing.T) {
 	base := ItemResultUpdate{
