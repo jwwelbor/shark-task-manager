@@ -5008,6 +5008,71 @@ func TestGetNextTask_TC005_OpenNonTaskItemsRemainEligible(t *testing.T) {
 	assert.Equal(t, "sprint_order", result.SelectionReason, "selection should still be driven by sprint_order")
 }
 
+// TestGetNextTask_E38F06_RoleFilterPrecedesSprintOrdering protects role-aware
+// self-pull: an agent type narrows candidates before the existing four-tier
+// sprint comparator runs. It intentionally drives the real service comparator.
+func TestGetNextTask_E38F06_RoleFilterPrecedesSprintOrdering(t *testing.T) {
+	ctx := context.Background()
+	activeSprint := makeActiveSprint(38, "S038")
+	architectOrder, developerOrder, terminalDeveloperOrder := 1, 2, 3
+	architect, developer := "architect", "developer"
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{
+				{EntityType: "task", Key: "E38-F04-001", Status: "todo", AgentType: &architect, SprintOrder: &architectOrder, AssignedAt: time.Now().Add(-3 * time.Hour)},
+				{EntityType: "task", Key: "E38-F06-002", Status: "todo", AgentType: &developer, SprintOrder: &developerOrder, AssignedAt: time.Now().Add(-2 * time.Hour)},
+				{EntityType: "task", Key: "E38-F06-003", Status: "completed", AgentType: &developer, SprintOrder: &terminalDeveloperOrder, AssignedAt: time.Now().Add(-time.Hour)},
+			}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	result, err := svc.GetNextTask(ctx, developer)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "E38-F06-002", result.Key, "the requested role must filter before the global sprint order is compared")
+	assert.Equal(t, developer, result.AgentType)
+	assert.Equal(t, "assigned_at", result.SelectionReason, "the filtered candidate set contains one non-terminal developer item")
+}
+
+// TestGetNextTask_E38F06_NoMatchingRoleReturnsNil proves a named role never
+// falls back to another role's otherwise eligible sprint item.
+func TestGetNextTask_E38F06_NoMatchingRoleReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	activeSprint := makeActiveSprint(38, "S038")
+	architectOrder, developerOrder := 1, 2
+	architect, developer := "architect", "developer"
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, _ *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{
+				{EntityType: "task", Key: "E38-F04-001", Status: "todo", AgentType: &architect, SprintOrder: &architectOrder},
+				{EntityType: "task", Key: "E38-F06-002", Status: "todo", AgentType: &developer, SprintOrder: &developerOrder},
+			}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	result, err := svc.GetNextTask(ctx, "qa")
+
+	require.NoError(t, err)
+	assert.Nil(t, result, "a role with no eligible item must not receive a fallback candidate")
+}
+
 // ---------------------------------------------------------------------------
 // TC-016: GetNextTask — single candidate defaults to selection_reason="assigned_at"
 // ---------------------------------------------------------------------------

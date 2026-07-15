@@ -64,5 +64,6 @@ skills:
   - { name: sprint-analytics, ownership: canonical }
   - { name: sprint-execution, ownership: canonical }
   - { name: sprint-planning, ownership: canonical }
+  - { name: shark-attack, ownership: canonical }
   - { name: test-driven-development, ownership: canonical }
   - { name: uat, ownership: canonical }

@@ -7,7 +7,7 @@ Plan sprint E07-F01: "Sample feature for golden test".
 
 ## What This Is
 
-A **mode-aware sprint scoping harness**. It reads `shark sprint plan` once at the start, surfaces backlog entities grouped by feature and agent type, and walks through assignment confirmation — either item-by-item (interactive mode) or with a single greedy-fill proposal (auto mode). When done, it reports the readiness-score delta and suggests `/run-sprint` as the next step. It does NOT call `shark sprint start`.
+A **mode-aware sprint scoping harness**. It reads `shark sprint plan` once at the start, surfaces backlog entities grouped by feature and agent type, and walks through assignment confirmation — either item-by-item (interactive mode) or with a single greedy-fill proposal (auto mode). When done, it reports the readiness-score delta and suggests `/shark-rider run-sprint` as the next step. It does NOT call `shark sprint start`.
 
 ```
 shark sprint plan {S###} --json → surface backlog → confirm assignments → shark sprint readiness {S###} --json → report delta

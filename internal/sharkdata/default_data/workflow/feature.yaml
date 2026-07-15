@@ -26,7 +26,7 @@ steps:
     action: spawn_agent
     agent: uat-agent
     provider: openai
-    model: codex
+    model: gpt-5.2-codex
     skills: [quality, uat]
     prompt: feature/approval.md
     outcomes:
@@ -223,7 +223,7 @@ steps:
     action: spawn_agent
     agent: uat-agent
     provider: openai
-    model: codex
+    model: gpt-5.2-codex
     skills: [quality, specification-writing]
     prompt: feature/task_review.md
     outcomes:

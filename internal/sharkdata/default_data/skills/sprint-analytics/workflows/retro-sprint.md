@@ -31,7 +31,7 @@ Parse the returned value as `STATUS`.
 
 **If `STATUS` is anything else** (e.g., `planning`, `active`, `cancelled`): stop immediately with:
 ```
-/retro-sprint requires a completed or archived sprint. {S###} is in status: {STATUS}. Close the sprint first with /run-sprint or shark sprint close.
+/retro-sprint requires a completed or archived sprint. {S###} is in status: {STATUS}. Close the sprint first with /shark-rider run-sprint or shark sprint close.
 ```
 
 Do not pull any further data.

@@ -3466,6 +3466,71 @@ func TestSprintNext_TC016b_HumanOutputUnorderedItem(t *testing.T) {
 	assert.Contains(t, output, "Selected by: assigned_at", "human output must show selection reason")
 }
 
+// TestSprintNext_E38F06_ForwardsExactRoleWithoutMutation keeps sprint next a
+// thin read-only adapter: it forwards the literal agent value to the selection
+// service and only serializes the returned item.
+func TestSprintNext_E38F06_ForwardsExactRoleWithoutMutation(t *testing.T) {
+	var receivedAgentType string
+	mock := &MockSprintService{
+		GetNextTaskFunc: func(_ context.Context, agentType string) (*services.BacklogItemView, error) {
+			receivedAgentType = agentType
+			return &services.BacklogItemView{Key: "E38-F06-002", EntityType: "task", Title: "QA work", Status: "todo", AgentType: "qa", Priority: 3, AssignedAt: time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origOut := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = origOut }()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("agent", "", "")
+	require.NoError(t, cmd.Flags().Set("agent", "qa"))
+
+	runErr := runSprintNext(cmd, []string{})
+	require.NoError(t, w.Close())
+	var output bytes.Buffer
+	_, err = output.ReadFrom(r)
+	require.NoError(t, err)
+
+	require.NoError(t, runErr)
+	assert.Equal(t, "qa", receivedAgentType, "the CLI must not rewrite the workflow-resolved role")
+	assert.JSONEq(t, `{"key":"E38-F06-002","entity_type":"task","title":"QA work","status":"todo","agent_type":"qa","priority":3,"assigned_at":"2026-07-15T12:00:00Z"}`, output.String())
+}
+
+// TestSprintNext_E38F06_WithoutRolePreservesUnfilteredCall ensures ordinary
+// callers retain the pre-existing no-role selection path.
+func TestSprintNext_E38F06_WithoutRolePreservesUnfilteredCall(t *testing.T) {
+	var receivedAgentType string
+	mock := &MockSprintService{
+		GetNextTaskFunc: func(_ context.Context, agentType string) (*services.BacklogItemView, error) {
+			receivedAgentType = agentType
+			return nil, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	origJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+	cli.GlobalConfig.JSON = true
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("agent", "", "")
+
+	require.NoError(t, runSprintNext(cmd, []string{}))
+	assert.Empty(t, receivedAgentType, "no --agent flag must preserve unfiltered selection")
+}
+
 // =============================================================================
 // TC-024: sprint start emits warning when NULL sprint_orders exist (human mode only)
 // =============================================================================

@@ -41,3 +41,16 @@ on override drift mitigation.
 Created-file skeleton customizations use the same rule. For example,
 `shark-data/overrides/file_templates/task.md` replaces the default
 `shark-data/file_templates/task.md` and is preserved by `shark admin upgrade`.
+
+## Shark Attack protocol
+
+The embedded `skills/shark-attack/` skill provides a chair-led collaboration
+protocol and a validated, non-authoritative roster. Its canonical roster lives
+at `skills/shark-attack/context/roster-schema.yaml`; it maps stable built-in
+member IDs to existing personas without duplicating their prompts.
+
+Customize only the files you need under
+`shark-data/overrides/skills/shark-attack/`. Overrides are replace-only per
+file, so a local Shark Attack customization does not hide unrelated embedded
+skills. Run `shark admin install-shark-data` to materialize the bundle and
+`shark admin validate-data` after changing the roster.
