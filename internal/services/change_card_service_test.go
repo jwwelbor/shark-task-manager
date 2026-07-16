@@ -586,12 +586,12 @@ func TestChangeCardService_TransitionStatus(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "CC-001", "development", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "CC-001", "research", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "development" {
-		t.Errorf("expected status 'development', got %s", result.ToStatus)
+	if result.ToStatus != "research" {
+		t.Errorf("expected status 'research', got %s", result.ToStatus)
 	}
 }
 

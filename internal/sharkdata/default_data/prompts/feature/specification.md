@@ -18,7 +18,7 @@ This is a SINGLE document (spec.md) that covers both what to build and how to bu
 READ:
 (1) Parent epic PRD for business context and scope (DO NOT restate — reference by section)
 (2) Parent epic architecture doc for system-level decisions
-(3) Feature research report (if exists, for COMPLEX features)
+(3) Validated feature research report and its Capability map (required for every tier that reaches specification)
 (4) Feature description at {{.file_path}}
 (5) CLAUDE.md for coding standards and patterns
 (6) Existing code in affected areas (grep for related services, models, repos)
@@ -91,6 +91,7 @@ Notes:
 CRITICAL RULES:
 - DO NOT restate epic-level business context. Say "See epic PRD Section X" instead.
 - DO NOT restate existing architecture. Say "Follows pattern in internal/services/task_service.go" instead.
+- Use the research report's Capability map to name reused or extended capabilities and what this feature will not re-implement.
 - Requirements MUST trace to epic PRD requirements.
 - Architecture MUST align with CLAUDE.md patterns.
 - Include file paths for ALL code that will be modified.

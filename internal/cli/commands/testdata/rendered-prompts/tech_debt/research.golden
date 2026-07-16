@@ -1,0 +1,15 @@
+
+After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
+
+Research tech debt E07-F01: "Sample feature for golden test" using the universal recipe catalog.
+Write adjacent `E07-F01.research-plan.md` and `E07-F01.research-report.md`
+sidecars beside docs/plan/E07/E07-F01/E07-F01.md. Both front-matter blocks must identify
+`entity_key`, `entity_type: tech_debt`, `recipe: universal`, `rigor`,
+`categories`, `source_set`, and `related_work`. The plan requires Scope,
+Recipe, Source set, and Steps. The report requires Scope, Capability map,
+Ubiquitous vocabulary, Findings, Decisions, and Sources.
+
+Always establish vocabulary, inspect existing debt-remediation and related
+capabilities, and record REUSE, EXTEND, NEW, or CONTRADICTS when related work
+exists. Select only relevant category modules, register both sidecars as
+related docs, then return `pass`.

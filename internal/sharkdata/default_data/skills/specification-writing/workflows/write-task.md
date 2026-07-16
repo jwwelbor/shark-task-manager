@@ -8,7 +8,7 @@ inputs:
       (architecture, database, api_spec, frontend, security_performance, performance, implementation_phases, test_plan, test_criteria) — values may be null if doc absent
   - wireframes_path: absolute path to `wireframes.md` (REQUIRED if any task touches frontend code; null otherwise)
   - prototype_path: absolute path to `prototype.md` (optional)
-  - prior_art_report_path: absolute path to prior-art / consult-related-work report (REQUIRED; STOP if missing)
+  - research_report_path: absolute path to validated unified research report (REQUIRED; STOP if missing)
   - feature_research_report_path: absolute path to feature research report (optional but strongly preferred for Brownfield Context)
   - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present
   - tasks_directory: absolute path where task spec files should be written
@@ -72,7 +72,7 @@ Several inputs must be present before tasks can be written. The host should alre
 
    If the test plan is missing or any of these sections are absent, STOP and report which section is missing. Tasks derive their acceptance criteria from test-case TC-IDs; without a complete plan there is nothing to derive from.
 
-3. **Prior-art report** at `prior_art_report_path` — required. If missing, STOP. Tasks generated without it have no defense against re-implementing capabilities sibling features already established.
+3. **Research report** at `research_report_path` — required. If missing, STOP. Its Capability map prevents re-implementing established capabilities.
 
 4. **Wireframes** — if `has_frontend=true` and `wireframes_path` is null, STOP and recommend the host run the feature-design workflow first. Do not silently generate frontend tasks without wireframes.
 
@@ -86,7 +86,7 @@ The host (feature/task_generation.md) determines the feature's complexity tier f
 
 - **Gate 1 (Feature PRD / spec.md)** — waived. A SIMPLE feature does not require a full spec.md before tasks can be written.
 - **Gate 2 (Feature test plan / test-plan.md)** — waived, including its TC-ID, Caller-Path Contracts, ISTQB matrix, and ISO 25010 matrix requirements (BUG-7: those matrices exist to size STANDARD/COMPLEX test surfaces and do not apply to XS/SIMPLE work).
-- **Gate 3 (Prior-art report)** — waived. Substitute the quick codebase grep already performed during assessment's complexity triage.
+- **Gate 3 (Research report)** — never waived. SIMPLE work still consumes its validated Capability map.
 
 Gates 4 (Wireframes) and 5 (Cross-feature interactions) are **not** waived — they still apply if their trigger condition is met.
 
@@ -94,7 +94,7 @@ Inline replacement for the waived gates, per task file:
 
 - **Acceptance Criteria** — write concrete, enumerable criteria directly in the task file instead of TC-ID references (there is no test-plan.md to reference). For code changes: specific pass/fail conditions. For doc-only tasks: verification steps (links resolve, lint/format passes, reviewer checklist).
 - **Test Cases** — write the concrete test case(s) directly in the task file (what to run or check), instead of "See test-plan.md Section N".
-- **Prior art** — note the grep terms and result inline in "Notes for Agent" instead of citing a prior-art report path.
+- **Research evidence** — cite the research report and its Capability map in "Notes for Agent".
 
 Everything else in this workflow (line count, no code blocks, cross-references not copies, dependency DAG, TDD structure) still applies unchanged — SIMPLE-tier mode only removes the requirement for upstream planning documents, not task-quality discipline.
 

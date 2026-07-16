@@ -11,15 +11,15 @@ Check for existing tasks: {{template "list_json" .}}. If tasks exist covering al
 
 Check `shark feature notes {{.id}}` (or {{template "get_json" .}}) for the most recent `COMPLEXITY: <TIER>` decision note — assessment records one, and an escalation below may have added a later, superseding one. **The latest such note wins.**
 
-- **SIMPLE** -> follow "SIMPLE-lite mode" below; the Hard Gates in the included workflow are waived.
+- **SIMPLE** -> follow "SIMPLE-lite mode" below; the spec and test-plan gates are waived, but validated research is never waived.
 - **STANDARD**, **COMPLEX**, or no COMPLEXITY note found -> the included workflow's Hard Gates apply as written.
 
 ### SIMPLE-lite mode
 
-A SIMPLE feature does not require `spec.md`, `test-plan.md`, or a prior-art report before tasks can be written — waive the corresponding Hard Gates in `../specification-writing/workflows/write-task.md` ("SIMPLE-tier mode" section there names exactly which ones and their inline replacement). Instead:
+A SIMPLE feature does not require `spec.md` or `test-plan.md` before tasks can be written. It does require the validated unified `research-report.md` and its Capability map. Instead:
 
 - Each task file's Acceptance Criteria and Test Cases sections are written **inline and concrete** rather than by TC-ID reference: for code changes, enumerable pass/fail conditions; for doc-only tasks, verification steps (links resolve, lint/format passes, reviewer checklist).
-- Prior art degrades to the quick codebase grep assessment already performed during complexity triage — do not block on a full prior-art report.
+- Use the research report's Capability map to prevent duplicate work; do not substitute assessment grep output.
 
 **Escalation valve**: if lite decomposition would need more than 3 tasks, or any task is sized 5 or larger, this feature is not actually SIMPLE. Stop immediately, explain the reason, and include BOTH of these lines in your final response so the parent loop can persist the superseding decision and route back through test_planning:
 
@@ -32,7 +32,8 @@ Do not continue generating lite tasks after escalating — test_planning will pr
 {{include: skills/specification-writing/workflows/write-task.md}}
 
 READ:
-(1) Feature spec.md for requirements, architecture, and file paths
+(1) Validated feature research-report.md for vocabulary, source evidence, and the Capability map
+(2) Feature spec.md for requirements, architecture, and file paths (required for STANDARD/COMPLEX)
 (2) Feature test-plan.md for test cases
 (3) Parent epic context for dependency awareness
 (4) Feature spec.md "Cross-feature interactions" section and parent

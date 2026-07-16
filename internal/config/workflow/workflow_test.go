@@ -26,7 +26,7 @@ func TestWorkflowConfigDefaults(t *testing.T) {
 // every workable step as a return target, and StatusFlow/StatusMetadata are
 // derived from each step's `outcomes:` map. Statuses are draft/development/
 // completed/blocked/on_hold/cancelled -- NOT the legacy
-// todo/in_progress/ready_for_review/completed/blocked shape.
+// draft/research/development/completed/blocked shape.
 func TestDefaultWorkflow(t *testing.T) {
 	workflow := DefaultWorkflow()
 
@@ -36,7 +36,7 @@ func TestDefaultWorkflow(t *testing.T) {
 	}
 
 	// Check all expected statuses exist
-	expectedStatuses := []string{"draft", "development", "completed", "blocked", "on_hold", "cancelled"}
+	expectedStatuses := []string{"draft", "research", "development", "completed", "blocked", "on_hold", "cancelled"}
 	for _, status := range expectedStatuses {
 		if _, exists := workflow.StatusFlow[status]; !exists {
 			t.Errorf("expected status %s to exist in default workflow", status)
@@ -49,11 +49,12 @@ func TestDefaultWorkflow(t *testing.T) {
 		from     string
 		expected []string
 	}{
-		{"draft", []string{"development", "draft", "blocked", "cancelled", "on_hold"}},
+		{"draft", []string{"research", "draft", "blocked", "cancelled", "on_hold"}},
+		{"research", []string{"development", "draft", "blocked", "on_hold"}},
 		{"development", []string{"completed", "draft", "blocked", "on_hold"}},
 		{"completed", []string{}},
-		{"blocked", []string{"development", "draft"}},
-		{"on_hold", []string{"development", "draft"}},
+		{"blocked", []string{"development", "draft", "research"}},
+		{"on_hold", []string{"development", "draft", "research"}},
 		{"cancelled", []string{}},
 	}
 
@@ -279,10 +280,9 @@ func TestGetWorkflowOrDefault(t *testing.T) {
 		t.Fatal("expected default workflow, got nil")
 	}
 
-	// Verify it's the default workflow (route-based task.yaml has 6 steps:
-	// draft/development/completed/blocked/on_hold/cancelled)
-	if len(workflow.StatusFlow) != 6 {
-		t.Errorf("expected 6 default statuses, got %d", len(workflow.StatusFlow))
+	// Verify it includes the route-based task research step.
+	if len(workflow.StatusFlow) != 7 {
+		t.Errorf("expected 7 default statuses, got %d", len(workflow.StatusFlow))
 	}
 }
 

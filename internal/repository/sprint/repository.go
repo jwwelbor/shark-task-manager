@@ -993,7 +993,7 @@ func (r *SprintRepository) BulkAssign(ctx context.Context, sprintID int64, assig
 }
 
 // ListUnassignedBacklog returns entities eligible for sprint assignment that are
-// not already in any active or planning sprint. Uses a NOT EXISTS correlated
+// not already in any planning, research, or active sprint. Uses a NOT EXISTS correlated
 // subquery (not N+1) to satisfy the 500ms performance budget at 500 entities.
 //
 // entityTypes filters to specific entity types (e.g., ["task", "bug"]).
@@ -1015,7 +1015,7 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 	var parts []string
 	var args []interface{}
 
-	// Tasks sub-select: excludes terminal statuses and entities in active/planning sprints.
+	// Tasks sub-select: excludes terminal statuses and entities in planning/research/active sprints.
 	if includeAll || wantType["task"] {
 		parts = append(parts, `
 			SELECT 'task' AS entity_type,
@@ -1035,7 +1035,7 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'task'
 			        AND sa.entity_id = t.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
+			        AND s.status IN ('planning', 'research', 'active')
 			  )`)
 	}
 
@@ -1058,7 +1058,7 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'bug'
 			        AND sa.entity_id = b.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
+			        AND s.status IN ('planning', 'research', 'active')
 			  )`)
 	}
 
@@ -1081,7 +1081,7 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'change_card'
 			        AND sa.entity_id = cc.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
+			        AND s.status IN ('planning', 'research', 'active')
 			  )`)
 	}
 
@@ -1104,7 +1104,7 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'tech_debt'
 			        AND sa.entity_id = td.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
+			        AND s.status IN ('planning', 'research', 'active')
 			  )`)
 	}
 

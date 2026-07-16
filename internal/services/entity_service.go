@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/research"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -215,6 +216,15 @@ func (s *EntityService) TransitionStatus(
 		return nil, err
 	}
 
+	// A research step may only take a forward route after the selected recipe's
+	// structural evidence contract is complete. Failure and parking routes stay
+	// available for recovery and escalation.
+	if !opts.Force && s.requiresResearchEvidence(resolvedCurrentStatus, targetStatus) {
+		if err := research.ValidateEntity(s.workflowSvc.ProjectRoot(), entity); err != nil {
+			return nil, fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
+		}
+	}
+
 	// Step 5: Enforce reason for forced transitions
 	if opts.Force && opts.Reason == "" {
 		return nil, ErrForceReasonRequired
@@ -274,6 +284,28 @@ func (s *EntityService) TransitionStatus(
 		Reason:             opts.Reason,
 		// ChildCount is set by the calling entity service in its post-hook
 	}, nil
+}
+
+func (s *EntityService) requiresResearchEvidence(fromStatus, targetStatus string) bool {
+	if !strings.EqualFold(s.workflowSvc.GetStatusMetadata(fromStatus).Phase, "research") {
+		return false
+	}
+	for outcome, target := range s.workflowSvc.GetOutcomes(fromStatus) {
+		if !strings.EqualFold(target, targetStatus) || isResearchRecoveryOutcome(outcome) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isResearchRecoveryOutcome(outcome string) bool {
+	switch strings.ToLower(outcome) {
+	case "blocked", "cancelled", "fail", "on_hold":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateAndNormalize validates a transition and normalizes the target status.

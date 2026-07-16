@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/research"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"go.opentelemetry.io/otel"
@@ -457,6 +458,11 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	}
 	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), activeStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
+	}
+	if s.workflowSvc.ProjectRoot() != "" && strings.EqualFold(s.workflowSvc.GetStatusMetadata(string(sprint.Status)).Phase, "research") {
+		if err := research.ValidateEntity(s.workflowSvc.ProjectRoot(), sprint); err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s from research: %w", key, err))
+		}
 	}
 
 	// Update status

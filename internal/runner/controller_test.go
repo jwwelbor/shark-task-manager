@@ -548,6 +548,53 @@ func TestRunController_DispatcherSelection_DefaultProvider(t *testing.T) {
 	}
 }
 
+func TestRunController_SpawnAgentUsesRecommendedOutcome(t *testing.T) {
+	getNextCalls := 0
+	var transitionedTo string
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			getNextCalls++
+			if getNextCalls > 2 {
+				return &services.NextStatusInfo{CurrentStatus: "completed", IsTerminal: true}, nil
+			}
+			return &services.NextStatusInfo{
+				CurrentStatus: "research",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "specification"}},
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "task_generation"}},
+				},
+				Outcomes: map[string]string{"pass": "specification", "simple": "task_generation"},
+			}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionedTo = target
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "research"}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{ExitCode: 0, Stdout: "Completed research.\nRECOMMENDED OUTCOME: simple"}, nil
+		}},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "E07-F01", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome != "completed" {
+		t.Fatalf("Run() outcome = %q, want completed", result.Outcome)
+	}
+	if transitionedTo != "task_generation" {
+		t.Fatalf("TransitionStatus() target = %q, want task_generation", transitionedTo)
+	}
+}
+
 // TestRunController_SpawnAgentDispatchesAssembledPrompt verifies the run loop
 // does not dispatch PopulatedAction.Instruction directly when a prompt
 // assembler is configured. The CLI injects the same final assembly helper used

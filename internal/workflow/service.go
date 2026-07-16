@@ -84,6 +84,11 @@ func (s *Service) GetLevel() string {
 	return s.level
 }
 
+// ProjectRoot returns the project root used to resolve workflow resources.
+func (s *Service) ProjectRoot() string {
+	return s.projectRoot
+}
+
 // GetInitialStatusString returns the first entry status as a plain string.
 // Level-agnostic: works for epic, feature, and task levels.
 // Unlike GetInitialStatus() which returns models.TaskStatus, this method

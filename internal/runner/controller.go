@@ -547,6 +547,38 @@ func (c *RunController) handleAdvanceStatus(
 	return stageOutcome{nextStatus: transResult.ToStatus}
 }
 
+// targetStatusForDispatch resolves a worker's optional semantic outcome to a
+// configured status. Existing prompts that do not emit an outcome retain the
+// pass-first transition contract.
+func targetStatusForDispatch(nextInfo *services.NextStatusInfo, stdout string) (string, error) {
+	if len(nextInfo.AvailableTransitions) == 0 {
+		return "", fmt.Errorf("no transition is available")
+	}
+	outcome, specified := recommendedOutcome(stdout)
+	if !specified {
+		return nextInfo.AvailableTransitions[0].TargetStatus, nil //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	}
+	target, ok := nextInfo.Outcomes[strings.ToLower(outcome)]
+	if !ok {
+		return "", fmt.Errorf("agent recommended unknown outcome %q", outcome)
+	}
+	return target, nil
+}
+
+// recommendedOutcome extracts the explicit final worker recommendation. It
+// intentionally accepts only a whole trimmed line so prose mentioning the
+// phrase cannot alter the workflow route.
+func recommendedOutcome(stdout string) (string, bool) {
+	const prefix = "recommended outcome:"
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) >= len(prefix) && strings.EqualFold(line[:len(prefix)], prefix) {
+			return strings.TrimSpace(line[len(prefix):]), true
+		}
+	}
+	return "", false
+}
+
 func (c *RunController) dryRunNextOutcome(
 	currentStatus string,
 	nextInfo *services.NextStatusInfo,
@@ -859,7 +891,17 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "outcome",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
 
 	// Write the per-dispatch transcript when capture is enabled. Stdout is
 	// DELIBERATELY excluded from the run.stage.complete event because

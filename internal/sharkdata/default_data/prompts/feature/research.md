@@ -1,35 +1,23 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research feature {{.id}}: "{{.title}}".
+Research feature {{.id}}: "{{.title}}" using the universal recipe in
+`shark-data/research/recipes.yaml`. Read the parent report, parent PRD,
+siblings, {{.file_path}}, and only the category-specific sources selected by
+the plan.
 
-Check for existing research report in feature directory. If report exists with all sections populated and file paths cited, advance immediately.
+First write `research-plan.md` beside the feature file. Its front matter must
+identify `entity_key`, `entity_type: feature`, `recipe: universal`, selected
+`rigor`, `categories`, `source_set`, and `related_work`; add Scope, Recipe,
+Source set, and Steps sections. Always define ubiquitous vocabulary. Where
+siblings or related work exist, inspect them and record a non-empty Capability
+map that decides REUSE, EXTEND, NEW, or CONTRADICTS. Reference upstream and
+sibling reports instead of copying them.
 
----
+Write `research-report.md` with matching front matter and Scope, Capability
+map, Ubiquitous vocabulary, Findings, Decisions, and Sources sections. Register
+both files as related docs on {{.id}}.
 
-TACTICAL CODEBASE RESEARCH — this feature was rated COMPLEX. Deep analysis needed.
-
-Load skills from `shark-data/skills/research/`:
-  - `workflows/analyze-codebase.md`
-  - `workflows/trace-dependencies.md`
-
-READ:
-(1) Parent epic research report for strategic context
-(2) Parent epic PRD for scope boundaries
-(3) Feature description at {{.file_path}}
-(4) Sibling features: {{template "list_epic" .}}
-(5) CLAUDE.md for architecture patterns
-
-PRODUCE feature research report:
-(1) Existing implementations with file paths (what can be extended)
-(2) Integration points (services, repositories, CLI commands, tables)
-(3) Inter-feature dependency map within this epic
-(4) Extension-vs-new analysis for each component
-(5) Recommended implementation approach
-
-CRITICAL: Start from what EXISTS. The primary question is "what can we extend?" not "what do we build?"
-
-EXIT GATE:
-- All existing related code identified with file paths
-- Extension points documented
-- Actionable for architect in specify step
+Route from the selected rigor: SIMPLE ends `RECOMMENDED OUTCOME: simple`;
+STANDARD ends `RECOMMENDED OUTCOME: standard`; COMPLEX ends `RECOMMENDED
+OUTCOME: pass`. Do not skip research for SIMPLE work.

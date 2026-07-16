@@ -1,0 +1,14 @@
+version: "1.0"
+recipes:
+  universal:
+    entity_types: [epic, feature, task, bug, change, tech_debt, sprint]
+    required_plan_sections: [Scope, Recipe, Source set, Steps]
+    required_report_sections: [Scope, Capability map, Ubiquitous vocabulary, Findings, Decisions, Sources]
+    categories: [frontend, backend, api, data, workflow_operations, documentation]
+    rigor:
+      simple:
+        description: Focused scope, vocabulary, related-work, and directly affected patterns.
+      standard:
+        description: Simple rigor plus dependency and established-pattern analysis.
+      complex:
+        description: Standard rigor plus broad impact, risks, and cross-boundary analysis.
