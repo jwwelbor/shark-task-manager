@@ -15,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/research"
 	internaltesthelper "github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
@@ -694,8 +695,8 @@ func TestSprintService_StartSprint(t *testing.T) {
 		errMsg        string
 	}{
 		{
-			name:          "start planning sprint succeeds",
-			currentStatus: "planning",
+			name:          "start researched sprint succeeds",
+			currentStatus: "research",
 			expectErr:     false,
 		},
 		{
@@ -754,6 +755,80 @@ func TestSprintService_StartSprint(t *testing.T) {
 	}
 }
 
+func TestSprintService_StartSprint_RequiresResearchEvidence(t *testing.T) {
+	root := t.TempDir()
+	workflowSvc := workflow.NewService(root)
+	filePath := "docs/plan/sprints/S001.md"
+
+	for _, tt := range []struct {
+		name      string
+		artifacts bool
+		wantErr   bool
+	}{
+		{name: "missing artifacts", wantErr: true},
+		{name: "valid artifacts", artifacts: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.artifacts {
+				writeSprintResearchArtifacts(t, root, &models.Sprint{Key: "S001", FilePath: filePath})
+			}
+			updated := false
+			calls := 0
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+					calls++
+					if calls > 1 {
+						return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "active", FilePath: filePath}, nil
+					}
+					return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "research", FilePath: filePath}, nil
+				},
+				UpdateStatusFunc: func(context.Context, int64, models.SprintStatus) error {
+					updated = true
+					return nil
+				},
+			}
+			svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+			_, err := svc.StartSprint(context.Background(), "S001")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("StartSprint() succeeded without research artifacts")
+				}
+				if updated {
+					t.Fatal("StartSprint() updated a sprint without research artifacts")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("StartSprint() error = %v", err)
+			}
+			if !updated {
+				t.Fatal("StartSprint() did not update the validated sprint")
+			}
+		})
+	}
+}
+
+func writeSprintResearchArtifacts(t *testing.T, root string, sprint *models.Sprint) {
+	t.Helper()
+	paths, err := research.ArtifactPaths(root, sprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.Plan), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	frontMatter := "---\nentity_key: S001\nentity_type: sprint\nrecipe: universal\nrigor: simple\ncategories: [workflow_operations]\nsource_set: [docs/plan/sprints/S001.md]\nrelated_work: false\n---\n"
+	plan := frontMatter + "# Research plan\n\n## Scope\nSprint scope.\n\n## Recipe\nUniversal.\n\n## Source set\nSprint file.\n\n## Steps\nInspect sprint workflow.\n"
+	report := frontMatter + "# Research report\n\n## Scope\nSprint scope.\n\n## Capability map\nNo related work applies.\n\n## Ubiquitous vocabulary\nSprint: time-boxed work.\n\n## Findings\nUse the existing workflow.\n\n## Decisions\nStart after research.\n\n## Sources\ndocs/plan/sprints/S001.md\n"
+	if err := os.WriteFile(paths.Plan, []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Report, []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestSprintService_StartSprint_MultipleActiveAllowed verifies that multiple sprints
 // can be active simultaneously (parallel workstreams are valid).
 func TestSprintService_StartSprint_MultipleActiveAllowed(t *testing.T) {
@@ -769,7 +844,7 @@ func TestSprintService_StartSprint_MultipleActiveAllowed(t *testing.T) {
 			if callCounts[key] > 1 {
 				return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "active"}, nil
 			}
-			return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "planning"}, nil
+			return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "research"}, nil
 		},
 		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
 			return nil

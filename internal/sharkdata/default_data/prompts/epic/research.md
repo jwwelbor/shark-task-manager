@@ -1,35 +1,24 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research codebase for epic {{.id}}: "{{.title}}".
+Research epic {{.id}}: "{{.title}}" using the universal recipe catalog at
+`shark-data/research/recipes.yaml`.
 
-Check for existing research report in epic directory. If report exists with all sections populated and file paths cited, advance immediately.
+First write `research-plan.md` beside {{.file_path}}. Select `recipe:
+universal`, a rigor tier (`simple`, `standard`, or `complex`), and only the
+applicable categories: `frontend`, `backend`, `api`, `data`,
+`workflow_operations`, `documentation`. The plan must have front matter with
+`entity_key`, `entity_type: epic`, `recipe`, `rigor`, `categories`,
+`source_set`, and `related_work`, then these sections: Scope, Recipe, Source
+set, Steps.
 
----
+Execute only the selected recipe steps. Always establish ubiquitous vocabulary.
+When sibling epics, existing features, related work, or relevant capabilities
+exist, inspect them and include a non-empty Capability map with REUSE, EXTEND,
+NEW, or CONTRADICTS decisions. Cite paths and link to upstream material instead
+of reproducing it.
 
-BROWNFIELD-FIRST RESEARCH — identify what already exists before proposing anything new.
-
-Load skills from `shark-data/skills/research/`:
-  - `workflows/brownfield-analysis.md`
-  - `workflows/analyze-codebase.md`
-
-READ:
-(1) Epic PRD for scope and goals
-(2) CLAUDE.md for project architecture, patterns, and conventions
-(3) Existing codebase: grep for related functionality, services, models, tests
-
-PRODUCE research report:
-(1) Existing implementations relevant to this epic (with file paths and line numbers)
-(2) Patterns and conventions that must be followed
-(3) Integration points (services, repositories, CLI commands, database tables)
-(4) What can be EXTENDED vs what needs NEW code
-(5) Technical risks and feasibility assessment
-(6) Recommended implementation approach (extend-first, minimize new code)
-
-CRITICAL: The #1 goal is to AVOID duplicating existing functionality. Every recommendation must explain why existing code cannot be extended.
-
-EXIT GATE:
-- All existing related code identified with file paths
-- Extension-vs-new analysis for every component
-- Feasibility confirmed or risks flagged
-- Actionable for architect
+Then write `research-report.md` with matching front matter and these sections:
+Scope, Capability map, Ubiquitous vocabulary, Findings, Decisions, Sources.
+Register both documents as related docs on {{.id}}. Return `pass` only after
+both documents meet this structural contract.

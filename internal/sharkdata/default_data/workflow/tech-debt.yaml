@@ -26,7 +26,7 @@ steps:
       blocked: identified
       cancelled: cancelled
       fail: identified
-      pass: triaged
+      pass: research
       wont_fix: wont_fix
   in_progress:
     phase: development
@@ -88,3 +88,23 @@ steps:
     action: archive
     terminal: true
     prompt: tech_debt/wont_fix.md
+  research:
+    phase: research
+    color: purple
+    display_token: RSR
+    description: Ready for recipe-driven debt investigation before triage
+    progress_weight: 0.05
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: researcher
+    provider: anthropic
+    model: haiku
+    skills: [research]
+    prompt: tech_debt/research.md
+    outcomes:
+      blocked: identified
+      cancelled: cancelled
+      fail: identified
+      pass: triaged
+      wont_fix: wont_fix

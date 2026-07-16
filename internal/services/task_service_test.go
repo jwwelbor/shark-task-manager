@@ -1793,7 +1793,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "development", TransitionOptions{
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "research", TransitionOptions{
 		Agent:  "my-agent",
 		Reason: "starting work",
 	})
@@ -1802,7 +1802,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.True(t, result.Transitioned)
 	assert.Equal(t, "draft", result.FromStatus)
-	assert.Equal(t, "development", result.ToStatus)
+	assert.Equal(t, "research", result.ToStatus)
 
 	assert.Equal(t, int64(6), capturedParams.TaskID)
 	assert.Equal(t, "draft", capturedParams.OldStatus)
@@ -1921,7 +1921,7 @@ func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "development", TransitionOptions{
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "research", TransitionOptions{
 		Agent: "dev-agent",
 	})
 
@@ -1929,11 +1929,11 @@ func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, models.EntityTypeTask, result.EntityType)
 	assert.Equal(t, "draft", result.FromStatus)
-	assert.Equal(t, "development", result.ToStatus)
+	assert.Equal(t, "research", result.ToStatus)
 	assert.True(t, result.Transitioned)
 	// Verify StatusUpdateRaw was called via adapter
 	assert.Equal(t, int64(20), capturedParams.TaskID)
-	assert.Equal(t, models.TaskStatus("development"), capturedParams.NewStatus)
+	assert.Equal(t, models.TaskStatus("research"), capturedParams.NewStatus)
 }
 
 // TC-F09-036: taskEntityRepoAdapter routes UpdateStatus through StatusUpdateRaw
@@ -1957,7 +1957,7 @@ func TestTaskService_TransitionStatus_AdapterUsesStatusUpdateRaw(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "development", TransitionOptions{
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "research", TransitionOptions{
 		Agent:        "test-agent",
 		Reason:       "test-reason",
 		DocumentPath: "/docs/test.md",
@@ -2980,7 +2980,7 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 	svc.SetFeatureService(featureSvc)
 
 	// Call TransitionStatus to trigger the recalculateFeatureProgress post-hook.
-	_, err := svc.TransitionStatus(context.Background(), taskKey, "development", TransitionOptions{})
+	_, err := svc.TransitionStatus(context.Background(), taskKey, "research", TransitionOptions{})
 	// TransitionStatus itself should succeed (progress recalc failure is non-fatal).
 	assert.NoError(t, err)
 

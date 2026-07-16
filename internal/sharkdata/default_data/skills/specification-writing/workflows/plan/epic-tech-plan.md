@@ -5,14 +5,14 @@ inputs:
   - ba_doc_paths: list of absolute paths — BA docs already produced (epic.md, requirements.md, scope.md, plus any optional)
   - research_report_path: absolute path to the research report (optional; from the research phase)
   - ba_feasibility_report_path: absolute path to BA feasibility review report (optional; from BA feasibility review)
-  - prior_art_report_path: absolute path to `prior-art-report.md` produced by consult-related-work workflow (REQUIRED — host must produce this before calling craft)
+  - research_report_path: absolute path to the validated unified research report (REQUIRED)
   - complexity_tier: "SIMPLE" | "STANDARD" | "COMPLEX" (optional; if not provided, the craft assesses from BA docs)
 outputs:
   - epic_signals: object with {complexity_tier, integration_footprint, risk_profile, has_schema_impact}
   - planned_docs: list of doc_type strings — required + INCLUDED optional tech docs
   - excluded_docs: list of {doc_type, exclusion_reason} for every optional doc that was EXCLUDED
   - decision_log: human-readable line summarizing the plan
-  - capability_map_summary: short summary of REUSE/EXTEND/RE-IMPLEMENT capabilities pulled from prior_art_report
+  - capability_map_summary: short summary of REUSE/EXTEND/NEW capabilities pulled from the research report
 ---
 
 # Workflow: Epic Tech Plan (craft)
@@ -24,7 +24,7 @@ documents this epic needs (architecture, risks register, integration map) and pr
 with specific, entity-grounded rationale for every INCLUDE / EXCLUDE.
 
 The rigor of this step is the foundation for implementable tasks. Tech-side planning leans on
-two prerequisite reads: the BA docs (already validated) and a **prior-art report** that maps
+two prerequisite reads: the BA docs (already validated) and a **research report** that maps
 which capabilities can be REUSED / EXTENDED from sibling epics versus those that need new
 architecture in THIS epic.
 
@@ -37,13 +37,13 @@ Read the inputs:
 1. All BA docs at `ba_doc_paths` (epic.md, requirements.md, scope.md, plus any optional).
 2. `research_report_path` (if provided) — research report from the research phase.
 3. `ba_feasibility_report_path` (if provided) — BA feasibility review report.
-4. `prior_art_report_path` — **MANDATORY**. This report enumerates sibling epics' capabilities
+4. `research_report_path` — **MANDATORY**. This report contains the Capability map
    and produces REUSE / EXTEND / RE-IMPLEMENT decisions per capability. The Capability Map
    inside it drives this tech plan: capabilities marked REUSE/EXTEND **do not need new
    architecture sections** in THIS epic — `02-architecture.md` should reference the sibling's
-   design rather than duplicating it. If `prior_art_report_path` was not provided, STOP and
-   surface that as an upstream gate failure; the host must run the consult-related-work
-   workflow first.
+   design rather than duplicating it. If `research_report_path` was not provided, STOP and
+   surface that as an upstream gate failure; the entity must complete its unified
+   research phase first.
 
 Extract these signals into `epic_signals`:
 
@@ -54,7 +54,7 @@ Extract these signals into `epic_signals`:
 - **Schema impact**: Does this epic introduce new persistent data or modify existing schemas?
 
 Also produce `capability_map_summary` — a short prose summary of which capabilities you found
-in the prior-art report and what the REUSE/EXTEND/RE-IMPLEMENT verdict was for each. This
+in the research report and what the REUSE/EXTEND/NEW verdict was for each. This
 becomes the trace evidence that REUSE/EXTEND decisions were honored when later docs are
 written.
 
@@ -113,7 +113,7 @@ the ACT phase.
 
 ## Anti-Patterns to Avoid
 
-- **Do NOT** plan tech docs without first consuming the prior-art report. Skipping it produces
+- **Do NOT** plan tech docs without first consuming the research report. Skipping it produces
   duplicate architecture work and contradicts capability decisions that other epics already made.
 - **Do NOT** include `technical-risks.md` for SIMPLE/STANDARD epics that follow well-trodden
   patterns — risk registers without real risks become noise.

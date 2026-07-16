@@ -1922,7 +1922,7 @@ func TestSprintRepository_ListUnassignedBacklog_Performance(t *testing.T) {
 }
 
 // TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned checks that tasks
-// assigned to active/planning sprints are excluded.
+// assigned to a research sprint are excluded before the sprint becomes active.
 func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -1956,7 +1956,7 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 	require.NoError(t, err)
 	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskAID)
 
-	// Task B: assigned to active sprint — should be excluded.
+	// Task B: assigned to research sprint — should be excluded.
 	var taskBID int64
 	err = database.QueryRowContext(ctx,
 		`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, 'BL-E01-F01-002', 'Task B', 'ready_for_development', 5) RETURNING id`,
@@ -1965,10 +1965,10 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskBID)
 
 	sprint := &models.Sprint{
-		Key: "S971", Name: "Active Sprint", Goal: "Active",
+		Key: "S971", Name: "Research Sprint", Goal: "Research",
 		StartDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
 		EndDate:   time.Date(2025, 6, 14, 0, 0, 0, 0, time.UTC),
-		Status:    "active",
+		Status:    "research",
 	}
 	err = repo.Create(ctx, sprint)
 	require.NoError(t, err)

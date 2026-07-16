@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}Assess feature {{.id}}: "{{.title}}".
 
-Check feature metadata: {{template "get_json" .}}. If complexity_tier already assigned, route immediately.
+Check feature metadata: {{template "get_json" .}}. If complexity_tier already assigned, route to research; every tier requires validated research.
 
 ---
 
@@ -45,7 +45,6 @@ STORE: include this exact line in your final response so the parent loop can per
 
 Release the tier as a semantic outcome — never name a target status:
 
-- SIMPLE -> end with `RECOMMENDED OUTCOME: simple`
-- STANDARD -> end with `RECOMMENDED OUTCOME: standard`
-- COMPLEX -> end with `RECOMMENDED OUTCOME: pass`
+- All valid tiers -> end with `RECOMMENDED OUTCOME: pass` to enter research.
+- Research selects the final SIMPLE/STANDARD/COMPLEX outcome after the report is complete.
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome.

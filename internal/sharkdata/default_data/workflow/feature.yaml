@@ -55,8 +55,6 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: research
-      simple: task_generation
-      standard: specification
   blocked:
     phase: blocked
     color: red
@@ -158,7 +156,7 @@ steps:
     phase: research
     color: purple
     display_token: RSR
-    description: "COMPLEX features: ready for tactical codebase research"
+    description: "Ready for recipe-driven research before specification or task generation"
     progress_weight: 0.1
     responsibility: agent
     is_planning: true
@@ -172,6 +170,8 @@ steps:
       blocked: blocked
       fail: assessment
       on_hold: on_hold
+      simple: task_generation
+      standard: specification
       pass: specification
   specification:
     phase: specification

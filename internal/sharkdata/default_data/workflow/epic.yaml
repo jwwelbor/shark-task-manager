@@ -180,7 +180,7 @@ steps:
     phase: research
     color: purple
     display_token: RSR
-    description: Ready for brownfield codebase analysis
+    description: Ready for recipe-driven research before design
     progress_weight: 0.15
     responsibility: agent
     is_planning: true

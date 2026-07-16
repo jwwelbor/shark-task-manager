@@ -84,7 +84,7 @@ steps:
       cancelled: cancelled
       fail: draft
       on_hold: on_hold
-      pass: development
+      pass: research
     aliases: [reported]
   on_hold:
     phase: paused
@@ -114,3 +114,22 @@ steps:
       fail: development
       on_hold: on_hold
       pass: completed
+  research:
+    phase: research
+    color: purple
+    display_token: RSR
+    description: Ready for recipe-driven bug investigation
+    progress_weight: 0.05
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: researcher
+    provider: anthropic
+    model: haiku
+    skills: [research]
+    prompt: bug/research.md
+    outcomes:
+      blocked: blocked
+      fail: draft
+      on_hold: on_hold
+      pass: development
