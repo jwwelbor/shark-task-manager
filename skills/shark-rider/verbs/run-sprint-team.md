@@ -1,7 +1,7 @@
 # /shark-rider run-sprint-team — Team sprint execution
 
 Team pull-loop: groups sprint entities by feature, dispatches each feature group
-via `/run-agent-team` (one team at a time), falls back to `/run` for standalones.
+via `/shark-rider run-agent-team` (one team at a time), falls back to `/shark-rider run` for standalones.
 
 Usage: `/shark-rider run-sprint-team S### [--size=N] [--features=E##-F##,...] [--carryover=VALUE]`
 

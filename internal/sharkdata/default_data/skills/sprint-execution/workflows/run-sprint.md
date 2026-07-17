@@ -1,6 +1,6 @@
-# Workflow: /run-sprint
+# Workflow: /shark-rider run-sprint
 
-Solo sprint pull-loop. Calls `shark sprint next` to get the next entity, delegates to `/run` for per-entity orchestration, loops until the backlog is drained or `--max-iterations` is reached, then prompts the user before closing the sprint. Never auto-closes.
+Solo sprint pull-loop. Calls `shark sprint next` to get the next entity, delegates to `/shark-rider run` for per-entity orchestration, loops until the backlog is drained or `--max-iterations` is reached, then prompts the user before closing the sprint. Never auto-closes.
 
 ---
 
@@ -12,7 +12,7 @@ Parse `$ARGUMENTS`:
 2. Validate: the key must match the pattern `S` followed by one to three digits (e.g., `S001`, `S42`, `S999`). Case-insensitive (accept `s001` as `S001`).
 3. If the key does not match, stop immediately:
    ```
-   /run-sprint only operates on sprints. Got: {KEY}
+   /shark-rider run-sprint only operates on sprints. Got: {KEY}
    ```
    Do not call any shark commands.
 4. Parse optional flags:
@@ -42,7 +42,7 @@ Call `shark sprint start {SPRINT_KEY}` to start it now? (yes/no)
 - **yes** → call `shark sprint start {SPRINT_KEY} --json`. Parse response. If the call fails, print the error and exit.
 - **no** → exit cleanly:
   ```
-  Exiting. Start the sprint first, then re-run /run-sprint {SPRINT_KEY}.
+  Exiting. Start the sprint first, then re-run /shark-rider run-sprint {SPRINT_KEY}.
   ```
 
 **If status is `completed`, `archived`, or `cancelled`**:
@@ -92,16 +92,16 @@ while ITERATION < MAX_ITERATIONS:
 
     Append ENTITY_KEY to DISPATCHED.
 
-    /run {ENTITY_KEY}
+    /shark-rider run {ENTITY_KEY}
     # Delegate entirely to the existing orchestration skill.
-    # /run reads orchestrator_action and drives the entity to terminal status.
-    # When /run returns, resume the loop.
+    # /shark-rider run reads orchestrator_action and drives the entity to terminal status.
+    # When /shark-rider run returns, resume the loop.
 
 if ITERATION >= MAX_ITERATIONS and NEXT_ENTITY was not empty:
     Print cap notice:
     "[Sprint {SPRINT_KEY}] Reached --max-iterations={MAX_ITERATIONS}. Loop stopped.
     Dispatched {len(DISPATCHED)} entities this session: {DISPATCHED}
-    Sprint is still active. Re-run /run-sprint {SPRINT_KEY} to continue."
+    Sprint is still active. Re-run /shark-rider run-sprint {SPRINT_KEY} to continue."
     Proceed to Step 3 (still report and prompt; do not skip close gate).
 ```
 
@@ -109,7 +109,7 @@ if ITERATION >= MAX_ITERATIONS and NEXT_ENTITY was not empty:
 1. `shark sprint next` returns empty — normal completion; backlog drained.
 2. `ITERATION >= MAX_ITERATIONS` — cap reached; cap notice printed above.
 
-**On `/run` failure (agent error or unexpected exit):** Print the error, add a note to the entity if possible, and continue the loop. Do not abort the sprint pull-loop on a single entity failure.
+**On `/shark-rider run` failure (agent error or unexpected exit):** Print the error, add a note to the entity if possible, and continue the loop. Do not abort the sprint pull-loop on a single entity failure.
 
 ---
 
@@ -149,7 +149,7 @@ Carryover strategy: {CARRYOVER_VALUE if set, else "default (per sharkconfig)"}
 
 **If user says no (or anything other than explicit "yes")**:
 ```
-Sprint {SPRINT_KEY} left in active state. Run /run-sprint {SPRINT_KEY} again to continue, or close manually with:
+Sprint {SPRINT_KEY} left in active state. Run /shark-rider run-sprint {SPRINT_KEY} again to continue, or close manually with:
   shark sprint close {SPRINT_KEY}
 ```
 Exit.
@@ -182,7 +182,7 @@ On error: print the full error message. Do not retry silently.
 | Sprint key not found (`shark get` returns not-found) | Print `Sprint {SPRINT_KEY} not found.` and exit |
 | `shark sprint start` fails | Print error; exit without entering the loop |
 | `shark sprint next` returns a malformed JSON response | Print the raw response, report `shark sprint next returned unexpected output`, exit loop and proceed to Step 3 |
-| `/run {ENTITY_KEY}` fails or the agent errors | Log error; continue loop (do not abort sprint) |
+| `/shark-rider run {ENTITY_KEY}` fails or the agent errors | Log error; continue loop (do not abort sprint) |
 | `shark sprint close` fails | Print full error; sprint remains open; suggest manual retry |
 | User provides `--max-iterations=0` or negative | Treat as invalid; print usage and exit |
 
@@ -202,7 +202,7 @@ This workflow is safe to re-invoke:
 
 - All shark calls use `--json`.
 - `shark sprint next` is the sole source of "what to work on next". The loop does NOT read the backlog directly or pick entities itself.
-- `/run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT advance entity status or perform other entity-manipulation commands directly.
+- `/shark-rider run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT advance entity status or perform other entity-manipulation commands directly.
 - `shark sprint close` is only called after explicit user confirmation in Step 4.
 - The loop honors `--max-iterations` and exits at the cap with a notice.
 - `shark sprint start` is only called if status is `planning` AND the user explicitly confirms (Step 1).

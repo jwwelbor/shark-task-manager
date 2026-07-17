@@ -138,7 +138,7 @@ steps:
     action: spawn_agent
     agent: uat-agent
     provider: openai
-    model: codex
+    model: gpt-5.2-codex
     skills: [quality, specification-writing]
     prompt: epic/feature_review.md
     outcomes:

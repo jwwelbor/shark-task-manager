@@ -341,6 +341,7 @@ func ValidateAt(dataRoot string) (*ValidationReport, error) {
 	if manifestErr != nil {
 		report.AddIssue(IssueLevelError, "manifest.yaml", fmt.Sprintf("failed to load manifest: %v", manifestErr))
 	}
+	validateSharkAttackRoster(dest, manifest, report)
 	workflowDir := filepath.Join(dest, "workflow")
 	validateCrossEntityPromptPrefix(workflowDir, manifest, report)
 	validateHostLocalPaths(dest, report)
@@ -946,6 +947,264 @@ type bundleManifest struct {
 		Name      string `yaml:"name"`
 		Ownership string `yaml:"ownership"`
 	} `yaml:"skills"`
+}
+
+const sharkAttackRosterPath = "skills/shark-attack/context/roster-schema.yaml"
+
+const (
+	sharkAttackCouncilRoot       = "docs/council"
+	sharkAttackCouncilInboxRoot  = "docs/council/inbox"
+	sharkAttackEscalationTrigger = "docs/product/escalation_triggers.md"
+)
+
+var rosterIDRegexp = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+
+type sharkAttackRoster struct {
+	Team          string                    `yaml:"team"`
+	Chair         string                    `yaml:"chair"`
+	MemoryRoot    string                    `yaml:"memory_root"`
+	Communication sharkAttackCommunication  `yaml:"communication"`
+	Escalation    sharkAttackEscalation     `yaml:"escalation"`
+	Members       []sharkAttackRosterMember `yaml:"members"`
+}
+
+type sharkAttackCommunication struct {
+	InboxRoot            string `yaml:"inbox_root"`
+	AcknowledgeAfterRead bool   `yaml:"acknowledge_after_read"`
+	RetainDecisions      bool   `yaml:"retain_decisions"`
+}
+
+type sharkAttackEscalation struct {
+	TriggersFile string `yaml:"triggers_file"`
+	Route        string `yaml:"route"`
+}
+
+type sharkAttackRosterMember struct {
+	ID               string   `yaml:"id"`
+	Role             string   `yaml:"role"`
+	Responsibilities []string `yaml:"responsibilities"`
+	Persona          string   `yaml:"persona"`
+	ModelTier        string   `yaml:"model_tier"`
+}
+
+// validateSharkAttackRoster checks the structural contract of the optional
+// shark-attack roster. The roster describes a protocol; Shark's workflow,
+// selection, and claim services remain the authority for operational actions.
+func validateSharkAttackRoster(dataRoot string, manifest *bundleManifest, report *ValidationReport) {
+	data, rosterPath, found, err := loadSharkAttackRosterData(dataRoot)
+	if err != nil {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("inspect roster: %v", err))
+		return
+	}
+	if !found {
+		if manifestDeclaresSkill(manifest, "shark-attack") {
+			report.AddIssue(IssueLevelError, sharkAttackRosterPath, "shark-attack manifest entry requires roster-schema.yaml")
+		}
+		return
+	}
+
+	raw, roster, ok := decodeSharkAttackRoster(data, rosterPath, report)
+	if !ok {
+		return
+	}
+	validateRosterFields(raw, rosterPath, report)
+	validateRosterSemanticRules(dataRoot, rosterPath, roster, report)
+}
+
+func loadSharkAttackRosterData(dataRoot string) ([]byte, string, bool, error) {
+	rosterFile, rosterPath, found, err := resolveEffectiveSharkAttackRoster(dataRoot)
+	if err != nil || !found {
+		return nil, rosterPath, found, err
+	}
+	data, err := os.ReadFile(rosterFile)
+	if err != nil {
+		return nil, rosterPath, true, err
+	}
+	return data, rosterPath, true, nil
+}
+
+func decodeSharkAttackRoster(data []byte, rosterPath string, report *ValidationReport) (map[string]interface{}, sharkAttackRoster, bool) {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("parse roster YAML: %v", err))
+		return nil, sharkAttackRoster{}, false
+	}
+	if raw == nil {
+		report.AddIssue(IssueLevelError, rosterPath, "roster must be a mapping")
+		return nil, sharkAttackRoster{}, false
+	}
+
+	var roster sharkAttackRoster
+	if err := yaml.Unmarshal(data, &roster); err != nil {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("decode roster: %v", err))
+		return nil, sharkAttackRoster{}, false
+	}
+
+	return raw, roster, true
+}
+
+func validateRosterSemanticRules(dataRoot, rosterPath string, roster sharkAttackRoster, report *ValidationReport) {
+	if roster.Team != "shark-attack" {
+		report.AddIssue(IssueLevelError, rosterPath, "team must equal \"shark-attack\"")
+	}
+	validateCanonicalRosterPath(roster.MemoryRoot, sharkAttackCouncilRoot, "memory_root", rosterPath, report)
+	validateCanonicalRosterPath(roster.Communication.InboxRoot, sharkAttackCouncilInboxRoot, "communication.inbox_root", rosterPath, report)
+	validateCanonicalRosterPath(roster.Escalation.TriggersFile, sharkAttackEscalationTrigger, "escalation.triggers_file", rosterPath, report)
+	if strings.TrimSpace(roster.Chair) == "" {
+		report.AddIssue(IssueLevelError, rosterPath, "chair is required")
+	}
+	if strings.TrimSpace(roster.Escalation.Route) == "" {
+		report.AddIssue(IssueLevelError, rosterPath, "escalation.route is required")
+	}
+	if len(roster.Members) == 0 {
+		report.AddIssue(IssueLevelError, rosterPath, "members must contain at least one member")
+	}
+
+	memberIDs := make(map[string]struct{}, len(roster.Members))
+	for index, member := range roster.Members {
+		validateRosterMember(dataRoot, rosterPath, index, member, memberIDs, report)
+	}
+	if chair := strings.TrimSpace(roster.Chair); chair != "" {
+		if _, exists := memberIDs[chair]; !exists {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("chair %q must reference a member id", chair))
+		}
+	}
+}
+
+func resolveEffectiveSharkAttackRoster(dataRoot string) (string, string, bool, error) {
+	paths := []string{"overrides/" + sharkAttackRosterPath, sharkAttackRosterPath}
+	for _, rosterPath := range paths {
+		rosterFile := filepath.Join(dataRoot, filepath.FromSlash(rosterPath))
+		info, err := os.Lstat(rosterFile)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return rosterFile, rosterPath, false, fmt.Errorf("symlinks are not allowed")
+			}
+			return rosterFile, rosterPath, true, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return rosterFile, rosterPath, false, err
+		}
+	}
+
+	return "", sharkAttackRosterPath, false, nil
+}
+
+func validateCanonicalRosterPath(actual, want, field, rosterPath string, report *ValidationReport) {
+	value := filepath.ToSlash(filepath.Clean(strings.TrimSpace(actual)))
+	switch {
+	case value == "":
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s is required", field))
+	case value != want:
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s must equal %q", field, want))
+	}
+}
+
+func validateRosterMember(dataRoot, rosterPath string, index int, member sharkAttackRosterMember, memberIDs map[string]struct{}, report *ValidationReport) {
+	memberPath := fmt.Sprintf("members[%d]", index)
+	id := strings.TrimSpace(member.ID)
+	if !isRosterID(id) {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.id must be a lowercase hyphenated identifier", memberPath))
+	} else if _, exists := memberIDs[id]; exists {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.id duplicates member %q", memberPath, id))
+	} else {
+		memberIDs[id] = struct{}{}
+	}
+	if strings.TrimSpace(member.Role) == "" {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.role is required", memberPath))
+	}
+	if len(member.Responsibilities) == 0 {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.responsibilities must not be empty", memberPath))
+	}
+	for responsibilityIndex, responsibility := range member.Responsibilities {
+		field := fmt.Sprintf("%s.responsibilities[%d]", memberPath, responsibilityIndex)
+		if strings.TrimSpace(responsibility) == "" {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s must not be empty", field))
+		}
+	}
+	if persona := strings.TrimSpace(member.Persona); persona != "" {
+		if !isRosterID(persona) {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.persona must be a lowercase hyphenated identifier", memberPath))
+		} else if !fileExists(filepath.Join(dataRoot, "agents", persona+".md")) {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.persona %q does not resolve to an embedded persona", memberPath, persona))
+		}
+	}
+	if member.ModelTier != "" && strings.TrimSpace(member.ModelTier) == "" {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.model_tier must not be blank when present", memberPath))
+	}
+}
+
+func manifestDeclaresSkill(manifest *bundleManifest, name string) bool {
+	if manifest == nil {
+		return false
+	}
+	for _, skill := range manifest.Skills {
+		if skill.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func validateRosterFields(raw map[string]interface{}, rosterPath string, report *ValidationReport) {
+	allowedTopLevel := map[string]struct{}{
+		"team": {}, "chair": {}, "memory_root": {}, "communication": {}, "escalation": {}, "members": {},
+	}
+	for field := range raw {
+		if _, allowed := allowedTopLevel[field]; !allowed {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s is not a supported roster field", field))
+		}
+	}
+	for _, required := range []string{"team", "chair", "memory_root", "communication", "escalation", "members"} {
+		if _, exists := raw[required]; !exists {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s is required", required))
+		}
+	}
+	validateRosterNestedFields(raw["communication"], "communication", map[string]struct{}{"inbox_root": {}, "acknowledge_after_read": {}, "retain_decisions": {}}, []string{"inbox_root", "acknowledge_after_read", "retain_decisions"}, rosterPath, report)
+	validateRosterNestedFields(raw["escalation"], "escalation", map[string]struct{}{"triggers_file": {}, "route": {}}, []string{"triggers_file", "route"}, rosterPath, report)
+	members, ok := raw["members"].([]interface{})
+	if !ok {
+		return
+	}
+	allowedMember := map[string]struct{}{"id": {}, "role": {}, "responsibilities": {}, "persona": {}, "model_tier": {}}
+	for index, value := range members {
+		member, ok := value.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for field := range member {
+			if _, allowed := allowedMember[field]; !allowed {
+				report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("members[%d].%s is not a supported roster field", index, field))
+			}
+		}
+		for _, required := range []string{"id", "role", "responsibilities"} {
+			if _, exists := member[required]; !exists {
+				report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("members[%d].%s is required", index, required))
+			}
+		}
+	}
+}
+
+func validateRosterNestedFields(value interface{}, prefix string, allowed map[string]struct{}, required []string, rosterPath string, report *ValidationReport) {
+	fields, ok := value.(map[string]interface{})
+	if !ok {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s must be a mapping", prefix))
+		return
+	}
+	for field := range fields {
+		if _, permitted := allowed[field]; !permitted {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.%s is not a supported roster field", prefix, field))
+		}
+	}
+	for _, field := range required {
+		if _, exists := fields[field]; !exists {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.%s is required", prefix, field))
+		}
+	}
+}
+
+func isRosterID(value string) bool {
+	return rosterIDRegexp.MatchString(value)
 }
 
 // loadBundleManifest reads and parses <dataRoot>/manifest.yaml. Returns
