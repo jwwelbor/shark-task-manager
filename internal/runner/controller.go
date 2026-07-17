@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -172,12 +170,6 @@ type RunControllerDeps struct {
 	// PromptAssembler converts a populated action instruction into the final
 	// host-facing prompt. Optional; nil preserves the legacy instruction passthrough.
 	PromptAssembler PromptAssembler
-
-	// StepResolver optionally supplies the canonical service-level dispatch
-	// resolution used by next and team planning. When nil, the legacy injected
-	// seams below remain the behavior for existing callers and tests.
-	StepResolver dispatch.DispatchStepResolver
-	EntityType   models.EntityType
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -193,19 +185,6 @@ type RunController struct {
 	workflowSvc  *workflow.Service
 	dispatchers  map[string]AgentDispatcher
 	assembler    PromptAssembler
-	stepResolver dispatch.DispatchStepResolver
-	entityType   models.EntityType
-}
-
-func actionFromDispatchStep(step dispatch.DispatchStep) *config.PopulatedAction {
-	return &config.PopulatedAction{
-		Action:      step.Action,
-		AgentType:   step.AgentType,
-		Provider:    step.Provider,
-		Model:       step.Model,
-		Effort:      step.Effort,
-		Instruction: step.Prompt,
-	}
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -238,8 +217,6 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		workflowSvc:  deps.WorkflowSvc,
 		dispatchers:  deps.Dispatchers,
 		assembler:    assembler,
-		stepResolver: deps.StepResolver,
-		entityType:   deps.EntityType,
 	}, nil
 }
 
@@ -272,30 +249,13 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		Stages:    make([]StageLog, 0),
 	}
 
-	// Step 1: Resolve the initial entity status. The optional shared resolver
-	// keeps run on the same metadata path as next and team planning.
-	var nextInfo *services.NextStatusInfo
-	var currentStatus string
-	var initialStep *dispatch.DispatchStep
-	if c.stepResolver != nil {
-		step, resolveErr := c.stepResolver.Resolve(ctx, c.entityType, key)
-		if resolveErr != nil {
-			return nil, fmt.Errorf("failed to resolve dispatch step for %s: %w", key, resolveErr)
-		}
-		if step.NextStatus == nil {
-			return nil, fmt.Errorf("resolved dispatch step for %s did not include status context", key)
-		}
-		nextInfo = step.NextStatus
-		currentStatus = step.Status
-		initialStep = &step
-	} else {
-		var err error
-		nextInfo, err = c.transitioner.GetNextStatus(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get status for %s: %w", key, err)
-		}
-		currentStatus = nextInfo.CurrentStatus
+	// Step 1: Get initial entity status.
+	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status for %s: %w", key, err)
 	}
+
+	currentStatus := nextInfo.CurrentStatus
 
 	// Step 2: Already terminal? Return immediately.
 	if nextInfo.IsTerminal {
@@ -307,7 +267,6 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 
 	// Main loop.
 	iteration := 0
-	var err error
 	// transcriptDisabled is a RUN-SCOPED latch: once any transcript write fails,
 	// we emit run.transcript.warning exactly once (see handleSpawnAgent) and set
 	// this flag to true to suppress all further write attempts for the remainder
@@ -339,74 +298,37 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 
 		stageStart := time.Now()
 
-		// Step 3-4: Resolve placeholders and the populated action through the
-		// shared seam when configured; retain the legacy path for direct runner
-		// callers that do not provide one.
+		// Step 3: Get template variables for instruction rendering.
 		var vars map[string]string
-		var action *config.PopulatedAction
-		if c.stepResolver != nil {
-			step := initialStep
-			initialStep = nil
-			if step == nil {
-				resolved, resolveErr := c.stepResolver.Resolve(ctx, c.entityType, key)
-				if resolveErr != nil {
-					recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-						EntityKey: key,
-						Status:    currentStatus,
-						Phase:     "dispatch_step_resolution",
-						Error:     resolveErr.Error(),
-						RunID:     opts.RunID,
-					})
-					return result, nil
-				}
-				step = &resolved
-			}
-			if step.NextStatus == nil {
-				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-					EntityKey: key,
-					Status:    currentStatus,
-					Phase:     "dispatch_step_resolution",
-					Error:     "resolved dispatch step did not include status context",
-					RunID:     opts.RunID,
-				})
-				return result, nil
-			}
-			nextInfo = step.NextStatus
-			currentStatus = step.Status
-			vars = step.Vars
-			if step.HasAction {
-				action = actionFromDispatchStep(*step)
-			}
-		} else {
-			if c.placeholders != nil {
-				vars, err = c.placeholders.GeneratePlaceholders(ctx, key)
-				if err != nil {
-					recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-						EntityKey: key,
-						Status:    currentStatus,
-						Phase:     "placeholders",
-						Error:     fmt.Sprintf("failed to generate placeholders for %s: %v", key, err),
-						RunID:     opts.RunID,
-					})
-					return result, nil
-				}
-			}
-			if vars == nil {
-				vars = map[string]string{}
-			}
-			templates.AugmentPlaceholderAliases(vars)
-
-			action, err = c.actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
+		if c.placeholders != nil {
+			vars, err = c.placeholders.GeneratePlaceholders(ctx, key)
 			if err != nil {
 				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 					EntityKey: key,
 					Status:    currentStatus,
-					Phase:     "action_lookup",
-					Error:     fmt.Sprintf("failed to get action for status %s: %v", currentStatus, err),
+					Phase:     "placeholders",
+					Error:     fmt.Sprintf("failed to generate placeholders for %s: %v", key, err),
 					RunID:     opts.RunID,
 				})
 				return result, nil
 			}
+		}
+		if vars == nil {
+			vars = map[string]string{}
+		}
+		templates.AugmentPlaceholderAliases(vars)
+
+		// Step 4: Get populated orchestrator action for current status.
+		action, err := c.actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "action_lookup",
+				Error:     fmt.Sprintf("failed to get action for status %s: %v", currentStatus, err),
+				RunID:     opts.RunID,
+			})
+			return result, nil
 		}
 
 		// Step 5: No action configured for this status — stop with no_action.
