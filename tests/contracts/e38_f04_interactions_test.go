@@ -68,6 +68,9 @@ func TestTC003_X03RolePullContractUsesWorkflowAndClaimAuthorities(t *testing.T) 
 		"shark sprint next --agent=<type>",
 		"priority/dependency order",
 		"ClaimService.Claim",
+		"filters non-terminal items by workflow-role eligibility before sorting",
+		"can still encounter a workflow gate",
+		"non-force claim conflict",
 		"`/shark-rider run <selected-key>`",
 		"`response.entity_key`",
 		"claims or executes the returned `BacklogItemView` directly",
@@ -78,6 +81,9 @@ func TestTC003_X03RolePullContractUsesWorkflowAndClaimAuthorities(t *testing.T) 
 		if !strings.Contains(normalized, want) {
 			t.Errorf("pull-by-role procedure omits required X-03 contract %q", want)
 		}
+	}
+	if strings.Contains(normalized, "excludes ineligible, blocked, or already-claimed work") {
+		t.Error("pull-by-role procedure incorrectly assigns blocked and live-claim filtering to the selector")
 	}
 }
 

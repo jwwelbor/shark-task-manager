@@ -5851,3 +5851,122 @@ func TestBuildReorderClearOps_ClearsTargetAndAllRenumberSiblings(t *testing.T) {
 	assert.Equal(t, int64(11), clearOps[2].AssignmentID)
 	assert.Nil(t, clearOps[2].NewPosition)
 }
+
+// TC-F06-008 through TC-F06-010 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, requestedRole).
+//   - Mock seam: SprintRepository.List and SprintRepository.ListBacklog; the
+//     real SprintService, workflow metadata lookup, filter, and comparator run.
+//   - Forbidden mocks: Do NOT mock workflow.Service or pre-filter the fixture.
+//   - Counter-factual: filtering the persisted BacklogItem.AgentType selects
+//     legacy-qa instead of workflow-qa, so this test fails.
+func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) {
+	workflowConfig := `{
+		"status_flow_version": "1.0",
+		"special_statuses": {
+			"_start_": ["ready_for_development"],
+			"_complete_": ["completed"]
+		},
+		"status_flow": {
+			"active": ["completed"],
+			"ready_for_development": ["completed"],
+			"ready_for_qa": ["completed"],
+			"completed": []
+		},
+		"status_metadata": {
+			"active": {"phase": "execution"},
+			"ready_for_development": {
+				"phase": "development",
+				"agent_types": ["developer"]
+			},
+			"ready_for_qa": {
+				"phase": "qa",
+				"agent_types": ["qa"]
+			},
+			"completed": {"phase": "done"}
+		}
+	}`
+
+	workflowSvc := newTaskReopenWorkflowService(t, workflowConfig)
+	legacyQA := "qa"
+	legacyDeveloper := "developer"
+	firstOrder, secondOrder := 1, 2
+	activeSprint := makeActiveSprint(10, "S001")
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			EntityID:    101,
+			Key:         "legacy-qa",
+			EntityKey:   "legacy-qa",
+			Title:       "Persisted as QA but workflow-owned by development",
+			Status:      "ready_for_development",
+			AgentType:   &legacyQA,
+			SprintOrder: &firstOrder,
+			AssignedAt:  time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			EntityType:  "task",
+			EntityID:    102,
+			Key:         "workflow-qa",
+			EntityKey:   "workflow-qa",
+			Title:       "Persisted as developer but workflow-owned by QA",
+			Status:      "ready_for_qa",
+			AgentType:   &legacyDeveloper,
+			SprintOrder: &secondOrder,
+			AssignedAt:  time.Date(2026, 7, 17, 10, 1, 0, 0, time.UTC),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			if filters != nil && filters.Status != nil && *filters.Status == "active" {
+				return []*models.Sprint{activeSprint}, nil
+			}
+			return []*models.Sprint{}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			assert.Equal(t, "S001", key)
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			assert.Equal(t, int64(10), sprintID)
+			assert.Nil(t, entityType)
+			assert.False(t, blockedOnly)
+			assert.Empty(t, blockedStatuses)
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	for _, tt := range []struct {
+		name          string
+		requestedRole string
+		expectedKey   string
+	}{
+		{
+			name:          "TC-F06-008 workflow role overrides persisted agent type",
+			requestedRole: "qa",
+			expectedKey:   "workflow-qa",
+		},
+		{
+			name:          "TC-F06-009 no workflow role match returns no item",
+			requestedRole: "architect",
+		},
+		{
+			name:        "TC-F06-010 omitted role preserves deterministic order",
+			expectedKey: "legacy-qa",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := svc.GetNextTask(context.Background(), tt.requestedRole)
+
+			require.NoError(t, err)
+			if tt.expectedKey == "" {
+				assert.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			assert.Equal(t, tt.expectedKey, result.Key)
+		})
+	}
+}

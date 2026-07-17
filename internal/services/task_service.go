@@ -365,6 +365,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		}
 
 		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
+		s.recalculateFeatureProgress(ctx, result.Task.FeatureID)
 		return result.Task, result.FileWasLinked, nil
 	}
 
@@ -409,9 +410,21 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 
 	// Create task model
 	agentType := input.AgentType
+	var parentFeatureID int64
+	if s.featureService != nil {
+		lookupKey := featureKey
+		if !strings.Contains(lookupKey, "-") {
+			lookupKey = fmt.Sprintf("%s-%s", epicKey, featureKey)
+		}
+		feature, featureErr := s.featureService.GetFeature(ctx, lookupKey)
+		if featureErr == nil && feature != nil {
+			parentFeatureID = feature.ID
+		}
+	}
 	task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
 		Title: input.Title,
 		Size:  input.Size}, Status: models.TaskStatus(s.entitySvc.GetWorkflowService().GetDefaultStatus()),
+		FeatureID:      parentFeatureID,
 		Priority:       priority,
 		AgentType:      &agentType,
 		ExecutionOrder: nil,
@@ -435,6 +448,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 	}
 
 	s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, false, nil
 }
 

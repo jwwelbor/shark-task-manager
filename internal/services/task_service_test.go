@@ -2903,6 +2903,8 @@ func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, models.FeatureStatus("active"), feature.Status,
 		"feature should be reopened to 'active' via creatorSvc path")
+	assert.Equal(t, 0.0, feature.ProgressPct,
+		"feature progress should be recalculated after task creation")
 
 	// Verify history was recorded
 	assert.Len(t, historyRecorder.created, 1, "should record entity_history for auto-reopen")
@@ -2911,6 +2913,84 @@ func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
 		assert.Equal(t, models.EntityTypeFeature, h.EntityType)
 		assert.Contains(t, *h.Notes, "auto-reopened")
 	}
+}
+
+// TestTaskService_CreateTask_FallbackPathRecalculatesFeatureProgress verifies
+// the non-creatorSvc task creation path also refreshes the parent feature's
+// cached progress after adding a draft task under a terminal feature.
+func TestTaskService_CreateTask_FallbackPathRecalculatesFeatureProgress(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			task.FeatureID = 10
+			return nil
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity:  models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Test Feature"},
+				Status:      "completed",
+				ProgressPct: 100,
+			}, nil
+		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity:  models.BaseEntity{ID: id, Key: "E01-F01", Title: "Test Feature"},
+				Status:      "active",
+				ProgressPct: 100,
+			}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{
+				models.TaskStatus("draft"): 1,
+			}, nil
+		},
+		updateFn: func() func(ctx context.Context, feature *models.Feature) error {
+			updateCalls := 0
+			return func(ctx context.Context, feature *models.Feature) error {
+				updateCalls++
+				switch updateCalls {
+				case 1:
+					if feature.Status != "active" {
+						t.Fatalf("expected feature to reopen to active, got %s", feature.Status)
+					}
+					if feature.ProgressPct != 100 {
+						t.Fatalf("expected reopen update to preserve cached progress before recalc, got %v", feature.ProgressPct)
+					}
+				case 2:
+					if feature.Status != "active" {
+						t.Fatalf("expected feature status to remain active during recalc, got %s", feature.Status)
+					}
+					if feature.ProgressPct != 0 {
+						t.Fatalf("expected feature progress to be recalculated to 0, got %v", feature.ProgressPct)
+					}
+				default:
+					t.Fatalf("unexpected extra feature update call %d", updateCalls)
+				}
+				return nil
+			}
+		}(),
+	}
+
+	wfSvc := workflow.NewService("")
+	svc := NewTaskService(mockRepo, NewEntityService(wfSvc), nil)
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(wfSvc), featureRepoAsEntityRepo(featureRepo), nil, nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, _, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task under completed feature",
+		AgentType:  "developer",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, task)
 }
 
 // capturingSlogHandler is a slog.Handler that records all log records.

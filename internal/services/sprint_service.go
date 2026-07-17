@@ -1395,11 +1395,17 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	// 3. Collect candidates whose status is non-terminal for their entity type.
 	// Sprint execution order is an explicit pull queue across assigned items, so selection
 	// must not be limited to workflow-initial statuses.
+	workflowByEntityType := map[string]*workflow.Service{
+		"task":        s.workflowSvc.ForLevel(workflow.LevelTask),
+		"bug":         s.workflowSvc.ForLevel(workflow.LevelBug),
+		"change_card": s.workflowSvc.ForLevel(workflow.LevelChange),
+		"tech_debt":   s.workflowSvc.ForLevel(workflow.LevelTechDebt),
+	}
 	terminalStatusesByEntityType := map[string]map[string]bool{
-		"task":        terminalSet(s.workflowSvc.ForLevel(workflow.LevelTask)),
-		"bug":         terminalSet(s.workflowSvc.ForLevel(workflow.LevelBug)),
-		"change_card": terminalSet(s.workflowSvc.ForLevel(workflow.LevelChange)),
-		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
+		"task":        terminalSet(workflowByEntityType["task"]),
+		"bug":         terminalSet(workflowByEntityType["bug"]),
+		"change_card": terminalSet(workflowByEntityType["change_card"]),
+		"tech_debt":   terminalSet(workflowByEntityType["tech_debt"]),
 	}
 
 	var candidates []*BacklogItemView
@@ -1411,12 +1417,14 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 
 		for _, group := range backlog.Groups {
 			for _, item := range group.Items {
-				terminals, ok := terminalStatusesByEntityType[item.EntityType]
-				if !ok || terminals[item.Status] {
+				entityWorkflow, ok := workflowByEntityType[item.EntityType]
+				if !ok || terminalStatusesByEntityType[item.EntityType][item.Status] {
 					continue
 				}
-				// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
-				if agentType != "" && item.AgentType != agentType {
+				// Apply the requested workflow role before sorting. BacklogItem.AgentType
+				// is persisted planning/display data; the workflow step for the item's
+				// current status is the authorization source for a role-aware pull.
+				if !workflowRoleEligible(entityWorkflow, item.Status, agentType) {
 					continue
 				}
 				item.SprintKey = sp.Key
@@ -1483,6 +1491,22 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	)
 
 	return winner, nil
+}
+
+// workflowRoleEligible reports whether a candidate at status may be pulled by
+// requestedRole. An omitted role preserves the existing unfiltered selector.
+// The workflow metadata is the single authorization source; callers must not
+// substitute persisted planning fields such as BacklogItem.AgentType.
+func workflowRoleEligible(workflowSvc *workflow.Service, status, requestedRole string) bool {
+	if requestedRole == "" {
+		return true
+	}
+	for _, role := range workflowSvc.GetStatusMetadata(status).AgentTypes {
+		if role == requestedRole {
+			return true
+		}
+	}
+	return false
 }
 
 // computeSelectionReason determines which sort tier differentiated the winner from the
