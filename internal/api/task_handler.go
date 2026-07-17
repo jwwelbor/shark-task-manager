@@ -217,6 +217,11 @@ type TransitionStatusRequest struct {
 	Force        bool   `json:"force,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	Agent        string `json:"agent,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	FromStatus   string `json:"from_status,omitempty"`
+	Outcome      string `json:"outcome,omitempty"`
+	ForceRepeat  bool   `json:"force_repeat,omitempty"`
+	GuardAdvance bool   `json:"guard_advance,omitempty"`
 }
 
 // TransitionStatus advances a task to a specified status.
@@ -236,9 +241,14 @@ func (h *TaskHandler) TransitionStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := services.TransitionOptions{
-		Force:  req.Force,
-		Reason: req.Reason,
-		Agent:  req.Agent,
+		Force:        req.Force,
+		Reason:       req.Reason,
+		Agent:        req.Agent,
+		SessionID:    req.SessionID,
+		FromStatus:   req.FromStatus,
+		Outcome:      req.Outcome,
+		ForceRepeat:  req.ForceRepeat,
+		GuardAdvance: req.GuardAdvance,
 	}
 
 	result, err := h.svc.TransitionStatus(r.Context(), key, req.TargetStatus, opts)

@@ -182,10 +182,13 @@ the workflow prompts emit, apply them in this order, then advance:
    agent that did the work (this populates `entity_history.changed_by`):
    ```bash
    shark status advance {response.entity_key} --outcome <key> \
+     --session "$SID" --from-status "{response.status}" \
      --agent "{response.agent_type}@{response.provider}/{response.model}"
    ```
    The outcome is workflow-configured: do not substitute a hard-coded status
-   or coerce a valid semantic outcome to `pass` or `fail`.
+   or coerce a valid semantic outcome to `pass` or `fail`. Include
+   `--session`/`--from-status` when `.sharkconfig.json` enables `advance_guard`
+   (see the route-based workflow guide, §2).
 5. **Release the lease, always**, stamping the outcome on the work session:
    ```bash
    shark release {response.entity_key} --session "$SID" --outcome <key>

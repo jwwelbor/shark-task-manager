@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -18,6 +19,12 @@ import (
 // Satisfied by *repository.EntityHistoryRepository.
 type EntityHistoryRecorder interface {
 	Create(ctx context.Context, history *models.EntityHistory) error
+}
+
+// AdvanceGuardRecorder persists consumed guarded-advance tuples.
+type AdvanceGuardRecorder interface {
+	WasConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error)
+	RecordConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
 }
 
 // EntityHistoryOpts holds optional parameters for recording entity history.
@@ -113,9 +120,11 @@ type ResolveActionFn func(entity models.Entity, status string) *config.Populated
 // EntityService provides shared status transition logic for all entity types.
 // Entity-specific services compose this and delegate shared steps to it.
 type EntityService struct {
-	workflowSvc *workflow.Service
-	noteRepo    RejectionNoteCreator  // optional, for rejection notes during transitions
-	historyRepo EntityHistoryRecorder // optional, for history recording during transitions
+	workflowSvc      *workflow.Service
+	noteRepo         RejectionNoteCreator  // optional, for rejection notes during transitions
+	historyRepo      EntityHistoryRecorder // optional, for history recording during transitions
+	advanceGuardRepo AdvanceGuardRecorder  // optional, for replay protection during guarded advances
+	advanceGuardCfg  config.AdvanceGuardConfig
 }
 
 // NewEntityService creates an EntityService with the workflow service dependency.
@@ -133,9 +142,11 @@ func NewEntityService(workflowSvc *workflow.Service) *EntityService {
 // Level constants: workflow.LevelEpic, workflow.LevelFeature, workflow.LevelTask.
 func (s *EntityService) ForLevel(level string) *EntityService {
 	return &EntityService{
-		workflowSvc: s.workflowSvc.ForLevel(level),
-		noteRepo:    s.noteRepo,
-		historyRepo: s.historyRepo,
+		workflowSvc:      s.workflowSvc.ForLevel(level),
+		noteRepo:         s.noteRepo,
+		historyRepo:      s.historyRepo,
+		advanceGuardRepo: s.advanceGuardRepo,
+		advanceGuardCfg:  s.advanceGuardCfg,
 	}
 }
 
@@ -149,6 +160,12 @@ func (s *EntityService) SetNoteRepo(noteRepo RejectionNoteCreator) {
 // The *repository.EntityHistoryRepository satisfies EntityHistoryRecorder directly.
 func (s *EntityService) SetHistoryRepo(repo EntityHistoryRecorder) {
 	s.historyRepo = repo
+}
+
+// SetAdvanceGuard wires the optional replay-protection repository and config.
+func (s *EntityService) SetAdvanceGuard(cfg config.AdvanceGuardConfig, repo AdvanceGuardRecorder) {
+	s.advanceGuardCfg = cfg
+	s.advanceGuardRepo = repo
 }
 
 // TransitionStatus performs a status transition on any entity via its
@@ -216,7 +233,7 @@ func (s *EntityService) TransitionStatus(
 		return nil, err
 	}
 
-	// A research step may only take a forward route after the selected recipe's
+	// A research step may only take its pass route after the selected recipe's
 	// structural evidence contract is complete. Failure and parking routes stay
 	// available for recovery and escalation.
 	if !opts.Force && s.requiresResearchEvidence(resolvedCurrentStatus, targetStatus) {
@@ -239,9 +256,27 @@ func (s *EntityService) TransitionStatus(
 		}
 	}
 
+	if err := s.enforceAdvanceGuard(ctx, entityType, entity.GetID(), currentStatus, opts); err != nil {
+		return nil, err
+	}
+
 	// Step 7: Update status via repo
-	if err := repo.UpdateStatus(ctx, entity.GetID(), targetStatus); err != nil {
-		return nil, fmt.Errorf("failed to update %s status: %w", entityType, err)
+	if s.shouldUseAdvanceGuard(opts) {
+		updated, err := repo.UpdateStatusIfCurrent(ctx, entity.GetID(), currentStatus, targetStatus)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update %s status: %w", entityType, err)
+		}
+		if !updated {
+			return nil, ErrAdvanceGuardStaleFromStatus
+		}
+	} else {
+		if err := repo.UpdateStatus(ctx, entity.GetID(), targetStatus); err != nil {
+			return nil, fmt.Errorf("failed to update %s status: %w", entityType, err)
+		}
+	}
+
+	if err := s.recordAdvanceGuard(ctx, entityType, entity.GetID(), currentStatus, opts); err != nil {
+		return nil, err
 	}
 
 	// Step 7.5: Record history (non-blocking)
@@ -286,26 +321,69 @@ func (s *EntityService) TransitionStatus(
 	}, nil
 }
 
+func (s *EntityService) shouldUseAdvanceGuard(opts TransitionOptions) bool {
+	return s.advanceGuardCfg.Enabled && opts.GuardAdvance
+}
+
+func (s *EntityService) enforceAdvanceGuard(ctx context.Context, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
+	if !s.shouldUseAdvanceGuard(opts) {
+		return nil
+	}
+	if strings.TrimSpace(opts.SessionID) == "" {
+		return ErrAdvanceGuardSessionRequired
+	}
+	if strings.TrimSpace(opts.FromStatus) == "" {
+		return ErrAdvanceGuardFromStatusRequired
+	}
+	if !strings.EqualFold(strings.TrimSpace(opts.FromStatus), currentStatus) {
+		return ErrAdvanceGuardStaleFromStatus
+	}
+	if opts.ForceRepeat {
+		if !s.advanceGuardCfg.AllowRepeatWithForce {
+			return ErrAdvanceGuardForceRepeatNotAllowed
+		}
+		if strings.TrimSpace(opts.Reason) == "" {
+			return ErrAdvanceGuardForceRepeatReasonRequired
+		}
+		return nil
+	}
+	if s.advanceGuardRepo == nil {
+		return fmt.Errorf("advance guard is enabled but no guard repository is configured")
+	}
+	if strings.TrimSpace(opts.Outcome) == "" {
+		return fmt.Errorf("advance guard requires an outcome for guarded advances")
+	}
+	consumed, err := s.advanceGuardRepo.WasConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome)
+	if err != nil {
+		return fmt.Errorf("advance guard check failed: %w", err)
+	}
+	if consumed {
+		return ErrAdvanceGuardRepeatRejected
+	}
+	return nil
+}
+
+func (s *EntityService) recordAdvanceGuard(ctx context.Context, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
+	if !s.shouldUseAdvanceGuard(opts) || opts.ForceRepeat {
+		return nil
+	}
+	if s.advanceGuardRepo == nil {
+		return fmt.Errorf("advance guard is enabled but no guard repository is configured")
+	}
+	if err := s.advanceGuardRepo.RecordConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
+		if errors.Is(err, ErrAdvanceGuardRepeatRejected) || strings.Contains(err.Error(), "already consumed") {
+			return ErrAdvanceGuardRepeatRejected
+		}
+		return fmt.Errorf("advance guard record failed: %w", err)
+	}
+	return nil
+}
+
 func (s *EntityService) requiresResearchEvidence(fromStatus, targetStatus string) bool {
 	if !strings.EqualFold(s.workflowSvc.GetStatusMetadata(fromStatus).Phase, "research") {
 		return false
 	}
-	for outcome, target := range s.workflowSvc.GetOutcomes(fromStatus) {
-		if !strings.EqualFold(target, targetStatus) || isResearchRecoveryOutcome(outcome) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func isResearchRecoveryOutcome(outcome string) bool {
-	switch strings.ToLower(outcome) {
-	case "blocked", "cancelled", "fail", "on_hold":
-		return true
-	default:
-		return false
-	}
+	return strings.EqualFold(s.workflowSvc.GetOutcomes(fromStatus)["pass"], targetStatus)
 }
 
 // ValidateAndNormalize validates a transition and normalizes the target status.

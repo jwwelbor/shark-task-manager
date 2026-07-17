@@ -120,6 +120,17 @@ func (m *mockTDEntityRepo) UpdateStatus(ctx context.Context, id int64, status st
 	return m.tdRepo.UpdateStatus(ctx, id, models.TechDebtStatus(status))
 }
 
+func (m *mockTDEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	td, err := m.tdRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if td == nil || !strings.EqualFold(string(td.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+	return true, m.tdRepo.UpdateStatus(ctx, id, models.TechDebtStatus(newStatus))
+}
+
 func (m *mockTDEntityRepo) Update(ctx context.Context, entity models.Entity) error {
 	td, ok := entity.(*models.TechDebt)
 	if !ok {

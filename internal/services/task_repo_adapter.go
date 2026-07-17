@@ -13,6 +13,7 @@ type TaskAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 	Update(ctx context.Context, task *models.Task) error
 	UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
+	UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error)
 	GetContextData(ctx context.Context, taskID int64) (*string, error)
 	UpdateContextData(ctx context.Context, taskID int64, contextData *string) error
 }
@@ -40,6 +41,10 @@ func (a *TaskRepositoryAdapter) GetByID(ctx context.Context, id int64) (models.E
 
 func (a *TaskRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.TaskStatus(status), nil, nil)
+}
+
+func (a *TaskRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.TaskStatus(expectedCurrentStatus), models.TaskStatus(newStatus))
 }
 
 func (a *TaskRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

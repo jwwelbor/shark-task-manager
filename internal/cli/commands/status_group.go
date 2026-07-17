@@ -99,6 +99,7 @@ For viewing available transitions, use 'shark status transitions'.
 
 Examples:
   shark status advance E07-F01-001              Advance to next status
+  shark status advance E07-F01-001 --outcome pass --session "$SID" --from-status code_review
   shark status advance E07                      Advance epic
   shark status advance E07-F01-001 --json       JSON output`,
 	Args: cobra.ExactArgs(1),
@@ -166,6 +167,9 @@ func init() {
 	statusAdvanceCmd.Flags().String("outcome", "", "Release a semantic outcome (pass|fail|blocked|…) and route via the workflow's outcomes map")
 	statusAdvanceCmd.Flags().String("reason", "", "Reason recorded with the transition")
 	statusAdvanceCmd.Flags().String("agent", "", "Actor identity recorded as changed_by (default: $SHARK_ACTOR or 'cli')")
+	statusAdvanceCmd.Flags().String("session", "", "Lease/session id for guarded advances when advance_guard is enabled")
+	statusAdvanceCmd.Flags().String("from-status", "", "Expected current status for guarded advances when advance_guard is enabled")
+	statusAdvanceCmd.Flags().Bool("force-repeat", false, "Override guarded replay rejection when advance_guard.allow_repeat_with_force is enabled (requires --reason)")
 
 	// statusHistoryCmd flags
 	statusHistoryCmd.Flags().Int("limit", 50, "Maximum number of history entries to show")
@@ -222,7 +226,14 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 // handleStatusTransitionError handles common error patterns for status transition commands.
 // Calls os.Exit for known error types (not found, reason required).
 func handleStatusTransitionError(entityType, key string, err error) {
-	if errors.Is(err, services.ErrReasonRequired) || errors.Is(err, services.ErrForceReasonRequired) {
+	if errors.Is(err, services.ErrReasonRequired) ||
+		errors.Is(err, services.ErrForceReasonRequired) ||
+		errors.Is(err, services.ErrAdvanceGuardSessionRequired) ||
+		errors.Is(err, services.ErrAdvanceGuardFromStatusRequired) ||
+		errors.Is(err, services.ErrAdvanceGuardForceRepeatNotAllowed) ||
+		errors.Is(err, services.ErrAdvanceGuardForceRepeatReasonRequired) ||
+		errors.Is(err, services.ErrAdvanceGuardRepeatRejected) ||
+		errors.Is(err, services.ErrAdvanceGuardStaleFromStatus) {
 		cli.Error(err.Error())
 		os.Exit(3)
 	}
@@ -397,18 +408,31 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	// Determine the target. With --outcome, resolve via the route-based outcomes
 	// map (release semantics, D4). Without it, auto-select the default transition.
 	// cmd may be nil in unit tests that call runStatusAdvance directly.
-	var outcome, reason, agent string
+	var outcome, reason, agent, sessionID, fromStatusFlag string
+	var forceRepeat bool
 	if cmd != nil {
 		outcome, _ = cmd.Flags().GetString("outcome")
 		reason, _ = cmd.Flags().GetString("reason")
 		agent, _ = cmd.Flags().GetString("agent")
+		sessionID, _ = cmd.Flags().GetString("session")
+		fromStatusFlag, _ = cmd.Flags().GetString("from-status")
+		forceRepeat, _ = cmd.Flags().GetBool("force-repeat")
 	}
 	if agent == "" {
 		agent = advanceActor()
 	}
 
 	autoTarget := info.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
-	opts := services.TransitionOptions{Reason: reason, Agent: agent}
+	opts := services.TransitionOptions{
+		Reason:      reason,
+		Agent:       agent,
+		SessionID:   strings.TrimSpace(sessionID),
+		FromStatus:  strings.TrimSpace(fromStatusFlag),
+		ForceRepeat: forceRepeat,
+	}
+	if cfg, err := cli.GetConfig(); err == nil && cfg != nil && cfg.IsAdvanceGuardEnabled() {
+		opts.GuardAdvance = true
+	}
 
 	if strings.TrimSpace(outcome) != "" {
 		outcome = strings.TrimSpace(strings.ToLower(outcome))
@@ -432,12 +456,16 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("unknown outcome %q", outcome)
 		}
 		autoTarget = target
+		opts.Outcome = outcome
 		// The resolved route is authoritative; record the outcome as the reason
 		// so backward routes (e.g. fail) pass the backward-transition guard
 		// without requiring --force.
 		if opts.Reason == "" {
 			opts.Reason = "release outcome: " + outcome
 		}
+	}
+	if opts.Outcome == "" {
+		opts.Outcome = autoTarget
 	}
 
 	// Check whether the entity has a rejection note before transitioning.

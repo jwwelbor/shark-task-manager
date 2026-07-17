@@ -13,6 +13,7 @@ type FeatureAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Feature, error)
 	Update(ctx context.Context, feature *models.Feature) error
 	UpdateStatus(ctx context.Context, featureID int64, status models.FeatureStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, featureID int64, expectedStatus models.FeatureStatus, newStatus models.FeatureStatus) (bool, error)
 	GetContextData(ctx context.Context, featureID int64) (*string, error)
 	UpdateContextData(ctx context.Context, featureID int64, contextData *string) error
 }
@@ -40,6 +41,10 @@ func (a *FeatureRepositoryAdapter) GetByID(ctx context.Context, id int64) (model
 
 func (a *FeatureRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.FeatureStatus(status))
+}
+
+func (a *FeatureRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.FeatureStatus(expectedCurrentStatus), models.FeatureStatus(newStatus))
 }
 
 func (a *FeatureRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

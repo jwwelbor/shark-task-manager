@@ -25,6 +25,9 @@ func (m *mockEntityRepository) GetByID(_ context.Context, _ int64) (models.Entit
 func (m *mockEntityRepository) UpdateStatus(_ context.Context, _ int64, _ string) error {
 	return nil
 }
+func (m *mockEntityRepository) UpdateStatusIfCurrent(_ context.Context, _ int64, _ string, _ string) (bool, error) {
+	return true, nil
+}
 func (m *mockEntityRepository) Update(_ context.Context, _ models.Entity) error {
 	return nil
 }

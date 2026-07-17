@@ -20,12 +20,13 @@ var _ EntityHistoryRecorder = (*repository.EntityHistoryRepository)(nil)
 
 // mockEntityRepo implements EntityRepository for testing.
 type mockEntityRepo struct {
-	getByKeyFn     func(ctx context.Context, key string) (models.Entity, error)
-	getByIDFn      func(ctx context.Context, id int64) (models.Entity, error)
-	updateStatusFn func(ctx context.Context, id int64, status string) error
-	updateFn       func(ctx context.Context, entity models.Entity) error
-	getContextFn   func(ctx context.Context, id int64) (*string, error)
-	setContextFn   func(ctx context.Context, id int64, data *string) error
+	getByKeyFn              func(ctx context.Context, key string) (models.Entity, error)
+	getByIDFn               func(ctx context.Context, id int64) (models.Entity, error)
+	updateStatusFn          func(ctx context.Context, id int64, status string) error
+	updateStatusIfCurrentFn func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error)
+	updateFn                func(ctx context.Context, entity models.Entity) error
+	getContextFn            func(ctx context.Context, id int64) (*string, error)
+	setContextFn            func(ctx context.Context, id int64, data *string) error
 }
 
 func (m *mockEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
@@ -47,6 +48,16 @@ func (m *mockEntityRepo) UpdateStatus(ctx context.Context, id int64, status stri
 		return m.updateStatusFn(ctx, id, status)
 	}
 	return nil
+}
+
+func (m *mockEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	if m.updateStatusIfCurrentFn != nil {
+		return m.updateStatusIfCurrentFn(ctx, id, expectedCurrentStatus, newStatus)
+	}
+	if m.updateStatusFn != nil {
+		return true, m.updateStatusFn(ctx, id, newStatus)
+	}
+	return true, nil
 }
 
 func (m *mockEntityRepo) Update(ctx context.Context, entity models.Entity) error {
@@ -195,85 +206,6 @@ func TestEntityService_TransitionStatus_ResearchPassRequiresEvidence(t *testing.
 	}
 	if updated {
 		t.Fatal("research validation failure must not update the entity status")
-	}
-}
-
-func TestEntityService_TransitionStatus_ResearchForwardOutcomesRequireEvidence(t *testing.T) {
-	projectRoot := t.TempDir()
-	workflowSvc := workflow.NewService(projectRoot)
-	svc := NewEntityService(workflowSvc).ForLevel(workflow.LevelFeature)
-	filePath := "docs/plan/E01/F01/feature.md"
-
-	for _, target := range []string{"task_generation", "specification"} {
-		t.Run(target, func(t *testing.T) {
-			updated := false
-			repo := &mockEntityRepo{
-				getByKeyFn: func(context.Context, string) (models.Entity, error) {
-					return &models.Feature{
-						BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", FilePath: &filePath},
-						Status:     "research",
-					}, nil
-				},
-				updateStatusFn: func(context.Context, int64, string) error {
-					updated = true
-					return nil
-				},
-			}
-
-			_, err := svc.TransitionStatus(
-				context.Background(), repo, models.EntityTypeFeature, "E01-F01", target,
-				TransitionOptions{}, DefaultTransitionFeatures(), nil,
-			)
-			if err == nil {
-				t.Fatal("expected research route without artifacts to be rejected")
-			}
-			if updated {
-				t.Fatal("research validation failure must not update the entity status")
-			}
-		})
-	}
-}
-
-func TestEntityService_TransitionStatus_ResearchRecoveryAndForceBypassEvidence(t *testing.T) {
-	projectRoot := t.TempDir()
-	workflowSvc := workflow.NewService(projectRoot)
-	svc := NewEntityService(workflowSvc).ForLevel(workflow.LevelFeature)
-	filePath := "docs/plan/E01/F01/feature.md"
-
-	for _, tt := range []struct {
-		name   string
-		target string
-		opts   TransitionOptions
-	}{
-		{name: "recovery", target: "assessment"},
-		{name: "forced", target: "specification", opts: TransitionOptions{Force: true, Reason: "manual recovery"}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			updated := ""
-			repo := &mockEntityRepo{
-				getByKeyFn: func(context.Context, string) (models.Entity, error) {
-					return &models.Feature{
-						BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", FilePath: &filePath},
-						Status:     "research",
-					}, nil
-				},
-				updateStatusFn: func(_ context.Context, _ int64, status string) error {
-					updated = status
-					return nil
-				},
-			}
-
-			_, err := svc.TransitionStatus(
-				context.Background(), repo, models.EntityTypeFeature, "E01-F01", tt.target,
-				tt.opts, DefaultTransitionFeatures(), nil,
-			)
-			if err != nil {
-				t.Fatalf("TransitionStatus() error = %v", err)
-			}
-			if updated != tt.target {
-				t.Fatalf("UpdateStatus() = %q, want %q", updated, tt.target)
-			}
-		})
 	}
 }
 

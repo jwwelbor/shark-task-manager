@@ -21,6 +21,11 @@ The `.sharkconfig.json` file is automatically created by `shark admin init` and 
   "json_output": false,
   "interactive_mode": false,
   "require_rejection_reason": true,
+  "advance_guard": {
+    "enabled": false,
+    "mode": "session_from_status",
+    "allow_repeat_with_force": true
+  },
   "shark_data_path": "shark-data",
   "workflow_config": "shark-data/workflow/",
   "console_width": 0,
@@ -101,6 +106,7 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 | `json_output` | bool | `false` | Default to JSON output for all commands |
 | `interactive_mode` | bool | `false` | Enable interactive prompts |
 | `require_rejection_reason` | bool | `true` | Require reason when rejecting tasks |
+| `advance_guard` | object | disabled | Replay protection for `shark status advance`. See [Advance Guard](#advance-guard) below. |
 | `viewer` | string | `"cat"` | External viewer for `shark view` (e.g., `"glow"`, `"nano"`) |
 | `template_directory` | string | unset | Optional explicit prompt directory. Leave unset to derive prompts from `shark_data_path`. |
 | `shark_data_path` | string | `"shark-data"` | Content-bundle root holding `skills/`, `prompts/`, `file_templates/`, `agents/`, `workflow/`, and `overrides/`. See [Shark Data Path](#shark-data-path) below. |
@@ -191,6 +197,67 @@ Title / Notes column so the table fills the terminal without overflowing.
 config when you want a non-default; otherwise auto-detect handles the common
 case. Use `--no-color` to drop ANSI codes if your wrapper has trouble with
 escape sequences but renders width correctly.
+
+<a id="advance-guard"></a>
+#### Advance Guard
+
+`advance_guard` enables replay protection for parent-loop driven
+`shark status advance` calls. When enabled, guarded advances must include both
+`--session <sid>` and `--from-status <expected-status>`. Shark rejects the
+advance when either condition is true:
+
+- The entity is no longer at `from_status`.
+- The same `entity + session + from_status + outcome` was already consumed.
+
+This is designed for orchestrators such as `/shark-rider run`, not for ordinary
+manual CLI use, so the default is disabled for backward compatibility.
+
+**Enable it**:
+
+```json
+{
+  "advance_guard": {
+    "enabled": true,
+    "mode": "session_from_status",
+    "allow_repeat_with_force": true
+  }
+}
+```
+
+With that config enabled, the parent loop should advance like this:
+
+```bash
+shark status advance E38-F07 --outcome fail --session "$SID" --from-status code_review
+```
+
+If you need an audited override after a replay rejection, use `--force-repeat`
+with a reason, but only when `allow_repeat_with_force` is `true`:
+
+```bash
+shark status advance E38-F07 --outcome fail \
+  --session "$SID" \
+  --from-status code_review \
+  --force-repeat \
+  --reason "operator override after manual inspection"
+```
+
+**Turn it off** again:
+
+```json
+{
+  "advance_guard": {
+    "enabled": false
+  }
+}
+```
+
+**Fields**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `advance_guard.enabled` | bool | `false` | Master on/off switch. `false` preserves historical `status advance` behavior. |
+| `advance_guard.mode` | string | `"session_from_status"` | Guard strategy. The current implementation supports `session_from_status`. |
+| `advance_guard.allow_repeat_with_force` | bool | `false` when absent | Allows `--force-repeat --reason ...` to override a replay rejection. |
 
 ### Web Server Configuration
 

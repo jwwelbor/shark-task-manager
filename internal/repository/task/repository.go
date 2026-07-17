@@ -1231,6 +1231,50 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, nil, false)
 }
 
+// UpdateStatusIfCurrent atomically updates task status only when the current
+// stored status still matches expectedStatus (case-insensitive), preserving the
+// task_history side effects of the normal status-update path.
+func (r *TaskRepository) UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error) {
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentStatus string
+	var taskKey string
+	var startedAt, completedAt, blockedAt sql.NullTime
+	err = tx.QueryRowContext(ctx, "SELECT key, status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
+		Scan(&taskKey, &currentStatus, &startedAt, &completedAt, &blockedAt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to get current task status: %w", err)
+	}
+	if !strings.EqualFold(currentStatus, string(expectedStatus)) {
+		return false, nil
+	}
+
+	_, err = r.StatusUpdateRawWithTx(ctx, tx, models.StatusUpdateParams{
+		TaskID:      taskID,
+		NewStatus:   newStatus,
+		OldStatus:   currentStatus,
+		TaskKey:     taskKey,
+		StartedAt:   startedAt,
+		CompletedAt: completedAt,
+		BlockedAt:   blockedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to conditionally update task status: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return true, nil
+}
+
 // UpdateStatusForced atomically updates task status with optional validation bypass
 func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) (retErr error) {
 	ctx, span := tracer.Start(ctx, "TaskRepository.UpdateStatusForced",

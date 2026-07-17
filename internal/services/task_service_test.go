@@ -42,6 +42,7 @@ type MockTaskRepository struct {
 	GetTaskDependenciesFunc           func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	GetTaskDependentsFunc             func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	UpdateStatusFunc                  func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
+	UpdateStatusIfCurrentFunc         func(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error)
 	UpdateStatusForcedFunc            func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 	UpdateStatusForcedWithUnblockFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
 	StatusUpdateRawFunc               func(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
@@ -139,6 +140,16 @@ func (m *MockTaskRepository) UpdateStatus(ctx context.Context, taskID int64, new
 		return m.UpdateStatusFunc(ctx, taskID, newStatus, agent, notes)
 	}
 	return fmt.Errorf("UpdateStatus not implemented in mock")
+}
+
+func (m *MockTaskRepository) UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error) {
+	if m.UpdateStatusIfCurrentFunc != nil {
+		return m.UpdateStatusIfCurrentFunc(ctx, taskID, expectedStatus, newStatus)
+	}
+	if m.UpdateStatusFunc != nil {
+		return true, m.UpdateStatusFunc(ctx, taskID, newStatus, nil, nil)
+	}
+	return false, fmt.Errorf("UpdateStatusIfCurrent not implemented in mock")
 }
 
 func (m *MockTaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {

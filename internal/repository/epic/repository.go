@@ -634,6 +634,21 @@ func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status 
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates epic status only when the current
+// stored status still matches expectedStatus (case-insensitive).
+func (r *EpicRepository) UpdateStatusIfCurrent(ctx context.Context, epicID int64, expectedStatus models.EpicStatus, newStatus models.EpicStatus) (bool, error) {
+	query := `UPDATE epics SET status = ? WHERE id = ? AND lower(status) = lower(?)`
+	result, err := r.db.ExecContext(ctx, query, newStatus, epicID, expectedStatus)
+	if err != nil {
+		return false, fmt.Errorf("failed to conditionally update epic status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
 // GetByIDTx retrieves an epic by its ID within an existing transaction.
 // Provides snapshot isolation for cascade idempotency checks (REQ-F-008):
 // reading the entity inside the cascade transaction ensures the in-tx re-fetch
