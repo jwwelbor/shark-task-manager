@@ -31,8 +31,6 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
-	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -49,7 +47,6 @@ type nextAdapters struct {
 	transitioner runner.EntityTransitioner
 	generator    runner.PlaceholderGenerator
 	actionSvc    action.ActionService
-	stepResolver dispatch.DispatchStepResolver
 }
 
 // nextAdapterCache is the per-invocation cache hoisted into runNext and passed
@@ -65,7 +62,7 @@ type nextAdapterCache struct {
 // resolved once. The root is shared across all entity types — only the
 // ForEntity-narrowed view differs per type.
 func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
-	root, err := getDispatchActionService(ctx)
+	root, err := cli.GetActionService(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize action service: %w", err)
 	}
@@ -91,19 +88,6 @@ func (c *nextAdapterCache) get(ctx context.Context, entityType string) (*nextAda
 		generator:    nextBuildPlaceholderGenerator(ctx, entityType),
 		actionSvc:    narrowActionServiceForEntity(c.actionSvcRoot, entityType),
 	}
-	resolver, err := dispatch.NewStepResolver(dispatch.StepResolverDeps{
-		Transitioner:  a.transitioner,
-		Placeholders:  a.generator,
-		ActionService: a.actionSvc,
-		PromptAssembler: dispatch.PromptAssemblerFunc(func(ctx context.Context, input dispatch.PromptAssemblyInput) (string, error) {
-			return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
-		}),
-		IsArchivedStatus: func(_ models.EntityType, status string) bool { return isArchivedStatus(entityType, status) },
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize dispatch-step resolver for %s: %w", entityType, err)
-	}
-	a.stepResolver = resolver
 	c.entries[entityType] = a
 	return a, nil
 }
@@ -115,7 +99,6 @@ func (c *nextAdapterCache) get(ctx context.Context, entityType string) (*nextAda
 var (
 	nextBuildTransitioner         = buildTransitioner
 	nextBuildPlaceholderGenerator = buildPlaceholderGenerator
-	getDispatchActionService      = cli.GetActionService
 )
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is
@@ -314,52 +297,88 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	if err != nil {
 		return NextResponse{}, err
 	}
-	if a.stepResolver == nil {
-		resolver, resolverErr := dispatch.NewStepResolver(dispatch.StepResolverDeps{
-			Transitioner:  a.transitioner,
-			Placeholders:  a.generator,
-			ActionService: a.actionSvc,
-			PromptAssembler: dispatch.PromptAssemblerFunc(func(ctx context.Context, input dispatch.PromptAssemblyInput) (string, error) {
-				return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
-			}),
-			IsArchivedStatus: func(_ models.EntityType, status string) bool { return isArchivedStatus(entityType, status) },
-		})
-		if resolverErr != nil {
-			return NextResponse{}, resolverErr
-		}
-		a.stepResolver = resolver
-	}
-	step, err := a.stepResolver.Resolve(ctx, models.EntityType(entityType), normalizedKey)
+	transitioner := a.transitioner
+	placeholderGen := a.generator
+	actionSvc := a.actionSvc
+
+	// Step 4: Read current status and detect terminal/archived states.
+	nextInfo, err := transitioner.GetNextStatus(ctx, normalizedKey)
 	if err != nil {
-		return NextResponse{}, err
+		return NextResponse{}, fmt.Errorf("failed to read status for %s: %w", normalizedKey, err)
 	}
+	currentStatus := nextInfo.CurrentStatus
 
 	resp := NextResponse{
-		EntityKey:  step.EntityKey,
-		EntityType: string(step.EntityType),
-		Status:     step.Status,
-		Action:     step.Action,
-		AgentType:  step.AgentType,
-		Provider:   step.Provider,
-		Model:      step.Model,
-		Effort:     step.Effort,
+		EntityKey:  normalizedKey,
+		EntityType: entityType,
+		Status:     currentStatus,
 	}
-	if step.Error != "" {
-		fmt.Fprintf(os.Stderr, "[shark next] warning: status %q is not defined in the workflow configuration for entity type %q — treating as pause (B022)\n", step.Status, entityType)
-		resp.Action = "pause"
-		resp.Error = step.Error
+
+	// Terminal status: nothing to dispatch.
+	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
+		if isArchivedStatus(entityType, currentStatus) {
+			resp.Action = "archive"
+		} else {
+			resp.Action = "pause"
+		}
 		return resp, nil
 	}
-	if step.NextStatus == nil {
-		return NextResponse{}, fmt.Errorf("resolve dispatch step for %s returned no status context", normalizedKey)
+
+	// Step 5: Generate placeholders for template rendering. The agent body
+	// and instruction template both consume this map; AugmentPlaceholderAliases
+	// adds the dash-form and shorthand keys agent files use (e.g. `<task-id>`
+	// resolves against `task_id`).
+	var vars map[string]string
+	if placeholderGen != nil {
+		vars, err = placeholderGen.GeneratePlaceholders(ctx, normalizedKey)
+		if err != nil {
+			return NextResponse{}, fmt.Errorf("failed to generate placeholders for %s: %w", normalizedKey, err)
+		}
+	}
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	templates.AugmentPlaceholderAliases(vars)
+
+	// Step 6: Get the populated action (template rendered + skills inlined
+	// in Shark 2.0 layouts via the orchestrator renderer's {{include:}} pass).
+	//
+	// Graceful degradation (B022): when the entity's current status is not
+	// defined in the workflow YAML (e.g. a legacy status like "in_approval"
+	// or "ready_for_approval" that was removed from the workflow config), we
+	// treat it as a terminal pause rather than crashing. This keeps the
+	// harness from exiting non-zero on databases that contain any legacy
+	// status values — the unknown status is surfaced as a warning on stderr
+	// and the harness receives action="pause" so it can surface the situation
+	// to the user rather than failing opaquely.
+	populated, err := actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
+	if err != nil {
+		if isStatusNotFoundError(err) {
+			// Unknown/legacy status — degrade to pause so the harness can
+			// report it without a non-zero exit.
+			fmt.Fprintf(os.Stderr, "[shark next] warning: status %q is not defined in the workflow configuration for entity type %q — treating as pause (B022)\n", currentStatus, entityType)
+			resp.Action = "pause"
+			resp.Error = fmt.Sprintf("status %q is not defined in the workflow configuration; this may be a legacy status that has been removed", currentStatus)
+			return resp, nil
+		}
+		return NextResponse{}, fmt.Errorf("failed to populate action for status %q: %w", currentStatus, err)
+	}
+
+	// No action defined for this status → pause; harness shows it to user.
+	if populated == nil {
+		resp.Action = "pause"
+		return resp, nil
 	}
 
 	// Step 7: Cascade resolution. The YAML's "cascade" verb must never
 	// reach the harness — the engine traverses down to the first
 	// dispatchable child here, then returns that child's dispatch step.
-	internalAction := strings.TrimSpace(step.Action)
+	internalAction := strings.TrimSpace(populated.Action)
+	if actionRequiresInstruction(internalAction) && strings.TrimSpace(populated.Instruction) == "" {
+		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
+	}
 	if internalAction == "cascade" {
-		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp, step.NextStatus, a.transitioner)
+		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
 	}
 
 	// Step 8: Verb normalization + action application. The YAML's internal
@@ -368,15 +387,7 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	// pause, archive}. applyWireAction maps onto the wire set and handles
 	// the special-case branches (advance_and_recurse, error) inline so the
 	// caller only deals with the simple wire-shaped result.
-	populated := &action.PopulatedAction{
-		Action:      step.Action,
-		AgentType:   step.AgentType,
-		Provider:    step.Provider,
-		Model:       step.Model,
-		Effort:      step.Effort,
-		Instruction: step.Prompt,
-	}
-	wireResp, handled, err := applyWireAction(ctx, cache, entityType, normalizedKey, depth, internalAction, populated, step.NextStatus, a.transitioner, resp)
+	wireResp, handled, err := applyWireAction(ctx, cache, entityType, normalizedKey, depth, internalAction, populated, nextInfo, transitioner, resp)
 	if err != nil {
 		return NextResponse{}, err
 	}
@@ -385,7 +396,23 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	}
 	resp = wireResp
 
+	// Step 9: Auto-inline the agent body so the harness receives the agent
+	// persona / config alongside the action prompt. attachAgentBody runs
+	// the agent-body region through RenderAndLintAgentBody, which fails
+	// loudly if any `<token>` is unmapped — the lint that used to live as
+	// a post-render guard on the whole prompt, now scoped to just the
+	// agent body region.
+	attached, err := assembleDispatchPrompt(resp.Prompt, resp.AgentType, vars)
+	if err != nil {
+		return NextResponse{}, err
+	}
+	resp.Prompt = attached
+
 	return resp, nil
+}
+
+func actionRequiresInstruction(internalAction string) bool {
+	return internalAction == action.ActionSpawnAgent || internalAction == action.ActionCheckOrResume
 }
 
 // tryCascade owns the "cascade" verb's children-loop and resolved_via
@@ -602,12 +629,30 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 	return rendered + "\n\n---\n\n" + prompt, nil
 }
 
+const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
+- You are a spawned worker inside a Shark parent-run loop.
+- Do NOT run Shark workflow-state commands against the entity this prompt dispatched you for.
+- Never run against the dispatched entity: shark claim, shark heartbeat, shark release, shark status advance, shark status set, shark task next-status, shark task set-status, shark feature next-status, or shark epic next-status.
+- Exception: if the workflow prompt below explicitly makes you an orchestration loop over OTHER entities (e.g. a sprint step iterating "shark sprint next" and dispatching each child), driving those child entities is the requested work — the prohibition above still applies to the dispatched entity itself.
+- Operate in single-worker mode by default. Do NOT spawn or delegate to additional host-native subagents, agent teams, or external AI CLIs unless the workflow prompt explicitly tells you to run a multi-agent skill or recipe.
+- If the bundled agent persona describes broader coordination behavior, treat that as background context only. This contract and the concrete workflow prompt override it for the current dispatched step.
+- Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
+- The parent loop owns the dispatched entity's lease and workflow transitions.`
+
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
 // by `shark next` and `shark run`: take the already-rendered workflow prompt,
 // inline the Shark specialist persona, and return the exact prompt the host
 // execution primitive should receive.
 func assembleDispatchPrompt(prompt, agentType string, vars map[string]string) (string, error) {
-	return dispatch.AssembleDispatchPrompt(prompt, agentType, vars)
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	templates.AugmentPlaceholderAliases(vars)
+	attached, err := attachAgentBody(prompt, agentType, vars)
+	if err != nil {
+		return "", err
+	}
+	return workerOwnershipPreamble + "\n\n---\n\n" + attached, nil
 }
 
 // LoadAgentBodyForInline resolves <root>/agents/<type>.md (with overrides/

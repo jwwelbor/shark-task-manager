@@ -13,7 +13,6 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/dispatch"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -24,9 +23,6 @@ var (
 	runVerbose  bool
 	runWorkDir  string
 	runWorktree bool
-
-	buildRunTransitioner         = buildTransitioner
-	buildRunPlaceholderGenerator = buildPlaceholderGenerator
 )
 
 type runClaimServicer interface {
@@ -146,33 +142,22 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Build entity-type adapters.
-	transitioner, err := buildRunTransitioner(ctx, entityType)
+	transitioner, err := buildTransitioner(ctx, entityType)
 	if err != nil {
 		return fmt.Errorf("failed to build transitioner for %s: %w", entityType, err)
 	}
 
-	placeholderGen := buildRunPlaceholderGenerator(ctx, entityType)
+	placeholderGen := buildPlaceholderGenerator(ctx, entityType)
 
 	// Step 3: Get shared services. Narrow the action service to this entity
 	// type so status lookups in the run loop resolve against the right
 	// per-entity workflow (cross-entity status name collisions like
 	// "completed" become unambiguous).
-	actionSvcRoot, err := getDispatchActionService(ctx)
+	actionSvcRoot, err := cli.GetActionService(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize action service: %w", err)
 	}
 	actionSvc := narrowActionServiceForEntity(actionSvcRoot, entityType)
-	stepResolver, err := dispatch.NewStepResolver(dispatch.StepResolverDeps{
-		Transitioner:  transitioner,
-		Placeholders:  placeholderGen,
-		ActionService: actionSvc,
-		IsArchivedStatus: func(_ models.EntityType, status string) bool {
-			return isArchivedStatus(entityType, status)
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to initialize dispatch-step resolver for %s: %w", entityType, err)
-	}
 
 	workflowSvc := cli.GetWorkflowService()
 
@@ -207,8 +192,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Transitioner: transitioner,
 		Placeholders: placeholderGen,
 		ActionSvc:    actionSvc,
-		StepResolver: stepResolver,
-		EntityType:   models.EntityType(entityType),
 		WorkflowSvc:  workflowSvc,
 		Dispatchers:  dispatchers,
 		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
