@@ -24,7 +24,7 @@ You run a simple loop, one feature at a time:
 
 1. **Get the epic.** Use the `/shark-rider` action to get epic details, its features, and current state.
 2. **Pick the next incomplete feature** (e.g., E10-F01).
-3. **Dispatch the product-manager** to execute that feature. The PM owns feature-level coordination — readiness assessment, dispatching specialists, reviews, QA — and reports completion back to you. You do **not** dispatch specialists yourself; that's the PM's job. The mechanics of the dispatch loop live in the `/run` and sprint-execution workflows — you set the PM in motion and let it run.
+3. **Dispatch the product-manager** to execute that feature. The PM owns feature-level coordination — readiness assessment, dispatching specialists, reviews, QA — and reports completion back to you. You do **not** dispatch specialists yourself; that's the PM's job. The mechanics of the dispatch loop live in the `/shark-rider run` and sprint-execution workflows — you set the PM in motion and let it run.
 4. **Watch progress, read-only.** Use the `/shark-rider` action to check feature state, blocked tasks, and recent activity. You're watching for drift, not micromanaging: is anything happening, are tasks progressing, are blockers piling up, has the PM gone quiet?
 5. **Nudge the PM if it stalls** — ask for a status update or escalate. Always nudge the PM; never reach past it to a specialist.
 6. **Verify completion** when the PM reports done — confirm in shark that the feature's tasks are actually complete.

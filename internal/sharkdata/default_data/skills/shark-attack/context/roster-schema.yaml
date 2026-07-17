@@ -1,0 +1,60 @@
+# Canonical roster template for the embedded shark-attack protocol.
+# It describes collaboration. Shark's workflow and claim services decide
+# routing, leases, and other operational actions.
+team: shark-attack
+chair: tech-director
+memory_root: docs/council
+communication:
+  inbox_root: docs/council/inbox
+  acknowledge_after_read: true
+  retain_decisions: true
+escalation:
+  triggers_file: docs/product/escalation_triggers.md
+  route: council-review
+members:
+  - id: tech-director
+    role: Technical Director
+    responsibilities:
+      - Chair evidence-based technical decisions
+      - Resolve material technical disagreement
+    persona: tech-director
+    model_tier: opus
+  - id: product-manager
+    role: Product Manager
+    responsibilities:
+      - Clarify product intent and tradeoffs
+      - Record durable product decisions
+    persona: product-manager
+    model_tier: opus
+  - id: architect
+    role: Architect
+    responsibilities:
+      - Design bounded architecture changes
+      - Identify integration evidence
+    persona: architect
+    model_tier: high
+  - id: business-analyst
+    role: Business Analyst
+    responsibilities:
+      - Clarify acceptance criteria
+      - Surface missing requirements
+    persona: business-analyst
+  - id: scrum-master
+    role: Scrum Master
+    responsibilities:
+      - Facilitate scoped handoffs
+      - Surface process blockers
+  - id: developer
+    role: Developer
+    responsibilities:
+      - Implement scoped work
+      - Return bounded evidence
+    persona: developer
+    model_tier: high
+  - id: qa
+    role: Quality Analyst
+    responsibilities:
+      - Review acceptance evidence
+      - Report reproducible quality risks
+    persona: qa
+    model_tier: high

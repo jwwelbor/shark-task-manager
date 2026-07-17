@@ -64,7 +64,7 @@ If `backlog` is empty:
 ```
 Sprint {S###} backlog is empty — no eligible entities to add.
 Readiness score: {INITIAL_READINESS}
-To execute: /run-sprint {S###}
+To execute: /shark-rider run-sprint {S###}
 ```
 Exit.
 
@@ -181,10 +181,10 @@ If the delta is 0 (no entities added or readiness unchanged), say so explicitly:
 Print the completion message:
 ```
 Sprint {S###} planning complete.
-To execute this sprint: /run-sprint {S###}
+To execute this sprint: /shark-rider run-sprint {S###}
 ```
 
-**DO NOT call `shark sprint start`.** Starting a sprint is an explicit user action. The user must run `/run-sprint {S###}` (which will offer to start the sprint if needed).
+**DO NOT call `shark sprint start`.** Starting a sprint is an explicit user action. The user must run `/shark-rider run-sprint {S###}` (which will offer to start the sprint if needed).
 
 ---
 

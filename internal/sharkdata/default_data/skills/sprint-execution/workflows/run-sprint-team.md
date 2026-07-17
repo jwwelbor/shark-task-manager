@@ -1,6 +1,6 @@
-# Workflow: /run-sprint-team
+# Workflow: /shark-rider run-sprint-team
 
-Team sprint execution. Reads the sprint's backlog, groups assigned entities by feature key, dispatches each feature group sequentially via `/run-agent-team` (one team at a time — the agent-teams primitive constraint), and falls back to plain `/run` for standalone entities (bugs, change-cards, tech-debt without a feature parent). Prints a burndown between each feature group. Prompts the user before closing the sprint. Never auto-closes.
+Team sprint execution. Reads the sprint's backlog, groups assigned entities by feature key, dispatches each feature group sequentially via `/shark-rider run-agent-team` (one team at a time — the agent-teams primitive constraint), and falls back to plain `/shark-rider run` for standalone entities (bugs, change-cards, tech-debt without a feature parent). Prints a burndown between each feature group. Prompts the user before closing the sprint. Never auto-closes.
 
 ---
 
@@ -12,21 +12,21 @@ Parse `$ARGUMENTS`:
 2. Validate: the key must match the pattern `S` followed by one to three digits (e.g., `S001`, `S42`, `S999`). Case-insensitive (accept `s001` as `S001`).
 3. If the key does not match, stop immediately:
    ```
-   /run-sprint-team only operates on sprints. Got: {KEY}
+   /shark-rider run-sprint-team only operates on sprints. Got: {KEY}
    ```
    Do not call any shark commands.
 4. Parse optional flags:
-   - `--size=N` (default: not set — passed through to each `/run-agent-team` invocation as-is)
-   - `--features=E##-F##[,E##-F##,...]` (default: not set — dispatch all feature groups)
+   - `--size=N` (default: not set — passed through to each `/shark-rider run-agent-team` invocation as-is)
+   - `--features=E##-F##[,E##-F##,...][,standalone]` (default: not set — dispatch all feature groups and standalone entities). Include the literal keyword `standalone` in the list to include standalone entities (bugs, change-cards, tech-debt without a feature parent) when the filter is active; without it, the filter excludes standalones.
    - `--carryover=<value>` (default: not set — omit from `shark sprint close` if absent)
 
 Store as `SPRINT_KEY`, `TEAM_SIZE`, `FEATURE_FILTER` (parsed as a set of feature keys), `CARRYOVER_VALUE`.
 
 ---
 
-## Step 1: Preconditions (inherited from `/run-agent-team`)
+## Step 1: Preconditions
 
-Run all preconditions from the run-agent-team orchestration workflow (Preconditions section), in order, before doing any sprint or entity work:
+Run all of the following preconditions in order before doing any sprint or entity work:
 
 1. **Env var enabled.** Verify `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set in your Claude Code settings (`env` block) or shell environment. If missing, instruct the user to add it and restart Claude Code. **Abort.**
 2. **Version.** `claude --version` must be ≥ `2.1.32`. If older, **abort.**
@@ -56,7 +56,7 @@ Call `shark sprint start {SPRINT_KEY}` to start it now? (yes/no)
 - **yes** → call `shark sprint start {SPRINT_KEY} --json`. Parse response. If the call fails, print the error and exit.
 - **no** → exit cleanly:
   ```
-  Exiting. Start the sprint first, then re-run /run-sprint-team {SPRINT_KEY}.
+  Exiting. Start the sprint first, then re-run /shark-rider run-sprint-team {SPRINT_KEY}.
   ```
 
 **If status is `completed`, `archived`, or `cancelled`**:
@@ -129,26 +129,26 @@ Proceeding with sequential feature dispatch.
 
 ## Step 4: Sequential Per-Feature Dispatch
 
-**CONSTRAINT: Only one `/run-agent-team` invocation may be active at any time. Always wait for a `/run-agent-team` invocation to return fully before starting the next one.**
+**CONSTRAINT: Only one `/shark-rider run-agent-team` invocation may be active at any time. Always wait for a `/shark-rider run-agent-team` invocation to return fully before starting the next one.**
 
 For each `FEATURE_KEY` in the sorted feature groups:
 
 1. Print:
    ```
-   [Sprint {SPRINT_KEY}] Dispatching feature group {FEATURE_KEY} via /run-agent-team...
+   [Sprint {SPRINT_KEY}] Dispatching feature group {FEATURE_KEY} via /shark-rider run-agent-team...
    ```
 
-2. Invoke `/run-agent-team`:
+2. Invoke `/shark-rider run-agent-team`:
    - If `TEAM_SIZE` is set:
      ```
-     /run-agent-team {FEATURE_KEY} --size={TEAM_SIZE}
+     /shark-rider run-agent-team {FEATURE_KEY} --size={TEAM_SIZE}
      ```
    - If `TEAM_SIZE` is not set:
      ```
-     /run-agent-team {FEATURE_KEY}
+     /shark-rider run-agent-team {FEATURE_KEY}
      ```
 
-3. **Wait for `/run-agent-team` to return.** Do not proceed until it has completed (all feature tasks terminal, team cleaned up).
+3. **Wait for `/shark-rider run-agent-team` to return.** Do not proceed until it has completed (all feature tasks terminal, team cleaned up).
 
 4. On return, print a burndown (progress check between groups):
    ```bash
@@ -158,9 +158,9 @@ For each `FEATURE_KEY` in the sorted feature groups:
 
 5. Move to the next feature group.
 
-**On `/run-agent-team` failure:** Print the error and ask the user whether to continue to the next feature group or abort:
+**On `/shark-rider run-agent-team` failure:** Print the error and ask the user whether to continue to the next feature group or abort:
 ```
-/run-agent-team {FEATURE_KEY} encountered an error.
+/shark-rider run-agent-team {FEATURE_KEY} encountered an error.
 Continue to next feature group? (yes/no)
 ```
 - **yes** → continue to next feature group.
@@ -174,19 +174,19 @@ If `STANDALONE` is non-empty:
 
 Print:
 ```
-[Sprint {SPRINT_KEY}] Dispatching {len(STANDALONE)} standalone entities via /run...
+[Sprint {SPRINT_KEY}] Dispatching {len(STANDALONE)} standalone entities via /shark-rider run...
 ```
 
 For each `ENTITY_KEY` in `STANDALONE`, sequentially:
 
 1. Print:
    ```
-   [Sprint {SPRINT_KEY}] Dispatching standalone {ENTITY_KEY} via /run...
+   [Sprint {SPRINT_KEY}] Dispatching standalone {ENTITY_KEY} via /shark-rider run...
    ```
-2. Invoke `/run {ENTITY_KEY}`.
-3. Wait for `/run` to return before dispatching the next standalone.
+2. Invoke `/shark-rider run {ENTITY_KEY}`.
+3. Wait for `/shark-rider run` to return before dispatching the next standalone.
 
-**On `/run {ENTITY_KEY}` failure:** Log the error. Continue to the next standalone entity. Do not abort the entire sprint dispatch on a single standalone failure.
+**On `/shark-rider run {ENTITY_KEY}` failure:** Log the error. Continue to the next standalone entity. Do not abort the entire sprint dispatch on a single standalone failure.
 
 ---
 
@@ -227,7 +227,7 @@ Carryover strategy: {CARRYOVER_VALUE if set, else "default (per sharkconfig)"}
 
 **If user says no (or anything other than explicit "yes")**:
 ```
-Sprint {SPRINT_KEY} left in active state. Run /run-sprint-team {SPRINT_KEY} again to continue, or close manually with:
+Sprint {SPRINT_KEY} left in active state. Run /shark-rider run-sprint-team {SPRINT_KEY} again to continue, or close manually with:
   shark sprint close {SPRINT_KEY}
 ```
 Exit.
@@ -262,8 +262,8 @@ On error: print the full error message. Do not retry silently.
 | `shark sprint start` fails | Print error; exit without dispatching any entities |
 | `shark sprint backlog` returns malformed JSON | Print raw response; report `shark sprint backlog returned unexpected output`; exit |
 | `--features` filter matches no feature groups | Print notice; proceed to Step 6 |
-| `/run-agent-team {FEATURE_KEY}` fails | Print error; ask user to continue or abort |
-| `/run {ENTITY_KEY}` fails (standalone) | Log error; continue to next standalone |
+| `/shark-rider run-agent-team {FEATURE_KEY}` fails | Print error; ask user to continue or abort |
+| `/shark-rider run {ENTITY_KEY}` fails (standalone) | Log error; continue to next standalone |
 | `shark sprint burndown` unavailable | Print notice; continue (burndown is informational only) |
 | `shark sprint close` fails | Print full error; sprint remains open; suggest manual retry |
 
@@ -274,7 +274,7 @@ On error: print the full error message. Do not retry silently.
 This workflow is safe to re-invoke:
 
 - If the sprint is already `completed`/`archived`/`cancelled`, Step 2 exits with a notice — no double-close possible.
-- If re-invoked mid-execution, already-completed feature groups will show their tasks as terminal; `/run-agent-team` will pick up from current shark state for any remaining non-terminal tasks.
+- If re-invoked mid-execution, already-completed feature groups will show their tasks as terminal; `/shark-rider run-agent-team` will pick up from current shark state for any remaining non-terminal tasks.
 - `shark sprint close` is only reachable through the explicit user-confirmation gate in Step 7.
 
 ---
@@ -282,10 +282,10 @@ This workflow is safe to re-invoke:
 ## Constraints
 
 - All shark calls use `--json`.
-- **Only one `/run-agent-team` invocation active at a time** — never concurrent.
-- `/run-agent-team` is only used for feature-key groups (`E##-F##`). It is never invoked with bug, change-card, or tech-debt keys.
-- Standalones are dispatched via `/run {ENTITY_KEY}`, not `/run-agent-team`.
+- **Only one `/shark-rider run-agent-team` invocation active at a time** — never concurrent.
+- `/shark-rider run-agent-team` is only used for feature-key groups (`E##-F##`). It is never invoked with bug, change-card, or tech-debt keys.
+- Standalones are dispatched via `/shark-rider run {ENTITY_KEY}`, not `/shark-rider run-agent-team`.
 - `shark sprint close` is only called after explicit user confirmation in Step 7.
 - `shark sprint start` is only called if status is `planning` AND the user explicitly confirms (Step 2).
 - The `--features` filter restricts dispatch; it never adds entities beyond the sprint's own backlog.
-- Preconditions from `/run-agent-team` must all pass before any dispatch begins (Step 1). A failure aborts the entire workflow, including standalone dispatch.
+- Preconditions from `/shark-rider run-agent-team` must all pass before any dispatch begins (Step 1). A failure aborts the entire workflow, including standalone dispatch.
