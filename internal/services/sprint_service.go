@@ -1345,6 +1345,51 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 	return v
 }
 
+const sprintBacklogEntityTypeChangeCard models.EntityType = "change_card"
+
+type sprintPullWorkflowIndex struct {
+	requestedRole    string
+	workflows        map[models.EntityType]*workflow.Service
+	terminalStatuses map[models.EntityType]map[string]bool
+	eligibleStatuses map[models.EntityType]map[string]bool
+}
+
+func newSprintPullWorkflowIndex(sprintWorkflow *workflow.Service, requestedRole string) sprintPullWorkflowIndex {
+	index := sprintPullWorkflowIndex{
+		requestedRole: requestedRole,
+		workflows: map[models.EntityType]*workflow.Service{
+			models.EntityTypeTask:             sprintWorkflow.ForLevel(workflow.LevelTask),
+			models.EntityTypeBug:              sprintWorkflow.ForLevel(workflow.LevelBug),
+			sprintBacklogEntityTypeChangeCard: sprintWorkflow.ForLevel(workflow.LevelChange),
+			models.EntityTypeTechDebt:         sprintWorkflow.ForLevel(workflow.LevelTechDebt),
+		},
+		terminalStatuses: make(map[models.EntityType]map[string]bool),
+		eligibleStatuses: make(map[models.EntityType]map[string]bool),
+	}
+	for entityType, entityWorkflow := range index.workflows {
+		index.terminalStatuses[entityType] = terminalSet(entityWorkflow)
+		eligibleStatuses := make(map[string]bool)
+		for _, status := range entityWorkflow.GetStatusesByAgentType(requestedRole) {
+			eligibleStatuses[status] = true
+		}
+		index.eligibleStatuses[entityType] = eligibleStatuses
+	}
+	return index
+}
+
+func (i sprintPullWorkflowIndex) allows(entityType, status string) bool {
+	typedEntity := models.EntityType(entityType)
+	entityWorkflow, ok := i.workflows[typedEntity]
+	if !ok {
+		return false
+	}
+	canonicalStatus := entityWorkflow.NormalizeStatus(status)
+	if i.terminalStatuses[typedEntity][canonicalStatus] {
+		return false
+	}
+	return i.requestedRole == "" || i.eligibleStatuses[typedEntity][canonicalStatus]
+}
+
 // GetNextTask returns the single next eligible item to work on from the active sprint.
 // Selection logic (four-tier stable sort, TD-8):
 //  1. sprint_order ASC NULLS LAST (ordered items before unordered)
@@ -1395,28 +1440,7 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	// 3. Collect candidates whose status is non-terminal for their entity type.
 	// Sprint execution order is an explicit pull queue across assigned items, so selection
 	// must not be limited to workflow-initial statuses.
-	workflowByEntityType := map[string]*workflow.Service{
-		"task":        s.workflowSvc.ForLevel(workflow.LevelTask),
-		"bug":         s.workflowSvc.ForLevel(workflow.LevelBug),
-		"change_card": s.workflowSvc.ForLevel(workflow.LevelChange),
-		"tech_debt":   s.workflowSvc.ForLevel(workflow.LevelTechDebt),
-	}
-	terminalStatusesByEntityType := map[string]map[string]bool{
-		"task":        terminalSet(workflowByEntityType["task"]),
-		"bug":         terminalSet(workflowByEntityType["bug"]),
-		"change_card": terminalSet(workflowByEntityType["change_card"]),
-		"tech_debt":   terminalSet(workflowByEntityType["tech_debt"]),
-	}
-	eligibleStatusesByEntityType := make(map[string]map[string]bool, len(workflowByEntityType))
-	if agentType != "" {
-		for entityType, entityWorkflow := range workflowByEntityType {
-			eligibleStatuses := make(map[string]bool)
-			for _, status := range entityWorkflow.GetStatusesByAgentType(agentType) {
-				eligibleStatuses[status] = true
-			}
-			eligibleStatusesByEntityType[entityType] = eligibleStatuses
-		}
-	}
+	workflowIndex := newSprintPullWorkflowIndex(s.workflowSvc, agentType)
 
 	var candidates []*BacklogItemView
 	for _, sp := range executionSprints {
@@ -1427,14 +1451,10 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 
 		for _, group := range backlog.Groups {
 			for _, item := range group.Items {
-				entityWorkflow, ok := workflowByEntityType[item.EntityType]
-				if !ok || terminalStatusesByEntityType[item.EntityType][item.Status] {
-					continue
-				}
 				// Apply the requested workflow role before sorting. BacklogItem.AgentType
 				// is persisted planning/display data; the workflow step for the item's
 				// current status is the authorization source for a role-aware pull.
-				if agentType != "" && !eligibleStatusesByEntityType[item.EntityType][entityWorkflow.NormalizeStatus(item.Status)] {
+				if !workflowIndex.allows(item.EntityType, item.Status) {
 					continue
 				}
 				item.SprintKey = sp.Key
