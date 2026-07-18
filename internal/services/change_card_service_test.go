@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -224,6 +225,17 @@ func (m *mockChangeCardEntityRepo) GetByID(ctx context.Context, id int64) (model
 
 func (m *mockChangeCardEntityRepo) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return m.ccRepo.UpdateStatus(ctx, id, models.ChangeCardStatus(status))
+}
+
+func (m *mockChangeCardEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	card, err := m.ccRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if card == nil || !strings.EqualFold(string(card.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+	return true, m.ccRepo.UpdateStatus(ctx, id, models.ChangeCardStatus(newStatus))
 }
 
 func (m *mockChangeCardEntityRepo) Update(ctx context.Context, entity models.Entity) error {

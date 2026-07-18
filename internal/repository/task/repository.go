@@ -25,6 +25,7 @@ package task
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -41,6 +42,10 @@ import (
 )
 
 var tracer = repoutil.NewTracer("internal/repository/task")
+
+// ErrGuardedUpdateStale re-exports models.ErrGuardedUpdateStale for callers
+// within this package; see models.ErrGuardedUpdateStale for the contract.
+var ErrGuardedUpdateStale = models.ErrGuardedUpdateStale
 
 // NoteCreator is a minimal interface for creating rejection notes within a transaction.
 // It is defined here (in the task package scope) to avoid an import cycle between
@@ -1231,6 +1236,55 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, nil, false)
 }
 
+// UpdateStatusIfCurrent atomically updates task status only when the current
+// stored status still matches expectedStatus (case-insensitive), preserving the
+// task_history side effects of the normal status-update path.
+func (r *TaskRepository) UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error) {
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// This SELECT fetches ancillary fields only (key, timestamps) — it is NOT
+	// the compare-and-swap guard. The guard is enforced atomically by the
+	// `Guarded: true` UPDATE below, so a status change racing between this
+	// read and that write is caught there (ErrGuardedUpdateStale), not here.
+	var currentStatus string
+	var taskKey string
+	var startedAt, completedAt, blockedAt sql.NullTime
+	err = tx.QueryRowContext(ctx, "SELECT key, status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
+		Scan(&taskKey, &currentStatus, &startedAt, &completedAt, &blockedAt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to get current task status: %w", err)
+	}
+
+	_, err = r.StatusUpdateRawWithTx(ctx, tx, models.StatusUpdateParams{
+		TaskID:      taskID,
+		NewStatus:   newStatus,
+		OldStatus:   string(expectedStatus),
+		TaskKey:     taskKey,
+		StartedAt:   startedAt,
+		CompletedAt: completedAt,
+		BlockedAt:   blockedAt,
+		Guarded:     true,
+	})
+	if errors.Is(err, ErrGuardedUpdateStale) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to conditionally update task status: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return true, nil
+}
+
 // UpdateStatusForced atomically updates task status with optional validation bypass
 func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) (retErr error) {
 	ctx, span := tracer.Start(ctx, "TaskRepository.UpdateStatusForced",
@@ -1432,10 +1486,23 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 
 	query += " WHERE id = ?"
 	args = append(args, params.TaskID)
+	if params.Guarded {
+		query += " AND lower(status) = lower(?)"
+		args = append(args, params.OldStatus)
+	}
 
-	_, err := tx.ExecContext(ctx, query, args...)
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update task status: %w", err)
+	}
+	if params.Guarded {
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			return nil, ErrGuardedUpdateStale
+		}
 	}
 
 	// Create history record
@@ -1443,7 +1510,7 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	result, err := tx.ExecContext(ctx, historyQuery, params.TaskID, params.OldStatus, params.NewStatus, params.Agent, params.Notes, params.RejectionReason, params.Force)
+	result, err = tx.ExecContext(ctx, historyQuery, params.TaskID, params.OldStatus, params.NewStatus, params.Agent, params.Notes, params.RejectionReason, params.Force)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create history record: %w", err)
 	}

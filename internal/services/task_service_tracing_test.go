@@ -105,6 +105,9 @@ func (m *mockTaskRepo) GetTaskDependents(ctx context.Context, taskKey string) ([
 func (m *mockTaskRepo) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
 	return nil
 }
+func (m *mockTaskRepo) UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error) {
+	return true, nil
+}
 func (m *mockTaskRepo) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
 	return nil
 }

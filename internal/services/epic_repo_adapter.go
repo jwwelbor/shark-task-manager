@@ -14,6 +14,7 @@ type EpicAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Epic, error)
 	Update(ctx context.Context, epic *models.Epic) error
 	UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, epicID int64, expectedStatus models.EpicStatus, newStatus models.EpicStatus) (bool, error)
 	GetContextData(ctx context.Context, epicID int64) (*string, error)
 	UpdateContextData(ctx context.Context, epicID int64, contextData *string) error
 }
@@ -41,6 +42,10 @@ func (a *EpicRepositoryAdapter) GetByID(ctx context.Context, id int64) (models.E
 
 func (a *EpicRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.EpicStatus(status))
+}
+
+func (a *EpicRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.EpicStatus(expectedCurrentStatus), models.EpicStatus(newStatus))
 }
 
 func (a *EpicRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

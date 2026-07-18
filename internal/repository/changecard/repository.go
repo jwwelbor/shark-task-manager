@@ -262,6 +262,16 @@ func (r *ChangeCardRepository) UpdateStatus(ctx context.Context, id int64, statu
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates change-card status only when the
+// current stored status still matches expectedStatus (case-insensitive).
+func (r *ChangeCardRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.ChangeCardStatus, newStatus models.ChangeCardStatus) (bool, error) {
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "change_cards", id, string(expectedStatus), string(newStatus), false)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update change-card status: %w", err)
+	}
+	return updated, nil
+}
+
 // UpdateContextData updates only the context_data field of a change-card.
 func (r *ChangeCardRepository) UpdateContextData(ctx context.Context, id int64, contextData *string) error {
 	query := `UPDATE change_cards SET context_data = ? WHERE id = ?`

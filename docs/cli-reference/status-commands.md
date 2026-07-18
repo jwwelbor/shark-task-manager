@@ -108,9 +108,9 @@ shark status set E07 active --json
 
 ## shark status advance
 
-Advance an epic, feature, or task through its configured workflow by selecting from available transitions.
+Advance an epic, feature, or task through its configured workflow.
 
-When an entity has multiple valid next statuses, this command auto-selects the first one. For automation and scripting, use `--status` to specify the target directly. Use `--preview` to see available transitions without making changes.
+When an entity has multiple valid next statuses, this command auto-selects the first one. Route-based workflows may also release semantic outcomes with `--outcome`. When `advance_guard.enabled` is `true` in `.sharkconfig.json`, parent-loop usage must include `--session` and `--from-status`.
 
 ### Usage
 
@@ -122,11 +122,12 @@ shark status advance <key> [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--status <name>` | Target status for direct transition (non-interactive) |
-| `--preview` | Show available transitions without making changes |
-| `--force` | Bypass workflow validation (administrative override) |
 | `--agent <name>` | Agent or user performing the transition |
+| `--force-repeat` | Override a replay rejection when `advance_guard.allow_repeat_with_force` is enabled; requires `--reason` |
+| `--from-status <status>` | Expected current status for guarded advances |
+| `--outcome <name>` | Release a route-based outcome such as `pass`, `fail`, or `blocked` |
 | `--reason <text>` | Reason for backward or forced transitions |
+| `--session <sid>` | Lease/session id for guarded advances |
 | `-h, --help` | Help for advance |
 
 ### Examples
@@ -135,11 +136,14 @@ shark status advance <key> [flags]
 # Auto-advance a task to its next workflow status
 shark status advance E07-F01-001
 
-# Preview available transitions without changing anything
-shark status advance E07-F01-001 --preview
+# Release a route-based outcome
+shark status advance E07-F01-001 --outcome pass
 
-# Advance directly to a specific status
-shark status advance E07-F01-001 --status=in_development
+# Guarded parent-loop advance (required when advance_guard.enabled=true)
+shark status advance E07-F01-001 --outcome fail --session "$SID" --from-status code_review
+
+# Audited replay override when allow_repeat_with_force=true
+shark status advance E07-F01-001 --outcome fail --session "$SID" --from-status code_review --force-repeat --reason="manual override"
 ```
 
 ## shark status options

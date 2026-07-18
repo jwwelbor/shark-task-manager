@@ -198,6 +198,16 @@ func (r *SprintRepository) UpdateStatus(ctx context.Context, id int64, status mo
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates the sprint's status only when the
+// current stored status still matches expectedStatus (case-insensitive).
+func (r *SprintRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.SprintStatus, newStatus models.SprintStatus) (bool, error) {
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "sprints", id, string(expectedStatus), string(newStatus), false)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update sprint status: %w", err)
+	}
+	return updated, nil
+}
+
 // UpdateStatusTx updates the sprint status within a caller-supplied transaction.
 // Used by CloseSprintWithCarryover to atomically advance sprint status.
 func (r *SprintRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {

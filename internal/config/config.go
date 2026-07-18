@@ -42,6 +42,16 @@ type SprintDefaultsConfig struct {
 	AutoCreate bool `json:"auto_create,omitempty"`
 }
 
+// AdvanceGuardConfig controls replay protection for status advances driven by
+// parent-run orchestration loops.
+type AdvanceGuardConfig struct {
+	Enabled              bool   `json:"enabled,omitempty"`
+	Mode                 string `json:"mode,omitempty"`
+	AllowRepeatWithForce bool   `json:"allow_repeat_with_force,omitempty"`
+}
+
+const AdvanceGuardModeSessionFromStatus = "session_from_status"
+
 // Config represents the .sharkconfig.json structure
 type Config struct {
 	// LastSyncTime is the timestamp of the last successful sync
@@ -76,6 +86,10 @@ type Config struct {
 	// Maintainer holds the optional maintainer authorization gate configuration.
 	// A nil or absent Maintainer is equivalent to "no password configured."
 	Maintainer *MaintainerConfig `json:"maintainer,omitempty"`
+
+	// AdvanceGuard controls optional replay protection for status advances.
+	// A nil or absent AdvanceGuard means "disabled" for backward compatibility.
+	AdvanceGuard *AdvanceGuardConfig `json:"advance_guard,omitempty"`
 
 	// Recent holds optional configuration for the `shark recent` command.
 	// A nil or absent Recent means "use built-in defaults" (limit = 5).
@@ -140,6 +154,24 @@ func (c *Config) IsRequireRejectionReasonEnabled() bool {
 		return false // Default: rejection reason optional
 	}
 	return c.RequireRejectionReason
+}
+
+// GetAdvanceGuard returns the configured advance-guard settings, or a zero-value
+// disabled config when the section is absent.
+func (c *Config) GetAdvanceGuard() AdvanceGuardConfig {
+	if c == nil || c.AdvanceGuard == nil {
+		return AdvanceGuardConfig{}
+	}
+	cfg := *c.AdvanceGuard
+	if cfg.Mode == "" {
+		cfg.Mode = AdvanceGuardModeSessionFromStatus
+	}
+	return cfg
+}
+
+// IsAdvanceGuardEnabled returns true when guarded advances are enabled.
+func (c *Config) IsAdvanceGuardEnabled() bool {
+	return c.GetAdvanceGuard().Enabled
 }
 
 // GetViewer returns the configured viewer command or default "cat"

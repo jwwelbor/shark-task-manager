@@ -21,6 +21,7 @@ type IdeaAdapterRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Idea, error)
 	GetByID(ctx context.Context, id int64) (*models.Idea, error)
 	Update(ctx context.Context, idea *models.Idea) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.IdeaStatus, newStatus models.IdeaStatus) (bool, error)
 }
 
 // IdeaRepositoryAdapter wraps a typed idea repository to satisfy
@@ -67,6 +68,10 @@ func (a *IdeaRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, stat
 	}
 	idea.Status = models.IdeaStatus(status)
 	return a.repo.Update(ctx, idea)
+}
+
+func (a *IdeaRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.IdeaStatus(expectedCurrentStatus), models.IdeaStatus(newStatus))
 }
 
 // Update persists all fields of the idea. The entity parameter must be

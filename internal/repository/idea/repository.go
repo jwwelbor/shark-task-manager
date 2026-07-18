@@ -311,6 +311,16 @@ func (r *IdeaRepository) Update(ctx context.Context, idea *models.Idea) error {
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates the idea's status only when the
+// current stored status still matches expectedStatus (case-insensitive).
+func (r *IdeaRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.IdeaStatus, newStatus models.IdeaStatus) (bool, error) {
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "ideas", id, string(expectedStatus), string(newStatus), false)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update idea status: %w", err)
+	}
+	return updated, nil
+}
+
 // Delete deletes an idea by its ID
 func (r *IdeaRepository) Delete(ctx context.Context, id int64) error {
 	query := `DELETE FROM ideas WHERE id = ?`

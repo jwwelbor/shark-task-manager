@@ -13,6 +13,7 @@ type TechDebtAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.TechDebt, error)
 	Update(ctx context.Context, td *models.TechDebt) error
 	UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.TechDebtStatus, newStatus models.TechDebtStatus) (bool, error)
 	GetContextData(ctx context.Context, id int64) (*string, error)
 	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
@@ -40,6 +41,10 @@ func (a *TechDebtRepositoryAdapter) GetByID(ctx context.Context, id int64) (mode
 
 func (a *TechDebtRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.TechDebtStatus(status))
+}
+
+func (a *TechDebtRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.TechDebtStatus(expectedCurrentStatus), models.TechDebtStatus(newStatus))
 }
 
 func (a *TechDebtRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

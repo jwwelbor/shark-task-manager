@@ -13,6 +13,7 @@ type ChangeCardAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.ChangeCard, error)
 	Update(ctx context.Context, card *models.ChangeCard) error
 	UpdateStatus(ctx context.Context, id int64, status models.ChangeCardStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.ChangeCardStatus, newStatus models.ChangeCardStatus) (bool, error)
 	GetContextData(ctx context.Context, id int64) (*string, error)
 	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
@@ -40,6 +41,10 @@ func (a *ChangeCardRepositoryAdapter) GetByID(ctx context.Context, id int64) (mo
 
 func (a *ChangeCardRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.ChangeCardStatus(status))
+}
+
+func (a *ChangeCardRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.ChangeCardStatus(expectedCurrentStatus), models.ChangeCardStatus(newStatus))
 }
 
 func (a *ChangeCardRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

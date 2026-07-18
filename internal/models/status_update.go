@@ -1,6 +1,23 @@
 package models
 
-import "database/sql"
+import (
+	"database/sql"
+	"errors"
+)
+
+// ErrGuardedUpdateStale is returned by TaskRepository.StatusUpdateRaw/
+// StatusUpdateRawWithTx when params.Guarded is true and the row's current
+// status no longer matches params.OldStatus at the time of the UPDATE — i.e.
+// the compare-and-swap lost the race or the caller's view of the current
+// status was stale. Defined here (not in internal/repository/task) so the
+// service layer can check for it via errors.Is without importing the
+// concrete repository package.
+var ErrGuardedUpdateStale = errors.New("task status update: current status no longer matches expected (guarded update stale)")
+
+// ErrAdvanceGuardAlreadyConsumed reports that a replay-protection tuple was
+// recorded already. It lives in models so services can use errors.Is without
+// importing a concrete repository package.
+var ErrAdvanceGuardAlreadyConsumed = errors.New("guarded advance already consumed")
 
 // StatusUpdateParams contains all parameters for a raw (no-validation) status update.
 // This struct is defined in the models package to avoid circular imports between
@@ -43,4 +60,11 @@ type StatusUpdateParams struct {
 	StartedAt   sql.NullTime
 	CompletedAt sql.NullTime
 	BlockedAt   sql.NullTime
+
+	// Guarded, when true, makes the UPDATE conditional on the row's current
+	// status still matching OldStatus (case-insensitive), evaluated atomically
+	// as part of the single UPDATE statement rather than a separate read. Used
+	// for advance_guard compare-and-swap semantics; see
+	// TaskRepository.StatusUpdateRawWithTx and ErrGuardedUpdateStale.
+	Guarded bool
 }

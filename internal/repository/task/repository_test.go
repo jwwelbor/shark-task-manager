@@ -1187,3 +1187,72 @@ func BenchmarkTaskRepository_GetRecent(b *testing.B) {
 		_, _ = repo.GetRecent(ctx, 100)
 	}
 }
+
+// TestTaskRepository_StatusUpdateRawWithTx_Guarded_RejectsStaleStatus proves
+// the Guarded compare-and-swap actually rejects a write whose OldStatus no
+// longer matches the row's current status, catching a caller that raced past
+// a status change it didn't observe (e.g. advance_guard's replay/staleness
+// protection).
+func TestTaskRepository_StatusUpdateRawWithTx_Guarded_RejectsStaleStatus(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewTaskRepository(db)
+
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E96-F01-001'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E96-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
+
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96", Title: "Guarded Update Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F01", Title: "Guarded Update Feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusActive}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E96-F01-001", Title: "Guarded Update Task"}, FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5}
+	require.NoError(t, repo.Create(ctx, task))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
+
+	// First guarded update: todo -> in_progress, OldStatus correctly "todo".
+	// This must succeed and actually change the row.
+	tx1, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	_, err = repo.StatusUpdateRawWithTx(ctx, tx1, models.StatusUpdateParams{
+		TaskID: task.ID, NewStatus: models.TaskStatus("in_progress"),
+		OldStatus: "todo", TaskKey: task.Key, Guarded: true,
+	})
+	require.NoError(t, err, "first guarded update from the true current status must succeed")
+	require.NoError(t, tx1.Commit())
+
+	updated, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatus("in_progress"), updated.Status, "status must actually have changed after the guarded update")
+
+	// Second guarded update: simulates a caller that raced past the first
+	// update — it still believes the status is "todo" (stale) and tries the
+	// same guarded transition again. This is exactly the replay/race
+	// scenario advance_guard exists to prevent, and must be rejected without
+	// mutating the row a second time.
+	tx2, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	_, err = repo.StatusUpdateRawWithTx(ctx, tx2, models.StatusUpdateParams{
+		TaskID: task.ID, NewStatus: models.TaskStatus("in_progress"),
+		OldStatus: "todo", TaskKey: task.Key, Guarded: true,
+	})
+	assert.ErrorIs(t, err, ErrGuardedUpdateStale, "a guarded update against a stale OldStatus must be rejected")
+	_ = tx2.Rollback()
+
+	// UpdateStatusIfCurrent (the repository-level convenience wrapper) must
+	// exhibit the same behavior: false, nil on a stale expected status.
+	ok, err := repo.UpdateStatusIfCurrent(ctx, task.ID, "todo", "blocked")
+	require.NoError(t, err)
+	assert.False(t, ok, "UpdateStatusIfCurrent must report false for a stale expected status, not silently succeed")
+
+	final, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatus("in_progress"), final.Status, "the rejected guarded updates must not have mutated the row")
+}

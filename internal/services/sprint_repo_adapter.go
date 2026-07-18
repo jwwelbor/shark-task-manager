@@ -22,6 +22,7 @@ type SprintAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Sprint, error)
 	Update(ctx context.Context, sprint *models.Sprint) error
 	UpdateStatus(ctx context.Context, id int64, status models.SprintStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.SprintStatus, newStatus models.SprintStatus) (bool, error)
 }
 
 // SprintRepositoryAdapter wraps a typed sprint repository to satisfy
@@ -60,6 +61,10 @@ func (a *SprintRepositoryAdapter) GetByID(ctx context.Context, id int64) (models
 // SprintStatus before being passed to the underlying repository.
 func (a *SprintRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.SprintStatus(status))
+}
+
+func (a *SprintRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.SprintStatus(expectedCurrentStatus), models.SprintStatus(newStatus))
 }
 
 // Update persists all fields of the sprint. The entity parameter must be

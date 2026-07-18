@@ -230,6 +230,17 @@ func (m *mockBugEntityRepo) UpdateStatus(ctx context.Context, id int64, status s
 	return m.bugRepo.UpdateStatus(ctx, id, models.BugStatus(status))
 }
 
+func (m *mockBugEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	bug, err := m.bugRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if bug == nil || !strings.EqualFold(string(bug.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+	return true, m.bugRepo.UpdateStatus(ctx, id, models.BugStatus(newStatus))
+}
+
 func (m *mockBugEntityRepo) Update(ctx context.Context, entity models.Entity) error {
 	bug, ok := entity.(*models.Bug)
 	if !ok {

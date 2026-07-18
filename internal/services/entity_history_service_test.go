@@ -65,6 +65,10 @@ func (m *mockEntityRepoForHistory) UpdateStatus(ctx context.Context, id int64, s
 	return fmt.Errorf("UpdateStatus not implemented")
 }
 
+func (m *mockEntityRepoForHistory) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return false, fmt.Errorf("UpdateStatusIfCurrent not implemented")
+}
+
 func (m *mockEntityRepoForHistory) Update(ctx context.Context, entity models.Entity) error {
 	return fmt.Errorf("Update not implemented")
 }

@@ -89,6 +89,7 @@ type TaskRepository interface {
 	// performed by the service layer BEFORE calling this method.
 	// Returns the list of auto-unblocked task keys.
 	StatusUpdateRaw(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
+	UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error)
 
 	// StatusUpdateRawWithTx performs the same operation as StatusUpdateRaw but within a
 	// caller-provided transaction. Services use this to own the transaction boundary when
@@ -1477,6 +1478,59 @@ func (a *taskEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, stat
 	}
 	a.unblockedKeys = unblockedKeys
 	return nil
+}
+
+func (a *taskEntityRepoAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	task := a.lastTask
+	if task == nil || task.ID != id {
+		var err error
+		task, err = a.repo.GetByID(ctx, id)
+		if err != nil {
+			return false, fmt.Errorf("failed to get task for guarded status update: %w", err)
+		}
+	}
+	if task == nil {
+		return false, nil
+	}
+	// The status comparison above (and a.lastTask generally) is a cheap
+	// fast-path only — it can be stale under concurrent writers. Correctness
+	// comes from Guarded:true below, which makes the WHERE clause of the
+	// UPDATE itself the compare-and-swap, evaluated atomically by SQLite as
+	// part of one statement. Do not rely on this pre-check to reject a stale
+	// caller; it exists only to skip building params when obviously stale.
+	if !strings.EqualFold(string(task.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+
+	if a.opts == nil {
+		return a.repo.UpdateStatusIfCurrent(ctx, id, models.TaskStatus(expectedCurrentStatus), models.TaskStatus(newStatus))
+	}
+
+	params := models.StatusUpdateParams{
+		TaskID:          id,
+		NewStatus:       models.TaskStatus(newStatus),
+		Agent:           a.opts.agent,
+		Notes:           a.opts.notes,
+		RejectionReason: a.opts.reason,
+		DocumentPath:    a.opts.documentPath,
+		Force:           a.opts.force,
+		OldStatus:       expectedCurrentStatus,
+		TaskKey:         task.Key,
+		StartedAt:       task.StartedAt,
+		CompletedAt:     task.CompletedAt,
+		BlockedAt:       task.BlockedAt,
+		Guarded:         true,
+	}
+
+	unblockedKeys, err := a.repo.StatusUpdateRaw(ctx, params)
+	if errors.Is(err, models.ErrGuardedUpdateStale) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	a.unblockedKeys = unblockedKeys
+	return true, nil
 }
 
 func (a *taskEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {

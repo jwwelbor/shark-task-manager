@@ -34,6 +34,10 @@ func (m *mockContextEntityRepo) UpdateStatus(_ context.Context, _ int64, _ strin
 	return nil
 }
 
+func (m *mockContextEntityRepo) UpdateStatusIfCurrent(_ context.Context, _ int64, _ string, _ string) (bool, error) {
+	return true, nil
+}
+
 func (m *mockContextEntityRepo) Update(_ context.Context, _ models.Entity) error {
 	return nil
 }

@@ -21,6 +21,11 @@ type EntityRepository interface {
 	// UpdateStatus updates the status field of an entity.
 	UpdateStatus(ctx context.Context, id int64, status string) error
 
+	// UpdateStatusIfCurrent atomically updates the status only when the current
+	// stored status still matches expectedCurrentStatus (case-insensitive).
+	// Returns true when a row was updated, false when the status was stale.
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error)
+
 	// Update persists all fields of the entity.
 	// The entity parameter must be the correct concrete type for this adapter.
 	Update(ctx context.Context, entity models.Entity) error
@@ -44,7 +49,10 @@ func (n *noopEntityRepo) GetByID(_ context.Context, _ int64) (models.Entity, err
 	return nil, nil
 }
 func (n *noopEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string) error { return nil }
-func (n *noopEntityRepo) Update(_ context.Context, _ models.Entity) error         { return nil }
+func (n *noopEntityRepo) UpdateStatusIfCurrent(_ context.Context, _ int64, _ string, _ string) (bool, error) {
+	return true, nil
+}
+func (n *noopEntityRepo) Update(_ context.Context, _ models.Entity) error { return nil }
 func (n *noopEntityRepo) GetContextData(_ context.Context, _ int64) (*string, error) {
 	return nil, nil
 }

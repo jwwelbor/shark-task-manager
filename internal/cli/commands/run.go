@@ -207,11 +207,17 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to locate project root: %w", err)
 	}
 
+	var runSessionID string
+	if runLease != nil {
+		runSessionID = runLease.sessionID
+	}
+
 	opts := runner.RunOptions{
 		DryRun:        runDryRun,
 		Verbose:       runVerbose,
 		WorkingDir:    workingDir,
 		RunID:         runID,
+		SessionID:     runSessionID,
 		ProjectRoot:   projectRoot,
 		Observability: obs,
 	}
