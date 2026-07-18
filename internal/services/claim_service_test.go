@@ -9,6 +9,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockClaimRepo is a function-field mock of ClaimRepository.
@@ -119,6 +121,62 @@ func TestClaimService_Claim_BlockedWhenLive(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error claiming a live-claimed entity")
 	}
+}
+
+// TestClaimService_E38F06_SelectedEntityRacePreservesConflict exercises the
+// real claim boundary used after role-filtered selection. A second non-force
+// claim for the same selected entity must report the live conflict and must
+// not release or replace the winner's lease.
+func TestClaimService_E38F06_SelectedEntityRacePreservesConflict(t *testing.T) {
+	var claimCalls, reclaimCalls, getCalls, releaseCalls int
+	claimed := &models.EntityClaim{}
+	m := &mockClaimRepo{
+		ReclaimFn: func(_ context.Context, _ time.Duration) (int64, error) {
+			reclaimCalls++
+			return 0, nil
+		},
+		ClaimFn: func(_ context.Context, candidate *models.EntityClaim) (*models.EntityClaim, error) {
+			claimCalls++
+			if claimCalls == 1 {
+				candidate.ID = 1
+				candidate.ClaimedAt = time.Now().UTC()
+				*claimed = *candidate
+				return candidate, nil
+			}
+			return nil, claimrepo.ErrAlreadyClaimed
+		},
+		GetFn: func(_ context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+			getCalls++
+			assert.Equal(t, claimed.EntityType, entityType)
+			assert.Equal(t, claimed.EntityKey, entityKey)
+			return claimed, nil
+		},
+		ReleaseFn: func(_ context.Context, _, _ string) (bool, error) {
+			releaseCalls++
+			return true, nil
+		},
+	}
+	svc := NewClaimService(m, durationPtr(time.Minute))
+	firstInput := ClaimInput{EntityType: "task", EntityKey: "E38-F06-001", ClaimedBy: "developer-1", SessionID: "session-1", Force: false}
+	secondInput := ClaimInput{EntityType: "task", EntityKey: "E38-F06-001", ClaimedBy: "developer-2", SessionID: "session-2", Force: false}
+
+	first, err := svc.Claim(context.Background(), firstInput)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	second, err := svc.Claim(context.Background(), secondInput)
+
+	assert.Nil(t, second)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, claimrepo.ErrAlreadyClaimed)
+	assert.Contains(t, err.Error(), "task E38-F06-001 is already claimed by developer-1")
+	assert.Contains(t, err.Error(), "session session-1")
+	assert.Contains(t, err.Error(), "use --force to steal")
+	assert.Equal(t, 2, claimCalls)
+	assert.Equal(t, 2, reclaimCalls)
+	assert.Equal(t, 1, getCalls)
+	assert.Zero(t, releaseCalls, "a non-force conflict must not steal the lease")
+	assert.Equal(t, "developer-1", claimed.ClaimedBy)
+	assert.Equal(t, "session-1", claimed.SessionID)
 }
 
 func TestClaimService_Claim_ForceSteals(t *testing.T) {

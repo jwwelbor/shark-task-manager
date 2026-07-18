@@ -12,9 +12,11 @@ claim, session, transition, and release in that loop.
 The workflow-resolved `agent_type` is the only role input to a pull. The
 owning sprint procedure passes that value to
 `SprintService.GetNextTask(ctx, agentType)` through its
-`shark sprint next --agent=<type>` adapter. That service preserves the existing
-priority/dependency order and excludes ineligible, blocked, or already-claimed
-work.
+`shark sprint next --agent=<type>` adapter. That read-only selector filters
+non-terminal items by workflow-role eligibility before sorting and preserves the
+existing priority/dependency order. It does not inspect lease state or perform
+blocked/gate filtering: a returned item can still encounter a workflow gate or
+a non-force claim conflict at the owning workflow or `ClaimService.Claim` path.
 
 Do not substitute a roster role, legacy `agent` assignment, or `model_tier` for
 the workflow-resolved `agent_type`. Roster membership describes available

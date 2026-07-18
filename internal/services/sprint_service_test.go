@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	cfgworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
@@ -181,6 +182,31 @@ func (m *MockSprintRepository) ListBacklog(ctx context.Context, sprintID int64, 
 		return m.ListBacklogFunc(ctx, sprintID, entityType, blockedOnly, blockedStatuses...)
 	}
 	return []*sprint.BacklogItem{}, nil
+}
+
+func backlogItemsForAssignmentStatuses(allAssignments, incompleteAssignments []*models.SprintAssignment) []*sprint.BacklogItem {
+	incompleteIDs := make(map[int64]bool, len(incompleteAssignments))
+	for _, assignment := range incompleteAssignments {
+		incompleteIDs[assignment.ID] = true
+	}
+	items := make([]*sprint.BacklogItem, 0, len(allAssignments))
+	for _, assignment := range allAssignments {
+		status := "completed"
+		if incompleteIDs[assignment.ID] {
+			status = "in_progress"
+		}
+		entityType := assignment.EntityType
+		if entityType == "" {
+			entityType = "task"
+		}
+		items = append(items, &sprint.BacklogItem{
+			AssignmentID: assignment.ID,
+			EntityType:   entityType,
+			EntityID:     assignment.EntityID,
+			Status:       status,
+		})
+	}
+	return items
 }
 
 func (m *MockSprintRepository) GetTaskIDByKey(ctx context.Context, key string) (int64, error) {
@@ -1368,6 +1394,16 @@ func TestSprintService_GetSprintBacklog_CompletionPercentBVA(t *testing.T) {
 			expectedCompleted: 4,
 		},
 		{
+			name: "terminal compatibility alias counts as completed",
+			items: []*sprint.BacklogItem{
+				makeItem("change_card", "declined"),
+			},
+			completedStatus:   "completed",
+			expectedPercent:   100.0,
+			expectedTotal:     1,
+			expectedCompleted: 1,
+		},
+		{
 			name: "TC-B05d: 0 of 10 completed = 0.0%",
 			items: func() []*sprint.BacklogItem {
 				items := make([]*sprint.BacklogItem, 10)
@@ -2533,7 +2569,7 @@ func TestSprintService_RemoveEntityFromSprint_NotAssigned(t *testing.T) {
 // MockSprintAssignmentQueryRepository is a test double for SprintAssignmentQueryRepository.
 type MockSprintAssignmentQueryRepository struct {
 	BulkAssignFunc             func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error)
-	ListUnassignedBacklogFunc  func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error)
+	ListUnassignedBacklogFunc  func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error)
 	GetAssignmentsWithSizeFunc func(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error)
 }
 
@@ -2544,9 +2580,9 @@ func (m *MockSprintAssignmentQueryRepository) BulkAssign(ctx context.Context, sp
 	return len(assignments), nil
 }
 
-func (m *MockSprintAssignmentQueryRepository) ListUnassignedBacklog(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+func (m *MockSprintAssignmentQueryRepository) ListUnassignedBacklog(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 	if m.ListUnassignedBacklogFunc != nil {
-		return m.ListUnassignedBacklogFunc(ctx, entityTypes)
+		return m.ListUnassignedBacklogFunc(ctx, entityTypes, assignedSprintStatuses...)
 	}
 	return []sprint.BacklogItem{}, nil
 }
@@ -2591,7 +2627,7 @@ func TestBulkAddToSprint_FeatureKey_AddsEligible(t *testing.T) {
 	var capturedEntityTypes []string
 
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
 			return backlogItems, nil
 		},
@@ -2662,7 +2698,7 @@ func TestBulkAddToSprint_CapacityWarning(t *testing.T) {
 	}
 
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 			return backlogItems, nil
 		},
 		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
@@ -2764,7 +2800,7 @@ func TestBulkAddToSprint_BulkAssignError(t *testing.T) {
 	bulkAssignErr := fmt.Errorf("database write failed: connection timeout")
 
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 			return backlogItems, nil
 		},
 		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
@@ -2817,7 +2853,7 @@ func TestBulkAddToSprint_BugsBulk(t *testing.T) {
 	var capturedEntityTypes []string
 
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
 			// Simulate real filtering: return only items whose type is in entityTypes.
 			var filtered []sprint.BacklogItem
@@ -2888,7 +2924,7 @@ func TestBulkAddToSprint_TechDebtBulk(t *testing.T) {
 	var capturedEntityTypes []string
 
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
 			// Simulate real filtering: return only items whose type is in entityTypes.
 			var filtered []sprint.BacklogItem
@@ -2959,7 +2995,7 @@ func TestBulkAddToSprint_ChangeCardsBulk(t *testing.T) {
 	var capturedEntityTypes []string
 
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
 			capturedEntityTypes = entityTypes
 			// Simulate real filtering: return only items whose type is in entityTypes.
 			var filtered []sprint.BacklogItem
@@ -4013,7 +4049,7 @@ func makePlanSvc(
 		backlog = []sprint.BacklogItem{}
 	}
 	mockAssignRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(_ context.Context, _ []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(_ context.Context, _ []string, _ ...string) ([]sprint.BacklogItem, error) {
 			return backlog, nil
 		},
 		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
@@ -4694,7 +4730,7 @@ func TestBulkAddToSprint_TC012_AssignsSequentialSprintOrders(t *testing.T) {
 	}
 
 	mockAssignmentRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(_ context.Context, _ []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(_ context.Context, _ []string, _ ...string) ([]sprint.BacklogItem, error) {
 			return candidates, nil
 		},
 		BulkAssignFunc: func(_ context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
@@ -4750,7 +4786,7 @@ func TestBulkAddToSprint_ReturnsRenumberRepairError(t *testing.T) {
 		},
 	}
 	mockAssignmentRepo := &MockSprintAssignmentQueryRepository{
-		ListUnassignedBacklogFunc: func(_ context.Context, _ []string) ([]sprint.BacklogItem, error) {
+		ListUnassignedBacklogFunc: func(_ context.Context, _ []string, _ ...string) ([]sprint.BacklogItem, error) {
 			return candidates, nil
 		},
 		BulkAssignFunc: func(_ context.Context, _ int64, _ []models.SprintAssignment) (int, error) {
@@ -5511,7 +5547,7 @@ func TestGetSprintBacklog_TC020_GroupedViewRegressionGuard(t *testing.T) {
 //
 // TC-021 — Caller-Path Contract:
 //   - Entrypoint: SprintService.CloseSprintWithCarryover(ctx, "S001", CarryoverNext)
-//   - Mock seam: MockSprintRepository (MaxSprintOrder for receiving sprint, ListAssignmentsForCarryover,
+//   - Mock seam: MockSprintRepository (MaxSprintOrder for receiving sprint, ListBacklog,
 //     ReassignToSprintTx, RenumberAssignmentsTx)
 //   - Forbidden mocks: Do NOT interleave carried items by priority; service sorts by sprint_order ASC NULLS LAST.
 //   - Counter-factual: a buggy impl interleaving carried items would produce sprint_orders other than M+1..M+K;
@@ -5576,6 +5612,9 @@ func TestCloseSprintWithCarryover_TC021_NextPreservesOrderAppendedAfterExisting(
 		ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
 			// All assignments = same as incomplete for simplicity (no completed ones)
 			return incompleteAssignments, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItemsForAssignmentStatuses(incompleteAssignments, incompleteAssignments), nil
 		},
 		ListAssignmentsForCarryoverFunc: func(_ context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
 			return incompleteAssignments, nil
@@ -5682,6 +5721,9 @@ func TestCloseSprintWithCarryover_TC023_BacklogClearsSprintOrderAtomically(t *te
 		},
 		ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
 			return incompleteAssignments, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItemsForAssignmentStatuses(incompleteAssignments, incompleteAssignments), nil
 		},
 		ListAssignmentsForCarryoverFunc: func(_ context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
 			return incompleteAssignments, nil
@@ -5850,4 +5892,532 @@ func TestBuildReorderClearOps_ClearsTargetAndAllRenumberSiblings(t *testing.T) {
 	assert.Nil(t, clearOps[1].NewPosition)
 	assert.Equal(t, int64(11), clearOps[2].AssignmentID)
 	assert.Nil(t, clearOps[2].NewPosition)
+}
+
+func newGetNextTaskTestService(t *testing.T, backlogItems []*sprint.BacklogItem) *SprintService {
+	return newGetNextTaskTestServiceWithWorkflow(t, backlogItems, workflow.NewService(""))
+}
+
+func newGetNextTaskTestServiceWithWorkflow(t *testing.T, backlogItems []*sprint.BacklogItem, workflowSvc *workflow.Service) *SprintService {
+	t.Helper()
+	activeSprint := makeActiveSprint(10, "S001")
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			if filters != nil && filters.Status != nil && *filters.Status == "active" {
+				return []*models.Sprint{activeSprint}, nil
+			}
+			return []*models.Sprint{}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			assert.Equal(t, "S001", key)
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			assert.Equal(t, int64(10), sprintID)
+			assert.Nil(t, entityType)
+			assert.False(t, blockedOnly)
+			assert.Empty(t, blockedStatuses)
+			return backlogItems, nil
+		},
+	}
+	return NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+}
+
+func roleBacklogItem(entityType string, id int64, key, status, storedAgent string, order int) *sprint.BacklogItem {
+	return &sprint.BacklogItem{
+		EntityType:  entityType,
+		EntityID:    id,
+		Key:         key,
+		EntityKey:   key,
+		Title:       key,
+		Status:      status,
+		AgentType:   &storedAgent,
+		SprintOrder: &order,
+		AssignedAt:  time.Unix(id, 0).UTC(),
+	}
+}
+
+// TC-F06-008 through TC-F06-010 verify workflow metadata, not persisted
+// agent_type, controls role filtering across every sprint entity workflow.
+func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) {
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		roleBacklogItem(entitytype.WorkflowTechDebt, 101, "debt-developer", "in_progress", "researcher", 1),
+		roleBacklogItem(entitytype.WorkflowBug, 102, "bug-qa", "qa", "developer", 2),
+		roleBacklogItem(entitytype.WorkflowTask, 103, "task-developer", "development", "qa", 3),
+		roleBacklogItem(normalizeBacklogEntityType(entitytype.WorkflowChange), 104, "change-qa", "qa", "developer", 4),
+	})
+
+	for _, tt := range []struct {
+		name, role, key, reason string
+	}{
+		{name: "developer unions task and tech debt", role: "developer", key: "debt-developer", reason: "sprint_order"},
+		{name: "qa unions bug and change card", role: "qa", key: "bug-qa", reason: "sprint_order"},
+		{name: "unknown role returns no item", role: "architect"},
+		{name: "omitted role preserves ordering", key: "debt-developer", reason: "sprint_order"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := svc.GetNextTask(context.Background(), tt.role)
+			require.NoError(t, err)
+			if tt.key == "" {
+				assert.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			assert.Equal(t, tt.key, result.Key)
+			assert.Equal(t, tt.reason, result.SelectionReason)
+		})
+	}
+}
+
+func TestGetNextTask_RoleEligibilityForTaskAndChangeCard(t *testing.T) {
+	changeCardStorageType := normalizeBacklogEntityType(entitytype.WorkflowChange)
+	require.Equal(t, "change_card", changeCardStorageType)
+
+	for _, tt := range []struct {
+		name, entityType, status, role, key string
+	}{
+		{name: "task", entityType: entitytype.WorkflowTask, status: "development", role: "developer", key: "task-work"},
+		{name: "change card storage alias", entityType: changeCardStorageType, status: "qa", role: "qa", key: "change-work"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+				roleBacklogItem(tt.entityType, 101, tt.key, tt.status, "legacy-planning-value", 1),
+			})
+			result, err := svc.GetNextTask(context.Background(), tt.role)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.key, result.Key)
+		})
+	}
+}
+
+// A terminal compatibility alias must be filtered before an omitted-role pull.
+func TestGetNextTask_NormalizesTerminalWorkflowAlias(t *testing.T) {
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		roleBacklogItem(normalizeBacklogEntityType(entitytype.WorkflowChange), 101, "declined-change", "declined", "developer", 1),
+		roleBacklogItem(entitytype.WorkflowTask, 102, "open-task", "development", "developer", 2),
+	})
+
+	result, err := svc.GetNextTask(context.Background(), "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "open-task", result.Key)
+}
+
+func newSprintAliasWorkflowService() *workflow.Service {
+	taskWorkflow := &cfgworkflow.WorkflowConfig{
+		Start: "development",
+		Steps: map[string]*cfgworkflow.Step{
+			"development": {
+				Aliases:  []string{"ready_for_development"},
+				Outcomes: map[string]string{"pass": "completed", "fail": "development", "blocked": "blocked"},
+			},
+			"blocked":   {Aliases: []string{"stalled"}, Parking: true},
+			"cancelled": {Outcomes: map[string]string{"pass": "completed", "fail": "development", "blocked": "blocked"}},
+			"completed": {Aliases: []string{"done"}, Terminal: true},
+		},
+		StatusMetadata: map[string]cfgworkflow.StatusMetadata{
+			"ready_for_development": {Phase: "development", AgentTypes: []string{"developer"}},
+			"stalled":               {Phase: "blocked"},
+		},
+	}
+	taskWorkflow.DeriveLegacy()
+	taskWorkflow.SpecialStatuses[cfgworkflow.CompleteStatusKey] = []string{"done"}
+
+	changeWorkflow := &cfgworkflow.WorkflowConfig{
+		Start: "draft",
+		Steps: map[string]*cfgworkflow.Step{
+			"draft": {
+				Outcomes: map[string]string{"pass": "cancelled", "fail": "draft", "blocked": "blocked"},
+			},
+			"blocked":   {Parking: true},
+			"cancelled": {Aliases: []string{"declined"}, Terminal: true},
+		},
+	}
+	changeWorkflow.DeriveLegacy()
+	changeWorkflow.SpecialStatuses[cfgworkflow.CompleteStatusKey] = []string{"declined"}
+
+	sprintWorkflow := &cfgworkflow.WorkflowConfig{
+		Start: "planning",
+		Steps: map[string]*cfgworkflow.Step{
+			"planning": {
+				Aliases:  []string{"queued"},
+				Outcomes: map[string]string{"pass": "running", "fail": "on_hold", "blocked": "on_hold"},
+			},
+			"research": {
+				Aliases:  []string{"investigating"},
+				Outcomes: map[string]string{"pass": "running", "fail": "planning", "blocked": "on_hold"},
+			},
+			"running": {
+				Aliases:  []string{"active"},
+				Outcomes: map[string]string{"pass": "closing", "fail": "on_hold", "blocked": "on_hold"},
+			},
+			"closing": {
+				Aliases:  []string{"wrap_up"},
+				Outcomes: map[string]string{"pass": "completed", "fail": "running", "blocked": "on_hold"},
+			},
+			"completed": {Phase: "done", Aliases: []string{"finished"}, Outcomes: map[string]string{"pass": "archived", "fail": "closing", "blocked": "on_hold"}},
+			"archived":  {Phase: "done", Action: "archive", Terminal: true},
+			"on_hold":   {Phase: "paused", Parking: true},
+		},
+		StatusMetadata: map[string]cfgworkflow.StatusMetadata{
+			"queued":        {Phase: "planning"},
+			"investigating": {Phase: "research"},
+			"active":        {Phase: "execution"},
+			"wrap_up":       {Phase: "review"},
+		},
+	}
+	sprintWorkflow.DeriveLegacy()
+	sprintWorkflow.SpecialStatuses[cfgworkflow.StartStatusKey] = []string{"queued"}
+
+	return workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{
+		Task:   taskWorkflow,
+		Change: changeWorkflow,
+		Sprint: sprintWorkflow,
+	})
+}
+
+func TestGetNextTask_NormalizesRoleWorkflowAlias(t *testing.T) {
+	workflowSvc := newSprintAliasWorkflowService()
+	require.Equal(t, []string{"ready_for_development"}, workflowSvc.GetStatusesByAgentType("developer"))
+	require.Equal(t, "development", workflowSvc.NormalizeStatus("ready_for_development"))
+
+	svc := newGetNextTaskTestServiceWithWorkflow(t, []*sprint.BacklogItem{
+		roleBacklogItem(entitytype.WorkflowTask, 101, "aliased-task", "development", "legacy-planning-value", 1),
+	}, workflowSvc)
+	result, err := svc.GetNextTask(context.Background(), "developer")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "aliased-task", result.Key)
+}
+
+func TestSprintWorkflowStatusNormalizationInvariants(t *testing.T) {
+	svc := NewSprintService(&MockSprintRepository{}, newSprintAliasWorkflowService(), nil, nil, nil)
+
+	assert.Equal(t, []string{"planning", "running"}, svc.assignableSprintStatuses())
+	assert.True(t, svc.sprintAcceptsAssignments("active"))
+	assert.True(t, svc.sprintAcceptsAssignments("running"))
+	assert.True(t, svc.sprintAcceptsAssignments("RUNNING"))
+	assert.False(t, svc.sprintAcceptsAssignments("completed"))
+	assert.ElementsMatch(t,
+		[]string{"planning", "queued", "research", "investigating", "running", "active"},
+		svc.assignmentOccupyingSprintStatuses(),
+	)
+
+	executionStatus, err := svc.executionPhaseStatus()
+	require.NoError(t, err)
+	assert.Equal(t, "running", executionStatus)
+
+	entityIndex := newSprintEntityWorkflowIndex(svc.workflowSvc)
+	assert.True(t, entityIndex.isTerminal("change_card", "cancelled"), "configured terminal alias must normalize to its canonical step")
+	assert.True(t, entityIndex.isTerminal("change", "declined"), "persisted terminal alias must normalize at lookup")
+	assert.True(t, entityIndex.isTerminal("change", "DECLINED"), "status comparisons remain case-insensitive")
+	assert.False(t, entityIndex.isTerminal("task", "cancelled"), "terminal names from another entity workflow must not leak")
+	assert.True(t, entityIndex.isBlocked("task", "blocked"))
+	assert.True(t, entityIndex.isBlocked("task", "stalled"))
+	assert.ElementsMatch(t, []string{"stalled", "blocked"}, workflowStatusVocabulary(
+		svc.workflowSvc.ForLevel(workflow.LevelTask),
+		[]string{"stalled"},
+	))
+}
+
+func TestGetNextTask_NormalizesSprintPhaseAndConfiguredTerminalAliases(t *testing.T) {
+	var queriedStatuses []string
+	runningSprint := &models.Sprint{ID: 10, Key: "S001", Status: "running", Name: "Sprint 1"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return runningSprint, nil
+		},
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			require.NotNil(t, filters)
+			require.NotNil(t, filters.Status)
+			queriedStatuses = append(queriedStatuses, string(*filters.Status))
+			if *filters.Status == "running" {
+				return []*models.Sprint{runningSprint}, nil
+			}
+			return []*models.Sprint{}, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{
+				roleBacklogItem("change_card", 101, "terminal-change", "cancelled", "legacy", 1),
+				roleBacklogItem("task", 102, "open-task", "development", "legacy", 2),
+			}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	result, err := svc.GetNextTask(context.Background(), "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "open-task", result.Key)
+	assert.Contains(t, queriedStatuses, "active", "configured phase alias must remain queryable for legacy rows")
+	assert.Contains(t, queriedStatuses, "running", "canonical phase status must be queried")
+}
+
+func TestGetSprintBacklog_NormalizesAliasesPerEntityWorkflow(t *testing.T) {
+	runningSprint := &models.Sprint{ID: 10, Key: "S001", Status: "running", Name: "Sprint 1"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return runningSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{
+				{AssignmentID: 1, EntityType: "change_card", Status: "cancelled"},
+				{AssignmentID: 2, EntityType: "task", Status: "cancelled"},
+			}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	result, err := svc.GetSprintBacklog(context.Background(), "S001", BacklogOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "ordered", result.View, "canonical execution status must match an alias-keyed phase")
+	assert.Equal(t, 2, result.TotalCount)
+	assert.Equal(t, 1, result.CompletedCount, "the same status spelling may be terminal for change cards but open for tasks")
+	assert.InDelta(t, 50.0, result.CompletionPercent, 0.001)
+}
+
+func TestGetSprintBacklog_BlockedAliasesUseEntityWorkflowBoundary(t *testing.T) {
+	planningSprint := &models.Sprint{ID: 10, Key: "S001", Status: "planning", Name: "Sprint 1"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return planningSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			assert.True(t, blockedOnly)
+			assert.Contains(t, blockedStatuses, "stalled")
+			assert.Contains(t, blockedStatuses, "blocked")
+			return []*sprint.BacklogItem{
+				{AssignmentID: 1, EntityType: "task", Status: "blocked"},
+				{AssignmentID: 2, EntityType: "task", Status: "development"},
+			}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	result, err := svc.GetSprintBacklog(context.Background(), "S001", BacklogOptions{BlockedOnly: true, View: "ordered"})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "blocked", result.Items[0].Status)
+}
+
+func TestDeleteSprint_NormalizesInitialStatusAlias(t *testing.T) {
+	deleted := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 10, Key: key, Status: "planning"}, nil
+		},
+		DeleteFunc: func(_ context.Context, id int64) error {
+			deleted = true
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	require.NoError(t, svc.DeleteSprint(context.Background(), "S001"))
+	assert.True(t, deleted)
+}
+
+func TestListSprints_ExpandsAliasesAndPreservesRepositoryOrdering(t *testing.T) {
+	baseTime := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	older := &models.Sprint{ID: 1, Key: "S001", Status: "active", CreatedAt: baseTime}
+	shared := &models.Sprint{ID: 2, Key: "S002", Status: "active", CreatedAt: baseTime.Add(time.Hour)}
+	newer := &models.Sprint{ID: 3, Key: "S003", Status: "running", CreatedAt: baseTime.Add(2 * time.Hour)}
+	var queriedStatuses []string
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			require.NotNil(t, filters)
+			require.NotNil(t, filters.Status)
+			queriedStatuses = append(queriedStatuses, string(*filters.Status))
+			switch *filters.Status {
+			case "active":
+				return []*models.Sprint{shared, older}, nil
+			case "running":
+				return []*models.Sprint{newer, shared}, nil
+			default:
+				return []*models.Sprint{}, nil
+			}
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	result, err := svc.ListSprints(context.Background(), &SprintListFilters{Status: "active"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"active", "running"}, queriedStatuses)
+	require.Len(t, result, 3, "duplicate sprint IDs across equivalent status queries must be removed")
+	assert.Equal(t, []int64{3, 2, 1}, []int64{result[0].ID, result[1].ID, result[2].ID})
+}
+
+func TestSprintLifecycleTransitions_NormalizePersistedAliases(t *testing.T) {
+	tests := []struct {
+		name, currentStatus, expectedStatus string
+		invoke                              func(*SprintService) (*models.Sprint, error)
+	}{
+		{
+			name: "start", currentStatus: "queued", expectedStatus: "running",
+			invoke: func(svc *SprintService) (*models.Sprint, error) {
+				return svc.StartSprint(context.Background(), "S001")
+			},
+		},
+		{
+			name: "close", currentStatus: "active", expectedStatus: "closing",
+			invoke: func(svc *SprintService) (*models.Sprint, error) {
+				return svc.CloseSprint(context.Background(), "S001")
+			},
+		},
+		{
+			name: "archive", currentStatus: "finished", expectedStatus: "archived",
+			invoke: func(svc *SprintService) (*models.Sprint, error) {
+				return svc.ArchiveSprint(context.Background(), "S001")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getCalls := 0
+			var updatedStatus models.SprintStatus
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+					getCalls++
+					status := tt.currentStatus
+					if getCalls > 1 {
+						status = tt.expectedStatus
+					}
+					return &models.Sprint{ID: 10, Key: key, Status: models.SprintStatus(status)}, nil
+				},
+				UpdateStatusFunc: func(_ context.Context, id int64, status models.SprintStatus) error {
+					updatedStatus = status
+					return nil
+				},
+			}
+
+			svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+			result, err := tt.invoke(svc)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, models.SprintStatus(tt.expectedStatus), updatedStatus)
+			assert.Equal(t, models.SprintStatus(tt.expectedStatus), result.Status)
+		})
+	}
+}
+
+func TestAddEntityToSprint_AcceptsCanonicalStatusForAliasKeyedPhase(t *testing.T) {
+	added := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 10, Key: key, Status: "running"}, nil
+		},
+		GetTaskIDByKeyFunc: func(_ context.Context, key string) (int64, error) {
+			return 101, nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, sprintID int64) (int, error) {
+			return 0, nil
+		},
+		AddAssignmentFunc: func(_ context.Context, assignment *models.SprintAssignment) error {
+			added = true
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	assignment, warning, err := svc.AddEntityToSprint(context.Background(), AddEntityInput{
+		SprintKey: "S001",
+		EntityKey: "T-E38-F06-999",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.Nil(t, warning)
+	assert.True(t, added)
+}
+
+func TestReorderAssignment_AcceptsCanonicalStatusForAliasKeyedPhase(t *testing.T) {
+	position := 1
+	assignment := &models.SprintAssignment{ID: 1, SprintID: 10, EntityType: "task", EntityID: 101, SprintOrder: &position}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 10, Key: key, Status: "running"}, nil
+		},
+		GetTaskIDByKeyFunc: func(_ context.Context, key string) (int64, error) {
+			return 101, nil
+		},
+		GetActiveAssignmentFunc: func(_ context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return assignment, nil
+		},
+		ListOrderedAssignmentsFunc: func(_ context.Context, sprintID int64) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{assignment}, nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error {
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil)
+	moved, _, err := svc.ReorderAssignment(context.Background(), "S001", "T-E38-F06-999", ReorderTarget{Top: true})
+	require.NoError(t, err)
+	require.NotNil(t, moved)
+	require.NotNil(t, moved.SprintOrder)
+	assert.Equal(t, 1, *moved.SprintOrder)
+}
+
+func TestPlanSprint_FiltersTerminalItemsPerEntityWorkflow(t *testing.T) {
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 10, Key: key, Status: "planning"}, nil
+		},
+	}
+	assignmentRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(_ context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
+			assert.Contains(t, assignedSprintStatuses, "running")
+			assert.Contains(t, assignedSprintStatuses, "active")
+			return []sprint.BacklogItem{
+				{EntityType: "change_card", Key: "terminal-change", Status: "cancelled"},
+				{EntityType: "task", Key: "terminal-task", Status: "completed"},
+				{EntityType: "task", Key: "open-task", Status: "cancelled"},
+			}, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), assignmentRepo, nil, nil)
+	result, err := svc.PlanSprint(context.Background(), "S001")
+	require.NoError(t, err)
+	require.Len(t, result.Backlog, 1)
+	assert.Equal(t, "open-task", result.Backlog[0].Key)
+}
+
+func TestBulkAddToSprint_ReportsTerminalItemsSkippedPerEntityWorkflow(t *testing.T) {
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 10, Key: key, Status: "planning"}, nil
+		},
+	}
+	var assigned []models.SprintAssignment
+	assignmentRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(_ context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
+			assert.Contains(t, assignedSprintStatuses, "running")
+			assert.Contains(t, assignedSprintStatuses, "active")
+			return []sprint.BacklogItem{
+				{EntityType: "task", EntityID: 101, Key: "terminal-task", Status: "completed"},
+				{EntityType: "change_card", EntityID: 201, Key: "terminal-change", Status: "declined"},
+				{EntityType: "task", EntityID: 102, Key: "open-task", Status: "cancelled"},
+				{EntityType: "change_card", EntityID: 202, Key: "open-change", Status: "completed"},
+			}, nil
+		},
+		BulkAssignFunc: func(_ context.Context, _ int64, assignments []models.SprintAssignment) (int, error) {
+			assigned = append(assigned, assignments...)
+			return len(assignments), nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), assignmentRepo, nil, nil)
+	result, err := svc.BulkAddToSprint(context.Background(), BulkAddInput{SprintKey: "S001"})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, assigned, 2)
+	assert.ElementsMatch(t, []int64{102, 202}, []int64{assigned[0].EntityID, assigned[1].EntityID},
+		"terminal status spelling must be interpreted within each entity workflow")
+	assert.Equal(t, 1, result.AddedByType["task"])
+	assert.Equal(t, 1, result.AddedByType["change_card"])
+	assert.Equal(t, 1, result.SkippedByType["task"])
+	assert.Equal(t, 1, result.SkippedByType["change_card"])
 }
