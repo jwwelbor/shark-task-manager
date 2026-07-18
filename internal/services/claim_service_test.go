@@ -121,6 +121,78 @@ func TestClaimService_Claim_BlockedWhenLive(t *testing.T) {
 	}
 }
 
+// TestClaimService_E38F06_SelectedEntityRacePreservesConflict exercises the
+// real claim boundary used after role-filtered selection. A second non-force
+// claim for the same selected entity must report the live conflict and must
+// not release or replace the winner's lease.
+func TestClaimService_E38F06_SelectedEntityRacePreservesConflict(t *testing.T) {
+	var claimCalls, reclaimCalls, releaseCalls int
+	claimed := &models.EntityClaim{}
+	m := &mockClaimRepo{
+		ReclaimFn: func(_ context.Context, _ time.Duration) (int64, error) {
+			reclaimCalls++
+			return 0, nil
+		},
+		ClaimFn: func(_ context.Context, candidate *models.EntityClaim) (*models.EntityClaim, error) {
+			claimCalls++
+			if claimCalls == 1 {
+				candidate.ID = 1
+				candidate.ClaimedAt = time.Now().UTC()
+				*claimed = *candidate
+				return candidate, nil
+			}
+			return nil, claimrepo.ErrAlreadyClaimed
+		},
+		GetFn: func(_ context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+			if entityType != claimed.EntityType || entityKey != claimed.EntityKey {
+				t.Errorf("Get(%q, %q), want (%q, %q)", entityType, entityKey, claimed.EntityType, claimed.EntityKey)
+			}
+			return claimed, nil
+		},
+		ReleaseFn: func(_ context.Context, _, _ string) (bool, error) {
+			releaseCalls++
+			return true, nil
+		},
+	}
+	svc := NewClaimService(m, durationPtr(time.Minute))
+	firstInput := ClaimInput{EntityType: "task", EntityKey: "E38-F06-001", ClaimedBy: "developer-1", SessionID: "session-1", Force: false}
+	secondInput := ClaimInput{EntityType: "task", EntityKey: "E38-F06-001", ClaimedBy: "developer-2", SessionID: "session-2", Force: false}
+
+	first, err := svc.Claim(context.Background(), firstInput)
+	if err != nil {
+		t.Fatalf("first Claim() error = %v", err)
+	}
+	if first == nil {
+		t.Fatal("first Claim() returned nil claim")
+	}
+	second, err := svc.Claim(context.Background(), secondInput)
+
+	if second != nil {
+		t.Errorf("second Claim() = %#v, want nil", second)
+	}
+	if err == nil {
+		t.Fatal("second Claim() error = nil, want live-claim conflict")
+	}
+	if !errors.Is(err, claimrepo.ErrAlreadyClaimed) {
+		t.Errorf("second Claim() error = %v, want errors.Is(ErrAlreadyClaimed)", err)
+	}
+	if claimCalls != 2 {
+		t.Errorf("Claim calls = %d, want 2", claimCalls)
+	}
+	if reclaimCalls != 2 {
+		t.Errorf("ReclaimExpired calls = %d, want 2", reclaimCalls)
+	}
+	if releaseCalls != 0 {
+		t.Errorf("Release calls = %d, want 0; a non-force conflict must not steal the lease", releaseCalls)
+	}
+	if claimed.ClaimedBy != "developer-1" {
+		t.Errorf("live claim owner = %q, want developer-1", claimed.ClaimedBy)
+	}
+	if claimed.SessionID != "session-1" {
+		t.Errorf("live claim session = %q, want session-1", claimed.SessionID)
+	}
+}
+
 func TestClaimService_Claim_ForceSteals(t *testing.T) {
 	released := false
 	claimCalls := 0

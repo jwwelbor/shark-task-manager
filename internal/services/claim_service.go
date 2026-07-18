@@ -132,8 +132,8 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 		// original conflict with a lookup error.
 		existing, _ := s.repo.Get(ctx, in.EntityType, in.EntityKey)
 		if existing != nil {
-			return nil, fmt.Errorf("%s %s is already claimed by %s (session %s) since %s; use --force to steal",
-				in.EntityType, in.EntityKey, existing.ClaimedBy, existing.SessionID, existing.ClaimedAt.Format(time.RFC3339))
+			return nil, fmt.Errorf("%s %s is already claimed by %s (session %s) since %s; use --force to steal: %w",
+				in.EntityType, in.EntityKey, existing.ClaimedBy, existing.SessionID, existing.ClaimedAt.Format(time.RFC3339), claimrepo.ErrAlreadyClaimed)
 		}
 		return nil, claimrepo.ErrAlreadyClaimed
 	}
