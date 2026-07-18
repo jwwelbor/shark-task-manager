@@ -9,6 +9,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockClaimRepo is a function-field mock of ClaimRepository.
@@ -126,7 +128,7 @@ func TestClaimService_Claim_BlockedWhenLive(t *testing.T) {
 // claim for the same selected entity must report the live conflict and must
 // not release or replace the winner's lease.
 func TestClaimService_E38F06_SelectedEntityRacePreservesConflict(t *testing.T) {
-	var claimCalls, reclaimCalls, releaseCalls int
+	var claimCalls, reclaimCalls, getCalls, releaseCalls int
 	claimed := &models.EntityClaim{}
 	m := &mockClaimRepo{
 		ReclaimFn: func(_ context.Context, _ time.Duration) (int64, error) {
@@ -144,9 +146,9 @@ func TestClaimService_E38F06_SelectedEntityRacePreservesConflict(t *testing.T) {
 			return nil, claimrepo.ErrAlreadyClaimed
 		},
 		GetFn: func(_ context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
-			if entityType != claimed.EntityType || entityKey != claimed.EntityKey {
-				t.Errorf("Get(%q, %q), want (%q, %q)", entityType, entityKey, claimed.EntityType, claimed.EntityKey)
-			}
+			getCalls++
+			assert.Equal(t, claimed.EntityType, entityType)
+			assert.Equal(t, claimed.EntityKey, entityKey)
 			return claimed, nil
 		},
 		ReleaseFn: func(_ context.Context, _, _ string) (bool, error) {
@@ -159,38 +161,22 @@ func TestClaimService_E38F06_SelectedEntityRacePreservesConflict(t *testing.T) {
 	secondInput := ClaimInput{EntityType: "task", EntityKey: "E38-F06-001", ClaimedBy: "developer-2", SessionID: "session-2", Force: false}
 
 	first, err := svc.Claim(context.Background(), firstInput)
-	if err != nil {
-		t.Fatalf("first Claim() error = %v", err)
-	}
-	if first == nil {
-		t.Fatal("first Claim() returned nil claim")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, first)
 	second, err := svc.Claim(context.Background(), secondInput)
 
-	if second != nil {
-		t.Errorf("second Claim() = %#v, want nil", second)
-	}
-	if err == nil {
-		t.Fatal("second Claim() error = nil, want live-claim conflict")
-	}
-	if !errors.Is(err, claimrepo.ErrAlreadyClaimed) {
-		t.Errorf("second Claim() error = %v, want errors.Is(ErrAlreadyClaimed)", err)
-	}
-	if claimCalls != 2 {
-		t.Errorf("Claim calls = %d, want 2", claimCalls)
-	}
-	if reclaimCalls != 2 {
-		t.Errorf("ReclaimExpired calls = %d, want 2", reclaimCalls)
-	}
-	if releaseCalls != 0 {
-		t.Errorf("Release calls = %d, want 0; a non-force conflict must not steal the lease", releaseCalls)
-	}
-	if claimed.ClaimedBy != "developer-1" {
-		t.Errorf("live claim owner = %q, want developer-1", claimed.ClaimedBy)
-	}
-	if claimed.SessionID != "session-1" {
-		t.Errorf("live claim session = %q, want session-1", claimed.SessionID)
-	}
+	assert.Nil(t, second)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, claimrepo.ErrAlreadyClaimed)
+	assert.Contains(t, err.Error(), "task E38-F06-001 is already claimed by developer-1")
+	assert.Contains(t, err.Error(), "session session-1")
+	assert.Contains(t, err.Error(), "use --force to steal")
+	assert.Equal(t, 2, claimCalls)
+	assert.Equal(t, 2, reclaimCalls)
+	assert.Equal(t, 1, getCalls)
+	assert.Zero(t, releaseCalls, "a non-force conflict must not steal the lease")
+	assert.Equal(t, "developer-1", claimed.ClaimedBy)
+	assert.Equal(t, "session-1", claimed.SessionID)
 }
 
 func TestClaimService_Claim_ForceSteals(t *testing.T) {

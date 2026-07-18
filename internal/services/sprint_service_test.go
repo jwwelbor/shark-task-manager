@@ -5889,9 +5889,20 @@ func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) 
 	workflowSvc := newTaskReopenWorkflowService(t, workflowConfig)
 	legacyQA := "qa"
 	legacyDeveloper := "developer"
-	firstOrder, secondOrder := 1, 2
+	firstOrder, secondOrder, thirdOrder := 1, 2, 3
 	activeSprint := makeActiveSprint(10, "S001")
 	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			EntityID:    103,
+			Key:         "workflow-qa-late",
+			EntityKey:   "workflow-qa-late",
+			Title:       "Also workflow-owned by QA but later in the pull order",
+			Status:      "ready_for_qa",
+			AgentType:   &legacyDeveloper,
+			SprintOrder: &thirdOrder,
+			AssignedAt:  time.Date(2026, 7, 17, 9, 59, 0, 0, time.UTC),
+		},
 		{
 			EntityType:  "task",
 			EntityID:    101,
@@ -5939,14 +5950,16 @@ func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) 
 	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
 
 	for _, tt := range []struct {
-		name          string
-		requestedRole string
-		expectedKey   string
+		name           string
+		requestedRole  string
+		expectedKey    string
+		expectedReason string
 	}{
 		{
-			name:          "TC-F06-008 workflow role overrides persisted agent type",
-			requestedRole: "qa",
-			expectedKey:   "workflow-qa",
+			name:           "TC-F06-008 workflow role overrides persisted agent type",
+			requestedRole:  "qa",
+			expectedKey:    "workflow-qa",
+			expectedReason: "sprint_order",
 		},
 		{
 			name:          "TC-F06-009 no workflow role match returns no item",
@@ -5967,6 +5980,141 @@ func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) 
 			}
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectedKey, result.Key)
+			if tt.expectedReason != "" {
+				assert.Equal(t, tt.expectedReason, result.SelectionReason)
+			}
+		})
+	}
+}
+
+// TestGetNextTask_RouteWorkflowAliasesAndEntityLevels verifies role filtering
+// resolves persisted compatibility aliases and selects metadata from each
+// entity's own workflow instead of reusing the task workflow for every item.
+func TestGetNextTask_RouteWorkflowAliasesAndEntityLevels(t *testing.T) {
+	projectRoot := t.TempDir()
+	workflowDir := filepath.Join(projectRoot, "shark-data", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+
+	workflowFiles := map[string]string{
+		"sprint.yaml": `version: "1.0"
+start: active
+steps:
+  active:
+    phase: execution
+    action: advance_status
+    outcomes: {pass: completed, fail: active, blocked: active}
+  completed:
+    phase: done
+    terminal: true
+`,
+		"task.yaml": `version: "1.0"
+start: development
+steps:
+  development:
+    phase: development
+    action: spawn_agent
+    agent: developer
+    aliases: [legacy_task]
+    outcomes: {pass: completed, fail: development, blocked: development}
+  completed:
+    phase: done
+    terminal: true
+`,
+		"bug.yaml": `version: "1.0"
+start: qa
+steps:
+  qa:
+    phase: qa
+    action: spawn_agent
+    agent: qa
+    aliases: [legacy_bug]
+    outcomes: {pass: completed, fail: qa, blocked: qa}
+  completed:
+    phase: done
+    terminal: true
+`,
+		"change.yaml": `version: "1.0"
+start: review
+steps:
+  review:
+    phase: review
+    action: spawn_agent
+    agent: tech-lead
+    aliases: [legacy_change]
+    outcomes: {pass: completed, fail: review, blocked: review}
+  completed:
+    phase: done
+    terminal: true
+`,
+		"tech-debt.yaml": `version: "1.0"
+start: research
+steps:
+  research:
+    phase: research
+    action: spawn_agent
+    agent: researcher
+    aliases: [legacy_debt]
+    outcomes: {pass: completed, fail: research, blocked: research}
+  completed:
+    phase: done
+    terminal: true
+`,
+	}
+	for name, content := range workflowFiles {
+		require.NoError(t, os.WriteFile(filepath.Join(workflowDir, name), []byte(content), 0o644))
+	}
+	require.NoError(t, os.WriteFile(
+		filepath.Join(projectRoot, ".sharkconfig.json"),
+		[]byte(`{"workflow_config":"shark-data/workflow"}`),
+		0o644,
+	))
+
+	cfgworkflow.ClearWorkflowCache()
+	t.Cleanup(cfgworkflow.ClearWorkflowCache)
+	workflowSvc := workflow.NewService(projectRoot)
+	activeSprint := makeActiveSprint(10, "S001")
+	legacyAgent := "legacy-planning-value"
+	backlogItems := []*sprint.BacklogItem{
+		{EntityType: "task", EntityID: 101, Key: "task-alias", EntityKey: "task-alias", Title: "Task alias", Status: "legacy_task", AgentType: &legacyAgent, AssignedAt: time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)},
+		{EntityType: "bug", EntityID: 102, Key: "bug-alias", EntityKey: "bug-alias", Title: "Bug alias", Status: "legacy_bug", AgentType: &legacyAgent, AssignedAt: time.Date(2026, 7, 17, 10, 1, 0, 0, time.UTC)},
+		{EntityType: "change_card", EntityID: 103, Key: "change-alias", EntityKey: "change-alias", Title: "Change alias", Status: "legacy_change", AgentType: &legacyAgent, AssignedAt: time.Date(2026, 7, 17, 10, 2, 0, 0, time.UTC)},
+		{EntityType: "tech_debt", EntityID: 104, Key: "debt-alias", EntityKey: "debt-alias", Title: "Debt alias", Status: "legacy_debt", AgentType: &legacyAgent, AssignedAt: time.Date(2026, 7, 17, 10, 3, 0, 0, time.UTC)},
+	}
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			if filters != nil && filters.Status != nil && *filters.Status == "active" {
+				return []*models.Sprint{activeSprint}, nil
+			}
+			return []*models.Sprint{}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			assert.Equal(t, "S001", key)
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			assert.Equal(t, int64(10), sprintID)
+			assert.Nil(t, entityType)
+			assert.False(t, blockedOnly)
+			assert.Empty(t, blockedStatuses)
+			return backlogItems, nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	for _, tt := range []struct {
+		role string
+		key  string
+	}{
+		{role: "developer", key: "task-alias"},
+		{role: "qa", key: "bug-alias"},
+		{role: "tech-lead", key: "change-alias"},
+		{role: "researcher", key: "debt-alias"},
+	} {
+		t.Run(tt.role, func(t *testing.T) {
+			result, err := svc.GetNextTask(context.Background(), tt.role)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.key, result.Key)
 		})
 	}
 }
