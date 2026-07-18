@@ -1152,3 +1152,233 @@ func TestEntityService_TransitionStatus_IdempotentCaseInsensitive(t *testing.T) 
 		t.Error("expected Transitioned to be false for case-insensitive idempotent transition")
 	}
 }
+
+// --- Guarded Advance Tests ---
+
+// mockAdvanceGuardRecorder implements AdvanceGuardRecorder for testing.
+type mockAdvanceGuardRecorder struct {
+	wasConsumedFn    func(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error)
+	recordConsumedFn func(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
+	deleteConsumedFn func(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
+	recordCalled     bool
+	deleteCalled     bool
+}
+
+func (m *mockAdvanceGuardRecorder) WasConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error) {
+	if m.wasConsumedFn != nil {
+		return m.wasConsumedFn(ctx, entityType, entityID, sessionID, fromStatus, outcome)
+	}
+	return false, nil
+}
+
+func (m *mockAdvanceGuardRecorder) RecordConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+	m.recordCalled = true
+	if m.recordConsumedFn != nil {
+		return m.recordConsumedFn(ctx, entityType, entityID, sessionID, fromStatus, outcome)
+	}
+	return nil
+}
+
+func (m *mockAdvanceGuardRecorder) DeleteConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+	m.deleteCalled = true
+	if m.deleteConsumedFn != nil {
+		return m.deleteConsumedFn(ctx, entityType, entityID, sessionID, fromStatus, outcome)
+	}
+	return nil
+}
+
+func newGuardedTestEntityService(t *testing.T, guard *mockAdvanceGuardRecorder) *EntityService {
+	t.Helper()
+	wfSvc := workflow.NewService("")
+	svc := NewEntityService(wfSvc).ForLevel(workflow.LevelEpic)
+	svc.SetAdvanceGuard(config.AdvanceGuardConfig{Enabled: true, Mode: config.AdvanceGuardModeSessionFromStatus}, guard)
+	return svc
+}
+
+func guardedOpts() TransitionOptions {
+	return TransitionOptions{
+		GuardAdvance: true,
+		SessionID:    "sess-1",
+		FromStatus:   "draft",
+		Outcome:      "pass",
+	}
+}
+
+func TestEntityService_TransitionStatus_GuardedAdvance_RecordsBeforeCAS(t *testing.T) {
+	var recordedBeforeCAS bool
+	guard := &mockAdvanceGuardRecorder{
+		recordConsumedFn: func(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+			recordedBeforeCAS = true
+			return nil
+		},
+	}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusIfCurrentFn: func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+			if !recordedBeforeCAS {
+				t.Fatal("expected RecordConsumed to be called before UpdateStatusIfCurrent")
+			}
+			return true, nil
+		},
+	}
+
+	svc := newGuardedTestEntityService(t, guard)
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		guardedOpts(), SimpleTransitionFeatures(), nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Transitioned {
+		t.Error("expected Transitioned to be true")
+	}
+	if !guard.recordCalled {
+		t.Error("expected RecordConsumed to be called")
+	}
+	if guard.deleteCalled {
+		t.Error("DeleteConsumed should not be called on success")
+	}
+}
+
+func TestEntityService_TransitionStatus_GuardedAdvance_LedgerFailureBlocksTransition(t *testing.T) {
+	guard := &mockAdvanceGuardRecorder{
+		recordConsumedFn: func(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+			return fmt.Errorf("simulated transient ledger write failure")
+		},
+	}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusIfCurrentFn: func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+			t.Fatal("UpdateStatusIfCurrent must not be called when the ledger write fails")
+			return false, nil
+		},
+	}
+
+	svc := newGuardedTestEntityService(t, guard)
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		guardedOpts(), SimpleTransitionFeatures(), nil,
+	)
+	if err == nil {
+		t.Fatal("expected the transition to fail when the ledger write fails, got nil error")
+	}
+	if result != nil {
+		t.Errorf("expected nil result on failure, got %+v", result)
+	}
+}
+
+func TestEntityService_TransitionStatus_GuardedAdvance_ReplayRejected(t *testing.T) {
+	guard := &mockAdvanceGuardRecorder{
+		recordConsumedFn: func(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+			return ErrAdvanceGuardRepeatRejected
+		},
+	}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusIfCurrentFn: func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+			t.Fatal("UpdateStatusIfCurrent must not be called for a rejected replay")
+			return false, nil
+		},
+	}
+
+	svc := newGuardedTestEntityService(t, guard)
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		guardedOpts(), SimpleTransitionFeatures(), nil,
+	)
+	if !errors.Is(err, ErrAdvanceGuardRepeatRejected) {
+		t.Fatalf("expected ErrAdvanceGuardRepeatRejected, got %v", err)
+	}
+}
+
+func TestEntityService_TransitionStatus_GuardedAdvance_CASStaleCompensatesLedger(t *testing.T) {
+	guard := &mockAdvanceGuardRecorder{}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusIfCurrentFn: func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+			// Simulate a genuine concurrent race: another writer moved the
+			// entity's status between the initial read and this CAS attempt.
+			return false, nil
+		},
+	}
+
+	svc := newGuardedTestEntityService(t, guard)
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		guardedOpts(), SimpleTransitionFeatures(), nil,
+	)
+	if !errors.Is(err, ErrAdvanceGuardStaleFromStatus) {
+		t.Fatalf("expected ErrAdvanceGuardStaleFromStatus, got %v", err)
+	}
+	if !guard.recordCalled {
+		t.Error("expected RecordConsumed to have been called before the CAS attempt")
+	}
+	if !guard.deleteCalled {
+		t.Error("expected DeleteConsumed to compensate after the CAS reported a stale status")
+	}
+}
+
+func TestEntityService_TransitionStatus_GuardedAdvance_CASErrorCompensatesLedger(t *testing.T) {
+	guard := &mockAdvanceGuardRecorder{}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusIfCurrentFn: func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+			return false, fmt.Errorf("simulated database error")
+		},
+	}
+
+	svc := newGuardedTestEntityService(t, guard)
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		guardedOpts(), SimpleTransitionFeatures(), nil,
+	)
+	if err == nil {
+		t.Fatal("expected an error when the CAS write itself errors")
+	}
+	if !guard.deleteCalled {
+		t.Error("expected DeleteConsumed to compensate after a CAS write error")
+	}
+}
+
+func TestEntityService_TransitionStatus_ForceRepeat_SkipsLedgerRecordAndCompensation(t *testing.T) {
+	guard := &mockAdvanceGuardRecorder{}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusIfCurrentFn: func(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+			return true, nil
+		},
+	}
+
+	opts := guardedOpts()
+	opts.ForceRepeat = true
+	opts.Reason = "manual override, incident #123"
+
+	svc := newGuardedTestEntityService(t, guard)
+	svc.advanceGuardCfg.AllowRepeatWithForce = true
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		opts, SimpleTransitionFeatures(), nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if guard.recordCalled {
+		t.Error("ForceRepeat should skip RecordConsumed")
+	}
+	if guard.deleteCalled {
+		t.Error("ForceRepeat should skip DeleteConsumed compensation")
+	}
+}

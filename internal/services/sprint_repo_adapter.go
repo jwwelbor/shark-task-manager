@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -23,6 +22,7 @@ type SprintAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Sprint, error)
 	Update(ctx context.Context, sprint *models.Sprint) error
 	UpdateStatus(ctx context.Context, id int64, status models.SprintStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.SprintStatus, newStatus models.SprintStatus) (bool, error)
 }
 
 // SprintRepositoryAdapter wraps a typed sprint repository to satisfy
@@ -64,17 +64,7 @@ func (a *SprintRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, st
 }
 
 func (a *SprintRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
-	sprint, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("SprintRepositoryAdapter.UpdateStatusIfCurrent: load: %w", err)
-	}
-	if sprint == nil || !strings.EqualFold(string(sprint.Status), expectedCurrentStatus) {
-		return false, nil
-	}
-	if err := a.repo.UpdateStatus(ctx, id, models.SprintStatus(newStatus)); err != nil {
-		return false, err
-	}
-	return true, nil
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.SprintStatus(expectedCurrentStatus), models.SprintStatus(newStatus))
 }
 
 // Update persists all fields of the sprint. The entity parameter must be

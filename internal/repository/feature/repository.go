@@ -1157,20 +1157,11 @@ func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, s
 // UpdateStatusIfCurrent atomically updates feature status only when the current
 // stored status still matches expectedStatus (case-insensitive).
 func (r *FeatureRepository) UpdateStatusIfCurrent(ctx context.Context, featureID int64, expectedStatus models.FeatureStatus, newStatus models.FeatureStatus) (bool, error) {
-	query := `
-		UPDATE features
-		SET status = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND lower(status) = lower(?)
-	`
-	result, err := r.db.ExecContext(ctx, query, newStatus, featureID, expectedStatus)
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "features", featureID, string(expectedStatus), string(newStatus), true)
 	if err != nil {
-		return false, fmt.Errorf("failed to conditionally update feature status: %w", err)
+		return false, fmt.Errorf("conditionally update feature status: %w", err)
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	return rows > 0, nil
+	return updated, nil
 }
 
 // GetByIDTx retrieves a feature by its ID within an existing transaction.

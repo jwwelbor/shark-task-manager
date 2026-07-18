@@ -32,6 +32,10 @@ type RunOptions struct {
 	// from shark.log.
 	RunID string
 
+	// SessionID is the lease session acquired for this run. Guarded status
+	// advances use it to bind a worker result to this particular run.
+	SessionID string
+
 	// Observability carries the observability configuration for this run. The
 	// controller uses it to decide whether to emit per-stage slog events and
 	// how aggressively to truncate large payloads (stderr/stdout) in error
@@ -431,7 +435,7 @@ func (c *RunController) handleAdvanceStatus(
 	}
 
 	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
-	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
+	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,
@@ -485,6 +489,26 @@ func targetStatusForDispatch(nextInfo *services.NextStatusInfo, stdout string) (
 		return "", fmt.Errorf("agent recommended unknown outcome %q", outcome)
 	}
 	return target, nil
+}
+
+// guardedTransitionOptions supplies the runner's lease and observed source
+// status to every parent-driven transition. EntityService only enforces these
+// fields when advance_guard is enabled, so legacy workflows keep their existing
+// behavior while guarded deployments cannot bypass replay protection.
+func guardedTransitionOptions(runOpts RunOptions, fromStatus, targetStatus string, nextInfo *services.NextStatusInfo) services.TransitionOptions {
+	outcome := "pass"
+	for candidate, target := range nextInfo.Outcomes {
+		if strings.EqualFold(target, targetStatus) {
+			outcome = candidate
+			break
+		}
+	}
+	return services.TransitionOptions{
+		SessionID:    runOpts.SessionID,
+		FromStatus:   fromStatus,
+		Outcome:      outcome,
+		GuardAdvance: true,
+	}
 }
 
 // recommendedOutcome extracts the explicit final worker recommendation. It
@@ -852,7 +876,7 @@ func (c *RunController) handleSpawnAgent(
 		TranscriptPath: relPath,
 	})
 
-	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
+	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,

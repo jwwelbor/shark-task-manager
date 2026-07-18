@@ -1,21 +1,22 @@
+// Package advanceguard persists replay-protection records for guarded advances.
 package advanceguard
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
-var ErrAlreadyConsumed = errors.New("guarded advance already consumed")
+var ErrAlreadyConsumed = models.ErrAdvanceGuardAlreadyConsumed
 
 // Repository persists replay-protection records for guarded status advances.
 type Repository struct {
 	db *dbconn.DB
 }
 
+// NewRepository creates a repository backed by db.
 func NewRepository(db *dbconn.DB) *Repository {
 	return &Repository{db: db}
 }
@@ -42,22 +43,34 @@ func (r *Repository) RecordConsumed(ctx context.Context, entityType string, enti
 			entity_type, entity_id, session_id, from_status, outcome
 		)
 		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(entity_type, entity_id, session_id, from_status, outcome) DO NOTHING
 	`
 
-	_, err := r.db.ExecContext(ctx, query, entityType, entityID, sessionID, fromStatus, outcome)
-	if err == nil {
-		return nil
+	result, err := r.db.ExecContext(ctx, query, entityType, entityID, sessionID, fromStatus, outcome)
+	if err != nil {
+		return fmt.Errorf("failed to record guarded advance: %w", err)
 	}
-	if isUniqueConstraint(err) {
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get guarded advance rows affected: %w", err)
+	}
+	if rows == 0 {
 		return ErrAlreadyConsumed
 	}
-	return fmt.Errorf("failed to record guarded advance: %w", err)
+	return nil
 }
 
-func isUniqueConstraint(err error) bool {
-	if err == nil {
-		return false
+// DeleteConsumed removes a previously recorded consumption. Used to compensate
+// when RecordConsumed succeeds but the guarded status update that followed it
+// fails (e.g. a genuine concurrent race), so a phantom consumption doesn't
+// block a later legitimate replay of the same session/from_status/outcome.
+func (r *Repository) DeleteConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+	query := `
+		DELETE FROM advance_guard_consumptions
+		WHERE entity_type = ? AND entity_id = ? AND session_id = ? AND from_status = ? AND outcome = ?
+	`
+	if _, err := r.db.ExecContext(ctx, query, entityType, entityID, sessionID, fromStatus, outcome); err != nil {
+		return fmt.Errorf("failed to delete guarded advance consumption: %w", err)
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "constraint failed: UNIQUE")
+	return nil
 }

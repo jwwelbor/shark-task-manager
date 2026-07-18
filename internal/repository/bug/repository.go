@@ -212,16 +212,11 @@ func (r *BugRepository) UpdateStatus(ctx context.Context, id int64, status model
 // UpdateStatusIfCurrent atomically updates bug status only when the current
 // stored status still matches expectedStatus (case-insensitive).
 func (r *BugRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.BugStatus, newStatus models.BugStatus) (bool, error) {
-	query := `UPDATE bugs SET status = ? WHERE id = ? AND lower(status) = lower(?)`
-	result, err := r.db.ExecContext(ctx, query, newStatus, id, expectedStatus)
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "bugs", id, string(expectedStatus), string(newStatus), false)
 	if err != nil {
-		return false, fmt.Errorf("failed to conditionally update bug status: %w", err)
+		return false, fmt.Errorf("conditionally update bug status: %w", err)
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	return rowsAffected > 0, nil
+	return updated, nil
 }
 
 // GetNextKey returns the next available bug key (e.g., B001, B002, ...).

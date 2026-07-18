@@ -47,6 +47,18 @@ func (m *MockTransitioner) GetNextStatus(ctx context.Context, key string) (*serv
 	return nil, fmt.Errorf("MockTransitioner.GetNextStatus not implemented")
 }
 
+func TestGuardedTransitionOptions_BindsRunLeaseAndSourceStatus(t *testing.T) {
+	next := &services.NextStatusInfo{Outcomes: map[string]string{"blocked": "waiting", "pass": "completed"}}
+	opts := guardedTransitionOptions(RunOptions{SessionID: "lease-123"}, "in_progress", "completed", next)
+
+	if !opts.GuardAdvance {
+		t.Fatal("runner transitions must opt into advance-guard enforcement")
+	}
+	if opts.SessionID != "lease-123" || opts.FromStatus != "in_progress" || opts.Outcome != "pass" {
+		t.Fatalf("guarded options = %+v, want lease, source status, and resolved outcome", opts)
+	}
+}
+
 // MockPlaceholderGen implements PlaceholderGenerator for testing.
 type MockPlaceholderGen struct {
 	GenerateFunc func(ctx context.Context, key string) (map[string]string, error)

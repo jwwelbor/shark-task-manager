@@ -3292,3 +3292,69 @@ func TestTaskService_UpdateTask_ClearSizePrecedence(t *testing.T) {
 	assert.Nil(t, capturedTask.Size,
 		"ClearSize=true must take precedence over Size=ptr(8) — spec D5 contract")
 }
+
+// TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_ProductionPathIsGuarded
+// locks in the fix for the advance_guard bypass defect: taskEntityRepoAdapter
+// is constructed with a non-nil opts field on every real TransitionStatus
+// call (see makeTaskEntityAdapter), so UpdateStatusIfCurrent's opts != nil
+// branch is what production always executes. That branch previously called
+// StatusUpdateRaw unconditionally (no SQL-level status guard at all),
+// silently degrading the compare-and-swap to a stale Go-level cache check.
+// This test fails if that branch ever again calls StatusUpdateRaw without
+// params.Guarded set, or with the wrong OldStatus.
+func TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_ProductionPathIsGuarded(t *testing.T) {
+	var capturedParams models.StatusUpdateParams
+	var captured bool
+	mockRepo := &MockTaskRepository{
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			capturedParams = params
+			captured = true
+			return nil, nil
+		},
+	}
+
+	adapter := &taskEntityRepoAdapter{
+		repo: mockRepo,
+		opts: &statusTransitionOpts{}, // non-nil: mirrors makeTaskEntityAdapter's real construction
+		lastTask: &models.Task{
+			BaseEntity: models.BaseEntity{ID: 42, Key: "T-E07-F01-001"},
+			Status:     "in_progress",
+		},
+	}
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 42, "in_progress", "completed")
+
+	require.NoError(t, err)
+	assert.True(t, ok)
+	require.True(t, captured, "StatusUpdateRaw must have been called")
+	assert.True(t, capturedParams.Guarded,
+		"production path (opts != nil) must set Guarded:true so the UPDATE's WHERE clause enforces the compare-and-swap atomically, not a prior Go-level read")
+	assert.Equal(t, "in_progress", capturedParams.OldStatus,
+		"OldStatus must be the caller's expected status so the SQL guard checks against it, not a possibly-stale cached read")
+}
+
+// TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_StaleRejectionPropagates
+// proves that when the repository reports the guarded update lost the race
+// (models.ErrGuardedUpdateStale), the adapter reports (false, nil) rather
+// than surfacing the sentinel as a hard error or — worse — reporting success.
+func TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_StaleRejectionPropagates(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			return nil, models.ErrGuardedUpdateStale
+		},
+	}
+
+	adapter := &taskEntityRepoAdapter{
+		repo: mockRepo,
+		opts: &statusTransitionOpts{},
+		lastTask: &models.Task{
+			BaseEntity: models.BaseEntity{ID: 42, Key: "T-E07-F01-001"},
+			Status:     "in_progress",
+		},
+	}
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 42, "in_progress", "completed")
+
+	require.NoError(t, err, "a lost CAS race is a normal (false, nil) outcome, not an error")
+	assert.False(t, ok)
+}

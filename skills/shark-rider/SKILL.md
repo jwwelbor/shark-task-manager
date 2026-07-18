@@ -107,7 +107,8 @@ loop:
   shark claim <response.entity_key> --by "$CLAUDE_SID" --field session_id
   spawn host agent with response.prompt        # general-purpose; prompt verbatim
   # worker returns { outcome: pass|fail|blocked, note }
-  shark status advance <response.entity_key> --outcome <outcome>
+  shark status advance <response.entity_key> --outcome <outcome> \
+    --session "$SID" --from-status <response.status>
   shark release <response.entity_key> --session "$SID"   # always, even on failure
 ```
 

@@ -25,6 +25,10 @@ type EntityHistoryRecorder interface {
 type AdvanceGuardRecorder interface {
 	WasConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error)
 	RecordConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
+	// DeleteConsumed removes a consumption record. Used to compensate when
+	// RecordConsumed succeeds but the guarded status update that follows it
+	// fails, so a phantom consumption doesn't block a later legitimate replay.
+	DeleteConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
 }
 
 // EntityHistoryOpts holds optional parameters for recording entity history.
@@ -260,22 +264,7 @@ func (s *EntityService) TransitionStatus(
 		return nil, err
 	}
 
-	// Step 7: Update status via repo
-	if s.shouldUseAdvanceGuard(opts) {
-		updated, err := repo.UpdateStatusIfCurrent(ctx, entity.GetID(), currentStatus, targetStatus)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update %s status: %w", entityType, err)
-		}
-		if !updated {
-			return nil, ErrAdvanceGuardStaleFromStatus
-		}
-	} else {
-		if err := repo.UpdateStatus(ctx, entity.GetID(), targetStatus); err != nil {
-			return nil, fmt.Errorf("failed to update %s status: %w", entityType, err)
-		}
-	}
-
-	if err := s.recordAdvanceGuard(ctx, entityType, entity.GetID(), currentStatus, opts); err != nil {
+	if err := s.updateTransitionStatus(ctx, repo, entityType, entity.GetID(), currentStatus, targetStatus, opts); err != nil {
 		return nil, err
 	}
 
@@ -319,6 +308,42 @@ func (s *EntityService) TransitionStatus(
 		Reason:             opts.Reason,
 		// ChildCount is set by the calling entity service in its post-hook
 	}, nil
+}
+
+// updateTransitionStatus persists a transition, applying the guarded replay
+// protocol when requested. Keeping this boundary separate from validation makes
+// the ordering of ledger record, conditional update, and compensation explicit.
+func (s *EntityService) updateTransitionStatus(
+	ctx context.Context,
+	repo EntityRepository,
+	entityType models.EntityType,
+	entityID int64,
+	currentStatus, targetStatus string,
+	opts TransitionOptions,
+) error {
+	if !s.shouldUseAdvanceGuard(opts) {
+		if err := repo.UpdateStatus(ctx, entityID, targetStatus); err != nil {
+			return fmt.Errorf("failed to update %s status: %w", entityType, err)
+		}
+		return nil
+	}
+
+	if !opts.ForceRepeat {
+		if err := s.recordAdvanceGuard(ctx, entityType, entityID, currentStatus, opts); err != nil {
+			return err
+		}
+	}
+
+	updated, err := repo.UpdateStatusIfCurrent(ctx, entityID, currentStatus, targetStatus)
+	if err != nil {
+		s.compensateAdvanceGuard(ctx, entityType, entityID, currentStatus, opts)
+		return fmt.Errorf("failed to update %s status: %w", entityType, err)
+	}
+	if !updated {
+		s.compensateAdvanceGuard(ctx, entityType, entityID, currentStatus, opts)
+		return ErrAdvanceGuardStaleFromStatus
+	}
+	return nil
 }
 
 func (s *EntityService) shouldUseAdvanceGuard(opts TransitionOptions) bool {
@@ -371,12 +396,26 @@ func (s *EntityService) recordAdvanceGuard(ctx context.Context, entityType model
 		return fmt.Errorf("advance guard is enabled but no guard repository is configured")
 	}
 	if err := s.advanceGuardRepo.RecordConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
-		if errors.Is(err, ErrAdvanceGuardRepeatRejected) || strings.Contains(err.Error(), "already consumed") {
+		if errors.Is(err, ErrAdvanceGuardRepeatRejected) || errors.Is(err, models.ErrAdvanceGuardAlreadyConsumed) {
 			return ErrAdvanceGuardRepeatRejected
 		}
 		return fmt.Errorf("advance guard record failed: %w", err)
 	}
 	return nil
+}
+
+// compensateAdvanceGuard deletes a consumption record recorded just before a
+// guarded status update that then failed, so the ledger doesn't retain a
+// phantom entry for a transition that never actually applied. Best-effort:
+// a failure here is logged, not propagated, since the caller is already
+// returning the original CAS failure to the user.
+func (s *EntityService) compensateAdvanceGuard(ctx context.Context, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) {
+	if s.advanceGuardRepo == nil || opts.ForceRepeat {
+		return
+	}
+	if err := s.advanceGuardRepo.DeleteConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
+		slog.Warn("failed to compensate advance guard consumption after failed status update", "entity_type", entityType, "entity_id", entityID, "error", err)
+	}
 }
 
 func (s *EntityService) requiresResearchEvidence(fromStatus, targetStatus string) bool {

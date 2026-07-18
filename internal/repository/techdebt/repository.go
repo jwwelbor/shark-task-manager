@@ -257,16 +257,11 @@ func (r *TechDebtRepository) UpdateStatus(ctx context.Context, id int64, status 
 // UpdateStatusIfCurrent atomically updates tech-debt status only when the
 // current stored status still matches expectedStatus (case-insensitive).
 func (r *TechDebtRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.TechDebtStatus, newStatus models.TechDebtStatus) (bool, error) {
-	query := `UPDATE tech_debts SET status = ? WHERE id = ? AND lower(status) = lower(?)`
-	result, err := r.db.ExecContext(ctx, query, newStatus, id, expectedStatus)
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "tech_debts", id, string(expectedStatus), string(newStatus), false)
 	if err != nil {
-		return false, fmt.Errorf("failed to conditionally update tech-debt status: %w", err)
+		return false, fmt.Errorf("conditionally update tech-debt status: %w", err)
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	return rowsAffected > 0, nil
+	return updated, nil
 }
 
 // GetRecent returns the most recently created tech-debt items, ordered by created_at DESC.

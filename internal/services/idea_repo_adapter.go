@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -22,6 +21,7 @@ type IdeaAdapterRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Idea, error)
 	GetByID(ctx context.Context, id int64) (*models.Idea, error)
 	Update(ctx context.Context, idea *models.Idea) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.IdeaStatus, newStatus models.IdeaStatus) (bool, error)
 }
 
 // IdeaRepositoryAdapter wraps a typed idea repository to satisfy
@@ -71,18 +71,7 @@ func (a *IdeaRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, stat
 }
 
 func (a *IdeaRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
-	idea, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("IdeaRepositoryAdapter.UpdateStatusIfCurrent: load: %w", err)
-	}
-	if idea == nil || !strings.EqualFold(string(idea.Status), expectedCurrentStatus) {
-		return false, nil
-	}
-	idea.Status = models.IdeaStatus(newStatus)
-	if err := a.repo.Update(ctx, idea); err != nil {
-		return false, err
-	}
-	return true, nil
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.IdeaStatus(expectedCurrentStatus), models.IdeaStatus(newStatus))
 }
 
 // Update persists all fields of the idea. The entity parameter must be
