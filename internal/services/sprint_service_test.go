@@ -5924,6 +5924,28 @@ func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) 
 	}
 }
 
+func TestGetNextTask_RoleEligibilityForTaskAndChangeCard(t *testing.T) {
+	changeCardStorageType := normalizeBacklogEntityType(entitytype.WorkflowChange)
+	require.Equal(t, "change_card", changeCardStorageType)
+
+	for _, tt := range []struct {
+		name, entityType, status, role, key string
+	}{
+		{name: "task", entityType: entitytype.WorkflowTask, status: "development", role: "developer", key: "task-work"},
+		{name: "change card storage alias", entityType: changeCardStorageType, status: "qa", role: "qa", key: "change-work"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+				roleBacklogItem(tt.entityType, 101, tt.key, tt.status, "legacy-planning-value", 1),
+			})
+			result, err := svc.GetNextTask(context.Background(), tt.role)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.key, result.Key)
+		})
+	}
+}
+
 // A terminal compatibility alias must be filtered before an omitted-role pull.
 func TestGetNextTask_NormalizesTerminalWorkflowAlias(t *testing.T) {
 	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
