@@ -60,6 +60,13 @@ func TestService_IsValidTransition_AliasAware(t *testing.T) {
 	}
 }
 
+func TestService_ValidateTransition_AliasAware(t *testing.T) {
+	svc := aliasService()
+	if err := svc.ValidateTransition("IN_REFINEMENT", "READY_FOR_QA"); err != nil {
+		t.Fatalf("ValidateTransition should normalize aliases and case variants: %v", err)
+	}
+}
+
 func TestService_ResolveAlias(t *testing.T) {
 	svc := aliasService()
 	if got := svc.ResolveAlias("ready_for_refinement"); got != "refinement" {

@@ -33,6 +33,24 @@ func newTestService() *Service {
 	}
 }
 
+func TestNewServiceFromMultiLevel_UsesInMemoryConfig(t *testing.T) {
+	customSprint := &config.WorkflowConfig{
+		StatusFlow: map[string][]string{"queued": {"done"}, "done": {}},
+		SpecialStatuses: map[string][]string{
+			config.StartStatusKey:    {"queued"},
+			config.CompleteStatusKey: {"done"},
+		},
+	}
+	svc := NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Sprint: customSprint})
+
+	if svc.ProjectRoot() != "" {
+		t.Fatalf("ProjectRoot() = %q, want empty for in-memory service", svc.ProjectRoot())
+	}
+	if got := svc.ForLevel(LevelSprint).GetInitialStatusString(); got != "queued" {
+		t.Fatalf("sprint initial status = %q, want queued", got)
+	}
+}
+
 func TestForLevel_Epic(t *testing.T) {
 	svc := newTestService()
 	epicSvc := svc.ForLevel(LevelEpic)

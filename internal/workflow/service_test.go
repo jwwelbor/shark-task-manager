@@ -102,6 +102,16 @@ func TestNewService_MissingConfig(t *testing.T) {
 	assert.NotNil(t, svc.GetWorkflow())
 }
 
+func TestNewService_PreservesProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	config.ClearWorkflowCache()
+	defer config.ClearWorkflowCache()
+
+	svc := NewService(projectRoot)
+	assert.Equal(t, projectRoot, svc.ProjectRoot())
+	assert.Equal(t, projectRoot, svc.ForLevel(LevelSprint).ProjectRoot())
+}
+
 func TestNewService_InvalidConfig(t *testing.T) {
 	// Create config with invalid JSON
 	tempDir := t.TempDir()

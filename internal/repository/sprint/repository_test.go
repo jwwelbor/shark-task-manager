@@ -1921,9 +1921,9 @@ func TestSprintRepository_ListUnassignedBacklog_Performance(t *testing.T) {
 		"ListUnassignedBacklog must complete in < 500ms for 500 entities, got %dms", elapsed.Milliseconds())
 }
 
-// TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned checks that tasks
-// assigned to a research sprint are excluded before the sprint becomes active.
-func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
+// TestSprintRepository_ListUnassignedBacklog_ExcludesAssignedCanonicalWorkflowStatus
+// checks that callers can supply a renamed canonical sprint status.
+func TestSprintRepository_ListUnassignedBacklog_ExcludesAssignedCanonicalWorkflowStatus(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := dbconn.NewDB(database)
@@ -1956,7 +1956,7 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 	require.NoError(t, err)
 	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskAID)
 
-	// Task B: assigned to research sprint — should be excluded.
+	// Task B: assigned to a canonically renamed execution sprint — should be excluded.
 	var taskBID int64
 	err = database.QueryRowContext(ctx,
 		`INSERT INTO tasks (feature_id, key, title, status, priority) VALUES (?, 'BL-E01-F01-002', 'Task B', 'ready_for_development', 5) RETURNING id`,
@@ -1965,10 +1965,10 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskBID)
 
 	sprint := &models.Sprint{
-		Key: "S971", Name: "Research Sprint", Goal: "Research",
+		Key: "S971", Name: "Running Sprint", Goal: "Execution",
 		StartDate: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
 		EndDate:   time.Date(2025, 6, 14, 0, 0, 0, 0, time.UTC),
-		Status:    "research",
+		Status:    "running",
 	}
 	err = repo.Create(ctx, sprint)
 	require.NoError(t, err)
@@ -1982,7 +1982,7 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 		sprint.ID, taskBID)
 	require.NoError(t, err)
 
-	items, err := repo.ListUnassignedBacklog(ctx, []string{"task"})
+	items, err := repo.ListUnassignedBacklog(ctx, []string{"task"}, "planning", "research", "active", "running")
 	require.NoError(t, err)
 
 	keys := make([]string, 0, len(items))
@@ -1993,9 +1993,9 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesAssigned(t *testing.T) {
 	assert.NotContains(t, keys, "BL-E01-F01-002", "assigned task should not be in backlog")
 }
 
-// TestSprintRepository_ListUnassignedBacklog_ExcludesCompleted checks that tasks
-// in terminal statuses (completed, archived, cancelled) are excluded.
-func TestSprintRepository_ListUnassignedBacklog_ExcludesCompleted(t *testing.T) {
+// TestSprintRepository_ListUnassignedBacklog_ProjectsStatusForWorkflowFiltering
+// checks that terminal policy can be applied by SprintService per entity workflow.
+func TestSprintRepository_ListUnassignedBacklog_ProjectsStatusForWorkflowFiltering(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := dbconn.NewDB(database)
@@ -2036,11 +2036,15 @@ func TestSprintRepository_ListUnassignedBacklog_ExcludesCompleted(t *testing.T) 
 	require.NoError(t, err)
 
 	keys := make([]string, 0, len(items))
+	statuses := make(map[string]string, len(items))
 	for _, item := range items {
 		keys = append(keys, item.Key)
+		statuses[item.Key] = item.Status
 	}
 	assert.Contains(t, keys, "BLC-E01-F01-001")
-	assert.NotContains(t, keys, "BLC-E01-F01-002", "completed task should not be in backlog")
+	assert.Contains(t, keys, "BLC-E01-F01-002", "repository must leave terminal policy to the workflow-aware service")
+	assert.Equal(t, "ready_for_development", statuses["BLC-E01-F01-001"])
+	assert.Equal(t, "completed", statuses["BLC-E01-F01-002"])
 }
 
 // TC-012-09: BulkAssign inserts all assignments; GetAssignmentsWithSize returns them.
