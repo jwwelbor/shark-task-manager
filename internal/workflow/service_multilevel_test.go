@@ -33,6 +33,24 @@ func newTestService() *Service {
 	}
 }
 
+func TestNewServiceFromMultiLevel_UsesInMemoryConfig(t *testing.T) {
+	customSprint := &config.WorkflowConfig{
+		StatusFlow: map[string][]string{"queued": {"done"}, "done": {}},
+		SpecialStatuses: map[string][]string{
+			config.StartStatusKey:    {"queued"},
+			config.CompleteStatusKey: {"done"},
+		},
+	}
+	svc := NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Sprint: customSprint})
+
+	if svc.ProjectRoot() != "" {
+		t.Fatalf("ProjectRoot() = %q, want empty for in-memory service", svc.ProjectRoot())
+	}
+	if got := svc.ForLevel(LevelSprint).GetInitialStatusString(); got != "queued" {
+		t.Fatalf("sprint initial status = %q, want queued", got)
+	}
+}
+
 func TestForLevel_Epic(t *testing.T) {
 	svc := newTestService()
 	epicSvc := svc.ForLevel(LevelEpic)
@@ -151,9 +169,9 @@ func TestForLevel_Isolation(t *testing.T) {
 		t.Error("expected epic transition 'draft' -> 'development' to be invalid")
 	}
 
-	// Task: "draft" -> "development" should be valid
-	if !taskSvc.IsValidTransition("draft", "development") {
-		t.Error("expected task transition 'draft' -> 'development' to be valid")
+	// Task: "draft" -> "research" should be valid
+	if !taskSvc.IsValidTransition("draft", "research") {
+		t.Error("expected task transition 'draft' -> 'research' to be valid")
 	}
 
 	// Task: "decomposition" should NOT be a valid task status (epic-only status)
@@ -261,8 +279,8 @@ func TestValidateTransition_ValidTask(t *testing.T) {
 	svc := newTestService()
 	taskSvc := svc.ForLevel(LevelTask)
 
-	// "draft" -> "development" is valid in default task workflow
-	err := taskSvc.ValidateTransition("draft", "development")
+	// "draft" -> "research" is valid in default task workflow
+	err := taskSvc.ValidateTransition("draft", "research")
 	if err != nil {
 		t.Errorf("expected valid transition, got error: %v", err)
 	}

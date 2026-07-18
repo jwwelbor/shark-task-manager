@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -224,6 +225,17 @@ func (m *mockChangeCardEntityRepo) GetByID(ctx context.Context, id int64) (model
 
 func (m *mockChangeCardEntityRepo) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return m.ccRepo.UpdateStatus(ctx, id, models.ChangeCardStatus(status))
+}
+
+func (m *mockChangeCardEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	card, err := m.ccRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if card == nil || !strings.EqualFold(string(card.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+	return true, m.ccRepo.UpdateStatus(ctx, id, models.ChangeCardStatus(newStatus))
 }
 
 func (m *mockChangeCardEntityRepo) Update(ctx context.Context, entity models.Entity) error {
@@ -586,12 +598,12 @@ func TestChangeCardService_TransitionStatus(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "CC-001", "development", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "CC-001", "research", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "development" {
-		t.Errorf("expected status 'development', got %s", result.ToStatus)
+	if result.ToStatus != "research" {
+		t.Errorf("expected status 'research', got %s", result.ToStatus)
 	}
 }
 

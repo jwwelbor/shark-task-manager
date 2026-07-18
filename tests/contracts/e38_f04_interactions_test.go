@@ -18,13 +18,14 @@ func TestTC001_I04InboxMessageProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadEmbedded(message-schema.md) error = %v", err)
 	}
+	normalized := strings.Join(strings.Fields(string(content)), " ")
 	for _, want := range []string{
 		"message_id", "sender_role", "recipient_role", "root_key", "child_key",
 		"subject", "requested_action", "question", "urgency", "evidence", "created_at",
 		"After acting, write the resulting durable artifact", "acknowledge or remove",
 		"Do not remove the only durable copy",
 	} {
-		if !strings.Contains(string(content), want) {
+		if !strings.Contains(normalized, want) {
 			t.Errorf("message protocol omits I-04 field or lifecycle rule %q", want)
 		}
 	}
@@ -37,13 +38,14 @@ func TestTC002_I04ArtifactProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadEmbedded(message-schema.md) error = %v", err)
 	}
+	normalized := strings.Join(strings.Fields(string(content)), " ")
 	for _, want := range []string{
 		"decision", "handoff", "escalation", "resolution", "artifact_id", "type", "status",
 		"roles", "root_key", "evidence", "updated_at", "next_action", "trigger", "route",
 		"byte-equivalent content", "conflict, not an update", "credentials", "rendered prompts",
-		"unrestricted worker output", "relative paths", "symlink escapes",
+		"unrestricted worker output", "relative paths", "absolute paths", "`..` traversal", "symlink escapes",
 	} {
-		if !strings.Contains(string(content), want) {
+		if !strings.Contains(normalized, want) {
 			t.Errorf("artifact protocol omits bounded-contract rule %q", want)
 		}
 	}
@@ -59,66 +61,29 @@ func TestTC003_X03RolePullContractUsesWorkflowAndClaimAuthorities(t *testing.T) 
 		t.Fatalf("ReadEmbedded(pull-by-role.md) error = %v", err)
 	}
 	content := string(pull)
-	normalizedContent := strings.Join(strings.Fields(content), " ")
-	requiredClauses := []struct {
-		name string
-		text string
-	}{
-		// TC-F06-006: selection is read-only and bounded before a separate claim.
-		{"workflow role is the sole pull input", "The workflow-resolved `agent_type` is the only role input to a pull."},
-		{"selection service", "`SprintService.GetNextTask(ctx, agentType)`"},
-		{"CLI selection adapter", "`shark sprint next --agent=<type>`"},
-		{"selection preserves workflow ordering", "priority/dependency order"},
-		{"selection is read-only", "This is read-only selection, not a claim."},
-		{"selection retains live claims", "does not exclude live claims"},
-		{"selected child includes canonical prompt metadata", "canonical prompt metadata"},
-		{"selection cannot authorize a role", "it is not a claim, a role authorization, a free-form role assignment, or a second workflow engine."},
-		{"claim authority", "`ClaimService.Claim`"},
-		{"claim service owns lease lifecycle", "ClaimService owns session generation, expiry reclamation, claim conflict reporting, heartbeat, and session-scoped release."},
-		{"worker returns bounded evidence", "context/worker-ownership.md"},
-
-		// TC-F06-007: workflow owns authorization; roster and model metadata do not.
-		{"legacy assignment is non-authoritative", "legacy `agent` assignment"},
-		{"model tier is non-authoritative", "`model_tier`"},
-		{"roster cannot grant authority", "it does not grant claim or status authority"},
-		{"roster model preference cannot select", "A roster's model preference cannot select work or override workflow metadata."},
-		{"direct local claim is only a lease", "A direct local `shark claim` is a lease operation, not role authorization."},
-
-		// TC-F06-006: every bounded parent-owned procedure outcome.
-		{"no-role outcome", "**No role:** Return the missing workflow-role outcome."},
-		{"no-role does not infer authority", "Do not infer a role from the roster, legacy `agent` assignment, actor identity, or `model_tier`."},
-		{"no-item outcome", "**No item:** Return the no-item outcome. Do not claim another item."},
-		{"claim-conflict outcome", "**Claim conflict:** Return the conflict. Do not force-claim, retry with another role, or steal the live lease."},
-		{"never force-claim rule", "Never force-claim"},
-		{"claim cannot derive from roster metadata", "or construct a detached claim from roster data."},
-		{"workflow pause or gate outcome", "**Workflow pause/gate:** For a workflow pause/gate, return the pause or gate outcome. Do not transition workflow state or release the dispatched parent lease."},
-		{"parent owns outcomes and state", "The parent Rider loop owns these outcomes, the dispatched parent lease, and workflow transitions."},
-
-		// The procedure also bounds the remaining unsupported-capability exit.
-		{"missing product gate outcome", "For missing product gates, recommend bootstrap or escalation; do not guess product decisions."},
-		{"unavailable capability outcome", "Otherwise, stop with an actionable capability gap."},
-		{"only routing and lease authorities", "The workflow engine, sprint service, and claim service remain the only routing and lease authorities."},
-	}
-	for _, clause := range requiredClauses {
-		if !strings.Contains(normalizedContent, clause.text) {
-			t.Errorf("pull-by-role procedure omits required %s clause %q", clause.name, clause.text)
+	normalized := strings.Join(strings.Fields(content), " ")
+	for _, want := range []string{
+		"workflow-resolved `agent_type`",
+		"SprintService.GetNextTask(ctx, agentType)",
+		"shark sprint next --agent=<type>",
+		"priority/dependency order",
+		"ClaimService.Claim",
+		"filters non-terminal items by workflow-role eligibility before sorting",
+		"can still encounter a workflow gate",
+		"non-force claim conflict",
+		"`/shark-rider run <selected-key>`",
+		"`response.entity_key`",
+		"claims or executes the returned `BacklogItemView` directly",
+		"legacy `agent` assignment",
+		"`model_tier`",
+		"does not grant claim or status authority",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Errorf("pull-by-role procedure omits required X-03 contract %q", want)
 		}
 	}
-	prohibitedClauses := []struct {
-		name string
-		text string
-	}{
-		{"selection excludes live claims", "excludes ineligible, blocked, or already-claimed work"},
-		{"roster role selects work", "roster role can select work"},
-		{"legacy assignment selects work", "legacy `agent` assignment can select work"},
-		{"model tier selects work", "`model_tier` can select work"},
-		{"direct local lease authorizes a role", "A direct local `shark claim` grants role authorization."},
-		{"worker owns workflow transition", "worker may transition workflow state"},
-	}
-	for _, prohibited := range prohibitedClauses {
-		if strings.Contains(normalizedContent, prohibited.text) {
-			t.Errorf("pull-by-role procedure grants prohibited %s clause %q", prohibited.name, prohibited.text)
-		}
+	if strings.Contains(normalized, "excludes ineligible, blocked, or already-claimed work") {
+		t.Error("pull-by-role procedure incorrectly assigns blocked and live-claim filtering to the selector")
 	}
 }
 

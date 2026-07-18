@@ -3,9 +3,14 @@
 ## Overview
 
 How an agent executes a shark-tracked entity. Under Shark 2.x the **dispatch
-loop owns the lease and all status transitions** (see `verbs/run.md`). A spawned
-agent does its craft and **returns a semantic outcome** — it does **not** claim,
-advance, or release on its own when driven by `/shark-rider run`.
+loop owns the lease and all status transitions** (see `verbs/run.md`). A
+Rider-dispatched worker does its craft and **returns a semantic outcome plus
+bounded evidence and parent-persistence directives**. It does not mutate lease
+or workflow state for the dispatched entity: it does **not** claim, heartbeat,
+release, advance, or status-set on its own when driven by `/shark-rider run`.
+The worker may still write bounded notes and context for its dispatched entity
+as additive handoff evidence. The parent persists those directives after the
+worker returns.
 
 ## The universal pattern (driven agent)
 
@@ -15,16 +20,22 @@ shark get <key> --json
 
 # 2. WORK: do role-specific work
 
-# 3. SAVE: context and notes for resume/handoff
-shark context set <key> --field current_step --value "..."
-shark create note <key> "..."
-
-# 4. RETURN: a structured outcome to the parent loop
-#    { "outcome": "pass" | "fail" | "blocked", "summary": "...", "note": "..." }
+# 3. RETURN: bounded evidence and directives for the parent loop to persist
+#    {
+#      "outcome": "pass" | "fail" | "blocked",
+#      "summary": "...",
+#      "evidence": ["tests: make test", "docs: docs/design.md"],
+#      "note": "a concise handoff or decision"
+#    }
 ```
 
-The parent then runs `shark status advance <key> --outcome <outcome>` and
-releases the lease. **Do not call advance/claim/release yourself** in this mode.
+The parent persists those directives, runs
+`shark status advance <key> --outcome <outcome>`, and releases the lease. **Do
+not call lease or workflow-transition commands yourself** in this mode. For the
+dispatched entity, the worker never claims, heartbeats, releases, or
+transitions; those mutations remain parent-loop responsibilities. The allowed
+worker writes in this mode are bounded notes and context that capture progress,
+handoff evidence, or a blocker for the parent to interpret.
 
 > Running an entity **by hand** (no `/shark-rider run`)? Then you own the lease:
 > `shark claim` → work → `shark status advance <key> --outcome <…>` → `shark release`.
@@ -55,20 +66,38 @@ shark task notes E01-F02-001
 - **Tech Lead / reviewer**: review code, check coverage
 - **QA / UAT**: run tests, check acceptance criteria, red-team
 
-## Step 3: Save progress & notes
+## Step 3: Return bounded evidence and parent-persistence directives
 
-```bash
-shark context set E01-F02-001 --field current_step --value "Completed implementation"
-shark context set E01-F02-001 --field completed_steps --value '["Tests","Implementation"]'
-shark create note E01-F02-001 "Chose JWT for stateless auth" --type decision
-```
+Write only the smallest Shark evidence the parent loop needs for the dispatched
+entity. Allowed writes are bounded notes and context for progress, decisions,
+handoff evidence, or blockers. Return only the concise information the parent
+needs to persist and route the work:
+
+- A summary and bounded evidence, such as a test command and relevant artifact
+  paths.
+- A `PARENT NOTE: <text>` or `COMPLEXITY NOTE: <text>` directive when the
+  parent should record a decision, handoff, or gate result.
+- A blocker reason with `RECOMMENDED OUTCOME: blocked` when work cannot
+  continue. The parent records the blocker and applies the configured route.
+- Any task kickback in the exact `<task-id> -> <status> --reason "<why>"`
+  format when the workflow calls for it.
+
+The parent validates and persists these directives through the parent-owned
+Rider loop. Keep all evidence and directive text bounded; do not return
+credentials, rendered prompts, unrestricted output, or unrelated paths.
 
 ## Step 4: Return an outcome
 
-Return — do not print a transition — a structured result:
+Return — do not print a transition or issue a Shark mutation — a structured
+result:
 
 ```
-{ "outcome": "pass", "summary": "Implemented POST /api/auth with tests", "note": "endpoint added" }
+{
+  "outcome": "pass",
+  "summary": "Implemented POST /api/auth with tests",
+  "evidence": ["make test", "internal/api/auth.go"],
+  "note": "endpoint added"
+}
 ```
 
 - `pass` — the step's goal is met; parent routes via `outcomes[pass]`.
@@ -77,11 +106,16 @@ Return — do not print a transition — a structured result:
 
 ## Handling blockers
 
-Record the reason as a note and return `blocked` — let the parent route it:
+Return the reason and `blocked` — let the parent persist the blocker and route
+it:
 
-```bash
-shark create note E01-F02-001 "Missing API spec — cannot define contract" --type blocker
-# return { "outcome": "blocked", "summary": "Missing API spec" }
+```
+{
+  "outcome": "blocked",
+  "summary": "Missing API spec — cannot define contract",
+  "note": "Missing API spec — cannot define contract"
+}
+RECOMMENDED OUTCOME: blocked
 ```
 
 Do not hardcode a target status (`ready_for_*` / `in_*`); routing is the

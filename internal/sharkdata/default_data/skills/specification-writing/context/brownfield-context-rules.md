@@ -28,9 +28,9 @@ Every task must include a `## Brownfield Context` section with:
 
 Build Brownfield Context from, in order:
 
-1. Prior-art report
+1. Unified research report and its Capability map
 2. Feature research report
 3. Feature architecture docs
 4. Existing codebase patterns
 
-If the prior-art report marks a capability as REUSE, the task must say not to re-implement it.
+If the research report marks a capability as REUSE, the task must say not to re-implement it.

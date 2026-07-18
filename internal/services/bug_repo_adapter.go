@@ -13,6 +13,7 @@ type BugAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Bug, error)
 	Update(ctx context.Context, bug *models.Bug) error
 	UpdateStatus(ctx context.Context, id int64, status models.BugStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.BugStatus, newStatus models.BugStatus) (bool, error)
 	GetContextData(ctx context.Context, id int64) (*string, error)
 	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
@@ -40,6 +41,10 @@ func (a *BugRepositoryAdapter) GetByID(ctx context.Context, id int64) (models.En
 
 func (a *BugRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
 	return a.repo.UpdateStatus(ctx, id, models.BugStatus(status))
+}
+
+func (a *BugRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	return a.repo.UpdateStatusIfCurrent(ctx, id, models.BugStatus(expectedCurrentStatus), models.BugStatus(newStatus))
 }
 
 func (a *BugRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

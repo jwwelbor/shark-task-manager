@@ -22,8 +22,8 @@ personas: tech-director, product-manager, architect, business-analyst,
 scrum-master, developer, and qa. A project specialist may omit `persona`.
 
 `model_tier` is an optional preference only. It cannot select work, override
-workflow metadata, modify status, or affect a claim. Role responsibilities must
-be scoped to analysis, implementation, review, evidence, or facilitation.
+workflow metadata, modify status, or affect a claim. Use Shark's workflow and
+claim procedures for operational actions.
 
 Keep council memory below `docs/council/`:
 
@@ -44,11 +44,23 @@ creation time. After the recipient acts, acknowledge or remove the message and
 preserve the resulting decision, handoff, unresolved question, or resolution in
 the durable directories. Store bounded paths and metadata, never transcripts.
 
-Workers may read the scoped state, work on authorized children, emit evidence,
-and return a semantic outcome. They never change the dispatched root lease or
-root workflow state. Role-aware self-pull follows resolved workflow role and
-existing priority/dependency ordering; roster membership and model tier grant no
-claim or status authority.
+The protocol has two explicit execution modes:
+
+- In `/shark-rider run`, the Rider parent calls `shark next` and then claims
+  the returned concrete entity, retains that session, and dispatches the
+  canonical prompt. A role-aware self-pull first supplies only a selected key
+  to `/shark-rider run`; it never directly claims or executes the sprint
+  selection. A Rider-dispatched worker performs craft, returns bounded evidence
+  and an outcome, and never claims, heartbeats, releases, selects a replacement
+  entity, or changes the dispatched entity's workflow state.
+- The worker-owned child mode is not `/shark-rider run`. It is available only
+  to an existing coordinator that explicitly delegates an authorized child and
+  retains its separate child-lease lifecycle. Do not hand that child session to
+  the Rider loop or treat it as a Rider-dispatched worker.
+
+Role-aware selection always uses the resolved workflow role and existing
+priority/dependency ordering. Roster membership and model tier grant no claim
+or status authority.
 
 ## Escalation and resume
 
@@ -60,6 +72,12 @@ pause/review. Never invent a fixed human destination.
 A refreshed worker reads durable decisions, handoffs, unresolved escalations,
 and its inbox before acting. Preserve unresolved context with bounded pointers
 so the next worker can continue without relying on prior chat.
+
+## Execution
+
+Use `workflows/execute.md` for the chair-led procedure around an ordinary
+`/shark-rider run` loop. It composes the existing role-pull, escalation, and
+resume workflows; it does not grant the chair workflow or lease authority.
 
 ## Distribution
 

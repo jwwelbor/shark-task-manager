@@ -1,6 +1,6 @@
-# Canonical non-authoritative roster for the embedded shark-attack protocol.
-# Members may advise, implement, review, or facilitate. Workflow routing and
-# claim ownership remain with Shark's existing workflow and claim services.
+# Canonical roster template for the embedded shark-attack protocol.
+# It describes collaboration. Shark's workflow and claim services decide
+# routing, leases, and other operational actions.
 team: shark-attack
 chair: tech-director
 memory_root: docs/council

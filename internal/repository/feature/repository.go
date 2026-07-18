@@ -1154,6 +1154,16 @@ func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, s
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates feature status only when the current
+// stored status still matches expectedStatus (case-insensitive).
+func (r *FeatureRepository) UpdateStatusIfCurrent(ctx context.Context, featureID int64, expectedStatus models.FeatureStatus, newStatus models.FeatureStatus) (bool, error) {
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "features", featureID, string(expectedStatus), string(newStatus), true)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update feature status: %w", err)
+	}
+	return updated, nil
+}
+
 // GetByIDTx retrieves a feature by its ID within an existing transaction.
 // Provides snapshot isolation for cascade idempotency checks (REQ-F-008):
 // reading the entity inside the cascade transaction ensures the in-tx re-fetch

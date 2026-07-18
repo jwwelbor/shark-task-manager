@@ -10,6 +10,7 @@ package dbconn
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -47,4 +48,31 @@ func (db *DB) BeginTxContext(ctx context.Context) (*sql.Tx, error) {
 // Deprecated: use BeginTxContext.
 func (db *DB) BeginTx() (*sql.Tx, error) {
 	return db.Begin()
+}
+
+// ConditionalStatusUpdate atomically changes an entity's status only when it
+// still matches expectedStatus. table must be one of Shark's fixed entity
+// tables; keeping that allowlist here prevents identifiers from becoming a SQL
+// interpolation surface while centralizing compare-and-swap semantics.
+func ConditionalStatusUpdate(ctx context.Context, db *DB, table string, id int64, expectedStatus, newStatus string, touchUpdatedAt bool) (bool, error) {
+	switch table {
+	case "bugs", "change_cards", "epics", "features", "ideas", "sprints", "tech_debts":
+	default:
+		return false, fmt.Errorf("unsupported status table %q", table)
+	}
+
+	setClause := "status = ?"
+	if touchUpdatedAt {
+		setClause += ", updated_at = CURRENT_TIMESTAMP"
+	}
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE id = ? AND lower(status) = lower(?)", table, setClause)
+	result, err := db.ExecContext(ctx, query, newStatus, id, expectedStatus)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("get conditional status update rows affected: %w", err)
+	}
+	return rows > 0, nil
 }

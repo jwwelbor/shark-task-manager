@@ -16,6 +16,24 @@ var (
 
 	// ErrForceReasonRequired indicates --force requires --reason.
 	ErrForceReasonRequired = errors.New("--force requires --reason to document why validation was bypassed")
+
+	// ErrAdvanceGuardSessionRequired indicates guarded advances need a session id.
+	ErrAdvanceGuardSessionRequired = errors.New("advance guard requires --session for guarded advances")
+
+	// ErrAdvanceGuardFromStatusRequired indicates guarded advances need an expected from-status.
+	ErrAdvanceGuardFromStatusRequired = errors.New("advance guard requires --from-status for guarded advances")
+
+	// ErrAdvanceGuardRepeatRejected indicates the guarded advance was already consumed.
+	ErrAdvanceGuardRepeatRejected = errors.New("guarded advance replay rejected")
+
+	// ErrAdvanceGuardStaleFromStatus indicates the entity moved away from the expected status.
+	ErrAdvanceGuardStaleFromStatus = errors.New("guarded advance rejected because the entity is no longer at --from-status")
+
+	// ErrAdvanceGuardForceRepeatNotAllowed indicates the operator attempted an override while disabled in config.
+	ErrAdvanceGuardForceRepeatNotAllowed = errors.New("advance guard override is disabled by config")
+
+	// ErrAdvanceGuardForceRepeatReasonRequired indicates replay overrides must be auditable.
+	ErrAdvanceGuardForceRepeatReasonRequired = errors.New("--force-repeat requires --reason")
 )
 
 // BackwardReasonError is returned when a backward transition is missing a reason.
@@ -39,6 +57,11 @@ type TransitionOptions struct {
 	Reason       string `json:"reason,omitempty"`
 	DocumentPath string `json:"document_path,omitempty"`
 	Agent        string `json:"agent,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	FromStatus   string `json:"from_status,omitempty"`
+	Outcome      string `json:"outcome,omitempty"`
+	ForceRepeat  bool   `json:"force_repeat,omitempty"`
+	GuardAdvance bool   `json:"guard_advance,omitempty"`
 }
 
 // TransitionResult represents the outcome of a status transition.

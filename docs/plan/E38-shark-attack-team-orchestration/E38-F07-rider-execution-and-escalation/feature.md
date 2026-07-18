@@ -50,3 +50,12 @@ Dependencies: E38-F04 and E38-F06; execution order: 3; size: 3 (M).
   new `team` CLI commands.
 - A provider runtime, autonomous agent-team engine, or cross-project worker
   coordinator.
+
+## Research recovery note
+
+The prior task-generation blocker named the wrong required artifact: it called
+for a separate prior-art report. The unified research report now provides the
+required Capability map. The historical blocker remains in Shark for audit
+purposes. The recorded specification and test-plan notes remain authoritative,
+but their files are not present in this checkout and must be restored before
+task generation can resume.

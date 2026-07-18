@@ -32,6 +32,10 @@ type RunOptions struct {
 	// from shark.log.
 	RunID string
 
+	// SessionID is the lease session acquired for this run. Guarded status
+	// advances use it to bind a worker result to this particular run.
+	SessionID string
+
 	// Observability carries the observability configuration for this run. The
 	// controller uses it to decide whether to emit per-stage slog events and
 	// how aggressively to truncate large payloads (stderr/stdout) in error
@@ -431,7 +435,7 @@ func (c *RunController) handleAdvanceStatus(
 	}
 
 	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
-	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
+	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,
@@ -467,6 +471,58 @@ func (c *RunController) handleAdvanceStatus(
 		return stageOutcome{done: true}
 	}
 	return stageOutcome{nextStatus: transResult.ToStatus}
+}
+
+// targetStatusForDispatch resolves a worker's optional semantic outcome to a
+// configured status. Existing prompts that do not emit an outcome retain the
+// pass-first transition contract.
+func targetStatusForDispatch(nextInfo *services.NextStatusInfo, stdout string) (string, error) {
+	if len(nextInfo.AvailableTransitions) == 0 {
+		return "", fmt.Errorf("no transition is available")
+	}
+	outcome, specified := recommendedOutcome(stdout)
+	if !specified {
+		return nextInfo.AvailableTransitions[0].TargetStatus, nil //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	}
+	target, ok := nextInfo.Outcomes[strings.ToLower(outcome)]
+	if !ok {
+		return "", fmt.Errorf("agent recommended unknown outcome %q", outcome)
+	}
+	return target, nil
+}
+
+// guardedTransitionOptions supplies the runner's lease and observed source
+// status to every parent-driven transition. EntityService only enforces these
+// fields when advance_guard is enabled, so legacy workflows keep their existing
+// behavior while guarded deployments cannot bypass replay protection.
+func guardedTransitionOptions(runOpts RunOptions, fromStatus, targetStatus string, nextInfo *services.NextStatusInfo) services.TransitionOptions {
+	outcome := "pass"
+	for candidate, target := range nextInfo.Outcomes {
+		if strings.EqualFold(target, targetStatus) {
+			outcome = candidate
+			break
+		}
+	}
+	return services.TransitionOptions{
+		SessionID:    runOpts.SessionID,
+		FromStatus:   fromStatus,
+		Outcome:      outcome,
+		GuardAdvance: true,
+	}
+}
+
+// recommendedOutcome extracts the explicit final worker recommendation. It
+// intentionally accepts only a whole trimmed line so prose mentioning the
+// phrase cannot alter the workflow route.
+func recommendedOutcome(stdout string) (string, bool) {
+	const prefix = "recommended outcome:"
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) >= len(prefix) && strings.EqualFold(line[:len(prefix)], prefix) {
+			return strings.TrimSpace(line[len(prefix):]), true
+		}
+	}
+	return "", false
 }
 
 func (c *RunController) dryRunNextOutcome(
@@ -781,7 +837,17 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "outcome",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
 
 	// Write the per-dispatch transcript when capture is enabled. Stdout is
 	// DELIBERATELY excluded from the run.stage.complete event because
@@ -810,7 +876,7 @@ func (c *RunController) handleSpawnAgent(
 		TranscriptPath: relPath,
 	})
 
-	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
+	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,

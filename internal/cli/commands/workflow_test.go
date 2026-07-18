@@ -1207,8 +1207,8 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 		expectError   bool
 	}{
 		{
-			name:          "valid_start_from_draft",
-			currentStatus: models.TaskStatus("draft"),
+			name:          "valid_start_from_research",
+			currentStatus: models.TaskStatus("research"),
 			force:         false,
 			expectError:   false,
 		},

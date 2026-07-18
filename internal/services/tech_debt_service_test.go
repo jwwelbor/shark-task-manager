@@ -120,6 +120,17 @@ func (m *mockTDEntityRepo) UpdateStatus(ctx context.Context, id int64, status st
 	return m.tdRepo.UpdateStatus(ctx, id, models.TechDebtStatus(status))
 }
 
+func (m *mockTDEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	td, err := m.tdRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if td == nil || !strings.EqualFold(string(td.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+	return true, m.tdRepo.UpdateStatus(ctx, id, models.TechDebtStatus(newStatus))
+}
+
 func (m *mockTDEntityRepo) Update(ctx context.Context, entity models.Entity) error {
 	td, ok := entity.(*models.TechDebt)
 	if !ok {
@@ -578,12 +589,12 @@ func TestTechDebtService_SetStatus_ValidTransition(t *testing.T) {
 
 	svc := newTechDebtService(repo)
 
-	result, err := svc.TransitionStatus(ctx, "TD-001", "triaged", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "TD-001", "research", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "triaged" {
-		t.Errorf("expected to_status triaged, got %s", result.ToStatus)
+	if result.ToStatus != "research" {
+		t.Errorf("expected to_status research, got %s", result.ToStatus)
 	}
 }
 
@@ -669,8 +680,8 @@ func TestTechDebtService_Triage_FromIdentified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TriageTechDebt() error = %v", err)
 	}
-	if td.Status != "triaged" {
-		t.Errorf("expected status triaged, got %s", td.Status)
+	if td.Status != "research" {
+		t.Errorf("expected status research, got %s", td.Status)
 	}
 	if updatedTD == nil {
 		t.Fatal("expected update to be called")
@@ -786,15 +797,15 @@ func TestTechDebtService_GetStatusOptions(t *testing.T) {
 	if len(options) == 0 {
 		t.Error("expected at least one status option from identified")
 	}
-	// Verify "triaged" is a valid option from "identified"
+	// Verify "research" is a valid option from "identified"
 	found := false
 	for _, opt := range options {
-		if opt == "triaged" {
+		if opt == "research" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected 'triaged' in options, got %v", options)
+		t.Errorf("expected 'research' in options, got %v", options)
 	}
 }

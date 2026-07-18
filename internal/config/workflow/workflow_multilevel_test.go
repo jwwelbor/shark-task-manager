@@ -42,9 +42,9 @@ func TestGetWorkflowForLevel_TaskWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for task level with nil Task")
 	}
-	// Default task workflow (route-based task.yaml) has 6 statuses
-	if len(wf.StatusFlow) != 6 {
-		t.Errorf("expected 6 statuses in default task workflow, got %d", len(wf.StatusFlow))
+	// Default task workflow includes a research gate.
+	if len(wf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default task workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default task workflow")
@@ -100,9 +100,9 @@ func TestGetWorkflowForLevel_Isolation(t *testing.T) {
 		t.Errorf("expected 2 statuses in custom epic workflow, got %d", len(epicWf.StatusFlow))
 	}
 
-	// Task workflow should have default statuses (6)
-	if len(taskWf.StatusFlow) != 6 {
-		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow should include the research gate.
+	if len(taskWf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 }
 
@@ -110,6 +110,16 @@ func TestDefaultEpicWorkflow_PassesValidation(t *testing.T) {
 	wf := DefaultEpicWorkflow()
 	if err := ValidateWorkflow(wf); err != nil {
 		t.Errorf("default epic workflow should pass validation: %v", err)
+	}
+}
+
+func TestDefaultEpicWorkflow_ResearchPrecedesDesign(t *testing.T) {
+	wf := DefaultEpicWorkflow()
+	if got := wf.StatusFlow["research"][0]; got != "design" {
+		t.Fatalf("research pass route = %q, want design", got)
+	}
+	if got := wf.StatusFlow["design"][0]; got != "decomposition" {
+		t.Fatalf("design pass route = %q, want decomposition", got)
 	}
 }
 
@@ -207,9 +217,9 @@ func TestGetWorkflowForLevel_BugWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for bug level with nil Bug")
 	}
-	// Should return default bug workflow with 8 statuses
-	if len(wf.StatusFlow) != 8 {
-		t.Errorf("expected 8 statuses in default bug workflow, got %d", len(wf.StatusFlow))
+	// Should return default bug workflow with the research gate.
+	if len(wf.StatusFlow) != 9 {
+		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default bug workflow")
@@ -238,9 +248,9 @@ func TestGetWorkflowForLevel_ChangeWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for change level with nil Change")
 	}
-	// Should return default change-card workflow with 8 statuses
-	if len(wf.StatusFlow) != 8 {
-		t.Errorf("expected 8 statuses in default change-card workflow, got %d", len(wf.StatusFlow))
+	// Should return default change-card workflow with the research gate.
+	if len(wf.StatusFlow) != 9 {
+		t.Errorf("expected 9 statuses in default change-card workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default change-card workflow")
@@ -398,18 +408,18 @@ func TestGetWorkflowForLevel_BugChangeIsolation(t *testing.T) {
 	taskWf := m.GetWorkflowForLevel("task")
 
 	// Bug workflow should have 8 statuses
-	if len(bugWf.StatusFlow) != 8 {
-		t.Errorf("expected 8 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	if len(bugWf.StatusFlow) != 9 {
+		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
 	// Change workflow should have 8 statuses
-	if len(changeWf.StatusFlow) != 8 {
-		t.Errorf("expected 8 statuses in default change workflow, got %d", len(changeWf.StatusFlow))
+	if len(changeWf.StatusFlow) != 9 {
+		t.Errorf("expected 9 statuses in default change workflow, got %d", len(changeWf.StatusFlow))
 	}
 
 	// Task workflow should still have 6 statuses
-	if len(taskWf.StatusFlow) != 6 {
-		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	if len(taskWf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 
 	// Verify no cross-contamination (both aliases still resolve on their own workflow only)
@@ -433,9 +443,9 @@ func TestGetWorkflowForLevel_TechDebtWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for tech_debt level with nil TechDebt")
 	}
-	// Should return default tech-debt workflow with 6 statuses
-	if len(wf.StatusFlow) != 6 {
-		t.Errorf("expected 6 statuses in default tech-debt workflow, got %d", len(wf.StatusFlow))
+	// Should return default tech-debt workflow with the research gate.
+	if len(wf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default tech-debt workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["identified"]; !ok {
 		t.Error("expected 'identified' status in default tech-debt workflow")
@@ -560,13 +570,13 @@ func TestDefaultTechDebtWorkflow_HasCorrectMetadata(t *testing.T) {
 func TestDefaultTechDebtWorkflow_StatusFlow(t *testing.T) {
 	wf := DefaultTechDebtWorkflow()
 
-	// identified -(pass)-> triaged, plus identified/cancelled/wont_fix via blocked/fail/cancelled/wont_fix
+	// identified -(pass)-> research, plus identified/cancelled/wont_fix.
 	identifiedTransitions := wf.StatusFlow["identified"]
 	if len(identifiedTransitions) != 4 {
 		t.Errorf("expected 4 identified transitions, got %d: %v", len(identifiedTransitions), identifiedTransitions)
 	}
-	if len(identifiedTransitions) > 0 && identifiedTransitions[0] != "triaged" {
-		t.Errorf("expected identified's forward transition to be 'triaged', got %v", identifiedTransitions)
+	if len(identifiedTransitions) > 0 && identifiedTransitions[0] != "research" {
+		t.Errorf("expected identified's forward transition to be 'research', got %v", identifiedTransitions)
 	}
 
 	// triaged -(pass)-> in_progress, plus identified/cancelled/wont_fix
@@ -595,19 +605,19 @@ func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
 	bugWf := m.GetWorkflowForLevel("bug")
 	taskWf := m.GetWorkflowForLevel("task")
 
-	// Tech-debt workflow should have 6 statuses
-	if len(tdWf.StatusFlow) != 6 {
-		t.Errorf("expected 6 statuses in default tech-debt workflow, got %d", len(tdWf.StatusFlow))
+	// Tech-debt workflow should include the research gate.
+	if len(tdWf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default tech-debt workflow, got %d", len(tdWf.StatusFlow))
 	}
 
-	// Bug workflow should have 8 statuses
-	if len(bugWf.StatusFlow) != 8 {
-		t.Errorf("expected 8 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	// Bug workflow should include the research gate.
+	if len(bugWf.StatusFlow) != 9 {
+		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
-	// Task workflow should have 6 statuses
-	if len(taskWf.StatusFlow) != 6 {
-		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow should include the research gate.
+	if len(taskWf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 
 	// Verify no cross-contamination

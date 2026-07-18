@@ -17,16 +17,16 @@ Parse `$ARGUMENTS`:
    Do not call any shark commands.
 4. Parse optional flags:
    - `--size=N` (default: not set — passed through to each `/shark-rider run-agent-team` invocation as-is)
-   - `--features=E##-F##[,E##-F##,...]` (default: not set — dispatch all feature groups)
+   - `--features=E##-F##[,E##-F##,...][,standalone]` (default: not set — dispatch all feature groups and standalone entities). Include the literal keyword `standalone` in the list to include standalone entities (bugs, change-cards, tech-debt without a feature parent) when the filter is active; without it, the filter excludes standalones.
    - `--carryover=<value>` (default: not set — omit from `shark sprint close` if absent)
 
 Store as `SPRINT_KEY`, `TEAM_SIZE`, `FEATURE_FILTER` (parsed as a set of feature keys), `CARRYOVER_VALUE`.
 
 ---
 
-## Step 1: Preconditions (inherited from `/shark-rider run-agent-team`)
+## Step 1: Preconditions
 
-Run all preconditions from the run-agent-team orchestration workflow (Preconditions section), in order, before doing any sprint or entity work:
+Run all of the following preconditions in order before doing any sprint or entity work:
 
 1. **Env var enabled.** Verify `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set in your Claude Code settings (`env` block) or shell environment. If missing, instruct the user to add it and restart Claude Code. **Abort.**
 2. **Version.** `claude --version` must be ≥ `2.1.32`. If older, **abort.**

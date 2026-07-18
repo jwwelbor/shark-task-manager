@@ -78,6 +78,10 @@ func (m *mockNoteEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string) 
 	return nil
 }
 
+func (m *mockNoteEntityRepo) UpdateStatusIfCurrent(_ context.Context, _ int64, _ string, _ string) (bool, error) {
+	return true, nil
+}
+
 func (m *mockNoteEntityRepo) Update(_ context.Context, _ models.Entity) error {
 	return nil
 }

@@ -63,6 +63,10 @@ func buildCloseMockRepo(
 			assert.Equal(t, int64(24), sprintID)
 			return allAssignments, nil
 		},
+		ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprintrepo.BacklogItem, error) {
+			assert.Equal(t, int64(24), sprintID)
+			return backlogItemsForAssignmentStatuses(allAssignments, incompleteAssignments), nil
+		},
 		ListAssignmentsForCarryoverFunc: func(ctx context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
 			assert.Equal(t, int64(24), sprintID)
 			return incompleteAssignments, nil
@@ -519,6 +523,9 @@ func TestSprintService_CloseSprintWithCarryover_AutoCreateNextSprint(t *testing.
 		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
 			return allAssignments, nil
 		},
+		ListBacklogFunc: func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprintrepo.BacklogItem, error) {
+			return backlogItemsForAssignmentStatuses(allAssignments, incompleteAssignments), nil
+		},
 		ListAssignmentsForCarryoverFunc: func(ctx context.Context, sprintID int64, completedStatuses ...string) ([]*models.SprintAssignment, error) {
 			return incompleteAssignments, nil
 		},
@@ -621,4 +628,77 @@ func TestSprintService_CloseSprintWithCarryover_AllCompleted(t *testing.T) {
 	assert.Equal(t, 0, capturedCompletion.CarriedOverCount)
 	assert.Equal(t, 3, capturedCompletion.PlannedEntityCount)
 	assert.Equal(t, 3, capturedCompletion.CompletedEntityCount)
+}
+
+func TestCloseSprintWithCarryover_NormalizesAliasesPerEntityWorkflow(t *testing.T) {
+	ctx := context.Background()
+	runningSprint := &models.Sprint{
+		ID: 24, Key: "S024", Name: "Sprint 24", Status: "running",
+		StartDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 1, 14, 0, 0, 0, 0, time.UTC),
+	}
+	planningSprint := &models.Sprint{ID: 25, Key: "S025", Name: "Sprint 25", Status: "planning"}
+	allAssignments := []*models.SprintAssignment{
+		{ID: 1, SprintID: 24, EntityType: "change_card", EntityID: 101},
+		{ID: 2, SprintID: 24, EntityType: "task", EntityID: 102},
+	}
+
+	getCalls := 0
+	var reassignedIDs []int64
+	var queriedSprintStatuses []string
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			getCalls++
+			if getCalls == 1 {
+				return runningSprint, nil
+			}
+			completed := *runningSprint
+			completed.Status = "completed"
+			return &completed, nil
+		},
+		ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return allAssignments, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprintrepo.BacklogItem, error) {
+			return []*sprintrepo.BacklogItem{
+				{AssignmentID: 1, EntityType: "change_card", EntityID: 101, Status: "cancelled"},
+				{AssignmentID: 2, EntityType: "task", EntityID: 102, Status: "cancelled"},
+			}, nil
+		},
+		ListFunc: func(_ context.Context, filters *sprintrepo.SprintListFilters) ([]*models.Sprint, error) {
+			require.NotNil(t, filters)
+			require.NotNil(t, filters.Status)
+			queriedSprintStatuses = append(queriedSprintStatuses, string(*filters.Status))
+			if *filters.Status == "planning" {
+				return []*models.Sprint{planningSprint}, nil
+			}
+			return []*models.Sprint{}, nil
+		},
+		ReassignToSprintTxFunc: func(_ context.Context, tx *sql.Tx, assignmentIDs []int64, newSprintID int64) error {
+			reassignedIDs = append([]int64(nil), assignmentIDs...)
+			return nil
+		},
+		MaxSprintOrderFunc: func(_ context.Context, sprintID int64) (int, error) {
+			return 0, nil
+		},
+		RenumberAssignmentsTxFunc: func(_ context.Context, tx *sql.Tx, sprintID int64, ops []sprintrepo.RenumberOp) error {
+			return nil
+		},
+		UpdateStatusTxFunc: func(_ context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+			assert.Equal(t, models.SprintStatus("completed"), status)
+			return nil
+		},
+		CreateCompletionTxFunc: func(_ context.Context, tx *sql.Tx, completion *models.SprintCompletion) error {
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, newSprintAliasWorkflowService(), nil, nil, nil, newTestDB(t))
+	result, err := svc.CloseSprintWithCarryover(ctx, "S024", CarryoverNext)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 1, result.CompletedCount, "change-card cancelled is terminal through its configured alias")
+	assert.Equal(t, 1, result.CarriedOverCount, "task cancelled remains open in the task workflow")
+	assert.Equal(t, []int64{2}, reassignedIDs)
+	assert.Contains(t, queriedSprintStatuses, "planning", "canonical planning status must remain discoverable when the phase is keyed by an alias")
 }

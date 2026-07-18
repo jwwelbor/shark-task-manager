@@ -650,8 +650,8 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 27, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 27 (E36 metrics: entity-generic work_sessions + note_type CHECK drop)")
+	assert.Equal(t, 28, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 28 (E38 guarded advances: session/from-status replay protection table)")
 }
 
 func TestMigration_WorkSessionsTaskCascadePreserved(t *testing.T) {

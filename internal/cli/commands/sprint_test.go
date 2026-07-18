@@ -3718,3 +3718,30 @@ func TestSprintStart_TC024_JSONModeNoWarningWhenAllOrdered(t *testing.T) {
 	_, hasWarning := result["warning"]
 	assert.False(t, hasWarning, "JSON output must not include a 'warning' key when count == 0")
 }
+
+// TC-F06-004 — Caller-Path Contract:
+//   - Entrypoint: runSprintNext with --agent=qa.
+//   - Mock seam: sprintAssignmentServicer.GetNextTask.
+//   - Forbidden mocks: Do NOT pre-resolve or substitute the requested role.
+//   - Counter-factual: a CLI that drops the flag or hard-codes developer fails
+//     because the service receives a value other than qa.
+func TestSprintNext_TCF06004_ForwardsNonDefaultWorkflowRole(t *testing.T) {
+	var receivedRole string
+	mock := &MockSprintService{
+		GetNextTaskFunc: func(_ context.Context, agentType string) (*services.BacklogItemView, error) {
+			receivedRole = agentType
+			return nil, nil
+		},
+	}
+
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("agent", "", "agent type")
+	require.NoError(t, cmd.Flags().Set("agent", "qa"))
+
+	require.NoError(t, runSprintNext(cmd, []string{}))
+	assert.Equal(t, "qa", receivedRole)
+}

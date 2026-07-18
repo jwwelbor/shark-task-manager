@@ -370,7 +370,7 @@ func (s *TechDebtService) GetNextStatusForTechDebt(td *models.TechDebt) *NextSta
 }
 
 // TriageTechDebt triages a tech-debt item by setting category, severity, and effort estimate.
-// It advances the status from "identified" to "triaged" if currently in "identified" status.
+// It advances the status from "identified" to "research" if currently in "identified" status.
 // If already past "identified", it updates fields without changing status.
 func (s *TechDebtService) TriageTechDebt(ctx context.Context, key string, input TriageTechDebtInput) (*models.TechDebt, error) {
 	td, err := s.repo.GetByKey(ctx, key)
@@ -399,11 +399,11 @@ func (s *TechDebtService) TriageTechDebt(ctx context.Context, key string, input 
 		td.EffortEstimate = &input.EffortEstimate
 	}
 
-	// Advance to triaged status if currently identified
+	// Classification is captured first; the item then enters mandatory research.
 	validTransitions := s.workflowSvc.GetValidTransitions(string(td.Status))
 	for _, t := range validTransitions {
-		if t == "triaged" {
-			td.Status = "triaged"
+		if t == "research" {
+			td.Status = "research"
 			break
 		}
 	}

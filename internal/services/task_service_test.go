@@ -42,6 +42,7 @@ type MockTaskRepository struct {
 	GetTaskDependenciesFunc           func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	GetTaskDependentsFunc             func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	UpdateStatusFunc                  func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
+	UpdateStatusIfCurrentFunc         func(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error)
 	UpdateStatusForcedFunc            func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 	UpdateStatusForcedWithUnblockFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
 	StatusUpdateRawFunc               func(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
@@ -139,6 +140,16 @@ func (m *MockTaskRepository) UpdateStatus(ctx context.Context, taskID int64, new
 		return m.UpdateStatusFunc(ctx, taskID, newStatus, agent, notes)
 	}
 	return fmt.Errorf("UpdateStatus not implemented in mock")
+}
+
+func (m *MockTaskRepository) UpdateStatusIfCurrent(ctx context.Context, taskID int64, expectedStatus models.TaskStatus, newStatus models.TaskStatus) (bool, error) {
+	if m.UpdateStatusIfCurrentFunc != nil {
+		return m.UpdateStatusIfCurrentFunc(ctx, taskID, expectedStatus, newStatus)
+	}
+	if m.UpdateStatusFunc != nil {
+		return true, m.UpdateStatusFunc(ctx, taskID, newStatus, nil, nil)
+	}
+	return false, fmt.Errorf("UpdateStatusIfCurrent not implemented in mock")
 }
 
 func (m *MockTaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
@@ -1793,7 +1804,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "development", TransitionOptions{
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "research", TransitionOptions{
 		Agent:  "my-agent",
 		Reason: "starting work",
 	})
@@ -1802,7 +1813,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.True(t, result.Transitioned)
 	assert.Equal(t, "draft", result.FromStatus)
-	assert.Equal(t, "development", result.ToStatus)
+	assert.Equal(t, "research", result.ToStatus)
 
 	assert.Equal(t, int64(6), capturedParams.TaskID)
 	assert.Equal(t, "draft", capturedParams.OldStatus)
@@ -1921,7 +1932,7 @@ func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "development", TransitionOptions{
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "research", TransitionOptions{
 		Agent: "dev-agent",
 	})
 
@@ -1929,11 +1940,11 @@ func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, models.EntityTypeTask, result.EntityType)
 	assert.Equal(t, "draft", result.FromStatus)
-	assert.Equal(t, "development", result.ToStatus)
+	assert.Equal(t, "research", result.ToStatus)
 	assert.True(t, result.Transitioned)
 	// Verify StatusUpdateRaw was called via adapter
 	assert.Equal(t, int64(20), capturedParams.TaskID)
-	assert.Equal(t, models.TaskStatus("development"), capturedParams.NewStatus)
+	assert.Equal(t, models.TaskStatus("research"), capturedParams.NewStatus)
 }
 
 // TC-F09-036: taskEntityRepoAdapter routes UpdateStatus through StatusUpdateRaw
@@ -1957,7 +1968,7 @@ func TestTaskService_TransitionStatus_AdapterUsesStatusUpdateRaw(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "development", TransitionOptions{
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "research", TransitionOptions{
 		Agent:        "test-agent",
 		Reason:       "test-reason",
 		DocumentPath: "/docs/test.md",
@@ -2980,7 +2991,7 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 	svc.SetFeatureService(featureSvc)
 
 	// Call TransitionStatus to trigger the recalculateFeatureProgress post-hook.
-	_, err := svc.TransitionStatus(context.Background(), taskKey, "development", TransitionOptions{})
+	_, err := svc.TransitionStatus(context.Background(), taskKey, "research", TransitionOptions{})
 	// TransitionStatus itself should succeed (progress recalc failure is non-fatal).
 	assert.NoError(t, err)
 
@@ -3280,4 +3291,70 @@ func TestTaskService_UpdateTask_ClearSizePrecedence(t *testing.T) {
 	require.NotNil(t, capturedTask, "repo Update must be called")
 	assert.Nil(t, capturedTask.Size,
 		"ClearSize=true must take precedence over Size=ptr(8) — spec D5 contract")
+}
+
+// TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_ProductionPathIsGuarded
+// locks in the fix for the advance_guard bypass defect: taskEntityRepoAdapter
+// is constructed with a non-nil opts field on every real TransitionStatus
+// call (see makeTaskEntityAdapter), so UpdateStatusIfCurrent's opts != nil
+// branch is what production always executes. That branch previously called
+// StatusUpdateRaw unconditionally (no SQL-level status guard at all),
+// silently degrading the compare-and-swap to a stale Go-level cache check.
+// This test fails if that branch ever again calls StatusUpdateRaw without
+// params.Guarded set, or with the wrong OldStatus.
+func TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_ProductionPathIsGuarded(t *testing.T) {
+	var capturedParams models.StatusUpdateParams
+	var captured bool
+	mockRepo := &MockTaskRepository{
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			capturedParams = params
+			captured = true
+			return nil, nil
+		},
+	}
+
+	adapter := &taskEntityRepoAdapter{
+		repo: mockRepo,
+		opts: &statusTransitionOpts{}, // non-nil: mirrors makeTaskEntityAdapter's real construction
+		lastTask: &models.Task{
+			BaseEntity: models.BaseEntity{ID: 42, Key: "T-E07-F01-001"},
+			Status:     "in_progress",
+		},
+	}
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 42, "in_progress", "completed")
+
+	require.NoError(t, err)
+	assert.True(t, ok)
+	require.True(t, captured, "StatusUpdateRaw must have been called")
+	assert.True(t, capturedParams.Guarded,
+		"production path (opts != nil) must set Guarded:true so the UPDATE's WHERE clause enforces the compare-and-swap atomically, not a prior Go-level read")
+	assert.Equal(t, "in_progress", capturedParams.OldStatus,
+		"OldStatus must be the caller's expected status so the SQL guard checks against it, not a possibly-stale cached read")
+}
+
+// TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_StaleRejectionPropagates
+// proves that when the repository reports the guarded update lost the race
+// (models.ErrGuardedUpdateStale), the adapter reports (false, nil) rather
+// than surfacing the sentinel as a hard error or — worse — reporting success.
+func TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_StaleRejectionPropagates(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			return nil, models.ErrGuardedUpdateStale
+		},
+	}
+
+	adapter := &taskEntityRepoAdapter{
+		repo: mockRepo,
+		opts: &statusTransitionOpts{},
+		lastTask: &models.Task{
+			BaseEntity: models.BaseEntity{ID: 42, Key: "T-E07-F01-001"},
+			Status:     "in_progress",
+		},
+	}
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 42, "in_progress", "completed")
+
+	require.NoError(t, err, "a lost CAS race is a normal (false, nil) outcome, not an error")
+	assert.False(t, ok)
 }

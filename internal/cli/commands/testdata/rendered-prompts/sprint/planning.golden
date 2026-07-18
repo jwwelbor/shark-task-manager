@@ -18,13 +18,13 @@ It does NOT decide which sprint strategy to use. It reads capacity and readiness
 ## Command
 
 ```
-/plan-sprint S###                       # Interactive mode (default)
-/plan-sprint S###  --mode=auto          # Greedy-fill with single confirmation
-/plan-sprint S###  --mode=interactive   # Explicit interactive (same as default)
-/plan-sprint S###  --max-add=N          # Limit total entities added this session
+/shark-rider plan-sprint S###                       # Interactive mode (default)
+/shark-rider plan-sprint S###  --mode=auto          # Greedy-fill with single confirmation
+/shark-rider plan-sprint S###  --mode=interactive   # Explicit interactive (same as default)
+/shark-rider plan-sprint S###  --max-add=N          # Limit total entities added this session
 ```
 
-See: `workflows/plan-sprint.md` for the full step-by-step workflow.
+**Read `workflows/plan-sprint.md`** to get the full step-by-step workflow procedure.
 
 ## Modes
 

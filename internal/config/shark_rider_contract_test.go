@@ -66,6 +66,16 @@ func TestSharkRiderHostContract(t *testing.T) {
 	})
 }
 
+func TestSharkRiderRunAliasRoutesToCoreLoop(t *testing.T) {
+	root := findRepoRootForAudit(t)
+	skill := readContractFile(t, root, "skills", "shark-rider", "SKILL.md")
+
+	assert.Contains(t, skill, "`/run <key>` is an alias for `/shark-rider run <key>`")
+	assert.Contains(t, skill, "**`/shark-rider run <key>`** (alias `/run <key>`) — the core loop")
+	assert.Contains(t, skill, "`/shark-rider run` and `/run` both route to `verbs/run.md`")
+	assert.NotContains(t, skill, "`/shark-rider run <key>` is an alias for `/shark-rider run <key>`")
+}
+
 func TestSharkRiderBootstrapChildHandoffContract(t *testing.T) {
 	root := findRepoRootForAudit(t)
 	project := readContractFile(t, root, "skills", "shark-rider", "verbs", "project.md")

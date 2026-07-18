@@ -230,6 +230,17 @@ func (m *mockBugEntityRepo) UpdateStatus(ctx context.Context, id int64, status s
 	return m.bugRepo.UpdateStatus(ctx, id, models.BugStatus(status))
 }
 
+func (m *mockBugEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
+	bug, err := m.bugRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if bug == nil || !strings.EqualFold(string(bug.Status), expectedCurrentStatus) {
+		return false, nil
+	}
+	return true, m.bugRepo.UpdateStatus(ctx, id, models.BugStatus(newStatus))
+}
+
 func (m *mockBugEntityRepo) Update(ctx context.Context, entity models.Entity) error {
 	bug, ok := entity.(*models.Bug)
 	if !ok {
@@ -972,12 +983,12 @@ func TestBugService_TransitionStatus_ValidTransition(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "B001", "development", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "B001", "research", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "development" {
-		t.Errorf("expected status 'development', got %s", result.ToStatus)
+	if result.ToStatus != "research" {
+		t.Errorf("expected status 'research', got %s", result.ToStatus)
 	}
 }
 
@@ -1004,15 +1015,15 @@ func TestBugService_TransitionStatus_ResolvesLegacyAliasCurrentStatus(t *testing
 	historyRecorder := &mockEntityHistoryRecorder{}
 	svc.entitySvc.SetHistoryRepo(historyRecorder)
 
-	result, err := svc.TransitionStatus(ctx, "B001", "development", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "B001", "research", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
 	if result.FromStatus != "reported" {
 		t.Errorf("expected FromStatus to preserve the raw stored value 'reported', got %q", result.FromStatus)
 	}
-	if result.ToStatus != "development" {
-		t.Errorf("expected status 'development', got %s", result.ToStatus)
+	if result.ToStatus != "research" {
+		t.Errorf("expected status 'research', got %s", result.ToStatus)
 	}
 	if len(historyRecorder.created) != 1 {
 		t.Fatalf("expected exactly one history record, got %d", len(historyRecorder.created))
@@ -1230,12 +1241,12 @@ func TestBugService_TransitionStatus_ReturnsResult(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	result, err := svc.TransitionStatus(ctx, "B001", "development", TransitionOptions{})
+	result, err := svc.TransitionStatus(ctx, "B001", "research", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if result.ToStatus != "development" {
-		t.Errorf("expected result ToStatus 'development', got %s", result.ToStatus)
+	if result.ToStatus != "research" {
+		t.Errorf("expected result ToStatus 'research', got %s", result.ToStatus)
 	}
 	if !result.Transitioned {
 		t.Error("expected Transitioned to be true")

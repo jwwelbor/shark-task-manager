@@ -384,6 +384,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	// Step 3b: Construct EntityHistoryRepository for polymorphic history recording
 	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
 	entitySvc.SetHistoryRepo(entityHistoryRepo)
+	entitySvc.SetAdvanceGuard(loadAdvanceGuardConfig(projectRoot), repository.NewAdvanceGuardRepository(db))
 
 	// Step 3c: Construct the shared TagService once and inject it into every
 	// entity service. Mirrors the CLI accessor so both entry points behave
@@ -546,4 +547,14 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		TagService:        tagSvc,
 		SearchService:     searchService,
 	}
+}
+
+func loadAdvanceGuardConfig(projectRoot string) config.AdvanceGuardConfig {
+	cfgPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	mgr := config.NewManager(cfgPath)
+	cfg, err := mgr.Load()
+	if err != nil || cfg == nil {
+		return config.AdvanceGuardConfig{}
+	}
+	return cfg.GetAdvanceGuard()
 }

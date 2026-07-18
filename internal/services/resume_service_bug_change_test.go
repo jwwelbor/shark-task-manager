@@ -28,6 +28,10 @@ func (m *mockResumeEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string
 	return nil
 }
 
+func (m *mockResumeEntityRepo) UpdateStatusIfCurrent(_ context.Context, _ int64, _ string, _ string) (bool, error) {
+	return true, nil
+}
+
 func (m *mockResumeEntityRepo) Update(_ context.Context, _ models.Entity) error {
 	return nil
 }

@@ -39,12 +39,24 @@ type Service struct {
 func NewService(projectRoot string) *Service {
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
 	multi := config.LoadMultiLevelWorkflowOrDefault(configPath)
+	svc := NewServiceFromMultiLevel(multi)
+	svc.projectRoot = projectRoot
+	return svc
+}
+
+// NewServiceFromMultiLevel creates a workflow service from an already-loaded
+// multi-level configuration. It is useful for callers that own configuration
+// loading and for in-memory service tests that must avoid filesystem and global
+// workflow-cache state.
+func NewServiceFromMultiLevel(multi *config.MultiLevelWorkflow) *Service {
+	if multi == nil {
+		multi = &config.MultiLevelWorkflow{}
+	}
 
 	return &Service{
-		workflow:    multi.GetWorkflowForLevel(LevelTask),
-		projectRoot: projectRoot,
-		level:       LevelTask,
-		multiLevel:  multi,
+		workflow:   multi.GetWorkflowForLevel(LevelTask),
+		level:      LevelTask,
+		multiLevel: multi,
 	}
 }
 
@@ -84,6 +96,11 @@ func (s *Service) GetLevel() string {
 	return s.level
 }
 
+// ProjectRoot returns the project root used to resolve workflow resources.
+func (s *Service) ProjectRoot() string {
+	return s.projectRoot
+}
+
 // GetInitialStatusString returns the first entry status as a plain string.
 // Level-agnostic: works for epic, feature, and task levels.
 // Unlike GetInitialStatus() which returns models.TaskStatus, this method
@@ -104,9 +121,10 @@ func (s *Service) GetInitialStatusString() string {
 }
 
 // ValidateTransition checks if a transition is valid and returns a descriptive error if not.
-// Delegates to config.ValidateTransition for the actual check.
+// Compatibility aliases and case variants are normalized before delegating to
+// config.ValidateTransition for the actual check.
 func (s *Service) ValidateTransition(fromStatus, toStatus string) error {
-	return config.ValidateTransition(s.workflow, fromStatus, toStatus)
+	return config.ValidateTransition(s.workflow, s.NormalizeStatus(fromStatus), s.NormalizeStatus(toStatus))
 }
 
 // GetInitialStatus returns the first entry status for new tasks.

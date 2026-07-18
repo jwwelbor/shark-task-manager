@@ -26,10 +26,57 @@ func TestTC103_SharkAttackSetupInstallsProtocolWorkflows(t *testing.T) {
 	assert.Contains(t, string(setup), "overrides/skills/")
 	assert.Contains(t, string(setup), "shark-attack/")
 
-	for _, name := range []string{"communicate.md", "escalate.md", "resume.md"} {
+	for _, name := range []string{"communicate.md", "escalate.md", "execute.md", "resume.md"} {
 		content, readErr := os.ReadFile(filepath.Join(filepath.Dir(setupPath), name))
 		require.NoErrorf(t, readErr, "installed shark-attack workflow %s must exist", name)
 		assert.NotEmptyf(t, content, "installed shark-attack workflow %s must be documented", name)
+	}
+}
+
+// TestTC105_SharkAttackCommunicationWorkflowKeepsBoundedInboxRules verifies
+// the installed communication workflow keeps the durable-artifact-before-ack
+// contract and never grants lease or workflow authority.
+func TestTC105_SharkAttackCommunicationWorkflowKeepsBoundedInboxRules(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	communicate, err := os.ReadFile(filepath.Join(root, SharkDataDirName, "skills", "shark-attack", "workflows", "communicate.md"))
+	require.NoError(t, err)
+	content := strings.Join(strings.Fields(string(communicate)), " ")
+	for _, want := range []string{
+		"docs/council/inbox/<member-id>/",
+		"After acting, write the result as a bounded artifact",
+		"Acknowledge or remove the inbox message only after the durable artifact is present",
+		"Reuse an artifact ID only for byte-equivalent content",
+		"does not claim work, release a root lease, or advance a root workflow state",
+	} {
+		assert.Contains(t, content, want)
+	}
+}
+
+// TestTC008_EmbeddedDistributionRetainsExecutionGuidance verifies installation
+// exposes the F07 procedure without adding a team command or runtime boundary.
+func TestTC008_EmbeddedDistributionRetainsExecutionGuidance(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	execute, err := os.ReadFile(filepath.Join(root, SharkDataDirName, "skills", "shark-attack", "workflows", "execute.md"))
+	require.NoError(t, err)
+	content := string(execute)
+	for _, want := range []string{
+		"`/shark-rider run <root>`",
+		"`pull-by-role.md`",
+		"`escalate.md`",
+		"`resume.md`",
+		"without adding a team runtime, command, claim store, or aggregate status",
+		"do not create a second resume record",
+	} {
+		assert.Contains(t, content, want)
+	}
+	for _, forbidden := range []string{"shark team ", "provider configuration", "chair workflow authority"} {
+		assert.NotContains(t, content, forbidden)
 	}
 }
 

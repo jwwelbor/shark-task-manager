@@ -68,6 +68,13 @@ shark claims                                     # list active leases
   overrides first, then `SHARK_CLAIM_TTL_SECONDS`; `0` disables expiry).
 - `shark next <root>` hands out only **unclaimed** entities.
 
+When `.sharkconfig.json` enables `advance_guard`, bind the advance to that
+claim and the status returned by `shark next`:
+
+```bash
+shark status advance E01-F02-001 --outcome pass --session "$SID" --from-status "in_progress"
+```
+
 ## Orchestrator actions in responses
 
 When reading/advancing an entity, the JSON may include routing instructions:

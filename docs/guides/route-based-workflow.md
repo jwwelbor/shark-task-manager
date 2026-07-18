@@ -90,6 +90,13 @@ route is the authority — and records the outcome as the transition reason. An
 unknown outcome lists the valid set. `shark status set <key> <status> --force`
 remains the human escape hatch for direct status changes.
 
+If `.sharkconfig.json` enables `advance_guard`, parent-run advances must also
+send the claim session id and expected current status:
+
+```bash
+shark status advance E07-F01-001 --outcome fail --session "$SID" --from-status qa
+```
+
 ---
 
 ## 3. Master index & bundle-rooted resolution
@@ -152,7 +159,7 @@ loop:
   shark claim <entity> --by <agent> # acquire the lease (session id)
   ... run the agent for the step ...
   shark heartbeat <entity> --session <sid> --progress <p>   # periodically
-  shark status advance <entity> --outcome <pass|fail|blocked>   # release outcome
+  shark status advance <entity> --outcome <pass|fail|blocked> --session <sid> --from-status <status>
   shark release <entity> --session <sid>                    # release the lease
   goto loop
 ```

@@ -47,6 +47,18 @@ func (m *MockTransitioner) GetNextStatus(ctx context.Context, key string) (*serv
 	return nil, fmt.Errorf("MockTransitioner.GetNextStatus not implemented")
 }
 
+func TestGuardedTransitionOptions_BindsRunLeaseAndSourceStatus(t *testing.T) {
+	next := &services.NextStatusInfo{Outcomes: map[string]string{"blocked": "waiting", "pass": "completed"}}
+	opts := guardedTransitionOptions(RunOptions{SessionID: "lease-123"}, "in_progress", "completed", next)
+
+	if !opts.GuardAdvance {
+		t.Fatal("runner transitions must opt into advance-guard enforcement")
+	}
+	if opts.SessionID != "lease-123" || opts.FromStatus != "in_progress" || opts.Outcome != "pass" {
+		t.Fatalf("guarded options = %+v, want lease, source status, and resolved outcome", opts)
+	}
+}
+
 // MockPlaceholderGen implements PlaceholderGenerator for testing.
 type MockPlaceholderGen struct {
 	GenerateFunc func(ctx context.Context, key string) (map[string]string, error)
@@ -545,6 +557,53 @@ func TestRunController_DispatcherSelection_DefaultProvider(t *testing.T) {
 	}
 	if result.Outcome != "completed" {
 		t.Errorf("expected Outcome=completed, got %s", result.Outcome)
+	}
+}
+
+func TestRunController_SpawnAgentUsesRecommendedOutcome(t *testing.T) {
+	getNextCalls := 0
+	var transitionedTo string
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			getNextCalls++
+			if getNextCalls > 2 {
+				return &services.NextStatusInfo{CurrentStatus: "completed", IsTerminal: true}, nil
+			}
+			return &services.NextStatusInfo{
+				CurrentStatus: "research",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "specification"}},
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "task_generation"}},
+				},
+				Outcomes: map[string]string{"pass": "specification", "simple": "task_generation"},
+			}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionedTo = target
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "research"}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{ExitCode: 0, Stdout: "Completed research.\nRECOMMENDED OUTCOME: simple"}, nil
+		}},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "E07-F01", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome != "completed" {
+		t.Fatalf("Run() outcome = %q, want completed", result.Outcome)
+	}
+	if transitionedTo != "task_generation" {
+		t.Fatalf("TransitionStatus() target = %q, want task_generation", transitionedTo)
 	}
 }
 

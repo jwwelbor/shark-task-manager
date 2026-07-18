@@ -6,14 +6,14 @@ inputs:
   - parent_epic_id: opaque epic identifier (string)
   - parent_epic_tech_doc_paths: list of absolute paths — parent epic's tech docs (architecture, feasibility, risks, integration map)
   - research_report_path: absolute path to the feature's research report (optional; from the research phase)
-  - prior_art_report_path: absolute path to feature-level `prior-art-report.md` from consult-related-work workflow (REQUIRED — host must produce this before calling craft)
+  - research_report_path: absolute path to the feature's validated unified research report (REQUIRED)
   - complexity_tier: "SIMPLE" | "STANDARD" | "COMPLEX" (optional; if not provided, craft assesses from feature)
 outputs:
   - feature_signals: object with {complexity_tier, has_user_facing_changes, has_api_changes, has_schema_changes, has_ui_changes, has_cross_epic_dependencies, has_explicit_nfrs, has_rollout_complexity}
   - planned_docs: list of doc_type strings — required + INCLUDED optional tech docs
   - excluded_docs: list of {doc_type, exclusion_reason} for every optional doc that was EXCLUDED
   - decision_log: human-readable line summarizing the plan
-  - capability_map_summary: short summary of REUSE/EXTEND/RE-IMPLEMENT capabilities pulled from prior-art-report
+  - capability_map_summary: short summary of REUSE/EXTEND/NEW capabilities pulled from the research report
 ---
 
 # Workflow: Feature Tech Plan (craft)
@@ -31,7 +31,7 @@ specified before tasks are generated. Implementation agents read these; they do 
 them.
 
 The rigor of this step is the foundation for implementable tasks. As at the epic level,
-sibling-feature architecture must be consulted via a prior-art report — capabilities marked
+sibling-feature architecture must be consulted via the research report's Capability map — capabilities marked
 REUSE / EXTEND should reference sibling designs rather than duplicate them in new docs.
 
 ---
@@ -43,11 +43,11 @@ Read the inputs:
 1. Feature BA docs at `feature_ba_doc_paths` (just validated by BA check).
 2. Parent epic tech docs at `parent_epic_tech_doc_paths` (architecture, feasibility, risks).
 3. `research_report_path` (if provided) — critical for brownfield analysis.
-4. `prior_art_report_path` — **MANDATORY**. Produced by the consult-related-work workflow
+4. `research_report_path` — **MANDATORY**. Produced by the unified research phase
    during the feature's research phase. If this report is missing, STOP and surface that as an
-   upstream gate failure — the host must run consult-related-work first.
+   upstream gate failure — the entity must complete its unified research phase first.
 
-**Sibling-feature architecture reading is mandatory.** The prior-art report enumerates sibling
+**Sibling-feature architecture reading is mandatory.** The research report enumerates sibling
 features under the same epic, pulls their `02-architecture.md`, `03-data-design.md`,
 `04-backend-design.md`, and ADRs, and produces a Capability Map with REUSE / EXTEND /
 RE-IMPLEMENT verdicts per capability. Reuse signals from this map drive your decision tree
@@ -61,9 +61,9 @@ Extract these signals into `feature_signals`:
 - **Cross-epic dependencies**: What existing systems does this touch?
 - **Performance/security signals**: Are there explicit NFRs?
 - **Rollout complexity**: Feature flags, migrations, phased rollout needed?
-- **Reuse signals from prior-art-report**: Which capabilities are REUSE/EXTEND from siblings?
+- **Reuse signals from the Capability map**: Which capabilities are REUSE/EXTEND from siblings?
 
-Also produce `capability_map_summary` — a short prose summary of the prior-art Capability Map
+Also produce `capability_map_summary` — a short prose summary of the research report's Capability map
 that becomes the trace evidence that REUSE/EXTEND decisions are honored downstream.
 
 ---
@@ -121,7 +121,7 @@ depth bars the tech-check applies — planning to "include" a doc is a commitmen
 - Integration points with existing components.
 - Decision log: key architectural choices and rationale.
 - For SIMPLE: existing patterns used, 1–2 pages max.
-- Where the prior-art Capability Map says REUSE/EXTEND, reference the sibling design rather
+- Where the Capability map says REUSE/EXTEND, reference the sibling design rather
   than re-derive it.
 
 **`03-data-design.md`** (when included):
@@ -169,7 +169,7 @@ to the ACT phase.
 
 ## Anti-Patterns to Avoid
 
-- **Do NOT** plan tech docs without first consuming the prior-art report. Skipping it produces
+- **Do NOT** plan tech docs without first consuming the research report. Skipping it produces
   duplicate architecture work and contradicts capability decisions sibling features made.
 - **Do NOT** plan to write a placeholder doc to satisfy the list — depth requirements are
   enforced at tech check.

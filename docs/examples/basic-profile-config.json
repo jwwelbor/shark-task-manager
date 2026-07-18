@@ -4,6 +4,11 @@
     "url": "./shark-tasks.db"
   },
   "color_enabled": true,
+  "advance_guard": {
+    "enabled": false,
+    "mode": "session_from_status",
+    "allow_repeat_with_force": true
+  },
   "status_metadata": {
     "todo": {
       "color": "gray",

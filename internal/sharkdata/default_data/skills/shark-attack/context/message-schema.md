@@ -1,13 +1,13 @@
 # Use bounded council messages and artifacts
 
-Use this contract for files below the configured council root, normally
-`docs/council/`. It preserves scoped evidence across worker refreshes. It does
-not grant workflow, status, or claim authority.
+Use this contract for files below `docs/council/`. It preserves scoped
+evidence across worker refreshes. It does not grant workflow, status, or claim
+authority.
 
 ## Create an inbox message
 
-Write one YAML file at `inbox/<recipient-role>/<message-id>.yaml`. Use stable,
-lowercase, hyphenated IDs for the recipient role and message ID.
+Write one YAML file at `inbox/<member-id>/<message-id>.yaml`. Use stable,
+lowercase, hyphenated roster IDs for the inbox owner and message ID.
 
 ```yaml
 message_id: msg-001

@@ -209,6 +209,16 @@ func (r *BugRepository) UpdateStatus(ctx context.Context, id int64, status model
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates bug status only when the current
+// stored status still matches expectedStatus (case-insensitive).
+func (r *BugRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.BugStatus, newStatus models.BugStatus) (bool, error) {
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "bugs", id, string(expectedStatus), string(newStatus), false)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update bug status: %w", err)
+	}
+	return updated, nil
+}
+
 // GetNextKey returns the next available bug key (e.g., B001, B002, ...).
 func (r *BugRepository) GetNextKey(ctx context.Context) (string, error) {
 	query := `SELECT COALESCE(MAX(CAST(SUBSTR(key, 2) AS INTEGER)), 0) FROM bugs`

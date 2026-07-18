@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/research"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"go.opentelemetry.io/otel"
@@ -94,7 +95,7 @@ type SprintRepository interface {
 // Implemented by *sprint.SprintRepository — no separate type needed.
 type SprintAssignmentQueryRepository interface {
 	BulkAssign(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error)
-	ListUnassignedBacklog(ctx context.Context, entityTypes []string) ([]sprint.BacklogItem, error)
+	ListUnassignedBacklog(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error)
 	GetAssignmentsWithSize(ctx context.Context, sprintID int64) ([]sprint.AssignmentWithSize, error)
 }
 
@@ -215,7 +216,7 @@ func (s *SprintService) CreateSprint(ctx context.Context, input CreateSprintInpu
 	filePath := filepath.Join("docs", "plan", "sprints", key+".md")
 
 	// Get default status from workflow
-	initialStatus := s.workflowSvc.GetInitialStatusString()
+	initialStatus := s.workflowSvc.NormalizeStatus(s.workflowSvc.GetInitialStatusString())
 
 	// Create sprint model
 	newSprint := &models.Sprint{
@@ -296,16 +297,16 @@ func (s *SprintService) ListSprints(ctx context.Context, filters *SprintListFilt
 	ctx, span := s.getTracer().Start(ctx, "SprintService.ListSprints")
 	defer span.End()
 
-	// Convert service-level filter to repository filter
-	var repoFilters *sprint.SprintListFilters
+	var sprints []*models.Sprint
+	var err error
 	if filters != nil && filters.Status != "" {
-		status := models.SprintStatus(filters.Status)
-		repoFilters = &sprint.SprintListFilters{
-			Status: &status,
-		}
+		sprints, err = s.listSprintsByExactStatuses(
+			ctx,
+			workflowStatusVocabulary(s.workflowSvc, []string{filters.Status}),
+		)
+	} else {
+		sprints, err = s.repo.List(ctx, nil)
 	}
-
-	sprints, err := s.repo.List(ctx, repoFilters)
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to list sprints: %w", err))
 	}
@@ -322,6 +323,32 @@ func (s *SprintService) ListSprints(ctx context.Context, filters *SprintListFilt
 		return filters.Status
 	}(), "count", len(sprints))
 	return sprints, nil
+}
+
+func (s *SprintService) listSprintsByExactStatuses(ctx context.Context, statuses []string) ([]*models.Sprint, error) {
+	var result []*models.Sprint
+	seenSprintIDs := make(map[int64]bool)
+	for _, status := range statuses {
+		statusValue := models.SprintStatus(status)
+		statusSprints, err := s.repo.List(ctx, &sprint.SprintListFilters{Status: &statusValue})
+		if err != nil {
+			return nil, err
+		}
+		for _, candidate := range statusSprints {
+			if !seenSprintIDs[candidate.ID] {
+				seenSprintIDs[candidate.ID] = true
+				result = append(result, candidate)
+			}
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return result, nil
+}
+
+func (s *SprintService) listSprintsByWorkflowStatuses(ctx context.Context, statuses []string) ([]*models.Sprint, error) {
+	return s.listSprintsByExactStatuses(ctx, workflowStatusVocabulary(s.workflowSvc, statuses))
 }
 
 // UpdateSprint updates an existing sprint.
@@ -411,7 +438,7 @@ func (s *SprintService) DeleteSprint(ctx context.Context, key string) error {
 
 	// Only allow deletion of sprints in the initial (planning) status.
 	initialStatus := s.workflowSvc.GetInitialStatusString()
-	if !strings.EqualFold(string(sprint.Status), initialStatus) {
+	if !workflowStatusMatchesAny(s.workflowSvc, string(sprint.Status), []string{initialStatus}) {
 		return recordSpanError(span, fmt.Errorf("cannot delete sprint %s in status %s: only sprints in %s status can be deleted", key, sprint.Status, initialStatus))
 	}
 
@@ -457,6 +484,15 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	}
 	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), activeStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
+	}
+	if s.workflowSvc.ProjectRoot() != "" && workflowStatusMatchesAny(
+		s.workflowSvc,
+		string(sprint.Status),
+		s.workflowSvc.GetStatusesByPhase("research"),
+	) {
+		if err := research.ValidateEntity(s.workflowSvc.ProjectRoot(), sprint); err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s from research: %w", key, err))
+		}
 	}
 
 	// Update status
@@ -854,10 +890,14 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 // execution phase, with within-phase order preserved from workflow.Service.
 // "planning" and "execution" are YAML phase labels, not status names.
 func (s *SprintService) assignableSprintStatuses() []string {
+	return s.sprintStatusesForPhases("planning", "execution")
+}
+
+func (s *SprintService) sprintStatusesForPhases(phases ...string) []string {
 	seen := make(map[string]bool)
 	var result []string
-	for _, phase := range []string{"planning", "execution"} {
-		for _, status := range s.workflowSvc.GetStatusesByPhase(phase) {
+	for _, phase := range phases {
+		for _, status := range canonicalWorkflowStatuses(s.workflowSvc, s.workflowSvc.GetStatusesByPhase(phase)) {
 			if !seen[status] {
 				seen[status] = true
 				result = append(result, status)
@@ -865,6 +905,13 @@ func (s *SprintService) assignableSprintStatuses() []string {
 		}
 	}
 	return result
+}
+
+func (s *SprintService) assignmentOccupyingSprintStatuses() []string {
+	return workflowStatusVocabulary(
+		s.workflowSvc,
+		s.sprintStatusesForPhases("planning", "research", "execution"),
+	)
 }
 
 // statusInPhase returns the designated status of the configured sprint
@@ -875,7 +922,15 @@ func (s *SprintService) assignableSprintStatuses() []string {
 // the sprint lifecycle never picks one arbitrarily.
 func (s *SprintService) statusInPhase(phase, fallback string) (string, error) {
 	status, err := s.workflowSvc.StatusForPhase(phase)
-	return selectorWithFallback(fallback, status, err)
+	return s.canonicalSelectorWithFallback(fallback, status, err)
+}
+
+func (s *SprintService) canonicalSelectorWithFallback(fallback, status string, err error) (string, error) {
+	selected, selectErr := selectorWithFallback(fallback, status, err)
+	if selectErr != nil {
+		return "", selectErr
+	}
+	return s.workflowSvc.NormalizeStatus(selected), nil
 }
 
 // selectorWithFallback resolves a named-selector result: the selected status
@@ -914,7 +969,7 @@ func (s *SprintService) reviewPhaseStatus() (string, error) {
 // code changes.
 func (s *SprintService) terminalSprintStatus() (string, error) {
 	status, err := s.workflowSvc.ArchiveTerminalStatus()
-	return selectorWithFallback("archived", status, err)
+	return s.canonicalSelectorWithFallback("archived", status, err)
 }
 
 // completedSprintStatus returns the "done"-phase status a sprint moves to
@@ -925,7 +980,7 @@ func (s *SprintService) terminalSprintStatus() (string, error) {
 // CompletedSprintStatus).
 func (s *SprintService) completedSprintStatus() (string, error) {
 	status, err := s.workflowSvc.CompletedSprintStatus()
-	return selectorWithFallback("completed", status, err)
+	return s.canonicalSelectorWithFallback("completed", status, err)
 }
 
 // sprintAcceptsAssignments reports whether a sprint in the given status may
@@ -936,12 +991,7 @@ func (s *SprintService) completedSprintStatus() (string, error) {
 // Comparison is case-insensitive, matching workflow.Service's other status
 // comparison helpers (IsTerminalStatus, IsValidTransition).
 func (s *SprintService) sprintAcceptsAssignments(status string) bool {
-	for _, accepting := range s.assignableSprintStatuses() {
-		if strings.EqualFold(accepting, status) {
-			return true
-		}
-	}
-	return false
+	return workflowStatusMatchesAny(s.workflowSvc, status, s.assignableSprintStatuses())
 }
 
 // computeCapacityWarning returns a non-nil CapacityWarning if adding an entity
@@ -1097,16 +1147,24 @@ type ReorderTarget struct {
 	Bottom   bool // move to position max+1 (last)
 }
 
+var sprintAssignableWorkflowLevels = []string{
+	entitytype.WorkflowTask,
+	entitytype.WorkflowBug,
+	entitytype.WorkflowChange,
+	entitytype.WorkflowTechDebt,
+}
+
 // validBacklogEntityTypes is the allowlist of storage entity types accepted by
 // GetSprintBacklog's EntityType filter. The service validates against this set
 // before passing to the repository to prevent invalid values from reaching the
 // UNION query.
-var validBacklogEntityTypes = map[string]bool{
-	"task":        true,
-	"bug":         true,
-	"change_card": true,
-	"tech_debt":   true,
-}
+var validBacklogEntityTypes = func() map[string]bool {
+	result := make(map[string]bool, len(sprintAssignableWorkflowLevels))
+	for _, level := range sprintAssignableWorkflowLevels {
+		result[normalizeBacklogEntityType(level)] = true
+	}
+	return result
+}()
 
 func normalizeBacklogEntityType(raw string) string {
 	normalized := entitytype.WorkflowLevelOrSelf(raw)
@@ -1147,13 +1205,7 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 	effectiveView := opts.View
 	if effectiveView == "" {
 		executionStatuses := s.workflowSvc.GetStatusesByPhase("execution")
-		isExecution := false
-		for _, es := range executionStatuses {
-			if strings.EqualFold(string(sprintEntity.Status), es) {
-				isExecution = true
-				break
-			}
-		}
+		isExecution := workflowStatusMatchesAny(s.workflowSvc, string(sprintEntity.Status), executionStatuses)
 		if isExecution {
 			effectiveView = "ordered"
 		} else {
@@ -1175,9 +1227,10 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 	}
 
 	// Step 4: Determine blocked statuses from workflow service (never hardcode "blocked")
+	entityWorkflowIndex := newSprintEntityWorkflowIndex(s.workflowSvc)
 	var blockedStatuses []string
 	if opts.BlockedOnly {
-		blockedStatuses = s.workflowSvc.GetStatusesByPhase("blocked")
+		blockedStatuses = entityWorkflowIndex.blockedStatusVocabulary()
 		if len(blockedStatuses) == 0 {
 			// Fallback: use "blocked" as the default if the workflow has no "blocked" phase
 			blockedStatuses = []string{"blocked"}
@@ -1189,22 +1242,22 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to list backlog for sprint %s: %w", sprintKey, err)
 	}
+	if opts.BlockedOnly {
+		filtered := make([]*sprint.BacklogItem, 0, len(items))
+		for _, item := range items {
+			if entityWorkflowIndex.isBlocked(item.EntityType, item.Status) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 
 	totalCount := len(items)
 	completedCount := 0
 
-	// Build per-entity-type terminal status sets once, outside the item loop.
-	// Keyed by the entity_type string stored in sprint_assignments.
-	terminalStatusesByEntityType := map[string]map[string]bool{
-		"task":        terminalSet(s.workflowSvc.ForLevel(workflow.LevelTask)),
-		"bug":         terminalSet(s.workflowSvc.ForLevel(workflow.LevelBug)),
-		"change_card": terminalSet(s.workflowSvc.ForLevel(workflow.LevelChange)),
-		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
-	}
-
 	// Count completed items across both view modes.
 	for _, item := range items {
-		if terminals, ok := terminalStatusesByEntityType[item.EntityType]; ok && terminals[item.Status] {
+		if entityWorkflowIndex.isTerminal(item.EntityType, item.Status) {
 			completedCount++
 		}
 	}
@@ -1339,6 +1392,108 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 	return v
 }
 
+type sprintEntityWorkflowIndex struct {
+	workflows        map[string]*workflow.Service
+	terminalStatuses map[string]map[string]bool
+	blockedStatuses  map[string]map[string]bool
+}
+
+func newSprintEntityWorkflowIndex(sprintWorkflow *workflow.Service) sprintEntityWorkflowIndex {
+	index := sprintEntityWorkflowIndex{
+		workflows:        make(map[string]*workflow.Service, len(sprintAssignableWorkflowLevels)),
+		terminalStatuses: make(map[string]map[string]bool),
+		blockedStatuses:  make(map[string]map[string]bool),
+	}
+	for _, level := range sprintAssignableWorkflowLevels {
+		index.workflows[normalizeBacklogEntityType(level)] = sprintWorkflow.ForLevel(level)
+	}
+	for entityType, entityWorkflow := range index.workflows {
+		index.terminalStatuses[entityType] = terminalSet(entityWorkflow)
+		blockedStatuses := entityWorkflow.GetStatusesByPhase("blocked")
+		if len(blockedStatuses) == 0 {
+			blockedStatuses = []string{"blocked"}
+		}
+		index.blockedStatuses[entityType] = normalizedStatusSet(entityWorkflow, blockedStatuses)
+	}
+	return index
+}
+
+func (i sprintEntityWorkflowIndex) workflowFor(entityType string) (*workflow.Service, string, bool) {
+	storageEntityType := normalizeBacklogEntityType(entityType)
+	entityWorkflow, ok := i.workflows[storageEntityType]
+	return entityWorkflow, storageEntityType, ok
+}
+
+func (i sprintEntityWorkflowIndex) isTerminal(entityType, status string) bool {
+	entityWorkflow, storageEntityType, ok := i.workflowFor(entityType)
+	return ok && i.terminalStatuses[storageEntityType][workflowStatusKey(entityWorkflow, status)]
+}
+
+func (i sprintEntityWorkflowIndex) isBlocked(entityType, status string) bool {
+	entityWorkflow, storageEntityType, ok := i.workflowFor(entityType)
+	return ok && i.blockedStatuses[storageEntityType][workflowStatusKey(entityWorkflow, status)]
+}
+
+func (i sprintEntityWorkflowIndex) openBacklogItems(items []sprint.BacklogItem) []sprint.BacklogItem {
+	result := make([]sprint.BacklogItem, 0, len(items))
+	for _, item := range items {
+		if !i.isTerminal(item.EntityType, item.Status) {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func (i sprintEntityWorkflowIndex) blockedStatusVocabulary() []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, level := range sprintAssignableWorkflowLevels {
+		entityType := normalizeBacklogEntityType(level)
+		entityWorkflow := i.workflows[entityType]
+		blockedStatuses := entityWorkflow.GetStatusesByPhase("blocked")
+		if len(blockedStatuses) == 0 {
+			blockedStatuses = []string{"blocked"}
+		}
+		for _, status := range workflowStatusVocabulary(entityWorkflow, blockedStatuses) {
+			if !seen[status] {
+				seen[status] = true
+				result = append(result, status)
+			}
+		}
+	}
+	return result
+}
+
+type sprintPullWorkflowIndex struct {
+	entityWorkflows  sprintEntityWorkflowIndex
+	requestedRole    string
+	eligibleStatuses map[string]map[string]bool
+}
+
+func newSprintPullWorkflowIndex(sprintWorkflow *workflow.Service, requestedRole string) sprintPullWorkflowIndex {
+	index := sprintPullWorkflowIndex{
+		entityWorkflows:  newSprintEntityWorkflowIndex(sprintWorkflow),
+		requestedRole:    requestedRole,
+		eligibleStatuses: make(map[string]map[string]bool),
+	}
+	for entityType, entityWorkflow := range index.entityWorkflows.workflows {
+		index.eligibleStatuses[entityType] = normalizedStatusSet(entityWorkflow, entityWorkflow.GetStatusesByAgentType(requestedRole))
+	}
+	return index
+}
+
+func (i sprintPullWorkflowIndex) allows(entityType, status string) bool {
+	entityWorkflow, storageEntityType, ok := i.entityWorkflows.workflowFor(entityType)
+	if !ok {
+		return false
+	}
+	canonicalStatus := workflowStatusKey(entityWorkflow, status)
+	if i.entityWorkflows.terminalStatuses[storageEntityType][canonicalStatus] {
+		return false
+	}
+	return i.requestedRole == "" || i.eligibleStatuses[storageEntityType][canonicalStatus]
+}
+
 // GetNextTask returns the single next eligible item to work on from the active sprint.
 // Selection logic (four-tier stable sort, TD-8):
 //  1. sprint_order ASC NULLS LAST (ordered items before unordered)
@@ -1364,19 +1519,9 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 		executionStatuses = []string{"active"}
 	}
 
-	var executionSprints []*models.Sprint
-	seenSprintIDs := make(map[int64]bool)
-	for _, execStatus := range executionStatuses {
-		statusSprints, err := s.ListSprints(ctx, &SprintListFilters{Status: execStatus})
-		if err != nil {
-			return nil, fmt.Errorf("failed to list sprints in execution phase: %w", err)
-		}
-		for _, sp := range statusSprints {
-			if !seenSprintIDs[sp.ID] {
-				seenSprintIDs[sp.ID] = true
-				executionSprints = append(executionSprints, sp)
-			}
-		}
+	executionSprints, err := s.listSprintsByWorkflowStatuses(ctx, executionStatuses)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sprints in execution phase: %w", err)
 	}
 	if len(executionSprints) == 0 {
 		return nil, fmt.Errorf("no active sprint found (start a sprint first)")
@@ -1389,12 +1534,7 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 	// 3. Collect candidates whose status is non-terminal for their entity type.
 	// Sprint execution order is an explicit pull queue across assigned items, so selection
 	// must not be limited to workflow-initial statuses.
-	terminalStatusesByEntityType := map[string]map[string]bool{
-		"task":        terminalSet(s.workflowSvc.ForLevel(workflow.LevelTask)),
-		"bug":         terminalSet(s.workflowSvc.ForLevel(workflow.LevelBug)),
-		"change_card": terminalSet(s.workflowSvc.ForLevel(workflow.LevelChange)),
-		"tech_debt":   terminalSet(s.workflowSvc.ForLevel(workflow.LevelTechDebt)),
-	}
+	workflowIndex := newSprintPullWorkflowIndex(s.workflowSvc, agentType)
 
 	var candidates []*BacklogItemView
 	for _, sp := range executionSprints {
@@ -1405,12 +1545,10 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 
 		for _, group := range backlog.Groups {
 			for _, item := range group.Items {
-				terminals, ok := terminalStatusesByEntityType[item.EntityType]
-				if !ok || terminals[item.Status] {
-					continue
-				}
-				// Apply agent filter if requested (filter BEFORE sort — agent filter is pre-sort)
-				if agentType != "" && item.AgentType != agentType {
+				// Apply the requested workflow role before sorting. BacklogItem.AgentType
+				// is persisted planning/display data; the workflow step for the item's
+				// current status is the authorization source for a role-aware pull.
+				if !workflowIndex.allows(item.EntityType, item.Status) {
 					continue
 				}
 				item.SprintKey = sp.Key
@@ -1545,14 +1683,7 @@ func (s *SprintService) ReorderAssignment(
 	}
 
 	status := string(sprintEntity.Status)
-	reorderAllowed := false
-	for _, assignable := range s.assignableSprintStatuses() {
-		if strings.EqualFold(assignable, status) {
-			reorderAllowed = true
-			break
-		}
-	}
-	if !reorderAllowed {
+	if !s.sprintAcceptsAssignments(status) {
 		return nil, nil, fmt.Errorf(
 			"cannot reorder: sprint %q is in status %q; only sprints in %s status can be reordered",
 			sprintKey, status, strings.Join(s.assignableSprintStatuses(), " or "),
@@ -1860,7 +1991,7 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 
 	// Step 3: Discover unassigned candidates from the repository.
 	// ListUnassignedBacklog already excludes entities in active/planning sprints.
-	candidates, err := s.assignmentRepo.ListUnassignedBacklog(ctx, entityTypes)
+	candidates, err := s.assignmentRepo.ListUnassignedBacklog(ctx, entityTypes, s.assignmentOccupyingSprintStatuses()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list unassigned backlog for bulk add to sprint %s: %w",
 			input.SprintKey, err)
@@ -1870,6 +2001,16 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 		AddedByType:   make(map[string]int),
 		SkippedByType: make(map[string]int),
 	}
+	entityWorkflowIndex := newSprintEntityWorkflowIndex(s.workflowSvc)
+	openCandidates := make([]sprint.BacklogItem, 0, len(candidates))
+	for _, candidate := range candidates {
+		if entityWorkflowIndex.isTerminal(candidate.EntityType, candidate.Status) {
+			result.SkippedByType[candidate.EntityType]++
+			continue
+		}
+		openCandidates = append(openCandidates, candidate)
+	}
+	candidates = openCandidates
 
 	// Step 4: Apply FeatureKey filter if set.
 	// A task key belonging to feature "E07-F34" has the form "T-E07-F34-NNN" or "E07-F34-NNN".
@@ -2064,7 +2205,7 @@ type SprintCloseResult struct {
 // Steps:
 //  1. Validates sprint is in "active" status (TC-C12).
 //  2. Resolves carryover mode: uses config default when carryoverMode == "" (TC-C09, TC-C10).
-//  3. Fetches ALL active assignments (for total count) and INCOMPLETE assignments (for carryover).
+//  3. Fetches active assignments and backlog statuses, then classifies incomplete work per entity workflow.
 //  4. Begins a database transaction.
 //  5. Based on carryoverMode:
 //     a. "next": finds or auto-creates the next planning sprint; calls ReassignToSprintTx.
@@ -2083,7 +2224,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	if err != nil {
 		return nil, fmt.Errorf("cannot close sprint %s: %w", sprintKey, err)
 	}
-	if !strings.EqualFold(string(sprintEntity.Status), activeStatus) {
+	if !workflowStatusMatchesAny(s.workflowSvc, string(sprintEntity.Status), []string{activeStatus}) {
 		return nil, fmt.Errorf("cannot close sprint %s: current status is %q, must be %q",
 			sprintKey, sprintEntity.Status, activeStatus)
 	}
@@ -2102,23 +2243,28 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 	}
 	totalCount := len(allAssignments)
 
-	// Incomplete assignments — uses workflow-aware terminal status detection (TC-C07).
-	// Collect terminal statuses from each entity level that can be assigned to sprints.
-	// Using s.workflowSvc.GetTerminalStatuses() would return sprint-level terminal statuses
-	// (e.g. "completed", "archived"), not entity-level ones (e.g. "resolved" for tech_debt).
-	terminalSet := make(map[string]struct{})
-	for _, level := range []string{workflow.LevelTask, workflow.LevelBug, workflow.LevelChange, workflow.LevelTechDebt} {
-		for _, st := range s.workflowSvc.ForLevel(level).GetTerminalStatuses() {
-			terminalSet[st] = struct{}{}
+	// Classify each assignment through its own entity workflow. Missing backlog
+	// projections remain incomplete conservatively so an orphaned join can never
+	// cause work to disappear during close.
+	backlogItems, err := s.repo.ListBacklog(ctx, sprintEntity.ID, nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list assignment statuses for sprint %s: %w", sprintKey, err)
+	}
+	entityWorkflowIndex := newSprintEntityWorkflowIndex(s.workflowSvc)
+	incompleteByID := make(map[int64]bool, len(allAssignments))
+	for _, assignment := range allAssignments {
+		incompleteByID[assignment.ID] = true
+	}
+	for _, item := range backlogItems {
+		if entityWorkflowIndex.isTerminal(item.EntityType, item.Status) {
+			delete(incompleteByID, item.AssignmentID)
 		}
 	}
-	terminalStatuses := make([]string, 0, len(terminalSet))
-	for st := range terminalSet {
-		terminalStatuses = append(terminalStatuses, st)
-	}
-	incompleteAssignments, err := s.repo.ListAssignmentsForCarryover(ctx, sprintEntity.ID, terminalStatuses...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list incomplete assignments for sprint %s: %w", sprintKey, err)
+	incompleteAssignments := make([]*models.SprintAssignment, 0, len(incompleteByID))
+	for _, assignment := range allAssignments {
+		if incompleteByID[assignment.ID] {
+			incompleteAssignments = append(incompleteAssignments, assignment)
+		}
 	}
 
 	completedCount := totalCount - len(incompleteAssignments)
@@ -2156,8 +2302,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		if planningErr != nil {
 			return nil, fmt.Errorf("failed to find next planning sprint: %w", planningErr)
 		}
-		planningFilter := &sprint.SprintListFilters{Status: closeSprintStatusPtr(planningStatusStr)}
-		planningSprints, listErr := s.repo.List(ctx, planningFilter)
+		planningSprints, listErr := s.listSprintsByWorkflowStatuses(ctx, []string{planningStatusStr})
 		if listErr != nil {
 			return nil, fmt.Errorf("failed to find next planning sprint: %w", listErr)
 		}
@@ -2182,7 +2327,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 				Name:      "Sprint " + nextKey,
 				StartDate: newStart,
 				EndDate:   newEnd,
-				Status:    models.SprintStatus(s.workflowSvc.GetInitialStatusString()),
+				Status:    models.SprintStatus(s.workflowSvc.NormalizeStatus(s.workflowSvc.GetInitialStatusString())),
 				Slug:      utils.GenerateSlug("Sprint " + nextKey),
 			}
 			if createErr := s.repo.Create(ctx, autoSprint); createErr != nil {
@@ -2312,13 +2457,6 @@ func (s *SprintService) resolveCarryoverMode() CarryoverMode {
 		return CarryoverMode(s.cfg.SprintDefaults.CarryoverBehavior)
 	}
 	return CarryoverNext
-}
-
-// closeSprintStatusPtr returns a pointer to a SprintStatus value (filter helper).
-// Named distinctively to avoid collision with any future package-level helper.
-func closeSprintStatusPtr(status string) *models.SprintStatus {
-	v := models.SprintStatus(status)
-	return &v
 }
 
 // ---------------------------------------------------------------------------
@@ -2772,11 +2910,15 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	// Step 2: Fetch unassigned backlog (all entity types).
 	var backlog []sprint.BacklogItem
 	if s.assignmentRepo != nil {
-		allTypes := []string{"task", "bug", "change_card", "tech_debt"}
-		backlog, err = s.assignmentRepo.ListUnassignedBacklog(ctx, allTypes)
+		allTypes := make([]string, 0, len(sprintAssignableWorkflowLevels))
+		for _, level := range sprintAssignableWorkflowLevels {
+			allTypes = append(allTypes, normalizeBacklogEntityType(level))
+		}
+		backlog, err = s.assignmentRepo.ListUnassignedBacklog(ctx, allTypes, s.assignmentOccupyingSprintStatuses()...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list unassigned backlog for sprint %s plan: %w", key, err)
 		}
+		backlog = newSprintEntityWorkflowIndex(s.workflowSvc).openBacklogItems(backlog)
 	}
 	if backlog == nil {
 		backlog = []sprint.BacklogItem{}
@@ -2953,11 +3095,69 @@ func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacitie
 	}
 }
 
-// terminalSet returns a set of terminal status strings for the given workflow level.
-func terminalSet(svc *workflow.Service) map[string]bool {
-	result := make(map[string]bool)
-	for _, s := range svc.GetTerminalStatuses() {
-		result[s] = true
+func normalizedStatusSet(svc *workflow.Service, statuses []string) map[string]bool {
+	result := make(map[string]bool, len(statuses))
+	for _, status := range statuses {
+		result[workflowStatusKey(svc, status)] = true
 	}
 	return result
+}
+
+func workflowStatusKey(svc *workflow.Service, status string) string {
+	return strings.ToLower(svc.NormalizeStatus(status))
+}
+
+func canonicalWorkflowStatuses(svc *workflow.Service, statuses []string) []string {
+	seen := make(map[string]bool, len(statuses))
+	result := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		canonical := svc.NormalizeStatus(status)
+		key := strings.ToLower(canonical)
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, canonical)
+		}
+	}
+	return result
+}
+
+func workflowStatusMatchesAny(svc *workflow.Service, status string, candidates []string) bool {
+	return normalizedStatusSet(svc, candidates)[workflowStatusKey(svc, status)]
+}
+
+// workflowStatusVocabulary returns every persisted spelling equivalent to the
+// supplied workflow statuses: the declared keys, their canonical steps, and
+// every compatibility alias targeting those steps.
+func workflowStatusVocabulary(svc *workflow.Service, statuses []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(statuses))
+	appendStatus := func(status string) {
+		if status != "" && !seen[status] {
+			seen[status] = true
+			result = append(result, status)
+		}
+	}
+	canonicalTargets := normalizedStatusSet(svc, statuses)
+	for _, status := range statuses {
+		appendStatus(status)
+		appendStatus(svc.NormalizeStatus(status))
+	}
+
+	aliases := svc.StatusAliasMap()
+	aliasNames := make([]string, 0, len(aliases))
+	for alias := range aliases {
+		aliasNames = append(aliasNames, alias)
+	}
+	sort.Strings(aliasNames)
+	for _, alias := range aliasNames {
+		if canonicalTargets[workflowStatusKey(svc, aliases[alias])] {
+			appendStatus(alias)
+		}
+	}
+	return result
+}
+
+// terminalSet returns canonical terminal statuses for the given workflow level.
+func terminalSet(svc *workflow.Service) map[string]bool {
+	return normalizedStatusSet(svc, svc.GetTerminalStatuses())
 }

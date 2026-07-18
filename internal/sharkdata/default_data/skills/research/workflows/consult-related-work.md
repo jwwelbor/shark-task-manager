@@ -1,6 +1,6 @@
 ---
 inputs:
-  - entity_kind: feature | epic — the kind of entity prior art is being consulted for
+  - entity_kind: feature | epic — the kind of entity whose related work is being consulted
   - entity_key: opaque identifier of the current entity (e.g., feature key, epic key)
   - entity_purpose: one-sentence description of the capability this entity provides
   - parent_key: opaque identifier of the parent entity (epic key when entity_kind=feature; null when entity_kind=epic)
@@ -9,7 +9,7 @@ inputs:
   - related_epics: list of {key, title, related_doc_paths} — for cross-epic awareness (may be empty)
   - search_results: list of {term, hits: [{entity_key, snippet, source}]} — pre-run domain-term search results from the wrapper's search backend
   - filesystem_adr_globs: list of glob patterns to scan for ADRs not registered in the wrapper's index (e.g., `docs/**/adr/**/*.md`)
-  - report_path: absolute path where the prior-art report should be written
+  - report_path: path to the entity's unified research report
 outputs:
   - inspection_set: list of {key, doc_paths_read} — every entity inspected
   - capability_map: list of {capability, established_in, doc_path, decision: REUSE | EXTEND | RE-IMPLEMENT | CONTRADICTS, justification}
@@ -17,7 +17,7 @@ outputs:
   - reuse_links: list of {sibling_key, link_kind: depends_on | related_to} — relationships the wrapper should create
   - open_questions: list of unresolved questions surfaced to the user/BA/architect
   - will_not_reimplement: list of capability names this entity will explicitly NOT re-implement
-  - prior_art_report: structured markdown written to report_path
+  - research_report_update: capability-map content written to report_path
 ---
 
 # Workflow: Consult Related Work
@@ -28,7 +28,7 @@ outputs:
 
 **Estimated time**: 10–20 minutes (scales with epic size).
 
-**Output**: A structured `prior-art-report.md` with explicit reuse vs re-implement decisions per capability.
+**Output**: A Capability map section in the entity's unified `research-report.md`, with explicit reuse, extension, or new-work decisions per capability.
 
 ## Why This Workflow Exists
 
@@ -51,7 +51,7 @@ The wrapper supplies:
 4. The list of `sibling_entities` (with each sibling's already-discovered related-doc paths).
 5. Pre-run `search_results` for the domain terms from the wrapper's search backend.
 
-This workflow is *the methodology of consulting prior art*. The mechanics of enumerating siblings, indexing entity metadata, and registering the resulting report live with the host's project-state machine.
+This workflow is the related-work module of the unified research recipe. The mechanics of enumerating siblings, indexing entity metadata, and registering the entity's plan and report live with the host's project-state machine.
 
 ## Procedure
 
@@ -101,12 +101,12 @@ If you mark anything **RE-IMPLEMENT**, you must justify why reuse is not viable.
 
 If you mark anything **CONTRADICTS**, stop and surface to the user before continuing. Two pieces of architecture in the same epic disagreeing is a refinement bug that won't fix itself.
 
-### Step 5: Produce the prior-art report
+### Step 5: Add the related-work findings to the unified research report
 
 Write the report to `report_path`. Use this structure (keep it under ~120 lines):
 
 ```markdown
-# Prior Art Report: <entity-key> — <one-sentence purpose>
+# Research Report: <entity-key> — <one-sentence purpose>
 
 **Date**: YYYY-MM-DD
 **Author**: <agent or workflow that produced this>
@@ -171,7 +171,7 @@ This workflow is complete when:
 - [ ] Every sibling and related epic has been listed and its priority docs read (or PRD if no architecture).
 - [ ] Every ADR / decision record on the inspection list has been read (not skimmed).
 - [ ] Every domain term has been considered against the supplied `search_results`.
-- [ ] The prior-art report has a non-empty Capability Map.
+- [ ] The unified research report has a non-empty Capability Map.
 - [ ] The "What This Feature Will NOT Re-Implement" section is filled in.
 - [ ] Any CONTRADICTS entries have been surfaced to the user.
 - [ ] `reuse_links` lists every sibling whose work will be reused or extended.

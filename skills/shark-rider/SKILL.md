@@ -19,7 +19,7 @@ fully-rendered prompt. Status is a pure phase; a **claim** is the work lease.
 bare `shark …` line remains a CLI command and is never interpreted as a Rider
 action. This file is a thin router: it picks an action and reads
 `verbs/<action>.md` for the procedure.
-`/shark-rider run <key>` is the canonical dispatch invocation.
+`/run <key>` is an alias for `/shark-rider run <key>`.
 
 ## The boundary: CLI owns, Rider drives
 
@@ -99,7 +99,7 @@ NL prose routes here via `verbs/query.md`. If the user wants to *drive* an entit
 The CLI owns routing **and** prompt assembly; the skill is the outer loop. Never
 reconstruct the prompt (see the golden invariant above).
 
-**`/shark-rider run <key>`** (alias `/shark-rider run`) — the core loop (`verbs/run.md`):
+**`/shark-rider run <key>`** (alias `/run <key>`) — the core loop (`verbs/run.md`):
 
 ```
 loop:
@@ -107,7 +107,8 @@ loop:
   shark claim <response.entity_key> --by "$CLAUDE_SID" --field session_id
   spawn host agent with response.prompt        # general-purpose; prompt verbatim
   # worker returns { outcome: pass|fail|blocked, note }
-  shark status advance <response.entity_key> --outcome <outcome>
+  shark status advance <response.entity_key> --outcome <outcome> \
+    --session "$SID" --from-status <response.status>
   shark release <response.entity_key> --session "$SID"   # always, even on failure
 ```
 
@@ -195,7 +196,7 @@ Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, 
 `viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
 `retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,
 `revalidate`, `help`. Everything else (including `status` / `list` / `get`)
-falls through to `query`. `/shark-rider run` routes to `verbs/run.md`.
+falls through to `query`. `/shark-rider run` and `/run` both route to `verbs/run.md`.
 
 ## Content bundle retrieval (used by owning Rider actions)
 

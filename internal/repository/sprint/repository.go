@@ -198,6 +198,16 @@ func (r *SprintRepository) UpdateStatus(ctx context.Context, id int64, status mo
 	return nil
 }
 
+// UpdateStatusIfCurrent atomically updates the sprint's status only when the
+// current stored status still matches expectedStatus (case-insensitive).
+func (r *SprintRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus models.SprintStatus, newStatus models.SprintStatus) (bool, error) {
+	updated, err := dbconn.ConditionalStatusUpdate(ctx, r.db, "sprints", id, string(expectedStatus), string(newStatus), false)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update sprint status: %w", err)
+	}
+	return updated, nil
+}
+
 // UpdateStatusTx updates the sprint status within a caller-supplied transaction.
 // Used by CloseSprintWithCarryover to atomically advance sprint status.
 func (r *SprintRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
@@ -993,17 +1003,20 @@ func (r *SprintRepository) BulkAssign(ctx context.Context, sprintID int64, assig
 }
 
 // ListUnassignedBacklog returns entities eligible for sprint assignment that are
-// not already in any active or planning sprint. Uses a NOT EXISTS correlated
+// not already in any planning, research, or active sprint. Uses a NOT EXISTS correlated
 // subquery (not N+1) to satisfy the 500ms performance budget at 500 entities.
 //
 // entityTypes filters to specific entity types (e.g., ["task", "bug"]).
 // Supported values: "task", "bug", "change_card", "tech_debt".
+// assignedSprintStatuses lists every canonical/compatibility spelling that
+// makes an active assignment occupy an entity. The legacy defaults are used
+// when callers omit it.
 //
-// For tasks: excludes statuses "completed", "archived", "cancelled".
-// For other entity types: no status filter (all non-archived items returned).
+// Entity status is projected for workflow-aware filtering in SprintService;
+// the repository does not impose entity-specific terminal-status policy.
 //
 // Results are ordered by priority DESC, execution_order ASC NULLS LAST.
-func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityTypes []string) ([]BacklogItem, error) {
+func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]BacklogItem, error) {
 	// Build a set of requested entity types for quick lookup.
 	wantType := make(map[string]bool, len(entityTypes))
 	for _, et := range entityTypes {
@@ -1014,38 +1027,49 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 
 	var parts []string
 	var args []interface{}
+	if len(assignedSprintStatuses) == 0 {
+		assignedSprintStatuses = []string{"planning", "research", "active"}
+	}
+	assignedStatusPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(assignedSprintStatuses)), ",")
+	appendAssignedStatusArgs := func() {
+		for _, status := range assignedSprintStatuses {
+			args = append(args, status)
+		}
+	}
 
-	// Tasks sub-select: excludes terminal statuses and entities in active/planning sprints.
+	// Tasks sub-select: excludes terminal statuses and entities in planning/research/active sprints.
 	if includeAll || wantType["task"] {
-		parts = append(parts, `
+		parts = append(parts, fmt.Sprintf(`
 			SELECT 'task' AS entity_type,
 			       t.id AS entity_id,
 			       t.key,
 			       t.title,
+			       t.status,
 			       COALESCE(t.priority, 5) AS priority,
 			       t.size,
 			       t.agent_type,
 			       t.execution_order
 			FROM tasks t
-			WHERE t.status NOT IN ('completed', 'archived', 'cancelled')
-			  AND NOT EXISTS (
+			WHERE NOT EXISTS (
 			      SELECT 1
 			      FROM sprint_assignments sa
 			      JOIN sprints s ON s.id = sa.sprint_id
 			      WHERE sa.entity_type = 'task'
 			        AND sa.entity_id = t.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
-			  )`)
+			        AND s.status IN (%s)
+			  )`, assignedStatusPlaceholders))
+		appendAssignedStatusArgs()
 	}
 
 	// Bugs sub-select.
 	if includeAll || wantType["bug"] {
-		parts = append(parts, `
+		parts = append(parts, fmt.Sprintf(`
 			SELECT 'bug' AS entity_type,
 			       b.id AS entity_id,
 			       b.key,
 			       b.title,
+			       b.status,
 			       5 AS priority,
 			       b.size,
 			       NULL AS agent_type,
@@ -1058,17 +1082,19 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'bug'
 			        AND sa.entity_id = b.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
-			  )`)
+			        AND s.status IN (%s)
+			  )`, assignedStatusPlaceholders))
+		appendAssignedStatusArgs()
 	}
 
 	// Change-cards sub-select.
 	if includeAll || wantType["change_card"] {
-		parts = append(parts, `
+		parts = append(parts, fmt.Sprintf(`
 			SELECT 'change_card' AS entity_type,
 			       cc.id AS entity_id,
 			       cc.key,
 			       cc.title,
+			       cc.status,
 			       COALESCE(cc.priority, 5) AS priority,
 			       cc.size,
 			       NULL AS agent_type,
@@ -1081,17 +1107,19 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'change_card'
 			        AND sa.entity_id = cc.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
-			  )`)
+			        AND s.status IN (%s)
+			  )`, assignedStatusPlaceholders))
+		appendAssignedStatusArgs()
 	}
 
 	// Tech-debt sub-select.
 	if includeAll || wantType["tech_debt"] {
-		parts = append(parts, `
+		parts = append(parts, fmt.Sprintf(`
 			SELECT 'tech_debt' AS entity_type,
 			       td.id AS entity_id,
 			       td.key,
 			       td.title,
+			       td.status,
 			       5 AS priority,
 			       td.size,
 			       NULL AS agent_type,
@@ -1104,8 +1132,9 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			      WHERE sa.entity_type = 'tech_debt'
 			        AND sa.entity_id = td.id
 			        AND sa.removed_at IS NULL
-			        AND s.status IN ('planning', 'active')
-			  )`)
+			        AND s.status IN (%s)
+			  )`, assignedStatusPlaceholders))
+		appendAssignedStatusArgs()
 	}
 
 	if len(parts) == 0 {
@@ -1132,6 +1161,7 @@ func (r *SprintRepository) ListUnassignedBacklog(ctx context.Context, entityType
 			&item.EntityID,
 			&item.EntityKey,
 			&item.Title,
+			&item.Status,
 			&item.Priority,
 			&size,
 			&agentType,

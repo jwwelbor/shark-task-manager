@@ -162,6 +162,22 @@ func (m *Manager) Load() (*Config, error) {
 		config.Maintainer = mc
 	}
 
+	// Parse advance_guard config if present. A nil pointer means "disabled /
+	// not configured" to preserve backward compatibility.
+	if advanceGuardRaw, ok := rawData["advance_guard"].(map[string]interface{}); ok {
+		ag := &AdvanceGuardConfig{}
+		if enabled, ok := advanceGuardRaw["enabled"].(bool); ok {
+			ag.Enabled = enabled
+		}
+		if mode, ok := advanceGuardRaw["mode"].(string); ok {
+			ag.Mode = mode
+		}
+		if allowRepeat, ok := advanceGuardRaw["allow_repeat_with_force"].(bool); ok {
+			ag.AllowRepeatWithForce = allowRepeat
+		}
+		config.AdvanceGuard = ag
+	}
+
 	// Parse tag_required_for list if present. This mirrors the maintainer
 	// parse block above and closes the wiring gap identified in the UAT for
 	// T-E28-F04-001: without this block, Manager.Load() (the production path

@@ -117,6 +117,9 @@ func GetEntityService() *services.EntityService {
 		if err == nil {
 			c.entityService.SetNoteRepo(repository.NewEntityNoteRepository(db))
 			c.entityService.SetHistoryRepo(repository.NewEntityHistoryRepository(db))
+			if cfg, cfgErr := GetConfig(); cfgErr == nil && cfg != nil {
+				c.entityService.SetAdvanceGuard(cfg.GetAdvanceGuard(), repository.NewAdvanceGuardRepository(db))
+			}
 		}
 	})
 	return c.entityService

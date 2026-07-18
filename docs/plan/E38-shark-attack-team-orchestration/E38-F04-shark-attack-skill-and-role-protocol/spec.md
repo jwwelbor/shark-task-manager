@@ -12,9 +12,15 @@ status: proposed
 > consumers are historical; active acceptance is defined by `feature.md` and
 > `../../uat-plan.md`.
 
+> Scope correction (2026-07-14): the roster describes a collaboration
+> protocol; it is not a team entity or an authorization model. Do not interpret
+> responsibility prose or council-path preferences as permissions. Workers and
+> coordinators use Shark's existing selection, claim, lease, and workflow APIs;
+> F06 owns role-filter enforcement.
+
 This specification is incremental over the [epic PRD](../epic.md), especially §2
-(goals and locked decisions), §3 (scope and council contract), and the active
-[E38 UAT plan](../uat-plan.md). System decisions follow the [epic architecture](../architecture.md),
+(goals and locked decisions), §3 (scope and council contract), and §6
+(UAT-8 through UAT-12). System decisions follow the [epic architecture](../architecture.md),
 especially ADR-007 and §4.5. Feature research is in [research-report.md](research-report.md).
 
 ## Requirements
@@ -29,7 +35,7 @@ especially ADR-007 and §4.5. Feature research is in [research-report.md](resear
 | REQ-F-004 | Every inbox message MUST contain sender role, recipient role, root key, optional child key, subject, requested action or question, urgency, evidence/artifact links, and creation time. Messages are acknowledged/removed after action; resulting decisions, handoffs, unresolved questions, and resolutions are durable. | Architecture §4.5; I-04 |
 | REQ-F-005 | Define bounded handoff, decision, escalation, and resolution artifacts preserving scope, roles, evidence, status, and next action; never store rendered prompts, credentials, or unrestricted worker output. | Epic §2 escalation contract; UAT-10/UAT-11 |
 | REQ-F-006 | Define escalation triggers for missing evidence, material direction changes, expert disagreement, and unresolved process/quality blockers. If docs/product/escalation_triggers.md is absent, pause and route to council-review; never hard-code a human destination. | Epic §3; research-report §7; UAT-11 |
-| REQ-F-007 | Role-aware self-pull MUST use workflow-resolved agent_type/step metadata, existing sprint priority/dependency ordering, and the owning claim service. Roster/model/legacy assignment data cannot override workflow authority. | Epic §2 assignment; X-03; UAT-01, UAT-02 |
+| REQ-F-007 | Role-aware self-pull MUST use workflow-resolved agent_type/step metadata, existing sprint priority/dependency ordering, and the owning claim service. Roster/model/legacy assignment data cannot override workflow authority. | Epic §2 assignment; X-03; UAT-12 |
 | REQ-F-008 | Workers may read state, pull/claim authorized child work, write scoped artifacts, heartbeat/release their own child lease where authorized, and return evidence; they MUST NOT mutate the dispatched root lease or workflow state. | Epic §3 out of scope; Architecture ADR-005 |
 | REQ-F-009 | Distribution MUST use the embedded Shark-data bundle and replace-only project overrides, referencing shark admin install-shark-data and existing /shark-rider, sprint, notes, context, and claim procedures. | Epic §2 skill ownership; X-05 |
 | REQ-F-010 | Define missing-product-context and unavailable-team-capability behavior: recommend bootstrap/escalation or explicit sequential fallback, never guess product decisions or silently change ordinary /run. | Epic §2 prerequisite; §3 constraints |
@@ -40,8 +46,8 @@ especially ADR-007 and §4.5. Feature research is in [research-report.md](resear
 
 | ID | Requirement | Verification |
 |---|---|---|
-| REQ-NF-001 | Embedded bundle and manifest validation MUST reject invalid skill identity, roster shape, persona references, and unsafe paths with actionable diagnostics. | shark admin validate-data; fixture tests |
-| REQ-NF-002 | Reject credentials, access tokens, rendered prompts, unrestricted stdout, invalid Shark keys, path traversal, symlink escapes, and writes outside the configured council root. | Content/security tests |
+| REQ-NF-001 | Embedded bundle and manifest validation MUST reject invalid skill identity, roster structure, and persona references with actionable diagnostics. | shark admin validate-data; fixture tests |
+| REQ-NF-002 | The published artifact protocol MUST reject credentials, access tokens, rendered prompts, unrestricted stdout, invalid Shark keys, and unsafe artifact paths. Roster prose and roster path preferences do not confer authority. | Content/security tests |
 | REQ-NF-003 | Reads, acknowledgements, and writes MUST be idempotent across refreshed workers; conflicting reuse of an artifact ID is an actionable error. | Contract tests |
 | REQ-NF-004 | No provider credentials, AI runtime, second workflow engine, or second claim store may be introduced. | Architecture review |
 | REQ-NF-005 | Downstream consumers receive structured metadata and paths, not free-form role prose. | I-04 contract test |
@@ -51,7 +57,7 @@ especially ADR-007 and §4.5. Feature research is in [research-report.md](resear
 | ID | Testable criterion |
 |---|---|
 | AC-001 | A valid chair-led roster passes bundle validation, including required fields, unique IDs, persona mappings, and preference-only model tiers. |
-| AC-002 | Missing chair, duplicate ID, empty responsibility, invalid path, unknown persona, or status/claim-mutating responsibility fails validation with field/path diagnostics. |
+| AC-002 | Missing chair, duplicate ID, empty responsibility, unknown persona, or malformed roster structure fails validation with field diagnostics. |
 | AC-003 | A message for root E38 and child E38-F04 remains understandable after worker refresh; acknowledgement/removal leaves the resulting durable handoff or decision. |
 | AC-004 | Decision, handoff, escalation, and resolution artifacts contain required scope/role/evidence/next-action fields, exclude secrets/prompts, and are idempotent. |
 | AC-005 | With no escalation policy file and an unresolved material question, the protocol creates an unresolved escalation, routes council-review, and recommends pause/review. |
@@ -88,7 +94,7 @@ especially ADR-007 and §4.5. Feature research is in [research-report.md](resear
 | docs/council/README.md | Create project protocol index, layout, retention, privacy, and refresh instructions. | Project artifact. |
 | docs/council/decisions/.gitkeep, handoffs/.gitkeep, escalations/.gitkeep, inbox/.gitkeep | Create directory markers; member inboxes derive from roster IDs. | Project file contract. |
 | tests/contracts/e38_f04_interactions_test.go | Create I-04 contract fixtures: TC-001 shared message shape, TC-002 durable lifecycle, TC-003 role pull, TC-004 bundle override. | Shared pointers for consumers. |
-| internal/sharkdata/embed_test.go or focused internal/sharkdata/shark_attack_test.go | Extend validation tests for skill identity, personas, overrides, unsafe content, and invalid paths. | Existing test harness. |
+| internal/sharkdata/embed_test.go or focused internal/sharkdata/shark_attack_test.go | Extend validation tests for skill identity, roster structure, personas, and overrides. | Existing test harness. |
 
 No database migration or change to internal/models, internal/repository,
 internal/services/claim_service.go, internal/services/sprint_service.go, or
@@ -100,12 +106,11 @@ F04 consumes the finalized interface.
 There are no Shark database schema changes. The file contracts are:
 
 1. **Roster YAML**: team MUST equal shark-attack; chair MUST reference a member;
-   memory_root and communication.inbox_root are relative paths below the project
-   root; communication requires acknowledge_after_read and retain_decisions;
+   communication requires acknowledge_after_read and retain_decisions;
    escalation has optional triggers_file and non-empty route; member IDs are
    unique and each member has non-empty role and responsibilities, optional
-   existing persona, and optional model_tier. No field may express Shark status
-   or claim authority.
+   existing persona, and optional model_tier. The values describe local
+   collaboration and never grant Shark status or claim authority.
 2. **Inbox message**: structured metadata with message_id, sender_role,
    recipient_role, root_key, optional child_key, subject, requested_action or
    question, urgency, evidence, and created_at. Body content is bounded context,
@@ -115,16 +120,17 @@ There are no Shark database schema changes. The file contracts are:
    timestamps, and next_action; escalations add trigger and resolution/reference
    fields. Artifact IDs make resume writes idempotent.
 
-Reject absolute paths, .. traversal, symlink escapes, and destinations outside
-the configured council root. Use Shark’s existing key parsing/validation.
+Apply the artifact protocol's bounded-path and key rules when writing a message
+or durable artifact. The roster validator does not turn roster text or local
+path preferences into authorization policy.
 
 ### API/interface contracts
 
 F04 adds no HTTP API. Its portable interfaces are:
 
-- **Roster loader**: project/roster path in; validated roster plus explicit
-  role-to-persona mapping or field-specific error out. It returns no status or
-  claim authority.
+- **Roster loader**: project/roster path in; structurally validated roster plus
+  explicit role-to-persona mapping or field-specific error out. It cannot grant
+  status or claim authority.
 - **Council file protocol**: the published Markdown/YAML schema defines typed
   records under the configured council root. Workers follow its bounded-path,
   duplicate-ID, and acknowledgement guidance; F04 adds no runtime writer.
@@ -189,7 +195,7 @@ F04 adds no HTTP API. Its portable interfaces are:
   E38 architecture §4.1 and §4.6; sprint pull/claim contract, exactly as
   recorded in E38-cross-epic-map.md. UX/CX handoff: Scrum Master monitors
   sequence while specialists self-pull eligible work; legacy agent assignment
-  is not revived. Test coverage: E38 uat-plan.md UAT-01 and UAT-02, plus
+  is not revived. Test coverage: E38 uat-plan.md UAT-12 and
   tests/contracts/e38_f04_interactions_test.go#TC-003; atomic claim-next,
   if needed, remains E19/F02-owned.
 

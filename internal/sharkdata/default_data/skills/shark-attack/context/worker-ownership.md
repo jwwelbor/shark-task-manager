@@ -1,13 +1,26 @@
 # Worker ownership boundary
 
-## Parent coordinator owns the root
+## Select the execution mode before claiming
+
+The worker-owned child mode is not `/shark-rider run`. Use it only when an
+existing coordinator explicitly delegates an authorized child and owns that
+separate child-lease lifecycle. Do not hand its session to the Rider loop.
+
+For `/shark-rider run`, the Rider parent calls `shark next` and claims the
+returned concrete entity before dispatching `response.prompt`. A role-aware
+self-pull supplies only a selected key to `/shark-rider run`; it never claims
+or executes the `BacklogItemView` selection directly. A Rider-dispatched worker
+never claims, heartbeats, releases, or selects a replacement entity. It returns
+bounded evidence and a semantic outcome for the parent to persist and route.
+
+## Worker-owned child mode: parent coordinator owns the root
 
 The parent coordinator retains the root lease and is the only actor that may
 perform a root heartbeat, root release, or root workflow transition. A child
 worker must not call root `status set`, force-claim a root or another child,
 advance root status, or otherwise mutate the dispatched root workflow state.
 
-## Child worker may act only within its authorization
+## Worker-owned child mode: child worker may act only within its authorization
 
 After the existing sprint and claim authorities return an authorized child, the
 worker may:
@@ -24,7 +37,7 @@ path, mutate another worker's lease, or choose a status transition. The parent
 uses the returned evidence and semantic outcome to decide any configured root
 or child workflow advance.
 
-## Required handoff
+## Worker-owned child mode: required handoff
 
 Return only the information the parent needs to continue safely:
 
@@ -41,6 +54,8 @@ authority boundary.
 
 ## Result
 
-The child lease is managed only by its owner, evidence remains scoped and safe,
-and the parent coordinator can retain its root lease and perform the single
-authorized workflow transition.
+In worker-owned child mode, the child lease is managed only by its owner,
+evidence remains scoped and safe, and the parent coordinator can retain its
+root lease and perform the single authorized workflow transition. In
+`/shark-rider run`, the Rider parent owns the dispatched entity's lease and
+workflow transition from selection through release.

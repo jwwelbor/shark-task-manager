@@ -234,6 +234,23 @@ CREATE INDEX IF NOT EXISTS idx_entity_history_time ON entity_history(changed_at)
 CREATE INDEX IF NOT EXISTS idx_entity_history_entity_time ON entity_history(entity_type, entity_id, changed_at);
 
 -- ============================================================================
+-- Table: advance_guard_consumptions
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS advance_guard_consumptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    from_status TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    consumed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_id, session_id, from_status, outcome)
+);
+
+CREATE INDEX IF NOT EXISTS idx_advance_guard_lookup
+    ON advance_guard_consumptions(entity_type, entity_id, session_id, from_status, outcome);
+
+-- ============================================================================
 -- Table: task_history (kept for backward compatibility until T-E21-F08-004)
 -- Data is also copied to entity_history during migration.
 -- ============================================================================
@@ -454,9 +471,10 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	             CHECK — sessions open on claim, close on release)
 //	27 — E36 metrics (drop entity_notes.note_type CHECK — app-layer
 //	             validation only; adds 'review-finding' note type)
+//	28 — E38 guarded advances (session/from-status replay protection table)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 27
+const CurrentSchemaVersion = 28
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -495,6 +513,7 @@ func needsSchemaRepair(db *sql.DB) (bool, error) {
 		needsDisplayViewRepair,
 		needsSearchFTSRepair,
 		needsLegacyRelationshipCleanup,
+		needsAdvanceGuardConsumptionRepair,
 	}
 
 	for _, check := range checks {
@@ -556,6 +575,14 @@ func needsLegacyRelationshipCleanup(db *sql.DB) (bool, error) {
 		return false, fmt.Errorf("check legacy relationship tables: %w", err)
 	}
 	return count > 0, nil
+}
+
+func needsAdvanceGuardConsumptionRepair(db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='advance_guard_consumptions'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("check advance_guard_consumptions existence: %w", err)
+	}
+	return count == 0, nil
 }
 
 // getSchemaVersion reads the current schema version from the database.
@@ -1017,6 +1044,35 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to drop entity_notes note_type CHECK: %w", err)
 	}
 
+	// E38 guarded advances: persist consumed session/from-status outcomes so a
+	// parent loop cannot replay the same worker result after the entity cycles
+	// back to an earlier status.
+	if err := migrateAdvanceGuardConsumptions(db); err != nil {
+		return fmt.Errorf("failed to migrate advance guard consumptions: %w", err)
+	}
+
+	return nil
+}
+
+func migrateAdvanceGuardConsumptions(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS advance_guard_consumptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    from_status TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    consumed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_id, session_id, from_status, outcome)
+);
+
+CREATE INDEX IF NOT EXISTS idx_advance_guard_lookup
+    ON advance_guard_consumptions(entity_type, entity_id, session_id, from_status, outcome);
+`)
+	if err != nil {
+		return fmt.Errorf("failed to create advance_guard_consumptions table: %w", err)
+	}
 	return nil
 }
 

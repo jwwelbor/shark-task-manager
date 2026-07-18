@@ -4,7 +4,7 @@ inputs:
   - parent_epic_id: opaque epic identifier (string)
   - parent_epic_paths: list of {label, path} for epic PRD, requirements, scope, personas, journeys, success metrics
   - sibling_features: list of {feature_id, title, scope_summary, doc_paths} — siblings under the same epic (may be empty for the first feature)
-  - prior_art_report_path: absolute path to prior-art / consult-related-work report enumerating sibling capabilities (REQUIRED if `sibling_features` is non-empty)
+  - research_report_path: absolute path to validated unified research report and Capability map (REQUIRED)
   - interaction_map_path: absolute path to parent `<epic-id>-interaction-map.md` if present (optional; required for multi-feature epics with I-## wires)
   - existing_personas: list of {name, file_path} already documented (optional)
   - feature_prd_path: absolute path where the feature PRD should be written
@@ -46,8 +46,10 @@ Before writing the PRD, ensure you have:
 - A clear understanding of the feature request, **verified by the user**
 - Target user personas (`existing_personas`)
 - Business context and success metrics (from epic)
-- **Prior-art report (MANDATORY for any feature in an epic with ≥1 sibling feature):**
-  The host must have produced `prior_art_report_path` by enumerating sibling features in the same epic, reading their architecture/ADR docs, and writing the report. The PRD must reference this report and explicitly call out — in its scope section — any capability the new feature will *reuse from* or *extend* a sibling, plus what the feature will explicitly NOT re-implement. **Skipping this step is the failure mode that produces same-epic feature duplication.**
+- **Research report (MANDATORY):** The host must provide `research_report_path`.
+  Its Capability map records sibling and related capability decisions. The PRD
+  must reference it and explicitly call out what the feature reuses, extends,
+  or will not re-implement.
 
 If any critical information is missing, ask specific, targeted questions. Examples:
 
@@ -74,11 +76,11 @@ Feature PRD content must be **incremental over the epic** — add specificity, u
 
 **DO NOT include detailed API specifications** (URIs, request/response schemas) in the PRD. Those belong in the architect's API specification doc. The PRD focuses on WHAT needs to be built from a user/business perspective, not HOW the APIs are structured.
 
-### Step 4: Consult Prior Art and Map Sibling Capabilities
+### Step 4: Consume the Capability map
 
-If `prior_art_report_path` is provided:
+Read `research_report_path`:
 
-1. Read the prior-art report's Capability Map.
+1. Read the research report's Capability map.
 2. For each capability the new feature would touch, decide:
    - **REUSE** — feature consumes existing implementation as-is (record in `sibling_capability_reuse` with mode=`reuse`)
    - **EXTEND** — feature builds on existing capability with additional behavior (record with mode=`extend`)
@@ -86,7 +88,7 @@ If `prior_art_report_path` is provided:
    - **NEW** — capability genuinely doesn't exist yet; this PRD owns it (no record needed)
 3. For any capability marked REUSE/EXTEND/DELEGATE, write into the PRD's scope section a hard "will not re-implement X — see <sibling-feature-id>" entry. Add it to `sibling_capability_excluded`.
 
-If `prior_art_report_path` is missing AND `sibling_features` is non-empty, STOP and instruct the host to produce the report first.
+If `research_report_path` is missing, STOP and instruct the host to complete validated research first.
 
 ### Step 4.5: Mirror Cross-Feature Interactions
 
@@ -127,7 +129,7 @@ If `plan_remaining_steps` lists additional BA-tier documents (e.g., feature-spec
 
 Before returning, verify:
 
-- [ ] Prior-art report consulted (if `sibling_features` non-empty)
+- [ ] Research report and Capability map consulted
 - [ ] Sibling capabilities classified (REUSE / EXTEND / DELEGATE / NEW); reuse/extend/delegate entries excluded from scope
 - [ ] All sections complete and detailed
 - [ ] User stories cover primary, alternative, and edge case scenarios

@@ -30,6 +30,16 @@ type fakeSprintAdapterRepo struct {
 	updateFn        func(ctx context.Context, sprint *models.Sprint) error
 	updateStatusFn  func(ctx context.Context, id int64, status models.SprintStatus) error
 	updateStatusArg models.SprintStatus
+
+	// guardedCASCalled / guardedCASExpected / guardedCASNew record whether
+	// and how UpdateStatusIfCurrent (the atomic repository-level CAS) was
+	// invoked, so tests can prove the adapter delegates to it rather than
+	// doing its own non-atomic GetByID-then-Update.
+	guardedCASCalled   bool
+	guardedCASExpected models.SprintStatus
+	guardedCASNew      models.SprintStatus
+	guardedCASResult   bool
+	guardedCASErr      error
 }
 
 func (f *fakeSprintAdapterRepo) GetByKey(ctx context.Context, key string) (*models.Sprint, error) {
@@ -47,6 +57,54 @@ func (f *fakeSprintAdapterRepo) UpdateStatus(ctx context.Context, id int64, stat
 		return f.updateStatusFn(ctx, id, status)
 	}
 	return nil
+}
+func (f *fakeSprintAdapterRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus, newStatus models.SprintStatus) (bool, error) {
+	f.guardedCASCalled = true
+	f.guardedCASExpected = expectedStatus
+	f.guardedCASNew = newStatus
+	if f.guardedCASErr != nil {
+		return false, f.guardedCASErr
+	}
+	return f.guardedCASResult, nil
+}
+
+// TestSprintRepositoryAdapter_UpdateStatusIfCurrent_DelegatesToAtomicRepoCAS
+// locks in the fix for the sprint half of the advance_guard bypass defect:
+// the adapter previously did its own GetByID-then-Update with no DB-level
+// guard at all, racing two concurrent callers past each other. It must now
+// delegate to the repository's single atomic UPDATE ... WHERE status = ?.
+func TestSprintRepositoryAdapter_UpdateStatusIfCurrent_DelegatesToAtomicRepoCAS(t *testing.T) {
+	fake := &fakeSprintAdapterRepo{guardedCASResult: true}
+	adapter := NewSprintRepositoryAdapter(fake)
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 7, "planning", "active")
+
+	if err != nil {
+		t.Fatalf("UpdateStatusIfCurrent() error = %v", err)
+	}
+	if !ok {
+		t.Error("expected true when the repo CAS reports success")
+	}
+	if !fake.guardedCASCalled {
+		t.Fatal("adapter must delegate to the repository's UpdateStatusIfCurrent, not a GetByID+Update pair")
+	}
+	if fake.guardedCASExpected != "planning" || fake.guardedCASNew != "active" {
+		t.Errorf("guarded CAS called with (expected=%q, new=%q), want (planning, active)", fake.guardedCASExpected, fake.guardedCASNew)
+	}
+}
+
+func TestSprintRepositoryAdapter_UpdateStatusIfCurrent_PropagatesStaleRejection(t *testing.T) {
+	fake := &fakeSprintAdapterRepo{guardedCASResult: false}
+	adapter := NewSprintRepositoryAdapter(fake)
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 7, "planning", "active")
+
+	if err != nil {
+		t.Fatalf("UpdateStatusIfCurrent() error = %v", err)
+	}
+	if ok {
+		t.Error("expected false when the repo CAS reports no row matched (stale expected status)")
+	}
 }
 
 func TestSprintRepositoryAdapter_GetByKey_LiftsToEntity(t *testing.T) {
@@ -124,6 +182,15 @@ type fakeIdeaAdapterRepo struct {
 	getByIDFn  func(ctx context.Context, id int64) (*models.Idea, error)
 	updateFn   func(ctx context.Context, idea *models.Idea) error
 	updated    *models.Idea
+
+	// guardedCAS* record whether/how UpdateStatusIfCurrent (the atomic
+	// repository-level CAS) was invoked, so tests can prove the adapter
+	// delegates to it rather than doing its own non-atomic GetByID+Update.
+	guardedCASCalled   bool
+	guardedCASExpected models.IdeaStatus
+	guardedCASNew      models.IdeaStatus
+	guardedCASResult   bool
+	guardedCASErr      error
 }
 
 func (f *fakeIdeaAdapterRepo) GetByKey(ctx context.Context, key string) (*models.Idea, error) {
@@ -131,6 +198,54 @@ func (f *fakeIdeaAdapterRepo) GetByKey(ctx context.Context, key string) (*models
 }
 func (f *fakeIdeaAdapterRepo) GetByID(ctx context.Context, id int64) (*models.Idea, error) {
 	return f.getByIDFn(ctx, id)
+}
+func (f *fakeIdeaAdapterRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus, newStatus models.IdeaStatus) (bool, error) {
+	f.guardedCASCalled = true
+	f.guardedCASExpected = expectedStatus
+	f.guardedCASNew = newStatus
+	if f.guardedCASErr != nil {
+		return false, f.guardedCASErr
+	}
+	return f.guardedCASResult, nil
+}
+
+// TestIdeaRepositoryAdapter_UpdateStatusIfCurrent_DelegatesToAtomicRepoCAS
+// locks in the fix for the idea half of the advance_guard bypass defect: the
+// adapter previously did its own GetByID-then-Update with no DB-level guard
+// at all, racing two concurrent callers past each other. It must now
+// delegate to the repository's single atomic UPDATE ... WHERE status = ?.
+func TestIdeaRepositoryAdapter_UpdateStatusIfCurrent_DelegatesToAtomicRepoCAS(t *testing.T) {
+	fake := &fakeIdeaAdapterRepo{guardedCASResult: true}
+	adapter := NewIdeaRepositoryAdapter(fake)
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 9, "draft", "approved")
+
+	if err != nil {
+		t.Fatalf("UpdateStatusIfCurrent() error = %v", err)
+	}
+	if !ok {
+		t.Error("expected true when the repo CAS reports success")
+	}
+	if !fake.guardedCASCalled {
+		t.Fatal("adapter must delegate to the repository's UpdateStatusIfCurrent, not a GetByID+Update pair")
+	}
+	if fake.guardedCASExpected != "draft" || fake.guardedCASNew != "approved" {
+		t.Errorf("guarded CAS called with (expected=%q, new=%q), want (draft, approved)", fake.guardedCASExpected, fake.guardedCASNew)
+	}
+}
+
+func TestIdeaRepositoryAdapter_UpdateStatusIfCurrent_PropagatesStaleRejection(t *testing.T) {
+	fake := &fakeIdeaAdapterRepo{guardedCASResult: false}
+	adapter := NewIdeaRepositoryAdapter(fake)
+
+	ok, err := adapter.UpdateStatusIfCurrent(context.Background(), 9, "draft", "approved")
+
+	if err != nil {
+		t.Fatalf("UpdateStatusIfCurrent() error = %v", err)
+	}
+	if ok {
+		t.Error("expected false when the repo CAS reports no row matched (stale expected status)")
+	}
 }
 func (f *fakeIdeaAdapterRepo) Update(ctx context.Context, idea *models.Idea) error {
 	f.updated = idea

@@ -3,10 +3,11 @@
 > Direction reset note (2026-07-13): references to the former F01–F03 runtime
 > contracts below are historical dependency analysis. The active F04 boundary
 > is the skill/protocol described in `feature.md`, with F06/F07 as consumers.
+> The roster describes collaboration; it is not an entity or permission model.
 
-**Scan date:** 2026-07-13
-**Repository:** `/home/jwwel/projects/shark-task-manager`
-**Feature:** Shark Attack Skill and Role Protocol
+**Scan date:** 2026-07-13  
+**Repository:** `/home/jwwel/projects/shark-task-manager`  
+**Feature:** Shark Attack Skill and Role Protocol  
 **Depth:** Deep tactical codebase and dependency analysis
 
 ## Executive recommendation
@@ -129,10 +130,11 @@ steps; it does not assign statuses or bypass claims. F04 documentation must
 repeat this rule in setup, pull, escalation, and resume procedures.
 
 **Extension decision:** documentation-only integration with workflow metadata,
-unless implementation discovers a narrowly required roster validator. Never
-make roster membership a second routing source. If a future validator is
-needed, place it beside existing shark-data validation and validate keys,
-responsibilities, allowed IDs, and safe text—not workflow transitions.
+unless implementation discovers a narrowly required structural roster
+validator. Never make roster membership a second routing source. If a validator
+is needed, place it beside existing shark-data validation and validate file
+shape, stable IDs, and persona references. Do not interpret responsibility
+prose or council-path preferences as authorization policy.
 
 ### 2.4 Role-aware pull and claim foundations
 

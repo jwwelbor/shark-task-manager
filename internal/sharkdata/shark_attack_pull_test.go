@@ -20,6 +20,7 @@ func TestTC107_TC003_RolePullGuidanceUsesWorkflowAndClaimAuthorities(t *testing.
 
 	pull, err := os.ReadFile(filepath.Join(root, SharkDataDirName, "skills", "shark-attack", "workflows", "pull-by-role.md"))
 	require.NoError(t, err)
+	normalized := strings.Join(strings.Fields(string(pull)), " ")
 
 	for _, want := range []string{
 		"workflow-resolved `agent_type`",
@@ -27,12 +28,14 @@ func TestTC107_TC003_RolePullGuidanceUsesWorkflowAndClaimAuthorities(t *testing.
 		"shark sprint next --agent=<type>",
 		"priority/dependency order",
 		"ClaimService.Claim",
-		"canonical prompt metadata",
+		"`/shark-rider run <selected-key>`",
+		"`response.entity_key`",
+		"claims or executes the returned `BacklogItemView` directly",
 		"legacy `agent` assignment",
 		"`model_tier`",
 		"does not grant claim or status authority",
 	} {
-		assert.Contains(t, string(pull), want)
+		assert.Contains(t, normalized, want)
 	}
 }
 
@@ -46,21 +49,19 @@ func TestTC108_ChildWorkerOwnershipGuidanceProtectsTheRoot(t *testing.T) {
 
 	ownership, err := os.ReadFile(filepath.Join(root, SharkDataDirName, "skills", "shark-attack", "context", "worker-ownership.md"))
 	require.NoError(t, err)
+	normalized := strings.Join(strings.Fields(string(ownership)), " ")
 
 	for _, want := range []string{
-		"authorized child",
-		"heartbeat and release only its own child lease",
+		"Rider parent owns the dispatched entity's lease",
+		"workflow transition from selection through release",
+		"bounded evidence and a semantic outcome",
 		"semantic outcome and bounded evidence pointer",
-		"parent coordinator retains the root lease",
-		"root heartbeat",
-		"root release",
-		"root workflow transition",
 		"status set",
 		"force-claim",
 		"rendered prompts",
 		"credentials",
 	} {
-		assert.Contains(t, string(ownership), want)
+		assert.Contains(t, normalized, want)
 	}
 }
 
