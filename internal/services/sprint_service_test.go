@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	cfgworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
@@ -5877,9 +5878,9 @@ func newGetNextTaskTestService(t *testing.T, backlogItems []*sprint.BacklogItem)
 	return NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
 }
 
-func roleBacklogItem(entityType models.EntityType, id int64, key, status, storedAgent string, order int) *sprint.BacklogItem {
+func roleBacklogItem(entityType string, id int64, key, status, storedAgent string, order int) *sprint.BacklogItem {
 	return &sprint.BacklogItem{
-		EntityType:  string(entityType),
+		EntityType:  entityType,
 		EntityID:    id,
 		Key:         key,
 		EntityKey:   key,
@@ -5895,10 +5896,10 @@ func roleBacklogItem(entityType models.EntityType, id int64, key, status, stored
 // agent_type, controls role filtering across every sprint entity workflow.
 func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) {
 	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
-		roleBacklogItem(models.EntityTypeTechDebt, 101, "debt-developer", "in_progress", "researcher", 1),
-		roleBacklogItem(models.EntityTypeBug, 102, "bug-qa", "qa", "developer", 2),
-		roleBacklogItem(models.EntityTypeTask, 103, "task-developer", "development", "qa", 3),
-		roleBacklogItem(sprintBacklogEntityTypeChangeCard, 104, "change-qa", "qa", "developer", 4),
+		roleBacklogItem(entitytype.WorkflowTechDebt, 101, "debt-developer", "in_progress", "researcher", 1),
+		roleBacklogItem(entitytype.WorkflowBug, 102, "bug-qa", "qa", "developer", 2),
+		roleBacklogItem(entitytype.WorkflowTask, 103, "task-developer", "development", "qa", 3),
+		roleBacklogItem(normalizeBacklogEntityType(entitytype.WorkflowChange), 104, "change-qa", "qa", "developer", 4),
 	})
 
 	for _, tt := range []struct {
@@ -5926,8 +5927,8 @@ func TestGetNextTask_TCF06008To010_UsesWorkflowRoleForEligibility(t *testing.T) 
 // A terminal compatibility alias must be filtered before an omitted-role pull.
 func TestGetNextTask_NormalizesTerminalWorkflowAlias(t *testing.T) {
 	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
-		roleBacklogItem(sprintBacklogEntityTypeChangeCard, 101, "declined-change", "declined", "developer", 1),
-		roleBacklogItem(models.EntityTypeTask, 102, "open-task", "development", "developer", 2),
+		roleBacklogItem(normalizeBacklogEntityType(entitytype.WorkflowChange), 101, "declined-change", "declined", "developer", 1),
+		roleBacklogItem(entitytype.WorkflowTask, 102, "open-task", "development", "developer", 2),
 	})
 
 	result, err := svc.GetNextTask(context.Background(), "")

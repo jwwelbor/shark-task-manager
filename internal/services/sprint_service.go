@@ -1345,26 +1345,24 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 	return v
 }
 
-const sprintBacklogEntityTypeChangeCard models.EntityType = "change_card"
-
 type sprintPullWorkflowIndex struct {
 	requestedRole    string
-	workflows        map[models.EntityType]*workflow.Service
-	terminalStatuses map[models.EntityType]map[string]bool
-	eligibleStatuses map[models.EntityType]map[string]bool
+	workflows        map[string]*workflow.Service
+	terminalStatuses map[string]map[string]bool
+	eligibleStatuses map[string]map[string]bool
 }
 
 func newSprintPullWorkflowIndex(sprintWorkflow *workflow.Service, requestedRole string) sprintPullWorkflowIndex {
 	index := sprintPullWorkflowIndex{
 		requestedRole: requestedRole,
-		workflows: map[models.EntityType]*workflow.Service{
-			models.EntityTypeTask:             sprintWorkflow.ForLevel(workflow.LevelTask),
-			models.EntityTypeBug:              sprintWorkflow.ForLevel(workflow.LevelBug),
-			sprintBacklogEntityTypeChangeCard: sprintWorkflow.ForLevel(workflow.LevelChange),
-			models.EntityTypeTechDebt:         sprintWorkflow.ForLevel(workflow.LevelTechDebt),
+		workflows: map[string]*workflow.Service{
+			entitytype.WorkflowTask:     sprintWorkflow.ForLevel(workflow.LevelTask),
+			entitytype.WorkflowBug:      sprintWorkflow.ForLevel(workflow.LevelBug),
+			entitytype.WorkflowChange:   sprintWorkflow.ForLevel(workflow.LevelChange),
+			entitytype.WorkflowTechDebt: sprintWorkflow.ForLevel(workflow.LevelTechDebt),
 		},
-		terminalStatuses: make(map[models.EntityType]map[string]bool),
-		eligibleStatuses: make(map[models.EntityType]map[string]bool),
+		terminalStatuses: make(map[string]map[string]bool),
+		eligibleStatuses: make(map[string]map[string]bool),
 	}
 	for entityType, entityWorkflow := range index.workflows {
 		index.terminalStatuses[entityType] = terminalSet(entityWorkflow)
@@ -1378,16 +1376,16 @@ func newSprintPullWorkflowIndex(sprintWorkflow *workflow.Service, requestedRole 
 }
 
 func (i sprintPullWorkflowIndex) allows(entityType, status string) bool {
-	typedEntity := models.EntityType(entityType)
-	entityWorkflow, ok := i.workflows[typedEntity]
+	canonicalEntityType := entitytype.WorkflowLevelOrSelf(entityType)
+	entityWorkflow, ok := i.workflows[canonicalEntityType]
 	if !ok {
 		return false
 	}
 	canonicalStatus := entityWorkflow.NormalizeStatus(status)
-	if i.terminalStatuses[typedEntity][canonicalStatus] {
+	if i.terminalStatuses[canonicalEntityType][canonicalStatus] {
 		return false
 	}
-	return i.requestedRole == "" || i.eligibleStatuses[typedEntity][canonicalStatus]
+	return i.requestedRole == "" || i.eligibleStatuses[canonicalEntityType][canonicalStatus]
 }
 
 // GetNextTask returns the single next eligible item to work on from the active sprint.
