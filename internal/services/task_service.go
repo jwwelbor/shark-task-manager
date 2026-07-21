@@ -120,6 +120,13 @@ type TaskRepository interface {
 	GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error)
 }
 
+// taskDeleteWithTx is the optional transaction-aware delete seam used when
+// aggregate maintenance is wired. Keeping it separate preserves lightweight
+// service mocks that do not need database transaction behavior.
+type taskDeleteWithTx interface {
+	DeleteWithTx(ctx context.Context, tx *sql.Tx, id int64) error
+}
+
 // TaskHistoryRepository defines the repository interface for task history access.
 // This interface is satisfied by *repository.TaskHistoryRepository.
 type TaskHistoryRepository interface {
@@ -156,20 +163,21 @@ type AnalyticsFeatureRepository interface {
 }
 
 type TaskService struct {
-	repo              TaskRepository
-	entitySvc         *EntityService
-	creatorSvc        *taskcreation.Creator
-	historyRepo       TaskHistoryRepository
-	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
-	docRepo           config.DocumentRepository
-	relRepo           config.TaskRelationshipRepository // for template placeholder population (ListRelatedTaskKeys)
-	sessionRepo       WorkSessionRepository
-	epicRepo          AnalyticsEpicRepository
-	featureRepo       AnalyticsFeatureRepository
-	featureService    *FeatureService // optional: triggers progress recalc on status change
-	enrichRepo        config.TemplateEnrichmentRepository
-	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
-	searchIndexer     SearchIndexer
+	repo                 TaskRepository
+	entitySvc            *EntityService
+	creatorSvc           *taskcreation.Creator
+	historyRepo          TaskHistoryRepository
+	entityHistoryRepo    EntityHistoryRecorder // optional: records to entity_history table
+	docRepo              config.DocumentRepository
+	relRepo              config.TaskRelationshipRepository // for template placeholder population (ListRelatedTaskKeys)
+	sessionRepo          WorkSessionRepository
+	epicRepo             AnalyticsEpicRepository
+	featureRepo          AnalyticsFeatureRepository
+	featureService       *FeatureService               // optional: triggers progress recalc on status change
+	aggregateCoordinator *AggregateMutationCoordinator // optional: owns transactional parent aggregate maintenance
+	enrichRepo           config.TemplateEnrichmentRepository
+	docSvc               *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	searchIndexer        SearchIndexer
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
 	tagSvc TagQuerier
@@ -365,7 +373,9 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 			return nil, false, recordSpanError(span, err)
 		}
 
-		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
+		if s.aggregateCoordinator == nil {
+			s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
+		}
 		return result.Task, result.FileWasLinked, nil
 	}
 
@@ -435,7 +445,9 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		return nil, false, recordSpanError(span, err)
 	}
 
-	s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
+	if s.aggregateCoordinator == nil {
+		s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
+	}
 	return task, false, nil
 }
 
@@ -635,8 +647,28 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 		return recordSpanError(span, fmt.Errorf("failed to delete task %s: task has dependent tasks that must be deleted first", key))
 	}
 
-	// Delete task
-	if err := s.repo.Delete(ctx, task.ID); err != nil {
+	// Delete task and refresh the parent cache before committing when aggregate
+	// coordination is available.
+	if s.aggregateCoordinator != nil {
+		txRepo, ok := s.repo.(taskDeleteWithTx)
+		if !ok {
+			return recordSpanError(span, fmt.Errorf("task repository does not support transactional delete"))
+		}
+		tx, err := s.repo.BeginTx(ctx)
+		if err != nil {
+			return recordSpanError(span, fmt.Errorf("failed to begin task aggregate transaction: %w", err))
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := txRepo.DeleteWithTx(ctx, tx, task.ID); err != nil {
+			return recordSpanError(span, fmt.Errorf("failed to delete task %s: %w", key, err))
+		}
+		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, task.FeatureID); err != nil {
+			return recordSpanError(span, fmt.Errorf("failed to maintain task aggregates: %w", err))
+		}
+		if err := tx.Commit(); err != nil {
+			return recordSpanError(span, fmt.Errorf("failed to commit task aggregate transaction: %w", err))
+		}
+	} else if err := s.repo.Delete(ctx, task.ID); err != nil {
 		return recordSpanError(span, fmt.Errorf("failed to delete task %s: %w", key, err))
 	}
 	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeTask, task.ID); err != nil {
@@ -766,8 +798,20 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 	)
 	defer span.End()
 
-	// Create task-specific adapter that routes UpdateStatus through StatusUpdateRaw
+	// Create task-specific adapter that routes UpdateStatus through StatusUpdateRaw.
+	// Aggregate coordination keeps that status write and the parent refresh in one
+	// caller-owned transaction.
 	adapter := s.makeTaskEntityAdapter(opts)
+	var aggregateTx *sql.Tx
+	if s.aggregateCoordinator != nil {
+		var txErr error
+		aggregateTx, txErr = s.repo.BeginTx(ctx)
+		if txErr != nil {
+			return nil, recordSpanError(span, fmt.Errorf("failed to begin task aggregate transaction: %w", txErr))
+		}
+		defer func() { _ = aggregateTx.Rollback() }()
+		adapter.tx = aggregateTx
+	}
 
 	// Delegate full transition flow to EntityService:
 	// validation, normalization, force-reason check, backward detection,
@@ -788,15 +832,33 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 			result.FromStatus, result.ToStatus, strings.Join(adapter.unblockedKeys, ", "))
 	}
 
-	// Post-hook: recalculate feature progress
-	task, taskErr := s.repo.GetByKey(ctx, key)
-	if taskErr == nil {
-		s.recalculateFeatureProgress(ctx, task.FeatureID)
+	// Post-hook: recalculate feature progress. Aggregate coordination is the
+	// authoritative path; the legacy fallback is retained for partially wired
+	// test and embedding environments.
+	task := adapter.lastTask
+	var taskErr error
+	if s.aggregateCoordinator != nil {
+		if task == nil {
+			return nil, recordSpanError(span, fmt.Errorf("task %s was not loaded for aggregate maintenance", key))
+		}
+		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, aggregateTx, task.FeatureID); err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("failed to maintain task aggregates: %w", err))
+		}
+		if err := aggregateTx.Commit(); err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("failed to commit task aggregate transaction: %w", err))
+		}
+	} else {
+		if task == nil {
+			task, taskErr = s.repo.GetByKey(ctx, key)
+		}
+		if taskErr == nil && task != nil {
+			s.recalculateFeatureProgress(ctx, task.FeatureID)
+		}
 	}
 
 	// Cascade post-hook: reopen terminal parents when a task regresses from
 	// a terminal status to a non-terminal status (AC-01 / REQ-F-001).
-	if s.cascadeEnabled() && taskErr == nil {
+	if s.aggregateCoordinator == nil && s.cascadeEnabled() && taskErr == nil && task != nil {
 		taskWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelTask)
 		if taskWf.IsTerminalStatus(result.FromStatus) && !taskWf.IsTerminalStatus(result.ToStatus) {
 			cascadeParentReopens(ctx, s.cascadeDepsBundle(), cascadeTrigger{
@@ -1253,6 +1315,21 @@ func (s *TaskService) SetFeatureService(featureService *FeatureService) {
 	s.featureService = featureService
 }
 
+// SetAggregateMutationCoordinator wires the transactional aggregate-maintenance
+// seam for progress-affecting task writes. The creator hook runs inside the
+// task creation transaction, so parent cache failures roll back the new task.
+func (s *TaskService) SetAggregateMutationCoordinator(coordinator *AggregateMutationCoordinator) {
+	s.aggregateCoordinator = coordinator
+	if s.creatorSvc != nil {
+		s.creatorSvc.SetAfterCreateHook(func(ctx context.Context, tx *sql.Tx, task *models.Task) error {
+			if coordinator == nil {
+				return nil
+			}
+			return coordinator.RefreshFeatureAndEpic(ctx, tx, task.FeatureID)
+		})
+	}
+}
+
 // SetCascadeDeps wires the optional cascade reopen dependencies.
 // All five parameters must be non-nil for the cascade to fire; any nil value
 // disables the cascade silently (graceful degradation per AC-T5).
@@ -1406,6 +1483,9 @@ type statusTransitionOpts struct {
 // agent/reason/documentPath handling and capture auto-unblocked keys.
 type taskEntityRepoAdapter struct {
 	repo TaskRepository
+	// tx, when set, makes the status write participate in the caller-owned
+	// aggregate transaction.
+	tx *sql.Tx
 	// opts is set before each TransitionStatus call to pass transition-specific
 	// metadata (agent, reason, documentPath, force) to StatusUpdateRaw.
 	opts *statusTransitionOpts
@@ -1472,7 +1552,13 @@ func (a *taskEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, stat
 		BlockedAt:       task.BlockedAt,
 	}
 
-	unblockedKeys, err := a.repo.StatusUpdateRaw(ctx, params)
+	var unblockedKeys []string
+	var err error
+	if a.tx != nil {
+		unblockedKeys, err = a.repo.StatusUpdateRawWithTx(ctx, a.tx, params)
+	} else {
+		unblockedKeys, err = a.repo.StatusUpdateRaw(ctx, params)
+	}
 	if err != nil {
 		return err
 	}
@@ -1522,7 +1608,13 @@ func (a *taskEntityRepoAdapter) UpdateStatusIfCurrent(ctx context.Context, id in
 		Guarded:         true,
 	}
 
-	unblockedKeys, err := a.repo.StatusUpdateRaw(ctx, params)
+	var unblockedKeys []string
+	var err error
+	if a.tx != nil {
+		unblockedKeys, err = a.repo.StatusUpdateRawWithTx(ctx, a.tx, params)
+	} else {
+		unblockedKeys, err = a.repo.StatusUpdateRaw(ctx, params)
+	}
 	if errors.Is(err, models.ErrGuardedUpdateStale) {
 		return false, nil
 	}

@@ -281,6 +281,7 @@ func GetTaskService() *services.TaskService {
 	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
+	svc.SetAggregateMutationCoordinator(services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), GetWorkflowService()))
 
 	// E28-F04 T-006: wire the shared *TagService so TaskService can enforce
 	// `tag_required_for` on create and honour --tag on create/update.
@@ -322,6 +323,7 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	svc.SetFeatureService(GetFeatureService())
+	svc.SetAggregateMutationCoordinator(services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), GetWorkflowService()))
 	svc.SetSearchIndexer(repository.NewSearchRepository(d.db))
 
 	// Wire sub-services for query and history delegation.
@@ -367,6 +369,7 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	svc.SetSessionRepo(sessionRepo)
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
+	svc.SetAggregateMutationCoordinator(services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), GetWorkflowService()))
 	projectRoot, _ := FindProjectRoot()
 	if projectRoot == "" {
 		projectRoot = "."

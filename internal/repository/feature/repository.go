@@ -80,6 +80,36 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	return nil
 }
 
+// CreateWithTx creates a feature inside a caller-owned transaction.
+func (r *FeatureRepository) CreateWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	if err := feature.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	if feature.Slug == nil {
+		generatedSlug := slug.Generate(feature.Title)
+		feature.Slug = &generatedSlug
+	}
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO features (epic_id, key, title, slug, description, status, status_override, progress_pct, execution_order, file_path, context_data, size)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		feature.EpicID, feature.Key, feature.Title, feature.Slug, feature.Description,
+		feature.Status, feature.StatusOverride, feature.ProgressPct, feature.ExecutionOrder,
+		feature.FilePath, feature.ContextData, feature.Size,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create feature: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	feature.ID = id
+	return nil
+}
+
 // GetByID retrieves a feature by its ID
 func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (_ *models.Feature, retErr error) {
 	ctx, span := tracer.Start(ctx, "FeatureRepository.GetByID",
@@ -767,6 +797,25 @@ func (r *FeatureRepository) Delete(ctx context.Context, id int64) (retErr error)
 		return fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 
+	return nil
+}
+
+// DeleteWithTx deletes a feature and its dependent tasks in a caller-owned transaction.
+func (r *FeatureRepository) DeleteWithTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM features WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete feature: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
+	}
 	return nil
 }
 

@@ -1639,6 +1639,25 @@ func (r *TaskRepository) Delete(ctx context.Context, id int64) (retErr error) {
 	return nil
 }
 
+// DeleteWithTx deletes a task in a caller-owned transaction.
+func (r *TaskRepository) DeleteWithTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete task: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task not found with id %d", id)
+	}
+	return nil
+}
+
 // GetStatusBreakdownMapBatch returns status counts as maps for multiple features in a single query.
 // This method avoids N+1 query problems when fetching breakdowns for many features.
 func (r *TaskRepository) GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {

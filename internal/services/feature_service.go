@@ -64,6 +64,12 @@ type FeatureTaskCounter interface {
 	GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
+type featureAggregateTxRepository interface {
+	BeginTx(ctx context.Context) (*sql.Tx, error)
+	CreateWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature) error
+	DeleteWithTx(ctx context.Context, tx *sql.Tx, id int64) error
+}
+
 // DocumentRepository defines the interface for accessing documents linked to entities.
 // This is satisfied by implementations from the config or repository packages.
 type DocumentRepository = config.DocumentRepository
@@ -78,19 +84,20 @@ type FeatureRelationshipRepository = config.FeatureRelationshipRepository
 
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
-	repo              FeatureRepository
-	entitySvc         *EntityService
-	entityRepo        EntityRepository
-	taskRepo          FeatureTaskCounter
-	docRepo           DocumentRepository
-	relRepo           FeatureRelationshipRepository
-	epicLookupRepo    FeatureEpicLookup
-	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
-	progressService   *FeatureProgressService
-	enrichRepo        config.TemplateEnrichmentRepository
-	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
-	tracer            trace.Tracer          // optional; defaults to otel.Tracer("shark/services/feature") if nil
-	searchIndexer     SearchIndexer
+	repo                 FeatureRepository
+	entitySvc            *EntityService
+	entityRepo           EntityRepository
+	taskRepo             FeatureTaskCounter
+	docRepo              DocumentRepository
+	relRepo              FeatureRelationshipRepository
+	epicLookupRepo       FeatureEpicLookup
+	docSvc               *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	progressService      *FeatureProgressService
+	enrichRepo           config.TemplateEnrichmentRepository
+	entityHistoryRepo    EntityHistoryRecorder // optional: records to entity_history table
+	tracer               trace.Tracer          // optional; defaults to otel.Tracer("shark/services/feature") if nil
+	searchIndexer        SearchIndexer
+	aggregateCoordinator *AggregateMutationCoordinator
 
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
@@ -178,6 +185,12 @@ func (s *FeatureService) SetTagService(tagSvc TagQuerier) {
 // SetSearchIndexer wires the optional search indexer used after feature writes.
 func (s *FeatureService) SetSearchIndexer(indexer SearchIndexer) {
 	s.searchIndexer = indexer
+}
+
+// SetAggregateMutationCoordinator wires the transactional parent epic rollup
+// used for feature membership mutations.
+func (s *FeatureService) SetAggregateMutationCoordinator(coordinator *AggregateMutationCoordinator) {
+	s.aggregateCoordinator = coordinator
 }
 
 // SetSizeEnforcement wires the optional SizeEnforcementConfig. When nil or
@@ -973,7 +986,26 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, fmt.Errorf("feature validation failed: %w", err)
 	}
 
-	if err := s.repo.Create(ctx, feature); err != nil {
+	if s.aggregateCoordinator != nil {
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return nil, fmt.Errorf("feature repository does not support aggregate transactions")
+		}
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to begin feature aggregate transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := txRepo.CreateWithTx(ctx, tx, feature); err != nil {
+			return nil, fmt.Errorf("failed to create feature %s: %w", featureKey, err)
+		}
+		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, epic.ID); err != nil {
+			return nil, fmt.Errorf("failed to maintain epic aggregate: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("failed to commit feature aggregate transaction: %w", err)
+		}
+	} else if err := s.repo.Create(ctx, feature); err != nil {
 		return nil, fmt.Errorf("failed to create feature %s: %w", featureKey, err)
 	}
 
@@ -984,7 +1016,9 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, err
 	}
 
-	s.maybeReopenParentEpic(ctx, epic, feature.Key)
+	if s.aggregateCoordinator == nil {
+		s.maybeReopenParentEpic(ctx, epic, feature.Key)
+	}
 	return feature, nil
 }
 
@@ -1103,7 +1137,26 @@ func (s *FeatureService) DeleteFeature(ctx context.Context, key string) error {
 		return fmt.Errorf("feature not found: %s", key)
 	}
 
-	if err := s.repo.Delete(ctx, feature.ID); err != nil {
+	if s.aggregateCoordinator != nil {
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return fmt.Errorf("feature repository does not support aggregate transactions")
+		}
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to begin feature aggregate transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := txRepo.DeleteWithTx(ctx, tx, feature.ID); err != nil {
+			return fmt.Errorf("failed to delete feature %s: %w", key, err)
+		}
+		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, feature.EpicID); err != nil {
+			return fmt.Errorf("failed to maintain epic aggregate: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit feature aggregate transaction: %w", err)
+		}
+	} else if err := s.repo.Delete(ctx, feature.ID); err != nil {
 		return fmt.Errorf("failed to delete feature %s: %w", key, err)
 	}
 	if err := removeEntityFromIndexIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
