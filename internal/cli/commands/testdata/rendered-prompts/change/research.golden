@@ -1,15 +1,20 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
-Research change card E07-F01: "Sample feature for golden test" using the universal recipe
-catalog. Write adjacent `E07-F01.research-plan.md` and
-`E07-F01.research-report.md` sidecars beside docs/plan/E07/E07-F01/E07-F01.md. Both front-matter
-blocks must identify `entity_key`, `entity_type: change`, `recipe: universal`,
-`rigor`, `categories`, `source_set`, and `related_work`. The plan requires
-Scope, Recipe, Source set, and Steps. The report requires Scope, Capability
-map, Ubiquitous vocabulary, Findings, Decisions, and Sources.
+Research change card E07-F01: "Sample feature for golden test" using the v2 universal recipe
+catalog. Write only `E07-F01.research-report.md` beside docs/plan/E07/E07-F01/E07-F01.md and
+register it as a related document. Front matter must include
+`research_schema: 2`, `entity_key`, `entity_type: change`, `recipe: universal`,
+`rigor`, selected `categories`, and `related_work`.
 
-Always establish vocabulary and examine related work when it exists. The
-Capability map must make REUSE, EXTEND, NEW, or CONTRADICTS decisions without
-copying upstream material. Select only relevant category modules, register both
-sidecars as related docs, then return `pass`.
+Include Scope, Research checklist, Findings, Decisions, and Sources. The
+checked checklist is the plan and completion record: every selected catalog
+module needs a checked entry with concrete `Evidence:` paths. Always select
+`scope_vocabulary` and `affected_implementation_or_contract`; standard adds
+`pattern_contract` or `dependency_impact`; complex also adds
+`cross_boundary_risks` and `alternatives`.
+
+Record the affected contract or implementation and the extension-versus-new
+decision. Add a Capability map only when related capability work is discovered
+or changed, with REUSE, EXTEND, NEW, or CONTRADICTS decisions. Return `pass`
+only after the one report is complete.

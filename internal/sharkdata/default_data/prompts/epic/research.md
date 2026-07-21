@@ -1,24 +1,24 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research epic {{.id}}: "{{.title}}" using the universal recipe catalog at
+Research epic {{.id}}: "{{.title}}" using the v2 universal recipe catalog at
 `shark-data/research/recipes.yaml`.
 
-First write `research-plan.md` beside {{.file_path}}. Select `recipe:
-universal`, a rigor tier (`simple`, `standard`, or `complex`), and only the
-applicable categories: `frontend`, `backend`, `api`, `data`,
-`workflow_operations`, `documentation`. The plan must have front matter with
-`entity_key`, `entity_type: epic`, `recipe`, `rigor`, `categories`,
-`source_set`, and `related_work`, then these sections: Scope, Recipe, Source
-set, Steps.
+Write only `research-report.md` beside {{.file_path}} and register that report
+as a related document on {{.id}}. Its front matter must include
+`research_schema: 2`, `entity_key`, `entity_type: epic`, `recipe: universal`,
+`rigor`, selected `categories`, and `related_work`.
 
-Execute only the selected recipe steps. Always establish ubiquitous vocabulary.
-When sibling epics, existing features, related work, or relevant capabilities
-exist, inspect them and include a non-empty Capability map with REUSE, EXTEND,
-NEW, or CONTRADICTS decisions. Cite paths and link to upstream material instead
-of reproducing it.
+The report must contain Scope, Research checklist, Capability map, Findings,
+Decisions, and Sources. The checked Research checklist is the plan and the
+record of completion: select the applicable atomic catalog modules, check each
+one only after completion, and add concrete `Evidence:` paths to every entry.
+Always select `scope_vocabulary`, `affected_implementation_or_contract`, and
+`related_work`; simple work stops there, standard work also selects
+`pattern_contract` or `dependency_impact`, and complex work also selects both
+`cross_boundary_risks` and `alternatives`.
 
-Then write `research-report.md` with matching front matter and these sections:
-Scope, Capability map, Ubiquitous vocabulary, Findings, Decisions, Sources.
-Register both documents as related docs on {{.id}}. Return `pass` only after
-both documents meet this structural contract.
+Inspect parent/sibling/related capability evidence and make a Capability map
+decision for each relevant capability: REUSE, EXTEND, NEW, or CONTRADICTS.
+Record the brownfield evidence and whether this extends an existing capability
+or creates a new one. Return `pass` only after the one report is complete.

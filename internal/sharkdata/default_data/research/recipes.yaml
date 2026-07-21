@@ -1,14 +1,42 @@
-version: "1.0"
+version: "2.0"
 recipes:
   universal:
     entity_types: [epic, feature, task, bug, change, tech_debt, sprint]
-    required_plan_sections: [Scope, Recipe, Source set, Steps]
-    required_report_sections: [Scope, Capability map, Ubiquitous vocabulary, Findings, Decisions, Sources]
+    required_report_sections: [Scope, Research checklist, Findings, Decisions, Sources]
     categories: [frontend, backend, api, data, workflow_operations, documentation]
+    modules:
+      scope_vocabulary:
+        entity_types: [epic, feature, task, bug, change, tech_debt, sprint]
+        minimum_evidence: Entity file and the terms used by its affected contract.
+        expected_output: Bounded scope and shared vocabulary.
+      affected_implementation_or_contract:
+        categories: [frontend, backend, api, data, workflow_operations, documentation]
+        minimum_evidence: A directly affected implementation path, interface, data shape, or documented contract.
+        expected_output: Brownfield finding and extension-versus-new decision.
+      related_work:
+        entity_types: [epic, feature]
+        minimum_evidence: Parent, sibling, and related-work sources searched or read.
+        expected_output: Capability map with explicit decisions.
+      pattern_contract:
+        categories: [frontend, backend, api, data, workflow_operations, documentation]
+        minimum_evidence: An established local pattern or contract and its concrete source.
+        expected_output: Pattern or contract fit decision.
+      dependency_impact:
+        categories: [frontend, backend, api, data, workflow_operations, documentation]
+        minimum_evidence: Direct callers, consumers, providers, or persisted dependencies.
+        expected_output: Dependency-impact finding.
+      cross_boundary_risks:
+        categories: [frontend, backend, api, data, workflow_operations]
+        minimum_evidence: At least one boundary crossing and its failure or compatibility risk.
+        expected_output: Cross-boundary risk analysis.
+      alternatives:
+        categories: [frontend, backend, api, data, workflow_operations, documentation]
+        minimum_evidence: A feasible alternative or an evidence-backed reason no alternative is viable.
+        expected_output: Alternative analysis and chosen approach.
     rigor:
       simple:
-        description: Focused scope, vocabulary, related-work, and directly affected patterns.
+        description: Core modules and directly affected category evidence.
       standard:
-        description: Simple rigor plus dependency and established-pattern analysis.
+        description: Simple rigor plus pattern/contract or dependency-impact analysis.
       complex:
-        description: Standard rigor plus broad impact, risks, and cross-boundary analysis.
+        description: Standard rigor plus cross-boundary risks and alternatives.

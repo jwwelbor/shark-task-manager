@@ -10,8 +10,8 @@ Usage:
 
 ## Static help: `--fast` and `commands`
 
-Treat `commands` as a static alias for `--fast`. Do not call Shark state for
-either form. Print the verb groups plus the compact command reference below.
+Treat `commands` as a static alias for `--fast`. Do not run any `shark` command.
+Print the verb groups plus the compact command reference below.
 
 ```
 Getting started:  /shark-rider project bootstrap | product-design | vision "idea"
@@ -24,14 +24,17 @@ Create:           shark create epic|feature|task|bug|change|tech-debt|idea|note 
 Workflow:         shark status advance <key> --outcome pass|fail|blocked | shark status set <key> <status>
 Leases:           shark claim <key> | shark heartbeat <key> | shark release <key> [--session SID | --force] | shark claims
 Notes:            shark create note <key> "text" --type=comment | shark notes search "query"
-Next preview:     shark next <key> --preview
+Dispatch:         shark next <key> --json (may normalize workflow status)
 Bundle content:   shark skill get <name> [path] | shark agent get <name>
 ```
 
 ## Specific command help
 
-If the user asks `/shark-rider help <verb>` for a known verb, print a short static
-entry. Do not run Shark state calls.
+### Known verbs
+
+If the user asks `/shark-rider help <verb>` for a known verb, use the table
+below. Print the matching static entry. Do not run any `shark` command. Do not
+fall through to state-aware help.
 
 | Verb | Static help |
 |------|-------------|
@@ -55,34 +58,36 @@ entry. Do not run Shark state calls.
 | `revalidate` | Audit spec, task readiness, and workflow state before more execution. |
 | `help` | This help. Use `/shark-rider help commands` for a static reference. |
 
-For unknown verbs, show `/shark-rider help commands` and suggest `/shark-rider <command>`
-passthrough for direct CLI queries.
+### Unknown verbs
+
+Show `/shark-rider help commands` and suggest `/shark-rider <command>`
+passthrough for a direct CLI query. Do not run any `shark` command. Do not fall
+through to state-aware help.
 
 ## Bare `/shark-rider help` (state-aware)
 
-Run read-only queries, then propose prioritized next actions:
+Run bare `shark next` exactly once:
+
 ```bash
-shark status                 # overall dashboard
-shark task list --blocked    # what's stuck
-shark claims                 # active leases (who/what is in-flight)
-shark next <key> --preview   # next dispatch step for a given entity (if a key is in context)
+shark next
 ```
-Only run `shark next <key> --preview` when a concrete key is already in the
-conversation or current command context.
 
-From the results, suggest concrete next commands — e.g. "3 tasks blocked → review
-B-notes", "feature E01-F02 is at `active` with 2 unclaimed tasks → `/shark-rider run E01-F02`",
-"no work in progress → `/shark-rider run <epic>` or `/shark-rider vision \"…\"`".
+Follow the returned `prompt` inline in the current agent turn. Inspect the
+relevant artifacts under `docs/product/` named by the prompt. Treat the Shark
+envelope as the live workflow and relationship authority; use product documents
+only as intent and decision context.
 
-Convert phase-oriented guidance into Shark terms:
-- Missing architecture or product direction: `/shark-rider project bootstrap`,
-  `/shark-rider project product-design`, or `/shark-rider vision "idea"`.
-- Direction exists but no tracked initiative: `/shark-rider vision "next idea"` or
-  `/shark-rider triage "thing to track"`.
-- Ready tracked work exists: `/shark-rider run <key>`.
-- Blocked work exists: inspect the blocked entity, add a note if needed with
-  `shark create note <key> "..." --type=blocker`, or run `/shark-rider revalidate <key>`.
-- Work is already claimed: report the claim and suggest waiting, releasing, or
-  continuing the claimed key as appropriate.
+Return one of these results:
 
-Keep it short: the current state in one or two lines, then 2–4 suggested actions.
+- When the evidence supports a root, recommend exactly one
+  `eligibility=eligible` epic key. Give the decisive why-now evidence and compare
+  it with the strongest eligible alternative.
+- When evidence is incomplete, contradictory, or has no eligible root, report
+  the evidence or relationship gap instead of guessing. State the next evidence
+  or relationship fix.
+
+Stop at advice. The operator must separately invoke
+`/shark-rider run <recommended-key>` to start keyed dispatch. Do not call keyed
+`shark next <key>` from help. Do not spawn a subagent or pass the portfolio
+prompt to another agent. Do not claim, advance, or automatically run the
+recommended epic.

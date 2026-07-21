@@ -1,7 +1,7 @@
 ---
 epic_key: E36
 title: Project Layer and Consult Bridge
-description: Skill-layer pre-epic 'project' verb namespace (bootstrap / brownfield-analysis / product-design) with a derived-checklist + decision-log progress record, plus /shark consult <agent> advisor bridge. One Go change: agent/skill list descriptions. No schema changes.
+description: Project-level coordination through the original skill-layer project namespace, progress record, consult bridge, and ops convention, plus an additive read-only portfolio-aware next-action advisor. No schema changes.
 ---
 
 # Project Layer and Consult Bridge
@@ -9,8 +9,11 @@ description: Skill-layer pre-epic 'project' verb namespace (bootstrap / brownfie
 **Epic Key**: E36
 
 > **Canonical design**: [`dev-artifacts/2026-06-29-project-entity-design/plan.md`](../../../dev-artifacts/2026-06-29-project-entity-design/plan.md).
-> This index is the 3-minute summary; the plan is the authority (including the
-> rejected-alternatives appendix). Where they ever disagree, the plan wins.
+> This index is the 3-minute summary; the plan remains the authority for the
+> original F01-F03 design, including its rejected-alternatives appendix.
+> E36-F04 is a later additive slice governed by its own validated feature,
+> research, and specification artifacts. It preserves the original design's
+> single-project, no-schema, and advisory-document boundaries.
 
 ---
 
@@ -35,7 +38,14 @@ checklist *derived from artifacts on disk* plus an append-only human decision
 log — so it can never drift into a second authoritative copy of state. Add
 `/shark consult <agent>`, a skill verb that loads an agent persona via
 `shark agent get` and adopts it inline as a read-only advisor. The only Go
-change is populating a `description` field on `agent list` / `skill list`.
+change in the original F01-F03 scope is populating a `description` field on
+`agent list` / `skill list`.
+
+The additive F04 slice gives project-level coordination a read-only portfolio
+advisor. Bare `shark next` returns epic evidence, deterministic relationship
+layers and warnings, and a prompt for inspecting `docs/product/` before
+recommending one epic root. Keyed `shark next <key>` remains the existing
+dispatch API, including its current normalization behavior.
 
 ### Impact
 - The pre-epic PDLC arc becomes a discoverable, consistent command surface
@@ -46,6 +56,8 @@ change is populating a `description` field on `agent list` / `skill list`.
   stays a deployment concern (one DB per project, the natural Turso model).
 - `agent list` / `skill list` become self-describing (name → description),
   enabling consult fuzzy-matching and the discovery menu.
+- An operator can ask what epic should come next without claiming, advancing,
+  or dispatching work.
 
 ---
 
@@ -76,17 +88,19 @@ externally-measurable business outcomes (exclusions logged in `scope.md`).
 
 ## Features
 
-Three independent slices, smallest-first (decomposition from the plan's
-implementation table):
+The original plan defines the first three independent slices. F04 is a later
+additive fourth slice:
 
 | Feature | Slice | Touches | Size |
 |---------|-------|---------|------|
 | **E36-F01** | Consult bridge | `agent list`/`skill list` description (Go) + `verbs/consult.md` + `query.md` recognizer + `SKILL.md` allowlist row | S |
 | **E36-F02** | Project namespace + progress record | `verbs/project.md` dispatch; rename `project-init` → `project bootstrap` (alias old); `file_templates/progress.md`; derived-checklist + decision-log updates in activity verbs | M |
 | **E36-F03** | Ops-as-entities convention | docs + an "Ops epic" convention for deploy/devops; no new mechanism | S |
+| **E36-F04** | Portfolio-aware next-action advisor | bare read-only `shark next` evidence and prompt; deterministic epic relationship layers; Rider help integration; keyed dispatch unchanged | M |
 
 Slice 1 ships on its own. Slice 2 delivers the project layer. Slice 3 is mostly
-convention.
+convention. Slice 4 adds portfolio advice without changing the first three
+slices.
 
 ---
 
@@ -101,12 +115,17 @@ project setup; agents running pre-epic activities and consulting personas).
 - `/shark consult <agent>` advisor bridge (explicit + NL forms)
 - Self-describing `agent list` / `skill list`
 - Recurring ops modeled as regular shark entities, not project activities
+- Bare `shark next` portfolio advice with explicit `/shark-rider run <key>` handoff
 
 **Success Criteria**:
-- The three slices land as skill-layer markdown + one Go field, no schema migration.
+- F01-F03 land as skill-layer markdown plus one Go field; F04 adds a bounded
+  read-model/service/CLI path. No slice requires a schema migration.
 - `project-init` keeps working as a deprecation alias for `project bootstrap`.
 - A consult never mutates shark state unless explicitly asked.
+- Bare `shark next` is strictly read-only; keyed `shark next <key>` preserves
+  its dispatch response and normalization behavior; `shark next --preview`
+  does not exist.
 
 ---
 
-*Last Updated*: 2026-06-29
+*Last Updated*: 2026-07-20

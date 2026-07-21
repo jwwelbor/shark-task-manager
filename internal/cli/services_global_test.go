@@ -1,9 +1,38 @@
 package cli
 
 import (
+	"context"
 	"sync"
 	"testing"
 )
+
+func TestGetPortfolioAdviceServiceWiresProductionReaders(t *testing.T) {
+	cleanup := setupAccessorTestDB(t)
+	defer cleanup()
+	ResetServices()
+	ResetWorkflowService()
+	defer func() {
+		ResetServices()
+		ResetWorkflowService()
+	}()
+
+	first := GetPortfolioAdviceService()
+	second := GetPortfolioAdviceService()
+	if first == nil || second == nil {
+		t.Fatal("GetPortfolioAdviceService() returned nil")
+	}
+	if first == second {
+		t.Error("GetPortfolioAdviceService() should create a lightweight service per call")
+	}
+
+	advice, err := first.Advise(context.Background())
+	if err != nil {
+		t.Fatalf("production-wired Advise() error = %v", err)
+	}
+	if advice == nil || advice.Epics == nil || advice.Relationships == nil || advice.Warnings == nil {
+		t.Fatalf("production-wired advice has nil contract fields: %#v", advice)
+	}
+}
 
 // TestResetServices_ReplacesContainer verifies that ResetServices() replaces
 // the container with a fresh one, so subsequent Get* calls re-initialize.

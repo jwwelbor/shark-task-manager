@@ -51,7 +51,7 @@ The wrapper supplies:
 4. The list of `sibling_entities` (with each sibling's already-discovered related-doc paths).
 5. Pre-run `search_results` for the domain terms from the wrapper's search backend.
 
-This workflow is the related-work module of the unified research recipe. The mechanics of enumerating siblings, indexing entity metadata, and registering the entity's plan and report live with the host's project-state machine.
+This workflow is the related-work module of the unified research recipe. The mechanics of enumerating siblings, indexing entity metadata, and registering the entity's report live with the host's project-state machine.
 
 ## Procedure
 

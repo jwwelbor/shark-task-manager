@@ -28,9 +28,9 @@ Everything downstream depends on getting this split right.
 ```
 ┌─────────────────────────── shark CLI (owns) ──────────────────────────────┐
 │ Data plane      entities, status, leases, notes, context, docs, search    │
-│ Workflow engine routing + prompt assembly: shark next renders the step    │
-│                 prompt, inlines skill content, resolves the agent persona │
-│                 from the shark-data bundle                                │
+│ Keyed routing + prompt assembly: shark next <key> renders the step prompt │
+│                 inlines skill content, and resolves the agent persona      │
+│                 from the shark-data bundle                                 │
 └───────────────────────────────────────────────────────────────────────────┘
              ▲ CLI calls                         │ response.prompt (verbatim)
              │                                    ▼
@@ -41,10 +41,19 @@ Everything downstream depends on getting this split right.
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The golden invariant (for driving workflows):** `shark next <key> --json` is
-the **only** dispatch API. Its `response.prompt` already contains the rendered
-workflow prompt, inlined `{{include:}}` skill content, and the Shark specialist
-persona. Pass it to a host agent **unchanged**.
+Shark exposes two distinct `next` command modes:
+
+- Bare `shark next` is a read-only portfolio-advice query. State-aware Rider
+  help must follow its returned prompt inline in the current agent turn and
+  stop at one recommendation or an evidence gap.
+- `shark next <key> --json` resolves keyed workflow dispatch.
+  `/shark-rider run <key>` is the explicit handoff from advice to keyed dispatch.
+
+**The golden invariant applies only to keyed dispatch:**
+`shark next <key> --json` is the only keyed dispatch API. Its `response.prompt`
+already contains the rendered workflow prompt, inlined `{{include:}}` skill
+content, and the Shark specialist persona. Pass `response.prompt` to the host
+agent unchanged.
 
 - ❌ Do **not** build prompts from `shark get … orchestrator_action` (that is an
   inspection surface, not the dispatch API).
@@ -55,8 +64,9 @@ persona. Pass it to a host agent **unchanged**.
   a host-safe primitive (Claude Code: `general-purpose`).
 
 > Recorded failure (2026-07-04): a run spawned `orchestrator_action.agent_type`
-> directly as a subagent, bypassing `shark next`, and failed because the persona
-> wasn't in the host registry. Repoint to `shark next` and dispatch its prompt.
+> directly as a subagent, bypassing keyed `shark next <key> --json`, and failed
+> because the persona wasn't in the host registry. Repoint to keyed
+> `shark next <key> --json` and dispatch its prompt.
 > See `docs/architecture/shark-rider-dispatch-prompt-assembly.md`.
 
 ## Three ways Rider uses the CLI
@@ -66,8 +76,8 @@ much the skill does vs how much the CLI does:
 
 | Mode | The skill's job | The CLI's job |
 |------|-----------------|---------------|
-| **1 · Data-plane passthrough** | Translate the request to a `shark` data command, run it, report | Do the read/write |
-| **2 · Engine dispatch** | Run a mechanical loop; pass `response.prompt` unchanged | Route the workflow **and** assemble the prompt (`shark next`) |
+| **1 · Data-plane passthrough** | Translate the request to a `shark` data command, run it, report | Execute data commands; bare portfolio advice remains read-only |
+| **2 · Engine dispatch** | Run a mechanical loop; pass `response.prompt` unchanged | Route the workflow **and** assemble the prompt (`shark next <key>`) |
 | **3 · Local AI recipe** | Run a host-side craft procedure (read the action or sub-skill) | Serve data reads/writes around the recipe |
 
 Notation: a leading **`/`** (`/shark-rider run`) is a **procedure you read and
@@ -156,7 +166,7 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Sprint retrospective | `/shark-rider retro-sprint S###` → read `skills/sprint-analytics/SKILL.md`; `shark sprint summary --detailed` + velocity → five-section report → `verbs/retro-sprint.md` |
 | Consult an agent persona | `/shark-rider consult <agent> [referent]` → `shark agent list --json` (resolve) → `shark agent get <agent>` → adopt persona inline, read-only → `verbs/consult.md` |
 | Inspect workflow/status flow | `/shark-rider workflow [entity-type\|entity-key] [--all\|--json]` → read status for keys, then render `shark admin workflow list` → `verbs/workflow.md` |
-| State-aware next actions | `/shark-rider help` → `shark status` + `shark task list --blocked` + `shark claims` → propose 2–4 next commands. `--fast`/`commands` = static, no CLI → `verbs/help.md` |
+| State-aware portfolio advice | `/shark-rider help` → call bare `shark next` once → follow its prompt inline → recommend one eligible epic or report the evidence gap. Stop before keyed dispatch. `--fast`/`commands` = static, no CLI → `verbs/help.md` |
 
 ## Golden path
 
@@ -180,8 +190,11 @@ fixed here; derive it live rather than hardcoding it:
 ```bash
 shark status transitions <key>    # valid next statuses / outcomes from the current step
 shark status transitions <key> --json
-shark next <key> --preview        # what the engine would dispatch next (no claim/spawn)
 ```
+
+Keyed `shark next <key> --json` is the dispatch API, not a read-only inspection
+command. It may auto-advance cascade-complete parents or agentless
+`advance_status` placeholders while resolving the next dispatch.
 
 ## Dispatch algorithm
 
@@ -236,5 +249,5 @@ Host-local AI-orchestration procedures that Mode-3 verbs read directly.
 - `context/entity-crud.md` — create / update / delete patterns
 - `context/notes-context-docs.md` — notes, context, related docs
 - `context/task-execution-pattern.md` — how a spawned agent executes one entity
-- `docs/architecture/shark-rider-dispatch-prompt-assembly.md` — the `shark next` dispatch contract
+- **Shark Dispatch Prompt Assembly** architecture document — the keyed `shark next <key>` dispatch contract
 - `HOOKS.md` — optional automation hooks

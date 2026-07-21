@@ -1,23 +1,25 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
-Research feature E07-F01: "Sample feature for golden test" using the universal recipe in
-`shark-data/research/recipes.yaml`. Read the parent report, parent PRD,
+Research feature E07-F01: "Sample feature for golden test" using the v2 universal recipe catalog
+at `shark-data/research/recipes.yaml`. Read the parent report, parent PRD,
 siblings, docs/plan/E07/E07-F01/E07-F01.md, and only the category-specific sources selected by
-the plan.
+the report checklist.
 
-First write `research-plan.md` beside the feature file. Its front matter must
-identify `entity_key`, `entity_type: feature`, `recipe: universal`, selected
-`rigor`, `categories`, `source_set`, and `related_work`; add Scope, Recipe,
-Source set, and Steps sections. Always define ubiquitous vocabulary. Where
-siblings or related work exist, inspect them and record a non-empty Capability
-map that decides REUSE, EXTEND, NEW, or CONTRADICTS. Reference upstream and
-sibling reports instead of copying them.
+Write only `research-report.md` beside the feature file and register that
+report as a related document on E07-F01. Its front matter must include
+`research_schema: 2`, `entity_key`, `entity_type: feature`,
+`recipe: universal`, `rigor`, selected `categories`, and `related_work`.
 
-Write `research-report.md` with matching front matter and Scope, Capability
-map, Ubiquitous vocabulary, Findings, Decisions, and Sources sections. Register
-both files as related docs on E07-F01.
+Include Scope, Research checklist, Capability map, Findings, Decisions, and
+Sources. The checked checklist is both the research plan and completion
+record: every selected catalog module needs a concrete `Evidence:` path.
+Always select `scope_vocabulary`, `affected_implementation_or_contract`, and
+`related_work`; standard adds `pattern_contract` or `dependency_impact`; and
+complex also adds `cross_boundary_risks` and `alternatives`.
 
-Route from the selected rigor: SIMPLE ends `RECOMMENDED OUTCOME: simple`;
-STANDARD ends `RECOMMENDED OUTCOME: standard`; COMPLEX ends `RECOMMENDED
-OUTCOME: pass`. Do not skip research for SIMPLE work.
+The Capability map must decide REUSE, EXTEND, NEW, or CONTRADICTS for relevant
+parent, sibling, and related capabilities. Cite upstream reports rather than
+copying them, and record whether this feature extends or creates a capability.
+Route from rigor: SIMPLE ends `RECOMMENDED OUTCOME: simple`; STANDARD ends
+`RECOMMENDED OUTCOME: standard`; COMPLEX ends `RECOMMENDED OUTCOME: pass`.

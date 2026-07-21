@@ -1,15 +1,21 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research sprint {{.id}}: "{{.title}}" before activation using the universal
-recipe catalog. Write adjacent `{{.id}}.research-plan.md` and
-`{{.id}}.research-report.md` sidecars beside {{.file_path}}. Both front-matter
-blocks must identify `entity_key`, `entity_type: sprint`, `recipe: universal`,
-`rigor`, `categories`, `source_set`, and `related_work`. The plan requires
-Scope, Recipe, Source set, and Steps. The report requires Scope, Capability
-map, Ubiquitous vocabulary, Findings, Decisions, and Sources.
+Research sprint {{.id}}: "{{.title}}" before activation with the v2 universal
+recipe catalog. Write only `{{.id}}.research-report.md` beside {{.file_path}}
+and register it as a related document. Front matter must include
+`research_schema: 2`, `entity_key`, `entity_type: sprint`,
+`recipe: universal`, `rigor`, selected `categories`, and `related_work`.
 
-Use workflow/operations as a category and add only the other applicable
-modules. Inspect assigned and related work where it exists, recording REUSE,
-EXTEND, NEW, or CONTRADICTS in a non-empty Capability map. Register both
-sidecars as related docs, then return `pass` to activate the sprint.
+Include Scope, Research checklist, Findings, Decisions, and Sources. The
+checked checklist is the plan and completion record: every selected catalog
+module needs a checked entry with concrete `Evidence:` paths. Select
+`workflow_operations` plus only relevant categories; always select
+`scope_vocabulary` and `affected_implementation_or_contract`; standard adds
+`pattern_contract` or `dependency_impact`; complex also adds
+`cross_boundary_risks` and `alternatives`.
+
+Record assigned-work and workflow evidence, including the extension-versus-new
+decision. Add a Capability map only when related capability work is discovered
+or changed, with REUSE, EXTEND, NEW, or CONTRADICTS decisions. Return `pass` to
+activate the sprint only after the one report is complete.

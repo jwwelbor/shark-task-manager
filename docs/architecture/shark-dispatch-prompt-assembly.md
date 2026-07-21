@@ -1,11 +1,20 @@
 # Shark Dispatch Prompt Assembly
 
-Shark owns workflow routing and prompt assembly. The host harness owns only the
-outer loop and the execution primitive that runs the returned prompt.
+This document covers keyed workflow dispatch. Shark owns keyed routing and
+prompt assembly. The host harness owns only the outer loop and the execution
+primitive that runs the returned prompt.
 
 The canonical dispatch contract is `shark next <key> --json`. Harnesses should
 not build prompts from `shark get ... orchestrator_action`, and they should not
 load Shark skills or Shark specialist agents from their own filesystem.
+
+## Command modes
+
+This wire contract applies only to keyed `shark next <key> --json`. Bare
+`shark next` returns a read-only portfolio-advice envelope with current epic
+evidence, dependency ordering, and a prompt for product judgment. It does not
+assemble a specialist dispatch prompt and does not claim, advance, or normalize
+workflow state.
 
 ```mermaid
 sequenceDiagram
@@ -13,7 +22,7 @@ sequenceDiagram
     actor User
     participant Harness as CLI harness
     participant Skill as Shark skill run verb
-    participant Next as shark next command
+    participant Next as keyed shark next command
     participant Engine as prompt assembly engine
     participant Bundle as shark-data bundle
     participant Agent as host execution agent
@@ -21,7 +30,7 @@ sequenceDiagram
 
     User->>Harness: Start slash run with entity key
     Harness->>Skill: Load Shark run procedure
-    Skill->>Next: shark next key --json
+    Skill->>Next: shark next {KEY} --json
     Next->>Engine: Resolve entity status and workflow step
     Engine->>Bundle: Read workflow prompt file
     Engine->>Bundle: Inline skill content through include directives
@@ -34,7 +43,7 @@ sequenceDiagram
     Harness->>Status: shark status advance key --outcome result
     Status-->>Harness: Transition result
     Harness->>Skill: Continue loop
-    Skill->>Next: shark next key --json
+    Skill->>Next: shark next {KEY} --json
 
     alt Shark returns pause or archive
         Next-->>Skill: JSON with terminal wire action
@@ -47,7 +56,7 @@ sequenceDiagram
 
 ## Contract
 
-- `shark next` returns the harness-facing wire shape:
+- `shark next <key> --json` returns the harness-facing wire shape:
   `action`, `agent_type`, `provider`, `model`, and `prompt`.
 - `prompt` is the execution payload. It must already contain the rendered
   workflow prompt, included skill content, and the Shark specialist persona.
@@ -62,8 +71,10 @@ sequenceDiagram
 
 The failed `~/projects/wwgm` session used `shark get E01 --json` and attempted
 to spawn `orchestrator_action.agent_type` directly as a Claude Code subagent.
-That bypassed the `shark next` assembly path and failed because Shark specialist
-personas live in `shark-data/agents/`, not in the host's native agent registry.
+That bypassed the keyed `shark next <key>` assembly path and failed because
+Shark specialist personas live in `shark-data/agents/`, not in the host's
+native agent registry.
 
-The remediation is to repoint the run harness to `shark next`, dispatch the
-returned `prompt`, and treat native host agent selection as an adapter concern.
+The remediation is to repoint the run harness to `shark next <key> --json`,
+dispatch the returned `prompt`, and treat native host agent selection as an
+adapter concern.

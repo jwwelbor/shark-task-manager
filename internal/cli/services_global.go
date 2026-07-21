@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -735,4 +736,19 @@ func GetClaimService() *services.ClaimService {
 	svc.SetSessionLog(worksession.NewWorkSessionRepository(db))
 	svc.SetTaskResolver(repository.NewTaskRepository(db))
 	return svc
+}
+
+// GetPortfolioAdviceService returns a read-only portfolio advice service
+// backed by the shared CLI database and configured workflows.
+func GetPortfolioAdviceService() *services.PortfolioAdviceService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	return services.NewPortfolioAdviceService(
+		repository.NewEpicRepository(db),
+		portfoliorepo.NewRepository(db),
+		GetClaimService(),
+		GetWorkflowService(),
+	)
 }

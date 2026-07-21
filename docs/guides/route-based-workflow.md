@@ -131,9 +131,11 @@ directory.
 
 ## 4. Claim / session lease
 
-Status is a pure phase; the **claim is the lease**. An agent claims an entity
-before working it; `shark next` hands out only unclaimed entities; heartbeats
-renew the lease; a TTL backstop reclaims dead leases.
+Status is a pure phase; the **claim is the lease**. Keyed `shark next <root>`
+selects only unclaimed dispatchable entities. Bare `shark next` is read-only
+portfolio advice and does not select or lease an entity. After keyed selection,
+an agent claims the entity before working it. Heartbeats renew the lease, and a
+TTL backstop reclaims dead leases.
 
 ```bash
 shark claim E07-F01-001 --by dev-agent          # prints a session id
