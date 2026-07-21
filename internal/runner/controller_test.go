@@ -22,6 +22,7 @@ var _ EntityTransitioner = (*MockTransitioner)(nil)
 var _ PlaceholderGenerator = (*MockPlaceholderGen)(nil)
 var _ config.ActionService = (*MockActionService)(nil)
 var _ AgentDispatcher = (*MockDispatcher)(nil)
+var _ CascadeChildrenService = (*MockCascadeChildrenService)(nil)
 
 // ---------------------------------------------------------------------------
 // Mock types
@@ -120,6 +121,18 @@ func (m *MockActionService) Reload(ctx context.Context) error {
 // per entity and inject it via the parent's GetStatusActionPopulatedFunc.
 func (m *MockActionService) ForEntity(entityType string) config.ActionService {
 	return m
+}
+
+// MockCascadeChildrenService implements CascadeChildrenService for testing.
+type MockCascadeChildrenService struct {
+	DescribeDispatchableChildrenFunc func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error)
+}
+
+func (m *MockCascadeChildrenService) DescribeDispatchableChildren(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+	if m.DescribeDispatchableChildrenFunc != nil {
+		return m.DescribeDispatchableChildrenFunc(ctx, entityType, key)
+	}
+	return services.CascadeChildrenState{}, nil
 }
 
 // MockDispatcher implements AgentDispatcher for testing.
@@ -506,6 +519,221 @@ func TestRunController_WaitForTriageAction(t *testing.T) {
 	}
 	if result.Outcome != "paused" {
 		t.Errorf("expected Outcome=paused, got %s", result.Outcome)
+	}
+}
+
+func TestRunController_ReportsIterationAndActionProgress(t *testing.T) {
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "in_triage"}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionWaitForTriage, AgentType: "scrum", Provider: "codex"}, nil
+		},
+	}
+	controller := makeController(t, transitioner, actionSvc, nil)
+	var updates []RunProgress
+	result, err := controller.Run(context.Background(), "E07-F01", RunOptions{
+		Progress: func(update RunProgress) { updates = append(updates, update) },
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome != "paused" {
+		t.Fatalf("Outcome = %q, want paused", result.Outcome)
+	}
+	if len(updates) != 2 {
+		t.Fatalf("progress update count = %d, want 2", len(updates))
+	}
+	if got := updates[0]; got.Phase != "iteration" || got.Iteration != 1 || got.Status != "in_triage" || got.EntityKey != "E07-F01" {
+		t.Errorf("iteration update = %#v", got)
+	}
+	if got := updates[1]; got.Phase != "action" || got.Action != config.ActionWaitForTriage || got.AgentType != "scrum" || got.Provider != "codex" {
+		t.Errorf("action update = %#v", got)
+	}
+}
+
+func TestRunController_CascadeAction_RunsDispatchableChildrenAndAutoAdvancesParent(t *testing.T) {
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "active",
+				IsTerminal:    false,
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+			}, nil
+		},
+		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{
+				Action:      config.ActionCascade,
+				Instruction: "Cascade to ready children",
+			}, nil
+		},
+	}
+	runChildCalled := false
+	cascadeSvc := &MockCascadeChildrenService{
+		DescribeDispatchableChildrenFunc: func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			if runChildCalled {
+				return services.CascadeChildrenState{
+					TotalChildren:       1,
+					NonTerminalChildren: 0,
+				}, nil
+			}
+			return services.CascadeChildrenState{
+				Children:            []services.CascadeChild{{Key: "E07-F01-T01", EntityType: "task"}},
+				TotalChildren:       1,
+				NonTerminalChildren: 1,
+			}, nil
+		},
+	}
+
+	runChild := func(ctx context.Context, childType, key string, opts RunOptions) (*RunResult, error) {
+		runChildCalled = true
+		if childType != "task" {
+			t.Fatalf("runChild childType=%s, want task", childType)
+		}
+		if key != "E07-F01-T01" {
+			t.Fatalf("runChild key=%s, want E07-F01-T01", key)
+		}
+		if opts.EntityType != "task" {
+			t.Fatalf("runChild opts.EntityType=%s, want task", opts.EntityType)
+		}
+		return &RunResult{
+			EntityKey:   key,
+			FinalStatus: "done",
+			Outcome:     "completed",
+			Stages: []StageLog{{
+				Status:   "active",
+				Action:   config.ActionSpawnAgent,
+				Duration: time.Millisecond,
+			}},
+			StagesCompleted: 1,
+		}, nil
+	}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc:    actionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{
+			"": &MockDispatcher{},
+		},
+		ChildrenSvc: cascadeSvc,
+		RunChild:    runChild,
+	})
+	if err != nil {
+		t.Fatalf("makeController: NewRunController failed: %v", err)
+	}
+	result, err := ctrl.Run(context.Background(), "E07-F01", RunOptions{EntityType: "feature"})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if !runChildCalled {
+		t.Fatal("expected child run to be invoked, but it was not")
+	}
+	if result.Outcome != "completed" {
+		t.Errorf("expected Outcome=completed, got %s", result.Outcome)
+	}
+	if result.FinalStatus != "completed" {
+		t.Errorf("expected FinalStatus=completed, got %s", result.FinalStatus)
+	}
+	if result.StagesCompleted != 2 {
+		t.Fatalf("expected 2 stages completed, got %d", result.StagesCompleted)
+	}
+	if len(result.Stages) != 2 {
+		t.Fatalf("expected 2 recorded stages, got %d", len(result.Stages))
+	}
+	if result.Stages[0].Action != config.ActionSpawnAgent {
+		t.Errorf("expected first stage action=%s, got %s", config.ActionSpawnAgent, result.Stages[0].Action)
+	}
+	if result.Stages[1].Action != config.ActionAdvanceStatus {
+		t.Errorf("expected second stage action=%s, got %s", config.ActionAdvanceStatus, result.Stages[1].Action)
+	}
+}
+
+func TestRunController_CascadeAction_PropagatesChildFailure(t *testing.T) {
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "active",
+				IsTerminal:    false,
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+			}, nil
+		},
+	}
+
+	// transitioner for this flow should never transition parent if child fails.
+	var transitionToParentCalled bool
+	transitioner.TransitionStatusFunc = func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+		transitionToParentCalled = true
+		return &services.TransitionResult{ToStatus: target}, nil
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{
+				Action:      config.ActionCascade,
+				Instruction: "Cascade to ready children",
+			}, nil
+		},
+	}
+	cascadeSvc := &MockCascadeChildrenService{
+		DescribeDispatchableChildrenFunc: func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{
+				Children:            []services.CascadeChild{{Key: "E07-F01-T01", EntityType: "task"}},
+				TotalChildren:       1,
+				NonTerminalChildren: 1,
+			}, nil
+		},
+	}
+
+	runChild := func(ctx context.Context, childType, key string, opts RunOptions) (*RunResult, error) {
+		return &RunResult{
+			EntityKey:       key,
+			FinalStatus:     "blocked",
+			Outcome:         "failed",
+			Error:           "child dispatch failed",
+			StagesCompleted: 0,
+		}, nil
+	}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc:    actionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{
+			"": &MockDispatcher{},
+		},
+		ChildrenSvc: cascadeSvc,
+		RunChild:    runChild,
+	})
+	if err != nil {
+		t.Fatalf("makeController: NewRunController failed: %v", err)
+	}
+
+	result, err := ctrl.Run(context.Background(), "E07-F01", RunOptions{EntityType: "feature"})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if result.Outcome != "failed" {
+		t.Fatalf("expected Outcome=failed, got %s", result.Outcome)
+	}
+	if result.Error == "" || result.Error != "cascade child task E07-F01-T01 failed: child dispatch failed" {
+		t.Fatalf("expected child failure error message, got %q", result.Error)
+	}
+	if transitionToParentCalled {
+		t.Fatal("parent transition should not happen after child failure")
 	}
 }
 

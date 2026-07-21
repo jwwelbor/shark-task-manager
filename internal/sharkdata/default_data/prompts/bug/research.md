@@ -1,16 +1,21 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research bug {{.id}}: "{{.title}}" using the universal recipe catalog.
-Write adjacent `{{.id}}.research-plan.md` and `{{.id}}.research-report.md`
-sidecars beside {{.file_path}}. Both front-matter blocks must identify
-`entity_key`, `entity_type: bug`, `recipe: universal`, `rigor`, `categories`,
-`source_set`, and `related_work`. The plan requires Scope, Recipe, Source set,
-and Steps. The report requires Scope, Capability map, Ubiquitous vocabulary,
-Findings, Decisions, and Sources.
+Research bug {{.id}}: "{{.title}}" using the v2 universal recipe catalog.
+Write only `{{.id}}.research-report.md` beside {{.file_path}} and register it
+as a related document. Front matter must include `research_schema: 2`,
+`entity_key`, `entity_type: bug`, `recipe: universal`, `rigor`, selected
+`categories`, and `related_work`.
 
-Establish vocabulary, reproduce and locate the affected capability, and inspect
-related fixes or patterns. When related work exists, make the Capability map
-non-empty with REUSE, EXTEND, NEW, or CONTRADICTS decisions. Select only the
-relevant category modules, register both sidecars as related docs, then return
-`pass`.
+Include Scope, Research checklist, Findings, Decisions, and Sources. The
+checked checklist is the plan and completion record: select applicable catalog
+modules, check each only after completion, and add concrete `Evidence:` paths.
+Always select `scope_vocabulary` and `affected_implementation_or_contract`;
+standard adds `pattern_contract` or `dependency_impact`; complex also adds
+`cross_boundary_risks` and `alternatives`.
+
+Reproduce and locate the affected capability, record related fixes or patterns,
+and state whether the repair extends an existing capability or creates new
+work. Add a Capability map only when related work is discovered or changed,
+with REUSE, EXTEND, NEW, or CONTRADICTS decisions. Return `pass` only after the
+one report is complete.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -787,16 +788,32 @@ func TestSprintService_StartSprint_RequiresResearchEvidence(t *testing.T) {
 	filePath := "docs/plan/sprints/S001.md"
 
 	for _, tt := range []struct {
-		name      string
-		artifacts bool
-		wantErr   bool
+		name            string
+		artifacts       bool
+		missingEvidence bool
+		wantErr         bool
 	}{
 		{name: "missing artifacts", wantErr: true},
+		{name: "unchecked or unevidenced report blocks activation", artifacts: true, missingEvidence: true, wantErr: true},
 		{name: "valid artifacts", artifacts: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.artifacts {
 				writeSprintResearchArtifacts(t, root, &models.Sprint{Key: "S001", FilePath: filePath})
+			}
+			if tt.missingEvidence {
+				paths, err := research.ArtifactPaths(root, &models.Sprint{Key: "S001", FilePath: filePath})
+				if err != nil {
+					t.Fatal(err)
+				}
+				report, err := os.ReadFile(paths.Report)
+				if err != nil {
+					t.Fatal(err)
+				}
+				invalid := strings.Replace(string(report), "Evidence: `docs/plan/sprints/S001.md`.", "", 1)
+				if err := os.WriteFile(paths.Report, []byte(invalid), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 			updated := false
 			calls := 0
@@ -841,15 +858,11 @@ func writeSprintResearchArtifacts(t *testing.T, root string, sprint *models.Spri
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(paths.Plan), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(paths.Report), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	frontMatter := "---\nentity_key: S001\nentity_type: sprint\nrecipe: universal\nrigor: simple\ncategories: [workflow_operations]\nsource_set: [docs/plan/sprints/S001.md]\nrelated_work: false\n---\n"
-	plan := frontMatter + "# Research plan\n\n## Scope\nSprint scope.\n\n## Recipe\nUniversal.\n\n## Source set\nSprint file.\n\n## Steps\nInspect sprint workflow.\n"
-	report := frontMatter + "# Research report\n\n## Scope\nSprint scope.\n\n## Capability map\nNo related work applies.\n\n## Ubiquitous vocabulary\nSprint: time-boxed work.\n\n## Findings\nUse the existing workflow.\n\n## Decisions\nStart after research.\n\n## Sources\ndocs/plan/sprints/S001.md\n"
-	if err := os.WriteFile(paths.Plan, []byte(plan), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	frontMatter := "---\nresearch_schema: 2\nentity_key: S001\nentity_type: sprint\nrecipe: universal\nrigor: simple\ncategories: [workflow_operations]\nrelated_work: false\n---\n"
+	report := frontMatter + "# Research report\n\n## Scope\nSprint scope.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `docs/plan/sprints/S001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `internal/services/sprint_service.go`.\n\n## Findings\nUse the existing workflow.\n\n## Decisions\nStart after research.\n\n## Sources\n- `docs/plan/sprints/S001.md`\n- `internal/services/sprint_service.go`\n"
 	if err := os.WriteFile(paths.Report, []byte(report), 0o644); err != nil {
 		t.Fatal(err)
 	}

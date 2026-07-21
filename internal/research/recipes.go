@@ -25,21 +25,31 @@ type Catalog struct {
 
 // Recipe defines the allowed selections and structural document contract.
 type Recipe struct {
-	EntityTypes            []string         `yaml:"entity_types"`
-	RequiredPlanSections   []string         `yaml:"required_plan_sections"`
-	RequiredReportSections []string         `yaml:"required_report_sections"`
-	Categories             []string         `yaml:"categories"`
-	Rigor                  map[string]Rigor `yaml:"rigor"`
+	EntityTypes            []string          `yaml:"entity_types"`
+	RequiredPlanSections   []string          `yaml:"required_plan_sections"` // v1 compatibility
+	RequiredReportSections []string          `yaml:"required_report_sections"`
+	Categories             []string          `yaml:"categories"`
+	Modules                map[string]Module `yaml:"modules"`
+	Rigor                  map[string]Rigor  `yaml:"rigor"`
 }
 
-// Rigor describes the depth expected for a tier.
+// Module is an atomic research activity. Categories select applicable modules;
+// they do not impose prose requirements of their own.
+type Module struct {
+	EntityTypes     []string `yaml:"entity_types"`
+	Categories      []string `yaml:"categories"`
+	MinimumEvidence string   `yaml:"minimum_evidence"`
+	ExpectedOutput  string   `yaml:"expected_output"`
+}
+
+// Rigor remains available for installed v1 catalogs. V2 derives the required
+// module coverage from the selected tier rather than a prose description.
 type Rigor struct {
 	Description string `yaml:"description"`
 }
 
-// Paths identifies the two artifacts belonging to an entity.
+// Paths identifies the one current research artifact belonging to an entity.
 type Paths struct {
-	Plan   string
 	Report string
 }
 
@@ -92,7 +102,7 @@ func readCatalogFromDisk(projectRoot string) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// ArtifactPaths returns co-located research paths. Epic and feature reports
+// ArtifactPaths returns the co-located report path. Epic and feature reports
 // retain their directory-local names; file-backed entities use key sidecars.
 func ArtifactPaths(projectRoot string, entity models.Entity) (Paths, error) {
 	filePath := strings.TrimSpace(entity.GetFilePath())
@@ -101,11 +111,8 @@ func ArtifactPaths(projectRoot string, entity models.Entity) (Paths, error) {
 	}
 	dir := filepath.Dir(filepath.Join(projectRoot, filePath))
 	if entity.GetEntityType() == models.EntityTypeEpic || entity.GetEntityType() == models.EntityTypeFeature {
-		return Paths{Plan: filepath.Join(dir, "research-plan.md"), Report: filepath.Join(dir, "research-report.md")}, nil
+		return Paths{Report: filepath.Join(dir, "research-report.md")}, nil
 	}
 	base := entity.GetKey()
-	return Paths{
-		Plan:   filepath.Join(dir, base+".research-plan.md"),
-		Report: filepath.Join(dir, base+".research-report.md"),
-	}, nil
+	return Paths{Report: filepath.Join(dir, base+".research-report.md")}, nil
 }

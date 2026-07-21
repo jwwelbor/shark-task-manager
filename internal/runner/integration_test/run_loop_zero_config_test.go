@@ -78,12 +78,8 @@ func writeTaskResearchArtifacts(t *testing.T, env *Env, taskKey string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create task artifact directory: %v", err)
 	}
-	frontMatter := "---\nentity_key: " + taskKey + "\nentity_type: task\nrecipe: universal\nrigor: simple\ncategories: [backend]\nsource_set: [internal/runner]\nrelated_work: false\n---\n"
-	plan := frontMatter + "# Research plan\n\n## Scope\nRunner task transition.\n\n## Recipe\nUniversal simple backend pass.\n\n## Source set\ninternal/runner\n\n## Steps\nInspect the task workflow.\n"
-	report := frontMatter + "# Research report\n\n## Scope\nRunner task transition.\n\n## Capability map\nNo related work applies.\n\n## Ubiquitous vocabulary\nTask, research, development.\n\n## Findings\nThe embedded workflow advances through research.\n\n## Decisions\nUse the existing runner path.\n\n## Sources\ninternal/runner\n"
-	if err := os.WriteFile(filepath.Join(dir, taskKey+".research-plan.md"), []byte(plan), 0o644); err != nil {
-		t.Fatalf("write research plan: %v", err)
-	}
+	frontMatter := "---\nresearch_schema: 2\nentity_key: " + taskKey + "\nentity_type: task\nrecipe: universal\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n"
+	report := frontMatter + "# Research report\n\n## Scope\nRunner task transition.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `tasks/" + taskKey + ".md`.\n- [x] `affected_implementation_or_contract` — Evidence: `internal/runner` transition path.\n\n## Findings\nThe embedded workflow advances through research and cites the parent Capability map at `docs/plan/IT-E01/IT-E01-F01/research-report.md`.\n\n## Decisions\nUse the existing runner path.\n\n## Sources\n- `internal/runner`\n- `docs/plan/IT-E01/IT-E01-F01/research-report.md` (parent Capability map)\n"
 	if err := os.WriteFile(filepath.Join(dir, taskKey+".research-report.md"), []byte(report), 0o644); err != nil {
 		t.Fatalf("write research report: %v", err)
 	}

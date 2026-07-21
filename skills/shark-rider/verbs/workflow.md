@@ -102,8 +102,9 @@ Do not guess.
 ## Notes
 
 - This verb does not drive workflow execution. Use `/shark-rider run <key>` for that.
-- This verb does not call `shark next` unless the user explicitly asks what would
-  be dispatched next. If they do, run `shark next <key> --preview` after the
-  status and transition reads.
+- This verb does not call `shark next`; exact dispatch resolution may
+  auto-advance cascade-complete parents or agentless `advance_status`
+  placeholders. If the user wants the engine to resolve the dispatch, direct
+  them to `/shark-rider run <key>`.
 - Prefer the compact workflow view by default. Use `--all` only when the user
   asks for the expanded metadata view.

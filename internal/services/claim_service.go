@@ -260,6 +260,23 @@ func (s *ClaimService) List(ctx context.Context) ([]*models.EntityClaim, error) 
 	return s.repo.List(ctx)
 }
 
+// ListActiveReadOnly returns claims that are active at evaluatedAt without
+// reclaiming expired rows or otherwise mutating claim state.
+func (s *ClaimService) ListActiveReadOnly(ctx context.Context, evaluatedAt time.Time) ([]*models.EntityClaim, error) {
+	claims, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list active claims: %w", err)
+	}
+
+	active := make([]*models.EntityClaim, 0, len(claims))
+	for _, claim := range claims {
+		if !claim.IsExpired(evaluatedAt, s.ttl) {
+			active = append(active, claim)
+		}
+	}
+	return active, nil
+}
+
 // ReclaimExpired frees all leases whose heartbeats are stale and returns the
 // count reclaimed.
 func (s *ClaimService) ReclaimExpired(ctx context.Context) (int64, error) {

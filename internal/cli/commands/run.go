@@ -5,6 +5,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -14,6 +15,7 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
@@ -170,6 +172,61 @@ func runRun(cmd *cobra.Command, args []string) error {
 		"codex":     codexDispatcher,
 		"openai":    codexDispatcher,
 	}
+	childrenSvc := cli.GetCascadeService()
+
+	var runChild runner.CascadeChildRunner
+	runChild = func(ctx context.Context, childType, key string, childOpts runner.RunOptions) (*runner.RunResult, error) {
+		childTransitioner, err := buildTransitioner(ctx, childType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build transitioner for %s %s: %w", childType, key, err)
+		}
+		childPlaceholderGen := buildPlaceholderGenerator(ctx, childType)
+		childActionSvc := narrowActionServiceForEntity(actionSvcRoot, childType)
+
+		childController, err := runner.NewRunController(runner.RunControllerDeps{
+			Transitioner: childTransitioner,
+			Placeholders: childPlaceholderGen,
+			ActionSvc:    childActionSvc,
+			WorkflowSvc:  workflowSvc,
+			Dispatchers:  dispatchers,
+			PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
+				return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+			}),
+			ChildrenSvc: childrenSvc,
+			RunChild:    runChild,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cascade child controller for %s %s: %w", childType, key, err)
+		}
+
+		childLease, err := acquireRunLease(ctx, childType, key, childOpts.DryRun)
+		if err != nil {
+			if errors.Is(err, claimrepo.ErrAlreadyClaimed) {
+				return &runner.RunResult{
+					EntityKey: key,
+					Outcome:   "paused",
+					Error:     fmt.Sprintf("cascade child %s %s is already claimed", childType, key),
+				}, nil
+			}
+			return nil, fmt.Errorf("claim cascade child %s %s: %w", childType, key, err)
+		}
+		childOpts.EntityType = childType
+		if childLease != nil {
+			childOpts.SessionID = childLease.sessionID
+		}
+		childResult, runErr := childController.Run(ctx, key, childOpts)
+		outcome := "failed"
+		if childResult != nil && childResult.Outcome != "" {
+			outcome = childResult.Outcome
+		}
+		if releaseErr := childLease.Release(outcome); releaseErr != nil {
+			return nil, fmt.Errorf("release cascade child claim for %s %s: %w", childType, key, releaseErr)
+		}
+		if runErr != nil {
+			return nil, runErr
+		}
+		return childResult, nil
+	}
 
 	// Step 5: Determine working directory, creating a git worktree if requested.
 	workingDir := runWorkDir
@@ -197,6 +254,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
 			return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
 		}),
+		ChildrenSvc: childrenSvc,
+		RunChild:    runChild,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
@@ -219,7 +278,41 @@ func runRun(cmd *cobra.Command, args []string) error {
 		RunID:         runID,
 		SessionID:     runSessionID,
 		ProjectRoot:   projectRoot,
+		EntityType:    entityType,
 		Observability: obs,
+	}
+
+	if !cli.GlobalConfig.JSON {
+		progressTick := time.NewTicker(10 * time.Second)
+		progressDone := make(chan struct{})
+		go func() {
+			defer progressTick.Stop()
+			for {
+				select {
+				case <-progressTick.C:
+					fmt.Printf("  [processing] %s still running (%s elapsed)\n", normalizedKey, time.Since(runStart).Round(time.Second))
+				case <-progressDone:
+					return
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+
+		opts.Progress = func(update runner.RunProgress) {
+			if update.Phase != "action" {
+				return
+			}
+			agentDetails := ""
+			if update.AgentType != "" {
+				agentDetails = fmt.Sprintf(" agent=%s", update.AgentType)
+			}
+			if update.Provider != "" {
+				agentDetails = fmt.Sprintf("%s provider=%s", agentDetails, update.Provider)
+			}
+			fmt.Printf("Processing %s: step %d status=%s action=%s%s\n", normalizedKey, update.Iteration, update.Status, update.Action, agentDetails)
+		}
+		defer close(progressDone)
 	}
 
 	result, err := controller.Run(ctx, normalizedKey, opts)

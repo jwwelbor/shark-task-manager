@@ -1,16 +1,22 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
-Research task E07-F01: "Sample feature for golden test" using the universal recipe catalog.
-Write adjacent sidecars `E07-F01.research-plan.md` and
-`E07-F01.research-report.md` beside docs/plan/E07/E07-F01/E07-F01.md. Both front-matter blocks
-must identify `entity_key`, `entity_type: task`, `recipe: universal`, `rigor`,
-`categories`, `source_set`, and `related_work`. The plan must contain Scope,
-Recipe, Source set, and Steps. The report must contain Scope, Capability map,
-Ubiquitous vocabulary, Findings, Decisions, and Sources.
+Research task E07-F01: "Sample feature for golden test" with the v2 universal recipe catalog.
+Write only `E07-F01.research-report.md` beside docs/plan/E07/E07-F01/E07-F01.md and register it
+as a related document. Its front matter must include `research_schema: 2`,
+`entity_key`, `entity_type: task`, `recipe: universal`, `rigor`, selected
+`categories`, and `related_work`.
 
-Always establish shared vocabulary. Inspect related work and existing
-capabilities when they exist; then record REUSE, EXTEND, NEW, or CONTRADICTS
-in the Capability map. Select only relevant frontend, backend, API, data,
-workflow/operations, and documentation modules. Register both sidecars as
-related docs and return `pass` only after the files are complete.
+Include Scope, Research checklist, Findings, Decisions, and Sources. The
+checked checklist is the plan and completion record: each selected catalog
+module must be checked and include concrete `Evidence:` paths. Always select
+`scope_vocabulary` and `affected_implementation_or_contract`; standard also
+selects `pattern_contract` or `dependency_impact`; complex also selects both
+`cross_boundary_risks` and `alternatives`.
+
+For simple work, cite the parent feature Capability map in Findings or Sources
+instead of copying it. Add a Capability map only if this task discovers or
+changes related capability work, then make REUSE, EXTEND, NEW, or CONTRADICTS
+decisions. Record the concrete affected implementation or contract and whether
+the task extends it or introduces new work. Return `pass` only after the one
+report is complete.

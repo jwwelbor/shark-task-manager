@@ -15,9 +15,17 @@
   `file_templates/progress.md` template.
 - `/shark consult <agent>` advisor bridge (explicit form + NL recognizer in
   `query.md`), read-only by default.
-- One Go change: `Description` on `BundleContentEntry`, populated from
-  frontmatter and rendered in `agent list` / `skill list` (text + JSON).
+- For the original F01-F03 scope, one Go change: `Description` on
+  `BundleContentEntry`, populated from frontmatter and rendered in `agent list`
+  / `skill list` (text + JSON).
 - An "ops-as-entities" documentation convention.
+- Bare `shark next` as a strictly read-only single-project portfolio-advice
+  envelope with deterministic relationship layers, warnings, and an
+  agent-facing `docs/product/` inspection prompt.
+- State-aware `/shark-rider help` consumption of bare portfolio advice while
+  keyed `shark next <key>` remains the dispatch API.
+- The bounded Go read model, query repository, service, CLI branch, and Rider
+  documentation required by E36-F04.
 
 ## Out of scope
 
@@ -29,6 +37,12 @@
 - Cross-project aggregation or a project registry — accepted as fan-out (open
   each DB), not needed today.
 - Viewer/API surfaces for a project entity.
+- Automatic root selection in Go, claiming, advancing, or dispatching from bare
+  `shark next`.
+- A persisted roadmap score/order field, a second workflow store under
+  `docs/product/`, or general cross-entity implementation planning.
+- `shark next --preview` or keyed-dispatch simulation. Keyed dispatch keeps its
+  current normalization behavior.
 
 ---
 
@@ -66,3 +80,7 @@
   externally-measurable outcomes.
 - **2026-06-29** — Stubbed three features (E36-F01/F02/F03) mirroring the plan's
   three implementation slices, smallest-first.
+- **2026-07-20** — Registered E36-F04 as a later additive slice. Preserved the
+  original plan's authority and boundaries for F01-F03, scoped the one-Go-change
+  statement to those original slices, and retained the single-project,
+  no-schema, advisory-document design.

@@ -10,18 +10,19 @@ import (
 )
 
 type artifact struct {
-	EntityKey   string   `yaml:"entity_key"`
-	EntityType  string   `yaml:"entity_type"`
-	Recipe      string   `yaml:"recipe"`
-	Rigor       string   `yaml:"rigor"`
-	Categories  []string `yaml:"categories"`
-	SourceSet   []string `yaml:"source_set"`
-	RelatedWork *bool    `yaml:"related_work"`
+	ResearchSchema int      `yaml:"research_schema"`
+	EntityKey      string   `yaml:"entity_key"`
+	EntityType     string   `yaml:"entity_type"`
+	Recipe         string   `yaml:"recipe"`
+	Rigor          string   `yaml:"rigor"`
+	Categories     []string `yaml:"categories"`
+	SourceSet      []string `yaml:"source_set"`
+	RelatedWork    *bool    `yaml:"related_work"`
 }
 
 // ValidateEntity checks the declarative research artifact contract. It checks
-// presence, front matter, selected recipe/tier/categories, sections, and
-// source references only; it deliberately does not evaluate prose quality.
+// presence, front matter, selected recipe/tier/categories, checked modules,
+// and source evidence only; it deliberately does not evaluate prose quality.
 func ValidateEntity(projectRoot string, entity models.Entity) error {
 	catalog, err := LoadCatalog(projectRoot)
 	if err != nil {
@@ -31,47 +32,45 @@ func ValidateEntity(projectRoot string, entity models.Entity) error {
 	if err != nil {
 		return err
 	}
-	plan, planBody, err := readArtifact(paths.Plan)
-	if err != nil {
-		return fmt.Errorf("research plan: %w", err)
-	}
 	report, reportBody, err := readArtifact(paths.Report)
 	if err != nil {
 		return fmt.Errorf("research report: %w", err)
 	}
-	recipe, err := validateArtifactMetadata(catalog, entity, plan, report)
-	if err != nil {
+	if report.ResearchSchema == 0 {
+		return validateLegacyReport(catalog, entity, report, reportBody)
+	}
+	if report.ResearchSchema != 2 {
+		return fmt.Errorf("research report has unsupported research_schema %d", report.ResearchSchema)
+	}
+	return validateV2Report(catalog, entity, report, reportBody)
+}
+
+func validateV2Report(catalog *Catalog, entity models.Entity, report artifact, body string) error {
+	if err := validateIdentity("research report", report, entity); err != nil {
 		return err
 	}
-	return validateArtifactStructure(recipe, plan, planBody, report, reportBody)
-}
-
-func validateArtifactMetadata(catalog *Catalog, entity models.Entity, plan, report artifact) (Recipe, error) {
-	if err := validateIdentity("research plan", plan, entity); err != nil {
-		return Recipe{}, err
-	}
-	if err := validateIdentity("research report", report, entity); err != nil {
-		return Recipe{}, err
-	}
-	if err := validateMatchingMetadata(plan, report); err != nil {
-		return Recipe{}, err
-	}
-	recipe, ok := catalog.Recipes[plan.Recipe]
+	recipe, ok := catalog.Recipes[report.Recipe]
 	if !ok {
-		return Recipe{}, fmt.Errorf("unknown research recipe %q", plan.Recipe)
+		return fmt.Errorf("unknown research recipe %q", report.Recipe)
 	}
-	if err := validateRecipeSelection(recipe, plan, entity); err != nil {
-		return Recipe{}, err
+	if err := validateRecipeSelection(recipe, report, entity); err != nil {
+		return err
 	}
-	return recipe, nil
-}
-
-func validateMatchingMetadata(plan, report artifact) error {
-	if plan.Recipe != report.Recipe || plan.Rigor != report.Rigor || !sameStrings(plan.Categories, report.Categories) {
-		return fmt.Errorf("research plan and report select different recipe metadata")
+	if report.RelatedWork == nil {
+		return fmt.Errorf("research report must include related_work")
 	}
-	if plan.RelatedWork == nil || report.RelatedWork == nil {
-		return fmt.Errorf("research plan and report must include related_work")
+	if err := requireSections(body, recipe.RequiredReportSections); err != nil {
+		return fmt.Errorf("research report: %w", err)
+	}
+	entries, err := parseChecklist(body)
+	if err != nil {
+		return fmt.Errorf("research report: %w", err)
+	}
+	if err := validateSelectedModules(recipe, entity, report, entries); err != nil {
+		return err
+	}
+	if requiresCapabilityMap(entity, report, entries) && !capabilityMapHasDecision(body) {
+		return fmt.Errorf("research report: capability map must contain a REUSE, EXTEND, NEW, or CONTRADICTS decision")
 	}
 	return nil
 }
@@ -94,18 +93,147 @@ func validateRecipeSelection(recipe Recipe, plan artifact, entity models.Entity)
 	return nil
 }
 
-func validateArtifactStructure(recipe Recipe, plan artifact, planBody string, report artifact, reportBody string) error {
-	if len(plan.SourceSet) == 0 || len(report.SourceSet) == 0 {
-		return fmt.Errorf("research plan and report must include source references")
+type checklistEntry struct {
+	ID        string
+	Completed bool
+	Evidence  string
+}
+
+func parseChecklist(body string) ([]checklistEntry, error) {
+	section, ok := sectionBody(body, "Research checklist")
+	if !ok || strings.TrimSpace(section) == "" {
+		return nil, fmt.Errorf("missing required section \"Research checklist\"")
 	}
-	if err := requireSections(planBody, recipe.RequiredPlanSections); err != nil {
-		return fmt.Errorf("research plan: %w", err)
+	var entries []checklistEntry
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- [") {
+			continue
+		}
+		if len(line) < 6 || line[4] != ']' {
+			return nil, fmt.Errorf("invalid checklist entry %q", line)
+		}
+		rest := strings.TrimSpace(line[5:])
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			return nil, fmt.Errorf("checklist entry is missing a module ID")
+		}
+		id := strings.Trim(fields[0], "`")
+		evidenceAt := strings.Index(strings.ToLower(rest), "evidence:")
+		if evidenceAt < 0 || strings.TrimSpace(rest[evidenceAt+len("evidence:"):]) == "" {
+			return nil, fmt.Errorf("checklist module %q is missing evidence", id)
+		}
+		entries = append(entries, checklistEntry{ID: id, Completed: strings.EqualFold(line[3:4], "x"), Evidence: strings.TrimSpace(rest[evidenceAt+len("evidence:"):])})
 	}
-	if err := requireSections(reportBody, recipe.RequiredReportSections); err != nil {
-		return fmt.Errorf("research report: %w", err)
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("research checklist must select at least one module")
 	}
-	if (*plan.RelatedWork || *report.RelatedWork) && !capabilityMapHasDecision(reportBody) {
-		return fmt.Errorf("research report: capability map is required when related work exists")
+	for _, entry := range entries {
+		if !entry.Completed {
+			return nil, fmt.Errorf("checklist module %q is unchecked", entry.ID)
+		}
+	}
+	return entries, nil
+}
+
+func validateSelectedModules(recipe Recipe, entity models.Entity, report artifact, entries []checklistEntry) error {
+	selected := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if selected[entry.ID] {
+			return fmt.Errorf("research checklist selects module %q more than once", entry.ID)
+		}
+		selected[entry.ID] = true
+		module, ok := recipe.Modules[entry.ID]
+		if !ok {
+			return fmt.Errorf("research checklist selects unknown module %q", entry.ID)
+		}
+		if !moduleApplies(module, entity, report.Categories) {
+			return fmt.Errorf("research checklist module %q is not applicable to the selected entity or categories", entry.ID)
+		}
+	}
+	for _, core := range []string{"scope_vocabulary", "affected_implementation_or_contract"} {
+		if !selected[core] {
+			return fmt.Errorf("research rigor %q requires module %q", report.Rigor, core)
+		}
+	}
+	if entity.GetEntityType() == models.EntityTypeEpic || entity.GetEntityType() == models.EntityTypeFeature {
+		if !selected["related_work"] {
+			return fmt.Errorf("research %s requires module %q", entity.GetEntityType(), "related_work")
+		}
+	}
+	switch report.Rigor {
+	case "simple":
+		return nil
+	case "standard":
+		if selected["pattern_contract"] || selected["dependency_impact"] {
+			return nil
+		}
+		return fmt.Errorf("research rigor standard requires pattern_contract or dependency_impact")
+	case "complex":
+		if !selected["pattern_contract"] && !selected["dependency_impact"] {
+			return fmt.Errorf("research rigor complex requires pattern_contract or dependency_impact")
+		}
+		for _, module := range []string{"cross_boundary_risks", "alternatives"} {
+			if !selected[module] {
+				return fmt.Errorf("research rigor complex requires module %q", module)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("research recipe %q does not define rigor %q", report.Recipe, report.Rigor)
+	}
+}
+
+func moduleApplies(module Module, entity models.Entity, categories []string) bool {
+	if len(module.EntityTypes) > 0 && !contains(module.EntityTypes, string(entity.GetEntityType())) {
+		return false
+	}
+	if len(module.Categories) == 0 {
+		return true
+	}
+	for _, category := range categories {
+		if contains(module.Categories, category) {
+			return true
+		}
+	}
+	return false
+}
+
+func requiresCapabilityMap(entity models.Entity, report artifact, entries []checklistEntry) bool {
+	if entity.GetEntityType() == models.EntityTypeEpic || entity.GetEntityType() == models.EntityTypeFeature || *report.RelatedWork {
+		return true
+	}
+	for _, entry := range entries {
+		if entry.ID == "related_work" {
+			return true
+		}
+	}
+	return false
+}
+
+func validateLegacyReport(catalog *Catalog, entity models.Entity, report artifact, body string) error {
+	if err := validateIdentity("legacy research report", report, entity); err != nil {
+		return err
+	}
+	recipe, ok := catalog.Recipes[report.Recipe]
+	if !ok {
+		return fmt.Errorf("unknown research recipe %q", report.Recipe)
+	}
+	if err := validateRecipeSelection(recipe, report, entity); err != nil {
+		return err
+	}
+	if len(report.SourceSet) == 0 {
+		return fmt.Errorf("legacy research report must include source references")
+	}
+	sections := recipe.RequiredReportSections
+	if len(sections) == 0 || contains(sections, "Research checklist") {
+		sections = []string{"Scope", "Capability map", "Ubiquitous vocabulary", "Findings", "Decisions", "Sources"}
+	}
+	if err := requireSections(body, sections); err != nil {
+		return fmt.Errorf("legacy research report: %w", err)
+	}
+	if report.RelatedWork != nil && *report.RelatedWork && !capabilityMapHasDecision(body) {
+		return fmt.Errorf("legacy research report: capability map is required when related work exists")
 	}
 	return nil
 }
@@ -178,18 +306,22 @@ func requireSections(body string, sections []string) error {
 }
 
 func sectionHasContent(body, section string) bool {
+	rest, ok := sectionBody(body, section)
+	return ok && strings.TrimSpace(rest) != ""
+}
+
+func sectionBody(body, section string) (string, bool) {
 	needle := "## " + strings.ToLower(section)
 	lower := strings.ToLower(body)
 	start := strings.Index(lower, needle)
 	if start < 0 {
-		return false
+		return "", false
 	}
 	rest := body[start+len(needle):]
-	next := strings.Index(strings.ToLower(rest), "\n## ")
-	if next >= 0 {
+	if next := strings.Index(strings.ToLower(rest), "\n## "); next >= 0 {
 		rest = rest[:next]
 	}
-	return strings.TrimSpace(rest) != ""
+	return rest, true
 }
 
 func contains(values []string, want string) bool {
@@ -199,16 +331,4 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func sameStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }

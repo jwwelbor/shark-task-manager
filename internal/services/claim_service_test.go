@@ -308,6 +308,149 @@ func TestClaimService_List_ReclaimsFirst(t *testing.T) {
 	}
 }
 
+func TestClaimService_ListActiveReadOnly_FiltersWithoutMutation(t *testing.T) {
+	evaluatedAt := time.Date(2026, 7, 20, 18, 0, 0, 0, time.UTC)
+	liveBeforeBoundary := &models.EntityClaim{EntityKey: "TTL-minus-1", LastHeartbeat: evaluatedAt.Add(-time.Hour + time.Second)}
+	liveAtBoundary := &models.EntityClaim{EntityKey: "TTL-exact", LastHeartbeat: evaluatedAt.Add(-time.Hour)}
+	expiredAfterBoundary := &models.EntityClaim{EntityKey: "TTL-plus-1", LastHeartbeat: evaluatedAt.Add(-time.Hour - time.Second)}
+
+	tests := []struct {
+		name       string
+		ttl        time.Duration
+		claims     []*models.EntityClaim
+		wantClaims []*models.EntityClaim
+	}{
+		{
+			name:       "TTL minus one and exact boundary stay active",
+			ttl:        time.Hour,
+			claims:     []*models.EntityClaim{liveBeforeBoundary, liveAtBoundary, expiredAfterBoundary},
+			wantClaims: []*models.EntityClaim{liveBeforeBoundary, liveAtBoundary},
+		},
+		{
+			name:       "TTL disabled preserves every claim",
+			ttl:        0,
+			claims:     []*models.EntityClaim{expiredAfterBoundary, liveAtBoundary, liveBeforeBoundary},
+			wantClaims: []*models.EntityClaim{expiredAfterBoundary, liveAtBoundary, liveBeforeBoundary},
+		},
+		{
+			name:       "all expired returns allocated empty result",
+			ttl:        time.Minute,
+			claims:     []*models.EntityClaim{expiredAfterBoundary},
+			wantClaims: []*models.EntityClaim{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := &claimRepoCallCounts{}
+			repo := newReadOnlyClaimRepo(t, calls, func(ctx context.Context) ([]*models.EntityClaim, error) {
+				calls.list++
+				return tt.claims, nil
+			})
+			sessionLog := &mockSessionLog{}
+			svc := NewClaimService(repo, durationPtr(tt.ttl))
+			svc.SetSessionLog(sessionLog)
+
+			got, err := svc.ListActiveReadOnly(context.Background(), evaluatedAt)
+
+			require.NoError(t, err)
+			require.NotNil(t, got, "a successful empty read must return an allocated slice")
+			assert.Equal(t, tt.wantClaims, got, "filtering must preserve repository order and claim pointers")
+			for i := range tt.wantClaims {
+				assert.Same(t, tt.wantClaims[i], got[i], "claim %d must not be copied", i)
+			}
+			assert.Equal(t, 1, calls.list)
+			assertReadOnlyClaimCalls(t, calls)
+			assert.Empty(t, sessionLog.opened)
+			assert.Empty(t, sessionLog.closed)
+		})
+	}
+}
+
+func TestClaimService_ListActiveReadOnly_WrapsRepositoryErrorWithoutMutation(t *testing.T) {
+	repoErr := errors.New("claim store unavailable")
+	calls := &claimRepoCallCounts{}
+	repo := newReadOnlyClaimRepo(t, calls, func(ctx context.Context) ([]*models.EntityClaim, error) {
+		calls.list++
+		return nil, repoErr
+	})
+	sessionLog := &mockSessionLog{}
+	svc := NewClaimService(repo, durationPtr(time.Hour))
+	svc.SetSessionLog(sessionLog)
+
+	got, err := svc.ListActiveReadOnly(context.Background(), time.Date(2026, 7, 20, 18, 0, 0, 0, time.UTC))
+
+	assert.Nil(t, got)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoErr)
+	assert.Contains(t, err.Error(), "list active claims")
+	assert.Equal(t, 1, calls.list)
+	assertReadOnlyClaimCalls(t, calls)
+	assert.Empty(t, sessionLog.opened)
+	assert.Empty(t, sessionLog.closed)
+}
+
+type claimRepoCallCounts struct {
+	claim          int
+	get            int
+	release        int
+	releaseSession int
+	renew          int
+	reclaim        int
+	list           int
+}
+
+func newReadOnlyClaimRepo(
+	t *testing.T,
+	calls *claimRepoCallCounts,
+	listFn func(context.Context) ([]*models.EntityClaim, error),
+) *mockClaimRepo {
+	t.Helper()
+	return &mockClaimRepo{
+		ClaimFn: func(context.Context, *models.EntityClaim) (*models.EntityClaim, error) {
+			calls.claim++
+			t.Error("read-only claim list must not call Claim")
+			return nil, nil
+		},
+		GetFn: func(context.Context, string, string) (*models.EntityClaim, error) {
+			calls.get++
+			t.Error("read-only claim list must not call Get")
+			return nil, nil
+		},
+		ReleaseFn: func(context.Context, string, string) (bool, error) {
+			calls.release++
+			t.Error("read-only claim list must not call Release")
+			return false, nil
+		},
+		ReleaseSessionFn: func(context.Context, string, string, string) (bool, error) {
+			calls.releaseSession++
+			t.Error("read-only claim list must not call ReleaseSession")
+			return false, nil
+		},
+		RenewFn: func(context.Context, string, string, string, *float64, string) (bool, error) {
+			calls.renew++
+			t.Error("read-only claim list must not call Renew")
+			return false, nil
+		},
+		ReclaimFn: func(context.Context, time.Duration) (int64, error) {
+			calls.reclaim++
+			t.Error("read-only claim list must not call ReclaimExpired")
+			return 0, nil
+		},
+		ListFn: listFn,
+	}
+}
+
+func assertReadOnlyClaimCalls(t *testing.T, calls *claimRepoCallCounts) {
+	t.Helper()
+	assert.Zero(t, calls.claim)
+	assert.Zero(t, calls.get)
+	assert.Zero(t, calls.release)
+	assert.Zero(t, calls.releaseSession)
+	assert.Zero(t, calls.renew)
+	assert.Zero(t, calls.reclaim)
+}
+
 func TestClaimService_IsClaimable(t *testing.T) {
 	now := time.Now().UTC()
 	cases := []struct {

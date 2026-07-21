@@ -24,6 +24,11 @@ type RunOptions struct {
 	// Verbose, when true, prints detailed stage progress to stderr.
 	Verbose bool
 
+	// Progress, when set, is called for high-signal run loop checkpoints.
+	// Callers can use this for user-facing progress output without coupling
+	// to internal logger internals.
+	Progress func(RunProgress)
+
 	// WorkingDir is an optional working directory override for agent processes.
 	WorkingDir string
 
@@ -47,6 +52,30 @@ type RunOptions struct {
 	// when observability.capture_agent_transcripts == true. When empty, the
 	// controller skips transcript writing even if transcripts are enabled.
 	ProjectRoot string
+
+	// EntityType identifies the current entity type being run.
+	// It is required for cascade child service lookups when the current action
+	// is "cascade".
+	EntityType string
+}
+
+// RunProgress carries coarse-grained run-loop state for progress callbacks.
+// It intentionally contains only stable, human-readable fields and is emitted
+// at deterministic checkpoints in the loop.
+type RunProgress struct {
+	// Iteration is the 1-based run loop counter.
+	Iteration int
+	// EntityKey is the normalized key being processed.
+	EntityKey string
+	// Status is the current status for this iteration before the action runs.
+	Status string
+	// Phase indicates the run checkpoint being reported.
+	Phase string
+	// Action is the resolved workflow action for this stage (if available).
+	Action string
+	// AgentType and Provider are action metadata where applicable.
+	AgentType string
+	Provider  string
 }
 
 // RunResult captures the outcome of a run loop execution.
@@ -115,6 +144,15 @@ type EntityTransitioner interface {
 	GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error)
 }
 
+// CascadeChildrenService enumerates dispatchable children for cascade actions.
+// It is used only by ActionCascade handling.
+type CascadeChildrenService interface {
+	DescribeDispatchableChildren(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error)
+}
+
+// CascadeChildRunner runs a nested child entity through its own controller loop.
+type CascadeChildRunner func(ctx context.Context, entityType, key string, opts RunOptions) (*RunResult, error)
+
 // PlaceholderGenerator abstracts template variable generation for different entity types.
 // An adapter implementation in run.go dispatches to the correct config.*Placeholders()
 // function based on entity type.
@@ -174,6 +212,14 @@ type RunControllerDeps struct {
 	// PromptAssembler converts a populated action instruction into the final
 	// host-facing prompt. Optional; nil preserves the legacy instruction passthrough.
 	PromptAssembler PromptAssembler
+
+	// ChildrenSvc lists dispatchable cascade children. Required when ActionCascade
+	// is reachable from this controller.
+	ChildrenSvc CascadeChildrenService
+
+	// RunChild dispatches a child entity through a nested RunController. Optional
+	// by design for non-cascade entry points.
+	RunChild CascadeChildRunner
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -189,6 +235,8 @@ type RunController struct {
 	workflowSvc  *workflow.Service
 	dispatchers  map[string]AgentDispatcher
 	assembler    PromptAssembler
+	childrenSvc  CascadeChildrenService
+	runChild     CascadeChildRunner
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -221,6 +269,8 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		workflowSvc:  deps.WorkflowSvc,
 		dispatchers:  deps.Dispatchers,
 		assembler:    assembler,
+		childrenSvc:  deps.ChildrenSvc,
+		runChild:     deps.RunChild,
 	}, nil
 }
 
@@ -293,6 +343,14 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 
 		// Emit run.stage.start for this iteration.
 		iteration++
+		if opts.Progress != nil {
+			opts.Progress(RunProgress{
+				Iteration: iteration,
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "iteration",
+			})
+		}
 		emitStageStart(ctx, opts.Observability, stageStartParams{
 			EntityKey: key,
 			Status:    currentStatus,
@@ -334,13 +392,23 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			})
 			return result, nil
 		}
-
 		// Step 5: No action configured for this status — stop with no_action.
 		if action == nil {
 			result.FinalStatus = currentStatus
 			result.Outcome = "no_action"
 			result.TotalDuration = time.Since(startTime)
 			return result, nil
+		}
+		if opts.Progress != nil {
+			opts.Progress(RunProgress{
+				Iteration: iteration,
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "action",
+				Action:    action.Action,
+				AgentType: action.AgentType,
+				Provider:  action.Provider,
+			})
 		}
 
 		// Step 6: Route by action type.
@@ -370,6 +438,9 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		case config.ActionSpawnAgent:
 			outcome = c.handleSpawnAgent(ctx, key, currentStatus, nextInfo, action, vars, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
 
+		case config.ActionCascade:
+			outcome = c.handleCascade(ctx, key, currentStatus, nextInfo, action, opts, result, stageStart, startTime)
+
 		default:
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,
@@ -389,6 +460,174 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			nextInfo = outcome.nextInfo
 		}
 	}
+
+}
+
+func (c *RunController) handleCascade(
+	ctx context.Context,
+	key, currentStatus string,
+	nextInfo *services.NextStatusInfo,
+	_ *config.PopulatedAction,
+	opts RunOptions,
+	result *RunResult,
+	stageStart,
+	startTime time.Time,
+) stageOutcome {
+	if c.childrenSvc == nil || c.runChild == nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "cascade",
+			Error:     "cascade action configured but no child runner/dependency was injected",
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	childrenState, err := c.childrenSvc.DescribeDispatchableChildren(ctx, opts.EntityType, key)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "cascade_children_lookup",
+			Error:     fmt.Sprintf("failed to list dispatchable children for %s %s: %v", opts.EntityType, key, err),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+
+	progressed := false
+	for _, child := range childrenState.Children {
+		childOpts := opts
+		childOpts.EntityType = string(child.EntityType)
+		childResult, err := c.runChild(ctx, string(child.EntityType), child.Key, childOpts)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "cascade_child_run",
+				Error:     fmt.Sprintf("failed to run cascade child %s %s: %v", child.EntityType, child.Key, err),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+		if childResult != nil {
+			result.Stages = append(result.Stages, childResult.Stages...)
+			result.StagesCompleted += childResult.StagesCompleted
+		}
+		if childResult != nil && childResult.Outcome == "failed" {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "cascade_child",
+				Error:     fmt.Sprintf("cascade child %s %s failed: %s", child.EntityType, child.Key, childResult.Error),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+
+		if childResult != nil {
+			result.FinalStatus = childResult.FinalStatus
+		}
+		if childResult != nil && childResult.Outcome == "completed" {
+			progressed = true
+		}
+	}
+
+	if progressed {
+		// Child progress may have moved the parent status, so refresh once and
+		// let the top-level loop resolve the next status transition.
+		refreshed, err := c.transitioner.GetNextStatus(ctx, key)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "cascade_parent_status",
+				Error:     fmt.Sprintf("failed to refresh parent status after cascade children: %v", err),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+		return stageOutcome{nextStatus: refreshed.CurrentStatus, nextInfo: refreshed}
+	}
+
+	// If no child completed, either pause (partially available progress) or
+	// auto-advance (every child is terminal) depending on child summary.
+	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
+		return c.autoAdvanceCascadeParent(ctx, key, currentStatus, nextInfo, opts, result, stageStart, startTime)
+	}
+	result.FinalStatus = currentStatus
+	result.Outcome = "paused"
+	result.TotalDuration = time.Since(startTime)
+	return stageOutcome{done: true}
+}
+
+func (c *RunController) autoAdvanceCascadeParent(
+	ctx context.Context,
+	key, currentStatus string,
+	nextInfo *services.NextStatusInfo,
+	opts RunOptions,
+	result *RunResult,
+	stageStart,
+	startTime time.Time,
+) stageOutcome {
+	if nextInfo == nil || len(nextInfo.AvailableTransitions) == 0 {
+		result.FinalStatus = currentStatus
+		result.Outcome = "paused"
+		result.Error = fmt.Sprintf(
+			"all child work is terminal, but %s has no forward transition to auto-advance to",
+			key,
+		)
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
+	if opts.DryRun {
+		result.Stages = append(result.Stages, StageLog{
+			Status:   currentStatus,
+			Action:   config.ActionAdvanceStatus,
+			Duration: 0,
+		})
+		postInfo, ok := c.dryRunPostActionStatus(ctx, key, currentStatus, nextInfo, "cascade", opts, result, startTime)
+		if !ok {
+			return stageOutcome{done: true}
+		}
+		result.FinalStatus = currentStatus
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+	}
+
+	transitionResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "cascade_auto_advance",
+			Error:     fmt.Sprintf("cascade completion auto-advance from %s to %s failed: %v", currentStatus, targetStatus, err),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+
+	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+		EntityKey:  key,
+		FromStatus: currentStatus,
+		ToStatus:   transitionResult.ToStatus,
+		RunID:      opts.RunID,
+	})
+	result.Stages = append(result.Stages, StageLog{
+		Status:   currentStatus,
+		Action:   config.ActionAdvanceStatus,
+		Duration: time.Since(stageStart),
+	})
+	result.StagesCompleted++
+	if c.workflowSvc.IsTerminalStatus(transitionResult.ToStatus) {
+		result.FinalStatus = transitionResult.ToStatus
+		result.Outcome = "completed"
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+	result.FinalStatus = transitionResult.ToStatus
+	return stageOutcome{nextStatus: transitionResult.ToStatus}
 }
 
 // handleAdvanceStatus handles the advance_status action type: transitions the

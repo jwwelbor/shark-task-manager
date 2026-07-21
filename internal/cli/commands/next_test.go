@@ -21,6 +21,12 @@ import (
 // E3 — `shark next` agent-body auto-inline (per 2026-05-10 rendering decision)
 // ============================================================================
 
+func TestNextCommandDoesNotExposeRemovedPreviewFlag(t *testing.T) {
+	assert.Nil(t, nextCmd.Flags().Lookup("preview"))
+	assert.NotContains(t, nextCmd.Long, "--preview")
+	assert.Contains(t, nextCmd.Long, "may auto-advance")
+}
+
 // setupAgentFixture lays down a minimal shark-data/ tree with one agent file
 // (and optionally an override) and returns the data root.
 func setupAgentFixture(t *testing.T, agentType, body string, overrideBody string) string {

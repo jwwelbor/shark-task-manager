@@ -51,7 +51,7 @@ Translate prose into read-only shark queries, then summarize. Examples:
 | "what's in progress" | `shark task list --status in_<phase>` (resolve phase from the workflow) |
 | "status of E01" | `shark status E01` |
 | "who's working on what" | `shark claims` |
-| "next up for E01-F02" | `shark next E01-F02 --preview` |
+| "next up for E01-F02" | `shark status E01-F02` + `shark status transitions E01-F02` |
 
 Prefer `--field` for single values; never pipe JSON through `head`/`grep`/`jq`/`python`.
 

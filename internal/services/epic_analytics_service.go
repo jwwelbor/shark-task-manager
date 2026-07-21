@@ -61,19 +61,18 @@ func NewEpicAnalyticsService(repo EpicAnalyticsRepository, taskRepo EpicAnalytic
 
 // CalculateProgress computes epic progress from raw feature data.
 // Business rule: completed/archived features count as 100% progress regardless
-// of their stored progress_pct value. All other features use their stored
-// progress_pct. Epic progress is the average across all features.
-// Returns 0 if the epic has no features.
+// of their stored progress_pct value, cancelled features are excluded, and all
+// other features use their stored progress_pct. Epic progress is the average
+// across included features. Returns 0 if no feature is included.
 func (s *EpicAnalyticsService) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
 	data, err := s.repo.GetFeatureProgressDataByEpic(ctx, epicID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get feature progress data: %w", err)
 	}
+	return calculateEpicProgress(data), nil
+}
 
-	if len(data) == 0 {
-		return 0, nil
-	}
-
+func calculateEpicProgress(data []repository.FeatureProgressData) float64 {
 	var totalProgress float64
 	activeFeatures := 0
 	for _, d := range data {
@@ -90,10 +89,10 @@ func (s *EpicAnalyticsService) CalculateProgress(ctx context.Context, epicID int
 	}
 
 	if activeFeatures == 0 {
-		return 0, nil
+		return 0
 	}
 
-	return totalProgress / float64(activeFeatures), nil
+	return totalProgress / float64(activeFeatures)
 }
 
 // GetProgress retrieves progress metrics for an epic.
