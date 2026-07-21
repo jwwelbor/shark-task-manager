@@ -34,6 +34,14 @@ type Creator struct {
 	projectRoot     string
 	workflowService *workflow.Service
 	verbose         bool
+	afterCreateHook func(context.Context, *sql.Tx, *models.Task) error
+}
+
+// SetAfterCreateHook installs optional work that must complete in the task
+// creation transaction after the task and its history row exist. It is used by
+// the service layer to maintain parent aggregates before returning success.
+func (c *Creator) SetAfterCreateHook(hook func(context.Context, *sql.Tx, *models.Task) error) {
+	c.afterCreateHook = hook
 }
 
 // NewCreator creates a new task creator.
@@ -284,6 +292,12 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	_, err = tx.ExecContext(ctx, historyQuery, history.TaskID, history.OldStatus, history.NewStatus, history.Agent, history.Notes, history.Timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create history record: %w", err)
+	}
+
+	if c.afterCreateHook != nil {
+		if err := c.afterCreateHook(ctx, tx, task); err != nil {
+			return nil, fmt.Errorf("failed to maintain task aggregates: %w", err)
+		}
 	}
 
 	// 7. Render template with selection priority: custom > agent > general

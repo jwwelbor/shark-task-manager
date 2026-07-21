@@ -242,6 +242,7 @@ func GetEpicService() *services.EpicService {
 	svc.SetTagService(GetTagService())
 	svc.SetSizeEnforcement(getSizeEnforcement())
 	svc.SetSearchIndexer(repository.NewSearchRepository(db))
+	svc.SetAggregateMutationCoordinator(services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), workflowSvc))
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
@@ -286,6 +287,7 @@ func GetFeatureService() *services.FeatureService {
 	}
 	svc := services.NewFeatureService(featureRepo, entitySvc, entityRepo, taskRepo, epicRepo)
 	svc.SetTracer(GetTracer("shark/services/feature"))
+	svc.SetAggregateMutationCoordinator(services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), workflowSvc))
 	svc.SetDocRepo(docAdapter)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	svc.SetEnrichRepo(enrichRepo)

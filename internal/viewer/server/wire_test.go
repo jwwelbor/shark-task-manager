@@ -104,6 +104,34 @@ func TestWireServices_ConstructsSearchIndexer(t *testing.T) {
 	}
 }
 
+func TestWireServices_SharesAggregateMutationCoordinator(t *testing.T) {
+	repoDB := newTestRepoDB(t)
+
+	container := WireServices(repoDB, t.TempDir())
+
+	servicesUnderTest := []struct {
+		name string
+		svc  interface{}
+	}{
+		{name: "TaskService", svc: container.TaskService},
+		{name: "FeatureService", svc: container.FeatureService},
+		{name: "EpicService", svc: container.EpicService},
+	}
+
+	var sharedPointer uintptr
+	for _, tc := range servicesUnderTest {
+		t.Run(tc.name, func(t *testing.T) {
+			field := serviceField(t, tc.svc, "aggregateCoordinator")
+			require.True(t, field.IsValid(), "%s has no aggregateCoordinator field", tc.name)
+			require.False(t, field.IsNil(), "%s has a nil aggregate coordinator", tc.name)
+			if sharedPointer == 0 {
+				sharedPointer = field.Pointer()
+			}
+			assert.Equal(t, sharedPointer, field.Pointer(), "%s must share the HTTP composition-root coordinator", tc.name)
+		})
+	}
+}
+
 // tagSvcField locates the unexported `tagSvc` field on the given service
 // pointer and returns its reflect.Value. It supports both constructor-
 // injected (BugService's NewBugService 8th arg) and setter-injected

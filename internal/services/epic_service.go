@@ -68,20 +68,27 @@ type EpicFeatureCounter interface {
 	GetTaskStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
 }
 
+// epicStatusTxRepository is the optional transactional status-write seam used
+// by forced completion when aggregate coordination is wired.
+type epicStatusTxRepository interface {
+	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status string, agent *string, notes *string) error
+}
+
 // EpicService provides business logic for epic operations.
 type EpicService struct {
-	repo             EpicRepository
-	entitySvc        *EntityService
-	entityRepo       EntityRepository
-	featureRepo      EpicFeatureCounter
-	taskRepo         EpicTaskLister
-	docRepo          config.DocumentRepository
-	relRepo          config.EpicRelationshipRepository
-	docSvc           *EntityDocumentService // shared document operations; built by SetWritableDocRepo
-	analyticsService *EpicAnalyticsService  // optional; lazy-initialized if nil
-	enrichRepo       config.TemplateEnrichmentRepository
-	tracer           trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
-	searchIndexer    SearchIndexer
+	repo                 EpicRepository
+	entitySvc            *EntityService
+	entityRepo           EntityRepository
+	featureRepo          EpicFeatureCounter
+	taskRepo             EpicTaskLister
+	docRepo              config.DocumentRepository
+	relRepo              config.EpicRelationshipRepository
+	docSvc               *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	analyticsService     *EpicAnalyticsService  // optional; lazy-initialized if nil
+	enrichRepo           config.TemplateEnrichmentRepository
+	tracer               trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
+	searchIndexer        SearchIndexer
+	aggregateCoordinator *AggregateMutationCoordinator
 
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
@@ -118,6 +125,12 @@ func NewEpicService(repo EpicRepository, entitySvc *EntityService, entityRepo En
 // When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
 func (s *EpicService) SetTracer(t trace.Tracer) {
 	s.tracer = t
+}
+
+// SetAggregateMutationCoordinator wires transactional aggregate maintenance
+// for force completion. It is optional to preserve service test doubles.
+func (s *EpicService) SetAggregateMutationCoordinator(coordinator *AggregateMutationCoordinator) {
+	s.aggregateCoordinator = coordinator
 }
 
 // getTracer returns the configured tracer or falls back to the OTel global tracer.
@@ -681,9 +694,8 @@ func (s *EpicService) DeleteEpic(ctx context.Context, key string) error {
 // The agentID parameter is used as the agent identifier for forced task completions.
 // Pass an empty string to use the current user/system agent.
 //
-// NOTE: Progress recalculation (RecalculateAndSetProgress) for each feature is NOT
-// performed here — callers should invoke FeatureService.RecalculateAndSetProgress
-// for each feature after this call if they want accurate progress_pct values.
+// When aggregate coordination is wired, child task/feature status changes,
+// feature progress caches, and the final epic status commit atomically.
 func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bool, agentID string) (*EpicCompleteResult, error) {
 	ctx, span := s.getTracer().Start(ctx, "EpicService.CompleteEpic",
 		trace.WithAttributes(attribute.String("epic.key", epicKey)),
@@ -807,16 +819,22 @@ func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bo
 		newCompletedCount++
 		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
-	if len(affectedTaskKeys) > 0 || len(features) > 0 {
-		if err := s.repo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
-			return nil, fmt.Errorf("failed to complete child features and tasks for epic %s: %w", epicKey, err)
+	if s.aggregateCoordinator != nil {
+		if err := s.completeEpicWithAggregateTx(ctx, epic, features); err != nil {
+			return nil, err
 		}
-	}
+	} else {
+		if len(affectedTaskKeys) > 0 || len(features) > 0 {
+			if err := s.repo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
+				return nil, fmt.Errorf("failed to complete child features and tasks for epic %s: %w", epicKey, err)
+			}
+		}
 
-	// Mark epic as completed
-	epic.Status = models.EpicStatusCompleted
-	if err := s.repo.Update(ctx, epic); err != nil {
-		return nil, fmt.Errorf("failed to complete epic %s: %w", epicKey, err)
+		// Mark epic as completed
+		epic.Status = models.EpicStatusCompleted
+		if err := s.repo.Update(ctx, epic); err != nil {
+			return nil, fmt.Errorf("failed to complete epic %s: %w", epicKey, err)
+		}
 	}
 
 	statusBreakdownMap := make(map[string]int)
@@ -838,6 +856,35 @@ func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bo
 		StatusBreakdown: statusBreakdownMap,
 		ForceCompleted:  force && hasIncomplete,
 	}, nil
+}
+
+func (s *EpicService) completeEpicWithAggregateTx(ctx context.Context, epic *models.Epic, features []*models.Feature) error {
+	statusRepo, ok := s.repo.(epicStatusTxRepository)
+	if !ok {
+		return fmt.Errorf("epic repository does not support transactional status updates")
+	}
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin epic completion transaction: %w", err)
+	}
+	defer rollbackAfterAggregateMutation(tx)
+	if err := s.repo.CascadeStatusToFeaturesAndTasksWithTx(ctx, tx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
+		return fmt.Errorf("failed to complete child features and tasks for epic %s: %w", epic.Key, err)
+	}
+	for _, feature := range features {
+		if err := s.aggregateCoordinator.RefreshFeature(ctx, tx, feature.ID, cascadeTrigger{
+			triggerKey: epic.Key, triggerKind: "completion", triggerType: models.EntityTypeEpic, startLeg: cascadeLegFeature, featureID: feature.ID, epicID: epic.ID,
+		}); err != nil {
+			return fmt.Errorf("failed to refresh feature %s after epic completion: %w", feature.Key, err)
+		}
+	}
+	if err := statusRepo.UpdateStatusTx(ctx, tx, epic.ID, string(models.EpicStatusCompleted), nil, nil); err != nil {
+		return fmt.Errorf("failed to complete epic %s: %w", epic.Key, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit epic completion: %w", err)
+	}
+	return nil
 }
 
 // GetFeatures returns all features belonging to an epic.

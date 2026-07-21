@@ -844,19 +844,6 @@ func performEpicComplete(ctx context.Context, epicKey string, force bool) error 
 		}
 	}
 
-	// Recalculate progress for all features (CLI concern — calls FeatureService)
-	featureSvc := cli.GetFeatureService()
-	features, listErr := epicSvc.GetFeatures(ctx, epicKey)
-	if listErr == nil {
-		for _, f := range features {
-			if recalcErr := featureSvc.RecalculateAndSetProgress(ctx, f.ID); recalcErr != nil {
-				if cli.GlobalConfig.Verbose {
-					slog.Warn("Failed to update progress for feature", "feature", f.Key, "error", recalcErr)
-				}
-			}
-		}
-	}
-
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(result)
 	}
