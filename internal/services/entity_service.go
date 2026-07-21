@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,6 +32,13 @@ type AdvanceGuardRecorder interface {
 	DeleteConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
 }
 
+// AdvanceGuardTxRecorder performs the guarded-advance protocol inside a
+// caller-owned transaction.
+type AdvanceGuardTxRecorder interface {
+	WasConsumedWithTx(ctx context.Context, tx *sql.Tx, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error)
+	RecordConsumedWithTx(ctx context.Context, tx *sql.Tx, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
+}
+
 // EntityHistoryOpts holds optional parameters for recording entity history.
 type EntityHistoryOpts struct {
 	Agent          string // who performed the transition
@@ -47,6 +55,13 @@ func recordEntityHistory(ctx context.Context, repo EntityHistoryRecorder, entity
 	if repo == nil {
 		return
 	}
+	history := newEntityHistory(entityType, entityID, fromStatus, toStatus, force, opts)
+	if err := repo.Create(ctx, history); err != nil {
+		slog.Warn("failed to record entity history", "entity_type", entityType, "error", err)
+	}
+}
+
+func newEntityHistory(entityType models.EntityType, entityID int64, fromStatus, toStatus string, force bool, opts EntityHistoryOpts) *models.EntityHistory {
 	history := &models.EntityHistory{
 		EntityType: entityType,
 		EntityID:   entityID,
@@ -67,15 +82,20 @@ func recordEntityHistory(ctx context.Context, repo EntityHistoryRecorder, entity
 			history.Notes = &opts.Reason
 		}
 	}
-	if err := repo.Create(ctx, history); err != nil {
-		slog.Warn("failed to record entity history", "entity_type", entityType, "error", err)
-	}
+	return history
 }
 
 // RejectionNoteCreator creates rejection notes during backward/forced transitions.
 // Satisfied directly by *repository.EntityNoteRepository — no adapter needed.
 type RejectionNoteCreator interface {
 	CreateRejectionNote(ctx context.Context, entityType models.EntityType, entityID int64,
+		historyID int64, fromStatus, toStatus, reason, rejectedBy string, documentPath *string) (*models.EntityNote, error)
+}
+
+// RejectionNoteTxCreator creates a rejection note inside a caller-owned
+// transition transaction.
+type RejectionNoteTxCreator interface {
+	CreateRejectionNoteWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityID int64,
 		historyID int64, fromStatus, toStatus, reason, rejectedBy string, documentPath *string) (*models.EntityNote, error)
 }
 
@@ -198,6 +218,39 @@ func (s *EntityService) TransitionStatus(
 	features TransitionFeatures,
 	resolveActionFn ResolveActionFn,
 ) (*TransitionResult, error) {
+	return s.transitionStatus(ctx, nil, repo, entityType, key, targetStatus, opts, features, resolveActionFn)
+}
+
+// TransitionStatusWithTx performs the full transition protocol inside tx,
+// including history, rejection-note, and guarded-advance side effects.
+func (s *EntityService) TransitionStatusWithTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	repo EntityRepository,
+	entityType models.EntityType,
+	key string,
+	targetStatus string,
+	opts TransitionOptions,
+	features TransitionFeatures,
+	resolveActionFn ResolveActionFn,
+) (*TransitionResult, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("transition %s %s: transaction is required", entityType, key)
+	}
+	return s.transitionStatus(ctx, tx, repo, entityType, key, targetStatus, opts, features, resolveActionFn)
+}
+
+func (s *EntityService) transitionStatus(
+	ctx context.Context,
+	tx *sql.Tx,
+	repo EntityRepository,
+	entityType models.EntityType,
+	key string,
+	targetStatus string,
+	opts TransitionOptions,
+	features TransitionFeatures,
+	resolveActionFn ResolveActionFn,
+) (*TransitionResult, error) {
 	// Step 1: Get entity
 	entity, err := repo.GetByKey(ctx, key)
 	if err != nil {
@@ -260,20 +313,33 @@ func (s *EntityService) TransitionStatus(
 		}
 	}
 
-	if err := s.enforceAdvanceGuard(ctx, entityType, entity.GetID(), currentStatus, opts); err != nil {
+	if err := s.enforceAdvanceGuard(ctx, tx, entityType, entity.GetID(), currentStatus, opts); err != nil {
 		return nil, err
 	}
 
-	if err := s.updateTransitionStatus(ctx, repo, entityType, entity.GetID(), currentStatus, targetStatus, opts); err != nil {
+	if err := s.updateTransitionStatus(ctx, tx, repo, entityType, entity.GetID(), currentStatus, targetStatus, opts); err != nil {
 		return nil, err
 	}
 
-	// Step 7.5: Record history (non-blocking)
-	recordEntityHistory(ctx, s.historyRepo, entityType, entity.GetID(), currentStatus, targetStatus, opts.Force, EntityHistoryOpts{
+	historyOpts := EntityHistoryOpts{
 		Agent:          opts.Agent,
 		Reason:         opts.Reason,
 		UseAsRejection: isBackward && !opts.Force,
-	})
+	}
+	// Step 7.5: transactional callers require history to succeed so the
+	// transition and all audit side effects commit or roll back together.
+	if tx != nil && s.historyRepo != nil {
+		historyTx, ok := s.historyRepo.(EntityHistoryTxRecorder)
+		if !ok {
+			return nil, fmt.Errorf("transactional %s transition requires transaction-aware history repository", entityType)
+		}
+		history := newEntityHistory(entityType, entity.GetID(), currentStatus, targetStatus, opts.Force, historyOpts)
+		if err := historyTx.CreateTx(ctx, tx, history); err != nil {
+			return nil, fmt.Errorf("record %s transition history: %w", entityType, err)
+		}
+	} else {
+		recordEntityHistory(ctx, s.historyRepo, entityType, entity.GetID(), currentStatus, targetStatus, opts.Force, historyOpts)
+	}
 
 	// Step 8: Create rejection note (opt-in, if backward/forced with reason)
 	if features.CreateRejectionNotes && s.noteRepo != nil && (isBackward || opts.Force) && opts.Reason != "" {
@@ -282,7 +348,16 @@ func (s *EntityService) TransitionStatus(
 		if opts.DocumentPath != "" {
 			docPath = &opts.DocumentPath
 		}
-		if _, err := s.noteRepo.CreateRejectionNote(ctx, entityType, entity.GetID(),
+		if tx != nil {
+			noteTx, ok := s.noteRepo.(RejectionNoteTxCreator)
+			if !ok {
+				return nil, fmt.Errorf("transactional %s transition requires transaction-aware rejection-note repository", entityType)
+			}
+			if _, err := noteTx.CreateRejectionNoteWithTx(ctx, tx, entityType, entity.GetID(),
+				0, currentStatus, targetStatus, opts.Reason, agent, docPath); err != nil {
+				return nil, fmt.Errorf("create %s rejection note: %w", entityType, err)
+			}
+		} else if _, err := s.noteRepo.CreateRejectionNote(ctx, entityType, entity.GetID(),
 			0, currentStatus, targetStatus, opts.Reason, agent, docPath); err != nil {
 			slog.Warn("failed to create rejection note", "entity_type", entityType, "entity_id", entity.GetID(), "error", err)
 		}
@@ -315,6 +390,7 @@ func (s *EntityService) TransitionStatus(
 // the ordering of ledger record, conditional update, and compensation explicit.
 func (s *EntityService) updateTransitionStatus(
 	ctx context.Context,
+	tx *sql.Tx,
 	repo EntityRepository,
 	entityType models.EntityType,
 	entityID int64,
@@ -329,18 +405,22 @@ func (s *EntityService) updateTransitionStatus(
 	}
 
 	if !opts.ForceRepeat {
-		if err := s.recordAdvanceGuard(ctx, entityType, entityID, currentStatus, opts); err != nil {
+		if err := s.recordAdvanceGuard(ctx, tx, entityType, entityID, currentStatus, opts); err != nil {
 			return err
 		}
 	}
 
 	updated, err := repo.UpdateStatusIfCurrent(ctx, entityID, currentStatus, targetStatus)
 	if err != nil {
-		s.compensateAdvanceGuard(ctx, entityType, entityID, currentStatus, opts)
+		if tx == nil {
+			s.compensateAdvanceGuard(ctx, entityType, entityID, currentStatus, opts)
+		}
 		return fmt.Errorf("failed to update %s status: %w", entityType, err)
 	}
 	if !updated {
-		s.compensateAdvanceGuard(ctx, entityType, entityID, currentStatus, opts)
+		if tx == nil {
+			s.compensateAdvanceGuard(ctx, entityType, entityID, currentStatus, opts)
+		}
 		return ErrAdvanceGuardStaleFromStatus
 	}
 	return nil
@@ -350,7 +430,7 @@ func (s *EntityService) shouldUseAdvanceGuard(opts TransitionOptions) bool {
 	return s.advanceGuardCfg.Enabled && opts.GuardAdvance
 }
 
-func (s *EntityService) enforceAdvanceGuard(ctx context.Context, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
+func (s *EntityService) enforceAdvanceGuard(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
 	if !s.shouldUseAdvanceGuard(opts) {
 		return nil
 	}
@@ -378,7 +458,17 @@ func (s *EntityService) enforceAdvanceGuard(ctx context.Context, entityType mode
 	if strings.TrimSpace(opts.Outcome) == "" {
 		return fmt.Errorf("advance guard requires an outcome for guarded advances")
 	}
-	consumed, err := s.advanceGuardRepo.WasConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome)
+	var consumed bool
+	var err error
+	if tx != nil {
+		guardTx, ok := s.advanceGuardRepo.(AdvanceGuardTxRecorder)
+		if !ok {
+			return fmt.Errorf("transactional %s transition requires transaction-aware advance-guard repository", entityType)
+		}
+		consumed, err = guardTx.WasConsumedWithTx(ctx, tx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome)
+	} else {
+		consumed, err = s.advanceGuardRepo.WasConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome)
+	}
 	if err != nil {
 		return fmt.Errorf("advance guard check failed: %w", err)
 	}
@@ -388,14 +478,24 @@ func (s *EntityService) enforceAdvanceGuard(ctx context.Context, entityType mode
 	return nil
 }
 
-func (s *EntityService) recordAdvanceGuard(ctx context.Context, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
+func (s *EntityService) recordAdvanceGuard(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
 	if !s.shouldUseAdvanceGuard(opts) || opts.ForceRepeat {
 		return nil
 	}
 	if s.advanceGuardRepo == nil {
 		return fmt.Errorf("advance guard is enabled but no guard repository is configured")
 	}
-	if err := s.advanceGuardRepo.RecordConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
+	var err error
+	if tx != nil {
+		guardTx, ok := s.advanceGuardRepo.(AdvanceGuardTxRecorder)
+		if !ok {
+			return fmt.Errorf("transactional %s transition requires transaction-aware advance-guard repository", entityType)
+		}
+		err = guardTx.RecordConsumedWithTx(ctx, tx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome)
+	} else {
+		err = s.advanceGuardRepo.RecordConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome)
+	}
+	if err != nil {
 		if errors.Is(err, ErrAdvanceGuardRepeatRejected) || errors.Is(err, models.ErrAdvanceGuardAlreadyConsumed) {
 			return ErrAdvanceGuardRepeatRejected
 		}

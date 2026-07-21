@@ -3,6 +3,7 @@ package advanceguard
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -71,6 +72,41 @@ func (r *Repository) DeleteConsumed(ctx context.Context, entityType string, enti
 	`
 	if _, err := r.db.ExecContext(ctx, query, entityType, entityID, sessionID, fromStatus, outcome); err != nil {
 		return fmt.Errorf("failed to delete guarded advance consumption: %w", err)
+	}
+	return nil
+}
+
+// WasConsumedWithTx reports guarded-advance consumption inside tx.
+func (r *Repository) WasConsumedWithTx(ctx context.Context, tx *sql.Tx, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error) {
+	query := `
+		SELECT COUNT(*) FROM advance_guard_consumptions
+		WHERE entity_type = ? AND entity_id = ? AND session_id = ? AND from_status = ? AND outcome = ?
+	`
+	var count int
+	if err := tx.QueryRowContext(ctx, query, entityType, entityID, sessionID, fromStatus, outcome).Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to query guarded advance consumption in transaction: %w", err)
+	}
+	return count > 0, nil
+}
+
+// RecordConsumedWithTx stores a guarded-advance consumption inside tx.
+func (r *Repository) RecordConsumedWithTx(ctx context.Context, tx *sql.Tx, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO advance_guard_consumptions (
+			entity_type, entity_id, session_id, from_status, outcome
+		) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(entity_type, entity_id, session_id, from_status, outcome) DO NOTHING`,
+		entityType, entityID, sessionID, fromStatus, outcome,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to record guarded advance in transaction: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get guarded advance rows affected in transaction: %w", err)
+	}
+	if rows == 0 {
+		return ErrAlreadyConsumed
 	}
 	return nil
 }

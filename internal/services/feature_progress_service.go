@@ -2,14 +2,10 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/progress"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -74,51 +70,7 @@ func (s *FeatureProgressService) calculateProgressForFeature(ctx context.Context
 		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
 	}
 
-	// Convert map[models.TaskStatus]int to map[string]int for progress package
-	statusCounts := make(map[string]int, len(statusBreakdown))
-	for k, v := range statusBreakdown {
-		statusCounts[string(k)] = v
-	}
-
-	// Calculate progress using the progress package with task-level workflow config.
-	// We must use the task-level workflow (not feature-level) because statusCounts
-	// contains task statuses, and task status weights are defined in the task workflow.
-	taskWorkflowSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
-	wf := taskWorkflowSvc.GetWorkflow()
-	progressInfo := progress.CalculateProgress(statusCounts, wf)
-
-	// Count completed tasks using terminal status check (task-level)
-	// Skip statuses excluded from progress (e.g., cancelled)
-	totalTasks := 0
-	completedTasks := 0
-	for status, count := range statusBreakdown {
-		meta := taskWorkflowSvc.GetStatusMetadata(string(status))
-		if meta.ExcludeFromProgress {
-			continue
-		}
-		totalTasks += count
-		if taskWorkflowSvc.IsTerminalStatus(string(status)) {
-			completedTasks += count
-		}
-	}
-
-	completionPct := 0.0
-	if totalTasks > 0 {
-		completionPct = (float64(completedTasks) / float64(totalTasks)) * 100.0
-	}
-
-	// Build ratio strings
-	completionRatio := fmt.Sprintf("%d/%d", completedTasks, totalTasks)
-
-	return &FeatureProgressInfo{
-		FeatureKey:         key,
-		WeightedProgress:   math.Round(progressInfo.WeightedPct*100) / 100,
-		CompletionProgress: math.Round(completionPct*100) / 100,
-		TotalTasks:         totalTasks,
-		CompletedTasks:     completedTasks,
-		WeightedRatio:      progressInfo.WeightedRatio,
-		CompletionRatio:    completionRatio,
-	}, nil
+	return calculateFeatureProgressInfo(key, statusBreakdown, s.workflowSvc), nil
 }
 
 // RecalculateAndSetProgress recalculates the cached progress_pct for a feature
@@ -176,41 +128,7 @@ func (s *FeatureProgressService) RecalculateAndSetProgressByKey(ctx context.Cont
 //   - weighted progress < 100%: reopen completed features to the aggregation status
 //   - other terminal statuses (e.g. archived) are preserved
 func (s *FeatureProgressService) deriveFeatureProgressStatus(feature *models.Feature, progressInfo *FeatureProgressInfo) (models.FeatureStatus, error) {
-	if feature.StatusOverride || progressInfo == nil || progressInfo.TotalTasks == 0 {
-		return feature.Status, nil
-	}
-
-	featureWorkflow := s.workflowSvc.ForLevel(workflow.LevelFeature)
-
-	if progressInfo.WeightedProgress >= 100.0 {
-		if featureWorkflow.IsTerminalStatus(string(feature.Status)) && feature.Status != models.FeatureStatusCompleted {
-			return feature.Status, nil
-		}
-		if !featureWorkflow.HasOrchestratorAction(string(feature.Status), config.ActionCascade) {
-			return feature.Status, nil
-		}
-		if nextStatus, ok := featureWorkflow.GetSingleNextStatus(string(feature.Status)); ok {
-			return models.FeatureStatus(nextStatus), nil
-		}
-		return feature.Status, nil
-	}
-
-	if feature.Status == models.FeatureStatusCompleted {
-		reopenStatus, err := featureWorkflow.PrimaryAggregationStatus()
-		if err != nil {
-			var noCandidate *config.NoCandidateError
-			if errors.As(err, &noCandidate) {
-				// No aggregation step configured: reopen to the initial status.
-				return models.FeatureStatus(featureWorkflow.GetInitialStatusString()), nil
-			}
-			// Ambiguous config: surface the actionable error; the caller
-			// aborts the recalculation so the status is never changed.
-			return "", err
-		}
-		return models.FeatureStatus(reopenStatus), nil
-	}
-
-	return feature.Status, nil
+	return deriveFeatureProgressStatus(feature, progressInfo, s.workflowSvc)
 }
 
 // GetTaskCounts returns the total task count for each of the given feature IDs in a

@@ -3,9 +3,13 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // ProgressMutationRepository provides the narrow transaction-aware data access
@@ -26,8 +30,8 @@ func (r *ProgressMutationRepository) GetFeatureForProgressTx(ctx context.Context
 		SELECT id, epic_id, key, status, COALESCE(status_override, 0), progress_pct
 		FROM features WHERE id = ?`, id,
 	).Scan(&feature.ID, &feature.EpicID, &feature.Key, &feature.Status, &feature.StatusOverride, &feature.ProgressPct)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("feature not found with id %d", id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("feature not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get feature for progress: %w", err)
@@ -69,7 +73,7 @@ func (r *ProgressMutationRepository) UpdateFeatureProgressAndStatusTx(ctx contex
 		return fmt.Errorf("get feature progress update rows: %w", err)
 	}
 	if rows != 1 {
-		return fmt.Errorf("feature not found with id %d", featureID)
+		return fmt.Errorf("feature not found with id %d: %w", featureID, repoerr.ErrNotFound)
 	}
 	return nil
 }
@@ -78,8 +82,8 @@ func (r *ProgressMutationRepository) UpdateFeatureProgressAndStatusTx(ctx contex
 func (r *ProgressMutationRepository) GetEpicForStatusTx(ctx context.Context, tx *sql.Tx, id int64) (*models.Epic, error) {
 	epic := &models.Epic{}
 	err := tx.QueryRowContext(ctx, `SELECT id, key, status FROM epics WHERE id = ?`, id).Scan(&epic.ID, &epic.Key, &epic.Status)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("epic not found with id %d", id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("epic not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get epic for status: %w", err)
@@ -121,7 +125,71 @@ func (r *ProgressMutationRepository) UpdateEpicStatusTx(ctx context.Context, tx 
 		return fmt.Errorf("get epic status update rows: %w", err)
 	}
 	if rows != 1 {
-		return fmt.Errorf("epic not found with id %d", epicID)
+		return fmt.Errorf("epic not found with id %d: %w", epicID, repoerr.ErrNotFound)
+	}
+	return nil
+}
+
+// GetLastNonTerminalStatusTx returns the most recent non-terminal status for an
+// entity using the caller-owned aggregate transaction.
+func (r *ProgressMutationRepository) GetLastNonTerminalStatusTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	entityType models.EntityType,
+	entityID int64,
+	terminalStatuses []string,
+) (string, bool, error) {
+	query := `
+		SELECT to_status FROM entity_history
+		WHERE entity_type = ? AND entity_id = ?`
+	args := []interface{}{entityType, entityID}
+	if len(terminalStatuses) > 0 {
+		placeholders := make([]string, len(terminalStatuses))
+		for i, status := range terminalStatuses {
+			placeholders[i] = "?"
+			args = append(args, status)
+		}
+		query += fmt.Sprintf(" AND to_status NOT IN (%s)", strings.Join(placeholders, ", "))
+	}
+	query += " ORDER BY changed_at DESC LIMIT 1"
+
+	var status string
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("get last non-terminal status: %w", err)
+	}
+	return status, true, nil
+}
+
+// CreateEntityHistoryTx records an aggregate-derived status change inside the
+// caller-owned transaction.
+func (r *ProgressMutationRepository) CreateEntityHistoryTx(ctx context.Context, tx *sql.Tx, history *models.EntityHistory) error {
+	if err := history.Validate(); err != nil {
+		return fmt.Errorf("validate entity history: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO entity_history (
+			entity_type, entity_id, from_status, to_status,
+			changed_by, notes, forced, rejection_reason, changed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		history.EntityType,
+		history.EntityID,
+		history.FromStatus,
+		history.ToStatus,
+		history.ChangedBy,
+		history.Notes,
+		history.Forced,
+		history.RejectionReason,
+		dbconn.FormatTime(history.ChangedAt),
+	)
+	if err != nil {
+		return fmt.Errorf("create entity history: %w", err)
+	}
+	history.ID, err = result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get entity history id: %w", err)
 	}
 	return nil
 }

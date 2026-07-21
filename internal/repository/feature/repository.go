@@ -24,6 +24,10 @@ type FeatureRepository struct {
 	db *dbconn.DB
 }
 
+type featureInsertExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
 // NewFeatureRepository creates a new FeatureRepository
 func NewFeatureRepository(db *dbconn.DB) *FeatureRepository {
 	return &FeatureRepository{db: db}
@@ -48,36 +52,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	generatedSlug := slug.Generate(feature.Title)
 	feature.Slug = &generatedSlug
 
-	query := `
-		INSERT INTO features (epic_id, key, title, slug, description, status, status_override, progress_pct, execution_order, file_path, context_data, size)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	result, err := r.db.ExecContext(ctx, query,
-		feature.EpicID,
-		feature.Key,
-		feature.Title,
-		feature.Slug,
-		feature.Description,
-		feature.Status,
-		feature.StatusOverride,
-		feature.ProgressPct,
-		feature.ExecutionOrder,
-		feature.FilePath,
-		feature.ContextData,
-		feature.Size,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create feature: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert id: %w", err)
-	}
-
-	feature.ID = id
-	return nil
+	return insertFeature(ctx, r.db, feature)
 }
 
 // CreateWithTx creates a feature inside a caller-owned transaction.
@@ -92,7 +67,11 @@ func (r *FeatureRepository) CreateWithTx(ctx context.Context, tx *sql.Tx, featur
 		generatedSlug := slug.Generate(feature.Title)
 		feature.Slug = &generatedSlug
 	}
-	result, err := tx.ExecContext(ctx, `
+	return insertFeature(ctx, tx, feature)
+}
+
+func insertFeature(ctx context.Context, executor featureInsertExecutor, feature *models.Feature) error {
+	result, err := executor.ExecContext(ctx, `
 		INSERT INTO features (epic_id, key, title, slug, description, status, status_override, progress_pct, execution_order, file_path, context_data, size)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		feature.EpicID, feature.Key, feature.Title, feature.Slug, feature.Description,
@@ -591,6 +570,26 @@ func (r *FeatureRepository) updateInternal(ctx context.Context, feature *models.
 	}
 
 	return nil
+}
+
+// UpdateWithTx updates a feature inside a caller-owned transaction while
+// preserving execution-order resequencing unless skipResequence is true.
+func (r *FeatureRepository) UpdateWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature, skipResequence bool) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	if err := feature.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	needsCascade := false
+	if !skipResequence && feature.ExecutionOrder != nil {
+		oldFeature, err := r.GetByIDTx(ctx, tx, feature.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get old feature: %w", err)
+		}
+		needsCascade = oldFeature.ExecutionOrder == nil || *oldFeature.ExecutionOrder != *feature.ExecutionOrder
+	}
+	return r.updateWithTx(ctx, tx, feature, needsCascade)
 }
 
 // updateRowDirect performs a single-row feature UPDATE outside any transaction.
@@ -1145,6 +1144,21 @@ func (r *FeatureRepository) UpdateStatusIfNotOverridden(ctx context.Context, fea
 	return rows > 0, nil
 }
 
+// UpdateStatusIfNotOverriddenWithTx conditionally updates feature status inside tx.
+func (r *FeatureRepository) UpdateStatusIfNotOverriddenWithTx(ctx context.Context, tx *sql.Tx, featureID int64, newStatus models.FeatureStatus) (bool, error) {
+	result, err := tx.ExecContext(ctx, `
+		UPDATE features SET status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND (status_override = 0 OR status_override IS NULL)`, newStatus, featureID)
+	if err != nil {
+		return false, fmt.Errorf("failed to update status in transaction: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
 // GetContextData retrieves the context data JSON string for a feature by its ID
 func (r *FeatureRepository) GetContextData(ctx context.Context, featureID int64) (*string, error) {
 	query := `SELECT context_data FROM features WHERE id = ?`
@@ -1211,6 +1225,22 @@ func (r *FeatureRepository) UpdateStatusIfCurrent(ctx context.Context, featureID
 		return false, fmt.Errorf("conditionally update feature status: %w", err)
 	}
 	return updated, nil
+}
+
+// UpdateStatusIfCurrentTx atomically updates feature status inside tx only when
+// the stored status still matches expectedStatus.
+func (r *FeatureRepository) UpdateStatusIfCurrentTx(ctx context.Context, tx *sql.Tx, featureID int64, expectedStatus models.FeatureStatus, newStatus models.FeatureStatus) (bool, error) {
+	result, err := tx.ExecContext(ctx, `
+		UPDATE features SET status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND lower(status) = lower(?)`, newStatus, featureID, expectedStatus)
+	if err != nil {
+		return false, fmt.Errorf("conditionally update feature status in transaction: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("get conditional feature status rows: %w", err)
+	}
+	return rows > 0, nil
 }
 
 // GetByIDTx retrieves a feature by its ID within an existing transaction.
@@ -1292,6 +1322,19 @@ func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := r.CascadeStatusToTasksWithTx(ctx, tx, featureID, targetTaskStatus); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit task status cascade: %w", err)
+	}
+
+	return nil
+}
+
+// CascadeStatusToTasksWithTx updates child task statuses and history inside tx.
+func (r *FeatureRepository) CascadeStatusToTasksWithTx(ctx context.Context, tx *sql.Tx, featureID int64, targetTaskStatus models.TaskStatus) error {
 	historyQuery := `
 		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced)
 		SELECT id, status, ?, ?, ?, ?
@@ -1324,10 +1367,6 @@ func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID 
 
 	// Log the number of tasks updated (optional, for debugging)
 	_ = rows
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit task status cascade: %w", err)
-	}
 
 	return nil
 }

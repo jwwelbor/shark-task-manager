@@ -694,9 +694,8 @@ func (s *EpicService) DeleteEpic(ctx context.Context, key string) error {
 // The agentID parameter is used as the agent identifier for forced task completions.
 // Pass an empty string to use the current user/system agent.
 //
-// NOTE: Progress recalculation (RecalculateAndSetProgress) for each feature is NOT
-// performed here — callers should invoke FeatureService.RecalculateAndSetProgress
-// for each feature after this call if they want accurate progress_pct values.
+// When aggregate coordination is wired, child task/feature status changes,
+// feature progress caches, and the final epic status commit atomically.
 func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bool, agentID string) (*EpicCompleteResult, error) {
 	ctx, span := s.getTracer().Start(ctx, "EpicService.CompleteEpic",
 		trace.WithAttributes(attribute.String("epic.key", epicKey)),
@@ -821,28 +820,8 @@ func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bo
 		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
 	if s.aggregateCoordinator != nil {
-		statusRepo, ok := s.repo.(epicStatusTxRepository)
-		if !ok {
-			return nil, fmt.Errorf("epic repository does not support transactional status updates")
-		}
-		tx, err := s.repo.BeginTx(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to begin epic completion transaction: %w", err)
-		}
-		defer func() { _ = tx.Rollback() }()
-		if err := s.repo.CascadeStatusToFeaturesAndTasksWithTx(ctx, tx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
-			return nil, fmt.Errorf("failed to complete child features and tasks for epic %s: %w", epicKey, err)
-		}
-		for _, feature := range features {
-			if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, feature.ID); err != nil {
-				return nil, fmt.Errorf("failed to refresh feature %s after epic completion: %w", feature.Key, err)
-			}
-		}
-		if err := statusRepo.UpdateStatusTx(ctx, tx, epic.ID, string(models.EpicStatusCompleted), nil, nil); err != nil {
-			return nil, fmt.Errorf("failed to complete epic %s: %w", epicKey, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, fmt.Errorf("failed to commit epic completion: %w", err)
+		if err := s.completeEpicWithAggregateTx(ctx, epic, features); err != nil {
+			return nil, err
 		}
 	} else {
 		if len(affectedTaskKeys) > 0 || len(features) > 0 {
@@ -877,6 +856,35 @@ func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bo
 		StatusBreakdown: statusBreakdownMap,
 		ForceCompleted:  force && hasIncomplete,
 	}, nil
+}
+
+func (s *EpicService) completeEpicWithAggregateTx(ctx context.Context, epic *models.Epic, features []*models.Feature) error {
+	statusRepo, ok := s.repo.(epicStatusTxRepository)
+	if !ok {
+		return fmt.Errorf("epic repository does not support transactional status updates")
+	}
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin epic completion transaction: %w", err)
+	}
+	defer rollbackAfterAggregateMutation(tx)
+	if err := s.repo.CascadeStatusToFeaturesAndTasksWithTx(ctx, tx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
+		return fmt.Errorf("failed to complete child features and tasks for epic %s: %w", epic.Key, err)
+	}
+	for _, feature := range features {
+		if err := s.aggregateCoordinator.RefreshFeature(ctx, tx, feature.ID, cascadeTrigger{
+			triggerKey: epic.Key, triggerKind: "completion", triggerType: models.EntityTypeEpic, startLeg: cascadeLegFeature, featureID: feature.ID, epicID: epic.ID,
+		}); err != nil {
+			return fmt.Errorf("failed to refresh feature %s after epic completion: %w", feature.Key, err)
+		}
+	}
+	if err := statusRepo.UpdateStatusTx(ctx, tx, epic.ID, string(models.EpicStatusCompleted), nil, nil); err != nil {
+		return fmt.Errorf("failed to complete epic %s: %w", epic.Key, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit epic completion: %w", err)
+	}
+	return nil
 }
 
 // GetFeatures returns all features belonging to an epic.

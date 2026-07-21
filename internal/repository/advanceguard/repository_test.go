@@ -69,6 +69,38 @@ func TestAdvanceGuardRepository_RecordConsumed_DuplicateRejected(t *testing.T) {
 	}
 }
 
+func TestAdvanceGuardRepository_RecordConsumedWithTx_DuplicateRejected(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewRepository(db)
+
+	const entityID int64 = 88805
+	cleanupConsumptions(t, ctx, db, entityID)
+	t.Cleanup(func() { cleanupConsumptions(t, ctx, db, entityID) })
+
+	firstTx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("begin first transaction: %v", err)
+	}
+	if err := repo.RecordConsumedWithTx(ctx, firstTx, testEntityType, entityID, "sess-1", "draft", "pass"); err != nil {
+		t.Fatalf("first RecordConsumedWithTx() error = %v", err)
+	}
+	if err := firstTx.Commit(); err != nil {
+		t.Fatalf("commit first transaction: %v", err)
+	}
+
+	secondTx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("begin duplicate transaction: %v", err)
+	}
+	defer secondTx.Rollback()
+	err = repo.RecordConsumedWithTx(ctx, secondTx, testEntityType, entityID, "sess-1", "draft", "pass")
+	if !errors.Is(err, ErrAlreadyConsumed) {
+		t.Fatalf("expected ErrAlreadyConsumed on transactional duplicate tuple, got %v", err)
+	}
+}
+
 // TestAdvanceGuardRepository_DeleteConsumed_CompensatesRecord proves the
 // compensating-delete path used by EntityService.compensateAdvanceGuard:
 // after a CAS status update fails following a successful RecordConsumed, the

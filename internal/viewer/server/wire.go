@@ -399,12 +399,14 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		tagEnforcementCfg,
 	)
 	searchRepo := repository.NewSearchRepository(db)
+	aggregateCoordinator := services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), workflowSvc)
 
 	// Step 4: Construct entity-specific services
 	taskService := services.NewTaskService(taskRepo, entitySvc, creatorSvc)
 	taskService.SetEntityHistoryRepo(entityHistoryRepo)
 	taskService.SetTagService(tagSvc)
 	taskService.SetSearchIndexer(searchRepo)
+	taskService.SetAggregateMutationCoordinator(aggregateCoordinator)
 
 	featureService := services.NewFeatureService(
 		featureRepo, entitySvc,
@@ -414,6 +416,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	featureService.SetEntityHistoryRepo(entityHistoryRepo)
 	featureService.SetTagService(tagSvc)
 	featureService.SetSearchIndexer(searchRepo)
+	featureService.SetAggregateMutationCoordinator(aggregateCoordinator)
 
 	// Wire FeatureService into TaskService for auto-reopen behavior
 	taskService.SetFeatureService(featureService)
@@ -431,6 +434,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	)
 	epicService.SetTagService(tagSvc)
 	epicService.SetSearchIndexer(searchRepo)
+	epicService.SetAggregateMutationCoordinator(aggregateCoordinator)
 
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
 	epicService.SetAnalyticsService(analyticsSvc)

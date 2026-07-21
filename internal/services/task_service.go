@@ -378,6 +378,9 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		}
 		return result.Task, result.FileWasLinked, nil
 	}
+	if s.aggregateCoordinator != nil {
+		return nil, false, recordSpanError(span, fmt.Errorf("failed to create task: transactional creator is required when aggregate maintenance is enabled"))
+	}
 
 	// Fallback path (no creatorSvc): generate key via repository prefix search.
 	// This path should rarely be hit in production since GetTaskService() always
@@ -658,11 +661,13 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 		if err != nil {
 			return recordSpanError(span, fmt.Errorf("failed to begin task aggregate transaction: %w", err))
 		}
-		defer func() { _ = tx.Rollback() }()
+		defer rollbackAfterAggregateMutation(tx)
 		if err := txRepo.DeleteWithTx(ctx, tx, task.ID); err != nil {
 			return recordSpanError(span, fmt.Errorf("failed to delete task %s: %w", key, err))
 		}
-		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, task.FeatureID); err != nil {
+		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, task.FeatureID, cascadeTrigger{
+			triggerKey: task.Key, triggerKind: "deletion", triggerType: models.EntityTypeTask, startLeg: cascadeLegFeature, featureID: task.FeatureID,
+		}); err != nil {
 			return recordSpanError(span, fmt.Errorf("failed to maintain task aggregates: %w", err))
 		}
 		if err := tx.Commit(); err != nil {
@@ -809,18 +814,30 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		if txErr != nil {
 			return nil, recordSpanError(span, fmt.Errorf("failed to begin task aggregate transaction: %w", txErr))
 		}
-		defer func() { _ = aggregateTx.Rollback() }()
+		defer rollbackAfterAggregateMutation(aggregateTx)
 		adapter.tx = aggregateTx
 	}
 
 	// Delegate full transition flow to EntityService:
 	// validation, normalization, force-reason check, backward detection,
 	// status update (via adapter), history recording, rejection notes, action resolution
-	result, err := s.entitySvc.TransitionStatus(
-		ctx, adapter, models.EntityTypeTask, key, targetStatus, opts,
-		DefaultTransitionFeatures(),
-		s.makeResolveActionFn(ctx),
-	)
+	transitionFeatures := DefaultTransitionFeatures()
+	var result *TransitionResult
+	var err error
+	if aggregateTx != nil {
+		// TaskRepository.StatusUpdateRawWithTx creates the rejection note in the
+		// same transaction, so EntityService must not create a duplicate.
+		transitionFeatures.CreateRejectionNotes = false
+		result, err = s.entitySvc.TransitionStatusWithTx(
+			ctx, aggregateTx, adapter, models.EntityTypeTask, key, targetStatus, opts,
+			transitionFeatures, s.makeResolveActionFn(ctx),
+		)
+	} else {
+		result, err = s.entitySvc.TransitionStatus(
+			ctx, adapter, models.EntityTypeTask, key, targetStatus, opts,
+			transitionFeatures, s.makeResolveActionFn(ctx),
+		)
+	}
 	if err != nil {
 		return nil, recordSpanError(span, err)
 	}
@@ -841,7 +858,14 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		if task == nil {
 			return nil, recordSpanError(span, fmt.Errorf("task %s was not loaded for aggregate maintenance", key))
 		}
-		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, aggregateTx, task.FeatureID); err != nil {
+		triggerKind := "transition"
+		taskWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelTask)
+		if result.Transitioned && taskWf.IsTerminalStatus(result.FromStatus) && !taskWf.IsTerminalStatus(result.ToStatus) {
+			triggerKind = "regression"
+		}
+		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, aggregateTx, task.FeatureID, cascadeTrigger{
+			triggerKey: task.Key, triggerKind: triggerKind, triggerType: models.EntityTypeTask, startLeg: cascadeLegFeature, featureID: task.FeatureID,
+		}); err != nil {
 			return nil, recordSpanError(span, fmt.Errorf("failed to maintain task aggregates: %w", err))
 		}
 		if err := aggregateTx.Commit(); err != nil {
@@ -1325,7 +1349,9 @@ func (s *TaskService) SetAggregateMutationCoordinator(coordinator *AggregateMuta
 			if coordinator == nil {
 				return nil
 			}
-			return coordinator.RefreshFeatureAndEpic(ctx, tx, task.FeatureID)
+			return coordinator.RefreshFeatureAndEpic(ctx, tx, task.FeatureID, cascadeTrigger{
+				triggerKey: task.Key, triggerKind: "creation", triggerType: models.EntityTypeTask, startLeg: cascadeLegFeature, featureID: task.FeatureID,
+			})
 		})
 	}
 }

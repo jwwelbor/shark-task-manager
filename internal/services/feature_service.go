@@ -67,7 +67,12 @@ type FeatureTaskCounter interface {
 type featureAggregateTxRepository interface {
 	BeginTx(ctx context.Context) (*sql.Tx, error)
 	CreateWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature) error
+	UpdateWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature, skipResequence bool) error
 	DeleteWithTx(ctx context.Context, tx *sql.Tx, id int64) error
+	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id int64, status string, agent *string, notes *string) error
+	UpdateStatusIfCurrentTx(ctx context.Context, tx *sql.Tx, featureID int64, expectedStatus models.FeatureStatus, newStatus models.FeatureStatus) (bool, error)
+	UpdateStatusIfNotOverriddenWithTx(ctx context.Context, tx *sql.Tx, featureID int64, newStatus models.FeatureStatus) (bool, error)
+	CascadeStatusToTasksWithTx(ctx context.Context, tx *sql.Tx, featureID int64, targetTaskStatus models.TaskStatus) error
 }
 
 // DocumentRepository defines the interface for accessing documents linked to entities.
@@ -300,14 +305,65 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 	)
 	defer span.End()
 
-	// Delegate shared logic to EntityService
-	result, err := s.entitySvc.TransitionStatus(
-		ctx, s.entityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
-		DefaultTransitionFeatures(),
-		s.makeResolveActionFn(ctx),
-	)
-	if err != nil {
-		return nil, recordSpanError(span, err)
+	var result *TransitionResult
+	if s.aggregateCoordinator != nil {
+		featureForAggregate, err := s.repo.GetByKey(ctx, featureKey)
+		if err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("failed to get feature %s for aggregate transition: %w", featureKey, err))
+		}
+		if featureForAggregate == nil {
+			return nil, recordSpanError(span, fmt.Errorf("feature not found: %s", featureKey))
+		}
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return nil, recordSpanError(span, fmt.Errorf("feature repository does not support aggregate transactions"))
+		}
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("failed to begin feature transition transaction: %w", err))
+		}
+		defer rollbackAfterAggregateMutation(tx)
+		txEntityRepo := &transactionalEntityRepo{
+			EntityRepository: s.entityRepo,
+			updateStatus: func(ctx context.Context, id int64, status string) error {
+				return txRepo.UpdateStatusTx(ctx, tx, id, status, nil, nil)
+			},
+			updateStatusIfCurrent: func(ctx context.Context, id int64, expected, status string) (bool, error) {
+				return txRepo.UpdateStatusIfCurrentTx(ctx, tx, id, models.FeatureStatus(expected), models.FeatureStatus(status))
+			},
+		}
+		result, err = s.entitySvc.TransitionStatusWithTx(
+			ctx, tx, txEntityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
+			DefaultTransitionFeatures(), s.makeResolveActionFn(ctx),
+		)
+		if err != nil {
+			return nil, recordSpanError(span, err)
+		}
+		triggerKind := "transition"
+		featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+		if result.Transitioned && featureWf.IsTerminalStatus(result.FromStatus) && !featureWf.IsTerminalStatus(result.ToStatus) {
+			triggerKind = "regression"
+		}
+		if result.Transitioned {
+			if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, featureForAggregate.EpicID, cascadeTrigger{
+				triggerKey: featureKey, triggerKind: triggerKind, triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic,
+			}); err != nil {
+				return nil, recordSpanError(span, fmt.Errorf("failed to maintain feature aggregates: %w", err))
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, recordSpanError(span, fmt.Errorf("failed to commit feature transition: %w", err))
+		}
+	} else {
+		// Delegate shared logic to EntityService.
+		var err error
+		result, err = s.entitySvc.TransitionStatus(
+			ctx, s.entityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
+			DefaultTransitionFeatures(), s.makeResolveActionFn(ctx),
+		)
+		if err != nil {
+			return nil, recordSpanError(span, err)
+		}
 	}
 
 	// Post-hook: count child tasks
@@ -320,7 +376,7 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 
 	// Cascade post-hook: reopen terminal epic when a feature regresses from
 	// a terminal status to a non-terminal status (AC-02 / REQ-F-001).
-	if s.cascadeEnabled() {
+	if s.aggregateCoordinator == nil && s.cascadeEnabled() {
 		featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
 		if featureWf.IsTerminalStatus(result.FromStatus) && !featureWf.IsTerminalStatus(result.ToStatus) {
 			cascadeParentReopens(ctx, s.cascadeDepsBundle(), cascadeTrigger{
@@ -609,9 +665,44 @@ func (s *FeatureService) UpdateFeatureStatusIfNotOverridden(ctx context.Context,
 	if err != nil {
 		return false, fmt.Errorf("feature %s does not exist: %w", featureKey, err)
 	}
-	updated, err := s.repo.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
-	if err != nil || !updated {
-		return updated, err
+	var updated bool
+	if s.aggregateCoordinator != nil {
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return false, fmt.Errorf("feature repository does not support aggregate transactions")
+		}
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to begin conditional feature status transaction: %w", err)
+		}
+		defer rollbackAfterAggregateMutation(tx)
+		updated, err = txRepo.UpdateStatusIfNotOverriddenWithTx(ctx, tx, feature.ID, newStatus)
+		if err != nil {
+			return false, err
+		}
+		if updated {
+			triggerKind := "status_update"
+			featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+			if featureWf.IsTerminalStatus(string(feature.Status)) && !featureWf.IsTerminalStatus(string(newStatus)) {
+				triggerKind = "regression"
+			}
+			if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, feature.EpicID, cascadeTrigger{
+				triggerKey: feature.Key, triggerKind: triggerKind, triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic, epicID: feature.EpicID,
+			}); err != nil {
+				return false, fmt.Errorf("failed to maintain feature aggregates: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("failed to commit conditional feature status: %w", err)
+		}
+	} else {
+		updated, err = s.repo.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
+		if err != nil {
+			return false, err
+		}
+	}
+	if !updated {
+		return false, nil
 	}
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeFeature, feature.ID); err != nil {
 		return false, err
@@ -625,7 +716,28 @@ func (s *FeatureService) CascadeFeatureStatusToTasks(ctx context.Context, featur
 	if err != nil {
 		return fmt.Errorf("feature %s does not exist: %w", featureKey, err)
 	}
-	if err := s.repo.CascadeStatusToTasks(ctx, feature.ID, targetTaskStatus); err != nil {
+	if s.aggregateCoordinator != nil {
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return fmt.Errorf("feature repository does not support aggregate transactions")
+		}
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to begin feature cascade transaction: %w", err)
+		}
+		defer rollbackAfterAggregateMutation(tx)
+		if err := txRepo.CascadeStatusToTasksWithTx(ctx, tx, feature.ID, targetTaskStatus); err != nil {
+			return fmt.Errorf("failed to cascade status to tasks for feature %s: %w", featureKey, err)
+		}
+		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, feature.ID, cascadeTrigger{
+			triggerKey: feature.Key, triggerKind: "task_cascade", triggerType: models.EntityTypeFeature, startLeg: cascadeLegFeature, featureID: feature.ID,
+		}); err != nil {
+			return fmt.Errorf("failed to maintain feature aggregates: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit feature cascade: %w", err)
+		}
+	} else if err := s.repo.CascadeStatusToTasks(ctx, feature.ID, targetTaskStatus); err != nil {
 		return fmt.Errorf("failed to cascade status to tasks for feature %s: %w", featureKey, err)
 	}
 	return nil
@@ -728,9 +840,32 @@ func (s *FeatureService) CompleteFeature(ctx context.Context, featureKey string,
 
 	// No tasks: just mark feature completed
 	if len(tasks) == 0 {
-		feature.Status = models.FeatureStatusCompleted
-		if err := s.repo.Update(ctx, feature); err != nil {
-			return nil, fmt.Errorf("failed to complete feature %s: %w", featureKey, err)
+		if s.aggregateCoordinator != nil {
+			txRepo, ok := s.repo.(featureAggregateTxRepository)
+			if !ok {
+				return nil, fmt.Errorf("feature repository does not support aggregate transactions")
+			}
+			tx, err := txRepo.BeginTx(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to begin feature completion transaction: %w", err)
+			}
+			defer rollbackAfterAggregateMutation(tx)
+			if err := txRepo.UpdateStatusTx(ctx, tx, feature.ID, string(models.FeatureStatusCompleted), nil, nil); err != nil {
+				return nil, fmt.Errorf("failed to complete feature %s: %w", featureKey, err)
+			}
+			if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, feature.EpicID, cascadeTrigger{
+				triggerKey: feature.Key, triggerKind: "completion", triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic, epicID: feature.EpicID,
+			}); err != nil {
+				return nil, fmt.Errorf("failed to maintain feature aggregates: %w", err)
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, fmt.Errorf("failed to commit feature completion: %w", err)
+			}
+		} else {
+			feature.Status = models.FeatureStatusCompleted
+			if err := s.repo.Update(ctx, feature); err != nil {
+				return nil, fmt.Errorf("failed to complete feature %s: %w", featureKey, err)
+			}
 		}
 		return &FeatureCompleteResult{
 			FeatureKey:      featureKey,
@@ -783,15 +918,38 @@ func (s *FeatureService) CompleteFeature(ctx context.Context, featureKey string,
 		}
 		affectedKeys = append(affectedKeys, task.Key)
 	}
-	if len(affectedKeys) > 0 {
-		if err := s.repo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatus("completed")); err != nil {
-			return nil, fmt.Errorf("failed to complete tasks for feature %s: %w", featureKey, err)
+	if s.aggregateCoordinator != nil {
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return nil, fmt.Errorf("feature repository does not support aggregate transactions")
 		}
-	}
-
-	// Recalculate progress (which may auto-complete the feature)
-	if err := s.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
-		return nil, fmt.Errorf("failed to update feature progress: %w", err)
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to begin feature completion transaction: %w", err)
+		}
+		defer rollbackAfterAggregateMutation(tx)
+		if len(affectedKeys) > 0 {
+			if err := txRepo.CascadeStatusToTasksWithTx(ctx, tx, feature.ID, models.TaskStatus("completed")); err != nil {
+				return nil, fmt.Errorf("failed to complete tasks for feature %s: %w", featureKey, err)
+			}
+		}
+		if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, feature.ID, cascadeTrigger{
+			triggerKey: feature.Key, triggerKind: "completion", triggerType: models.EntityTypeFeature, startLeg: cascadeLegFeature, featureID: feature.ID,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to maintain feature aggregates: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("failed to commit feature completion: %w", err)
+		}
+	} else {
+		if len(affectedKeys) > 0 {
+			if err := s.repo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatus("completed")); err != nil {
+				return nil, fmt.Errorf("failed to complete tasks for feature %s: %w", featureKey, err)
+			}
+		}
+		if err := s.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
+			return nil, fmt.Errorf("failed to update feature progress: %w", err)
+		}
 	}
 
 	return &FeatureCompleteResult{
@@ -825,12 +983,42 @@ func (s *FeatureService) GetProgress(ctx context.Context, key string) (*FeatureP
 // and persists it. Automatically sets feature status to "completed" when weighted
 // progress reaches 100% (all tasks completed).
 func (s *FeatureService) RecalculateAndSetProgress(ctx context.Context, featureID int64) error {
-	return s.getProgressService().RecalculateAndSetProgress(ctx, featureID)
+	if s.aggregateCoordinator == nil {
+		return s.getProgressService().RecalculateAndSetProgress(ctx, featureID)
+	}
+	txRepo, ok := s.repo.(featureAggregateTxRepository)
+	if !ok {
+		return fmt.Errorf("feature repository does not support aggregate transactions")
+	}
+	tx, err := txRepo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin feature progress transaction: %w", err)
+	}
+	defer rollbackAfterAggregateMutation(tx)
+	if err := s.aggregateCoordinator.RefreshFeatureAndEpic(ctx, tx, featureID, cascadeTrigger{
+		triggerKind: "progress_refresh", triggerType: models.EntityTypeFeature, startLeg: cascadeLegFeature, featureID: featureID,
+	}); err != nil {
+		return fmt.Errorf("failed to refresh feature progress: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit feature progress: %w", err)
+	}
+	return nil
 }
 
 // RecalculateAndSetProgressByKey recalculates progress for a feature identified by key.
 func (s *FeatureService) RecalculateAndSetProgressByKey(ctx context.Context, key string) error {
-	return s.getProgressService().RecalculateAndSetProgressByKey(ctx, key)
+	if s.aggregateCoordinator == nil {
+		return s.getProgressService().RecalculateAndSetProgressByKey(ctx, key)
+	}
+	feature, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to get feature %s: %w", key, err)
+	}
+	if feature == nil {
+		return fmt.Errorf("feature not found: %s", key)
+	}
+	return s.RecalculateAndSetProgress(ctx, feature.ID)
 }
 
 // GetTaskCounts returns the total task count for each of the given feature IDs in a
@@ -995,11 +1183,13 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		if err != nil {
 			return nil, fmt.Errorf("failed to begin feature aggregate transaction: %w", err)
 		}
-		defer func() { _ = tx.Rollback() }()
+		defer rollbackAfterAggregateMutation(tx)
 		if err := txRepo.CreateWithTx(ctx, tx, feature); err != nil {
 			return nil, fmt.Errorf("failed to create feature %s: %w", featureKey, err)
 		}
-		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, epic.ID); err != nil {
+		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, epic.ID, cascadeTrigger{
+			triggerKey: feature.Key, triggerKind: "creation", triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic, epicID: epic.ID,
+		}); err != nil {
 			return nil, fmt.Errorf("failed to maintain epic aggregate: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -1063,6 +1253,7 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 	if feature == nil {
 		return nil, fmt.Errorf("feature not found: %s", key)
 	}
+	previousStatus := feature.Status
 
 	// Apply non-nil updates
 	if updates.Title != nil {
@@ -1098,10 +1289,34 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 		feature.FilePath = updates.FilePath
 	}
 
-	// When --parallel was passed (SkipResequence=true), use the no-resequence
-	// path so siblings keep their existing execution_order values.
 	var saveErr error
-	if updates.SkipResequence {
+	if s.aggregateCoordinator != nil && updates.Status != nil {
+		txRepo, ok := s.repo.(featureAggregateTxRepository)
+		if !ok {
+			return nil, fmt.Errorf("feature repository does not support aggregate transactions")
+		}
+		tx, err := txRepo.BeginTx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to begin feature update transaction: %w", err)
+		}
+		defer rollbackAfterAggregateMutation(tx)
+		if err := txRepo.UpdateWithTx(ctx, tx, feature, updates.SkipResequence); err != nil {
+			return nil, fmt.Errorf("failed to update feature %s: %w", key, err)
+		}
+		triggerKind := "status_update"
+		featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+		if featureWf.IsTerminalStatus(string(previousStatus)) && !featureWf.IsTerminalStatus(string(feature.Status)) {
+			triggerKind = "regression"
+		}
+		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, feature.EpicID, cascadeTrigger{
+			triggerKey: feature.Key, triggerKind: triggerKind, triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic, epicID: feature.EpicID,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to maintain feature aggregates: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("failed to commit feature update: %w", err)
+		}
+	} else if updates.SkipResequence {
 		saveErr = s.repo.UpdateNoResequence(ctx, feature)
 	} else {
 		saveErr = s.repo.Update(ctx, feature)
@@ -1146,11 +1361,13 @@ func (s *FeatureService) DeleteFeature(ctx context.Context, key string) error {
 		if err != nil {
 			return fmt.Errorf("failed to begin feature aggregate transaction: %w", err)
 		}
-		defer func() { _ = tx.Rollback() }()
+		defer rollbackAfterAggregateMutation(tx)
 		if err := txRepo.DeleteWithTx(ctx, tx, feature.ID); err != nil {
 			return fmt.Errorf("failed to delete feature %s: %w", key, err)
 		}
-		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, feature.EpicID); err != nil {
+		if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, feature.EpicID, cascadeTrigger{
+			triggerKey: feature.Key, triggerKind: "deletion", triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic, epicID: feature.EpicID,
+		}); err != nil {
 			return fmt.Errorf("failed to maintain epic aggregate: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
