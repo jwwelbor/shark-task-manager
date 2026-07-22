@@ -35,7 +35,6 @@ steps:
     prompt: task/completed.md
   development:
     phase: development
-    aliases: [research]
     color: yellow
     display_token: RFD
     description: Ready for TDD implementation

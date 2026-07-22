@@ -181,13 +181,13 @@ func TestEntityService_TransitionStatus_EntityNil(t *testing.T) {
 func TestEntityService_TransitionStatus_ResearchPassRequiresEvidence(t *testing.T) {
 	projectRoot := t.TempDir()
 	workflowSvc := workflow.NewService(projectRoot)
-	svc := NewEntityService(workflowSvc).ForLevel(workflow.LevelFeature)
-	filePath := "docs/plan/E01/E01-F01/feature.md"
+	svc := NewEntityService(workflowSvc).ForLevel(workflow.LevelTask)
+	filePath := "tasks/T-E01-F01-001.md"
 	updated := false
 	repo := &mockEntityRepo{
 		getByKeyFn: func(context.Context, string) (models.Entity, error) {
-			return &models.Feature{
-				BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", FilePath: &filePath},
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", FilePath: &filePath},
 				Status:     "research",
 			}, nil
 		},
@@ -198,7 +198,7 @@ func TestEntityService_TransitionStatus_ResearchPassRequiresEvidence(t *testing.
 	}
 
 	_, err := svc.TransitionStatus(
-		context.Background(), repo, models.EntityTypeFeature, "E01-F01", "specification",
+		context.Background(), repo, models.EntityTypeTask, "T-E01-F01-001", "development",
 		TransitionOptions{}, DefaultTransitionFeatures(), nil,
 	)
 	if err == nil {
