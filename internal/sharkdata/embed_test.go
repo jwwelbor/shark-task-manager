@@ -699,6 +699,86 @@ func TestEmbedded_HasReadme(t *testing.T) {
 	assert.Contains(t, string(data), "shark-data")
 }
 
+// TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007 guards the
+// content-only contract for the portable demo-script bundle. It reads the
+// embedded delivery surface rather than inventing a readiness runtime.
+func TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007(t *testing.T) {
+	files := map[string]string{
+		"manifest": readEmbeddedString(t, "manifest.yaml"),
+		"index":    readEmbeddedString(t, "skills/README.md"),
+		"skill":    readEmbeddedString(t, "skills/demo-script/SKILL.md"),
+		"template": readEmbeddedString(t, "skills/demo-script/context/demo-script-template.md"),
+	}
+
+	for name, want := range map[string][]string{
+		"manifest": {
+			"name: demo-script",
+			"ownership: canonical",
+		},
+		"index": {
+			"`demo-script`",
+			"Portable, evidence-based demo scenario maps",
+		},
+		"skill": {
+			"name: demo-script",
+			"E34-interaction-map.md#i-01-readiness-evidence-shape",
+			"TC-002",
+			"E34-F03",
+			"E34-F02",
+			"assessor_verdict",
+			"owner_decision",
+			"open_conditions",
+			"gate_mode",
+			"activation_owner",
+			"closure_key",
+			"counterpart_status",
+			"review_basis",
+			"demonstrability_disposition",
+			"contract-only",
+			"pending-integration",
+			"override-accept",
+			"and risk. Do not treat an override as demonstrated delivery.",
+			"Demonstrated now",
+			"Not demonstrated / pending integration",
+			"Accepted risks and overrides",
+			"Do not invent commands, credentials, deployments, endpoints, or proof.",
+			"deduplication and user confirmation",
+		},
+		"template": {
+			"Stakeholder value",
+			"Source requirement or acceptance criterion",
+			"Prerequisites and demo data",
+			"Presenter actions",
+			"Expected observable result",
+			"Evidence type and path",
+			"Evidence environment and date",
+			"Acceptance/readiness classification",
+			"Reset or recovery instructions",
+			"Known limitations",
+			"UI capture or recording",
+			"CLI transcript",
+			"API request/response plus resulting state",
+			"SDK runnable example",
+			"Pipeline artifact or data",
+			"Infrastructure health or metric evidence",
+			"Background trigger/log/result evidence",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				assert.Contains(t, files[name], expected)
+			}
+		})
+	}
+}
+
+func readEmbeddedString(t *testing.T, rel string) string {
+	t.Helper()
+	data, err := readEmbeddedAll(rel)
+	require.NoError(t, err, "%s should be embedded", rel)
+	return string(data)
+}
+
 func TestEmbedded_AllExpectedDirectoriesPresent(t *testing.T) {
 	paths, err := CopyEmbeddedTreeForTest()
 	require.NoError(t, err)

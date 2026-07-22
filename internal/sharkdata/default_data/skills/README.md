@@ -11,6 +11,7 @@ This index is the contributor-facing map for the embedded skill bundle. It answe
 | `content-validation` | Content-quality validation rubric | `workflows/validate-content-quality.md` | Content validation passes |
 | `cross-artifact-analysis` | Traceability, terminology alignment, spec-drift detection | `workflows/acceptance-coverage-trace.md`, `workflows/detect-spec-drift.md`, `workflows/terminology-alignment.md` | Drift and cross-doc consistency checks |
 | `debugging` | Frontend, backend, test, web, and devops debugging workflows | `workflows/debug-backend.md`, `workflows/debug-frontend.md`, `workflows/debug-tests.md`, `workflows/debug-web.md` | Debugging tasks and issue analysis |
+| `demo-script` | Portable, evidence-based demo scenario maps and readiness classification | `context/demo-script-template.md` | The explicit `/shark-rider demo` procedure |
 | `feature-design` | Feature wireframes and prototypes | `workflows/wireframes.md`, `workflows/prototype.md` | Feature-design phases and frontend prep |
 | `frontend-design` | Aesthetic direction and refinement heuristics | `workflows/commit-to-aesthetic-direction.md`, `workflows/refine-aesthetics.md` | Frontend design polish and UI iteration |
 | `implementation` | Backend, frontend, API, database, and test implementation guidance | `workflows/implement-backend.md`, `workflows/implement-frontend.md`, `workflows/implement-api.md`, `workflows/implement-tests.md` | Development phases, implementation agents |
