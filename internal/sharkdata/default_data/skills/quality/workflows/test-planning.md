@@ -188,16 +188,32 @@ Rules:
 
 The test plan must specify, for every test case, **the production caller signature it must drive** and **the lowest-allowed mock seam**.
 
+This requirement applies when the change has deterministic runtime behavior.
+For prompt, skill, template, or documentation-only changes, record a
+`content-only` justification instead. The test plan should validate rendering,
+include resolution, and newly documented local file references. It should not
+create decision-table, mutation, or caller-path tests that simulate the meaning
+of prose.
+
 Use `../context/caller-path-contracts.md` for the full field definitions, the example block, and the internal-only opt-out rule.
 
 Application rule:
 
-- Every test case in Step 6 must have a Caller-Path Contract block.
+- Every runtime test case in Step 6 must have a Caller-Path Contract block.
+- Content-only test cases must state their renderer or direct-file entrypoint
+  and the `content-only` justification.
 - Tests that mock above the entrypoint without an explicit internal-only justification must return for redesign.
 
 ### Step 5.9: Cross-feature contract tests (I-##)
 
 For every I-## declared by the feature PRD or task spec:
+
+For a content-only interaction, the shared test may be a renderer and
+reference-existence check. Record the content-only justification and review the
+policy wording manually. Do not require a simulated staged-edge decision or a
+wording mutation.
+
+For deterministic runtime interactions:
 
 - Design at least one contract test case.
 - The TC name and location must match the contract test pointer declared in the
@@ -207,6 +223,11 @@ For every I-## declared by the feature PRD or task spec:
   twin tests.
 - The test must assert the documented shape source, not just that a call
   happened.
+- For a staged edge, preserve the map-assigned gate mode, counterpart entities
+  and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+  review basis. Test that a `contract-only` declaration is complete and
+  predeclared; no test plan may invent or weaken those values.
+- Required staged fields include `review_basis`; do not omit it from the plan.
 
 Populate `cross_feature_contract_tests`.
 
@@ -254,14 +275,14 @@ For each acceptance criterion, write concrete test cases. These are NOT code —
 
 **Rules for writing test cases:**
 - Every test case MUST reference the feature PRD requirement it validates
-- Every test case MUST cite the ISTQB technique that produced it (Step 5.5)
-- Every test case MUST tag at least one ISO 25010 characteristic (Step 5.6)
-- **Every test case MUST have a Caller-Path Contract block (Step 5.8)** — entrypoint, lowest-allowed mock seam, forbidden mocks, and a counter-factual. Internal-only opt-out requires explicit justification.
+- Every runtime test case MUST cite the ISTQB technique that produced it (Step 5.5)
+- Every runtime test case MUST tag at least one ISO 25010 characteristic (Step 5.6)
+- **Every runtime test case MUST have a Caller-Path Contract block (Step 5.8)** — entrypoint, lowest-allowed mock seam, forbidden mocks, and a counter-factual. Internal-only opt-out requires explicit justification. Content-only test cases instead state their renderer or direct-file entrypoint and `content-only` justification.
 - Use concrete values, not placeholders ("index=15" not "some index")
 - Specify exact expected outputs ("found=False, row=None" not "returns error")
-- Include boundary conditions (min, max, empty, null) — driven by BVA
-- Include at least one negative case per acceptance criterion
-- For ACs with observability requirements (Step 5.7), at least one test must assert the observability evidence is emitted
+- Runtime cases include boundary conditions (min, max, empty, null) — driven by BVA
+- Runtime cases include at least one negative case per acceptance criterion
+- For runtime ACs with observability requirements (Step 5.7), at least one test must assert the observability evidence is emitted
 - For I-## interactions, at least one TC must be tagged with the I-## ID and
   match the shared contract test pointer
 
@@ -425,14 +446,14 @@ Before returning the verdict:
 - [ ] Task spec read and compared against PRD
 - [ ] Drift analysis completed (even if no drift found)
 - [ ] Every acceptance criterion checked for ambiguity and testability
-- [ ] **Every AC has at least one ISTQB technique applied** (Step 5.5)
-- [ ] **Every AC has an ISO 25010 row in the coverage matrix with no empty cells** (Step 5.6)
-- [ ] **Every behavior has an observability design (metric/log/trace/N-A)** (Step 5.7)
-- [ ] **Every test case has a Caller-Path Contract: entrypoint, lowest mock seam, forbidden mocks, counter-factual** (Step 5.8) — internal-only opt-outs are justified, not silent
+- [ ] **Every runtime AC has at least one ISTQB technique applied** (Step 5.5)
+- [ ] **Every runtime AC has an ISO 25010 row in the coverage matrix with no empty cells** (Step 5.6)
+- [ ] **Every runtime behavior has an observability design (metric/log/trace/N-A)** (Step 5.7)
+- [ ] **Every runtime test case has a Caller-Path Contract: entrypoint, lowest mock seam, forbidden mocks, counter-factual** (Step 5.8) — internal-only opt-outs are justified, not silent; content-only cases record their renderer or direct-file entrypoint and `content-only` justification
 - [ ] **Every I-## has a shared cross-feature contract test** (Step 5.9), tagged
       with the I-## ID and matching the declared contract test pointer
 - [ ] Concrete test cases written for every acceptance criterion
-- [ ] Each test case references its source feature requirement, the technique that produced it, and at least one ISO 25010 characteristic
-- [ ] Negative and edge cases included (driven by the technique chosen)
+- [ ] Each runtime test case references its source feature requirement, the technique that produced it, and at least one ISO 25010 characteristic; content-only cases reference their source requirement and justification
+- [ ] Runtime negative and edge cases included (driven by the technique chosen)
 - [ ] Test plan document written to `test_plan_path`
 - [ ] Codex red-team executed; findings incorporated or deferred with rationale

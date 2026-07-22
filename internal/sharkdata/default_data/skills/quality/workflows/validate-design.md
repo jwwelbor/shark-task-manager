@@ -166,6 +166,19 @@ before task generation:
 3. Verify every I-## this feature produces or consumes is declared in the PRD.
 4. Verify producer and consumer references use the SAME shape source from the map.
 5. Verify each I-## has one shared contract test pointer.
+6. For every staged I-##, verify its map-assigned gate mode, counterpart entities
+   and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+   review basis match the feature PRD. A `contract-only` edge must be declared no
+   later than feature specification. Mismatched staged-edge values or incomplete
+   declarations are BLOCKER findings. A complete, predeclared `contract-only`
+   obligation with a named activation owner is conditionally open but
+   handoff-complete for the producer feature; record it for activation-owner UAT
+   rather than blocking this design validation. The activation owner's UAT must
+   close it, and an open internal obligation blocks epic completion. Reverse
+   build-order consumption is a decomposition warning.
+- Reject incomplete declarations; warn on reverse build-order consumption.
+- A `contract-only` edge must be declared no later than specification.
+- Mismatched staged-edge values are BLOCKER findings.
 
 Produce an interaction-map closure table:
 

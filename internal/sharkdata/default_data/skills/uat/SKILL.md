@@ -106,6 +106,15 @@ The reason Codex is the sole assessor: Claude reviewing Claude's implementation 
 
 **Re-verification rounds are NEVER fix-scoped.** A round ≥2 prompt always contains all three parts: (a) verify the named fixes, (b) re-run the defect-class sweep over the touched functions/modules, and (c) a full-rubric sanity pass over the feature surface. Narrow asks get narrow answers — every recorded rejection spiral happened because a re-review asked only "confirm finding N is fixed" and codex answered exactly the question asked. Make the broad ask the default so it doesn't depend on the orchestrator remembering.
 
+#### Staged-integration gate integrity
+
+Record the independent assessor verdict, the separate owner decision, its conditions, and the demonstrability disposition as distinct facts.
+An owner `override-accept` / Accept with Conditions decision may be considered only for a complete, predeclared `contract-only` edge; it does not change the assessor verdict and does not make pending integration verified end-to-end delivery.
+
+Missing live wiring, authentication, authorization, integrity, unsafe exposure, and an unmet current-feature acceptance criterion remain blocking even when a future owner is named or an owner selects `override-accept`.
+
+The activation owner's UAT evidence must prove the real caller chain, shared-contract evidence, a production-path integration test, and a wiring-removal counterfactual. An internal activation obligation blocks epic completion until that closure is demonstrated. An external obligation may remain open only with a named future owner and a documented roadmap decision.
+
 ### Step 4 — Compile the report (evidence + Codex assessment, NO Claude opinion)
 
 Build the UAT report containing:

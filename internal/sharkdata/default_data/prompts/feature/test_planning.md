@@ -54,6 +54,11 @@ PRODUCE test-plan.md:
       write twin tests.
     - These contract tests are what a developer on either side writes first
       (red), then implements code to satisfy (green).
+    - Preserve the map-assigned gate mode, counterpart identities, a current
+      status read live from Shark, shared-contract evidence, activation owner, closure key, and review basis.
+      A `contract-only` edge must test its declared evidence and closure; it
+      does not waive live production-path proof for a `live` edge.
+    - Required staged fields include `review_basis`; do not omit it from the plan.
 
 (6) ### Cross-epic integration tests (X-##)
     For every X-## the feature spec declares under "Cross-epic integrations",
@@ -68,12 +73,24 @@ PRODUCE test-plan.md:
       follow-up trigger from docs/product/progress.md. Do not silently omit it.
     - Verify the contract / shape source matches the global product map.
 
+### Prompt-only changes
+
+When a feature changes only embedded prompts, skills, templates, or
+documentation, do not turn policy prose into simulated application behavior.
+
+- Use the real renderer to verify changed templates and includes resolve.
+- Run the rendered-prompt golden test when the bundle output changes.
+- Verify that newly documented local bundle or project-file references exist.
+- Review policy wording against the specification as a human judgment step.
+- Require caller-path, mutation, decision-table, or counterfactual tests only
+  when the change adds or alters deterministic runtime behavior.
+
 CRITICAL: Tests trace to FEATURE acceptance criteria (in spec.md), which trace to epic requirements. No orphaned tests. Tests drive the production caller signature, not a convenient helper signature — caller-path contracts close that gap at design time.
 
 EXIT GATE:
 - Every AC in spec.md has at least one test case
-- Every test case has a caller-path contract (or a documented internal-only justification)
-- Edge cases identified for each AC
+- Every runtime test case has a caller-path contract (or a documented internal-only justification); every content-only test case names its renderer or direct-file entrypoint and `content-only` justification
+- Edge cases identified for each runtime AC
 - Integration scenarios cover cross-component boundaries
 - Test patterns reference existing infrastructure
 - Every I-## declared by the feature spec has at least one contract test case

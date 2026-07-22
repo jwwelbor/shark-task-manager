@@ -261,6 +261,10 @@ Notes:
 - Producer and consumer features reference the same shape source verbatim.
 - Producer and consumer features reference the same contract test pointer
   verbatim. The same test proves the shared contract; do not create twin tests.
+- The map-assigned gate mode is `live` by default. A `contract-only` I-## is
+  valid only when declared here and mirrors counterpart identities, a current
+  status read live from Shark, shared-contract evidence, activation owner, closure key, and review basis.
+  Do not invent or alter these map-assigned values in a feature spec.
 
 ## Cross-epic integrations
 

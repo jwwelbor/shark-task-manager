@@ -30,6 +30,30 @@ Example: `E34-interaction-map.md`
   artifact, CLI contract, UI handoff, or another concrete mechanism.
 - Contract tests are shared by producer and consumer features. Do not create
   twin tests for the same I-##.
+- `live` is the default gate mode. Declare `contract-only` no later than feature
+  specification, and only when the row records counterpart identities,
+  shared-contract evidence, activation owner, closure key, and review basis.
+  Read current counterpart status live from Shark at review/UAT time; do not
+  copy a lifecycle-state snapshot into the map. Reject partial or late
+  declarations; report reverse build-order consumption as a decomposition warning.
+
+## Readiness evidence shape
+
+Every `contract-only` row has this exact nine-field readiness shape. These are
+documented policy facts, not runtime fields; counterpart identities and shared
+contract evidence remain staged-edge declaration metadata in the map row.
+
+| Field | Required value/meaning |
+|---|---|
+| `assessor_verdict` | Independent UAT assessment, recorded without owner-decision rewrite |
+| `owner_decision` | Separate approval or `override-accept` decision with conditions |
+| `open_conditions` | Open activation and any recorded conditions remain visible |
+| `gate_mode` | `live` by default; `contract-only` only when declared by specification |
+| `activation_owner` | Later feature responsible for the real caller chain |
+| `closure_key` | Tracked key that closes the activation obligation |
+| `counterpart_status` | Read live from Shark at review/UAT time; never a copied static map status |
+| `review_basis` | Isolated feature, accumulated branch, or another explicit review scope |
+| `demonstrability_disposition` | `demonstrated-now`, `pending-integration`, or `accepted-risk-and-override` |
 
 ## Registration
 
@@ -48,3 +72,5 @@ Before advancing to decomposition:
 - Every I-## has at least one consumer feature or intended consumer capability.
 - Every shape source resolves to `architecture.md`.
 - No orphan wires remain.
+- Every `contract-only` row has all mandatory staged-edge metadata and the exact
+  nine-field readiness shape.

@@ -101,7 +101,7 @@ Even with passing automated tests, verify:
 3. **Edge cases not in tests** — long inputs, special characters, network failures mid-flow.
 4. **Performance** — page load, form submission lag, SLA compliance.
 
-### Step 6: E2E Reachability Verification (mandatory)
+### Step 6: E2E Reachability Verification (mandatory for runtime changes)
 
 Before verifying acceptance criteria, confirm the feature is actually wired into the runtime. This step prevents the #1 false-positive: all unit tests pass but the feature has no call sites and cannot be reached from the application entry point.
 
@@ -111,9 +111,9 @@ Before verifying acceptance criteria, confirm the feature is actually wired into
 4. **Check registration** — if the codebase uses DI, registries, or plugin systems, verify new components are registered.
 5. **Verify routes** — if endpoints are introduced, verify they're mounted in the router.
 
-**If the feature has zero call sites outside of tests, QA MUST FAIL.** Unit tests passing with mocks is not evidence of E2E functionality. Add this to the report as a BLOCKER finding.
+**If a runtime feature has zero call sites outside of tests, QA MUST FAIL.** Unit tests passing with mocks is not evidence of E2E functionality. Content-only changes instead verify their renderer or direct-file entrypoints, includes, golden output where applicable, and documented local file references. Add a missing runtime call site to the report as a BLOCKER finding.
 
-### Step 7: Production Caller Signature Match (mandatory)
+### Step 7: Production Caller Signature Match (mandatory for runtime changes)
 
 Reachability (Step 6) verifies the code is wired in. **Signature match** verifies the tests actually exercise it the way production calls it. Common false-positive: tests pass kwargs the production caller never passes, so the test exercises a code path production cannot reach.
 
@@ -125,7 +125,7 @@ For each service / function / endpoint introduced or modified:
 
 **At least one test per service-contract change must drive the production signature exactly.** If you cannot find one, the verdict is FAIL — add it as a BLOCKER finding citing the production caller's `file:line` and the test's `file:line` so the developer can see the gap.
 
-### Step 8: Caller-Path Contract Compliance (mandatory when a test plan exists)
+### Step 8: Caller-Path Contract Compliance (mandatory for runtime test cases)
 
 The test plan's Caller-Path Contracts (test-planning Step 5.8) declare, per TC, the production entrypoint the test must drive, the lowest allowed mock seam, and forbidden mocks. This step verifies the committed tests actually honor those declarations — a mechanical locate-and-compare, not a judgment call. It closes the gap where a test suite passes while exercising a deeper "kernel" function than production ever calls.
 
@@ -176,6 +176,15 @@ Rules:
   not assert the documented shape, or a failing test is an automatic FAIL.
 - For a missing or broken I-## contract test, reopen the producer task and add a
   blocker note to the consuming feature.
+- For each staged I-##, verify the activation owner supplies real caller chain
+  evidence, shared-contract evidence, a production-path integration test, and a
+  wiring-removal counterfactual before closure. For a producer feature, a
+  complete, predeclared `contract-only` obligation with a named activation owner
+  is conditionally open but handoff-complete; record it as a condition rather
+  than failing QA before activation. The activation owner's UAT must close it,
+  and an open internal obligation blocks epic completion. An incomplete
+  declaration is an automatic FAIL; a `contract-only` disposition cannot waive
+  current live, security, integrity, or acceptance-criterion failures.
 
 ### Step 11: Document Findings
 
@@ -243,6 +252,11 @@ Never approve on the assumption that someone else will fix a prerequisite. If yo
 
 #### Verdict rules
 
+- For prompt, skill, template, or documentation-only changes, validate the
+  renderer, includes, newly documented local file references, and the scoped
+  quality gate. Review policy wording against the specification; do not fail
+  QA because prose lacks a simulated decision table, mutation test, or runtime
+  caller-path contract.
 - All tests pass + all AC met + reachability verified + signature match verified + caller-path contracts honored → **PASS**.
 - Any blocker (failing test, unmet AC, missing call sites, signature mismatch, caller-path contract violation, design mismatch) → **FAIL**.
 - Missing or failing wiring coverage for CONTRACT-### or I-## rows → **FAIL**.
@@ -291,9 +305,9 @@ If integration tests need credentials and they're not present in the project's d
 - [ ] All test plan scenarios validated (if test plan exists)
 - [ ] Frontend visual verification performed — page loaded in browser, UI confirmed working (if `has_frontend`)
 - [ ] Design reference comparison completed — implementation matches proposed designs (if `design_refs` non-empty)
-- [ ] E2E reachability verified — all new components have call sites and connect to entry point
-- [ ] Production caller signature match — at least one test per service-contract change drives the production argument shape
-- [ ] Caller-path contract compliance verified — every contracted TC has a committed test that drives the declared entrypoint with mocks at or below the declared seam
+- [ ] E2E reachability verified for runtime changes — all new components have call sites and connect to entry point; content-only changes verify their renderer or direct-file entrypoints, includes, golden output where applicable, and documented local file references
+- [ ] Production caller signature match for runtime service-contract changes — at least one test per change drives the production argument shape
+- [ ] Caller-path contract compliance verified for runtime test cases — every contracted TC has a committed test that drives the declared entrypoint with mocks at or below the declared seam
 - [ ] All acceptance criteria verified
 - [ ] Wiring coverage matrix completed for CONTRACT-### and I-## rows
 - [ ] Every I-## contract test exists, asserts the documented shape, and passes

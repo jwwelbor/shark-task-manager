@@ -2,7 +2,7 @@
 feature_key: E34-F02-evidence-based-demo-script-skill
 epic_key: E34
 title: Evidence-Based Demo Script Skill
-description: Provide a portable Shark Rider demo-script recipe that turns completed epic or feature evidence into an accurate, evidence-backed walkthrough without treating a demo as a UAT gate.
+description: Provide a portable Shark Rider demo-script recipe that turns accepted epic or feature evidence into an accurate, readiness-aware walkthrough without treating completion status, an owner override, or a demo as a UAT verdict.
 ---
 
 # Evidence-Based Demo Script Skill
@@ -24,11 +24,12 @@ description: Provide a portable Shark Rider demo-script recipe that turns comple
 Project teams need a clear way to demonstrate delivered work to stakeholders, but existing demo-script guidance is coupled to a specific web stack, GitHub Actions, Playwright, screenshots, and repository layout. Those assumptions exclude valid Shark projects such as CLIs, APIs, libraries, batch pipelines, infrastructure, and background processes. Without a portable workflow, demo claims can drift from the actual delivered scope or omit the evidence needed for a presenter to show the result confidently.
 
 ### Solution
-Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]`, backed by an embedded `demo-script` skill and template. The action will gather Shark entity state and project guidance, organize completed work into stakeholder-oriented scenarios, and produce a walkthrough whose claims are tied to observable evidence. It must support appropriate evidence for each product surface rather than assuming screenshots are always available.
+Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]`, backed by an embedded `demo-script` skill and template. The action will gather Shark entity state, acceptance/readiness evidence, and project guidance; organize delivered work into stakeholder-oriented scenarios; and produce a walkthrough whose claims are tied to observable evidence. It must support appropriate evidence for each product surface rather than assuming screenshots are always available.
 
 ### Impact
 - Demo scripts can be generated for epic and feature scopes across supported project types, including non-UI products.
 - Every normal-mode scenario has a traceable source requirement and verified observable evidence; incomplete work is identified as not demonstrated.
+- Contract-only behavior, open activation obligations, and owner-overridden findings remain visible and cannot be presented as verified end-to-end delivery.
 - Demo preparation remains separate from UAT and does not add a mandatory default workflow status.
 
 ---
@@ -40,9 +41,10 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
 **Story 1**: As a project presenter, I want an accurate demo script for a completed epic or feature so that I can show stakeholder value without overstating incomplete or unverified work.
 
 **Acceptance Criteria**:
-- [ ] The action accepts only epic or feature keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, and completed child work.
+- [ ] The action accepts only epic or feature keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, completed child work, latest UAT assessor verdict, separate owner decision, open conditions, and integration activation state.
 - [ ] The resulting script groups epic work into user journeys rather than a raw feature inventory, and feature work into its outcomes and relevant integrations.
 - [ ] Incomplete work is explicitly placed under “Not demonstrated” rather than presented as complete.
+- [ ] Completed status is treated as context rather than proof; a contract-only obligation or owner-overridden rejection cannot become a verified normal-mode claim.
 
 **Story 2**: As a maintainer of a CLI, API, library, pipeline, or infrastructure project, I want evidence requirements that match my product surface so that I can demonstrate the delivered behavior without fabricating screenshots.
 
@@ -64,12 +66,14 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
      - [ ] Rider router/help/capability references, bundle manifest, and skill documentation expose the new capability.
 
 2. **REQ-F-002**: Build an evidence-backed scenario map
-   - **Description**: For each scenario, record stakeholder value, source acceptance criteria, prerequisites/demo data, presenter actions, expected observable result, evidence type/path, reset or recovery instructions, and known limitations.
+   - **Description**: For each scenario, record stakeholder value, source acceptance criteria, prerequisites/demo data, presenter actions, expected observable result, evidence type/path, acceptance/readiness classification, reset or recovery instructions, and known limitations.
    - **Priority**: Must-Have
    - **Acceptance Criteria**:
      - [ ] Every product claim traces to a Shark entity or a project product document.
      - [ ] Normal mode verifies that referenced evidence exists and identifies its environment/date.
      - [ ] `--draft` may produce a script with uncaptured evidence, clearly marking those gaps.
+     - [ ] The script separates `Demonstrated now`, `Not demonstrated / pending integration`, and `Accepted risks and overrides`.
+     - [ ] `Demonstrated now` excludes contract-only behavior, open activation obligations, and behavior accepted through an override of a blocking assessor verdict.
 
 3. **REQ-F-003**: Persist demo artifacts and references
    - **Description**: Write the generated artifact at `docs/demos/<entity-key>/demo-script.md`, with evidence kept under its `evidence/` directory, then attach the script through Shark’s related-document and reference-note contracts.
@@ -77,6 +81,14 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
    - **Acceptance Criteria**:
      - [ ] The created demo script can be discovered from the relevant epic or feature.
      - [ ] Any defects found while preparing the demo are returned as triage candidates rather than created automatically.
+
+4. **REQ-F-004**: Preserve acceptance and integration readiness
+   - **Description**: Read the latest independent UAT verdict separately from the owner's decision, then account for open conditions, I-##/X-## gate modes, activation owners, closure keys, counterpart status, and the declared review basis before classifying a claim as demonstrable.
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] The script preserves a blocking assessor verdict when an owner records `override-accept`; it reports both facts instead of rewriting the verdict.
+     - [ ] A `contract-only` claim remains under `Not demonstrated / pending integration` until its activation owner provides live production-path evidence and closes the tracked obligation.
+     - [ ] An entity with no complete observable scenario produces an evidence/decomposition gap and a triage candidate rather than an invented walkthrough.
 
 ### Non-Functional Requirements
 
@@ -110,6 +122,48 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
 - **Then** it remains an explicit Rider action with no required default status transition
 - **And** it does not replace or repeat UAT approval, review verdicts, or workflow advancement.
 
+**Scenario 4: Preserve conditional and overridden acceptance evidence**
+- **Given** a completed entity with a contract-only interaction, an open activation obligation, or an owner override of a blocking assessor verdict
+- **When** a presenter runs `/shark-rider demo <entity-key>`
+- **Then** currently verified behavior appears under `Demonstrated now`
+- **And** pending integration appears under `Not demonstrated / pending integration`
+- **And** the original verdict, owner decision, accepted risk, and open keys appear under `Accepted risks and overrides`.
+
+---
+
+## Integration Contract
+
+E34-F03, Deliverable Feature Decomposition and Staged Integration Acceptance,
+is the producer of the acceptance/readiness model consumed here. E34-F02 should
+follow E34-F03 in specification order and must not define competing meanings for
+assessor verdict, owner decision, `live`, `contract-only`, activation owner, or
+closure state.
+
+**Consumes: I-01** from E34-F03. The authoritative shape source is
+[`E34-interaction-map.md#i-01-readiness-evidence-shape`](../E34-interaction-map.md#i-01-readiness-evidence-shape),
+and the one shared contract-test pointer is **TC-002** in
+`../E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.
+E34-F02 consumes this exact nine-field readiness shape read-only:
+
+| Field | I-01 value |
+|---|---|
+| `assessor_verdict` | Independent UAT assessment, recorded without owner-decision rewrite |
+| `owner_decision` | Separate approval or `override-accept` decision with conditions |
+| `open_conditions` | Open activation and any recorded conditions remain visible |
+| `gate_mode` | `contract-only` until E34-F02 proves live production-path use |
+| `activation_owner` | E34-F02 |
+| `closure_key` | E34-F02 |
+| `counterpart_status` | Read live from Shark at review/UAT time; this map intentionally contains no copied current-state snapshot |
+| `review_basis` | Accumulated E34 branch with the map and both feature specifications present |
+| `demonstrability_disposition` | `pending-integration` until live wiring closes; no override makes it demonstrated-now |
+
+The map table supplies the counterpart identities and shared contract evidence;
+they are not extra readiness fields. E34-F02 must not create a twin test,
+assign a new I-## ID, or redefine this producer contract. When the activation
+remains open, E34-F02 classifies the claim as `pending-integration`; completion
+markers, a demo, or an owner override do not substitute for closed
+production-path evidence.
+
 ---
 
 ## Out of Scope
@@ -126,6 +180,10 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
    - **Why**: Backlog capture still requires duplicate search and user confirmation.
    - **Future**: Present discrepancies as `/shark-rider triage` candidates.
 
+4. **Defining feature decomposition or UAT policy**
+   - **Why**: E34-F03 owns deliverable-decomposition and staged-integration acceptance. This feature consumes its results and reports demonstrability without becoming an acceptance authority.
+   - **Future**: None; preserve the producer/consumer boundary.
+
 ---
 
 ## Success Metrics
@@ -139,6 +197,11 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
    - **What**: The evidence models supported by the reusable recipe.
    - **Target**: Support UI, CLI, API, library/SDK, batch/data pipeline, infrastructure, and background-process evidence without a stack-specific prerequisite.
    - **Measurement**: Contract tests and template examples cover each evidence category.
+
+3. **Truthful readiness classification**
+   - **What**: The share of normal-mode claims whose assessor verdict, owner decision, evidence, and integration activation state all support their output section.
+   - **Target**: 100% of normal-mode claims.
+   - **Measurement**: Contract tests cover fully demonstrated, contract-only, open-condition, and override-accepted entities.
 
 ---
 
