@@ -42,9 +42,9 @@ func TestGetWorkflowForLevel_TaskWithNil(t *testing.T) {
 	if wf == nil {
 		t.Fatal("expected non-nil workflow for task level with nil Task")
 	}
-	// Default task workflow includes a research gate.
-	if len(wf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default task workflow, got %d", len(wf.StatusFlow))
+	// Default task workflow relies on feature-level research.
+	if len(wf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default task workflow")
@@ -100,9 +100,9 @@ func TestGetWorkflowForLevel_Isolation(t *testing.T) {
 		t.Errorf("expected 2 statuses in custom epic workflow, got %d", len(epicWf.StatusFlow))
 	}
 
-	// Task workflow should include the research gate.
-	if len(taskWf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow relies on feature-level research.
+	if len(taskWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 }
 
@@ -417,9 +417,9 @@ func TestGetWorkflowForLevel_BugChangeIsolation(t *testing.T) {
 		t.Errorf("expected 9 statuses in default change workflow, got %d", len(changeWf.StatusFlow))
 	}
 
-	// Task workflow should still have 6 statuses
-	if len(taskWf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow should still have 6 statuses.
+	if len(taskWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 
 	// Verify no cross-contamination (both aliases still resolve on their own workflow only)
@@ -615,9 +615,9 @@ func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
 		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
-	// Task workflow should include the research gate.
-	if len(taskWf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	// Task workflow relies on feature-level research.
+	if len(taskWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
 	}
 
 	// Verify no cross-contamination

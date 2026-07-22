@@ -379,7 +379,7 @@ func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
 	assert.Equal(t, "draft", cfg.Start, "canonical task.yaml start step must be draft")
 
 	expectedStatuses := []string{
-		"draft", "research", "development", "completed", "cancelled", "blocked", "on_hold",
+		"draft", "development", "completed", "cancelled", "blocked", "on_hold",
 	}
 	for _, s := range expectedStatuses {
 		assert.Contains(t, cfg.StatusFlow, s,
@@ -394,10 +394,10 @@ func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
 	assert.Empty(t, aliasErrs, "task.yaml alias map must be collision-free")
 	assert.Empty(t, aliasMap, "canonical task.yaml must not contain legacy aliases")
 
-	// Derived transitions: draft advances to research (pass outcome), and
+	// Derived transitions: draft advances to development (pass outcome), and
 	// development advances to completed (pass) and falls back to draft (fail).
-	assert.Contains(t, cfg.StatusFlow["draft"], "research",
-		"draft must have research as a derived transition")
+	assert.Contains(t, cfg.StatusFlow["draft"], "development",
+		"draft must have development as a derived transition")
 	assert.Contains(t, cfg.StatusFlow["development"], "completed",
 		"development must reach completed via its pass outcome")
 	assert.Contains(t, cfg.StatusFlow["development"], "draft",
