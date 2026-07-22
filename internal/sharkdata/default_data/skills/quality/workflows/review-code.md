@@ -52,6 +52,15 @@ If you find yourself re-running tests or re-verifying ACs against the PRD, **sto
 
 A blocker found here halts the task; a non-blocker is returned in `non_blockers_to_triage` so the host can file it as tech-debt on the parent feature.
 
+### Prompt-only changes
+
+For embedded prompt, skill, template, or documentation-only changes, review
+the changed wording against the specification and confirm bundle integrity:
+templates render, includes resolve, and newly documented local file references
+exist. Do not require a simulated decision table, wording mutation test, or
+runtime caller-path trace unless the change alters deterministic runtime
+behavior.
+
 ## Required inputs (validation)
 
 If any critical input is missing, request it before proceeding. **Do not invent standards or fabricate citations.** If `coding_standards_path` is absent, every standards violation downgrades to opinion-level (nit).

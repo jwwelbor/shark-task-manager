@@ -30,6 +30,14 @@ The full integration suite may have pre-existing failures unrelated to any singl
    - For changes touching a shared module / interface used by many consumers, run the project's full unit suite once (using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo)
    - For localized changes (single service / single API route / doc-only), skip this — the targeted run above is sufficient.
 
+5. **Prompt-only bundle checks:**
+   - For embedded prompt, skill, template, or documentation-only changes, use
+     the shipped renderer to verify changed templates and includes resolve.
+   - Verify newly documented local bundle or project-file references exist.
+   - Treat policy wording as a manual specification-review concern. Do not
+     require wording mutations, decision tables, or caller-path contracts
+     unless the change modifies deterministic runtime behavior.
+
 VALIDATE:
 - Quality gates pass (fmt, lint)
 - All targeted tests pass (zero failures introduced by this task)

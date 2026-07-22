@@ -14,6 +14,13 @@ Check `shark feature notes {{.id}}` (or {{template "get_json" .}}) for the most 
 - **SIMPLE** -> follow "SIMPLE-lite mode" below; the spec and test-plan gates are waived, but validated research is never waived.
 - **STANDARD**, **COMPLEX**, or no COMPLEXITY note found -> the included workflow's Hard Gates apply as written.
 
+### Prompt-only scope
+
+For embedded prompt, skill, template, or documentation-only features, accept a
+test plan that uses renderer/include checks, golden snapshots, and documented
+file-reference validation. Do not block task generation because the plan lacks
+runtime caller-path, decision-table, or wording-mutation tests.
+
 ### SIMPLE-lite mode
 
 A SIMPLE feature does not require `spec.md` or `test-plan.md` before tasks can be written. It does require the validated unified `research-report.md` and its Capability map. Instead:
@@ -64,6 +71,11 @@ integrations:
 - Do NOT invent I-## IDs for cross-epic integrations or X-## IDs for
   cross-feature interactions.
 - Mirror the same shape source and contract-test pointer from the feature spec.
+- For each staged I-##, mirror the map-assigned gate mode, counterpart entities
+  and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+  review basis in every relevant task. `live` is the default; never create a
+  `contract-only` declaration after feature specification or invent its values.
+- Required staged fields include `review_basis`; do not omit it from task specs.
 
 PRODUCE tasks via shark CLI. Each task call MUST pass --size:
 

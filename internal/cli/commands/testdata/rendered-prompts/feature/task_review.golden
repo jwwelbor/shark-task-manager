@@ -63,6 +63,19 @@ VERIFY:
   > Cross-feature"
 - Every mirrored I-## keeps the same shape source and contract-test pointer from
   the feature spec
+- Every staged I-## mirrors the map-assigned gate mode, counterpart identities and
+  a current status read live from Shark, shared-contract evidence, activation owner, closure key, and review
+  basis. A `contract-only` edge must be declared no later than feature
+  specification; late declarations, mismatched staged-edge values, or incomplete
+  declarations are FAIL findings. A complete, predeclared `contract-only`
+  obligation with a named activation owner is conditionally open but
+  handoff-complete for this producer feature: record the handoff and do not
+  reject it before the activation owner performs the deferred live proof. The
+  activation owner's UAT must close it; an open internal obligation blocks epic
+  completion. Report reverse build-order consumption as a decomposition warning
+  rather than accepting it as live evidence.
+- Rejection signals: late declaration, mismatched staged-edge values, reverse
+  build-order consumption warning, and incomplete declaration blocker.
 - Every X-## the feature spec declares under "Cross-epic integrations" is
   mirrored in the producing/consuming/validating task spec(s) under
   "Integration Contracts > Cross-epic"

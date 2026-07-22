@@ -97,6 +97,11 @@ For STANDARD/COMPLEX features:
   verbatim.
 - No orphan contracts. Missing producer, missing consumer, or mismatched pointer
   is a blocker.
+- Every staged I-## mirrors the map-assigned gate mode, counterpart identities and
+  a current status read live from Shark, shared-contract evidence, activation owner, closure key, and review
+  basis. Missing or mismatched staged-edge values are blockers; a `contract-only`
+  row must remain complete in every producing and consuming task.
+- Required mirror fields include `review_basis`; a missing field is a blocker.
 
 ## Execution Steps
 

@@ -25,6 +25,14 @@ Compile the report as **evidence + Codex's assessment** — no Claude opinion, a
 
 Verdicts are **Accept**, **Accept with Conditions**, **Reject**, and **Insufficient Evidence** — defined in the rubric and the skill.
 
+## Staged-integration gate integrity
+
+Keep the independent assessor verdict, the separate owner decision, its conditions, and the demonstrability disposition as distinct reported facts. A complete, predeclared `contract-only` edge may be presented for an owner `override-accept` / Accept with Conditions decision, but that decision does not change the assessor verdict and does not make pending integration verified end-to-end delivery.
+
+Missing live wiring, authentication, authorization, integrity, unsafe exposure, and an unmet current-feature acceptance criterion remain blocking even when a future owner is named or an owner selects `override-accept`.
+
+Require the activation owner's evidence to show the real caller chain, shared-contract evidence, a production-path integration test, and a wiring-removal counterfactual. An internal activation obligation blocks epic completion until closure is proved. An external obligation can remain only with a named future owner and a documented roadmap decision.
+
 ## You never auto-complete
 
 **You do not have authority to complete tasks.** Completion requires explicit user approval.

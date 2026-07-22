@@ -66,11 +66,21 @@ Several inputs must be present before tasks can be written. The host should alre
 1. **Feature PRD** at `feature_prd_path` — readable and substantive.
 2. **Feature test plan** at `feature_test_plan_path` — present AND complete. Scan for:
    - At least one test case with a TC-ID
-   - A Caller-Path Contracts table or per-test-case caller-path blocks
-   - An ISTQB technique application matrix
-   - An ISO 25010 coverage matrix
+   - A Caller-Path Contracts table or per-test-case caller-path blocks when
+     the feature changes deterministic runtime behavior
+   - An ISTQB technique application matrix and ISO 25010 coverage matrix when
+     the feature changes deterministic runtime behavior
 
-   If the test plan is missing or any of these sections are absent, STOP and report which section is missing. Tasks derive their acceptance criteria from test-case TC-IDs; without a complete plan there is nothing to derive from.
+   For prompt, skill, template, or documentation-only work, the plan may use a
+   `content-only` justification instead. Its tests should cover rendering,
+   include resolution, golden snapshots, and documented local file references;
+   policy wording remains a manual review concern.
+
+   If the test plan is missing, STOP. For runtime features, STOP when any
+   required runtime-planning section is absent. For content-only features,
+   require TC IDs, the content-only justification, renderer/include/golden/file
+   checks, and manual policy review instead. Tasks derive their acceptance
+   criteria from those test cases; without them there is nothing to derive from.
 
 3. **Research report** at `research_report_path` — required. If missing, STOP. Its Capability map prevents re-implementing established capabilities.
 
@@ -205,7 +215,7 @@ For each task, write a markdown file under `tasks_directory` with these sections
 
 - **Goal** — single, clear objective.
 - **Success Criteria** — measurable checkpoints.
-- **Acceptance Criteria as TC-ID references** — list the TC-IDs from the feature test plan that this task must satisfy. **Do NOT restate ACs in your own words** — that creates a drift surface between task AC, test-plan AC, and PRD AC. Format: `AC-T1: TC-005, TC-006, TC-007 (see <test-plan-path>)`. The TC entries already have Caller-Path Contracts prescribing the production entrypoint and forbidden mocks.
+- **Acceptance Criteria as TC-ID references** — list the TC-IDs from the feature test plan that this task must satisfy. **Do NOT restate ACs in your own words** — that creates a drift surface between task AC, test-plan AC, and PRD AC. Format: `AC-T1: TC-005, TC-006, TC-007 (see <test-plan-path>)`. Runtime TC entries have Caller-Path Contracts; content-only entries name their renderer or direct-file check and manual review boundary.
 - **Implementation Guidance** — references to design docs, NOT code.
 - **Validation Gates** — what to test, NOT how.
 - **Context & Resources** — links to design doc sections.

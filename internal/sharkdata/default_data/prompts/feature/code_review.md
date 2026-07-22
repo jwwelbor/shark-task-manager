@@ -30,6 +30,10 @@ PART 2 — AC + WIRING VERIFICATION (SIMPLE/STANDARD only — COMPLEX verifies t
 - All feature acceptance criteria are met in aggregate — cite the AC and the code that satisfies it
 - Wiring coverage matrix: one row per CONTRACT-### and I-## with producer/consumer, contract test, test-exists, test-passes; one row per X-## with contract/shape source and coverage pointer or explicit deferral
 - Any CONTRACT-###, I-##, or X-## row with a missing contract test, a test that does not assert the documented shape, or a failing test is an automatic FAIL
+- For every staged I-##, verify the map-assigned gate mode, counterpart entities
+  and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+  review basis match every producer/consumer artifact. Missing or mismatched
+  staged-edge evidence is an automatic FAIL.
 
 PART 3 — SCOPED TEST RUN (SIMPLE/STANDARD only):
 - Run the project's format + lint (from `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo)

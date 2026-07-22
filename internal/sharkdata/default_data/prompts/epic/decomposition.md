@@ -33,6 +33,11 @@ For each feature:
 Feature decomposition rules:
 - Each feature maps to a cohesive capability boundary
 - Features are independently deliverable where possible
+- Before accepting a boundary, require a real trigger, observable result,
+  production path, complete UAT scenario, current prerequisites, and outputs
+  for later consumers. If an acceptance depends on a later feature, reassign it
+  to the named activation owner with a complete declared staged disposition or
+  redesign the slices; "a future feature will wire it" alone is not acceptable.
 - Execution order reflects dependencies
 - Description includes: what it does, why it's needed, key integration points
 - If an interaction map exists, each feature description names the I-## IDs the
@@ -40,6 +45,10 @@ Feature decomposition rules:
   "Consumes: I-##" phrasing so reviewers can trace the map at a glance.
 - Every I-## from the interaction map has a producer feature AND at least one
   consumer feature in the resulting list; no orphan wires.
+- `live` is the default gate mode. A `contract-only` I-## must already name
+  counterpart identities, a current status read live from Shark, shared-contract evidence, activation
+  owner, closure key, and review basis; reject incomplete declarations and
+  report reverse build-order consumption as a decomposition warning.
 - If a cross-epic map exists, each feature description names the X-## IDs the
   feature will produce, consume, or validate, using explicit "Produces: X-##",
   "Consumes: X-##", or "Validates: X-##" phrasing.
@@ -63,4 +72,5 @@ EXIT GATE:
   feature ownership named, and the global product map is updated with the same
   owner information or a progress decision-log deferral
 - Multi-feature epic: every I-## in the interaction map has a producer feature
-  AND at least one consumer feature; no orphan wires
+  AND at least one consumer feature; no orphan wires; no feature boundary has
+  an acceptance dependency on a later feature without reassignment or redesign

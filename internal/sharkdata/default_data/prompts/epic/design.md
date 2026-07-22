@@ -77,6 +77,13 @@ REQUIRED if this epic is expected to decompose into 3+ features. SKIP only for
 single-feature epics or epics with fewer than 3 features and no explicit
 cross-feature handoff.
 
+Before assigning feature boundaries, require every proposed feature to name a
+real trigger, observable result, production path, complete UAT scenario,
+current prerequisites, and outputs for later consumers. Do not accept an
+acceptance criterion that depends on a later feature: reassign it to the named
+activation owner or redesign the slices. An invented throwaway caller is not a
+valid production path.
+
 Use this table:
 
 | ID | Producer feature | Consumer feature(s) | Shape | Payload | Style |
@@ -98,6 +105,14 @@ Rules:
   artifact that crosses the feature boundary.
 - Style names the interaction mode: API, event, shared data model, file
   artifact, CLI contract, UI handoff, or other concrete style.
+- `live` is the default gate mode. A `contract-only` row is valid only when it
+  is declared during feature specification and records counterpart identities,
+  a current status read live from Shark, shared-contract evidence, activation owner, closure key, and review
+  basis. A staged declaration does not waive a missing live caller, security,
+  integrity, unsafe-exposure, or current-feature acceptance failure.
+- Record the full readiness evidence shape for a staged row: assessor verdict,
+  owner decision, open conditions, gate mode, activation owner, closure key,
+  counterpart status, review basis, and demonstrability disposition.
 - Register the document after writing it:
   `DOC_PATH="docs/plan/{{.id}}/{{.id}}-interaction-map.md" && shark related-docs add "Interaction Map" "${DOC_PATH}" --epic={{.id}}`
 
@@ -113,4 +128,5 @@ EXIT GATE:
   named, UX / CX handoff notes are reviewed or marked not applicable, and
   docs/product/progress.md has a decision-log entry for the update
 - Multi-feature epic: {{.id}}-interaction-map.md exists with at least one I-##
-  row, and every row's shape source resolves to a section in architecture.md
+  row, every row's shape source resolves to a section in architecture.md, and
+  every `contract-only` row has its complete declaration and readiness shape

@@ -31,6 +31,14 @@ the finding instantiates ("schema required-list omits fields the code dereferenc
 unconditionally"), not the point instance. The class statement drives the developer's enumeration
 sweep and the next round's re-review scope.
 
+## Staged-integration gate integrity
+
+Assess and report the independent assessor verdict, the separate owner decision, its conditions, and the demonstrability disposition as distinct facts. A complete, predeclared `contract-only` edge can be presented for an owner `override-accept` / Accept with Conditions decision, but that decision does not change the assessor verdict and never makes pending work a verified end-to-end delivery.
+
+Missing live wiring, authentication, authorization, integrity, unsafe exposure, and an unmet current-feature acceptance criterion remain blocking even when a future owner is named or an owner selects `override-accept`.
+
+For an activation owner, require evidence of the real caller chain, shared-contract evidence, a production-path integration test, and a wiring-removal counterfactual. An internal activation obligation blocks epic completion until those proofs close it. An external obligation may stay open only with a named future owner and a documented roadmap decision.
+
 ## Re-verification rounds — never fix-scoped
 
 When reviewing work that was previously rejected, the round always has three parts, regardless of

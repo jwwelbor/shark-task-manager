@@ -109,6 +109,46 @@ func TestCrossFeatureInteractionLifecyclePrompts(t *testing.T) {
 	}
 }
 
+// TestE34F03PromptBundleAndReferences keeps this prompt-only feature focused on
+// mechanical bundle integrity. It verifies that the altered templates render
+// through the shipped renderer and that the feature's documented handoff files
+// exist; policy wording remains a human-review concern.
+func TestE34F03PromptBundleAndReferences(t *testing.T) {
+	promptsDir := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes resolved")
+
+	for _, tmpl := range []string{
+		"epic/design.md",
+		"epic/decomposition.md",
+		"epic/feature_review.md",
+		"feature/specification.md",
+		"feature/task_generation.md",
+		"feature/task_review.md",
+		"feature/code_review.md",
+		"feature/qa.md",
+		"feature/test_planning.md",
+	} {
+		t.Run("render "+tmpl, func(t *testing.T) {
+			_, err := renderer.Render(tmpl, goldenVars())
+			require.NoError(t, err)
+		})
+	}
+
+	repoRoot := findRepoRootForInteractionTest(t)
+	for _, path := range []string{
+		filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-interaction-map.md"),
+		filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-F03-deliverable-feature-decomposition-and-staged-integ", "feature.md"),
+		filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-F02-evidence-based-demo-script-skill", "feature.md"),
+	} {
+		t.Run("reference exists "+filepath.Base(path), func(t *testing.T) {
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			require.False(t, info.IsDir())
+		})
+	}
+}
+
 func TestCrossEpicIntegrationLifecyclePrompts(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)

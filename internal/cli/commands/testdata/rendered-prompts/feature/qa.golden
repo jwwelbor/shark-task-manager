@@ -114,7 +114,7 @@ VALIDATE:
 - Quality gates pass (fmt, lint)
 - All targeted tests pass — zero failures introduced by this feature
 - Every AC from the feature test-plan is exercised by a named test
-- Caller-Path Contract compliance: every contracted TC's committed test calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam (violations are BLOCKERs naming the TC-ID)
+- Caller-Path Contract compliance for runtime TCs: every contracted TC's committed test calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam (violations are BLOCKERs naming the TC-ID). For content-only TCs, verify the documented renderer or direct-file entrypoint, includes, golden output where applicable, and documented local file references instead.
 - No regressions in targeted scope
 - Pre-existing failures in scope are explicitly identified (not silently ignored)
 - Wiring coverage matrix includes one row per CONTRACT-### and I-## with
@@ -125,6 +125,16 @@ VALIDATE:
 - Any CONTRACT-###, I-##, or X-## row with a missing contract test, a test that
   does not assert the documented shape, a mismatched shape source, missing
   coverage disposition, or a failing test is an automatic FAIL
+- For every staged I-##, verify the map-assigned gate mode, counterpart entities
+  and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+  review basis. Missing or mismatched evidence is an automatic FAIL. A complete,
+  predeclared `contract-only` obligation with a named activation owner is
+  conditionally open but handoff-complete for the producer feature; retain it as
+  a condition rather than failing QA before activation. The activation owner's
+  UAT must close it, and an open internal obligation blocks epic completion.
+- An incomplete declaration is an automatic FAIL even when a later feature is
+  named as activation owner. A `contract-only` disposition cannot waive current
+  live, security, integrity, or acceptance-criterion failures.
 
 REVIEW OUTPUT POLICY (applies to the report below):
 - If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.

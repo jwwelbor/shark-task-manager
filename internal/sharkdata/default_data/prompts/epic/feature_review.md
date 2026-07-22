@@ -30,6 +30,12 @@ VERIFY:
 - [ ] Feature descriptions are specific enough for assessment and specification
 - [ ] No overlapping scope between features (clear boundaries)
 - [ ] Feature titles accurately reflect their content
+- [ ] Each feature names a real trigger, observable result, production path,
+      complete UAT scenario, current prerequisites, and outputs for later
+      consumers
+- [ ] No feature acceptance depends on a later feature unless it was reassigned
+      to the named activation owner with a complete staged declaration; otherwise
+      the boundary is redesigned
 
 ## Ordering & Dependencies
 - [ ] Execution order reflects actual dependencies
@@ -51,6 +57,12 @@ For multi-feature epics, read {{.id}}-interaction-map.md and verify:
 - The producer feature's description or spec names the I-## under "Produces"
 - Each consumer feature's description or spec names the I-## under "Consumes"
 - Producer and consumer cite the SAME shape source
+- `live` is the default gate mode. Every `contract-only` row names counterpart
+  identities, a current status read live from Shark, shared-contract evidence, activation owner, closure
+  key, and review basis; incomplete or late declarations are FAIL.
+- The readiness evidence remains complete and separate: assessor verdict, owner
+  decision, open conditions, gate mode, activation owner, closure key,
+  counterpart status, review basis, and demonstrability disposition.
 - No orphans: an I-## with no producer, no consumer, or mismatched shape source
   is FAIL
 

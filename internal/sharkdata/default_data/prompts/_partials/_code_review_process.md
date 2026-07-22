@@ -17,6 +17,14 @@ REVIEW:
 - [ ] Acceptance criteria from task spec verified against implementation
 - [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
 
+PROMPT-ONLY SCOPE:
+- For embedded prompt, skill, template, or documentation-only changes, verify
+  rendering, include resolution, golden updates, and newly documented file
+  references.
+- Review policy wording against the specification. Do not require wording
+  mutation tests, decision tables, or caller-path contracts unless the change
+  modifies deterministic runtime behavior.
+
 {{template "_review_output_policy" .}}
 
 PRODUCE code review report at {{.review_base}}code-review-<timestamp>-{{.id}}.md:
