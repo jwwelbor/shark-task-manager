@@ -67,7 +67,7 @@ steps:
       cancelled: cancelled
       fail: draft
       on_hold: on_hold
-      pass: research
+      pass: development
   on_hold:
     phase: paused
     color: gray
@@ -78,22 +78,3 @@ steps:
     action: pause
     parking: true
     prompt: task/on_hold.md
-  research:
-    phase: research
-    color: purple
-    display_token: RSR
-    description: Ready for recipe-driven implementation research
-    progress_weight: 0.05
-    responsibility: agent
-    is_planning: true
-    action: spawn_agent
-    agent: researcher
-    provider: anthropic
-    model: haiku
-    skills: [research]
-    prompt: task/research.md
-    outcomes:
-      blocked: blocked
-      fail: draft
-      on_hold: on_hold
-      pass: development

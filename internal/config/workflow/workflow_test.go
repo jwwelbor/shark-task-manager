@@ -25,8 +25,9 @@ func TestWorkflowConfigDefaults(t *testing.T) {
 // have no outgoing transitions, "parking" steps (blocked/on_hold) expose
 // every workable step as a return target, and StatusFlow/StatusMetadata are
 // derived from each step's `outcomes:` map. Statuses are draft/development/
-// completed/blocked/on_hold/cancelled -- NOT the legacy
-// draft/research/development/completed/blocked shape.
+// completed/blocked/on_hold/cancelled -- NOT the retired
+// draft/research/development/completed/blocked shape used before feature-level
+// research became the default task input.
 func TestDefaultWorkflow(t *testing.T) {
 	workflow := DefaultWorkflow()
 
@@ -36,7 +37,7 @@ func TestDefaultWorkflow(t *testing.T) {
 	}
 
 	// Check all expected statuses exist
-	expectedStatuses := []string{"draft", "research", "development", "completed", "blocked", "on_hold", "cancelled"}
+	expectedStatuses := []string{"draft", "development", "completed", "blocked", "on_hold", "cancelled"}
 	for _, status := range expectedStatuses {
 		if _, exists := workflow.StatusFlow[status]; !exists {
 			t.Errorf("expected status %s to exist in default workflow", status)
@@ -49,12 +50,11 @@ func TestDefaultWorkflow(t *testing.T) {
 		from     string
 		expected []string
 	}{
-		{"draft", []string{"research", "draft", "blocked", "cancelled", "on_hold"}},
-		{"research", []string{"development", "draft", "blocked", "on_hold"}},
+		{"draft", []string{"development", "draft", "blocked", "cancelled", "on_hold"}},
 		{"development", []string{"completed", "draft", "blocked", "on_hold"}},
 		{"completed", []string{}},
-		{"blocked", []string{"development", "draft", "research"}},
-		{"on_hold", []string{"development", "draft", "research"}},
+		{"blocked", []string{"development", "draft"}},
+		{"on_hold", []string{"development", "draft"}},
 		{"cancelled", []string{}},
 	}
 
@@ -280,9 +280,9 @@ func TestGetWorkflowOrDefault(t *testing.T) {
 		t.Fatal("expected default workflow, got nil")
 	}
 
-	// Verify it includes the route-based task research step.
-	if len(workflow.StatusFlow) != 7 {
-		t.Errorf("expected 7 default statuses, got %d", len(workflow.StatusFlow))
+	// Verify it uses the route-based task workflow without a research step.
+	if len(workflow.StatusFlow) != 6 {
+		t.Errorf("expected 6 default statuses, got %d", len(workflow.StatusFlow))
 	}
 }
 

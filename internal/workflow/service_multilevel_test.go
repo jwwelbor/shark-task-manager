@@ -169,9 +169,9 @@ func TestForLevel_Isolation(t *testing.T) {
 		t.Error("expected epic transition 'draft' -> 'development' to be invalid")
 	}
 
-	// Task: "draft" -> "research" should be valid
-	if !taskSvc.IsValidTransition("draft", "research") {
-		t.Error("expected task transition 'draft' -> 'research' to be valid")
+	// Task: "draft" -> "development" should be valid
+	if !taskSvc.IsValidTransition("draft", "development") {
+		t.Error("expected task transition 'draft' -> 'development' to be valid")
 	}
 
 	// Task: "decomposition" should NOT be a valid task status (epic-only status)
@@ -279,8 +279,8 @@ func TestValidateTransition_ValidTask(t *testing.T) {
 	svc := newTestService()
 	taskSvc := svc.ForLevel(LevelTask)
 
-	// "draft" -> "research" is valid in default task workflow
-	err := taskSvc.ValidateTransition("draft", "research")
+	// "draft" -> "development" is valid in default task workflow
+	err := taskSvc.ValidateTransition("draft", "development")
 	if err != nil {
 		t.Errorf("expected valid transition, got error: %v", err)
 	}
