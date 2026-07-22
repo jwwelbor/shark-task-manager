@@ -71,7 +71,7 @@ func TestMigrateStatuses_DryRunAndApply(t *testing.T) {
 
 	_, featureID := test.SeedTestData()
 
-	// Insert three tasks with distinct statuses straight into the DB so we can
+	// Insert four tasks with distinct statuses straight into the DB so we can
 	// stage a legacy status value (raw SQL bypasses Go-level status validation).
 	insert := func(key, status string) int64 {
 		res, err := database.ExecContext(ctx,
@@ -84,8 +84,9 @@ func TestMigrateStatuses_DryRunAndApply(t *testing.T) {
 		return id
 	}
 	legacyID := insert("TEST-MIG-001", "ready_for_development") // non-identity alias -> rewritten
-	currentID := insert("TEST-MIG-002", "development")          // already current -> untouched
-	blockedID := insert("TEST-MIG-003", "blocked")              // identity step name -> untouched
+	researchID := insert("TEST-MIG-002", "research")            // retired task research -> development
+	currentID := insert("TEST-MIG-003", "development")          // already current -> untouched
+	blockedID := insert("TEST-MIG-004", "blocked")              // identity step name -> untouched
 	t.Cleanup(func() {
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-MIG-%'")
 	})
@@ -130,6 +131,15 @@ func TestMigrateStatuses_DryRunAndApply(t *testing.T) {
 	if got := statusOf(legacyID); got != "ready_for_development" {
 		t.Errorf("dry-run mutated the status column: got %q", got)
 	}
+	var researchFound *statusRewrite
+	for i := range planned {
+		if planned[i].Table == "tasks" && planned[i].Old == "research" {
+			researchFound = &planned[i]
+		}
+	}
+	if researchFound == nil || researchFound.New != "development" || researchFound.Count != 1 {
+		t.Fatalf("expected research->development rewrite, got %+v", researchFound)
+	}
 
 	// --- Apply: rewrites only the non-identity alias ---
 	if err := applyStatusRewrites(ctx, db, planned); err != nil {
@@ -137,6 +147,9 @@ func TestMigrateStatuses_DryRunAndApply(t *testing.T) {
 	}
 	if got := statusOf(legacyID); got != "development" {
 		t.Errorf("legacy task not rewritten: got %q, want development", got)
+	}
+	if got := statusOf(researchID); got != "development" {
+		t.Errorf("retired research task not rewritten: got %q, want development", got)
 	}
 	if got := statusOf(currentID); got != "development" {
 		t.Errorf("already-current task changed: got %q", got)

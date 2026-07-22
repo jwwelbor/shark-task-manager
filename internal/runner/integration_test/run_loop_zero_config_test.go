@@ -64,3 +64,25 @@ func TestRunLoop_ZeroConfig_ResolvesEmbeddedWorkflowAndCompletes(t *testing.T) {
 		t.Errorf("expected only developer dispatch, got %d calls", disp.DispatchCallCount)
 	}
 }
+
+func TestRunLoop_ZeroConfig_LegacyResearchStatusResumesDevelopment(t *testing.T) {
+	env := NewZeroConfigEnv(t)
+	defer env.Cleanup()
+
+	ctx := context.Background()
+	env.SeedTask(ctx, "IT-E01", "IT-E01-F01", "IT-E01-F01-002", "Resume legacy research task", "research")
+
+	ctrl := newController(t, env)
+	result, err := ctrl.Run(ctx, "IT-E01-F01-002", runner.RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	if result.Outcome != "completed" || result.FinalStatus != "completed" {
+		t.Fatalf("legacy research task result = outcome %q, final status %q; want completed", result.Outcome, result.FinalStatus)
+	}
+
+	disp := env.Dispatchers["anthropic"].(*MockDispatcher)
+	if disp.DispatchCallCount != 1 {
+		t.Errorf("expected legacy research task to dispatch only developer, got %d calls", disp.DispatchCallCount)
+	}
+}

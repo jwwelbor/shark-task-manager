@@ -68,6 +68,7 @@ var legacyStatusRepairMaps = map[string]map[string]string{
 		"in_development":          "development",
 		"in_progress":             "development",
 		"in_qa":                   "development",
+		"research":                "development",
 		"ready_for_approval":      "development",
 		"ready_for_code_review":   "development",
 		"ready_for_development":   "development",

@@ -5150,7 +5150,7 @@ func TestGetNextTask_E38F06_RoleFilterPrecedesSprintOrdering(t *testing.T) {
 		},
 		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
 			return []*sprint.BacklogItem{
-				{EntityType: "task", Key: "E38-F04-001", Status: "research", AgentType: &researcher, SprintOrder: &researcherOrder, AssignedAt: time.Now().Add(-3 * time.Hour)},
+				{EntityType: "bug", Key: "B-E38-F04-001", Status: "research", AgentType: &researcher, SprintOrder: &researcherOrder, AssignedAt: time.Now().Add(-3 * time.Hour)},
 				{EntityType: "task", Key: "E38-F06-002", Status: "development", AgentType: &developer, SprintOrder: &developerOrder, AssignedAt: time.Now().Add(-2 * time.Hour)},
 				{EntityType: "task", Key: "E38-F06-003", Status: "completed", AgentType: &developer, SprintOrder: &terminalDeveloperOrder, AssignedAt: time.Now().Add(-time.Hour)},
 			}, nil

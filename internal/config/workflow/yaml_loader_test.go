@@ -392,7 +392,8 @@ func TestLoadCanonicalTaskYAML_RoundTripParity(t *testing.T) {
 	// the explicit repair map in the admin migration command instead.
 	aliasMap, aliasErrs := cfg.AliasMap()
 	assert.Empty(t, aliasErrs, "task.yaml alias map must be collision-free")
-	assert.Empty(t, aliasMap, "canonical task.yaml must not contain legacy aliases")
+	assert.Equal(t, map[string]string{"research": "development"}, aliasMap,
+		"canonical task.yaml must map retired task research to development")
 
 	// Derived transitions: draft advances to development (pass outcome), and
 	// development advances to completed (pass) and falls back to draft (fail).
