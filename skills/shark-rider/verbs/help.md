@@ -15,7 +15,7 @@ Print the verb groups plus the compact command reference below.
 
 ```
 Getting started:  /shark-rider project bootstrap | product-design | vision "idea"
-Day-to-day:       /shark-rider run <key> | triage "desc" | viewer | status | list <key> | get <key>
+Day-to-day:       /shark-rider run <key> | triage "desc" | demo <epic-key|feature-key> [--draft] | viewer | status | list <key> | get <key>
 Sprint:           /shark-rider plan-sprint <key> | run-sprint <key> | run-sprint-team <key> | retro-sprint <key>
 Maintenance:      /shark-rider update-docs | amend <key> "change" | revalidate <key> | help [commands|<verb>]
 
@@ -43,6 +43,7 @@ fall through to state-aware help.
 | `vision` | Turn an idea into a Shark epic through the bundled epic-writing workflow, then offer `/shark-rider run <epic-key>`. |
 | `run` | Drive an epic, feature, task, bug, change-card, or tech-debt item through its workflow. Use `/shark-rider run <key>`. |
 | `triage` | Capture, classify, confirm, create, and stop. Use `/shark-rider triage "thing to track"`. |
+| `demo` | Prepare an evidence-based demo for an epic or feature. Use `/shark-rider demo <epic-key|feature-key> [--draft]`; it is not a UAT gate or workflow action. |
 | `code-review` | Multi-angle review. Flags: `--fix` for safe fixes, `--comment` for GitHub PR comments. |
 | `brownfield-analysis` | Deep existing-codebase analysis and documentation. |
 | `viewer` | Launch the local web dashboard through `shark web`. |

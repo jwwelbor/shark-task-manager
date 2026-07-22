@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -146,6 +147,95 @@ func TestE34F03PromptBundleAndReferences(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, info.IsDir())
 		})
+	}
+}
+
+// TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008 guards the documented
+// content contract for the explicit, host-local demo action. It intentionally
+// checks shipped procedure text rather than inventing a runtime policy engine.
+func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	paths := map[string]string{
+		"rider router":   filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
+		"static help":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+		"demo procedure": filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "demo.md"),
+	}
+
+	contents := make(map[string]string, len(paths))
+	for name, path := range paths {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err, "%s should be shipped", name)
+		contents[name] = string(body)
+	}
+
+	for name, want := range map[string][]string{
+		"rider router": {
+			"/shark-rider demo <epic-key|feature-key> [--draft]",
+			"`demo`",
+			"`verbs/demo.md`",
+		},
+		"static help": {
+			"demo <epic-key|feature-key> [--draft]",
+			"`demo`",
+		},
+		"demo procedure": {
+			"Only epic and feature targets are valid",
+			"Use the canonical entity key returned by `shark get`",
+			"remains below `docs/demos/`",
+			"Accept exactly one target and the optional `--draft` flag.",
+			"Reject unknown flags,",
+			"additional positional arguments, and a missing target.",
+			"shark skill get demo-script",
+			"shark related-docs list --epic=<epic-key> --json",
+			"shark related-docs list --feature=<feature-key> --json",
+			"Demonstrated now",
+			"Not demonstrated / pending integration",
+			"Accepted risks and overrides",
+			"documented existing environment/date-scoped evidence",
+			"--draft",
+			"Do not invent commands, credentials, deployments, endpoints, or proof",
+			"docs/demos/<entity-key>/demo-script.md",
+			"docs/demos/<entity-key>/evidence/",
+			"shark related-docs add",
+			"--epic=<epic-key>",
+			"--feature=<feature-key>",
+			"shark create note <key>",
+			"--type=reference",
+			"only after the script is successfully created",
+			"normal deduplication and user confirmation",
+			"does not call claim, status-transition, approval, provisioning, or automatic triage commands",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				require.Contains(t, contents[name], expected)
+			}
+		})
+	}
+
+	// The procedure may mention prohibited operations in prose, so inspect only
+	// executable examples. This guards the Mode-3 boundary without turning the
+	// content test into a runtime policy engine.
+	demoProcedure := contents["demo procedure"]
+	commandBlocks := regexp.MustCompile("(?s)```bash\\n(.*?)```").FindAllStringSubmatch(demoProcedure, -1)
+	require.NotEmpty(t, commandBlocks)
+	commands := make([]string, 0)
+	for _, block := range commandBlocks {
+		for _, line := range strings.Split(block[1], "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "shark ") {
+				commands = append(commands, line)
+			}
+		}
+	}
+
+	for _, command := range commands {
+		for _, forbidden := range []string{
+			"shark demo", "shark claim", "shark status", "shark approve",
+			"shark provision", "shark create task", "shark create bug",
+		} {
+			require.NotContains(t, command, forbidden, "demo procedure command %q must preserve its Mode-3 boundary", command)
+		}
 	}
 }
 
