@@ -10,11 +10,18 @@ load Shark skills or Shark specialist agents from their own filesystem.
 
 ## Command modes
 
-This wire contract applies only to keyed `shark next <key> --json`. Bare
-`shark next` returns a read-only portfolio-advice envelope with current epic
-evidence, dependency ordering, and a prompt for product judgment. It does not
-assemble a specialist dispatch prompt and does not claim, advance, or normalize
-workflow state.
+This wire contract applies only to keyed `shark next <key> --json`. It requires
+an entity key — bare `shark next` (no key) is invalid and errors, pointing the
+operator at `shark plan`. `shark plan [root|collection]` is the separate,
+read-only work-selection surface: bare `shark plan` returns one selected epic
+(or an epic-only `parallel_candidates` tie); `shark plan <epic|feature>`
+evaluates one hierarchy edge and returns direct children as a
+`hierarchy_selection` envelope; `shark plan bugs|change-cards|tech-debt`
+selects the next claimable standalone tier. None of `shark plan`'s selection
+responses assemble a specialist dispatch prompt or claim, advance, or
+normalize workflow state — only a leaf entity, or a parent already at its own
+agent step, returns a rendered dispatch prompt from `shark plan`, identical to
+what `shark next` would return for that same entity.
 
 ```mermaid
 sequenceDiagram

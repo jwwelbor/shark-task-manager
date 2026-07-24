@@ -29,6 +29,7 @@ The `.sharkconfig.json` file is automatically created by `shark admin init` and 
   "shark_data_path": "shark-data",
   "workflow_config": "shark-data/workflow/",
   "console_width": 0,
+  "max_parallel_items": 5,
   "web": {
     "port": 7777
   },
@@ -258,6 +259,25 @@ shark status advance E38-F07 --outcome fail \
 | `advance_guard.enabled` | bool | `false` | Master on/off switch. `false` preserves historical `status advance` behavior. |
 | `advance_guard.mode` | string | `"session_from_status"` | Guard strategy. The current implementation supports `session_from_status`. |
 | `advance_guard.allow_repeat_with_force` | bool | `false` when absent | Allows `--force-repeat --reason ...` to override a replay rejection. |
+
+<a id="max-parallel-items"></a>
+#### `max_parallel_items`
+
+Caps the number of tied candidates `shark plan` returns for an equally-ranked
+tier — bare epic selection, one-level hierarchy selection (`shark plan
+<epic|feature>`), and standalone-collection selection (`shark plan
+bugs|change-cards|tech-debt`). It does not change rank/order semantics, only
+how many tied candidates are included in the response.
+
+```json
+{
+  "max_parallel_items": 5
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_parallel_items` | int | `5` | Maximum tied candidates returned per planning scope. Absent, zero, or negative values fall back to the default. Set to `1` for deterministic singleton selection. |
 
 ### Web Server Configuration
 
