@@ -239,6 +239,46 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 	}
 }
 
+func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	paths := map[string]string{
+		"rider router": filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
+		"static help":  filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+		"procedure":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "walkthrough.md"),
+	}
+
+	contents := make(map[string]string, len(paths))
+	for name, path := range paths {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err, "%s should be shipped", name)
+		contents[name] = string(body)
+	}
+
+	for name, want := range map[string][]string{
+		"rider router": {"/shark-rider walkthrough <target> [scope]", "entity key or `docs/` path", "`walkthrough`", "`verbs/walkthrough.md`"},
+		"static help":  {"walkthrough <entity-key|docs-path> [scope]", "`walkthrough`"},
+		"procedure": {
+			"shark get <key> --json",
+			"shark skill get solution-walkthrough",
+			"shark related-docs list --epic=<epic-key> --json",
+			"document explicitly names",
+			"Reviewed and confirmed",
+			"docs/product/progress.md",
+			"docs/architecture/adr/",
+			"shark related-docs add \"Decision Record\" <path> --feature=<feature-key>",
+			"shark create note <key> \"Decision record: <path>\" --type=reference",
+			"Do not call claim, status-transition, approval, or automatic triage commands.",
+			"Do not create a decision record before the operator has resolved that decision.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				require.Contains(t, contents[name], expected)
+			}
+		})
+	}
+}
+
 func TestCrossEpicIntegrationLifecyclePrompts(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
