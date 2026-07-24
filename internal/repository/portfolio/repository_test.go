@@ -11,7 +11,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
-	epicrepo "github.com/jwwelbor/shark-task-manager/internal/repository/epic"
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	testutil "github.com/jwwelbor/shark-task-manager/internal/test"
@@ -113,48 +112,17 @@ func TestPortfolioAdvice_TC020TargetScale(t *testing.T) {
 }
 
 type portfolioAdviceReadCounts struct {
-	epicLists         int
-	childStateLists   int
-	relationshipLists int
-	activeClaimLists  int
+	snapshotReads int
 }
 
-type observedPortfolioEpicReader struct {
-	delegate services.PortfolioAdviceEpicReader
+type observedPortfolioSnapshotSource struct {
+	delegate services.PortfolioSnapshotSource
 	counts   *portfolioAdviceReadCounts
 }
 
-func (r *observedPortfolioEpicReader) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
-	r.counts.epicLists++
-	return r.delegate.List(ctx, status)
-}
-
-type observedPortfolioSnapshotReader struct {
-	delegate services.PortfolioAdviceSnapshotReader
-	counts   *portfolioAdviceReadCounts
-}
-
-func (r *observedPortfolioSnapshotReader) ListChildStates(ctx context.Context) ([]portfoliorepo.ChildStateRow, error) {
-	r.counts.childStateLists++
-	return r.delegate.ListChildStates(ctx)
-}
-
-func (r *observedPortfolioSnapshotReader) ListEpicRelationships(ctx context.Context) ([]portfoliorepo.EpicRelationshipRow, error) {
-	r.counts.relationshipLists++
-	return r.delegate.ListEpicRelationships(ctx)
-}
-
-type observedPortfolioClaimReader struct {
-	delegate services.PortfolioAdviceClaimReader
-	counts   *portfolioAdviceReadCounts
-}
-
-func (r *observedPortfolioClaimReader) ListActiveReadOnly(
-	ctx context.Context,
-	evaluatedAt time.Time,
-) ([]*models.EntityClaim, error) {
-	r.counts.activeClaimLists++
-	return r.delegate.ListActiveReadOnly(ctx, evaluatedAt)
+func (r *observedPortfolioSnapshotSource) ReadSnapshot(ctx context.Context) (portfoliorepo.Snapshot, error) {
+	r.counts.snapshotReads++
+	return r.delegate.ReadSnapshot(ctx)
 }
 
 func newObservedPortfolioAdviceService(
@@ -162,37 +130,27 @@ func newObservedPortfolioAdviceService(
 ) (*services.PortfolioAdviceService, *portfolioAdviceReadCounts) {
 	db := dbconn.NewDB(database)
 	counts := &portfolioAdviceReadCounts{}
-	epicReader := &observedPortfolioEpicReader{
-		delegate: epicrepo.NewEpicRepository(db),
-		counts:   counts,
-	}
-	snapshotReader := &observedPortfolioSnapshotReader{
+	snapshotSource := &observedPortfolioSnapshotSource{
 		delegate: portfoliorepo.NewRepository(db),
 		counts:   counts,
 	}
 	ttl := services.DefaultClaimTTL
 	claimService := services.NewClaimService(claimrepo.NewRepository(db), &ttl)
-	claimReader := &observedPortfolioClaimReader{delegate: claimService, counts: counts}
 
-	return services.NewPortfolioAdviceService(
-		epicReader,
-		snapshotReader,
-		claimReader,
+	return services.NewPortfolioAdviceServiceFromSnapshot(
+		snapshotSource,
+		claimService,
 		workflow.NewService(""),
 	), counts
 }
 
 func assertPortfolioAdviceReadCounts(t *testing.T, counts *portfolioAdviceReadCounts, calls int) {
 	t.Helper()
-	if counts.epicLists != calls || counts.childStateLists != calls ||
-		counts.relationshipLists != calls || counts.activeClaimLists != calls {
+	if counts.snapshotReads != calls {
 		t.Fatalf(
-			"set reads after %d Advise() calls = epic:%d child:%d relationship:%d claim:%d; want exactly %d each (four per call, no per-epic fan-out)",
+			"database snapshot reads after %d Advise() calls = %d; want exactly %d (one hierarchy-view query per call)",
 			calls,
-			counts.epicLists,
-			counts.childStateLists,
-			counts.relationshipLists,
-			counts.activeClaimLists,
+			counts.snapshotReads,
 			calls,
 		)
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	sharkconfig "github.com/jwwelbor/shark-task-manager/internal/config"
 )
 
 // createConfig creates configuration file
@@ -44,6 +46,7 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		RequireRejectionReason: true,
 		Backups:                false,
 		BackupFiles:            7,
+		MaxParallelItems:       sharkconfig.DefaultMaxParallelItems,
 		Database: &DatabaseConfigDefault{
 			Backend:        "local",
 			URL:            "./shark-tasks.db",

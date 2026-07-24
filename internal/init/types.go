@@ -27,6 +27,7 @@ type ConfigDefaults struct {
 	RequireRejectionReason bool                        `json:"require_rejection_reason"`
 	Backups                bool                        `json:"backups"`
 	BackupFiles            int                         `json:"backup_files"`
+	MaxParallelItems       int                         `json:"max_parallel_items"`
 	Database               *DatabaseConfigDefault      `json:"database"`
 	SharkDataPath          string                      `json:"shark_data_path"`
 	Observability          *ObservabilityConfigDefault `json:"observability"`

@@ -98,6 +98,9 @@ func (m *Manager) Load() (*Config, error) {
 		ttl := int(claimTTLSeconds)
 		config.ClaimTTLSeconds = &ttl
 	}
+	if maxParallelItems, ok := rawData["max_parallel_items"].(float64); ok {
+		config.MaxParallelItems = int(maxParallelItems)
+	}
 
 	// Parse console_width if present (CC-036). JSON numbers decode as float64.
 	// A zero or negative value means "auto-detect" (handled in GetConsoleWidth).
