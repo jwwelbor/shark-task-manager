@@ -1,9 +1,9 @@
 // Package commands provides CLI command implementations.
 //
-// This file implements the two `shark next` modes. Bare `shark next` returns
-// read-only portfolio advice. `shark next <entity-key>` returns a single
-// dispatch step's metadata and fully-rendered prompt as JSON, then exits.
-// The harness owns the keyed dispatch loop:
+// This file implements keyed `shark next <entity-key>` dispatch. It returns a
+// single dispatch step's metadata and fully-rendered prompt as JSON, then
+// exits. Bare `shark next` (no entity key) is invalid — work selection lives
+// in `shark plan` (see plan.go). The harness owns the keyed dispatch loop:
 //
 //	while true:
 //	  resp = shark next <key> --json
@@ -31,7 +31,6 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -101,12 +100,7 @@ var (
 	nextBuildTransitioner         = buildTransitioner
 	nextBuildPlaceholderGenerator = buildPlaceholderGenerator
 	nextNewAdapterCache           = newNextAdapterCache
-	nextGetPortfolioAdvisor       = func() portfolioAdvisor { return cli.GetPortfolioAdviceService() }
 )
-
-type portfolioAdvisor interface {
-	Advise(ctx context.Context) (*models.PortfolioAdviceEnvelope, error)
-}
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is
 // stable; harnesses dispatch on `action` to decide what to do next.
@@ -153,35 +147,33 @@ type NextResponse struct {
 	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
 
 	Error string `json:"error,omitempty"`
+
+	// selection and parallel are unexported carriers plan.go (shark plan)
+	// uses to return a hierarchy selection or standalone parallel-dispatch
+	// envelope through the shared NextResponse type instead of the plain
+	// wire shape above. Unexported, so JSON marshaling of NextResponse
+	// itself is unaffected — keyed `shark next` never sets either field.
+	parallel  *ParallelPlanResponse
+	selection *HierarchyPlanSelectionResponse
 }
 
 var nextCmd = newNextCommand()
 
 func newNextCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "next [entity-key]",
-		Short: "Get portfolio advice or the next entity dispatch step as JSON",
-		Long: `With no entity key, return read-only portfolio evidence and an advisor prompt.
+		Use:   "next <entity-key>",
+		Short: "Get the next entity dispatch step as JSON",
+		Long: `Return the next dispatch step for the given entity as JSON, then exit.
 
-With an entity key, return the next dispatch step for that entity as JSON,
-then exit.
+An entity key is required. Bare 'shark next' (no key) is invalid — use
+'shark plan' to select an epic, hierarchy tier, or standalone-collection root
+to work next.
 
 Unlike 'shark run', which executes the full dispatch loop in-process,
 'shark next <entity-key>' returns a single step and lets the harness drive the loop.
 This is the canonical entry point for harness-side dispatch in Shark 2.0.
 While resolving the dispatch, the engine may auto-advance cascade-complete
 parents or agentless advance_status placeholders.
-
-Bare portfolio-advice JSON shape:
-  {
-    "mode":              "portfolio_advice",
-    "evidence_complete": true | false,
-    "epics":             [...],
-    "relationships":     [...],
-    "ordering":          {...},
-    "warnings":          [...],
-    "prompt":            "<advisor instructions>"
-  }
 
 Keyed dispatch JSON shape:
   {
@@ -197,18 +189,28 @@ Keyed dispatch JSON shape:
   }
 
 Examples:
-  shark next                           # Read-only portfolio advice
   shark next E07-F01-001              # JSON dispatch step for a task
   shark next E07-F01                  # Feature
   shark next E07                      # Epic
 
 Errors:
+  - No entity key       → exit 1, see 'shark plan'
   - Unknown entity key  → exit 1
   - Entity in a state with no orchestrator action → action="pause" (not error)
 	  - Internal failure rendering the prompt → exit 2 with stderr context`,
-		Args: cobra.MaximumNArgs(1),
+		Args: requireNextEntityKey,
 		RunE: runNext,
 	}
+}
+
+// requireNextEntityKey rejects bare `shark next` before any portfolio,
+// planning, or dispatch service is constructed. An entity key is mandatory —
+// work selection lives in `shark plan`.
+func requireNextEntityKey(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return errors.New("shark next requires an entity key (e.g. \"shark next E07-F01-001\"); use \"shark plan\" to select what to work on next")
+	}
+	return cobra.ExactArgs(1)(cmd, args)
 }
 
 func init() {
@@ -226,33 +228,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 	ctx, span := tracer.Start(ctx, "shark.next")
 	defer span.End()
 
-	if len(args) == 0 {
-		advisor := nextGetPortfolioAdvisor()
-		advice, err := advisor.Advise(ctx)
-		if err != nil {
-			span.SetStatus(codes.Error, err.Error())
-			return fmt.Errorf("failed to get portfolio advice: %w", err)
-		}
-		if advice == nil {
-			err := errors.New("portfolio advisor returned no advice")
-			span.SetStatus(codes.Error, err.Error())
-			return err
-		}
-		span.SetAttributes(
-			attribute.String("mode", string(advice.Mode)),
-			attribute.Int("portfolio.candidate_count", len(advice.Epics)),
-			attribute.Int("portfolio.relationship_count", len(advice.Relationships)),
-			attribute.Int("portfolio.graph_warning_count", len(advice.Ordering.Warnings)),
-			attribute.Bool("portfolio.evidence_complete", advice.EvidenceComplete),
-		)
-		if err := outputPortfolioAdviceJSON(cmd, advice); err != nil {
-			span.SetStatus(codes.Error, err.Error())
-			return err
-		}
-		return nil
-	}
+	// Step 1: Parse and detect entity type. requireNextEntityKey already
+	// rejected a bare invocation, so args[0] is guaranteed to be present.
 
-	// Step 1: Parse and detect entity type.
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
@@ -771,17 +749,6 @@ func outputNextJSON(resp NextResponse) error {
 		return fmt.Errorf("failed to marshal next response: %w", err)
 	}
 	fmt.Println(string(out))
-	return nil
-}
-
-func outputPortfolioAdviceJSON(cmd *cobra.Command, advice *models.PortfolioAdviceEnvelope) error {
-	out, err := json.MarshalIndent(advice, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal portfolio advice: %w", err)
-	}
-	if _, err := fmt.Fprintln(cmd.OutOrStdout(), string(out)); err != nil {
-		return fmt.Errorf("failed to write portfolio advice: %w", err)
-	}
 	return nil
 }
 
