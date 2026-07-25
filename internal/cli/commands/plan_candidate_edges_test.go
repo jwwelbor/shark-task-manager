@@ -69,6 +69,20 @@ func TestBuildHierarchyPlanSelectionEmitsNoEdgeFields(t *testing.T) {
 	) {
 		t.Fatalf("singleton candidate JSON fields = %#v, want %#v", got, wantCandidateFields)
 	}
+
+	// Envelope level: outputHierarchyPlanSelectionJSON marshals the whole
+	// response, so the top-level field set is the wire contract. Neither the
+	// edge fields nor resolved_via may appear in plan's own output.
+	if got := planCandidateJSONFields(t, singleton); !reflect.DeepEqual(got, []string{
+		"action", "entity", "mode", "root_key", "root_type", "selection_reason",
+	}) {
+		t.Fatalf("singleton envelope JSON fields = %#v", got)
+	}
+	if got := planCandidateJSONFields(t, parallel); !reflect.DeepEqual(got, []string{
+		"action", "entities", "mode", "parallel_execution", "root_key", "root_type", "selection_reason",
+	}) {
+		t.Fatalf("parallel envelope JSON fields = %#v", got)
+	}
 }
 
 // TestApplyCandidateEdgesPopulatesBothEnvelopeShapes covers the seam a keyed

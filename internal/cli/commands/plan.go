@@ -760,7 +760,33 @@ func selectPlanChildTier(children []services.PlanHierarchyChild) ([]services.Pla
 		}
 		return selected, "priority"
 	}
-	return children[:1], "repository_order"
+	// Neither an execution order nor (for tasks) a priority distinguishes
+	// these children, so nothing about them is sequenced — they are a tie,
+	// the same way an equal execution_order is. Returning children[:1] here
+	// would silently collapse the tier: features are created with a NULL
+	// execution_order unless --order is passed, so an epic's features would
+	// otherwise never surface as a parallel opportunity.
+	//
+	// Children arrive ordered "execution_order IS NULL" last, so reaching
+	// this branch means the leading run of children all lack an order; the
+	// loop stops at the first child that has one.
+	selected := make([]services.PlanHierarchyChild, 0, len(children))
+	for _, child := range children {
+		if child.ExecutionOrder != nil {
+			break
+		}
+		if child.EntityType == models.EntityTypeTask && child.Priority != nil {
+			break
+		}
+		selected = append(selected, child)
+	}
+	if len(selected) > 1 {
+		return selected, "parallel_tie"
+	}
+	if len(selected) == 0 {
+		return children[:1], "repository_order"
+	}
+	return selected, "repository_order"
 }
 
 func buildHierarchyPlanSelection(

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -171,11 +172,16 @@ func planEdgeLastID(t *testing.T, result sql.Result) int64 {
 	return id
 }
 
+// planEdgeSummaries renders edges for comparison. It sorts because edge order
+// is not part of the contract: the underlying relationship queries order by
+// created_at, which is not distinguishable within a single test run, and
+// consumers treat each bucket as a set.
 func planEdgeSummaries(edges []services.PlanHierarchyEdge) []string {
 	summaries := make([]string, 0, len(edges))
 	for _, edge := range edges {
 		summaries = append(summaries, edge.Key+"|"+edge.Status+"|"+edge.Type)
 	}
+	sort.Strings(summaries)
 	return summaries
 }
 
@@ -245,6 +251,46 @@ func TestDescribeChildEdgesTaskTierReturnsRealDependencyAndLinkEdges(t *testing.
 		"E07-F01|active|related_to",
 	}) {
 		t.Fatalf("Links = %#v", got)
+	}
+}
+
+// TestDescribeChildEdgesDanglingLegacyDependencyPinsCurrentBehavior documents an
+// asymmetry between the two service methods for one and the same row.
+//
+// A tasks.depends_on JSON entry naming a deleted task drops out of the
+// snapshot's join, so DescribeChildren reports the candidate as claimable. The
+// edge load resolves the same legacy keys one-by-one through the task
+// repository, which errors on a miss — so DescribeChildEdges fails where
+// selection succeeded. This is pinned rather than papered over: the caller
+// treats an edge-load failure as fatal, so a stale depends_on entry wedges the
+// fork until the data is repaired. Changing the policy means tolerating
+// unresolvable legacy keys here, and this test is what would flip.
+func TestDescribeChildEdgesDanglingLegacyDependencyPinsCurrentBehavior(t *testing.T) {
+	fixture := newPlanEdgeFixture(t)
+	epicID := fixture.insertEpic(t, "E07")
+	featureID := fixture.insertFeature(t, epicID, "E07-F01", "active", nil)
+	legacyJSON, err := json.Marshal([]string{"T-E07-F01-404"})
+	if err != nil {
+		t.Fatalf("marshal legacy dependencies: %v", err)
+	}
+	legacy := string(legacyJSON)
+	order := 1
+	fixture.insertTask(t, featureID, "T-E07-F01-001", "todo", &order, &legacy)
+
+	ctx := context.Background()
+	state, err := fixture.service.DescribeChildren(ctx, string(models.EntityTypeFeature), "E07-F01")
+	if err != nil {
+		t.Fatalf("DescribeChildren() error = %v", err)
+	}
+	if len(state.Children) != 1 || state.Children[0].Key != "T-E07-F01-001" {
+		t.Fatalf("selection children = %#v, want the candidate treated as claimable", state.Children)
+	}
+
+	if _, err := fixture.service.DescribeChildEdges(
+		ctx, string(models.EntityTypeTask), []string{"T-E07-F01-001"},
+	); err == nil {
+		t.Fatal("DescribeChildEdges() error = nil; dangling legacy dependency is now tolerated — " +
+			"update this test and the hand-off note if that is the intended policy")
 	}
 }
 

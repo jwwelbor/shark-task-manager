@@ -494,3 +494,92 @@ func (t *fanoutAdvanceTransitioner) TransitionStatus(_ context.Context, key, tar
 	t.statuses[key] = target
 	return &services.TransitionResult{}, nil
 }
+
+// TestUnorderedSiblingsTieIntoAFork covers the tier rule for children that
+// carry no execution order at all. Features are created with a NULL
+// execution_order unless --order is passed, so without this an epic's features
+// would never surface as a parallel opportunity and `shark next <epic>` — the
+// entry point riders actually use — would keep silently picking feature[0].
+// Nothing sequences these children, which is the same argument that makes an
+// equal execution_order a tie.
+func TestUnorderedSiblingsTieIntoAFork(t *testing.T) {
+	unordered := func(key string, entityType models.EntityType) services.PlanHierarchyChild {
+		return services.PlanHierarchyChild{
+			Key: key, Title: key + " title", Status: "draft", EntityType: entityType,
+		}
+	}
+
+	t.Run("unordered features tie", func(t *testing.T) {
+		selected, reason := selectPlanChildTier([]services.PlanHierarchyChild{
+			unordered("E01-F01", models.EntityTypeFeature),
+			unordered("E01-F02", models.EntityTypeFeature),
+		})
+		require.Equal(t, "parallel_tie", reason)
+		require.Len(t, selected, 2)
+	})
+
+	t.Run("a lone unordered child is not a tie", func(t *testing.T) {
+		selected, reason := selectPlanChildTier([]services.PlanHierarchyChild{
+			unordered("E01-F01", models.EntityTypeFeature),
+		})
+		require.Equal(t, "repository_order", reason)
+		require.Len(t, selected, 1)
+	})
+
+	t.Run("ordered children still win over unordered ones", func(t *testing.T) {
+		// Children arrive with NULL execution_order sorted last, so an
+		// ordered child leads and the unordered tail must not join its tier.
+		selected, reason := selectPlanChildTier([]services.PlanHierarchyChild{
+			fanoutChild("E01-F01", models.EntityTypeFeature, 1),
+			unordered("E01-F02", models.EntityTypeFeature),
+			unordered("E01-F03", models.EntityTypeFeature),
+		})
+		require.Equal(t, "execution_order", reason)
+		require.Len(t, selected, 1)
+		require.Equal(t, "E01-F01", selected[0].Key)
+	})
+
+	t.Run("prioritized tasks are not swept in as unordered", func(t *testing.T) {
+		prioritized := services.PlanHierarchyChild{
+			Key: "T-E01-F01-002", Title: "t2", Status: "todo",
+			EntityType: models.EntityTypeTask, Priority: fanoutIntPtr(3),
+		}
+		selected, reason := selectPlanChildTier([]services.PlanHierarchyChild{
+			unordered("T-E01-F01-001", models.EntityTypeTask),
+			prioritized,
+		})
+		require.Equal(t, "repository_order", reason)
+		require.Len(t, selected, 1)
+	})
+}
+
+// TestFanoutForksOnUnorderedFeatures is the end-to-end consequence: an epic
+// whose features carry no explicit order must fork rather than drill into the
+// first feature.
+func TestFanoutForksOnUnorderedFeatures(t *testing.T) {
+	stubForkEdges(t)
+	original := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = original }()
+
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		if entityType == "epic" && key == "E01" {
+			return services.PlanHierarchyChildrenState{
+				Children: []services.PlanHierarchyChild{
+					{Key: "E01-F01", Title: "f1", Status: "draft", EntityType: models.EntityTypeFeature},
+					{Key: "E01-F02", Title: "f2", Status: "draft", EntityType: models.EntityTypeFeature},
+				},
+				TotalChildren:       2,
+				NonTerminalChildren: 2,
+			}, nil
+		}
+		return services.PlanHierarchyChildrenState{}, nil
+	}
+
+	cache := fanoutCache(t, map[string]string{"E01": "active"}, cascadeOrDispatch)
+
+	resp, err := resolveNext(context.Background(), cache, "epic", "E01", 0)
+	require.NoError(t, err)
+	require.NotNil(t, resp.selection, "unordered features must fork, not drill into feature[0]")
+	require.Len(t, resp.selection.Entities, 2)
+	require.Equal(t, "E01", resp.selection.RootKey)
+}
