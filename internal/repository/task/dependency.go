@@ -413,8 +413,15 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 		return nil
 	}
 
-	// Skip completed and archived tasks
-	if task.Status == models.TaskStatus("completed") || task.Status == models.TaskStatus("archived") {
+	// Skip tasks already in a terminal status.
+	//
+	// FOLLOW-UP: this reopen path has no channel for a service-resolved terminal
+	// list — supplying one means threading it through the exported
+	// ReopenTaskWithAutoBlock / ReopenTaskWithAutoBlockWithTx methods and their
+	// service callers. Until then it routes through isTerminalTaskStatus with
+	// the documented default, so the literal set lives in exactly one place in
+	// this file rather than being restated here.
+	if isTerminalTaskStatus(nil, task.Status) {
 		return nil
 	}
 
@@ -451,11 +458,40 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 	return nil
 }
 
+// defaultTaskTerminalStatuses is the fallback terminal-status list used when a
+// caller does not supply terminalStatuses. It preserves the historical
+// hardcoded pair so existing callers keep their behavior. New callers should
+// pass workflow.Service.ForLevel(workflow.LevelTask).GetTerminalStatuses()
+// instead — the repository layer must not own this business rule, it only
+// applies the list the service hands it. Same contract as
+// defaultBugTerminalStatuses / defaultChangeCardTerminalStatuses.
+var defaultTaskTerminalStatuses = []string{"completed", "archived"}
+
+// isTerminalTaskStatus reports whether status appears in terminalStatuses
+// (case-insensitively), falling back to defaultTaskTerminalStatuses when the
+// caller supplied none.
+func isTerminalTaskStatus(terminalStatuses []string, status models.TaskStatus) bool {
+	list := terminalStatuses
+	if len(list) == 0 {
+		list = defaultTaskTerminalStatuses
+	}
+	for _, t := range list {
+		if strings.EqualFold(t, string(status)) {
+			return true
+		}
+	}
+	return false
+}
+
 // AutoUnblockDependents checks all tasks that depend on the completed task and
 // unblocks those whose dependencies are all satisfied. Only tasks blocked with
 // a dependency-pattern reason (set by ReopenTaskWithAutoBlock) are eligible.
 // Returns the keys of tasks that were auto-unblocked.
-func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, completedTaskKey string) ([]string, error) {
+//
+// terminalStatuses is the caller-supplied (service-resolved) terminal-status
+// list used to decide dependency satisfaction; pass nil to accept the
+// documented default.
+func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, completedTaskKey string, terminalStatuses []string) ([]string, error) {
 	// Get dependents of the completed task
 	dependents, err := r.getTaskDependentsInTx(ctx, tx, completedTaskKey)
 	if err != nil {
@@ -474,8 +510,8 @@ func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, 
 			continue
 		}
 
-		// Check if ALL dependencies of this task are now completed/archived
-		allSatisfied, err := r.allDependenciesSatisfiedInTx(ctx, tx, dependent)
+		// Check if ALL dependencies of this task are now terminal
+		allSatisfied, err := r.allDependenciesSatisfiedInTx(ctx, tx, dependent, terminalStatuses)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check dependencies for %s: %w", dependent.Key, err)
 		}
@@ -506,10 +542,15 @@ func isDependencyBlocked(task *models.Task) bool {
 		strings.HasPrefix(reason, AutoBlockedReasonPrefix)
 }
 
-// allDependenciesSatisfiedInTx checks whether every dependency of the task
-// is completed or archived. It checks both the legacy depends_on JSON field
-// and the entity_relationships table.
-func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *sql.Tx, task *models.Task) (bool, error) {
+// allDependenciesSatisfiedInTx checks whether every dependency of the task is
+// in a terminal status. It checks both the legacy depends_on JSON field and the
+// entity_relationships table.
+//
+// Terminality is decided by the caller-supplied terminalStatuses list (resolved
+// from the task workflow by the service layer) rather than a hardcoded
+// completed/archived pair, so custom workflows that rename terminal statuses
+// keep unblocking correctly. Empty list => documented default.
+func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *sql.Tx, task *models.Task, terminalStatuses []string) (bool, error) {
 	// 1. Check legacy depends_on JSON field
 	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
 		var deps []string
@@ -528,8 +569,7 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 				return false, fmt.Errorf("failed to check status of dependency %s: %w", depKey, err)
 			}
 
-			depStatus := models.TaskStatus(status)
-			if depStatus != models.TaskStatus("completed") && depStatus != models.TaskStatus("archived") {
+			if !isTerminalTaskStatus(terminalStatuses, models.TaskStatus(status)) {
 				return false, nil
 			}
 		}
@@ -555,8 +595,7 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 			return false, fmt.Errorf("failed to scan relationship dependency status: %w", err)
 		}
 
-		depStatus := models.TaskStatus(status)
-		if depStatus != models.TaskStatus("completed") && depStatus != models.TaskStatus("archived") {
+		if !isTerminalTaskStatus(terminalStatuses, models.TaskStatus(status)) {
 			return false, nil
 		}
 	}
