@@ -108,15 +108,33 @@ type PortfolioPlanSelectionResponse struct {
 	Warnings          []models.PortfolioWarning `json:"warnings,omitempty"`
 }
 
+// CandidateEdge is one dependency, blocker, or link endpoint of a hierarchy
+// plan candidate. Status is reported raw so a consumer can tell a satisfied
+// prerequisite from an outstanding one.
+type CandidateEdge struct {
+	Key    string `json:"key"`
+	Status string `json:"status"`
+	Type   string `json:"type"`
+}
+
 // HierarchyPlanCandidate is one direct feature or task selected beneath a
 // keyed planning parent.
+//
+// DependsOn/Blocks/Links carry the candidate's relationship neighbourhood so a
+// consumer stopping at a fork can decide which candidates are safe to run in
+// parallel. They are omitempty and are left unpopulated by `shark plan`, whose
+// selection output is deliberately edge-less; callers that want edges attach
+// them with applyCandidateEdges after buildHierarchyPlanSelection returns.
 type HierarchyPlanCandidate struct {
-	EntityKey      string `json:"entity_key"`
-	EntityType     string `json:"entity_type"`
-	Title          string `json:"title"`
-	Status         string `json:"status"`
-	ExecutionOrder *int   `json:"execution_order,omitempty"`
-	Priority       *int   `json:"priority,omitempty"`
+	EntityKey      string          `json:"entity_key"`
+	EntityType     string          `json:"entity_type"`
+	Title          string          `json:"title"`
+	Status         string          `json:"status"`
+	ExecutionOrder *int            `json:"execution_order,omitempty"`
+	Priority       *int            `json:"priority,omitempty"`
+	DependsOn      []CandidateEdge `json:"depends_on,omitempty"`
+	Blocks         []CandidateEdge `json:"blocks,omitempty"`
+	Links          []CandidateEdge `json:"links,omitempty"`
 }
 
 // HierarchyPlanSelectionResponse is the one-level selection contract returned
@@ -127,6 +145,7 @@ type HierarchyPlanSelectionResponse struct {
 	RootKey           string                   `json:"root_key"`
 	RootType          string                   `json:"root_type"`
 	SelectionReason   string                   `json:"selection_reason"`
+	ResolvedVia       []string                 `json:"resolved_via,omitempty"`
 	Entity            *HierarchyPlanCandidate  `json:"entity,omitempty"`
 	ParallelExecution string                   `json:"parallel_execution,omitempty"`
 	Entities          []HierarchyPlanCandidate `json:"entities,omitempty"`
@@ -863,6 +882,70 @@ func applyPlanWireAction(
 
 func describePlanDispatchableChildren(ctx context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
 	return cli.GetPlanHierarchyService().DescribeChildren(ctx, entityType, key)
+}
+
+// describePlanCandidateEdges loads dependency/blocker/link edges for already
+// selected candidates of one entity type. `shark plan` never calls this — its
+// selection output stays edge-less; keyed fork callers do.
+func describePlanCandidateEdges(
+	ctx context.Context,
+	entityType string,
+	keys []string,
+) (map[string]services.PlanHierarchyEdges, error) {
+	return cli.GetPlanHierarchyService().DescribeChildEdges(ctx, entityType, keys)
+}
+
+// applyCandidateEdges attaches loaded edges to an existing hierarchy selection,
+// covering both envelope shapes: the singleton Entity pointer and the
+// parallel_candidates Entities slice.
+//
+// edges must be keyed by canonical entity key, which is what
+// PlanHierarchyService.DescribeChildEdges returns. Candidates with no entry are
+// left edge-less rather than zeroed, so a partial edge load never silently
+// rewrites a candidate that already carries edges.
+func applyCandidateEdges(
+	response *HierarchyPlanSelectionResponse,
+	edges map[string]services.PlanHierarchyEdges,
+) {
+	if response == nil || len(edges) == 0 {
+		return
+	}
+	if response.Entity != nil {
+		applyCandidateEdgesTo(response.Entity, edges)
+	}
+	for index := range response.Entities {
+		applyCandidateEdgesTo(&response.Entities[index], edges)
+	}
+}
+
+func applyCandidateEdgesTo(
+	candidate *HierarchyPlanCandidate,
+	edges map[string]services.PlanHierarchyEdges,
+) {
+	found, ok := edges[candidate.EntityKey]
+	if !ok {
+		return
+	}
+	candidate.DependsOn = toCandidateEdges(found.DependsOn)
+	candidate.Blocks = toCandidateEdges(found.Blocks)
+	candidate.Links = toCandidateEdges(found.Links)
+}
+
+// toCandidateEdges returns nil for an empty input so the omitempty json tags
+// keep an edge-free candidate byte-identical to its pre-edges shape.
+func toCandidateEdges(edges []services.PlanHierarchyEdge) []CandidateEdge {
+	if len(edges) == 0 {
+		return nil
+	}
+	converted := make([]CandidateEdge, 0, len(edges))
+	for _, edge := range edges {
+		converted = append(converted, CandidateEdge{
+			Key:    edge.Key,
+			Status: edge.Status,
+			Type:   edge.Type,
+		})
+	}
+	return converted
 }
 
 func outputParallelPlanJSON(resp ParallelPlanResponse) error {

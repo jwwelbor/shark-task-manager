@@ -127,7 +127,7 @@ func (s *CascadeService) DescribeDispatchableChildren(ctx context.Context, entit
 				continue
 			}
 			nonTerminal++
-			ready, err := s.dependenciesSatisfied(ctx, t.Key)
+			ready, err := s.dependenciesSatisfied(ctx, taskWf, t.Key)
 			if err != nil {
 				return CascadeChildrenState{}, err
 			}
@@ -191,13 +191,21 @@ func (s *CascadeService) isTerminalStatus(wf *workflow.Service, status string) b
 	return wf.IsTerminalStatus(status)
 }
 
-func (s *CascadeService) dependenciesSatisfied(ctx context.Context, taskKey string) (bool, error) {
+// dependenciesSatisfied reports whether every dependency of taskKey is
+// terminal under taskWf, the task-level workflow the caller already resolved
+// (DescribeDispatchableChildren's "feature" branch). Terminal classification
+// is delegated to isTerminalStatus rather than a hardcoded status list, so
+// custom workflows that rename the terminal status keep filtering correctly
+// (B028). A nil taskWf is treated as "no terminal classification available"
+// via isTerminalStatus, so any dependency makes the task not-ready rather
+// than defaulting to satisfied.
+func (s *CascadeService) dependenciesSatisfied(ctx context.Context, taskWf *workflow.Service, taskKey string) (bool, error) {
 	dependencies, err := s.taskRepo.GetTaskDependencies(ctx, taskKey)
 	if err != nil {
 		return false, fmt.Errorf("failed to list dependencies for task %s: %w", taskKey, err)
 	}
 	for _, dep := range dependencies {
-		if dep.Status != models.TaskStatus("completed") && dep.Status != models.TaskStatus("archived") {
+		if !s.isTerminalStatus(taskWf, string(dep.Status)) {
 			return false, nil
 		}
 	}

@@ -85,6 +85,7 @@ func TestPlanHierarchyServiceFiltersInMemoryAfterOneSetRead(t *testing.T) {
 		reader,
 		wf,
 		mockPlanHierarchyClaimPolicy{ttl: 20 * time.Minute},
+		services.PlanHierarchyEdgeReaders{},
 	)
 
 	state, err := service.DescribeChildren(
@@ -113,7 +114,7 @@ func TestPlanHierarchyServiceParentNotFoundErrors(t *testing.T) {
 			return planhierarchyrepo.Snapshot{ParentFound: false}, nil
 		},
 	}
-	service := services.NewPlanHierarchyService(reader, wf, mockPlanHierarchyClaimPolicy{})
+	service := services.NewPlanHierarchyService(reader, wf, mockPlanHierarchyClaimPolicy{}, services.PlanHierarchyEdgeReaders{})
 	if _, err := service.DescribeChildren(context.Background(), "epic", "E99"); err == nil {
 		t.Fatal("DescribeChildren() error = nil, want not-found error")
 	}

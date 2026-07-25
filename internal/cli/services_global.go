@@ -770,6 +770,11 @@ func GetPlanHierarchyService() *services.PlanHierarchyService {
 		planhierarchyrepo.NewRepository(db),
 		GetWorkflowService(),
 		GetClaimService(),
+		services.PlanHierarchyEdgeReaders{
+			Relationships:    GetEntityRelationshipService(),
+			Registry:         GetEntityRegistry(),
+			TaskDependencies: repository.NewTaskRepository(db),
+		},
 	)
 }
 

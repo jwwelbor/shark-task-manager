@@ -78,6 +78,7 @@ type Config struct {
 	SharkDataPath          *string                `json:"shark_data_path,omitempty"`          // Content-bundle root (skills/, prompts/, agents/, overrides/) relative to project root. Default: "shark-data". SEPARATE from workflow_config.
 	ClaimTTLSeconds        *int                   `json:"claim_ttl_seconds,omitempty"`        // Optional claim/lease TTL in seconds. Nil falls back to env/default; 0 disables claim expiry.
 	MaxParallelItems       int                    `json:"max_parallel_items,omitempty"`       // Maximum tied candidates returned by shark plan. Non-positive values use DefaultMaxParallelItems.
+	SequentialDispatch     bool                   `json:"sequential_dispatch,omitempty"`      // Forces shark next to use the legacy single-track cascade instead of fan-out. Default false (fan-out).
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
@@ -361,6 +362,16 @@ func (c *Config) GetMaxParallelItems() int {
 		return DefaultMaxParallelItems
 	}
 	return c.MaxParallelItems
+}
+
+// GetSequentialDispatch returns whether `shark next` should force the legacy
+// single-track cascade instead of fan-out. The accessor is nil-safe and
+// treats a nil *Config (or an absent field) as false — fan-out is the default.
+func (c *Config) GetSequentialDispatch() bool {
+	if c == nil {
+		return false
+	}
+	return c.SequentialDispatch
 }
 
 // GetConsoleWidth returns the console width to use when rendering CLI list

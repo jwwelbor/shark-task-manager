@@ -56,6 +56,7 @@ type nextAdapters struct {
 type nextAdapterCache struct {
 	entries       map[string]*nextAdapters
 	actionSvcRoot action.ActionService
+	fanout        bool
 }
 
 // newNextAdapterCache constructs an empty cache with the root action service
@@ -100,6 +101,17 @@ var (
 	nextBuildTransitioner         = buildTransitioner
 	nextBuildPlaceholderGenerator = buildPlaceholderGenerator
 	nextNewAdapterCache           = newNextAdapterCache
+	// nextGetSequentialDispatch is an indirection hook for testing —
+	// production code points it at the real cli.GetConfig() accessor.
+	// Returns true when sequential_dispatch is configured, forcing today's
+	// legacy single-track cascade instead of fan-out.
+	nextGetSequentialDispatch = func() bool {
+		cfg, err := cli.GetConfig()
+		if err != nil {
+			return false
+		}
+		return cfg.GetSequentialDispatch()
+	}
 )
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is
@@ -214,6 +226,7 @@ func requireNextEntityKey(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
+	nextCmd.Flags().Bool("sequential", false, "Force the legacy single-track cascade instead of fan-out")
 	cli.RootCmd.AddCommand(nextCmd)
 }
 
@@ -247,6 +260,15 @@ func runNext(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Resolve sequential-vs-fanout dispatch mode. Precedence: an explicitly
+	// passed --sequential flag wins, else the sequential_dispatch config
+	// value, else the default (fan-out).
+	sequential := nextGetSequentialDispatch()
+	if cmd.Flags().Changed("sequential") {
+		sequential, _ = cmd.Flags().GetBool("sequential")
+	}
+	adapters.fanout = !sequential
+
 	resp, err := resolveNext(ctx, adapters, entityType, normalizedKey, 0)
 	if err != nil {
 		// Unrendered agent-body tokens surface here via the per-step
@@ -274,6 +296,21 @@ func runNext(cmd *cobra.Command, args []string) error {
 			attribute.String("exit_status", "error"),
 		)
 		return err
+	}
+
+	// Fan-out stopped at a fork: emit the candidate tier instead of a single
+	// dispatch step. A fork carries no prompt — it is a selection surface, so
+	// the placeholder/agent-body annotation below does not apply.
+	if resp.selection != nil {
+		span.SetAttributes(
+			attribute.String("entity_key", normalizedKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("action", resp.selection.Action),
+			attribute.String("selection_reason", resp.selection.SelectionReason),
+			attribute.Int("candidates", len(resp.selection.Entities)),
+			attribute.String("exit_status", "ok"),
+		)
+		return outputHierarchyPlanSelectionJSON(*resp.selection)
 	}
 
 	// Record per-dispatch span attributes so traces capture the full
@@ -404,6 +441,9 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
 	}
 	if internalAction == "cascade" {
+		if cache.fanout {
+			return tryCascadeFanout(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
+		}
 		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
 	}
 
@@ -510,6 +550,129 @@ func tryCascade(
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
 	return resp, nil
+}
+
+// tryCascadeFanout is the fan-out counterpart to tryCascade: it cascades while
+// there is exactly one thing to do, and stops at a *fork* — a tier with two or
+// more tied dispatchable children — returning that candidate tier instead of
+// silently picking children[0]. Surfacing the set is what lets the rider fan
+// out; tryCascade structurally hides it.
+//
+// Child selection reuses plan's engine (PlanHierarchyService.DescribeChildren +
+// selectPlanChildTier) rather than CascadeService, so claim-filtering,
+// dependency-filtering, and tie-tiering are computed exactly once, in one
+// place, and dependency terminality is config-driven at every tier. `shark next
+// --sequential` (or sequential_dispatch in config) still routes to tryCascade.
+//
+// The loop preserves tryCascade's sibling fall-through: a selected child that
+// resolves to pause/archive is dropped and the tier is recomputed over the
+// remaining siblings, because "the next available work" excludes work that is
+// paused, claimed, or blocked. Re-tiering (rather than a linear scan to the
+// next single child) means that when the order-1 child pauses, the order-2
+// children come back as a fork rather than an arbitrary pick — the same
+// principle applied one tier down. Termination is trivial: the fork branch
+// returns immediately, so each iteration consumes exactly one child.
+func tryCascadeFanout(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	resp NextResponse,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+) (NextResponse, error) {
+	childrenState, err := planDescribeDispatchableChildren(ctx, entityType, normalizedKey)
+	if err != nil {
+		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
+	}
+
+	remaining := childrenState.Children
+	for len(remaining) > 0 {
+		selected, reason := selectPlanChildTier(remaining)
+		if len(selected) == 0 {
+			break
+		}
+		if len(selected) > 1 {
+			// Fork: hand the whole tied tier back and let the rider decide
+			// which subset is integration-safe to run concurrently.
+			selection := buildHierarchyPlanSelection(
+				normalizedKey,
+				entityType,
+				selected,
+				reason,
+				planGetMaxParallelItems(),
+			)
+			if err := attachForkCandidateEdges(ctx, &selection); err != nil {
+				return NextResponse{}, err
+			}
+			selection.ResolvedVia = []string{normalizedKey}
+			resp.selection = &selection
+			return resp, nil
+		}
+
+		// Exactly one option — keep drilling, same as the sequential path.
+		child := selected[0]
+		childResp, err := resolveNext(ctx, cache, string(child.EntityType), child.Key, depth+1)
+		if err != nil {
+			return NextResponse{}, err
+		}
+		if childResp.selection != nil {
+			// The child forked further down; prepend this parent so
+			// resolved_via records the full path walked to the fork.
+			childResp.selection.ResolvedVia = append(
+				[]string{normalizedKey}, childResp.selection.ResolvedVia...)
+			return childResp, nil
+		}
+		switch childResp.Action {
+		case "spawn_agent", "error":
+			childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
+			return childResp, nil
+		}
+		// pause/archive — this child has nothing dispatchable right now, so
+		// drop it and re-tier over the siblings behind it.
+		remaining = remaining[1:]
+	}
+
+	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
+		return autoAdvanceCascadeParent(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
+	}
+	// All children either non-dispatchable or absent — pause the parent.
+	resp.Action = "pause"
+	return resp, nil
+}
+
+// fanoutDescribeCandidateEdges is a test seam for the fork path's edge load.
+// It lives here rather than beside plan.go's hooks because the keyed fork is
+// the only caller — `shark plan` selections stay deliberately edge-less.
+var fanoutDescribeCandidateEdges = describePlanCandidateEdges
+
+// attachForkCandidateEdges loads each fork candidate's dependency, blocker,
+// and link edges and attaches them to the selection.
+//
+// A load failure is fatal rather than fail-soft, unlike the claim lookup in
+// tryCascade. The asymmetry is deliberate: a missing claim errs toward
+// offering work that turns out to be taken, which the next call corrects,
+// whereas missing edges are indistinguishable on the wire from "this
+// candidate has no dependencies" and would invite the rider to launch
+// genuinely coupled work in parallel. Silence is the dangerous answer here,
+// so the fork fails loudly instead.
+func attachForkCandidateEdges(ctx context.Context, selection *HierarchyPlanSelectionResponse) error {
+	if selection == nil || len(selection.Entities) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(selection.Entities))
+	for _, candidate := range selection.Entities {
+		keys = append(keys, candidate.EntityKey)
+	}
+	edges, err := fanoutDescribeCandidateEdges(ctx, selection.Entities[0].EntityType, keys)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to load dependency edges for the %s fork under %s: %w",
+			selection.Entities[0].EntityType, selection.RootKey, err,
+		)
+	}
+	applyCandidateEdges(selection, edges)
+	return nil
 }
 
 // autoAdvanceCascadeParent handles tryCascade's all-children-terminal case:
