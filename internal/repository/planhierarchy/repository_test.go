@@ -23,17 +23,8 @@ func TestReadDirectChildrenEpicReturnsOrderedFeaturesAndClaimState(t *testing.T)
 	insertFeature(t, database, epicID, "E07-F03", "Unordered", nil)
 
 	now := time.Now().UTC()
-	if _, err := database.Exec(
-		`INSERT INTO entity_claims
-		 (entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat)
-		 VALUES (?, ?, 'worker', 'session', ?, ?)`,
-		models.EntityTypeFeature,
-		"E07-F02",
-		dbconn.FormatTime(now),
-		dbconn.FormatTime(now),
-	); err != nil {
-		t.Fatalf("insert feature claim: %v", err)
-	}
+	insertClaim(t, database, models.EntityTypeFeature, "E07-F02", now)
+	insertClaim(t, database, models.EntityTypeFeature, "E07-F03", now.Add(-30*time.Minute))
 
 	repo := planhierarchyrepo.NewRepository(dbconn.NewDB(database))
 	snapshot, err := repo.ReadDirectChildren(
@@ -54,8 +45,26 @@ func TestReadDirectChildrenEpicReturnsOrderedFeaturesAndClaimState(t *testing.T)
 	}) {
 		t.Fatalf("child keys = %#v, want execution order then unordered", got)
 	}
-	if snapshot.Children[0].Claimed || !snapshot.Children[1].Claimed {
-		t.Fatalf("claim flags = %#v, want only E07-F02 claimed", snapshot.Children)
+	if got := childClaimFlags(snapshot.Children); !reflect.DeepEqual(got, []bool{
+		false, true, false,
+	}) {
+		t.Fatalf("claim flags = %#v, want unclaimed/fresh/expired", got)
+	}
+
+	neverExpires, err := repo.ReadDirectChildren(
+		context.Background(),
+		string(models.EntityTypeEpic),
+		"E07",
+		0,
+		now,
+	)
+	if err != nil {
+		t.Fatalf("ReadDirectChildren(TTL=0) error = %v", err)
+	}
+	if got := childClaimFlags(neverExpires.Children); !reflect.DeepEqual(got, []bool{
+		false, true, true,
+	}) {
+		t.Fatalf("claim flags with TTL=0 = %#v, want all persisted claims active", got)
 	}
 }
 
@@ -95,13 +104,16 @@ func TestReadDirectChildrenFeatureReturnsTasksAndAllDependencySources(t *testing
 		t.Fatalf("insert task dependency relationship: %v", err)
 	}
 
+	now := time.Now().UTC()
+	insertClaim(t, database, models.EntityTypeTask, "T-E07-F01-002", now)
+
 	repo := planhierarchyrepo.NewRepository(dbconn.NewDB(database))
 	snapshot, err := repo.ReadDirectChildren(
 		context.Background(),
 		string(models.EntityTypeFeature),
 		"E07-F01",
 		15*time.Minute,
-		time.Now().UTC(),
+		now,
 	)
 	if err != nil {
 		t.Fatalf("ReadDirectChildren() error = %v", err)
@@ -110,6 +122,11 @@ func TestReadDirectChildrenFeatureReturnsTasksAndAllDependencySources(t *testing
 		"T-E07-F01-001", "T-E07-F01-002", "T-E07-F01-003",
 	}) {
 		t.Fatalf("child keys = %#v, want stable execution/priority order", got)
+	}
+	if got := childClaimFlags(snapshot.Children); !reflect.DeepEqual(got, []bool{
+		false, true, false,
+	}) {
+		t.Fatalf("task claim flags = %#v, want only T-E07-F01-002 claimed", got)
 	}
 	for _, index := range []int{1, 2} {
 		dependencies := snapshot.Children[index].Dependencies
@@ -214,10 +231,40 @@ func lastInsertID(t *testing.T, result sql.Result) int64 {
 	return id
 }
 
+func insertClaim(
+	t *testing.T,
+	database *sql.DB,
+	entityType models.EntityType,
+	entityKey string,
+	heartbeat time.Time,
+) {
+	t.Helper()
+	if _, err := database.Exec(
+		`INSERT INTO entity_claims
+		 (entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat)
+		 VALUES (?, ?, 'worker', ?, ?, ?)`,
+		entityType,
+		entityKey,
+		"session-"+entityKey,
+		dbconn.FormatTime(heartbeat),
+		dbconn.FormatTime(heartbeat),
+	); err != nil {
+		t.Fatalf("insert %s %s claim: %v", entityType, entityKey, err)
+	}
+}
+
 func childKeys(children []planhierarchyrepo.Child) []string {
 	keys := make([]string, 0, len(children))
 	for _, child := range children {
 		keys = append(keys, child.Key)
 	}
 	return keys
+}
+
+func childClaimFlags(children []planhierarchyrepo.Child) []bool {
+	flags := make([]bool, 0, len(children))
+	for _, child := range children {
+		flags = append(flags, child.Claimed)
+	}
+	return flags
 }

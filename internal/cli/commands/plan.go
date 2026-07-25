@@ -29,7 +29,6 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	sharkconfig "github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -117,6 +116,18 @@ type CandidateEdge struct {
 	Type   string `json:"type"`
 }
 
+// CandidateEdgeWarning reports a relationship row whose far endpoint could
+// not be resolved. Consumers must treat this as an integration-evidence gap,
+// not as proof that the omitted edge never existed.
+type CandidateEdgeWarning struct {
+	Code             string `json:"code"`
+	Direction        string `json:"direction"`
+	RelationshipID   int64  `json:"relationship_id"`
+	EndpointType     string `json:"endpoint_type"`
+	EndpointID       int64  `json:"endpoint_id"`
+	RelationshipType string `json:"relationship_type"`
+}
+
 // HierarchyPlanCandidate is one direct feature or task selected beneath a
 // keyed planning parent.
 //
@@ -126,15 +137,16 @@ type CandidateEdge struct {
 // selection output is deliberately edge-less; callers that want edges attach
 // them with applyCandidateEdges after buildHierarchyPlanSelection returns.
 type HierarchyPlanCandidate struct {
-	EntityKey      string          `json:"entity_key"`
-	EntityType     string          `json:"entity_type"`
-	Title          string          `json:"title"`
-	Status         string          `json:"status"`
-	ExecutionOrder *int            `json:"execution_order,omitempty"`
-	Priority       *int            `json:"priority,omitempty"`
-	DependsOn      []CandidateEdge `json:"depends_on,omitempty"`
-	Blocks         []CandidateEdge `json:"blocks,omitempty"`
-	Links          []CandidateEdge `json:"links,omitempty"`
+	EntityKey      string                 `json:"entity_key"`
+	EntityType     string                 `json:"entity_type"`
+	Title          string                 `json:"title"`
+	Status         string                 `json:"status"`
+	ExecutionOrder *int                   `json:"execution_order,omitempty"`
+	Priority       *int                   `json:"priority,omitempty"`
+	DependsOn      []CandidateEdge        `json:"depends_on,omitempty"`
+	Blocks         []CandidateEdge        `json:"blocks,omitempty"`
+	Links          []CandidateEdge        `json:"links,omitempty"`
+	Warnings       []CandidateEdgeWarning `json:"warnings,omitempty"`
 }
 
 // HierarchyPlanSelectionResponse is the one-level selection contract returned
@@ -565,112 +577,17 @@ func boundedParallelItemCount(itemCount, configuredMax int) int {
 	return itemCount
 }
 
-// resolvePlanDispatch is the top-level entry point for a keyed `shark plan
-// <entity-key>` invocation (depth 0). It is a thin, explicitly-named alias
-// over resolvePlanEntity, mirroring next.go's resolveNext/resolveNextDispatch
-// naming so tests and callers can distinguish "start a plan resolution" from
-// "recurse within one".
+// resolvePlanDispatch is the keyed `shark plan <entity-key>` entry point. It
+// uses the shared entity resolver with plan's one-level cascade strategy.
 func resolvePlanDispatch(ctx context.Context, cache *planAdapterCache, entityType, normalizedKey string, depth int) (NextResponse, error) {
-	return resolvePlanEntity(ctx, cache, entityType, normalizedKey, depth)
-}
-
-// resolvePlanEntity is the recursive core of `shark plan <entity-key>`. It
-// mirrors resolveNext's dispatch resolution for non-cascade statuses (spawn,
-// pause, archive, auto-advance placeholders — sharing next.go's applyWireAction
-// wire-vocabulary mapping and prompt assembly) but replaces cascade
-// resolution with one-level hierarchy selection instead of next.go's full
-// traversal: an epic or feature at a "cascade" step returns its direct
-// children as a selection and never recurses into a selected child.
-func resolvePlanEntity(ctx context.Context, cache *planAdapterCache, entityType, normalizedKey string, depth int) (NextResponse, error) {
-	if depth > maxCascadeDepth {
-		return NextResponse{
-			EntityKey:  normalizedKey,
-			EntityType: entityType,
-			Action:     "error",
-			Error:      fmt.Sprintf("cascade depth limit (%d) exceeded — likely a misconfigured workflow", maxCascadeDepth),
-		}, nil
-	}
-
-	a, err := cache.get(ctx, entityType)
-	if err != nil {
-		return NextResponse{}, err
-	}
-	transitioner := a.transitioner
-	placeholderGen := a.generator
-	actionSvc := a.actionSvc
-
-	nextInfo, err := transitioner.GetNextStatus(ctx, normalizedKey)
-	if err != nil {
-		return NextResponse{}, fmt.Errorf("failed to read status for %s: %w", normalizedKey, err)
-	}
-	currentStatus := nextInfo.CurrentStatus
-
-	resp := NextResponse{
-		EntityKey:  normalizedKey,
-		EntityType: entityType,
-		Status:     currentStatus,
-	}
-
-	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
-		if isArchivedStatus(entityType, currentStatus) {
-			resp.Action = "archive"
-		} else {
-			resp.Action = "pause"
-		}
-		return resp, nil
-	}
-
-	var vars map[string]string
-	if placeholderGen != nil {
-		vars, err = placeholderGen.GeneratePlaceholders(ctx, normalizedKey)
-		if err != nil {
-			return NextResponse{}, fmt.Errorf("failed to generate placeholders for %s: %w", normalizedKey, err)
-		}
-	}
-	if vars == nil {
-		vars = map[string]string{}
-	}
-	templates.AugmentPlaceholderAliases(vars)
-
-	populated, err := actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
-	if err != nil {
-		if isStatusNotFoundError(err) {
-			resp.Action = "pause"
-			resp.Error = fmt.Sprintf("status %q is not defined in the workflow configuration; this may be a legacy status that has been removed", currentStatus)
-			return resp, nil
-		}
-		return NextResponse{}, fmt.Errorf("failed to populate action for status %q: %w", currentStatus, err)
-	}
-
-	if populated == nil {
-		resp.Action = "pause"
-		return resp, nil
-	}
-
-	internalAction := strings.TrimSpace(populated.Action)
-	if actionRequiresInstruction(internalAction) && strings.TrimSpace(populated.Instruction) == "" {
-		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
-	}
-	if internalAction == "cascade" {
-		return tryPlanHierarchy(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
-	}
-
-	wireResp, handled, err := applyPlanWireAction(ctx, cache, entityType, normalizedKey, depth, internalAction, populated, nextInfo, transitioner, resp)
-	if err != nil {
-		return NextResponse{}, err
-	}
-	if handled {
-		return wireResp, nil
-	}
-	resp = wireResp
-
-	attached, err := assembleDispatchPrompt(resp.Prompt, resp.AgentType, vars)
-	if err != nil {
-		return NextResponse{}, err
-	}
-	resp.Prompt = attached
-
-	return resp, nil
+	return resolveEntity(
+		ctx,
+		cache.nextAdapterCache,
+		planResolutionStrategy(cache),
+		entityType,
+		normalizedKey,
+		depth,
+	)
 }
 
 // tryPlanHierarchy owns one-level hierarchy selection for the "cascade" verb.
@@ -681,12 +598,13 @@ func resolvePlanEntity(ctx context.Context, cache *planAdapterCache, entityType,
 // When all children are non-dispatchable, the parent normally pauses. The one
 // exception is when the service can prove there were children and every one of
 // them is terminal; in that case the parent is auto-advanced one configured
-// step and resolvePlanEntity recurses on the same entity so feature/epic
+// step and the shared resolver recurses on the same entity so feature/epic
 // workflows move into code_review/completed instead of stalling at 100% child
 // completion.
 func tryPlanHierarchy(
 	ctx context.Context,
 	cache *planAdapterCache,
+	strategy entityResolutionStrategy,
 	entityType, normalizedKey string,
 	depth int,
 	resp NextResponse,
@@ -710,71 +628,64 @@ func tryPlanHierarchy(
 		return resp, nil
 	}
 	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
-		return autoAdvancePlanCascadeParent(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
+		return autoAdvanceCascadeParent(
+			ctx,
+			cache.nextAdapterCache,
+			strategy,
+			entityType,
+			normalizedKey,
+			depth,
+			resp,
+			nextInfo,
+			transitioner,
+		)
 	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
 	return resp, nil
 }
 
+type planChildTierIdentity struct {
+	dimension string
+	value     int
+}
+
+func planChildTier(
+	child services.PlanHierarchyChild,
+) (planChildTierIdentity, string) {
+	if child.ExecutionOrder != nil {
+		return planChildTierIdentity{
+			dimension: "execution_order",
+			value:     *child.ExecutionOrder,
+		}, "execution_order"
+	}
+	if child.EntityType == models.EntityTypeTask && child.Priority != nil {
+		return planChildTierIdentity{
+			dimension: "priority",
+			value:     *child.Priority,
+		}, "priority"
+	}
+	return planChildTierIdentity{dimension: "repository_order"}, "repository_order"
+}
+
 func selectPlanChildTier(children []services.PlanHierarchyChild) ([]services.PlanHierarchyChild, string) {
 	if len(children) == 0 {
 		return []services.PlanHierarchyChild{}, ""
 	}
-	first := children[0]
-	if first.ExecutionOrder != nil {
-		selected := make([]services.PlanHierarchyChild, 0, len(children))
-		for _, child := range children {
-			if child.ExecutionOrder == nil || *child.ExecutionOrder != *first.ExecutionOrder {
-				break
-			}
-			selected = append(selected, child)
-		}
-		if len(selected) > 1 {
-			return selected, "parallel_tie"
-		}
-		return selected, "execution_order"
-	}
-	if first.EntityType == models.EntityTypeTask && first.Priority != nil {
-		selected := make([]services.PlanHierarchyChild, 0, len(children))
-		for _, child := range children {
-			if child.ExecutionOrder != nil || child.Priority == nil || *child.Priority != *first.Priority {
-				break
-			}
-			selected = append(selected, child)
-		}
-		if len(selected) > 1 {
-			return selected, "parallel_tie"
-		}
-		return selected, "priority"
-	}
-	// Neither an execution order nor (for tasks) a priority distinguishes
-	// these children, so nothing about them is sequenced — they are a tie,
-	// the same way an equal execution_order is. Returning children[:1] here
-	// would silently collapse the tier: features are created with a NULL
-	// execution_order unless --order is passed, so an epic's features would
-	// otherwise never surface as a parallel opportunity.
-	//
-	// Children arrive ordered "execution_order IS NULL" last, so reaching
-	// this branch means the leading run of children all lack an order; the
-	// loop stops at the first child that has one.
-	selected := make([]services.PlanHierarchyChild, 0, len(children))
-	for _, child := range children {
-		if child.ExecutionOrder != nil {
+	firstTier, reason := planChildTier(children[0])
+	end := 1
+	for end < len(children) {
+		tier, _ := planChildTier(children[end])
+		if tier != firstTier {
 			break
 		}
-		if child.EntityType == models.EntityTypeTask && child.Priority != nil {
-			break
-		}
-		selected = append(selected, child)
+		end++
 	}
+	selected := children[:end]
 	if len(selected) > 1 {
-		return selected, "parallel_tie"
+		reason = "parallel_tie"
 	}
-	// children[0] always survives the loop: reaching this branch means it has
-	// no execution order and, if it is a task, no priority — the same two
-	// predicates the loop breaks on — so selected is never empty here.
-	return selected, "repository_order"
+	return selected, reason
 }
 
 func buildHierarchyPlanSelection(
@@ -810,88 +721,6 @@ func buildHierarchyPlanSelection(
 	response.ParallelExecution = "available"
 	response.Entities = candidates
 	return response
-}
-
-// autoAdvancePlanCascadeParent handles tryPlanHierarchy's all-children-terminal
-// case: the parent is advanced one happy-path step and resolvePlanEntity
-// recurses on the same entity, so feature/epic workflows move into
-// code_review/completed instead of stalling at 100% child completion.
-func autoAdvancePlanCascadeParent(
-	ctx context.Context,
-	cache *planAdapterCache,
-	entityType, normalizedKey string,
-	depth int,
-	resp NextResponse,
-	nextInfo *services.NextStatusInfo,
-	transitioner runner.EntityTransitioner,
-) (NextResponse, error) {
-	if nextInfo == nil || len(nextInfo.AvailableTransitions) == 0 {
-		resp.Action = "pause"
-		resp.Error = fmt.Sprintf(
-			"all child work is terminal, but %s %s at status %q has no forward transition to auto-advance to",
-			entityType, normalizedKey, resp.Status,
-		)
-		return resp, nil
-	}
-	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
-	opts := services.TransitionOptions{
-		Reason: "cascade completion: all child work terminal",
-		Agent:  "shark-cascade",
-	}
-	if _, err := transitioner.TransitionStatus(ctx, normalizedKey, targetStatus, opts); err != nil {
-		return NextResponse{}, fmt.Errorf(
-			"cascade completion advance from %s to %s failed for %s: %w",
-			resp.Status, targetStatus, normalizedKey, err,
-		)
-	}
-	return resolvePlanEntity(ctx, cache, entityType, normalizedKey, depth+1)
-}
-
-// applyPlanWireAction mirrors next.go's applyWireAction (shared wire-vocabulary
-// mapping via normalizeWireAction), differing only in its recursive target
-// for the "advance_and_recurse" branch: resolvePlanEntity rather than
-// resolveNext, so a same-entity auto-advance that lands on a new cascade step
-// still gets one-level selection instead of next.go's full traversal.
-func applyPlanWireAction(
-	ctx context.Context,
-	cache *planAdapterCache,
-	entityType, normalizedKey string,
-	depth int,
-	internalAction string,
-	populated *action.PopulatedAction,
-	nextInfo *services.NextStatusInfo,
-	transitioner runner.EntityTransitioner,
-	resp NextResponse,
-) (NextResponse, bool, error) {
-	wireAction, transitionalTarget := normalizeWireAction(internalAction, populated.AgentType, nextInfo)
-	switch wireAction {
-	case "advance_and_recurse":
-		if transitionalTarget == "" {
-			resp.Action = "pause"
-			return resp, true, nil
-		}
-		if _, err := transitioner.TransitionStatus(ctx, normalizedKey, transitionalTarget, services.TransitionOptions{}); err != nil {
-			return NextResponse{}, true, fmt.Errorf("auto-advance from %s to %s failed for %s: %w", resp.Status, transitionalTarget, normalizedKey, err)
-		}
-		recursed, err := resolvePlanEntity(ctx, cache, entityType, normalizedKey, depth+1)
-		if err != nil {
-			return NextResponse{}, true, err
-		}
-		return recursed, true, nil
-
-	case "error":
-		resp.Action = "pause"
-		resp.Error = fmt.Sprintf("unknown internal action verb %q for status %q", internalAction, resp.Status)
-		return resp, true, nil
-	}
-
-	resp.Action = wireAction
-	resp.AgentType = populated.AgentType
-	resp.Provider = populated.Provider
-	resp.Model = populated.Model
-	resp.Effort = populated.Effort
-	resp.Prompt = populated.Instruction
-	return resp, false, nil
 }
 
 func describePlanDispatchableChildren(ctx context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
@@ -943,6 +772,7 @@ func applyCandidateEdgesTo(
 	candidate.DependsOn = toCandidateEdges(found.DependsOn)
 	candidate.Blocks = toCandidateEdges(found.Blocks)
 	candidate.Links = toCandidateEdges(found.Links)
+	candidate.Warnings = toCandidateEdgeWarnings(found.Warnings)
 }
 
 // toCandidateEdges returns nil for an empty input so the omitempty json tags
@@ -957,6 +787,24 @@ func toCandidateEdges(edges []services.PlanHierarchyEdge) []CandidateEdge {
 			Key:    edge.Key,
 			Status: edge.Status,
 			Type:   edge.Type,
+		})
+	}
+	return converted
+}
+
+func toCandidateEdgeWarnings(warnings []services.PlanHierarchyEdgeWarning) []CandidateEdgeWarning {
+	if len(warnings) == 0 {
+		return nil
+	}
+	converted := make([]CandidateEdgeWarning, 0, len(warnings))
+	for _, warning := range warnings {
+		converted = append(converted, CandidateEdgeWarning{
+			Code:             warning.Code,
+			Direction:        warning.Direction,
+			RelationshipID:   warning.RelationshipID,
+			EndpointType:     string(warning.EndpointType),
+			EndpointID:       warning.EndpointID,
+			RelationshipType: string(warning.RelationshipType),
 		})
 	}
 	return converted

@@ -141,6 +141,7 @@ func TestApplyWireAction_SpawnAgentPopulatesAllFields(t *testing.T) {
 	got, handled, err := applyWireAction(
 		context.Background(),
 		cache,
+		nextResolutionStrategy(),
 		"task",
 		"E07-F01-001",
 		0, // depth

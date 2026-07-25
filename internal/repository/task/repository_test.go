@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -10,10 +11,19 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/epic"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/feature"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTaskRepository_GetByIDClassifiesMissingEntity(t *testing.T) {
+	repo := NewTaskRepository(dbconn.NewDB(test.GetTestDB()))
+
+	_, err := repo.GetByID(context.Background(), -1)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, repoerr.ErrNotFound), "error = %v", err)
+}
 
 // TestTaskRepository_Create_GeneratesAndStoresSlug verifies slug generation during task creation
 func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {

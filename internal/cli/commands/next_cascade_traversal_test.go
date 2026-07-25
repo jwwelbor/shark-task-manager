@@ -28,25 +28,25 @@ func (t keyedByEntityTransitioner) TransitionStatus(context.Context, string, str
 // the first dispatchable task, returning that task's concrete dispatch
 // response with both parents recorded in resolved_via, in traversal order.
 func TestResolveNextTraversesMultiLevelCascadeAndRecordsResolvedVia(t *testing.T) {
-	originalDescribe := nextDescribeDispatchableChildren
-	defer func() { nextDescribeDispatchableChildren = originalDescribe }()
+	originalDescribe := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = originalDescribe }()
 
-	nextDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
 		switch {
 		case entityType == "epic" && key == "E01":
-			return services.CascadeChildrenState{
-				Children:            []services.CascadeChild{{Key: "E01-F01", EntityType: models.EntityTypeFeature}},
+			return services.PlanHierarchyChildrenState{
+				Children:            []services.PlanHierarchyChild{{Key: "E01-F01", EntityType: models.EntityTypeFeature}},
 				TotalChildren:       1,
 				NonTerminalChildren: 1,
 			}, nil
 		case entityType == "feature" && key == "E01-F01":
-			return services.CascadeChildrenState{
-				Children:            []services.CascadeChild{{Key: "T-E01-F01-001", EntityType: models.EntityTypeTask}},
+			return services.PlanHierarchyChildrenState{
+				Children:            []services.PlanHierarchyChild{{Key: "T-E01-F01-001", EntityType: models.EntityTypeTask}},
 				TotalChildren:       1,
 				NonTerminalChildren: 1,
 			}, nil
 		default:
-			return services.CascadeChildrenState{}, nil
+			return services.PlanHierarchyChildrenState{}, nil
 		}
 	}
 

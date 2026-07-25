@@ -91,7 +91,9 @@ func NewStandalonePlanningService(
 	}
 }
 
-// Plan returns claimable, non-terminal roots grouped by stored priority tier.
+// Plan returns dependency-satisfied, claimable roots grouped by stored
+// priority tier. Production list readers exclude terminal roots; callers apply
+// final workflow-action readiness filtering.
 func (s *StandalonePlanningService) Plan(ctx context.Context, collection StandalonePlanCollection) (StandalonePlan, error) {
 	ranked, err := s.listRankedCandidates(ctx, collection)
 	if err != nil {
@@ -363,14 +365,16 @@ func groupStandaloneCandidates(candidates []rankedStandaloneCandidate) [][]Stand
 }
 
 func severityRank(severity string) int {
-	switch severity {
-	case "critical":
+	// Bug and tech-debt severities share the same stored values, so BugSeverity
+	// is the comparison vocabulary for both collections.
+	switch models.BugSeverity(severity) {
+	case models.BugSeverityCritical:
 		return 1
-	case "high":
+	case models.BugSeverityHigh:
 		return 2
-	case "medium":
+	case models.BugSeverityMedium:
 		return 3
-	case "low":
+	case models.BugSeverityLow:
 		return 4
 	default:
 		return 5

@@ -59,7 +59,7 @@ const (
 )
 
 // PortfolioAdviceEnvelope is the read-only evidence assembled for bare
-// `shark next` selection.
+// `shark plan` epic selection.
 type PortfolioAdviceEnvelope struct {
 	Mode             PortfolioAdviceMode         `json:"mode"`
 	EvidenceComplete bool                        `json:"evidence_complete"`

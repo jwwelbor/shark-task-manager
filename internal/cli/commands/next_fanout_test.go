@@ -60,7 +60,7 @@ func fanoutCache(
 	// a max_parallel_items key to the project's own config would then turn
 	// these tests red for reasons unrelated to fork shape.
 	stubMaxParallelItems(t, 5)
-	return &nextAdapterCache{entries: entries, actionSvcRoot: actionSvc, fanout: true}
+	return &nextAdapterCache{entries: entries, actionSvcRoot: actionSvc, surfaceForks: true}
 }
 
 // stubMaxParallelItems pins the configured fan-out cap for one test.
@@ -131,6 +131,14 @@ func TestFanoutStopsAtForkInsteadOfPickingFirstChild(t *testing.T) {
 			"T-E01-F01-001": {
 				DependsOn: []services.PlanHierarchyEdge{{Key: "T-E01-F01-000", Status: "completed", Type: "depends_on"}},
 				Blocks:    []services.PlanHierarchyEdge{{Key: "T-E01-F01-009", Status: "todo", Type: "blocks"}},
+				Warnings: []services.PlanHierarchyEdgeWarning{{
+					Code:             services.PlanHierarchyWarningDanglingRelationship,
+					Direction:        "incoming",
+					RelationshipID:   77,
+					EndpointType:     models.EntityTypeTask,
+					EndpointID:       404,
+					RelationshipType: models.EntityRelRelatedTo,
+				}},
 			},
 		}, nil
 	}
@@ -151,6 +159,14 @@ func TestFanoutStopsAtForkInsteadOfPickingFirstChild(t *testing.T) {
 	require.Equal(t,
 		[]CandidateEdge{{Key: "T-E01-F01-009", Status: "todo", Type: "blocks"}},
 		resp.selection.Entities[0].Blocks)
+	require.Equal(t, []CandidateEdgeWarning{{
+		Code:             services.PlanHierarchyWarningDanglingRelationship,
+		Direction:        "incoming",
+		RelationshipID:   77,
+		EndpointType:     "task",
+		EndpointID:       404,
+		RelationshipType: "related_to",
+	}}, resp.selection.Entities[0].Warnings)
 	require.Nil(t, resp.selection.Entities[1].DependsOn,
 		"a candidate with no edges stays edge-less rather than being zeroed")
 
@@ -302,7 +318,7 @@ func TestFanoutFallsThroughPausedChildAndReTiers(t *testing.T) {
 }
 
 // TestFanoutAutoAdvancesParentWhenAllChildrenTerminal proves the fan-out path
-// kept tryCascade's auto-advance branch. Losing it would strand features and
+// kept keyed-next's auto-advance branch. Losing it would strand features and
 // epics at 100% child completion instead of moving them into review/completed.
 func TestFanoutAutoAdvancesParentWhenAllChildrenTerminal(t *testing.T) {
 	original := planDescribeDispatchableChildren
@@ -342,7 +358,7 @@ func TestFanoutAutoAdvancesParentWhenAllChildrenTerminal(t *testing.T) {
 			},
 		},
 		actionSvcRoot: actionSvc,
-		fanout:        true,
+		surfaceForks:  true,
 	}
 
 	resp, err := resolveNext(context.Background(), cache, "feature", "E01-F01", 0)
@@ -352,49 +368,101 @@ func TestFanoutAutoAdvancesParentWhenAllChildrenTerminal(t *testing.T) {
 	require.True(t, advanceTransitioner.transitioned)
 }
 
-// TestSequentialModeUsesLegacyCascade proves --sequential / sequential_dispatch
-// still routes through tryCascade: it consults the CascadeService seam and
-// never the plan-hierarchy seam, so the legacy single-track contract is
-// reachable unchanged.
-func TestSequentialModeUsesLegacyCascade(t *testing.T) {
+// TestSequentialAndFanoutUseSameHierarchyEnumeration proves the mode changes
+// only fork emission. Both runs consult the same hierarchy seam and select the
+// same first eligible candidate; sequential returns its dispatch while
+// fan-out surfaces the complete tied tier.
+func TestSequentialAndFanoutUseSameHierarchyEnumeration(t *testing.T) {
 	originalPlan := planDescribeDispatchableChildren
-	originalCascade := nextDescribeDispatchableChildren
-	defer func() {
-		planDescribeDispatchableChildren = originalPlan
-		nextDescribeDispatchableChildren = originalCascade
-	}()
+	defer func() { planDescribeDispatchableChildren = originalPlan }()
 
-	planCalled := false
-	planDescribeDispatchableChildren = func(_ context.Context, _, _ string) (services.PlanHierarchyChildrenState, error) {
-		planCalled = true
-		return services.PlanHierarchyChildrenState{}, nil
-	}
-	nextDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+	calls := 0
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		calls++
 		if entityType == "feature" && key == "E01-F01" {
-			return services.CascadeChildrenState{
-				Children: []services.CascadeChild{
-					{Key: "T-E01-F01-001", EntityType: models.EntityTypeTask},
-					{Key: "T-E01-F01-002", EntityType: models.EntityTypeTask},
+			order := 1
+			return services.PlanHierarchyChildrenState{
+				Children: []services.PlanHierarchyChild{
+					{
+						Key: "T-E01-F01-001", EntityType: models.EntityTypeTask,
+						ExecutionOrder: &order,
+					},
+					{
+						Key: "T-E01-F01-002", EntityType: models.EntityTypeTask,
+						ExecutionOrder: &order,
+					},
 				},
 				TotalChildren:       2,
 				NonTerminalChildren: 2,
 			}, nil
 		}
-		return services.CascadeChildrenState{}, nil
+		return services.PlanHierarchyChildrenState{}, nil
 	}
 
-	cache := fanoutCache(t, map[string]string{
+	statuses := map[string]string{
 		"E01-F01":       "active",
 		"T-E01-F01-001": "todo",
-	}, cascadeOrDispatch)
-	cache.fanout = false
+		"T-E01-F01-002": "todo",
+	}
+	sequential := fanoutCache(t, statuses, cascadeOrDispatch)
+	sequential.surfaceForks = false
+
+	resp, err := resolveNext(context.Background(), sequential, "feature", "E01-F01", 0)
+	require.NoError(t, err)
+	require.Nil(t, resp.selection, "sequential mode never forks")
+	require.Equal(t, "spawn_agent", resp.Action)
+	require.Equal(t, "T-E01-F01-001", resp.EntityKey)
+
+	stubForkEdges(t)
+	fanout := fanoutCache(t, statuses, cascadeOrDispatch)
+	fanout.surfaceForks = true
+	resp, err = resolveNext(context.Background(), fanout, "feature", "E01-F01", 0)
+	require.NoError(t, err)
+	require.NotNil(t, resp.selection)
+	require.Equal(t, []string{
+		"T-E01-F01-001", "T-E01-F01-002",
+	}, hierarchyPlanCandidateKeys(resp.selection.Entities))
+	require.Equal(t, 2, calls, "both modes must consult the same hierarchy seam once")
+}
+
+// TestSequentialTraversalStopsAtFirstLiveCandidate protects sequential mode's
+// evaluation boundary: once the first candidate can dispatch, later tied
+// siblings must not be resolved speculatively.
+func TestSequentialTraversalStopsAtFirstLiveCandidate(t *testing.T) {
+	originalPlan := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = originalPlan }()
+
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		if entityType != "feature" || key != "E01-F01" {
+			return services.PlanHierarchyChildrenState{}, nil
+		}
+		return services.PlanHierarchyChildrenState{
+			Children: []services.PlanHierarchyChild{
+				fanoutChild("T-E01-F01-001", models.EntityTypeTask, 1),
+				fanoutChild("T-E01-F01-002", models.EntityTypeTask, 1),
+			},
+			TotalChildren:       2,
+			NonTerminalChildren: 2,
+		}, nil
+	}
+
+	statuses := map[string]string{
+		"E01-F01":       "active",
+		"T-E01-F01-001": "todo",
+		"T-E01-F01-002": "must_not_resolve",
+	}
+	cache := fanoutCache(t, statuses, func(status string) *action.PopulatedAction {
+		if status == "must_not_resolve" {
+			t.Fatal("sequential mode resolved a sibling after finding live work")
+		}
+		return cascadeOrDispatch(status)
+	})
+	cache.surfaceForks = false
 
 	resp, err := resolveNext(context.Background(), cache, "feature", "E01-F01", 0)
 	require.NoError(t, err)
-	require.False(t, planCalled, "sequential mode must not consult the plan hierarchy seam")
-	require.Nil(t, resp.selection, "sequential mode never forks")
 	require.Equal(t, "spawn_agent", resp.Action)
-	require.Equal(t, "T-E01-F01-001", resp.EntityKey, "legacy cascade picks the first dispatchable child")
+	require.Equal(t, "T-E01-F01-001", resp.EntityKey)
 }
 
 // TestForkFailsLoudlyWhenEdgeLoadFails pins the deliberate asymmetry with the
@@ -433,7 +501,7 @@ func TestForkFailsLoudlyWhenEdgeLoadFails(t *testing.T) {
 // TestSequentialDispatchPrecedence covers the resolution the user locked:
 // default is fan-out, config can force sequential, and an explicitly passed
 // --sequential flag overrides config in both directions. Without this,
-// inverting the `!` in `adapters.fanout = !sequential` would leave every other
+// inverting the `!` in `adapters.surfaceForks = !sequential` would leave every other
 // test passing.
 func TestSequentialDispatchPrecedence(t *testing.T) {
 	original := nextGetSequentialDispatch

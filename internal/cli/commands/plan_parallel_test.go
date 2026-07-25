@@ -34,6 +34,112 @@ type keyedPlanTransitioner struct {
 	transitions map[string]string
 }
 
+func TestSelectPlanChildTierDecisionTable(t *testing.T) {
+	value := func(number int) *int { return &number }
+	child := func(
+		key string,
+		entityType models.EntityType,
+		executionOrder, priority *int,
+	) services.PlanHierarchyChild {
+		return services.PlanHierarchyChild{
+			Key:            key,
+			EntityType:     entityType,
+			ExecutionOrder: executionOrder,
+			Priority:       priority,
+		}
+	}
+
+	tests := []struct {
+		name       string
+		children   []services.PlanHierarchyChild
+		wantKeys   []string
+		wantReason string
+	}{
+		{name: "empty input", wantKeys: []string{}, wantReason: ""},
+		{
+			name: "execution-order singleton",
+			children: []services.PlanHierarchyChild{
+				child("E01-F01", models.EntityTypeFeature, value(1), nil),
+			},
+			wantKeys: []string{"E01-F01"}, wantReason: "execution_order",
+		},
+		{
+			name: "priority singleton",
+			children: []services.PlanHierarchyChild{
+				child("T-E01-F01-001", models.EntityTypeTask, nil, value(3)),
+			},
+			wantKeys: []string{"T-E01-F01-001"}, wantReason: "priority",
+		},
+		{
+			name: "unordered singleton",
+			children: []services.PlanHierarchyChild{
+				child("E01-F01", models.EntityTypeFeature, nil, nil),
+			},
+			wantKeys: []string{"E01-F01"}, wantReason: "repository_order",
+		},
+		{
+			name: "equal execution values use one tier despite distinct pointers and priorities",
+			children: []services.PlanHierarchyChild{
+				child("T-E01-F01-001", models.EntityTypeTask, value(2), value(1)),
+				child("T-E01-F01-002", models.EntityTypeTask, value(2), value(9)),
+			},
+			wantKeys: []string{"T-E01-F01-001", "T-E01-F01-002"}, wantReason: "parallel_tie",
+		},
+		{
+			name: "execution-order scan stops at first mismatch and ignores later match",
+			children: []services.PlanHierarchyChild{
+				child("E01-F01", models.EntityTypeFeature, value(1), nil),
+				child("E01-F02", models.EntityTypeFeature, value(2), nil),
+				child("E01-F03", models.EntityTypeFeature, value(1), nil),
+			},
+			wantKeys: []string{"E01-F01"}, wantReason: "execution_order",
+		},
+		{
+			name: "priority tie stops at boundary and ignores later match",
+			children: []services.PlanHierarchyChild{
+				child("T-E01-F01-001", models.EntityTypeTask, nil, value(3)),
+				child("T-E01-F01-002", models.EntityTypeTask, nil, value(3)),
+				child("T-E01-F01-003", models.EntityTypeTask, nil, value(4)),
+				child("T-E01-F01-004", models.EntityTypeTask, nil, value(3)),
+			},
+			wantKeys: []string{"T-E01-F01-001", "T-E01-F01-002"}, wantReason: "parallel_tie",
+		},
+		{
+			name: "same numeric value in different dimensions is not a tie",
+			children: []services.PlanHierarchyChild{
+				child("T-E01-F01-001", models.EntityTypeTask, value(3), nil),
+				child("T-E01-F01-002", models.EntityTypeTask, nil, value(3)),
+			},
+			wantKeys: []string{"T-E01-F01-001"}, wantReason: "execution_order",
+		},
+		{
+			name: "unordered tier stops before prioritized task",
+			children: []services.PlanHierarchyChild{
+				child("T-E01-F01-001", models.EntityTypeTask, nil, nil),
+				child("T-E01-F01-002", models.EntityTypeTask, nil, nil),
+				child("T-E01-F01-003", models.EntityTypeTask, nil, value(3)),
+			},
+			wantKeys: []string{"T-E01-F01-001", "T-E01-F01-002"}, wantReason: "parallel_tie",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, reason := selectPlanChildTier(tt.children)
+			require.Equal(t, tt.wantReason, reason)
+			require.Equal(t, tt.wantKeys, hierarchyChildKeys(selected))
+		})
+	}
+}
+
+func hierarchyChildKeys(children []services.PlanHierarchyChild) []string {
+	keys := make([]string, 0, len(children))
+	for _, child := range children {
+		keys = append(keys, child.Key)
+	}
+	return keys
+}
+
 func (t *keyedPlanTransitioner) GetNextStatus(_ context.Context, key string) (*services.NextStatusInfo, error) {
 	if err := t.errors[key]; err != nil {
 		return nil, err

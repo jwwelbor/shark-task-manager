@@ -215,7 +215,7 @@ there is no `response.prompt` — a fork is a selection, not a dispatch.
 |-------|---------|
 | `response.root_key` / `response.root_type` | The parent whose children forked |
 | `response.resolved_via` | Keys walked to reach the fork, e.g. `["E02","F03"]` |
-| `response.entities` | Candidate children: `entity_key`, `entity_type`, `title`, `status`, `execution_order`, `priority`, and optional `depends_on` / `blocks` / `links` arrays of `{key, status, type}` |
+| `response.entities` | Candidate children: `entity_key`, `entity_type`, `title`, `status`, `execution_order`, `priority`, optional `depends_on` / `blocks` / `links` arrays of `{key, status, type}`, and optional `warnings` |
 
 1. **Evaluate integration safety.** `response.parallel_execution: "available"`
    proves only that workflow state and stored dependencies allow concurrent
@@ -229,7 +229,11 @@ there is no `response.prompt` — a fork is a selection, not a dispatch.
    missing, malformed, `proposed`, or `deferred` relevant row as an
    integration evidence gap that rules out that candidate for independent
    parallel launch. Do not restate or reimplement that procedure here — read
-   it.
+   it. A candidate warning with
+   `code: "DANGLING_RELATIONSHIP"` means a stored relationship endpoint could
+   not be resolved and the reported edge set is incomplete. Report the
+   warning and do not independently parallel-launch that candidate until the
+   row is repaired; following one candidate sequentially remains available.
 2. **Choose a subset.** Keep every entity in `response.entities` that clears
    the check above. This may be all of them, several, or exactly one —
    nothing requires fanning out just because Shark offered a tie.

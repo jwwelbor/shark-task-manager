@@ -106,10 +106,6 @@ func portfolioUnknownStatusWarning(entityType, entityKey, status, epicKey string
 	}
 }
 
-func portfolioEvidenceWarning(code models.PortfolioWarningCode, message string) models.PortfolioWarning {
-	return models.PortfolioWarning{Code: code, Message: message, EpicKeys: []string{}}
-}
-
 func sortedPortfolioReasonCodes(set map[string]struct{}) []string {
 	reasons := make([]string, 0, len(set))
 	for reason := range set {

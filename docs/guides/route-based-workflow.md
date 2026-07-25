@@ -133,11 +133,18 @@ directory.
 
 Status is a pure phase; the **claim is the lease**. Keyed `shark next <key>`
 requires an entity key and never selects or leases work on its own — it
-resolves the requested entity's dispatch step, cascading internally to the
-first dispatchable descendant. Work selection is a separate, read-only
-surface: `shark plan [root|collection]` returns an epic, a one-level hierarchy
-tier, or a standalone-collection tier without claiming or leasing anything.
-After selecting or resolving an entity, an agent claims it before working it.
+resolves the requested entity's dispatch step, cascading internally until it
+reaches either one dispatchable descendant or a default fan-out fork. A fork
+returns a read-only `hierarchy_selection` / `parallel_candidates` response; it
+does not claim candidates. Choose the integration-safe candidate or candidates,
+then invoke `shark next <child-key>` for each chosen key. Use the
+[`sequential_dispatch` configuration](../cli-reference/configuration.md#sequential-dispatch)
+to collapse a surviving fork to its first eligible candidate.
+
+Work selection is a separate, read-only surface: `shark plan
+[root|collection]` returns an epic, a one-level hierarchy tier, or a
+standalone-collection tier without claiming or leasing anything. After
+selecting or resolving an entity, an agent claims it before working it.
 Heartbeats renew the lease, and a TTL backstop reclaims dead leases.
 
 ```bash

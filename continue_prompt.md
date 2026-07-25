@@ -1,96 +1,154 @@
 ---
-timestamp: 2026-04-14T22:15:00Z
-branch: E07-F39-viewer-entity-relationship-service
-feature: E07-F39
-status: feature completed, changes staged but NOT committed
+created: 2026-07-24 16:46:51 CDT
+branch: feat/shark-plan-command
+plan_file: /home/jwwel/.claude/plans/i-think-it-s-fine-shimmering-hamster.md
+shark_task: local task #14 "Discuss remaining work on feat/shark-plan-command with user"
+status: planning — design complete, ONE open decision pending user answer
 ---
 
-# Resume: E07-F39 — Commit and PR
+# Resume: cascade-to-fork for `shark next`
 
-## What's Done
+## What we're building
 
-Feature **E07-F39** ("Remove legacy relationship tables and dual-path query code") is **complete** in shark. Both tasks passed all quality gates (code review, QA, UAT).
+Teach `shark next <key> --json` to **cascade through single-option tiers as today, but
+STOP and return a fork (the candidate tier) when a tier has 2+ dispatchable children** —
+instead of silently picking the first child. The rider then decides fan-out-subset vs
+follow-one; following one = `shark next <child-id>`. This is what unlocks parallel dispatch:
+today the rider is never shown a set, so it can never fan out.
 
-Check status: `./bin/shark get E07-F39 --json --field=status` → `completed`
+Read the plan file first — it has the full context, confirmed findings, and decisions:
+`/home/jwwel/.claude/plans/i-think-it-s-fine-shimmering-hamster.md`
 
-## What Needs to Happen
+## Decisions already locked (with user)
 
-### Step 1: Commit the staged changes
+1. **Default fan-out.** Escape hatches to force legacy single-track: a `.sharkconfig.json`
+   bool `sequential_dispatch` (default false) AND a `--sequential` flag on `shark next`.
+   Flag > config > default.
+2. **Full edges** on each fork candidate: `depends_on` + `blocks` + `links`.
+3. Reuse the existing `HierarchyPlanSelectionResponse` envelope for the fork (no new shape).
 
-There are 21 staged files (deletions + modifications from T-E07-F39-001 and T-E07-F39-002) plus 58 untracked files (code_review reports, docs) that should be added selectively.
+## THE ONE OPEN DECISION (ask user first, before any code)
 
-Key staged changes:
-- `D internal/cli/commands/migrate_relationships.go`
-- `D internal/models/{task,epic,feature}_relationship.go`
-- `D internal/repository/{task,epic,feature}/relationship.go`
-- `D internal/repository/relationship_repositories_test.go`
-- `D internal/repository/task_relationship_repository_test.go`
-- `D internal/repository/task/relationship_test.go`
-- `M internal/repository/entityrel/repository.go` — new Feature/EpicKeyAdapters
-- `M internal/config/template/helpers.go` — wired new adapters
-- `M internal/services/viewer_service.go` — viewer uses EntityRelationshipService
-- `M internal/viewer/server/wire.go` — adapter wiring removed
-- `M internal/db/db.go` (in git history — bump to schema v12 + DROP TABLE migration)
+In default fan-out mode, how should **single-option tiers** resolve?
+- **(A) Plan engine throughout** (Plan agent's rec): fan-out drills via `PlanHierarchyService`
+  the whole way. Simpler, one engine. Single-option is *shape-preserving but NOT byte-identical*
+  to legacy — diverges only in the rare unclaimed-in-progress-out-of-execution-order case
+  (legacy resumes the in-progress task; fan-out drills the order-1 todo). `--sequential` gives
+  exact legacy behavior.
+- **(B) Legacy cascade for single-option**: reuse exact `CascadeService` resolution for
+  single-option tiers, diverge only at a real fork. Most faithful to user's "cascade as long
+  as one option," byte-identical single-option even by default, but interleaves two engines
+  (more complex, higher regression risk).
 
-Untracked files to add selectively:
-- `code_review/20260414-*-T-E07-F39-*` — QA/UAT reports for this feature
-- `docs/plan/E07-enhancements/E07-F39-*/spec.md`
-- `docs/plan/E07-enhancements/E07-F39-*/test-plan.md`
-- `docs/plan/E07-enhancements/E07-F39-*/code_review/`
-- `task_reviews/E07-F39-task-review.md`
-- `docs/workflow/activity.jsonl`
+The user interrupted right as this question was posed. **Get this answer, then finalize the
+plan's implementation section around it.** (A) keeps the design as written below; (B) requires
+`tryCascadeFanout` to call the legacy single-drill path for the `len(selected)==1` branch.
 
-Do NOT add the E27 code_review files — those belong to a different branch.
+## Implementation design (from Plan agent — assumes decision A; adjust if B)
 
-Commit command:
-```bash
-git add \
-  internal/ \
-  docs/plan/E07-enhancements/E07-F39-remove-legacy-relationship-tables-and-dual-path-qu/ \
-  code_review/20260414-*-T-E07-F39-* \
-  task_reviews/E07-F39-task-review.md \
-  docs/workflow/activity.jsonl \
-  continue_prompt.md
-git commit -m "feat(E07-F39): remove legacy relationship tables and dual-path query code
+Architecture: fan-out cascade = a drill-through wrapper around plan's one-level selection.
+Per tier: `PlanHierarchyService.DescribeChildren` → `selectPlanChildTier` →
+`len(selected)`: 0 → auto-advance/pause (unchanged semantics); 1 → drill (recurse
+`resolveNext` into the single child); ≥2 → fork (`HierarchyPlanSelectionResponse`).
+Tie-tiering means `execution_order 1,2,3` does NOT fork (only top tie-tier is a candidate set).
+`tryCascade` + `CascadeService` (sequential path) left byte-for-byte untouched.
 
-- Delete task_relationships, feature_relationships, epic_relationships repos and models
-- Add DROP TABLE migration (CurrentSchemaVersion 11→12)
-- Remove dual-path query fallbacks from dependency.go
-- Add EntityRelFeatureKeyAdapter and EntityRelEpicKeyAdapter
-- Replace viewer taskRelAdapter with per-task EntityRelationshipService calls
-- All tests pass (54 packages), lint clean
+**Phase 1 — config + flag plumbing**
+- `internal/config/config.go`: add `SequentialDispatch bool` (json `sequential_dispatch,omitempty`)
+  beside `MaxParallelItems`; add nil-safe getter `GetSequentialDispatch()`.
+- `internal/config/manager.go`: parse `sequential_dispatch` bool in `Load` (~line 101). No
+  config-validation allowlist exists, so no allowlist edit needed.
+- `internal/cli/commands/next.go`: register `--sequential` bool flag on `nextCmd`; resolve
+  mode in `runNext` (flag>config>default); add `nextGetSequentialDispatch` indirection hook.
+- `nextAdapterCache`: add ONLY `fanout bool` (NOT maxParallelItems — would shadow the embedded
+  `planAdapterCache.maxParallelItems`). Set `adapters.fanout = !sequential`.
 
-IMPORTANT: Set skip_migrations=false in .sharkconfig.json before next Turso command,
-then reset to true after migration runs.
+**Phase 2 — fork-detection core (`next.go`)**
+- `resolveNext` cascade branch (~line 406): `if cache.fanout { return tryCascadeFanout(...) }
+  return tryCascade(...)`.
+- New `tryCascadeFanout` mirrors plan.go `tryPlanHierarchy`, differs in single-child branch:
+  drill via `resolveNext(depth+1)`, prepend parent to trail (handle both `childResp.selection`
+  and `childResp.ResolvedVia`). Fork branch: load edges, `buildHierarchyPlanSelection(...)`,
+  enrich candidates, set `selection.ResolvedVia`, `resp.selection = &selection`.
+  `E02→F03→3 tasks` ⇒ fork at task tier, `root_key=F03`, `resolved_via=[E02,F03]`.
+- New `autoAdvanceCascadeParentFanout` = copy of `autoAdvancePlanCascadeParent` but final
+  recursion targets `resolveNext` (fan-out) not `resolvePlanEntity`.
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
-```
+**Phase 3 — candidate edges (`plan.go` + service)**
+- `HierarchyPlanCandidate`: add `DependsOn/Blocks/Links []CandidateEdge` (all omitempty).
+  New wire type `CandidateEdge{Key, Status, Type}`. Leave `buildHierarchyPlanSelection`
+  signature unchanged (plan output stays edge-less via omitempty).
+- New service method (layering-correct, CLI never touches repo): e.g.
+  `PlanHierarchyService.DescribeChildEdges(ctx, entityType, keys) (map[string]PlanHierarchyEdges, error)`.
+  REUSE existing semantics — do NOT invent SQL: `EntityRelationshipService.GetTaskBlockedBy/
+  GetTaskBlocks/GetOutgoing/GetIncoming/GetTaskRelationships` and
+  `task/dependency.go GetTaskDependents/GetTaskDependencies`. Must be entity-type-polymorphic
+  (feature-tier forks need feature edges; `readEpicFeatures` currently hardcodes Dependencies=[]).
+- Wire via a `cli.Get…Service()` accessor + `package commands` indirection hook (mirror
+  `planDescribeDispatchableChildren`) for test injection.
 
-### Step 2: Create PR
+**Phase 4 — output wiring (`next.go`)**
+- `runNext` (~line 295): `if resp.selection != nil { return outputHierarchyPlanSelectionJSON(*resp.selection) }`
+  BEFORE the normal `outputNextJSON`. Set span attrs like plan's `outputPlanResult`. Add
+  `ResolvedVia []string json:"resolved_via,omitempty"` to `HierarchyPlanSelectionResponse`
+  (plan never sets it → plan golden unaffected). Marker values: `Mode="hierarchy_selection"`,
+  `Action="parallel_candidates"`, `SelectionReason="parallel_tie"`.
 
-```bash
-gh pr create \
-  --title "feat(E07-F39): remove legacy relationship tables and dual-path query code" \
-  --base main \
-  --body "..."
-```
+**Phase 5 — rider skill (`skills/shark-rider/verbs/run.md` only)**
+- Add fork branch: detect `mode=hierarchy_selection`/`action=parallel_candidates`/`entities[]`/
+  no prompt. REUSE `verbs/plan.md`'s existing map-validation / evidence-gap /
+  `parallel_execution=available` logic (X-## `docs/product/cross-epic-integration-map.md`,
+  I-## epic-local interaction map, task-dependency evidence) to pick the safe subset. Dispatch
+  each chosen child with bare `shark next <child-id> --json`; follow-one = same on one child.
+- NO embedded rider copy under `internal/sharkdata/default_data/` (memory about embedded
+  canonical does NOT apply to rider skill). Contract test forbids `/shark` slash-syntax only,
+  not bare `shark` CLI strings.
 
-## Context for Code Review
+**Deferred (do NOT bundle here):** `CascadeService.dependenciesSatisfied` hardcodes terminal
+set (`"completed"/"archived"`) — violates no-hardcoded-statuses rule. Fixing it changes the
+sequential path (must stay byte-identical to 0e3f0103). Separate follow-up; fan-out path
+already avoids the bug via config-driven `PlanHierarchyService`.
 
-- **spec.md**: `docs/plan/E07-enhancements/E07-F39-remove-legacy-relationship-tables-and-dual-path-qu/spec.md`
-- **test-plan.md**: same directory
-- **Task specs**: `docs/plan/.../tasks/T-E07-F39-001.md` and `T-E07-F39-002.md`
-- **UAT reports**: `code_review/20260414-210817-T-E07-F39-001-uat.md` and `code_review/20260414-215718-T-E07-F39-002-uat.md`
+## Tests (see plan file for full list)
+Sequential byte-identical (golden); default single-drill vs --sequential identical dispatch
+JSON; 2+ → fork; multi-level drill-then-fork resolved_via; execution_order 1,2,3 does NOT
+fork; edges populated (task + feature tier); config/flag precedence matrix; auto-advance
+preserved; claim/dep-filtered children excluded; plan golden unchanged; `DescribeChildEdges`
+real-DB test. Gate: `make fmt && make lint && make test`.
 
-## Migration Reminder
+## Critical files
+- internal/cli/commands/next.go — cascade fork branch, flag, output wiring
+- internal/cli/commands/plan.go — HierarchyPlanCandidate edges, CandidateEdge, reused helpers
+- internal/services/plan_hierarchy_service.go — DescribeChildEdges + entity-polymorphic edges
+- internal/config/config.go (+ internal/config/manager.go) — sequential_dispatch
+- skills/shark-rider/verbs/run.md — fork branch reusing plan-verb validation
 
-Schema version bumped 11→12. The migration adds `DROP TABLE IF EXISTS` for `task_relationships`, `feature_relationships`, `epic_relationships`.
+## How to optimize the execution path (keep main thread lean)
 
-On Turso: temporarily set `"skip_migrations": false` in `.sharkconfig.json`, run any `shark` command once, then reset to `true`. See `.claude/rules/database-critical.md`.
+1. **Answer the open decision with the user FIRST** (main thread, no agents).
+2. **Do NOT re-run the three Explore agents or the Plan agent** — their findings are captured
+   in the plan file and above. Re-read the plan file instead of re-exploring.
+3. Implement in dependency order with focused subagents so the main thread stays out of large
+   file bodies:
+   - Agent 1 (Go, sequential): Phase 1 config+flag plumbing (config.go, manager.go, next.go
+     flag/cache) — small, self-contained. Verify with a `go build`.
+   - Agent 2 (Go): Phase 3 edges — `CandidateEdge`, `HierarchyPlanCandidate` fields, and the
+     `DescribeChildEdges` service method reusing existing relationship methods. Independent of
+     Phase 2 core; can run in PARALLEL with Agent 1.
+   - Then main thread wires Phase 2 (`tryCascadeFanout`) + Phase 4 output — this is the delicate
+     part touching the restored contract; keep it on the main thread or a single careful agent,
+     NOT parallel, and diff against `--sequential` golden.
+   - Agent 3 (docs/skill): Phase 5 rider `run.md` fork branch — independent, run in parallel
+     once the wire shape (marker values) is fixed.
+   - Agent 4 (tests): author the test list once Phases 1–4 compile.
+4. Run `make fmt && make lint && make test` on the main thread as the final gate; fix failures
+   before declaring done. Use writable Go caches if the sandbox needs it.
+5. Commit logically on `feat/shark-plan-command` (already the branch). Do NOT touch
+   shark-tasks.db. Wait for gemini-code-assist auto-review before merging any PR.
 
-## Parallel Execution Notes
-
-This is a single-step commit + PR task — no parallelism needed. Run quality gate once before committing if unsure:
-```bash
-make fmt && make lint && make test
-```
+## Guardrails (from project memory / rules)
+- Any new command capability must support ALL entity types (edge loader is entity-polymorphic).
+- No hardcoded status names (use workflow terminal-status APIs).
+- CLI commands are thin wrappers → business logic in services, no direct repo calls from commands.
+- Edit embedded `internal/sharkdata/default_data/` for bundle content — but rider skill has NO
+  embedded copy, so Phase 5 edits `skills/shark-rider/verbs/run.md` directly.

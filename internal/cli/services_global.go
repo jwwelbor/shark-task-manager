@@ -570,10 +570,9 @@ func GetTechDebtService() *services.TechDebtService {
 // Creates a new instance each call with the global DB connection and workflow service.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
 //
-// Used by `shark next` cascade resolution to enumerate dispatchable children
-// (B029): the CLI command must NOT construct repositories directly, so this
-// accessor wires the underlying task/epic/feature repositories at the CLI
-// boundary and returns a service the command can call.
+// Used by the in-process `shark run` controller. Keyed `shark next` uses
+// GetPlanHierarchyService so sequential and fork-emitting modes share one
+// claim/dependency/order snapshot.
 //
 // Usage:
 //
@@ -758,9 +757,8 @@ func GetPortfolioAdviceService() *services.PortfolioAdviceService {
 }
 
 // GetPlanHierarchyService returns the one-query direct-child reader used by
-// one-level `shark plan <epic|feature>` hierarchy selection. This is distinct
-// from GetCascadeService, which serves keyed `shark next`/`shark run` cascade
-// traversal and must keep its own unrelated query pattern unchanged.
+// one-level `shark plan <epic|feature>` selection and both keyed `shark next`
+// cascade emission modes. GetCascadeService remains for `shark run`.
 func GetPlanHierarchyService() *services.PlanHierarchyService {
 	db, err := GetDB(context.Background())
 	if err != nil {

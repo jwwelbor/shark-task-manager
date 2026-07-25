@@ -304,14 +304,14 @@ respond differently:
 <a id="sequential-dispatch"></a>
 #### `sequential_dispatch`
 
-Forces `shark next` to use the legacy single-track cascade instead of
-fan-out. With fan-out (the default), a keyed `shark next <key>` call that
-cascades into children stops at a *fork* — a tier with two or more
-equally-ranked dispatchable children — and returns the candidate tier (bounded
-by [`max_parallel_items`](#max-parallel-items)) instead of picking one. With
-`sequential_dispatch: true`, `shark next` walks the cascade the legacy way
-instead: it dispatches the first dispatchable child it finds and never
-surfaces siblings.
+Controls only how `shark next` emits a surviving child tie. Both modes use the
+same claim-aware, dependency-aware, deterministically ordered hierarchy
+snapshot. By default, a keyed `shark next <key>` call that cascades into a
+*fork* — a tier with two or more equally-ranked dispatchable children —
+returns the candidate tier (bounded by
+[`max_parallel_items`](#max-parallel-items)). With
+`sequential_dispatch: true`, `shark next` collapses that fork and dispatches
+the first eligible candidate instead.
 
 ```json
 {
@@ -321,10 +321,10 @@ surfaces siblings.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `sequential_dispatch` | bool | `false` | When `true`, `shark next` forces the legacy single-track cascade instead of fan-out. |
+| `sequential_dispatch` | bool | `false` | When `true`, `shark next` collapses a fork to its first eligible candidate. |
 
 **Relationship to `--sequential`:** `shark next` also accepts a `--sequential`
-flag that forces the same legacy behavior for a single invocation.
+flag that forces the same fork-collapsing behavior for a single invocation.
 Precedence: an explicitly passed `--sequential` flag always wins; when the
 flag is not passed, the `sequential_dispatch` config value applies; when
 neither is set, the default is fan-out.

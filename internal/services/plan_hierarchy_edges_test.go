@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -151,16 +152,18 @@ func (f *planEdgeFixture) link(
 	fromType models.EntityType, fromID int64,
 	toType models.EntityType, toID int64,
 	relType models.EntityRelationshipType,
-) {
+) int64 {
 	t.Helper()
-	if _, err := f.db.Exec(
+	result, err := f.db.Exec(
 		`INSERT INTO entity_relationships
 		 (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
 		 VALUES (?, ?, ?, ?, ?)`,
 		fromType, fromID, toType, toID, relType,
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("insert %s relationship: %v", relType, err)
 	}
+	return planEdgeLastID(t, result)
 }
 
 func planEdgeLastID(t *testing.T, result sql.Result) int64 {
@@ -183,6 +186,89 @@ func planEdgeSummaries(edges []services.PlanHierarchyEdge) []string {
 	}
 	sort.Strings(summaries)
 	return summaries
+}
+
+func planEdgeWarningSummaries(warnings []services.PlanHierarchyEdgeWarning) []string {
+	summaries := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		summaries = append(summaries, fmt.Sprintf(
+			"%s|%s|%d|%s|%d|%s",
+			warning.Code,
+			warning.Direction,
+			warning.RelationshipID,
+			warning.EndpointType,
+			warning.EndpointID,
+			warning.RelationshipType,
+		))
+	}
+	sort.Strings(summaries)
+	return summaries
+}
+
+func TestDescribeChildEdgesDropsDanglingRowsWithBoundedWarnings(t *testing.T) {
+	fixture := newPlanEdgeFixture(t)
+	epicID := fixture.insertEpic(t, "E07")
+	featureID := fixture.insertFeature(t, epicID, "E07-F01", "active", nil)
+	order := 1
+	candidateID := fixture.insertTask(t, featureID, "T-E07-F01-001", "todo", &order, nil)
+
+	missingEpicID := fixture.insertEpic(t, "E08")
+	outgoingID := fixture.link(
+		t,
+		models.EntityTypeTask, candidateID,
+		models.EntityTypeEpic, missingEpicID,
+		models.EntityRelDependsOn,
+	)
+	missingTaskID := fixture.insertTask(t, featureID, "T-E07-F01-404", "todo", &order, nil)
+	incomingID := fixture.link(
+		t,
+		models.EntityTypeTask, missingTaskID,
+		models.EntityTypeTask, candidateID,
+		models.EntityRelRelatedTo,
+	)
+	fixture.link(
+		t,
+		models.EntityTypeTask, candidateID,
+		models.EntityTypeFeature, featureID,
+		models.EntityRelRelatedTo,
+	)
+
+	if _, err := fixture.db.Exec(`DELETE FROM epics WHERE id = ?`, missingEpicID); err != nil {
+		t.Fatalf("delete dangling epic endpoint: %v", err)
+	}
+	if _, err := fixture.db.Exec(`DELETE FROM tasks WHERE id = ?`, missingTaskID); err != nil {
+		t.Fatalf("delete dangling task endpoint: %v", err)
+	}
+
+	found, err := fixture.service.DescribeChildEdges(
+		context.Background(),
+		string(models.EntityTypeTask),
+		[]string{"T-E07-F01-001"},
+	)
+	if err != nil {
+		t.Fatalf("DescribeChildEdges() error = %v", err)
+	}
+	candidate := found["T-E07-F01-001"]
+	if got := planEdgeSummaries(candidate.DependsOn); len(got) != 0 {
+		t.Fatalf("DependsOn = %#v, want dangling hard edge omitted", got)
+	}
+	if got := planEdgeSummaries(candidate.Links); !reflect.DeepEqual(got, []string{
+		"E07-F01|active|related_to",
+	}) {
+		t.Fatalf("Links = %#v, want resolvable edge preserved", got)
+	}
+	if got := planEdgeWarningSummaries(candidate.Warnings); !reflect.DeepEqual(got, []string{
+		fmt.Sprintf(
+			"DANGLING_RELATIONSHIP|incoming|%d|task|%d|related_to",
+			incomingID, missingTaskID,
+		),
+		fmt.Sprintf(
+			"DANGLING_RELATIONSHIP|outgoing|%d|epic|%d|depends_on",
+			outgoingID, missingEpicID,
+		),
+	}) {
+		t.Fatalf("Warnings = %#v", got)
+	}
 }
 
 // TestDescribeChildEdgesTaskTierReturnsRealDependencyAndLinkEdges pins the

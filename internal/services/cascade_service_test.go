@@ -216,7 +216,7 @@ func TestCascadeService_FeatureChildren_SkipsUnmetDependencies(t *testing.T) {
 	}
 	// The critical distinction: a dependency-blocked task is NOT dispatchable
 	// but IS non-terminal — its work is unfinished, so the parent must not be
-	// treated as complete (counts feed tryCascade's auto-advance decision).
+	// treated as complete (counts feed the run controller's auto-advance decision).
 	if state.TotalChildren != 3 {
 		t.Errorf("expected TotalChildren=3, got %d", state.TotalChildren)
 	}

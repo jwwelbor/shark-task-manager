@@ -46,6 +46,9 @@ func TestOperationalScopesDoNotReferenceDeprecatedTemplateTree(t *testing.T) {
 				return walkErr
 			}
 			if d.IsDir() {
+				if path != root && isNestedGitWorktree(path) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if scope.goOnly && filepath.Ext(path) != ".go" {
@@ -67,6 +70,17 @@ func TestOperationalScopesDoNotReferenceDeprecatedTemplateTree(t *testing.T) {
 	if len(hits) > 0 {
 		t.Fatalf("deprecated template tree references found in operational scopes:\n%s", strings.Join(hits, "\n"))
 	}
+}
+
+// isNestedGitWorktree reports whether dir is the root of a nested git
+// worktree or repo (i.e. it has its own .git file/dir) rather than being a
+// plain subdirectory of the repo under audit. Operational scopes like
+// .claude can contain agent worktrees (.claude/worktrees/agent-*) checked
+// out at older commits; those trees carry their own historical file
+// content and must not be audited as if they were part of the current repo.
+func isNestedGitWorktree(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 func findRepoRootForAudit(t *testing.T) string {
