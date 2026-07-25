@@ -61,6 +61,13 @@ func NewRepository(db *dbconn.DB) *Repository {
 // relationships, and claims in one database round trip. epic_display_data is
 // the existing epic-to-feature view; task, relationship, and claim JSON are
 // attached as small correlated/global projections and decoded locally.
+//
+// json_object emits column text verbatim, bypassing the driver's timestamp
+// normalization, so last_heartbeat is normalized in SQL to one canonical
+// RFC 3339 UTC form. Production writes it via DEFAULT CURRENT_TIMESTAMP
+// ("YYYY-MM-DD HH:MM:SS"), which the driver read path would have converted but
+// json_object does not. COALESCE falls back to the raw text for any value
+// strftime cannot parse, so parseSnapshotTime's layouts stay the safety net.
 func (r *Repository) ReadSnapshot(ctx context.Context) (Snapshot, error) {
 	const query = `
 		SELECT e.id,
@@ -99,7 +106,10 @@ func (r *Repository) ReadSnapshot(ctx context.Context) (Snapshot, error) {
 		           'entity_type', c.entity_type,
 		           'entity_key', c.entity_key,
 		           'claimed_by', c.claimed_by,
-		           'last_heartbeat', c.last_heartbeat,
+		           'last_heartbeat', COALESCE(
+		               strftime('%Y-%m-%dT%H:%M:%fZ', c.last_heartbeat),
+		               c.last_heartbeat
+		           ),
 		           'progress', c.progress
 		       )), '[]')
 		        FROM entity_claims c) AS claims_json

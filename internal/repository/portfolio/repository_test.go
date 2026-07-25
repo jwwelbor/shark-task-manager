@@ -542,6 +542,69 @@ func TestRepository_ListEpicRelationships(t *testing.T) {
 	}
 }
 
+// TestReadSnapshot_DecodesClaimWrittenByProductionClaimPath pins the wire
+// format actually stored by production writes. claimrepo.Claim omits
+// last_heartbeat on insert, so SQLite's DEFAULT CURRENT_TIMESTAMP writes
+// "YYYY-MM-DD HH:MM:SS" — the only heartbeat format Shark ever persists. The
+// snapshot query projects that column through json_object as raw text, so the
+// decode path (not the driver) has to cope with it. Binding a Go time.Time in a
+// fixture, as the scale fixture does, never produces this format and therefore
+// cannot cover it: with one epic and one claim, bare `shark plan` failed hard.
+func TestReadSnapshot_DecodesClaimWrittenByProductionClaimPath(t *testing.T) {
+	ctx := context.Background()
+	database := testutil.NewIsolatedTestDB(t)
+	cleanupPortfolioFixtures(t, database)
+	t.Cleanup(func() {
+		cleanupPortfolioFixtures(t, database)
+		if _, err := database.Exec("DELETE FROM entity_claims"); err != nil {
+			t.Fatalf("cleanup entity_claims: %v", err)
+		}
+	})
+
+	insertPortfolioEpic(t, database, "E96", "Claimed epic", "active")
+
+	db := dbconn.NewDB(database)
+	progress := 0.25
+	stored, err := claimrepo.NewRepository(db).Claim(ctx, &models.EntityClaim{
+		EntityType: "epic",
+		EntityKey:  "E96",
+		ClaimedBy:  "portfolio-production-path",
+		SessionID:  "portfolio-production-session",
+		Progress:   &progress,
+	})
+	if err != nil {
+		t.Fatalf("Claim() error = %v", err)
+	}
+
+	snapshot, err := portfoliorepo.NewRepository(db).ReadSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("ReadSnapshot() error = %v", err)
+	}
+	if len(snapshot.Claims) != 1 {
+		t.Fatalf("ReadSnapshot() claims = %#v, want the one claim written by claimrepo.Claim", snapshot.Claims)
+	}
+
+	claim := snapshot.Claims[0]
+	if claim.EntityType != "epic" || claim.EntityKey != "E96" || claim.ClaimedBy != "portfolio-production-path" {
+		t.Fatalf("ReadSnapshot() claim identity = %#v, want the seeded epic claim", claim)
+	}
+	if claim.LastHeartbeat.IsZero() {
+		t.Fatalf("ReadSnapshot() decoded a zero heartbeat for %s", claim.EntityKey)
+	}
+	// The heartbeat must survive the JSON projection as the same instant the
+	// claim repository reads back, so live/expired TTL decisions agree across
+	// both read paths. The tolerance guards gross mis-parse — a timezone offset
+	// applied twice, or naive text read as local instead of UTC — not the
+	// sub-millisecond truncation the SQL normalization introduces.
+	if delta := claim.LastHeartbeat.Sub(stored.LastHeartbeat); delta > time.Millisecond || delta < -time.Millisecond {
+		t.Fatalf("snapshot heartbeat = %s, claim repository heartbeat = %s (delta %v)",
+			claim.LastHeartbeat, stored.LastHeartbeat, delta)
+	}
+	if claim.LastHeartbeat.Location() != time.UTC {
+		t.Fatalf("snapshot heartbeat location = %s, want UTC", claim.LastHeartbeat.Location())
+	}
+}
+
 func TestRepository_ListMethodsReturnAllocatedEmptySlices(t *testing.T) {
 	database := testutil.NewIsolatedTestDB(t)
 	repo := portfoliorepo.NewRepository(dbconn.NewDB(database))
