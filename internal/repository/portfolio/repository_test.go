@@ -87,10 +87,27 @@ func TestPortfolioAdvice_TC020TargetScale(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Advise() target fixture error = %v", err)
 		}
-		if elapsed >= time.Second {
-			t.Fatalf("Advise() target fixture took %v, want < 1s", elapsed)
+		// Smoke bound, not a hardware benchmark. The structural property this
+		// scale fixture exists to defend — that portfolio-wide relationship and
+		// claim reads are separate statements rather than uncorrelated
+		// aggregates re-evaluated once per epic row — is pinned by
+		// TestReadSnapshot_ReturnsPortfolioWideRowsWithoutEpics, which fails
+		// outright if they move back into the per-epic select list.
+		//
+		// This check catches only a gross regression. The original 1s budget
+		// was never validated against CI hardware and failed there at 1.115s
+		// while passing locally; profiling showed the remaining time is
+		// SQLite's VDBE executing the reads under the pure-Go driver (~57% of
+		// samples), not an algorithmic hot spot, so tightening it further would
+		// buy flakiness rather than signal. Reinstating the per-epic
+		// re-evaluation costs orders of magnitude at this scale, so a generous
+		// bound still fails loudly.
+		if elapsed >= 5*time.Second {
+			t.Fatalf("Advise() target fixture took %v, want < 5s — suspect a per-epic"+
+				" re-evaluation of a portfolio-wide read", elapsed)
 		}
-		t.Logf("first exact-scale Advise() completed in %v with four set reads", elapsed)
+		t.Logf("first exact-scale Advise() completed in %v with one snapshot read"+
+			" (hierarchy + relationships + claims queries)", elapsed)
 		assertPortfolioAdviceReadCounts(t, reads, 1)
 		assertTC020TargetAdvice(t, first)
 		if after := readPortfolioTableCounts(t, database); after != before {
@@ -148,7 +165,7 @@ func assertPortfolioAdviceReadCounts(t *testing.T, counts *portfolioAdviceReadCo
 	t.Helper()
 	if counts.snapshotReads != calls {
 		t.Fatalf(
-			"database snapshot reads after %d Advise() calls = %d; want exactly %d (one hierarchy-view query per call)",
+			"database snapshot reads after %d Advise() calls = %d; want exactly %d (one snapshot read per call)",
 			calls,
 			counts.snapshotReads,
 			calls,
@@ -602,6 +619,70 @@ func TestReadSnapshot_DecodesClaimWrittenByProductionClaimPath(t *testing.T) {
 	}
 	if claim.LastHeartbeat.Location() != time.UTC {
 		t.Fatalf("snapshot heartbeat location = %s, want UTC", claim.LastHeartbeat.Location())
+	}
+}
+
+// TestReadSnapshot_ReturnsPortfolioWideRowsWithoutEpics pins that claims and
+// relationships are portfolio-wide reads, not rows harvested from the per-epic
+// hierarchy query. When they rode along in that query's select list they were
+// decoded from the first epic row, so a portfolio with zero epics returned them
+// silently empty with no error. The claim is inserted without last_heartbeat so
+// DEFAULT CURRENT_TIMESTAMP produces the production "YYYY-MM-DD HH:MM:SS" form,
+// covering heartbeat normalization on this read path too.
+func TestReadSnapshot_ReturnsPortfolioWideRowsWithoutEpics(t *testing.T) {
+	ctx := context.Background()
+	database := testutil.NewIsolatedTestDB(t)
+	cleanupPortfolioFixtures(t, database)
+	t.Cleanup(func() {
+		cleanupPortfolioFixtures(t, database)
+		if _, err := database.Exec("DELETE FROM entity_claims"); err != nil {
+			t.Fatalf("cleanup entity_claims: %v", err)
+		}
+	})
+	if _, err := database.Exec("DELETE FROM entity_claims"); err != nil {
+		t.Fatalf("clear entity_claims: %v", err)
+	}
+
+	// Endpoint ids intentionally reference epics that do not exist: the read
+	// must survive dangling evidence with nil endpoints rather than drop it.
+	insertPortfolioRelationship(
+		t, database,
+		models.EntityTypeEpic, 90_001,
+		models.EntityTypeEpic, 90_002,
+		models.EntityRelDependsOn,
+	)
+	if _, err := database.Exec(
+		`INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id, progress)
+		 VALUES ('epic', 'E95', 'portfolio-no-epics', 'portfolio-no-epics-session', 0.5)`,
+	); err != nil {
+		t.Fatalf("insert claim without epics: %v", err)
+	}
+
+	snapshot, err := portfoliorepo.NewRepository(dbconn.NewDB(database)).ReadSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("ReadSnapshot() error = %v", err)
+	}
+
+	if len(snapshot.Epics) != 0 {
+		t.Fatalf("ReadSnapshot() epics = %d, want 0 (fixture leak invalidates this case)", len(snapshot.Epics))
+	}
+	if len(snapshot.Claims) != 1 {
+		t.Fatalf("ReadSnapshot() claims with zero epics = %#v, want the one seeded claim", snapshot.Claims)
+	}
+	claim := snapshot.Claims[0]
+	if claim.EntityKey != "E95" || claim.ClaimedBy != "portfolio-no-epics" || claim.LastHeartbeat.IsZero() {
+		t.Fatalf("ReadSnapshot() claim = %#v, want the seeded E95 claim with a decoded heartbeat", claim)
+	}
+	if len(snapshot.Relationships) != 1 {
+		t.Fatalf("ReadSnapshot() relationships with zero epics = %#v, want the one seeded relationship",
+			snapshot.Relationships)
+	}
+	relationship := snapshot.Relationships[0]
+	if relationship.FromEpicID != 90_001 || relationship.ToEpicID != 90_002 ||
+		relationship.RelationshipType != models.EntityRelDependsOn ||
+		relationship.FromKey != nil || relationship.ToKey != nil {
+		t.Fatalf("ReadSnapshot() relationship = %#v, want the dangling depends_on row with nil endpoints",
+			relationship)
 	}
 }
 
