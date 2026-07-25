@@ -55,7 +55,20 @@ func fanoutCache(
 			actionSvc:    actionSvc,
 		}
 	}
+	// Pin the parallel cap. Without this the fork path calls the production
+	// closure, which reads the checked-in .sharkconfig.json from disk — adding
+	// a max_parallel_items key to the project's own config would then turn
+	// these tests red for reasons unrelated to fork shape.
+	stubMaxParallelItems(t, 5)
 	return &nextAdapterCache{entries: entries, actionSvcRoot: actionSvc, fanout: true}
+}
+
+// stubMaxParallelItems pins the configured fan-out cap for one test.
+func stubMaxParallelItems(t *testing.T, limit int) {
+	t.Helper()
+	original := planGetMaxParallelItems
+	t.Cleanup(func() { planGetMaxParallelItems = original })
+	planGetMaxParallelItems = func() int { return limit }
 }
 
 // stubForkEdges installs a no-op edge loader for tests whose subject is fork
@@ -448,24 +461,23 @@ func TestSequentialDispatchPrecedence(t *testing.T) {
 				require.NoError(t, cmd.Flags().Set("sequential", strconv.FormatBool(tt.flagValue)))
 			}
 
-			sequential := nextGetSequentialDispatch()
-			if cmd.Flags().Changed("sequential") {
-				sequential, _ = cmd.Flags().GetBool("sequential")
-			}
-
-			require.Equal(t, tt.wantSeqMode, sequential)
-			// This is the line runNext executes; a flipped sign here is the
-			// exact regression this test exists to catch.
-			require.Equal(t, !tt.wantSeqMode, !sequential)
+			// Call the production resolver, not a copy of it — otherwise
+			// changing runNext's precedence leaves this test green.
+			require.Equal(t, tt.wantSeqMode, resolveSequentialDispatch(cmd))
 		})
 	}
 }
 
-// newNextCommandForTest returns a command carrying the same --sequential flag
-// registration as nextCmd, without mutating the package-level command.
+// newNextCommandForTest returns a command carrying the real --sequential flag
+// registration, taken from the package-level nextCmd so the test cannot drift
+// from the flag the binary actually exposes.
 func newNextCommandForTest() *cobra.Command {
 	cmd := &cobra.Command{Use: "next"}
-	cmd.Flags().Bool("sequential", false, "Force the legacy single-track cascade instead of fan-out")
+	flag := nextCmd.Flags().Lookup("sequential")
+	if flag == nil {
+		panic("nextCmd no longer registers a --sequential flag")
+	}
+	cmd.Flags().Bool(flag.Name, false, flag.Usage)
 	return cmd
 }
 
@@ -582,4 +594,135 @@ func TestFanoutForksOnUnorderedFeatures(t *testing.T) {
 	require.NotNil(t, resp.selection, "unordered features must fork, not drill into feature[0]")
 	require.Len(t, resp.selection.Entities, 2)
 	require.Equal(t, "E01", resp.selection.RootKey)
+}
+
+// pausedUnlessDispatchable maps a set of "parked" statuses to a pause action
+// and everything else to a dispatch, so a test can park specific children.
+func pausedUnlessDispatchable(parked map[string]bool) func(string) *action.PopulatedAction {
+	return func(status string) *action.PopulatedAction {
+		switch {
+		case status == "active":
+			return &action.PopulatedAction{Action: "cascade", Instruction: "delegate"}
+		case parked[status]:
+			return &action.PopulatedAction{Action: "pause"}
+		default:
+			return &action.PopulatedAction{
+				Action: "spawn_agent", AgentType: "backend", Provider: "anthropic",
+				Model: "sonnet", Instruction: "implement the task",
+			}
+		}
+	}
+}
+
+// TestFanoutFallsThroughAnEntirelyParkedTier is the tie-tier counterpart to
+// TestFanoutFallsThroughPausedChildAndReTiers, and guards the hole that
+// version of the code had: the fork branch used to return the tied tier
+// WITHOUT resolving any candidate, so a tier of children that all resolve to
+// pause was emitted as parallel_candidates. The rider would dispatch each,
+// receive pause for each, and stop — never reaching the dispatchable sibling
+// behind them. Claim/dependency filtering cannot prevent this because it has
+// no view of the workflow action.
+func TestFanoutFallsThroughAnEntirelyParkedTier(t *testing.T) {
+	stubForkEdges(t)
+	original := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = original }()
+
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		if entityType == "feature" && key == "E01-F01" {
+			return services.PlanHierarchyChildrenState{
+				Children: []services.PlanHierarchyChild{
+					fanoutChild("T-E01-F01-001", models.EntityTypeTask, 1),
+					fanoutChild("T-E01-F01-002", models.EntityTypeTask, 1),
+					fanoutChild("T-E01-F01-003", models.EntityTypeTask, 2),
+				},
+				TotalChildren:       3,
+				NonTerminalChildren: 3,
+			}, nil
+		}
+		return services.PlanHierarchyChildrenState{}, nil
+	}
+
+	cache := fanoutCache(t, map[string]string{
+		"E01-F01":       "active",
+		"T-E01-F01-001": "awaiting_human",
+		"T-E01-F01-002": "awaiting_human",
+		"T-E01-F01-003": "todo",
+	}, pausedUnlessDispatchable(map[string]bool{"awaiting_human": true}))
+
+	resp, err := resolveNext(context.Background(), cache, "feature", "E01-F01", 0)
+	require.NoError(t, err)
+	require.Nil(t, resp.selection,
+		"a tier whose every candidate resolves to pause is not available work and must not be offered as a fork")
+	require.Equal(t, "spawn_agent", resp.Action)
+	require.Equal(t, "T-E01-F01-003", resp.EntityKey,
+		"the dispatchable sibling behind the parked tier must still be reached")
+	require.Equal(t, []string{"E01-F01"}, resp.ResolvedVia)
+}
+
+// TestFanoutForksOnlyOnSurvivingCandidates checks the partial case: a tie where
+// some candidates are parked forks on exactly the ones that can actually run.
+// Offering a parked candidate would waste a dispatch and, if every sibling the
+// rider picked were parked, stall the loop.
+func TestFanoutForksOnlyOnSurvivingCandidates(t *testing.T) {
+	stubForkEdges(t)
+	original := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = original }()
+
+	planDescribeDispatchableChildren = func(_ context.Context, _, _ string) (services.PlanHierarchyChildrenState, error) {
+		return services.PlanHierarchyChildrenState{
+			Children: []services.PlanHierarchyChild{
+				fanoutChild("T-E01-F01-001", models.EntityTypeTask, 1),
+				fanoutChild("T-E01-F01-002", models.EntityTypeTask, 1),
+				fanoutChild("T-E01-F01-003", models.EntityTypeTask, 1),
+			},
+			TotalChildren:       3,
+			NonTerminalChildren: 3,
+		}, nil
+	}
+
+	cache := fanoutCache(t, map[string]string{
+		"E01-F01":       "active",
+		"T-E01-F01-002": "awaiting_human",
+	}, pausedUnlessDispatchable(map[string]bool{"awaiting_human": true}))
+
+	resp, err := resolveNext(context.Background(), cache, "feature", "E01-F01", 0)
+	require.NoError(t, err)
+	require.NotNil(t, resp.selection)
+	require.Len(t, resp.selection.Entities, 2)
+	require.Equal(t, "T-E01-F01-001", resp.selection.Entities[0].EntityKey)
+	require.Equal(t, "T-E01-F01-003", resp.selection.Entities[1].EntityKey,
+		"the parked candidate must be excluded from the offered set")
+}
+
+// TestFanoutWithCapBelowTwoDispatchesInsteadOfEmittingPromptlessSelection pins
+// the contract for max_parallel_items = 1, a value the configuration reference
+// explicitly recommends for "deterministic singleton selection". Capping the
+// tier to one inside buildHierarchyPlanSelection would emit a
+// `select_<type>` envelope carrying no prompt — outside the keyed-next wire
+// vocabulary — and the harness would stall on it.
+func TestFanoutWithCapBelowTwoDispatchesInsteadOfEmittingPromptlessSelection(t *testing.T) {
+	stubForkEdges(t)
+	original := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = original }()
+
+	planDescribeDispatchableChildren = func(_ context.Context, _, _ string) (services.PlanHierarchyChildrenState, error) {
+		return services.PlanHierarchyChildrenState{
+			Children: []services.PlanHierarchyChild{
+				fanoutChild("T-E01-F01-001", models.EntityTypeTask, 1),
+				fanoutChild("T-E01-F01-002", models.EntityTypeTask, 1),
+			},
+			TotalChildren:       2,
+			NonTerminalChildren: 2,
+		}, nil
+	}
+
+	cache := fanoutCache(t, map[string]string{"E01-F01": "active"}, cascadeOrDispatch)
+	stubMaxParallelItems(t, 1)
+
+	resp, err := resolveNext(context.Background(), cache, "feature", "E01-F01", 0)
+	require.NoError(t, err)
+	require.Nil(t, resp.selection, "a cap of 1 means no fan-out, not a one-candidate selection envelope")
+	require.Equal(t, "spawn_agent", resp.Action)
+	require.NotEmpty(t, resp.Prompt, "the harness needs a dispatchable prompt, not a bare selection")
+	require.Equal(t, "T-E01-F01-001", resp.EntityKey)
 }

@@ -460,18 +460,6 @@ func outputPlanResult(span trace.Span, resp NextResponse) error {
 		)
 		return outputHierarchyPlanSelectionJSON(selection)
 	}
-	if resp.parallel != nil {
-		batch := preparePlanParallelForOutput(*resp.parallel)
-		span.SetAttributes(
-			attribute.String("mode", "keyed_dispatch"),
-			attribute.String("action", batch.Action),
-			attribute.String("root_type", batch.RootType),
-			attribute.Int("parallel.entity_count", len(batch.Entities)),
-			attribute.String("exit_status", "ok"),
-		)
-		return outputParallelPlanJSON(batch)
-	}
-
 	resp = preparePlanNextResponseForOutput(resp)
 	span.SetAttributes(
 		attribute.String("entity_key", resp.EntityKey),
@@ -783,9 +771,9 @@ func selectPlanChildTier(children []services.PlanHierarchyChild) ([]services.Pla
 	if len(selected) > 1 {
 		return selected, "parallel_tie"
 	}
-	if len(selected) == 0 {
-		return children[:1], "repository_order"
-	}
+	// children[0] always survives the loop: reaching this branch means it has
+	// no execution order and, if it is a task, no priority — the same two
+	// predicates the loop breaks on — so selected is never empty here.
 	return selected, "repository_order"
 }
 

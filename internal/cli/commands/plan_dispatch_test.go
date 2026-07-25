@@ -49,7 +49,6 @@ func TestResolvePlanEntityLeafMatchesKeyedNextRenderedResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Nil(t, planResp.selection, "leaf plan resolution must not attach a selection envelope")
-	assert.Nil(t, planResp.parallel, "leaf plan resolution must not attach a parallel envelope")
 	assert.Equal(t, nextResp.EntityKey, planResp.EntityKey)
 	assert.Equal(t, nextResp.Action, planResp.Action)
 	assert.Equal(t, nextResp.AgentType, planResp.AgentType)
