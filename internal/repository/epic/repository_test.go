@@ -3,6 +3,7 @@ package epic
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -10,11 +11,20 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/feature"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEpicRepository_GetByIDClassifiesMissingEntity(t *testing.T) {
+	repo := NewEpicRepository(dbconn.NewDB(test.GetTestDB()))
+
+	_, err := repo.GetByID(context.Background(), -1)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, repoerr.ErrNotFound), "error = %v", err)
+}
 
 // TestEpicRepository_UpdateCustomFolderPath removed - custom_folder_path feature no longer supported
 

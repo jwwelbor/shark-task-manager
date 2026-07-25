@@ -1,0 +1,14 @@
+artifact_id: d-td048-first-attack
+type: decision
+status: open
+roles:
+  - tech-director
+  - architect
+  - developer
+  - qa
+root_key: TD-048
+evidence:
+  - docs/council/README.md
+created_at: 2026-07-25T16:56:54Z
+updated_at: 2026-07-25T16:56:54Z
+next_action: Add the regression coverage before implementing TD-047, TD-045, and TD-046.

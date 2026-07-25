@@ -27,6 +27,12 @@ func TestNextCommandDoesNotExposeRemovedPreviewFlag(t *testing.T) {
 	assert.Contains(t, nextCmd.Long, "may auto-advance")
 }
 
+func TestNextCommandDocumentsForkResponse(t *testing.T) {
+	assert.Contains(t, nextCmd.Long, `"mode":               "hierarchy_selection"`)
+	assert.Contains(t, nextCmd.Long, `"action":             "parallel_candidates"`)
+	assert.Contains(t, nextCmd.Long, "does not include a worker\nprompt")
+}
+
 // setupAgentFixture lays down a minimal shark-data/ tree with one agent file
 // (and optionally an override) and returns the data root.
 func setupAgentFixture(t *testing.T, agentType, body string, overrideBody string) string {
@@ -366,11 +372,11 @@ func TestResolveNext_ReturnsSelfContainedPrompt(t *testing.T) {
 func TestResolveNext_CascadeParentAutoAdvancesWhenAllChildrenAreTerminal(t *testing.T) {
 	origTransitionerBuilder := nextBuildTransitioner
 	origPlaceholderBuilder := nextBuildPlaceholderGenerator
-	origDescribeChildren := nextDescribeDispatchableChildren
+	origDescribeChildren := planDescribeDispatchableChildren
 	defer func() {
 		nextBuildTransitioner = origTransitionerBuilder
 		nextBuildPlaceholderGenerator = origPlaceholderBuilder
-		nextDescribeDispatchableChildren = origDescribeChildren
+		planDescribeDispatchableChildren = origDescribeChildren
 	}()
 
 	transitioner := &cascadeAutoAdvanceTransitioner{currentStatus: "active"}
@@ -385,8 +391,8 @@ func TestResolveNext_CascadeParentAutoAdvancesWhenAllChildrenAreTerminal(t *test
 			"key":        "E03-F02",
 		}}
 	}
-	nextDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
-		return services.CascadeChildrenState{
+	planDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		return services.PlanHierarchyChildrenState{
 			TotalChildren:       4,
 			NonTerminalChildren: 0,
 		}, nil
@@ -452,7 +458,7 @@ func (f *failingCascadeTransitioner) GetNextStatus(ctx context.Context, key stri
 	}, nil
 }
 
-// TestResolveNext_CascadeGuardBranches covers tryCascade's non-happy paths:
+// TestResolveNext_CascadeGuardBranches covers keyed cascade's non-happy paths:
 // a childless parent pauses quietly; an all-terminal parent with no forward
 // transition pauses with a descriptive error; a failing transition propagates.
 func TestResolveNext_CascadeGuardBranches(t *testing.T) {
@@ -463,7 +469,7 @@ func TestResolveNext_CascadeGuardBranches(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		childrenState services.CascadeChildrenState
+		childrenState services.PlanHierarchyChildrenState
 		transitioner  *failingCascadeTransitioner
 		wantAction    string
 		wantErrField  string // substring of resp.Error; "" means must be empty
@@ -471,26 +477,26 @@ func TestResolveNext_CascadeGuardBranches(t *testing.T) {
 	}{
 		{
 			name:          "childless parent pauses without error",
-			childrenState: services.CascadeChildrenState{TotalChildren: 0, NonTerminalChildren: 0},
+			childrenState: services.PlanHierarchyChildrenState{TotalChildren: 0, NonTerminalChildren: 0},
 			transitioner:  &failingCascadeTransitioner{transitions: forwardTransitions},
 			wantAction:    "pause",
 		},
 		{
 			name:          "non-terminal children but none dispatchable pauses",
-			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 2},
+			childrenState: services.PlanHierarchyChildrenState{TotalChildren: 3, NonTerminalChildren: 2},
 			transitioner:  &failingCascadeTransitioner{transitions: forwardTransitions},
 			wantAction:    "pause",
 		},
 		{
 			name:          "all terminal but no forward transition pauses with error",
-			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
+			childrenState: services.PlanHierarchyChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
 			transitioner:  &failingCascadeTransitioner{transitions: nil},
 			wantAction:    "pause",
 			wantErrField:  "no forward transition",
 		},
 		{
 			name:          "transition failure propagates as hard error",
-			childrenState: services.CascadeChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
+			childrenState: services.PlanHierarchyChildrenState{TotalChildren: 3, NonTerminalChildren: 0},
 			transitioner: &failingCascadeTransitioner{
 				transitions:   forwardTransitions,
 				transitionErr: errors.New("simulated transition failure"),
@@ -503,11 +509,11 @@ func TestResolveNext_CascadeGuardBranches(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			origTransitionerBuilder := nextBuildTransitioner
 			origPlaceholderBuilder := nextBuildPlaceholderGenerator
-			origDescribeChildren := nextDescribeDispatchableChildren
+			origDescribeChildren := planDescribeDispatchableChildren
 			defer func() {
 				nextBuildTransitioner = origTransitionerBuilder
 				nextBuildPlaceholderGenerator = origPlaceholderBuilder
-				nextDescribeDispatchableChildren = origDescribeChildren
+				planDescribeDispatchableChildren = origDescribeChildren
 			}()
 
 			nextBuildTransitioner = func(_ context.Context, entityType string) (runner.EntityTransitioner, error) {
@@ -516,7 +522,7 @@ func TestResolveNext_CascadeGuardBranches(t *testing.T) {
 			nextBuildPlaceholderGenerator = func(_ context.Context, entityType string) runner.PlaceholderGenerator {
 				return fixedNextPlaceholders{vars: map[string]string{"id": "E03-F02", "key": "E03-F02"}}
 			}
-			nextDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			planDescribeDispatchableChildren = func(ctx context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
 				return tt.childrenState, nil
 			}
 

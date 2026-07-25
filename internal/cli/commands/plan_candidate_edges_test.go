@@ -101,6 +101,14 @@ func TestApplyCandidateEdgesPopulatesBothEnvelopeShapes(t *testing.T) {
 			Links: []services.PlanHierarchyEdge{
 				{Key: "B001", Status: "open", Type: "related_to"},
 			},
+			Warnings: []services.PlanHierarchyEdgeWarning{{
+				Code:             services.PlanHierarchyWarningDanglingRelationship,
+				Direction:        "outgoing",
+				RelationshipID:   42,
+				EndpointType:     models.EntityTypeEpic,
+				EndpointID:       99,
+				RelationshipType: models.EntityRelDependsOn,
+			}},
 		},
 	}
 
@@ -115,11 +123,20 @@ func TestApplyCandidateEdgesPopulatesBothEnvelopeShapes(t *testing.T) {
 	require.Equal(t, []CandidateEdge{
 		{Key: "B001", Status: "open", Type: "related_to"},
 	}, parallel.Entities[0].Links)
+	require.Equal(t, []CandidateEdgeWarning{{
+		Code:             services.PlanHierarchyWarningDanglingRelationship,
+		Direction:        "outgoing",
+		RelationshipID:   42,
+		EndpointType:     "epic",
+		EndpointID:       99,
+		RelationshipType: "depends_on",
+	}}, parallel.Entities[0].Warnings)
 
 	// A candidate with no map entry stays edge-less rather than being zeroed.
 	require.Nil(t, parallel.Entities[1].DependsOn)
 	require.Nil(t, parallel.Entities[1].Blocks)
 	require.Nil(t, parallel.Entities[1].Links)
+	require.Nil(t, parallel.Entities[1].Warnings)
 
 	singleton := buildHierarchyPlanSelection("E01-F01", "feature", children[:1], "execution_order", 10)
 	applyCandidateEdges(&singleton, edges)
@@ -127,6 +144,7 @@ func TestApplyCandidateEdgesPopulatesBothEnvelopeShapes(t *testing.T) {
 	require.Len(t, singleton.Entity.DependsOn, 1)
 	if got := planCandidateJSONFields(t, singleton.Entity); !reflect.DeepEqual(got, []string{
 		"blocks", "depends_on", "entity_key", "entity_type", "execution_order", "links", "status", "title",
+		"warnings",
 	}) {
 		t.Fatalf("candidate-with-edges JSON fields = %#v", got)
 	}

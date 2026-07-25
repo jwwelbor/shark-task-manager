@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
@@ -113,7 +114,7 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (_ *models.Epic,
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("epic not found with id %d", id)
+		return nil, fmt.Errorf("epic not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get epic: %w", err)

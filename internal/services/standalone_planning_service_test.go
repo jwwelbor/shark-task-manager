@@ -13,29 +13,47 @@ import (
 )
 
 type standaloneNextBugStub struct {
-	items []*models.Bug
-	err   error
+	items         []*models.Bug
+	err           error
+	inspectFilter func(BugFilters)
 }
 
-func (s standaloneNextBugStub) ListBugs(context.Context, BugFilters) ([]*models.Bug, error) {
+func (s standaloneNextBugStub) ListBugs(_ context.Context, filters BugFilters) ([]*models.Bug, error) {
+	if s.inspectFilter != nil {
+		s.inspectFilter(filters)
+	}
 	return s.items, s.err
 }
 
 type standaloneNextChangeStub struct {
-	items []*models.ChangeCard
-	err   error
+	items         []*models.ChangeCard
+	err           error
+	inspectFilter func(ChangeCardFilters)
 }
 
-func (s standaloneNextChangeStub) ListChangeCards(context.Context, ChangeCardFilters) ([]*models.ChangeCard, error) {
+func (s standaloneNextChangeStub) ListChangeCards(
+	_ context.Context,
+	filters ChangeCardFilters,
+) ([]*models.ChangeCard, error) {
+	if s.inspectFilter != nil {
+		s.inspectFilter(filters)
+	}
 	return s.items, s.err
 }
 
 type standaloneNextTechDebtStub struct {
-	items []*models.TechDebt
-	err   error
+	items         []*models.TechDebt
+	err           error
+	inspectFilter func(TechDebtFilters)
 }
 
-func (s standaloneNextTechDebtStub) ListTechDebts(context.Context, TechDebtFilters) ([]*models.TechDebt, error) {
+func (s standaloneNextTechDebtStub) ListTechDebts(
+	_ context.Context,
+	filters TechDebtFilters,
+) ([]*models.TechDebt, error) {
+	if s.inspectFilter != nil {
+		s.inspectFilter(filters)
+	}
 	return s.items, s.err
 }
 
@@ -154,6 +172,135 @@ func TestStandalonePlanningServiceGroupsTechDebtBySeverity(t *testing.T) {
 	if !reflect.DeepEqual(plan.Layers, want) {
 		t.Fatalf("Layers = %#v, want %#v", plan.Layers, want)
 	}
+}
+
+func TestStandalonePlanningServiceRanksEverySeverityAndUnknownForBugsAndTechDebt(t *testing.T) {
+	wantKeys := []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
+	tests := []struct {
+		name       string
+		collection StandalonePlanCollection
+		bugs       []*models.Bug
+		techDebt   []*models.TechDebt
+	}{
+		{
+			name:       "bugs",
+			collection: StandalonePlanBugs,
+			bugs: []*models.Bug{
+				{BaseEntity: models.BaseEntity{Key: "LOW"}, Severity: models.BugSeverityLow},
+				{BaseEntity: models.BaseEntity{Key: "UNKNOWN"}, Severity: models.BugSeverity("unknown")},
+				{BaseEntity: models.BaseEntity{Key: "HIGH"}, Severity: models.BugSeverityHigh},
+				{BaseEntity: models.BaseEntity{Key: "CRITICAL"}, Severity: models.BugSeverityCritical},
+				{BaseEntity: models.BaseEntity{Key: "MEDIUM"}, Severity: models.BugSeverityMedium},
+			},
+		},
+		{
+			name:       "tech debt",
+			collection: StandalonePlanTechDebt,
+			techDebt: []*models.TechDebt{
+				{BaseEntity: models.BaseEntity{Key: "LOW"}, Severity: models.TechDebtSeverityLow},
+				{BaseEntity: models.BaseEntity{Key: "UNKNOWN"}, Severity: models.TechDebtSeverity("unknown")},
+				{BaseEntity: models.BaseEntity{Key: "HIGH"}, Severity: models.TechDebtSeverityHigh},
+				{BaseEntity: models.BaseEntity{Key: "CRITICAL"}, Severity: models.TechDebtSeverityCritical},
+				{BaseEntity: models.BaseEntity{Key: "MEDIUM"}, Severity: models.TechDebtSeverityMedium},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewStandalonePlanningService(
+				standaloneNextBugStub{items: tt.bugs},
+				standaloneNextChangeStub{},
+				standaloneNextTechDebtStub{items: tt.techDebt},
+				standaloneNextClaimStub{},
+				standaloneNextDependencyStub{},
+			)
+
+			plan, err := service.Plan(context.Background(), tt.collection)
+			if err != nil {
+				t.Fatalf("Plan() error = %v", err)
+			}
+			if len(plan.Layers) != len(wantKeys) {
+				t.Fatalf("len(Layers) = %d, want %d", len(plan.Layers), len(wantKeys))
+			}
+			for i, wantKey := range wantKeys {
+				if got := plan.Layers[i][0].Key; got != wantKey {
+					t.Errorf("Layers[%d][0].Key = %q, want %q", i, got, wantKey)
+				}
+			}
+		})
+	}
+}
+
+func TestStandalonePlanningServiceRequestsNonTerminalProviderLists(t *testing.T) {
+	t.Run("bugs", func(t *testing.T) {
+		called := false
+		service := NewStandalonePlanningService(
+			standaloneNextBugStub{inspectFilter: func(filters BugFilters) {
+				called = true
+				if filters.ShowAll {
+					t.Fatal("bug ShowAll = true, want terminal entities excluded by provider")
+				}
+			}},
+			standaloneNextChangeStub{},
+			standaloneNextTechDebtStub{},
+			standaloneNextClaimStub{},
+			standaloneNextDependencyStub{},
+		)
+
+		if _, err := service.Plan(context.Background(), StandalonePlanBugs); err != nil {
+			t.Fatalf("Plan(bugs) error = %v", err)
+		}
+		if !called {
+			t.Fatal("bug provider was not called")
+		}
+	})
+
+	t.Run("change cards", func(t *testing.T) {
+		called := false
+		service := NewStandalonePlanningService(
+			standaloneNextBugStub{},
+			standaloneNextChangeStub{inspectFilter: func(filters ChangeCardFilters) {
+				called = true
+				if filters.ShowAll {
+					t.Fatal("change-card ShowAll = true, want terminal entities excluded by provider")
+				}
+			}},
+			standaloneNextTechDebtStub{},
+			standaloneNextClaimStub{},
+			standaloneNextDependencyStub{},
+		)
+
+		if _, err := service.Plan(context.Background(), StandalonePlanChangeCards); err != nil {
+			t.Fatalf("Plan(change-cards) error = %v", err)
+		}
+		if !called {
+			t.Fatal("change-card provider was not called")
+		}
+	})
+
+	t.Run("tech debt", func(t *testing.T) {
+		called := false
+		service := NewStandalonePlanningService(
+			standaloneNextBugStub{},
+			standaloneNextChangeStub{},
+			standaloneNextTechDebtStub{inspectFilter: func(filters TechDebtFilters) {
+				called = true
+				if filters.ShowAll {
+					t.Fatal("tech-debt ShowAll = true, want terminal entities excluded by provider")
+				}
+			}},
+			standaloneNextClaimStub{},
+			standaloneNextDependencyStub{},
+		)
+
+		if _, err := service.Plan(context.Background(), StandalonePlanTechDebt); err != nil {
+			t.Fatalf("Plan(tech-debt) error = %v", err)
+		}
+		if !called {
+			t.Fatal("tech-debt provider was not called")
+		}
+	})
 }
 
 func TestStandalonePlanningServiceFailsWhenClaimStateIsUnavailable(t *testing.T) {

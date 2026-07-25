@@ -1,5 +1,5 @@
-// Package services — CascadeService enumerates dispatchable children for
-// `shark next` cascade resolution.
+// Package services — CascadeService enumerates dispatchable children for the
+// in-process `shark run` controller.
 //
 // Terminal-status filtering delegates to workflow.Service.IsTerminalStatus
 // so custom workflows that rename the terminal status (e.g. "shipped"

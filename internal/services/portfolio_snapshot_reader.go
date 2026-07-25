@@ -8,8 +8,8 @@ import (
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 )
 
-// PortfolioSnapshotSource loads all database-backed portfolio advice evidence
-// in one round trip.
+// PortfolioSnapshotSource loads the complete database-backed portfolio advice
+// evidence through one service read.
 type PortfolioSnapshotSource interface {
 	ReadSnapshot(ctx context.Context) (portfoliorepo.Snapshot, error)
 }

@@ -34,6 +34,36 @@ type mockPlanHierarchyClaimPolicy struct {
 
 func (m mockPlanHierarchyClaimPolicy) TTL() time.Duration { return m.ttl }
 
+const asymmetricPlanHierarchyWorkflowConfig = `{
+  "task_workflow": {
+    "statuses": ["task_ready", "task_done"],
+    "status_flow": {"task_ready": ["task_done"], "task_done": []},
+    "special_statuses": {"_start_": ["task_ready"], "_complete_": ["task_done"]},
+    "status_metadata": {
+      "task_ready": {"color": "blue", "phase": "development"},
+      "task_done": {"color": "green", "phase": "done"}
+    }
+  },
+  "feature_workflow": {
+    "statuses": ["feature_ready", "feature_done"],
+    "status_flow": {"feature_ready": ["feature_done"], "feature_done": []},
+    "special_statuses": {"_start_": ["feature_ready"], "_complete_": ["feature_done"]},
+    "status_metadata": {
+      "feature_ready": {"color": "blue", "phase": "development"},
+      "feature_done": {"color": "green", "phase": "done"}
+    }
+  },
+  "epic_workflow": {
+    "statuses": ["epic_ready", "epic_done"],
+    "status_flow": {"epic_ready": ["epic_done"], "epic_done": []},
+    "special_statuses": {"_start_": ["epic_ready"], "_complete_": ["epic_done"]},
+    "status_metadata": {
+      "epic_ready": {"color": "blue", "phase": "development"},
+      "epic_done": {"color": "green", "phase": "done"}
+    }
+  }
+}`
+
 // TestPlanHierarchyServiceFiltersInMemoryAfterOneSetRead pins the one-query
 // contract for `shark plan <epic|feature>`: exactly one snapshot read per
 // call, with terminal/claimed/blocked children filtered in memory.
@@ -104,6 +134,78 @@ func TestPlanHierarchyServiceFiltersInMemoryAfterOneSetRead(t *testing.T) {
 	}
 	if len(state.Children) != 1 || state.Children[0].Key != "T-E07-F01-001" {
 		t.Fatalf("claimable children = %#v, want only direct ready task", state.Children)
+	}
+}
+
+func TestPlanHierarchyServiceUsesChildWorkflowForTerminalFiltering(t *testing.T) {
+	tests := []struct {
+		name        string
+		parentType  string
+		parentKey   string
+		entityType  models.EntityType
+		terminal    string
+		notTerminal string
+		wantKey     string
+	}{
+		{
+			name: "epic children use feature workflow", parentType: "epic", parentKey: "E07",
+			entityType: models.EntityTypeFeature,
+			terminal:   "feature_done", notTerminal: "task_done", wantKey: "E07-F02",
+		},
+		{
+			name: "feature children use task workflow", parentType: "feature", parentKey: "E07-F01",
+			entityType: models.EntityTypeTask,
+			terminal:   "task_done", notTerminal: "feature_done", wantKey: "T-E07-F01-002",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &mockPlanHierarchySnapshotReader{
+				ReadDirectChildrenFunc: func(
+					_ context.Context,
+					parentType string,
+					parentKey string,
+					_ time.Duration,
+					_ time.Time,
+				) (planhierarchyrepo.Snapshot, error) {
+					if parentType != tt.parentType || parentKey != tt.parentKey {
+						t.Fatalf(
+							"read target = %s %s, want %s %s",
+							parentType, parentKey, tt.parentType, tt.parentKey,
+						)
+					}
+					return planhierarchyrepo.Snapshot{
+						ParentFound: true,
+						Children: []planhierarchyrepo.Child{
+							{Key: "terminal", Status: tt.terminal, EntityType: tt.entityType},
+							{Key: tt.wantKey, Status: tt.notTerminal, EntityType: tt.entityType},
+						},
+					}, nil
+				},
+			}
+			service := services.NewPlanHierarchyService(
+				reader,
+				newWorkflowService(t, asymmetricPlanHierarchyWorkflowConfig),
+				mockPlanHierarchyClaimPolicy{},
+				services.PlanHierarchyEdgeReaders{},
+			)
+
+			state, err := service.DescribeChildren(
+				context.Background(),
+				tt.parentType,
+				tt.parentKey,
+			)
+			if err != nil {
+				t.Fatalf("DescribeChildren() error = %v", err)
+			}
+			if state.NonTerminalChildren != 1 {
+				t.Fatalf("NonTerminalChildren = %d, want 1", state.NonTerminalChildren)
+			}
+			if len(state.Children) != 1 || state.Children[0].Key != tt.wantKey {
+				t.Fatalf("children = %#v, want only %s", state.Children, tt.wantKey)
+			}
+		})
 	}
 }
 

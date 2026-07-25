@@ -1,20 +1,18 @@
 // Package services — PlanHierarchyService enumerates direct children for
-// one-level `shark plan <epic|feature>` selection.
-//
-// This is intentionally separate from CascadeService (used by keyed
-// `shark next`/`shark run` cascade traversal): CascadeService's per-child
-// query behavior is the exact 0e3f0103 contract those commands must keep
-// unchanged, while PlanHierarchyService loads one hierarchy edge in a single
-// set-oriented query and applies claim/dependency filtering in memory.
+// one-level `shark plan <epic|feature>` selection and keyed `shark next`
+// cascade traversal. It loads one hierarchy edge in a single set-oriented
+// query and applies claim/dependency filtering in memory.
 package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	planhierarchyrepo "github.com/jwwelbor/shark-task-manager/internal/repository/planhierarchy"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -79,6 +77,25 @@ type PlanHierarchyEdge struct {
 	Type   string
 }
 
+// PlanHierarchyWarningDanglingRelationship identifies a relationship row whose
+// far endpoint no longer exists. The row is omitted from the edge buckets and
+// reported as bounded evidence so callers cannot mistake the result for a
+// complete relationship graph.
+const PlanHierarchyWarningDanglingRelationship = "DANGLING_RELATIONSHIP"
+
+// PlanHierarchyEdgeWarning describes one relationship row that could not be
+// represented as an edge. It intentionally contains only stable row and
+// endpoint identity; repository implementation details stay out of the wire
+// contract.
+type PlanHierarchyEdgeWarning struct {
+	Code             string
+	Direction        string
+	RelationshipID   int64
+	EndpointType     models.EntityType
+	EndpointID       int64
+	RelationshipType models.EntityRelationshipType
+}
+
 // PlanHierarchyEdges is one candidate's relationship neighbourhood, split by
 // what the edge means for scheduling:
 //
@@ -98,6 +115,7 @@ type PlanHierarchyEdges struct {
 	DependsOn []PlanHierarchyEdge
 	Blocks    []PlanHierarchyEdge
 	Links     []PlanHierarchyEdge
+	Warnings  []PlanHierarchyEdgeWarning
 }
 
 // PlanHierarchyRelationshipReader is the entity-generic relationship surface
@@ -184,8 +202,8 @@ func NewPlanHierarchyService(
 //     unclaimed children.
 //   - parentType == "feature": direct tasks, filtered to non-terminal,
 //     unclaimed children whose hard dependencies are all terminal.
-//   - any other parentType: no children — return (nil, nil). The caller
-//     treats this as "no dispatchable child".
+//   - any unsupported parentType, or a missing parent, returns a not-found
+//     error.
 func (s *PlanHierarchyService) DescribeChildren(
 	ctx context.Context,
 	parentType, parentKey string,
@@ -313,6 +331,15 @@ func (s *PlanHierarchyService) describeEntityEdges(
 			ctx, relationship.ToEntityType, relationship.ToEntityID, relationship.RelationshipType,
 		)
 		if err != nil {
+			if errors.Is(err, repoerr.ErrNotFound) {
+				edges.Warnings = append(edges.Warnings, danglingRelationshipWarning(
+					"outgoing",
+					relationship,
+					relationship.ToEntityType,
+					relationship.ToEntityID,
+				))
+				continue
+			}
 			return PlanHierarchyEdges{}, err
 		}
 		// Outgoing: this entity depends on the target, or blocks the target.
@@ -333,6 +360,15 @@ func (s *PlanHierarchyService) describeEntityEdges(
 			ctx, relationship.FromEntityType, relationship.FromEntityID, relationship.RelationshipType,
 		)
 		if err != nil {
+			if errors.Is(err, repoerr.ErrNotFound) {
+				edges.Warnings = append(edges.Warnings, danglingRelationshipWarning(
+					"incoming",
+					relationship,
+					relationship.FromEntityType,
+					relationship.FromEntityID,
+				))
+				continue
+			}
 			return PlanHierarchyEdges{}, err
 		}
 		// Incoming inverts the meaning: the source depends on this entity
@@ -355,6 +391,22 @@ func (s *PlanHierarchyService) describeEntityEdges(
 	edges.Blocks = dedupePlanHierarchyEdges(edges.Blocks)
 	edges.Links = dedupePlanHierarchyEdges(edges.Links)
 	return edges, nil
+}
+
+func danglingRelationshipWarning(
+	direction string,
+	relationship *models.EntityRelationship,
+	endpointType models.EntityType,
+	endpointID int64,
+) PlanHierarchyEdgeWarning {
+	return PlanHierarchyEdgeWarning{
+		Code:             PlanHierarchyWarningDanglingRelationship,
+		Direction:        direction,
+		RelationshipID:   relationship.ID,
+		EndpointType:     endpointType,
+		EndpointID:       endpointID,
+		RelationshipType: relationship.RelationshipType,
+	}
 }
 
 // appendLegacyTaskEdges unions the task-only tasks.depends_on JSON column into

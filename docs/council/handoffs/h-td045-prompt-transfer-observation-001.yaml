@@ -1,0 +1,17 @@
+artifact_id: h-td045-prompt-transfer-observation-001
+type: handoff
+status: open
+roles:
+  - tech-director
+  - qa
+root_key: TD-045
+evidence:
+  - docs/council/decisions/d-td045-first-attack.yaml
+created_at: 2026-07-25T17:22:00Z
+updated_at: 2026-07-25T17:22:00Z
+next_action: Replace manual prompt transcription with direct host-adapter transport.
+observations:
+  - id: SA-003
+    type: adapter-risk
+    problem: Manual prompt transfer can omit content from the verbatim dispatch payload.
+    improvement: Pass the response field directly and record only a provenance hash.
