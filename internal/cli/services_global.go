@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	planhierarchyrepo "github.com/jwwelbor/shark-task-manager/internal/repository/planhierarchy"
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
@@ -742,16 +743,61 @@ func GetClaimService() *services.ClaimService {
 }
 
 // GetPortfolioAdviceService returns a read-only portfolio advice service
-// backed by the shared CLI database and configured workflows.
+// backed by the shared CLI database and configured workflows. This is the
+// internal evidence input to bare `shark plan`'s epic selection.
 func GetPortfolioAdviceService() *services.PortfolioAdviceService {
 	db, err := GetDB(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	return services.NewPortfolioAdviceService(
-		repository.NewEpicRepository(db),
+	return services.NewPortfolioAdviceServiceFromSnapshot(
 		portfoliorepo.NewRepository(db),
 		GetClaimService(),
 		GetWorkflowService(),
+	)
+}
+
+// GetPlanHierarchyService returns the one-query direct-child reader used by
+// one-level `shark plan <epic|feature>` hierarchy selection. This is distinct
+// from GetCascadeService, which serves keyed `shark next`/`shark run` cascade
+// traversal and must keep its own unrelated query pattern unchanged.
+func GetPlanHierarchyService() *services.PlanHierarchyService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	return services.NewPlanHierarchyService(
+		planhierarchyrepo.NewRepository(db),
+		GetWorkflowService(),
+		GetClaimService(),
+		services.PlanHierarchyEdgeReaders{
+			Relationships:    GetEntityRelationshipService(),
+			Registry:         GetEntityRegistry(),
+			TaskDependencies: repository.NewTaskRepository(db),
+		},
+	)
+}
+
+// GetPortfolioPlanningService returns the stateless selector used to turn
+// portfolio evidence into a first executable epic-root layer for bare
+// `shark plan`.
+func GetPortfolioPlanningService() *services.PortfolioPlanningService {
+	return services.NewPortfolioPlanningService()
+}
+
+// GetStandalonePlanningService returns the selector used by standalone
+// collection roots such as `shark plan bugs`.
+func GetStandalonePlanningService() *services.StandalonePlanningService {
+	dependencies := services.NewStandaloneHardDependencyService(
+		GetEntityRelationshipService(),
+		GetEntityRegistry(),
+		GetWorkflowService(),
+	)
+	return services.NewStandalonePlanningService(
+		GetBugService(),
+		GetChangeCardService(),
+		GetTechDebtService(),
+		GetClaimService(),
+		dependencies,
 	)
 }

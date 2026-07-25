@@ -267,14 +267,22 @@ func (s *ClaimService) ListActiveReadOnly(ctx context.Context, evaluatedAt time.
 	if err != nil {
 		return nil, fmt.Errorf("list active claims: %w", err)
 	}
+	return s.FilterActiveReadOnly(claims, evaluatedAt), nil
+}
 
+// FilterActiveReadOnly applies configured lease expiry to already-loaded claim
+// rows. It performs no database access.
+func (s *ClaimService) FilterActiveReadOnly(
+	claims []*models.EntityClaim,
+	evaluatedAt time.Time,
+) []*models.EntityClaim {
 	active := make([]*models.EntityClaim, 0, len(claims))
 	for _, claim := range claims {
-		if !claim.IsExpired(evaluatedAt, s.ttl) {
+		if claim != nil && !claim.IsExpired(evaluatedAt, s.ttl) {
 			active = append(active, claim)
 		}
 	}
-	return active, nil
+	return active
 }
 
 // ReclaimExpired frees all leases whose heartbeats are stale and returns the

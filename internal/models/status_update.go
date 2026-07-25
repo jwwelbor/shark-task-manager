@@ -61,6 +61,18 @@ type StatusUpdateParams struct {
 	CompletedAt sql.NullTime
 	BlockedAt   sql.NullTime
 
+	// TerminalStatuses is the authoritative list of terminal task statuses,
+	// used to decide (a) whether this transition finishes the task and should
+	// therefore auto-unblock its dependents, and (b) whether each dependency of
+	// a blocked dependent is satisfied. Callers should populate this from
+	// workflow.Service.ForLevel(workflow.LevelTask).GetTerminalStatuses() so
+	// custom workflows that rename terminal statuses keep working. When empty
+	// the repository falls back to the historical hardcoded pair
+	// (completed/archived) so callers that do not yet supply it keep working —
+	// same contract as BugListFilters.TerminalStatuses and
+	// ChangeCardRepoFilter.TerminalStatuses.
+	TerminalStatuses []string
+
 	// Guarded, when true, makes the UPDATE conditional on the row's current
 	// status still matching OldStatus (case-insensitive), evaluated atomically
 	// as part of the single UPDATE statement rather than a separate read. Used

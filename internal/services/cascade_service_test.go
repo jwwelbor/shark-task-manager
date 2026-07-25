@@ -191,9 +191,18 @@ func TestCascadeService_FeatureChildren_SkipsUnmetDependencies(t *testing.T) {
 			case "E07-F01-001":
 				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("todo")}}, nil
 			case "E07-F01-002":
-				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("completed")}}, nil
+				// b029CustomWorkflowConfig's task terminal status is "shipped",
+				// not "completed" — dependency satisfaction must be checked
+				// against the configured terminal set, not a hardcoded literal.
+				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("shipped")}}, nil
 			case "E07-F01-003":
-				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("archived")}}, nil
+				// Regression guard: "completed" is NOT a terminal status under
+				// b029CustomWorkflowConfig (its task statuses are only
+				// todo/in_progress/shipped). Under the old hardcoded
+				// `!= "completed" && != "archived"` check this dependency would
+				// have been treated as satisfied; with config-driven terminal
+				// classification it must NOT be, so this task stays blocked.
+				return []*models.Task{{BaseEntity: models.BaseEntity{Key: "E07-F01-000"}, Status: models.TaskStatus("completed")}}, nil
 			default:
 				return nil, fmt.Errorf("unexpected task key %s", taskKey)
 			}
@@ -215,14 +224,15 @@ func TestCascadeService_FeatureChildren_SkipsUnmetDependencies(t *testing.T) {
 		t.Errorf("expected NonTerminalChildren=3 (dependency-blocked tasks still count), got %d", state.NonTerminalChildren)
 	}
 	out := state.Children
-	if len(out) != 2 {
-		t.Fatalf("expected 2 dependency-ready tasks, got %d: %+v", len(out), out)
+	// Only E07-F01-002 is ready: its dependency is "shipped", the workflow's
+	// actual configured terminal status. E07-F01-003's dependency is
+	// "completed" — not terminal under this workflow — so it stays blocked;
+	// this is the regression case for the old hardcoded literal check.
+	if len(out) != 1 {
+		t.Fatalf("expected 1 dependency-ready task, got %d: %+v", len(out), out)
 	}
 	if out[0].Key != "E07-F01-002" {
-		t.Errorf("expected first ready child E07-F01-002, got %+v", out[0])
-	}
-	if out[1].Key != "E07-F01-003" {
-		t.Errorf("expected second ready child E07-F01-003, got %+v", out[1])
+		t.Errorf("expected ready child E07-F01-002, got %+v", out[0])
 	}
 }
 

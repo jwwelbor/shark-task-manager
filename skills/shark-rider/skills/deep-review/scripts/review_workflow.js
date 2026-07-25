@@ -12,7 +12,13 @@ export const meta = {
 // Optional scope metadata: changed_file_count, diff_shortstat
 // Optional: task_spec_path, feature_prd_path, acceptance_criteria (array of {ac_id, text})
 
-const { diff_path, changed_files, changed_file_count, diff_shortstat, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = args
+// Some hosts deliver `args` as a JSON-encoded string rather than a parsed
+// object. Destructuring that string yields undefined for every field, which
+// surfaces as a bogus "requires args.diff_path and args.skill_dir" error even
+// though the caller passed them. Normalize before reading.
+const input = typeof args === 'string' ? JSON.parse(args) : args
+
+const { diff_path, changed_files, changed_file_count, diff_shortstat, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = input ?? {}
 
 if (!diff_path || !skill_dir) {
   throw new Error('review_workflow.js requires args.diff_path and args.skill_dir')

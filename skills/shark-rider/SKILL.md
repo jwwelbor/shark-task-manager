@@ -41,13 +41,19 @@ Everything downstream depends on getting this split right.
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Shark exposes two distinct `next` command modes:
+Shark separates work **selection** from keyed **dispatch**:
 
-- Bare `shark next` is a read-only portfolio-advice query. State-aware Rider
-  help must follow its returned prompt inline in the current agent turn and
-  stop at one recommendation or an evidence gap.
-- `shark next <key> --json` resolves keyed workflow dispatch.
-  `/shark-rider run <key>` is the explicit handoff from advice to keyed dispatch.
+- `shark plan [root|collection]` selects work and never dispatches. Bare
+  `shark plan` selects one epic or an epic-only `parallel_candidates` tie;
+  `shark plan <epic|feature>` evaluates one hierarchy edge and returns direct
+  children as a selection; `shark plan bugs|change-cards|tech-debt` selects the
+  next claimable standalone tier. None of these claim, advance, or spawn an
+  agent. `/shark-rider plan [root|collection]` reads its response and
+  recommends an execution shape.
+- `shark next <key> --json` resolves keyed workflow dispatch for one concrete
+  entity, cascading internally to the first dispatchable descendant.
+  `/shark-rider run <key>` is the explicit handoff from a selected key to
+  keyed dispatch.
 
 **The golden invariant applies only to keyed dispatch:**
 `shark next <key> --json` is the only keyed dispatch API. Its `response.prompt`
@@ -76,7 +82,7 @@ much the skill does vs how much the CLI does:
 
 | Mode | The skill's job | The CLI's job |
 |------|-----------------|---------------|
-| **1 · Data-plane passthrough** | Translate the request to a `shark` data command, run it, report | Execute data commands; bare portfolio advice remains read-only |
+| **1 · Data-plane passthrough** | Translate the request to a `shark` data command, run it, report | Execute data commands; `shark plan` selection remains read-only |
 | **2 · Engine dispatch** | Run a mechanical loop; pass `response.prompt` unchanged | Route the workflow **and** assemble the prompt (`shark next <key>`) |
 | **3 · Local AI recipe** | Run a host-side craft procedure (read the action or sub-skill) | Serve data reads/writes around the recipe |
 
@@ -167,7 +173,8 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Sprint retrospective | `/shark-rider retro-sprint S###` → read `skills/sprint-analytics/SKILL.md`; `shark sprint summary --detailed` + velocity → five-section report → `verbs/retro-sprint.md` |
 | Consult an agent persona | `/shark-rider consult <agent> [referent]` → `shark agent list --json` (resolve) → `shark agent get <agent>` → adopt persona inline, read-only → `verbs/consult.md` |
 | Inspect workflow/status flow | `/shark-rider workflow [entity-type\|entity-key] [--all\|--json]` → read status for keys, then render `shark admin workflow list` → `verbs/workflow.md` |
-| State-aware portfolio advice | `/shark-rider help` → call bare `shark next` once → follow its prompt inline → recommend one eligible epic or report the evidence gap. Stop before keyed dispatch. `--fast`/`commands` = static, no CLI → `verbs/help.md` |
+| Select next work | `/shark-rider plan [root\|collection]` → call `shark plan [root\|collection]` once → recommend an execution shape for the returned selection. It does not claim or launch work itself → `verbs/plan.md` |
+| State-aware portfolio advice | `/shark-rider help` → call bare `shark plan` once → report the selected epic, evaluate an epic tie through the `/plan` evidence gate, or surface a pause reason. Stop before keyed dispatch. `--fast`/`commands` = static, no CLI → `verbs/help.md` |
 
 ## Golden path
 
@@ -205,7 +212,7 @@ command. It may auto-advance cascade-complete parents or agentless
 3. Otherwise (a bare entity key, a CLI subcommand like `status`/`list`/`get`, or
    NL prose) → `Read verbs/query.md` with the **full** argument string.
 
-Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, `triage`, `demo`,
+Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, `plan`, `triage`, `demo`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
 `viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
 `retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,

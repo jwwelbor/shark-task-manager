@@ -10,7 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-const portfolioAdvicePrompt = "Inspect the relevant artifacts that exist under docs/product/, especially docs/product/progress.md and docs/product/cross-epic-integration-map.md.\n" +
+const portfolioAdvicePrompt = "Inspect docs/product/cross-epic-integration-map.md when it exists.\n" +
 	"Treat this envelope's state, relationships, blockers, and active work as the live Shark authority; treat product documents only as intent and decision context.\n" +
 	"Respect hard precedence before considering priority, business value, progress, and continuity from active work; do not convert those fields into an undocumented weighted score.\n" +
 	"Recommend exactly one eligibility=eligible epic key, give the decisive \"why now\" evidence, and compare it with the strongest eligible alternative.\n" +
@@ -44,6 +44,9 @@ type PortfolioAdviceService struct {
 	snapshot  PortfolioAdviceSnapshotReader
 	claims    PortfolioAdviceClaimReader
 	workflows PortfolioAdviceWorkflowProvider
+
+	snapshotSource PortfolioSnapshotSource
+	claimFilter    PortfolioClaimFilter
 }
 
 // NewPortfolioAdviceService constructs a portfolio advice service from read-only dependencies.
@@ -60,12 +63,33 @@ func NewPortfolioAdviceService(
 	return &PortfolioAdviceService{epics: epics, snapshot: snapshot, claims: claims, workflows: workflows}
 }
 
+// NewPortfolioAdviceServiceFromSnapshot constructs the production one-query
+// portfolio advice path.
+func NewPortfolioAdviceServiceFromSnapshot(
+	snapshotSource PortfolioSnapshotSource,
+	claimFilter PortfolioClaimFilter,
+	workflows PortfolioAdviceWorkflowProvider,
+) *PortfolioAdviceService {
+	requireNonNil(snapshotSource, "PortfolioAdviceService requires a non-nil snapshot source")
+	requireNonNil(claimFilter, "PortfolioAdviceService requires a non-nil claim filter")
+	requireNonNil(workflows, "PortfolioAdviceService requires a non-nil workflow provider")
+	return &PortfolioAdviceService{
+		snapshotSource: snapshotSource,
+		claimFilter:    claimFilter,
+		workflows:      workflows,
+	}
+}
+
 // Advise returns portfolio evidence without mutating Shark state.
 func (s *PortfolioAdviceService) Advise(ctx context.Context) (*models.PortfolioAdviceEnvelope, error) {
 	if err := portfolioAdviceContextError(ctx, nil); err != nil {
 		return nil, err
 	}
 	evaluatedAt := time.Now().UTC()
+
+	if s.snapshotSource != nil {
+		return s.adviseFromSnapshot(ctx, evaluatedAt)
+	}
 
 	epics, err := s.listPortfolioEpics(ctx)
 	if err != nil {
@@ -82,6 +106,30 @@ func (s *PortfolioAdviceService) Advise(ctx context.Context) (*models.PortfolioA
 		return nil, err
 	}
 	advice := assemblePortfolioAdvice(epics, reads, workflows)
+	if err := portfolioAdviceContextError(ctx, nil); err != nil {
+		return nil, err
+	}
+	return advice, nil
+}
+
+func (s *PortfolioAdviceService) adviseFromSnapshot(
+	ctx context.Context,
+	evaluatedAt time.Time,
+) (*models.PortfolioAdviceEnvelope, error) {
+	snapshot, err := s.snapshotSource.ReadSnapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("assemble portfolio advice snapshot: %w", err)
+	}
+	workflows, err := s.portfolioWorkflows()
+	if err != nil {
+		return nil, err
+	}
+	reads := portfolioAdviceReads{
+		children:      snapshot.Children,
+		relationships: snapshot.Relationships,
+		claims:        s.claimFilter.FilterActiveReadOnly(snapshot.Claims, evaluatedAt),
+	}
+	advice := assemblePortfolioAdvice(snapshot.Epics, reads, workflows)
 	if err := portfolioAdviceContextError(ctx, nil); err != nil {
 		return nil, err
 	}

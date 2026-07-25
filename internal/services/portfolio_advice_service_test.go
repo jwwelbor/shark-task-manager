@@ -20,7 +20,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-const wantPortfolioAdvicePrompt = "Inspect the relevant artifacts that exist under docs/product/, especially docs/product/progress.md and docs/product/cross-epic-integration-map.md.\n" +
+const wantPortfolioAdvicePrompt = "Inspect docs/product/cross-epic-integration-map.md when it exists.\n" +
 	"Treat this envelope's state, relationships, blockers, and active work as the live Shark authority; treat product documents only as intent and decision context.\n" +
 	"Respect hard precedence before considering priority, business value, progress, and continuity from active work; do not convert those fields into an undocumented weighted score.\n" +
 	"Recommend exactly one eligibility=eligible epic key, give the decisive \"why now\" evidence, and compare it with the strongest eligible alternative.\n" +
