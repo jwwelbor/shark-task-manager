@@ -1,4 +1,10 @@
-# Assess lightweight handoff and operator guidance
+# Superseded assessment: lightweight handoff and operator guidance
+
+> Superseded on 2026-07-26. This assessment considered only the original F05
+> feature file and omitted the approved Shark Attack v2 triage decision. The
+> v2 implementation plan assigns Tranche B deterministic council tooling to
+> F05. Use the implementation plan and the F05 future-scope note as the
+> current scope.
 
 ## Goal
 
@@ -18,14 +24,16 @@ The remaining F05 wording does not identify an independent user outcome,
 runtime surface, or contract that those features do not provide. Adding a
 separate status or reporting subsystem would violate its out-of-scope boundary.
 
-## Scope decision
+## Superseded scope decision
 
-E38-F05 is not a feature. At most, it is one small documentation task to add
-an operator checklist to the completed F07 procedure. No active enhancement
-feature exists that can own that task. Creating a new feature solely to contain
-one task would preserve the same misclassification.
+This conclusion is invalid because it omitted the approved v2 re-scope. F05
+owns the deterministic council-artifact contract: typed artifacts, validated
+generation, immutable revisions, entity-or-collection scope, evidence
+confinement, effective-roster role checks, and thin `shark admin council`
+commands. Those capabilities are distinct from the prose-only F04/F07
+protocol.
 
-## Complexity triage
+## Superseded complexity triage
 
 **Score:** 5/27
 **Tier:** SIMPLE
@@ -49,13 +57,8 @@ one task would preserve the same misclassification.
 **Execution total:** 3/9  
 **Overall total:** 5/27
 
-## Choose the next action
+## Correct next action
 
-Choose one option before implementation:
-
-1. Cancel E38-F05 as fully delivered by F04 and F07.
-2. Reopen F07 and add one scoped documentation task for a missing operator
-   checklist, after naming the exact missing behavior.
-
-Do not create a new reporting runtime, a duplicate handoff schema, or a new
-feature solely to hold one task.
+Continue F05 from assessment using the linked Shark Attack v2 implementation
+plan. Do not treat the plan's open schema, namespace, closeout-role, or
+migration decisions as approved.
