@@ -57,6 +57,64 @@ protocol.
 **Execution total:** 3/9  
 **Overall total:** 5/27
 
+## Corrected complexity triage
+
+**Score:** 23/27
+**Tier:** COMPLEX
+
+### Technical complexity
+
+1. **File impact: 3/3** — the plan changes or adds models, repository and
+   service layers, admin command wiring, embedded data, authored skill
+   schemas/templates, documentation, fixtures, and contract tests.
+2. **Pattern novelty: 3/3** — the repository has bounded Markdown council
+   guidance and a generic entity writer, but no typed, revisioned council
+   artifact contract or council validation service.
+3. **Data model: 3/3** — artifact identity, roles, tagged scope, evidence,
+   timestamps, and immutable `supersedes` lineage require a new validated
+   model and YAML round-trip fixtures.
+4. **API surface: 2/3** — new `shark admin council create`, `validate`, and
+   `validate-wave` commands must be thin integrations over the service while
+   preserving existing CLI contracts.
+5. **Cross-feature dependencies: 3/3** — F05 builds on F04/F06/F07 and F08,
+   and provides the artifact and ownership contract required by F09 and F11.
+6. **UI complexity: 0/3** — there is no graphical UI; CLI output and YAML
+   artifacts are the operator surfaces.
+
+### Execution complexity
+
+7. **Task estimation: 3/3** — the implementation plan identifies more than
+   ten independently testable changes across model, repository, service, CLI,
+   authored/embedded skill data, documentation, and fixtures.
+8. **Regression risk: 3/3** — it touches embedded Shark-data loading and
+   existing Shark Attack artifacts; an incorrect boundary could permit path
+   escape, overwrite, invalid roles, or broken installed-skill behavior.
+9. **Execution effort: 3/3** — the contract needs design confirmation,
+   staged implementation, adversarial filesystem fixtures, integration tests,
+   and full Go gates.
+
+**Technical total:** 14/18
+**Execution total:** 9/9
+**Overall total:** 23/27
+
+### Tier assignment
+
+F05 is a correctly scoped feature: it delivers multiple cross-cutting,
+design-dependent capabilities across substantially more than four files. It
+is not a single task and should be delivered as COMPLEX work.
+
+### Autonomous-build feasibility
+
+- Task count: more than 10 (threshold <=10)
+- Regression risk: 3/3 (threshold <=1)
+- Execution effort: 3/3 (threshold <=1)
+- Circular dependencies: no confirmed circular dependency; sequencing still
+  requires the F08 integrity prerequisites and coordination with F09/F11.
+
+**Recommendation:** manual, staged execution after research and specification;
+do not begin implementation until the plan's unresolved schema, namespace,
+closeout-role, and migration decisions have been recorded or approved.
+
 ## Correct next action
 
 Continue F05 from assessment using the linked Shark Attack v2 implementation
