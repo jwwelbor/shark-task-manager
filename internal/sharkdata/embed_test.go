@@ -772,6 +772,39 @@ func TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007(t *testing.T) {
 	}
 }
 
+func TestSolutionWalkthroughBundle(t *testing.T) {
+	files := map[string]string{
+		"manifest": readEmbeddedString(t, "manifest.yaml"),
+		"index":    readEmbeddedString(t, "skills/README.md"),
+		"skill":    readEmbeddedString(t, "skills/solution-walkthrough/SKILL.md"),
+		"template": readEmbeddedString(t, "skills/solution-walkthrough/context/decision-record-template.md"),
+	}
+
+	for name, want := range map[string][]string{
+		"manifest": {"name: solution-walkthrough", "ownership: canonical"},
+		"index":    {"`solution-walkthrough`", "decision-by-decision solution walkthroughs"},
+		"skill": {
+			"name: solution-walkthrough",
+			"authoritative project document",
+			"docs/product/progress.md",
+			"docs/architecture/adr/ADR-<next-number>-<slug>.md",
+			"entity-local `decisions.md`",
+			"one decision at a time",
+			"Record only after a response.",
+			"Reviewed and confirmed",
+			"reference` note",
+			"no lifecycle state",
+		},
+		"template": {"# Decision Record — <entity key>", "## Context", "## Decision", "## Rationale and alternatives", "## Consequences and follow-through", "## Evidence and references"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				assert.Contains(t, files[name], expected)
+			}
+		})
+	}
+}
+
 func readEmbeddedString(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := readEmbeddedAll(rel)

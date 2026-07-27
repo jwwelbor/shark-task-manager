@@ -161,6 +161,7 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Multi-angle code review | `/shark-rider deep-review [effort] [--fix] [--comment] [target]` (aliases `comprehensive-review`, `pr-review`) → read `skills/shark-rider/skills/deep-review/SKILL.md`; 6 subagents + consolidator → PASS/FAIL triage → `verbs/deep-review.md` |
 | Spec ↔ tasks ↔ status audit | `/shark-rider revalidate <key>` → inline audit from `shark get`/`shark list`; optional `shark skill get quality workflows/validate-*.md` → READY/WARNINGS/NOT READY → `verbs/revalidate.md` |
 | Evidence-based demo preparation | `/shark-rider demo <epic-key|feature-key> [--draft]` → collect documented state and linked guidance, retrieve `demo-script`, and create a traceable demo artifact without becoming a UAT gate → `verbs/demo.md` |
+| Solution decision walkthrough | `/shark-rider walkthrough <target> [scope]` (entity key or `docs/` path) → collect authoritative Shark-linked or document-first context, retrieve `solution-walkthrough`, then resolve or ratify decisions one at a time → `verbs/walkthrough.md` |
 | Apply spec change & rewind | `/shark-rider amend <key> "change"` → edit spec → `shark create note <key> "Amended: …" --type=requirement` → resolve target from workflow YAML → `shark status set <key> <target> --force` → `verbs/amend.md` |
 | Refresh architecture docs | `/shark-rider update-docs` → diff-driven refresh of `docs/architecture/*` → `verbs/update-docs.md` |
 | Reconcile filesystem → shark | `/shark-rider sync <epic-key>` → bulk-sync one epic folder's docs into shark entities (filesystem is source of truth). **Explicit user invocation only**; for one authored doc use `shark create … --key --file` instead → `verbs/sync.md` |
@@ -212,7 +213,7 @@ command. It may auto-advance cascade-complete parents or agentless
 3. Otherwise (a bare entity key, a CLI subcommand like `status`/`list`/`get`, or
    NL prose) → `Read verbs/query.md` with the **full** argument string.
 
-Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, `plan`, `triage`, `demo`,
+Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, `plan`, `triage`, `demo`, `walkthrough`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
 `viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
 `retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,

@@ -61,6 +61,7 @@ skills:
   - { name: product-design, ownership: canonical }
   - { name: quality, ownership: canonical }
   - { name: research, ownership: canonical }
+  - { name: solution-walkthrough, ownership: canonical }
   - { name: specification-writing, ownership: canonical }
   - { name: sprint-analytics, ownership: canonical }
   - { name: sprint-execution, ownership: canonical }

@@ -15,7 +15,7 @@ Print the verb groups plus the compact command reference below.
 
 ```
 Getting started:  /shark-rider project bootstrap | product-design | vision "idea"
-Day-to-day:       /shark-rider run <key> | triage "desc" | demo <epic-key|feature-key> [--draft] | viewer | status | list <key> | get <key>
+Day-to-day:       /shark-rider run <key> | triage "desc" | demo <epic-key|feature-key> [--draft] | walkthrough <entity-key|docs-path> [scope] | viewer | status | list <key> | get <key>
 Sprint:           /shark-rider plan-sprint <key> | run-sprint <key> | run-sprint-team <key> | retro-sprint <key>
 Maintenance:      /shark-rider update-docs | amend <key> "change" | revalidate <key> | help [commands|<verb>]
 
@@ -46,6 +46,7 @@ fall through to state-aware help.
 | `plan` | Recommend an execution shape for `shark plan [root\|collection]`. It does not claim, dispatch, advance, or launch a team. |
 | `triage` | Capture, classify, confirm, create, and stop. Use `/shark-rider triage "thing to track"`. |
 | `demo` | Prepare an evidence-based demo for an epic or feature. Use `/shark-rider demo <epic-key|feature-key> [--draft]`; it is not a UAT gate or workflow action. |
+| `walkthrough` | Walk an entity or authoritative document through solution decisions and ratify reviewed directions. Use `/shark-rider walkthrough <entity-key\|docs-path> [overall\|section\|decision-id]`; it does not change workflow status. |
 | `code-review` | Multi-angle review. Flags: `--fix` for safe fixes, `--comment` for GitHub PR comments. |
 | `brownfield-analysis` | Deep existing-codebase analysis and documentation. |
 | `viewer` | Launch the local web dashboard through `shark web`. |
