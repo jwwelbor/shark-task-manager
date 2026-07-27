@@ -91,7 +91,7 @@ engine.
 | AC-011 | One pair of epics has precedence in both directions after normalizing relationship semantics. | The command returns `CONTRADICTORY_ORDER` with both keys and the contributing relationship types. |
 | AC-012 | Two eligible first-layer epics have no precedence path between them. | The command returns `MISSING_ORDERING` and leaves both in the same lexicographically sorted layer. |
 | AC-013 | One feature under an epic is blocked and another direct feature is non-terminal and non-blocked. | The blocked feature appears in `blocked_items`, but the blocked child alone does not make the epic ineligible. |
-| AC-014 | Descendant-state or relationship reads fail after epics load. | The response is partial, `evidence_complete=false`, the failure appears as a typed warning, affected eligibility is `unknown`, and the prompt forbids guessing. |
+| AC-014 | The complete portfolio snapshot read fails. | No envelope is returned; the service returns a wrapped snapshot error and preserves context cancellation or deadline errors. |
 | AC-015 | No non-terminal epics exist. | The command returns empty arrays and a prompt that says no root can be recommended from current Shark state. |
 | AC-016 | Inspect the generated prompt. | It names `docs/product/`, states the Shark-vs-document authority boundary, requests exactly one epic key, asks for a strongest-alternative comparison, and requires missing evidence to be reported. |
 | AC-017 | Run state-aware and static Rider help variants. | Bare help consumes `shark next`; `--fast`, `commands`, and verb-specific help make zero state calls. |
@@ -128,12 +128,13 @@ rather than inserting advice logic into `resolveNext`.
 flowchart TD
     CLI[shark next command] --> Arg{Entity key supplied?}
     Arg -->|No| Advice[PortfolioAdviceService.Advise]
-    Advice --> Epics[Existing EpicRepository.List]
-    Advice --> Snapshot[Portfolio read repository]
-    Advice --> Claims[ClaimService.ListActiveReadOnly]
+    Advice --> Snapshot[PortfolioSnapshotSource.ReadSnapshot]
+    Advice --> Claims[PortfolioClaimFilter.FilterActiveReadOnly]
     Advice --> Workflow[Configured workflow classifiers]
+    Snapshot --> Epics[(epics)]
     Snapshot --> ChildState[(features and tasks)]
     Snapshot --> Relations[(entity_relationships)]
+    Snapshot --> ClaimRows[(entity_claims)]
     Advice --> Envelope[Portfolio-advice JSON envelope]
     Arg -->|Yes| Keyed[Existing adapter cache and resolveNext]
     Keyed --> Dispatch[Existing NextResponse]
@@ -154,9 +155,9 @@ read-only boundary: bare mode cannot construct a transitioner or call
 | `internal/models/portfolio_advice.go` | Define the stable domain/read-model DTOs and JSON field names in **Data model**. |
 | `internal/repository/portfolio/repository.go` | Add set-oriented, read-only descendant-state and epic-relationship queries. Keep workflow classification and graph logic out of SQL. |
 | `internal/repository/portfolio/repository_test.go` | Use the repository test database with cleanup to cover query shape, terminal endpoints, relationship filtering, and stable row order. |
-| `internal/services/portfolio_advice_service.go` | Add `PortfolioAdviceService`, narrow read interfaces, partial-evidence handling, eligibility assembly, prompt text, and response sanitization. |
+| `internal/services/portfolio_advice_service.go` | Add `PortfolioAdviceService`, one complete-snapshot input, claim filtering, eligibility assembly, prompt text, and response sanitization. |
 | `internal/services/portfolio_graph.go` | Add pure relationship normalization, topological layering, cycle/contradiction detection, and warning ordering helpers. |
-| `internal/services/portfolio_advice_service_test.go` | Cover orchestration, configured statuses, progress reuse, claims, blockers, partial evidence, security fields, and no-write dependency calls with mocks. |
+| `internal/services/portfolio_advice_service_test.go` | Cover the production snapshot seam, configured statuses, progress reuse, claims, blockers, fatal snapshot errors, security fields, and no-write claim filtering with fakes. |
 | `internal/services/portfolio_graph_test.go` | Table-drive hard/soft edge semantics, cycles, contradictions, incomparable roots, and deterministic output. |
 | `internal/cli/commands/next_portfolio_test.go` | Cover zero/one/many argument routing, JSON envelope output, no keyed initialization from bare mode, and removed `--preview`. Use a mocked advisor service; do not use a real database. |
 | `internal/services/epic_analytics_service_test.go` | Create a focused test file for the extracted shared epic-progress helper. The live tree has no file at this path; existing higher-level progress regressions remain in `internal/services/epic_service_test.go` and continue to run unchanged. |
@@ -260,20 +261,22 @@ or graph classification.
 | `(*portfolio.Repository).ListChildStates(ctx context.Context) ([]portfolio.ChildStateRow, error)` | Return one row for every feature and task, including owning epic ID/key, entity type/key/title/status, direct-parent key, and feature progress when applicable. Order by epic key, entity type, entity key. |
 | `(*portfolio.Repository).ListEpicRelationships(ctx context.Context) ([]portfolio.EpicRelationshipRow, error)` | Join `entity_relationships` to both epic endpoints, filter to the three supported types, and return endpoint IDs/keys/statuses. Include a row when at least one endpoint is non-terminal only after service classification; the repository returns all epic-to-epic rows. |
 
-The service reuses `(*epic.EpicRepository).List(ctx, nil)` for the authoritative
-epic rows and `(*claim.Repository).List(ctx)` indirectly through the claim
-service. No repository method introduced here may execute `INSERT`, `UPDATE`,
-or `DELETE`.
+The service consumes `PortfolioSnapshotSource.ReadSnapshot` for authoritative
+epic, descendant, relationship, and claim rows. It applies
+`PortfolioClaimFilter.FilterActiveReadOnly` after the snapshot read, without a
+second claim query. No repository method introduced here may execute `INSERT`,
+`UPDATE`, or `DELETE`.
 
 ### Service contracts
 
-`internal/services/portfolio_advice_service.go` defines consumer-side
-interfaces for the exact methods above and these production entry points:
+`internal/services/portfolio_advice_service.go` defines the workflow-provider
+interface and consumes the snapshot/filter interfaces from
+`portfolio_snapshot_reader.go` through these production entry points:
 
 | Function | Contract |
 | --- | --- |
-| `services.NewPortfolioAdviceService(epics, snapshot, claims, workflows) *services.PortfolioAdviceService` | Require the epic reader, portfolio snapshot reader, active-claim reader, and workflow provider through constructor injection. |
-| `(*services.PortfolioAdviceService).Advise(ctx context.Context) (*models.PortfolioAdviceEnvelope, error)` | Capture one UTC evaluation time; load epics; attempt descendant, relationship, and active-claim reads; assemble sanitized evidence, graph layers, warnings, and prompt. Return an error only when the epic list fails or the context is cancelled. |
+| `services.NewPortfolioAdviceServiceFromSnapshot(snapshotSource, claimFilter, workflows) *services.PortfolioAdviceService` | Require the complete snapshot source, no-I/O active-claim filter, and workflow provider through constructor injection. |
+| `(*services.PortfolioAdviceService).Advise(ctx context.Context) (*models.PortfolioAdviceEnvelope, error)` | Capture one UTC evaluation time; load one complete snapshot; filter its claims; and assemble sanitized evidence, graph layers, warnings, and prompt. Return a wrapped error when the snapshot fails or workflow configuration is unavailable, preserving context cancellation and deadline errors. |
 | `(*services.ClaimService).ListActiveReadOnly(ctx context.Context, evaluatedAt time.Time) ([]*models.EntityClaim, error)` | Call repository `List`, filter with the service TTL and `EntityClaim.IsExpired`, and never call `ReclaimExpired`. Existing `ClaimService.List` retains its sweep-before-list semantics. |
 | `calculateEpicProgress(featureRows)` | Extract the current pure formula from `EpicAnalyticsService.CalculateProgress`: exclude cancelled features, count configured completed/archived legacy values exactly as today, and average remaining stored progress. Both services call the same helper. |
 
@@ -388,8 +391,8 @@ help variants continue to make no state calls.
 | Pillar | Design |
 | --- | --- |
 | Security | Local authenticated process boundaries remain unchanged. Return only the minimum claim fields and no arbitrary document contents, claim notes, prompts from tracked entities, or session IDs. Parameterize all repository filters. |
-| Reliability | Separate bare and keyed call graphs; use narrow read interfaces; return typed partial-evidence warnings; derive terminal/blocked state from workflow configuration; never repair data during advice. |
-| Performance | Four bounded, set-oriented reads; no per-epic queries; linear graph work `O(V+E)` plus stable sorting; no document scan in Go. |
+| Reliability | Separate bare and keyed call graphs; use one complete snapshot contract; fail the request when that snapshot cannot be read; derive terminal/blocked state from workflow configuration; never repair data during advice. |
+| Performance | One service-level snapshot read backed by three bounded, set-oriented SQL statements; no per-epic queries; linear graph work `O(V+E)` plus stable sorting; no document scan in Go. |
 | Cost | No network or model call occurs in the CLI. The receiving Rider/agent uses one prompt and reads only relevant local product files. |
 | Operations | Existing tracing around `shark.next` remains; add a distinct `mode=portfolio_advice` span attribute and counts for candidates, relationships, graph warnings, and incomplete evidence. Do not record prompt text or claim identity in telemetry. |
 
@@ -426,7 +429,7 @@ not replace the absent mapping with a local contract ID.
 | Layer | Required coverage |
 | --- | --- |
 | Pure graph tests | All relationship directions, hard/soft satisfaction, layered DAGs, both cycle classes, contradictions, incomparable roots, deduplication, and randomized input-order stability. |
-| Service tests with mocks | Configured terminal/blocked statuses, progress formula reuse, direct-feature blocker rule, partial reads, warning order, active/expired claims, standalone claim exclusion, sanitized JSON model, empty portfolio, context cancellation, and dependency call counts. |
+| Service tests with fakes | Production `PortfolioSnapshotSource` and `PortfolioClaimFilter` signatures, configured terminal/blocked statuses, progress formula reuse, direct-feature blocker rule, fatal snapshot errors, warning order, active/expired claims, standalone claim exclusion, sanitized JSON model, empty portfolio, context cancellation, and dependency call counts. |
 | Claim service tests with mocks | `ListActiveReadOnly` calls `List` once, calls `ReclaimExpired` zero times, filters by one supplied evaluation time, and preserves TTL=0 claims. |
 | Repository tests with real test DB | Set-oriented descendants and epic relationship rows, endpoint resolution, supported relationship filtering, deterministic order, cleanup, and the performance fixture. |
 | CLI tests with mocked service | Zero/one/many argument routing, bare JSON output, no adapter initialization, fatal advisor error, unchanged keyed path, and unknown `--preview`. No real DB. |

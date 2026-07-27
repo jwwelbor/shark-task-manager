@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	planhierarchyrepo "github.com/jwwelbor/shark-task-manager/internal/repository/planhierarchy"
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
@@ -569,10 +570,9 @@ func GetTechDebtService() *services.TechDebtService {
 // Creates a new instance each call with the global DB connection and workflow service.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
 //
-// Used by `shark next` cascade resolution to enumerate dispatchable children
-// (B029): the CLI command must NOT construct repositories directly, so this
-// accessor wires the underlying task/epic/feature repositories at the CLI
-// boundary and returns a service the command can call.
+// Used by the in-process `shark run` controller. Keyed `shark next` uses
+// GetPlanHierarchyService so sequential and fork-emitting modes share one
+// claim/dependency/order snapshot.
 //
 // Usage:
 //
@@ -742,16 +742,60 @@ func GetClaimService() *services.ClaimService {
 }
 
 // GetPortfolioAdviceService returns a read-only portfolio advice service
-// backed by the shared CLI database and configured workflows.
+// backed by the shared CLI database and configured workflows. This is the
+// internal evidence input to bare `shark plan`'s epic selection.
 func GetPortfolioAdviceService() *services.PortfolioAdviceService {
 	db, err := GetDB(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	return services.NewPortfolioAdviceService(
-		repository.NewEpicRepository(db),
+	return services.NewPortfolioAdviceServiceFromSnapshot(
 		portfoliorepo.NewRepository(db),
 		GetClaimService(),
 		GetWorkflowService(),
+	)
+}
+
+// GetPlanHierarchyService returns the one-query direct-child reader used by
+// one-level `shark plan <epic|feature>` selection and both keyed `shark next`
+// cascade emission modes. GetCascadeService remains for `shark run`.
+func GetPlanHierarchyService() *services.PlanHierarchyService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	return services.NewPlanHierarchyService(
+		planhierarchyrepo.NewRepository(db),
+		GetWorkflowService(),
+		GetClaimService(),
+		services.PlanHierarchyEdgeReaders{
+			Relationships:    GetEntityRelationshipService(),
+			Registry:         GetEntityRegistry(),
+			TaskDependencies: repository.NewTaskRepository(db),
+		},
+	)
+}
+
+// GetPortfolioPlanningService returns the stateless selector used to turn
+// portfolio evidence into a first executable epic-root layer for bare
+// `shark plan`.
+func GetPortfolioPlanningService() *services.PortfolioPlanningService {
+	return services.NewPortfolioPlanningService()
+}
+
+// GetStandalonePlanningService returns the selector used by standalone
+// collection roots such as `shark plan bugs`.
+func GetStandalonePlanningService() *services.StandalonePlanningService {
+	dependencies := services.NewStandaloneHardDependencyService(
+		GetEntityRelationshipService(),
+		GetEntityRegistry(),
+		GetWorkflowService(),
+	)
+	return services.NewStandalonePlanningService(
+		GetBugService(),
+		GetChangeCardService(),
+		GetTechDebtService(),
+		GetClaimService(),
+		dependencies,
 	)
 }

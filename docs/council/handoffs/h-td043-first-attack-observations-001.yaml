@@ -1,0 +1,57 @@
+artifact_id: h-td043-first-attack-observations-001
+type: handoff
+status: open
+roles:
+  - tech-director
+  - qa
+root_key: TD-043
+evidence:
+  - docs/council/decisions/d-td043-first-attack.yaml
+created_at: 2026-07-25T17:22:00Z
+updated_at: 2026-07-25T17:22:00Z
+next_action: Review these observations after the attack and confirm which should become Shark backlog entities.
+observations:
+  - id: SA-001
+    type: contract-defect
+    problem: Collection planning returned worker prompts and changed selected workflow states.
+    improvement: Make collection planning non-mutating and add a status-history regression test.
+  - id: SA-002
+    type: workflow-cli-mismatch
+    problem: Tech-debt research requires related-document registration, but the CLI has no tech-debt flag.
+    improvement: Add tech-debt related-document support or require a reference note.
+  - id: SA-004
+    type: prompt-validator-mismatch
+    problem: The research validator requires evidence on the checklist line, but the prompt does not state that constraint.
+    improvement: Document the one-line rule and add a multiline counterexample contract test.
+  - id: SA-005
+    type: verification-isolation-defect
+    problem: A repository-scope test traverses unrelated registered worktrees and contaminates the live quality gate.
+    improvement: Restrict repository-scope tests to tracked files or exclude registered worktree storage.
+  - id: SA-006
+    type: workflow-inefficiency
+    problem: Tech-debt resolution dispatches a developer twice and can run the full gate twice.
+    improvement: Give either the triaged or in-progress step sole ownership of the implementation exit gate.
+  - id: SA-007
+    type: artifact-schema-defect
+    problem: The first live artifacts were Markdown records that did not satisfy the durable YAML schema.
+    improvement: Provide one validated artifact template or generator and use it for every durable record.
+  - id: SA-008
+    type: scope-model-gap
+    problem: The schema cannot represent a collection-scoped attack over several standalone roots.
+    improvement: Add validated collection and root-list scope fields or require a real aggregate entity.
+  - id: SA-009
+    type: revision-contract-conflict
+    problem: Artifact immutability conflicts with workflows that instruct workers to update an existing record.
+    improvement: Use immutable revisions with supersedes links or define explicit mutable revision semantics.
+  - id: SA-010
+    type: roster-ownership-defect
+    problem: An initial handoff targeted a maintainer role that does not exist in the canonical roster.
+    improvement: Route closeout to a stable roster member or add a formal maintainer member.
+  - id: SA-011
+    type: evidence-confinement-gap
+    problem: Council evidence paths are confined below the council root even when technical evidence lives elsewhere in the repository.
+    improvement: Permit validated repository-relative evidence while keeping council artifact writes confined.
+  - id: SA-012
+    type: validation-tooling-gap
+    problem: No tool validates live council artifacts against schema, roster, scope, path, and revision rules.
+    improvement: Add a council-artifact linter with malformed counterexample fixtures.

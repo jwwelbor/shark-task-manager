@@ -96,7 +96,7 @@ func TestAutoUnblock_SingleDependency(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -150,7 +150,7 @@ func TestAutoUnblock_MultipleDeps_PartialCompletion(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -202,7 +202,7 @@ func TestAutoUnblock_MultipleDeps_AllCompleted(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -250,7 +250,7 @@ func TestAutoUnblock_ManualBlockSkipped(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -285,7 +285,7 @@ func TestAutoUnblock_NoDependents(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -320,7 +320,7 @@ func TestAutoUnblock_NonBlockedDependentSkipped(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -359,7 +359,7 @@ func TestAutoUnblock_HistoryRecorded(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -407,7 +407,7 @@ func TestAutoUnblock_AutoBlockedPrefixPattern(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -547,7 +547,7 @@ func TestAutoUnblock_TaskRelationships_SingleDependency(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -607,7 +607,7 @@ func TestAutoUnblock_TaskRelationships_MultipleDeps_PartialCompletion(t *testing
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -662,7 +662,7 @@ func TestAutoUnblock_TaskRelationships_AllCompleted(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -720,7 +720,7 @@ func TestAutoUnblock_MixedDependencies_LegacyAndRelationships(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -777,7 +777,7 @@ func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 
-	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", nil)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
@@ -786,4 +786,88 @@ func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
 	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatus("blocked"), t3.Status)
+}
+
+// TestAutoUnblock_UsesCallerTerminalStatuses proves dependency satisfaction is
+// decided by the caller-supplied (service-resolved) terminal-status list rather
+// than a hardcoded completed/archived pair. Both subtests invert under the
+// hardcoded set, so reintroducing the literal turns them red.
+func TestAutoUnblock_UsesCallerTerminalStatuses(t *testing.T) {
+	// shippedOnly is a custom workflow's terminal set: "shipped" is terminal and
+	// "completed" is not.
+	shippedOnly := []string{"shipped"}
+
+	t.Run("custom terminal status satisfies the dependency", func(t *testing.T) {
+		ctx := context.Background()
+		database := test.GetTestDB()
+		db := NewDB(database)
+		taskRepo := NewTaskRepository(db)
+
+		_, featureID, cleanup := setupAutoUnblockTest(t)
+		defer cleanup()
+
+		dep := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Prerequisite",
+			Description: stringPtr("")}, FeatureID: featureID,
+			Status: models.TaskStatus("shipped"), Priority: 5,
+		}
+		dependent := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Dependent",
+			Description: stringPtr("")}, FeatureID: featureID,
+			Status: models.TaskStatus("blocked"), Priority: 5,
+			DependsOn: stringPtr(`["T-E97-F01-001"]`),
+		}
+		require.NoError(t, taskRepo.Create(ctx, dep))
+		require.NoError(t, taskRepo.Create(ctx, dependent))
+		_, err := database.ExecContext(ctx,
+			"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+			"Prerequisite task T-E97-F01-001 was reopened", dependent.ID)
+		require.NoError(t, err)
+
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+
+		unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", shippedOnly)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+
+		assert.Equal(t, []string{"T-E97-F01-002"}, unblocked,
+			`"shipped" is terminal for this caller, so the dependency is satisfied; a hardcoded completed/archived check would leave it blocked`)
+	})
+
+	t.Run("status outside the caller terminal set does not satisfy", func(t *testing.T) {
+		ctx := context.Background()
+		database := test.GetTestDB()
+		db := NewDB(database)
+		taskRepo := NewTaskRepository(db)
+
+		_, featureID, cleanup := setupAutoUnblockTest(t)
+		defer cleanup()
+
+		dep := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Prerequisite",
+			Description: stringPtr("")}, FeatureID: featureID,
+			Status: models.TaskStatus("completed"), Priority: 5,
+		}
+		dependent := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Dependent",
+			Description: stringPtr("")}, FeatureID: featureID,
+			Status: models.TaskStatus("blocked"), Priority: 5,
+			DependsOn: stringPtr(`["T-E97-F01-001"]`),
+		}
+		require.NoError(t, taskRepo.Create(ctx, dep))
+		require.NoError(t, taskRepo.Create(ctx, dependent))
+		_, err := database.ExecContext(ctx,
+			"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+			"Prerequisite task T-E97-F01-001 was reopened", dependent.ID)
+		require.NoError(t, err)
+
+		tx, err := db.BeginTxContext(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+
+		unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001", shippedOnly)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+
+		assert.Empty(t, unblocked,
+			`"completed" is NOT terminal for this caller, so the dependency is unsatisfied; a hardcoded completed/archived check would wrongly unblock`)
+	})
 }

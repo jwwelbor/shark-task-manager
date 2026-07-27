@@ -20,7 +20,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-const wantPortfolioAdvicePrompt = "Inspect the relevant artifacts that exist under docs/product/, especially docs/product/progress.md and docs/product/cross-epic-integration-map.md.\n" +
+const wantPortfolioAdvicePrompt = "Inspect docs/product/cross-epic-integration-map.md when it exists.\n" +
 	"Treat this envelope's state, relationships, blockers, and active work as the live Shark authority; treat product documents only as intent and decision context.\n" +
 	"Respect hard precedence before considering priority, business value, progress, and continuity from active work; do not convert those fields into an undocumented weighted score.\n" +
 	"Recommend exactly one eligibility=eligible epic key, give the decisive \"why now\" evidence, and compare it with the strongest eligible alternative.\n" +
@@ -65,6 +65,44 @@ func TestPortfolioAdviceFunctionsStayWithinCyclomaticComplexityLimit(t *testing.
 	}
 }
 
+func TestPortfolioAdviceServiceHasSingleSnapshotImplementation(t *testing.T) {
+	t.Parallel()
+
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() could not locate portfolio advice test file")
+	}
+	adviceFile := filepath.Join(filepath.Dir(testFile), "portfolio_advice_service.go")
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, adviceFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", adviceFile, err)
+	}
+
+	forbidden := map[string]bool{
+		"PortfolioAdviceEpicReader":     true,
+		"PortfolioAdviceSnapshotReader": true,
+		"PortfolioAdviceClaimReader":    true,
+		"NewPortfolioAdviceService":     true,
+		"listPortfolioEpics":            true,
+		"readPortfolioAdviceEvidence":   true,
+		"adviseFromSnapshot":            true,
+	}
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		switch declaration := node.(type) {
+		case *ast.FuncDecl:
+			if forbidden[declaration.Name.Name] {
+				t.Errorf("portfolio advice retains legacy function %s", declaration.Name.Name)
+			}
+		case *ast.TypeSpec:
+			if forbidden[declaration.Name.Name] {
+				t.Errorf("portfolio advice retains legacy type %s", declaration.Name.Name)
+			}
+		}
+		return true
+	})
+}
+
 func portfolioAdviceCyclomaticComplexity(function ast.Node) int {
 	visitor := &portfolioAdviceComplexityVisitor{complexity: 1}
 	ast.Walk(visitor, function)
@@ -96,54 +134,37 @@ func (v *portfolioAdviceComplexityVisitor) Visit(node ast.Node) ast.Visitor {
 	return v
 }
 
-type stubPortfolioEpicReader struct {
-	epics []*models.Epic
-	err   error
-	calls int
+type stubPortfolioSnapshotSource struct {
+	snapshot portfoliorepo.Snapshot
+	err      error
+	calls    int
 }
 
-func (s *stubPortfolioEpicReader) List(context.Context, *models.EpicStatus) ([]*models.Epic, error) {
+func (s *stubPortfolioSnapshotSource) ReadSnapshot(context.Context) (portfoliorepo.Snapshot, error) {
 	s.calls++
-	return s.epics, s.err
+	return s.snapshot, s.err
 }
 
-type stubPortfolioSnapshotReader struct {
-	children          []portfoliorepo.ChildStateRow
-	childErr          error
-	childCalls        int
-	relationships     []portfoliorepo.EpicRelationshipRow
-	relationshipErr   error
-	relationshipCalls int
-}
-
-func (s *stubPortfolioSnapshotReader) ListChildStates(context.Context) ([]portfoliorepo.ChildStateRow, error) {
-	s.childCalls++
-	return s.children, s.childErr
-}
-
-func (s *stubPortfolioSnapshotReader) ListEpicRelationships(context.Context) ([]portfoliorepo.EpicRelationshipRow, error) {
-	s.relationshipCalls++
-	return s.relationships, s.relationshipErr
-}
-
-type stubPortfolioClaimReader struct {
+type stubPortfolioClaimFilter struct {
 	claims      []*models.EntityClaim
-	err         error
 	calls       int
 	evaluatedAt time.Time
 }
 
-func (s *stubPortfolioClaimReader) ListActiveReadOnly(_ context.Context, evaluatedAt time.Time) ([]*models.EntityClaim, error) {
+func (s *stubPortfolioClaimFilter) FilterActiveReadOnly(
+	claims []*models.EntityClaim,
+	evaluatedAt time.Time,
+) []*models.EntityClaim {
 	s.calls++
+	s.claims = claims
 	s.evaluatedAt = evaluatedAt
-	return s.claims, s.err
+	return claims
 }
 
 func TestPortfolioAdviceServiceEmptyPortfolio(t *testing.T) {
-	epics := &stubPortfolioEpicReader{epics: []*models.Epic{}}
-	snapshot := &stubPortfolioSnapshotReader{}
-	claims := &stubPortfolioClaimReader{}
-	service := NewPortfolioAdviceService(epics, snapshot, claims, portfolioTestWorkflows())
+	source := &stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{Epics: []*models.Epic{}}}
+	filter := &stubPortfolioClaimFilter{}
+	service := NewPortfolioAdviceServiceFromSnapshot(source, filter, portfolioTestWorkflows())
 
 	advice, err := service.Advise(context.Background())
 	if err != nil {
@@ -163,12 +184,11 @@ func TestPortfolioAdviceServiceEmptyPortfolio(t *testing.T) {
 		advice.Ordering.UnlayeredEpics == nil || advice.Ordering.Warnings == nil {
 		t.Fatalf("Advise() returned a nil collection: %#v", advice)
 	}
-	if epics.calls != 1 || snapshot.childCalls != 1 || snapshot.relationshipCalls != 1 || claims.calls != 1 {
-		t.Fatalf("read counts = epic:%d child:%d relationship:%d claim:%d, want one each",
-			epics.calls, snapshot.childCalls, snapshot.relationshipCalls, claims.calls)
+	if source.calls != 1 || filter.calls != 1 {
+		t.Fatalf("read counts = snapshot:%d claim-filter:%d, want one each", source.calls, filter.calls)
 	}
-	if claims.evaluatedAt.Location() != time.UTC {
-		t.Errorf("claim evaluation location = %v, want UTC", claims.evaluatedAt.Location())
+	if filter.evaluatedAt.Location() != time.UTC {
+		t.Errorf("claim evaluation location = %v, want UTC", filter.evaluatedAt.Location())
 	}
 
 	encoded, err := json.Marshal(advice)
@@ -184,33 +204,34 @@ func TestPortfolioAdviceServiceAssemblesConfiguredEvidence(t *testing.T) {
 	value := models.PriorityHigh
 	heartbeat := time.Date(2026, 7, 20, 10, 4, 5, 0, time.FixedZone("test", -5*60*60))
 	progress0, progressHalf, progress1 := 0.0, 0.5, 1.0
-	epics := &stubPortfolioEpicReader{epics: []*models.Epic{
-		portfolioTestEpic(4, "E04", "Held", "held_custom", models.PriorityLow, nil),
-		portfolioTestEpic(1, "E01", "Shipped", "shipped_custom", models.PriorityLow, nil),
-		portfolioTestEpic(3, "E03", "Third", "active_custom", models.PriorityMedium, nil),
-		portfolioTestEpic(2, "E02", "Second", "active_custom", models.PriorityHigh, &value),
-	}}
-	snapshot := &stubPortfolioSnapshotReader{
-		children: []portfoliorepo.ChildStateRow{
+	source := &stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+		Epics: []*models.Epic{
+			portfolioTestEpic(4, "E04", "Held", "held_custom", models.PriorityLow, nil),
+			portfolioTestEpic(1, "E01", "Shipped", "shipped_custom", models.PriorityLow, nil),
+			portfolioTestEpic(3, "E03", "Third", "active_custom", models.PriorityMedium, nil),
+			portfolioTestEpic(2, "E02", "Second", "active_custom", models.PriorityHigh, &value),
+		},
+		Children: []portfoliorepo.ChildStateRow{
 			portfolioTestChild(2, "E02", models.EntityTypeTask, "T-E02-F02-001", "Blocked task", "task_stuck", "F02", nil),
 			portfolioTestChild(3, "E03", models.EntityTypeFeature, "F03", "Complete feature", "completed", "E03", floatPointer(2)),
 			portfolioTestChild(2, "E02", models.EntityTypeFeature, "F02", "Ready feature", "ready_custom", "E02", floatPointer(50)),
 			portfolioTestChild(2, "E02", models.EntityTypeFeature, "F01", "Blocked feature", "feature_stuck", "E02", floatPointer(20)),
 		},
-		relationships: []portfoliorepo.EpicRelationshipRow{
+		Relationships: []portfoliorepo.EpicRelationshipRow{
 			portfolioTestRelationship(3, stringPointer("E03"), stringPointer("active_custom"), models.EntityRelDependsOn, 2, stringPointer("E02"), stringPointer("active_custom")),
 			portfolioTestRelationship(2, stringPointer("E02"), stringPointer("active_custom"), models.EntityRelDependsOn, 1, stringPointer("E01"), stringPointer("shipped_custom")),
 			portfolioTestRelationship(2, stringPointer("E02"), stringPointer("active_custom"), models.EntityRelBlocks, 4, stringPointer("E04"), stringPointer("held_custom")),
 		},
-	}
-	claims := &stubPortfolioClaimReader{claims: []*models.EntityClaim{
-		{EntityType: "task", EntityKey: "T-E02-F02-001", ClaimedBy: "qa-1", SessionID: "secret-task", Note: "secret-note", LastHeartbeat: heartbeat, Progress: &progress1},
-		{EntityType: "bug", EntityKey: "B001", ClaimedBy: "ignored", SessionID: "secret-bug", LastHeartbeat: heartbeat},
-		{EntityType: "epic", EntityKey: "E02", ClaimedBy: "lead", SessionID: "secret-epic", Note: "secret-note", LastHeartbeat: heartbeat, Progress: nil},
-		{EntityType: "feature", EntityKey: "F01", ClaimedBy: "dev-1", SessionID: "secret-feature", Note: "secret-note", LastHeartbeat: heartbeat, Progress: &progress0},
-		{EntityType: "feature", EntityKey: "F02", ClaimedBy: "dev-2", SessionID: "secret-feature-2", Note: "secret-note", LastHeartbeat: heartbeat, Progress: &progressHalf},
+		Claims: []*models.EntityClaim{
+			{EntityType: "task", EntityKey: "T-E02-F02-001", ClaimedBy: "qa-1", SessionID: "secret-task", Note: "secret-note", LastHeartbeat: heartbeat, Progress: &progress1},
+			{EntityType: "bug", EntityKey: "B001", ClaimedBy: "ignored", SessionID: "secret-bug", LastHeartbeat: heartbeat},
+			{EntityType: "epic", EntityKey: "E02", ClaimedBy: "lead", SessionID: "secret-epic", Note: "secret-note", LastHeartbeat: heartbeat, Progress: nil},
+			{EntityType: "feature", EntityKey: "F01", ClaimedBy: "dev-1", SessionID: "secret-feature", Note: "secret-note", LastHeartbeat: heartbeat, Progress: &progress0},
+			{EntityType: "feature", EntityKey: "F02", ClaimedBy: "dev-2", SessionID: "secret-feature-2", Note: "secret-note", LastHeartbeat: heartbeat, Progress: &progressHalf},
+		},
 	}}
-	service := NewPortfolioAdviceService(epics, snapshot, claims, portfolioTestWorkflows())
+	filter := &stubPortfolioClaimFilter{}
+	service := NewPortfolioAdviceServiceFromSnapshot(source, filter, portfolioTestWorkflows())
 
 	advice, err := service.Advise(context.Background())
 	if err != nil {
@@ -287,17 +308,22 @@ func TestPortfolioAdviceServiceAssemblesConfiguredEvidence(t *testing.T) {
 			t.Errorf("marshaled advice leaked %q: %s", secret, encoded)
 		}
 	}
+	if source.calls != 1 || filter.calls != 1 || !reflect.DeepEqual(filter.claims, source.snapshot.Claims) {
+		t.Errorf("production snapshot seam calls = source:%d filter:%d claims:%#v", source.calls, filter.calls, filter.claims)
+	}
 }
 
 func TestPortfolioAdviceServiceAllDirectFeaturesBlocked(t *testing.T) {
-	service := NewPortfolioAdviceService(
-		&stubPortfolioEpicReader{epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)}},
-		&stubPortfolioSnapshotReader{children: []portfoliorepo.ChildStateRow{
-			portfolioTestChild(1, "E01", models.EntityTypeFeature, "F01", "Blocked 1", "feature_stuck", "E01", nil),
-			portfolioTestChild(1, "E01", models.EntityTypeFeature, "F02", "Blocked 2", "feature_stuck", "E01", nil),
-			portfolioTestChild(1, "E01", models.EntityTypeFeature, "F03", "Done", "completed", "E01", nil),
+	service := NewPortfolioAdviceServiceFromSnapshot(
+		&stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+			Epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)},
+			Children: []portfoliorepo.ChildStateRow{
+				portfolioTestChild(1, "E01", models.EntityTypeFeature, "F01", "Blocked 1", "feature_stuck", "E01", nil),
+				portfolioTestChild(1, "E01", models.EntityTypeFeature, "F02", "Blocked 2", "feature_stuck", "E01", nil),
+				portfolioTestChild(1, "E01", models.EntityTypeFeature, "F03", "Done", "completed", "E01", nil),
+			},
 		}},
-		&stubPortfolioClaimReader{},
+		&stubPortfolioClaimFilter{},
 		portfolioTestWorkflows(),
 	)
 
@@ -315,13 +341,12 @@ func TestPortfolioAdviceServiceAllDirectFeaturesBlocked(t *testing.T) {
 func TestPortfolioAdviceServiceUsesReadOnlyClaimPolicy(t *testing.T) {
 	now := time.Now().UTC()
 	liveProgress := 0.25
+	listCalls := 0
 	reclaimCalls := 0
 	repo := &mockClaimRepo{
 		ListFn: func(context.Context) ([]*models.EntityClaim, error) {
-			return []*models.EntityClaim{
-				{EntityType: "epic", EntityKey: "E01", ClaimedBy: "live", LastHeartbeat: now, Progress: &liveProgress},
-				{EntityType: "epic", EntityKey: "E01", ClaimedBy: "expired", LastHeartbeat: now.Add(-2 * time.Hour)},
-			}, nil
+			listCalls++
+			return nil, errors.New("snapshot filtering must not read claims again")
 		},
 		ReclaimFn: func(context.Context, time.Duration) (int64, error) {
 			reclaimCalls++
@@ -329,9 +354,14 @@ func TestPortfolioAdviceServiceUsesReadOnlyClaimPolicy(t *testing.T) {
 		},
 	}
 	ttl := time.Hour
-	service := NewPortfolioAdviceService(
-		&stubPortfolioEpicReader{epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)}},
-		&stubPortfolioSnapshotReader{},
+	service := NewPortfolioAdviceServiceFromSnapshot(
+		&stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+			Epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)},
+			Claims: []*models.EntityClaim{
+				{EntityType: "epic", EntityKey: "E01", ClaimedBy: "live", LastHeartbeat: now, Progress: &liveProgress},
+				{EntityType: "epic", EntityKey: "E01", ClaimedBy: "expired", LastHeartbeat: now.Add(-2 * time.Hour)},
+			},
+		}},
 		NewClaimService(repo, &ttl),
 		portfolioTestWorkflows(),
 	)
@@ -344,71 +374,26 @@ func TestPortfolioAdviceServiceUsesReadOnlyClaimPolicy(t *testing.T) {
 	if len(work) != 1 || work[0].ClaimedBy != "live" {
 		t.Errorf("ActiveWork = %#v, want only live claim", work)
 	}
-	if reclaimCalls != 0 {
-		t.Errorf("ReclaimExpired calls = %d, want 0", reclaimCalls)
-	}
-}
-
-func TestPortfolioAdviceServicePartialEvidenceDecisionTable(t *testing.T) {
-	sentinel := errors.New("SELECT * FROM secrets WHERE token='do-not-leak'")
-	tests := []struct {
-		name            string
-		childErr        error
-		relationshipErr error
-		claimErr        error
-		wantCode        models.PortfolioWarningCode
-		wantEligibility models.PortfolioEligibility
-		wantEmptyLayers bool
-	}{
-		{name: "children", childErr: sentinel, wantCode: models.PortfolioWarningChildStateUnavailable, wantEligibility: models.PortfolioEligibilityUnknown},
-		{name: "relationships", relationshipErr: sentinel, wantCode: models.PortfolioWarningRelationshipStateUnavailable, wantEligibility: models.PortfolioEligibilityUnknown, wantEmptyLayers: true},
-		{name: "claims", claimErr: sentinel, wantCode: models.PortfolioWarningClaimStateUnavailable, wantEligibility: models.PortfolioEligibilityEligible},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := NewPortfolioAdviceService(
-				&stubPortfolioEpicReader{epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)}},
-				&stubPortfolioSnapshotReader{childErr: tt.childErr, relationshipErr: tt.relationshipErr},
-				&stubPortfolioClaimReader{err: tt.claimErr},
-				portfolioTestWorkflows(),
-			)
-			advice, err := service.Advise(context.Background())
-			if err != nil {
-				t.Fatalf("Advise() error = %v", err)
-			}
-			if advice.EvidenceComplete {
-				t.Error("EvidenceComplete = true, want false")
-			}
-			warning := requirePortfolioWarning(t, advice.Warnings, tt.wantCode)
-			if strings.Contains(warning.Message, "SELECT") || strings.Contains(warning.Message, "do-not-leak") {
-				t.Errorf("warning leaked dependency detail: %q", warning.Message)
-			}
-			if got := requirePortfolioEvidence(t, advice.Epics, "E01").Eligibility; got != tt.wantEligibility {
-				t.Errorf("Eligibility = %s, want %s", got, tt.wantEligibility)
-			}
-			if tt.wantEmptyLayers && (len(advice.Ordering.DependencyLayers) != 0 || len(advice.Ordering.RoadmapLayers) != 0) {
-				t.Errorf("ordering = %#v, want empty layers", advice.Ordering)
-			}
-		})
+	if listCalls != 0 || reclaimCalls != 0 {
+		t.Errorf("claim repository calls = list:%d reclaim:%d, want 0", listCalls, reclaimCalls)
 	}
 }
 
 func TestPortfolioAdviceServiceUnknownStatusesAndDanglingRelationships(t *testing.T) {
-	service := NewPortfolioAdviceService(
-		&stubPortfolioEpicReader{epics: []*models.Epic{
-			portfolioTestEpic(1, "E01", "Unknown", "unconfigured", models.PriorityHigh, nil),
-			portfolioTestEpic(2, "E02", "Known", "active_custom", models.PriorityHigh, nil),
-		}},
-		&stubPortfolioSnapshotReader{
-			children: []portfoliorepo.ChildStateRow{
+	service := NewPortfolioAdviceServiceFromSnapshot(
+		&stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+			Epics: []*models.Epic{
+				portfolioTestEpic(1, "E01", "Unknown", "unconfigured", models.PriorityHigh, nil),
+				portfolioTestEpic(2, "E02", "Known", "active_custom", models.PriorityHigh, nil),
+			},
+			Children: []portfoliorepo.ChildStateRow{
 				portfolioTestChild(2, "E02", models.EntityTypeTask, "T-E02-F01-001", "Unknown task", "unconfigured_task", "F01", nil),
 			},
-			relationships: []portfoliorepo.EpicRelationshipRow{
+			Relationships: []portfoliorepo.EpicRelationshipRow{
 				portfolioTestRelationship(2, stringPointer("E02"), stringPointer("active_custom"), models.EntityRelDependsOn, 999, nil, nil),
 			},
-		},
-		&stubPortfolioClaimReader{},
+		}},
+		&stubPortfolioClaimFilter{},
 		portfolioTestWorkflows(),
 	)
 
@@ -464,13 +449,15 @@ func TestPortfolioAdviceServiceUnknownStatusesAndDanglingRelationships(t *testin
 
 func TestPortfolioAdviceServiceInvalidClaimProgressDegradesWithoutLeakingClaim(t *testing.T) {
 	invalid := 1.5
-	service := NewPortfolioAdviceService(
-		&stubPortfolioEpicReader{epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)}},
-		&stubPortfolioSnapshotReader{},
-		&stubPortfolioClaimReader{claims: []*models.EntityClaim{{
-			EntityType: "epic", EntityKey: "E01", ClaimedBy: "worker", SessionID: "secret",
-			LastHeartbeat: time.Now(), Progress: &invalid,
-		}}},
+	service := NewPortfolioAdviceServiceFromSnapshot(
+		&stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+			Epics: []*models.Epic{portfolioTestEpic(1, "E01", "First", "active_custom", models.PriorityHigh, nil)},
+			Claims: []*models.EntityClaim{{
+				EntityType: "epic", EntityKey: "E01", ClaimedBy: "worker", SessionID: "secret",
+				LastHeartbeat: time.Now(), Progress: &invalid,
+			}},
+		}},
+		&stubPortfolioClaimFilter{},
 		portfolioTestWorkflows(),
 	)
 
@@ -490,51 +477,52 @@ func TestPortfolioAdviceServiceInvalidClaimProgressDegradesWithoutLeakingClaim(t
 }
 
 func TestPortfolioAdviceServiceFatalErrors(t *testing.T) {
-	t.Run("epic list", func(t *testing.T) {
+	t.Run("snapshot read", func(t *testing.T) {
 		sentinel := errors.New("database unavailable")
-		service := NewPortfolioAdviceService(
-			&stubPortfolioEpicReader{err: sentinel},
-			&stubPortfolioSnapshotReader{},
-			&stubPortfolioClaimReader{},
+		service := NewPortfolioAdviceServiceFromSnapshot(
+			&stubPortfolioSnapshotSource{err: sentinel},
+			&stubPortfolioClaimFilter{},
 			portfolioTestWorkflows(),
 		)
 		advice, err := service.Advise(context.Background())
-		if advice != nil || !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "list portfolio epics") {
-			t.Fatalf("Advise() = (%#v, %v), want wrapped epic-list error", advice, err)
+		if advice != nil || !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "assemble portfolio advice snapshot") {
+			t.Fatalf("Advise() = (%#v, %v), want wrapped snapshot-read error", advice, err)
 		}
 	})
 
 	t.Run("cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		service := NewPortfolioAdviceService(
-			&stubPortfolioEpicReader{},
-			&stubPortfolioSnapshotReader{},
-			&stubPortfolioClaimReader{},
+		source := &stubPortfolioSnapshotSource{}
+		service := NewPortfolioAdviceServiceFromSnapshot(
+			source,
+			&stubPortfolioClaimFilter{},
 			portfolioTestWorkflows(),
 		)
 		advice, err := service.Advise(ctx)
 		if advice != nil || !errors.Is(err, context.Canceled) {
 			t.Fatalf("Advise() = (%#v, %v), want context.Canceled", advice, err)
 		}
+		if source.calls != 0 {
+			t.Errorf("snapshot reads after pre-cancelled context = %d, want 0", source.calls)
+		}
 	})
 
 	t.Run("missing workflow configuration", func(t *testing.T) {
-		snapshot := &stubPortfolioSnapshotReader{}
-		claims := &stubPortfolioClaimReader{}
-		service := NewPortfolioAdviceService(
-			&stubPortfolioEpicReader{},
-			snapshot,
-			claims,
+		source := &stubPortfolioSnapshotSource{}
+		filter := &stubPortfolioClaimFilter{}
+		service := NewPortfolioAdviceServiceFromSnapshot(
+			source,
+			filter,
 			stubPortfolioWorkflowProvider{},
 		)
 		advice, err := service.Advise(context.Background())
 		if advice != nil || err == nil || !strings.Contains(err.Error(), "workflow configuration") {
 			t.Fatalf("Advise() = (%#v, %v), want workflow configuration error", advice, err)
 		}
-		if snapshot.childCalls != 0 || snapshot.relationshipCalls != 0 || claims.calls != 0 {
-			t.Fatalf("optional reads occurred after fatal config failure: child:%d relationship:%d claim:%d",
-				snapshot.childCalls, snapshot.relationshipCalls, claims.calls)
+		if source.calls != 1 || filter.calls != 0 {
+			t.Fatalf("production seam calls before config failure = snapshot:%d filter:%d, want 1/0",
+				source.calls, filter.calls)
 		}
 	})
 }

@@ -54,6 +54,9 @@ The child never claims, advances, releases, or heartbeats.
 - A specific key is worked by repeatedly calling `shark next <that-key> --json`.
 - An epic or feature key may resolve to an unclaimed child; execute the returned
   `response.entity_key`, then call `shark next <original-root> --json` again.
+- When cascade resolution finds 2+ dispatchable children tied in the top
+  tier, `shark next` stops instead of picking one and returns a fork response
+  — see "`parallel_candidates` (fork)" under Step 2.
 - Collection keywords are not valid `shark next` roots. For `bugs`,
   `change-cards`, and `tech-debt`, enumerate non-terminal items with
   `shark bug list --json`, `shark change list --json`, or
@@ -90,7 +93,7 @@ Parse the JSON response:
 
 | Field | Meaning |
 |-------|---------|
-| `response.action` | Wire action: `spawn_agent`, `pause`, `archive`, or `error` |
+| `response.action` | Wire action: `spawn_agent`, `pause`, `archive`, `error`, or `parallel_candidates` (fork — see below) |
 | `response.entity_key` | Concrete entity to claim, execute, advance, and release |
 | `response.entity_type` | Concrete entity type |
 | `response.status` | Current workflow status |
@@ -197,6 +200,55 @@ the workflow prompts emit, apply them in this order, then advance:
 
 If the worker fails or throws, still release the lease, record a blocker note if
 possible, and surface the failure before deciding whether to retry.
+
+### `parallel_candidates` (fork)
+
+Shark stops at a cascade fork instead of silently picking one child: 2+
+dispatchable children tie in the top tier. The response reuses the
+`HierarchyPlanSelectionResponse` envelope the `plan` verb already consumes —
+`response.mode` is `hierarchy_selection`, `response.action` is
+`parallel_candidates`, `response.parallel_execution` is `available`,
+`response.selection_reason` is `parallel_tie`. The tell is what's absent:
+there is no `response.prompt` — a fork is a selection, not a dispatch.
+
+| Field | Meaning |
+|-------|---------|
+| `response.root_key` / `response.root_type` | The parent whose children forked |
+| `response.resolved_via` | Keys walked to reach the fork, e.g. `["E02","F03"]` |
+| `response.entities` | Candidate children: `entity_key`, `entity_type`, `title`, `status`, `execution_order`, `priority`, optional `depends_on` / `blocks` / `links` arrays of `{key, status, type}`, and optional `warnings` |
+
+1. **Evaluate integration safety.** `response.parallel_execution: "available"`
+   proves only that workflow state and stored dependencies allow concurrent
+   dispatch — it does not prove product integration safety; the Rider
+   decides. Apply the same evidence procedure `/shark-rider plan` already
+   defines for its own `hierarchy_selection` / `parallel_candidates`
+   response (its Procedure steps 3–5 and its Recommendation rules): scope by
+   `response.root_type` (epic root -> epic-local interaction map `I-##`
+   rows; feature root -> stored task dependency evidence, using
+   `response.entities[].depends_on` / `blocks` / `links`), and treat a
+   missing, malformed, `proposed`, or `deferred` relevant row as an
+   integration evidence gap that rules out that candidate for independent
+   parallel launch. Do not restate or reimplement that procedure here — read
+   it. A candidate warning with
+   `code: "DANGLING_RELATIONSHIP"` means a stored relationship endpoint could
+   not be resolved and the reported edge set is incomplete. Report the
+   warning and do not independently parallel-launch that candidate until the
+   row is repaired; following one candidate sequentially remains available.
+2. **Choose a subset.** Keep every entity in `response.entities` that clears
+   the check above. This may be all of them, several, or exactly one —
+   nothing requires fanning out just because Shark offered a tie.
+3. **Dispatch each chosen candidate the same way.** Fan-out and
+   follow-one-candidate are the same mechanism: call
+   `shark next <child-key> --json` for each chosen `entity_key`. Following a
+   single candidate is just the one-child case of this same call — there is
+   no separate command for it. Return to Step 1 with each candidate's key;
+   each reenters this procedure independently (claim, spawn, advance,
+   release) exactly like any other keyed dispatch.
+
+An operator who wants Shark's pre-fork single-track behavior back can pass
+`--sequential` to `shark next`, or set `sequential_dispatch: true` in
+`.sharkconfig.json` (the flag overrides the config). That choice is made
+before Step 1 runs; this loop does not implement it.
 
 ### `pause`
 

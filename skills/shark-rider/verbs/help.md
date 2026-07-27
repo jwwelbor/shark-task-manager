@@ -24,6 +24,7 @@ Create:           shark create epic|feature|task|bug|change|tech-debt|idea|note 
 Workflow:         shark status advance <key> --outcome pass|fail|blocked | shark status set <key> <status>
 Leases:           shark claim <key> | shark heartbeat <key> | shark release <key> [--session SID | --force] | shark claims
 Notes:            shark create note <key> "text" --type=comment | shark notes search "query"
+Select:           shark plan [root|collection] --json (read-only; never claims)
 Dispatch:         shark next <key> --json (may normalize workflow status)
 Bundle content:   shark skill get <name> [path] | shark agent get <name>
 ```
@@ -42,6 +43,7 @@ fall through to state-aware help.
 | `product-design` | Run the bundled product-design D01-D14 methodology through `shark skill get product-design`. |
 | `vision` | Turn an idea into a Shark epic through the bundled epic-writing workflow, then offer `/shark-rider run <epic-key>`. |
 | `run` | Drive an epic, feature, task, bug, change-card, or tech-debt item through its workflow. Use `/shark-rider run <key>`. |
+| `plan` | Recommend an execution shape for `shark plan [root\|collection]`. It does not claim, dispatch, advance, or launch a team. |
 | `triage` | Capture, classify, confirm, create, and stop. Use `/shark-rider triage "thing to track"`. |
 | `demo` | Prepare an evidence-based demo for an epic or feature. Use `/shark-rider demo <epic-key|feature-key> [--draft]`; it is not a UAT gate or workflow action. |
 | `walkthrough` | Walk an entity or authoritative document through solution decisions and ratify reviewed directions. Use `/shark-rider walkthrough <entity-key\|docs-path> [overall\|section\|decision-id]`; it does not change workflow status. |
@@ -68,28 +70,29 @@ through to state-aware help.
 
 ## Bare `/shark-rider help` (state-aware)
 
-Run bare `shark next` exactly once:
+Run bare `shark plan` exactly once:
 
 ```bash
-shark next
+shark plan --json
 ```
 
-Follow the returned `prompt` inline in the current agent turn. Inspect the
-relevant artifacts under `docs/product/` named by the prompt. Treat the Shark
-envelope as the live workflow and relationship authority; use product documents
-only as intent and decision context.
+Treat the Shark selection as the live workflow and relationship authority. It
+carries no worker prompt — it is a bounded selection, not advice to relay
+verbatim.
 
-Return one of these results:
+Branch on `action`:
 
-- When the evidence supports a root, recommend exactly one
-  `eligibility=eligible` epic key. Give the decisive why-now evidence and compare
-  it with the strongest eligible alternative.
-- When evidence is incomplete, contradictory, or has no eligible root, report
-  the evidence or relationship gap instead of guessing. State the next evidence
-  or relationship fix.
+- `select_epic` — report the returned `entity` as the recommended next root
+  and offer `/shark-rider run <entity_key>`.
+- `parallel_candidates` — report the tied epics from `entities`. Inspect
+  `docs/product/progress.md` and `docs/product/cross-epic-integration-map.md`
+  when they exist for why-now context, then recommend one of: run one
+  candidate sequentially, run independent candidates in parallel via an agent
+  team, or report that the tie needs a human decision.
+- `pause` — report the `reason` (and any `warnings`) and state the next
+  evidence or relationship fix. Do not guess a root.
 
-Stop at advice. The operator must separately invoke
+Stop at the recommendation. The operator must separately invoke
 `/shark-rider run <recommended-key>` to start keyed dispatch. Do not call keyed
-`shark next <key>` from help. Do not spawn a subagent or pass the portfolio
-prompt to another agent. Do not claim, advance, or automatically run the
-recommended epic.
+`shark next <key>` from help. Do not spawn a subagent. Do not claim, advance,
+or automatically run any recommended epic.

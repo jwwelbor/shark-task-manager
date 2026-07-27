@@ -1,9 +1,9 @@
 // Package commands provides CLI command implementations.
 //
-// This file implements the two `shark next` modes. Bare `shark next` returns
-// read-only portfolio advice. `shark next <entity-key>` returns a single
-// dispatch step's metadata and fully-rendered prompt as JSON, then exits.
-// The harness owns the keyed dispatch loop:
+// This file implements keyed `shark next <entity-key>` dispatch. It returns a
+// single dispatch step's metadata and fully-rendered prompt as JSON, then
+// exits. Bare `shark next` (no entity key) is invalid — work selection lives
+// in `shark plan` (see plan.go). The harness owns the keyed dispatch loop:
 //
 //	while true:
 //	  resp = shark next <key> --json
@@ -31,7 +31,6 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -57,6 +56,7 @@ type nextAdapters struct {
 type nextAdapterCache struct {
 	entries       map[string]*nextAdapters
 	actionSvcRoot action.ActionService
+	surfaceForks  bool
 }
 
 // newNextAdapterCache constructs an empty cache with the root action service
@@ -101,12 +101,18 @@ var (
 	nextBuildTransitioner         = buildTransitioner
 	nextBuildPlaceholderGenerator = buildPlaceholderGenerator
 	nextNewAdapterCache           = newNextAdapterCache
-	nextGetPortfolioAdvisor       = func() portfolioAdvisor { return cli.GetPortfolioAdviceService() }
+	// nextGetSequentialDispatch is an indirection hook for testing —
+	// production code points it at the real cli.GetConfig() accessor.
+	// Returns true when sequential_dispatch is configured, collapsing a
+	// surviving keyed-next fork to its first eligible candidate.
+	nextGetSequentialDispatch = func() bool {
+		cfg, err := cli.GetConfig()
+		if err != nil {
+			return false
+		}
+		return cfg.GetSequentialDispatch()
+	}
 )
-
-type portfolioAdvisor interface {
-	Advise(ctx context.Context) (*models.PortfolioAdviceEnvelope, error)
-}
 
 // NextResponse is the JSON contract returned by `shark next`. The shape is
 // stable; harnesses dispatch on `action` to decide what to do next.
@@ -153,35 +159,32 @@ type NextResponse struct {
 	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
 
 	Error string `json:"error,omitempty"`
+
+	// selection is an unexported carrier used to return a hierarchy selection
+	// through the shared NextResponse type instead of the plain wire shape
+	// above: `shark plan` sets it for a one-level selection, and keyed
+	// `shark next` sets it when cascade stops at a fork. Unexported, so JSON
+	// marshaling of NextResponse itself is unaffected.
+	selection *HierarchyPlanSelectionResponse
 }
 
 var nextCmd = newNextCommand()
 
 func newNextCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "next [entity-key]",
-		Short: "Get portfolio advice or the next entity dispatch step as JSON",
-		Long: `With no entity key, return read-only portfolio evidence and an advisor prompt.
+		Use:   "next <entity-key>",
+		Short: "Get the next entity dispatch step as JSON",
+		Long: `Return the next dispatch step for the given entity as JSON, then exit.
 
-With an entity key, return the next dispatch step for that entity as JSON,
-then exit.
+An entity key is required. Bare 'shark next' (no key) is invalid — use
+'shark plan' to select an epic, hierarchy tier, or standalone-collection root
+to work next.
 
 Unlike 'shark run', which executes the full dispatch loop in-process,
 'shark next <entity-key>' returns a single step and lets the harness drive the loop.
 This is the canonical entry point for harness-side dispatch in Shark 2.0.
 While resolving the dispatch, the engine may auto-advance cascade-complete
 parents or agentless advance_status placeholders.
-
-Bare portfolio-advice JSON shape:
-  {
-    "mode":              "portfolio_advice",
-    "evidence_complete": true | false,
-    "epics":             [...],
-    "relationships":     [...],
-    "ordering":          {...},
-    "warnings":          [...],
-    "prompt":            "<advisor instructions>"
-  }
 
 Keyed dispatch JSON shape:
   {
@@ -196,22 +199,53 @@ Keyed dispatch JSON shape:
     "unresolved_placeholders": ["<token>", ...]  // omitted when empty
   }
 
+Cascade fork JSON shape (the default when tied candidates survive):
+  {
+    "mode":               "hierarchy_selection",
+    "action":             "parallel_candidates",
+    "root_key":           "<requested parent key>",
+    "root_type":          "epic" | "feature",
+    "selection_reason":   "<why this tier was selected>",
+    "resolved_via":       ["<traversed parent key>", ...],
+    "parallel_execution": "available",
+    "entities":           [{"entity_key": "<child key>", "entity_type": "<type>"}, ...]
+  }
+This read-only selection does not claim candidates and does not include a worker
+prompt. Choose one or more candidates, then call 'shark next <child-key>' for
+each chosen key. Pass --sequential to collapse a surviving fork to its first
+eligible candidate.
+
 Examples:
-  shark next                           # Read-only portfolio advice
   shark next E07-F01-001              # JSON dispatch step for a task
   shark next E07-F01                  # Feature
   shark next E07                      # Epic
 
 Errors:
+  - No entity key       → exit 1, see 'shark plan'
   - Unknown entity key  → exit 1
   - Entity in a state with no orchestrator action → action="pause" (not error)
 	  - Internal failure rendering the prompt → exit 2 with stderr context`,
-		Args: cobra.MaximumNArgs(1),
+		Args: requireNextEntityKey,
 		RunE: runNext,
 	}
 }
 
+// requireNextEntityKey rejects bare `shark next` before any portfolio,
+// planning, or dispatch service is constructed. An entity key is mandatory —
+// work selection lives in `shark plan`.
+func requireNextEntityKey(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return errors.New("shark next requires an entity key (e.g. \"shark next E07-F01-001\"); use \"shark plan\" to select what to work on next")
+	}
+	return cobra.ExactArgs(1)(cmd, args)
+}
+
 func init() {
+	nextCmd.Flags().Bool(
+		"sequential",
+		false,
+		"Collapse a keyed-next fork to its first eligible candidate",
+	)
 	cli.RootCmd.AddCommand(nextCmd)
 }
 
@@ -226,33 +260,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 	ctx, span := tracer.Start(ctx, "shark.next")
 	defer span.End()
 
-	if len(args) == 0 {
-		advisor := nextGetPortfolioAdvisor()
-		advice, err := advisor.Advise(ctx)
-		if err != nil {
-			span.SetStatus(codes.Error, err.Error())
-			return fmt.Errorf("failed to get portfolio advice: %w", err)
-		}
-		if advice == nil {
-			err := errors.New("portfolio advisor returned no advice")
-			span.SetStatus(codes.Error, err.Error())
-			return err
-		}
-		span.SetAttributes(
-			attribute.String("mode", string(advice.Mode)),
-			attribute.Int("portfolio.candidate_count", len(advice.Epics)),
-			attribute.Int("portfolio.relationship_count", len(advice.Relationships)),
-			attribute.Int("portfolio.graph_warning_count", len(advice.Ordering.Warnings)),
-			attribute.Bool("portfolio.evidence_complete", advice.EvidenceComplete),
-		)
-		if err := outputPortfolioAdviceJSON(cmd, advice); err != nil {
-			span.SetStatus(codes.Error, err.Error())
-			return err
-		}
-		return nil
-	}
+	// Step 1: Parse and detect entity type. requireNextEntityKey already
+	// rejected a bare invocation, so args[0] is guaranteed to be present.
 
-	// Step 1: Parse and detect entity type.
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
@@ -268,6 +278,8 @@ func runNext(cmd *cobra.Command, args []string) error {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+
+	adapters.surfaceForks = !resolveSequentialDispatch(cmd)
 
 	resp, err := resolveNext(ctx, adapters, entityType, normalizedKey, 0)
 	if err != nil {
@@ -298,6 +310,21 @@ func runNext(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Fan-out stopped at a fork: emit the candidate tier instead of a single
+	// dispatch step. A fork carries no prompt — it is a selection surface, so
+	// the placeholder/agent-body annotation below does not apply.
+	if resp.selection != nil {
+		span.SetAttributes(
+			attribute.String("entity_key", normalizedKey),
+			attribute.String("entity_type", entityType),
+			attribute.String("action", resp.selection.Action),
+			attribute.String("selection_reason", resp.selection.SelectionReason),
+			attribute.Int("candidates", len(resp.selection.Entities)),
+			attribute.String("exit_status", "ok"),
+		)
+		return outputHierarchyPlanSelectionJSON(*resp.selection)
+	}
+
 	// Record per-dispatch span attributes so traces capture the full
 	// dispatch decision for this entity step.
 	resp = annotateUnresolvedPlaceholders(resp)
@@ -317,14 +344,84 @@ func runNext(cmd *cobra.Command, args []string) error {
 	return outputNextJSON(resp)
 }
 
-// resolveNext is the recursive core of `shark next`. It produces a single
-// dispatch step for (entityType, key) at the given recursion depth, with
-// cascade resolution handled inline: if the entity's status maps to action
-// "cascade", resolveNext picks the first dispatchable child and calls
-// itself on the child's key, prepending the parent key to resolved_via on
-// the way back up. The returned NextResponse is always wire-shaped — no
-// "cascade" verb ever leaks out of this function.
+type entityResolutionMode uint8
+
+const (
+	nextResolutionMode entityResolutionMode = iota
+	planResolutionMode
+)
+
+type entityResolutionStrategy struct {
+	mode         entityResolutionMode
+	commandLabel string
+	planCache    *planAdapterCache
+}
+
+func nextResolutionStrategy() entityResolutionStrategy {
+	return entityResolutionStrategy{mode: nextResolutionMode, commandLabel: "next"}
+}
+
+func planResolutionStrategy(cache *planAdapterCache) entityResolutionStrategy {
+	return entityResolutionStrategy{
+		mode: planResolutionMode, commandLabel: "plan", planCache: cache,
+	}
+}
+
+func (s entityResolutionStrategy) resolveCascade(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	entityType, normalizedKey string,
+	depth int,
+	resp NextResponse,
+	nextInfo *services.NextStatusInfo,
+	transitioner runner.EntityTransitioner,
+) (NextResponse, error) {
+	switch s.mode {
+	case nextResolutionMode:
+		return tryCascadeCandidates(
+			ctx,
+			cache,
+			s,
+			cache.surfaceForks,
+			entityType,
+			normalizedKey,
+			depth,
+			resp,
+			nextInfo,
+			transitioner,
+		)
+	case planResolutionMode:
+		if s.planCache == nil {
+			return NextResponse{}, fmt.Errorf("plan resolution strategy requires a plan cache")
+		}
+		return tryPlanHierarchy(
+			ctx, s.planCache, s, entityType, normalizedKey, depth, resp, nextInfo, transitioner,
+		)
+	default:
+		return NextResponse{}, fmt.Errorf("unknown entity resolution strategy %d", s.mode)
+	}
+}
+
+// resolveNext is the top-level and child-recursion entry point for `shark
+// next`. The shared resolver keeps all non-cascade behavior identical to
+// keyed `shark plan`; the explicit strategy retains next's sequential/fan-out
+// cascade policy.
 func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, normalizedKey string, depth int) (NextResponse, error) {
+	return resolveEntity(
+		ctx, cache, nextResolutionStrategy(), entityType, normalizedKey, depth,
+	)
+}
+
+// resolveEntity is the shared per-entity status/action/prompt pipeline for
+// keyed next and plan. Only a populated cascade action is delegated to the
+// command-specific strategy; same-entity recursion retains that strategy.
+func resolveEntity(
+	ctx context.Context,
+	cache *nextAdapterCache,
+	strategy entityResolutionStrategy,
+	entityType, normalizedKey string,
+	depth int,
+) (NextResponse, error) {
 	if depth > maxCascadeDepth {
 		return NextResponse{
 			EntityKey:  normalizedKey,
@@ -404,7 +501,13 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 		if isStatusNotFoundError(err) {
 			// Unknown/legacy status — degrade to pause so the harness can
 			// report it without a non-zero exit.
-			fmt.Fprintf(os.Stderr, "[shark next] warning: status %q is not defined in the workflow configuration for entity type %q — treating as pause (B022)\n", currentStatus, entityType)
+			fmt.Fprintf(
+				os.Stderr,
+				"[shark %s] warning: status %q is not defined in the workflow configuration for entity type %q — treating as pause (B022)\n",
+				strategy.commandLabel,
+				currentStatus,
+				entityType,
+			)
 			resp.Action = "pause"
 			resp.Error = fmt.Sprintf("status %q is not defined in the workflow configuration; this may be a legacy status that has been removed", currentStatus)
 			return resp, nil
@@ -426,7 +529,9 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 		return NextResponse{}, fmt.Errorf("workflow action for %s status %q rendered an empty instruction; check the configured prompt path/template", normalizedKey, currentStatus)
 	}
 	if internalAction == "cascade" {
-		return tryCascade(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
+		return strategy.resolveCascade(
+			ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner,
+		)
 	}
 
 	// Step 8: Verb normalization + action application. The YAML's internal
@@ -435,7 +540,19 @@ func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, norma
 	// pause, archive}. applyWireAction maps onto the wire set and handles
 	// the special-case branches (advance_and_recurse, error) inline so the
 	// caller only deals with the simple wire-shaped result.
-	wireResp, handled, err := applyWireAction(ctx, cache, entityType, normalizedKey, depth, internalAction, populated, nextInfo, transitioner, resp)
+	wireResp, handled, err := applyWireAction(
+		ctx,
+		cache,
+		strategy,
+		entityType,
+		normalizedKey,
+		depth,
+		internalAction,
+		populated,
+		nextInfo,
+		transitioner,
+		resp,
+	)
 	if err != nil {
 		return NextResponse{}, err
 	}
@@ -463,78 +580,201 @@ func actionRequiresInstruction(internalAction string) bool {
 	return internalAction == action.ActionSpawnAgent || internalAction == action.ActionCheckOrResume
 }
 
-// tryCascade owns the "cascade" verb's children-loop and resolved_via
-// threading. It iterates dispatchable children of (entityType, key),
-// recursing into resolveNext on each until one returns a non-pause/archive
-// action. The first parent on the chain is prepended to ResolvedVia so the
-// harness can audit which entities were traversed.
+// tryCascadeCandidates owns keyed-next child enumeration and traversal for
+// both emission modes. Every mode consumes the same set-oriented hierarchy
+// snapshot and leading-tier policy. surfaceForks controls only whether the
+// first live candidate returns immediately or a surviving tie is emitted.
 //
-// When all children are non-dispatchable, the parent normally pauses. The one
-// exception is when the service can prove there were children and every one of
-// them is terminal; in that case the parent is auto-advanced one configured
-// step and resolveNext recurses on the same entity so feature/epic workflows
-// move into code_review/completed instead of stalling at 100% child completion.
-//
-// resp is the partially-filled NextResponse for the parent entity; the
-// function mutates and returns it on the all-paused path.
-func tryCascade(
+// A selected child that
+// resolves to pause/archive is dropped and the tier is recomputed over the
+// remaining siblings, because "the next available work" excludes work that is
+// parked. Sequential mode short-circuits at the first live candidate; fork
+// mode resolves the leading tier far enough to exclude parked candidates.
+func tryCascadeCandidates(
 	ctx context.Context,
 	cache *nextAdapterCache,
+	strategy entityResolutionStrategy,
+	surfaceForks bool,
 	entityType, normalizedKey string,
 	depth int,
 	resp NextResponse,
 	nextInfo *services.NextStatusInfo,
 	transitioner runner.EntityTransitioner,
 ) (NextResponse, error) {
-	childrenState, err := nextDescribeDispatchableChildren(ctx, entityType, normalizedKey)
+	childrenState, err := planDescribeDispatchableChildren(ctx, entityType, normalizedKey)
 	if err != nil {
 		return NextResponse{}, fmt.Errorf("cascade lookup failed for %s: %w", normalizedKey, err)
 	}
-	// E35-F03: hand out only unclaimed entities. A child held by a live lease
-	// (claim within TTL) is skipped like any other non-dispatchable sibling;
-	// unclaimed and expired-lease children pass through. Fail-soft: if the
-	// claim lookup errors, the child is treated as claimable (no skip), so the
-	// claim layer can never wedge dispatch.
-	claimSvc := cli.GetClaimService()
-	for _, child := range childrenState.Children {
-		claimable, cerr := claimSvc.IsClaimable(ctx, string(child.EntityType), child.Key)
-		if cerr != nil {
-			// Fail-soft: treat as claimable so the claim layer can never wedge
-			// dispatch, but surface the lookup failure so it isn't silent.
-			fmt.Fprintf(os.Stderr, "[shark next] claim lookup failed for %s %s; treating as claimable: %v\n",
-				child.EntityType, child.Key, cerr)
-		} else if !claimable {
-			continue
+
+	remaining := childrenState.Children
+	for len(remaining) > 0 {
+		selected, reason := selectPlanChildTier(remaining)
+		if len(selected) == 0 {
+			break
 		}
-		childResp, err := resolveNext(ctx, cache, string(child.EntityType), child.Key, depth+1)
-		if err != nil {
+
+		// Resolve candidates in tier order until the active emission mode has
+		// enough information to return.
+		// DescribeChildren filters on terminal / claimed / dependency state but
+		// has no view of the workflow *action*, so a child it hands back can
+		// still resolve to pause (e.g. parked at a human gate). Emitting such a
+		// tier as parallel_candidates would strand the run: the rider
+		// dispatches each candidate, gets pause for each, and stops — never
+		// reaching a dispatchable sibling behind them. That is the fall-through
+		// keyed next has always had, and it has to apply to a tie as much as to
+		// a lone child.
+		dispatchable := make([]services.PlanHierarchyChild, 0, len(selected))
+		var firstDispatch NextResponse
+		for _, child := range selected {
+			childResp, err := resolveEntity(
+				ctx, cache, strategy, string(child.EntityType), child.Key, depth+1,
+			)
+			if err != nil {
+				return NextResponse{}, err
+			}
+			if childResp.Action == "error" {
+				// Propagate child errors up untouched.
+				return prependFanoutParent(childResp, normalizedKey), nil
+			}
+			// A nested selection means the child has dispatchable descendants
+			// of its own, so it counts as live work.
+			if childResp.selection == nil && childResp.Action != "spawn_agent" {
+				continue
+			}
+			if !surfaceForks {
+				return prependFanoutParent(childResp, normalizedKey), nil
+			}
+			if len(dispatchable) == 0 {
+				firstDispatch = childResp
+			}
+			dispatchable = append(dispatchable, child)
+		}
+
+		switch {
+		case len(dispatchable) == 0:
+			// The whole tier is parked. Drop it and re-tier over the siblings
+			// behind it. selected is always the leading run of remaining.
+			remaining = remaining[len(selected):]
+			continue
+
+		case len(dispatchable) == 1:
+			return prependFanoutParent(firstDispatch, normalizedKey), nil
+		}
+
+		// A cap below 2 means the operator has asked for no fan-out. Honor it
+		// by dispatching the first surviving candidate: letting
+		// buildHierarchyPlanSelection truncate the tier to one would emit a
+		// singleton `select_<type>` envelope, which carries no prompt and is
+		// outside the keyed-next wire vocabulary, stalling the harness.
+		maxParallelItems := planGetMaxParallelItems()
+		if maxParallelItems < 2 {
+			return prependFanoutParent(firstDispatch, normalizedKey), nil
+		}
+
+		// Fork: hand the surviving tied candidates back and let the rider
+		// decide which subset is integration-safe to run concurrently.
+		selection := buildHierarchyPlanSelection(
+			normalizedKey,
+			entityType,
+			dispatchable,
+			reason,
+			maxParallelItems,
+		)
+		if err := attachForkCandidateEdges(ctx, &selection); err != nil {
 			return NextResponse{}, err
 		}
-		switch childResp.Action {
-		case "spawn_agent":
-			// Found something to do — prepend this parent to the trail
-			// and propagate the child's response untouched.
-			childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
-			return childResp, nil
-		case "pause", "archive":
-			// This child has nothing dispatchable right now (blocked,
-			// already done, etc.) — try the next sibling.
-			continue
-		case "error":
-			// Propagate child errors up untouched, with parent in the trail.
-			childResp.ResolvedVia = append([]string{normalizedKey}, childResp.ResolvedVia...)
-			return childResp, nil
-		}
+		selection.ResolvedVia = []string{normalizedKey}
+		resp.selection = &selection
+		return resp, nil
 	}
+
 	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
-		return autoAdvanceCascadeParent(ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner)
+		return autoAdvanceCascadeParent(
+			ctx, cache, strategy, entityType, normalizedKey, depth, resp, nextInfo, transitioner,
+		)
 	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
 	return resp, nil
 }
 
-// autoAdvanceCascadeParent handles tryCascade's all-children-terminal case:
+// resolveSequentialDispatch reports whether `shark next` should collapse a
+// surviving fork to its first eligible candidate. Precedence: an explicitly
+// passed --sequential flag wins, else the sequential_dispatch config value,
+// else the default (surface forks).
+//
+// This is a named function rather than three lines inline in runNext so a test
+// can exercise the real resolution instead of restating it.
+func resolveSequentialDispatch(cmd *cobra.Command) bool {
+	if cmd != nil && cmd.Flags().Changed("sequential") {
+		sequential, err := cmd.Flags().GetBool("sequential")
+		if err == nil {
+			return sequential
+		}
+	}
+	return nextGetSequentialDispatch()
+}
+
+// prependFanoutParent records parentKey as the entity traversed to reach this
+// response, on whichever trail the response carries: a nested fork's
+// resolved_via, or a dispatch's ResolvedVia.
+func prependFanoutParent(resp NextResponse, parentKey string) NextResponse {
+	if resp.selection != nil {
+		resp.selection.ResolvedVia = append(
+			[]string{parentKey}, resp.selection.ResolvedVia...)
+		return resp
+	}
+	resp.ResolvedVia = append([]string{parentKey}, resp.ResolvedVia...)
+	return resp
+}
+
+// fanoutDescribeCandidateEdges is a test seam for the fork path's edge load.
+// It lives here rather than beside plan.go's hooks because the keyed fork is
+// the only caller — `shark plan` selections stay deliberately edge-less.
+var fanoutDescribeCandidateEdges = describePlanCandidateEdges
+
+// attachForkCandidateEdges loads each fork candidate's dependency, blocker,
+// and link edges and attaches them to the selection.
+//
+// A load failure is fatal rather than fail-soft, unlike the claim lookup in
+// the historical per-child cascade. The asymmetry is deliberate: a missing claim errs toward
+// offering work that turns out to be taken, which the next call corrects,
+// whereas missing edges are indistinguishable on the wire from "this
+// candidate has no dependencies" and would invite the rider to launch
+// genuinely coupled work in parallel. Silence is the dangerous answer here,
+// so the fork fails loudly instead.
+func attachForkCandidateEdges(ctx context.Context, selection *HierarchyPlanSelectionResponse) error {
+	if selection == nil {
+		return nil
+	}
+	// Cover both envelope shapes. Entities is the fork case; Entity is the
+	// singleton buildHierarchyPlanSelection emits when the tier holds one
+	// candidate. Skipping the singleton would ship it edge-less, which is
+	// exactly the silently-dependency-free state this function exists to
+	// prevent.
+	candidates := selection.Entities
+	if selection.Entity != nil {
+		candidates = append(append([]HierarchyPlanCandidate{}, candidates...), *selection.Entity)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		keys = append(keys, candidate.EntityKey)
+	}
+	edges, err := fanoutDescribeCandidateEdges(ctx, candidates[0].EntityType, keys)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to load dependency edges for the %s fork under %s: %w",
+			candidates[0].EntityType, selection.RootKey, err,
+		)
+	}
+	applyCandidateEdges(selection, edges)
+	return nil
+}
+
+// autoAdvanceCascadeParent handles keyed-next's all-children-terminal case:
 // the parent is advanced one happy-path step and resolveNext recurses on the
 // same entity, so feature/epic workflows move into code_review/completed
 // instead of stalling at 100% child completion.
@@ -547,6 +787,7 @@ func tryCascade(
 func autoAdvanceCascadeParent(
 	ctx context.Context,
 	cache *nextAdapterCache,
+	strategy entityResolutionStrategy,
 	entityType, normalizedKey string,
 	depth int,
 	resp NextResponse,
@@ -572,7 +813,7 @@ func autoAdvanceCascadeParent(
 			resp.Status, targetStatus, normalizedKey, err,
 		)
 	}
-	return resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
+	return resolveEntity(ctx, cache, strategy, entityType, normalizedKey, depth+1)
 }
 
 // applyWireAction maps the YAML internal verb onto a wire-vocabulary action
@@ -593,6 +834,7 @@ func autoAdvanceCascadeParent(
 func applyWireAction(
 	ctx context.Context,
 	cache *nextAdapterCache,
+	strategy entityResolutionStrategy,
 	entityType, normalizedKey string,
 	depth int,
 	internalAction string,
@@ -616,7 +858,9 @@ func applyWireAction(
 		if _, err := transitioner.TransitionStatus(ctx, normalizedKey, transitionalTarget, services.TransitionOptions{}); err != nil {
 			return NextResponse{}, true, fmt.Errorf("auto-advance from %s to %s failed for %s: %w", resp.Status, transitionalTarget, normalizedKey, err)
 		}
-		recursed, err := resolveNext(ctx, cache, entityType, normalizedKey, depth+1)
+		recursed, err := resolveEntity(
+			ctx, cache, strategy, entityType, normalizedKey, depth+1,
+		)
 		if err != nil {
 			return NextResponse{}, true, err
 		}
@@ -771,17 +1015,6 @@ func outputNextJSON(resp NextResponse) error {
 		return fmt.Errorf("failed to marshal next response: %w", err)
 	}
 	fmt.Println(string(out))
-	return nil
-}
-
-func outputPortfolioAdviceJSON(cmd *cobra.Command, advice *models.PortfolioAdviceEnvelope) error {
-	out, err := json.MarshalIndent(advice, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal portfolio advice: %w", err)
-	}
-	if _, err := fmt.Fprintln(cmd.OutOrStdout(), string(out)); err != nil {
-		return fmt.Errorf("failed to write portfolio advice: %w", err)
-	}
 	return nil
 }
 

@@ -4,7 +4,10 @@ package portfolio
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"sort"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
@@ -34,6 +37,16 @@ type EpicRelationshipRow struct {
 	ToStatus         *string
 }
 
+// Snapshot is the complete read model needed to assemble bare-next portfolio
+// advice. Production loads it with three set-oriented queries and decodes the
+// small hierarchy locally.
+type Snapshot struct {
+	Epics         []*models.Epic
+	Children      []ChildStateRow
+	Relationships []EpicRelationshipRow
+	Claims        []*models.EntityClaim
+}
+
 // Repository reads the set-oriented data needed to assemble portfolio advice.
 type Repository struct {
 	db *dbconn.DB
@@ -42,6 +55,272 @@ type Repository struct {
 // NewRepository creates a portfolio repository.
 func NewRepository(db *dbconn.DB) *Repository {
 	return &Repository{db: db}
+}
+
+// ReadSnapshot loads the complete epic hierarchy, supported epic
+// relationships, and claims with three set-oriented statements: one per-epic
+// hierarchy read plus one portfolio-wide read for each of relationships and
+// claims. epic_display_data is the existing epic-to-feature view and task JSON
+// is a small correlated projection decoded locally.
+//
+// Relationships and claims are portfolio-wide, so they must not ride along in
+// the per-epic select list: an uncorrelated aggregate there is re-evaluated
+// once per epic row, and an empty epic table would drop them entirely.
+func (r *Repository) ReadSnapshot(ctx context.Context) (Snapshot, error) {
+	snapshot := allocatedSnapshot()
+	if err := r.appendSnapshotHierarchy(ctx, &snapshot); err != nil {
+		return Snapshot{}, err
+	}
+
+	relationships, err := r.ListEpicRelationships(ctx)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	snapshot.Relationships = relationships
+
+	claims, err := r.listSnapshotClaims(ctx)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	snapshot.Claims = claims
+
+	sortSnapshot(&snapshot)
+	return snapshot, nil
+}
+
+// appendSnapshotHierarchy loads epics with their features and tasks.
+func (r *Repository) appendSnapshotHierarchy(ctx context.Context, snapshot *Snapshot) error {
+	const query = `
+		SELECT e.id,
+		       e.key,
+		       e.title,
+		       e.status,
+		       e.priority,
+		       e.business_value,
+		       e.features_json,
+		       (SELECT COALESCE(json_group_array(json_object(
+		           'id', t.id,
+		           'key', t.key,
+		           'title', t.title,
+		           'status', t.status,
+		           'direct_parent_key', f.key
+		       )), '[]')
+		        FROM tasks t
+		        JOIN features f ON f.id = t.feature_id
+		        WHERE f.epic_id = e.id) AS tasks_json
+		FROM epic_display_data e
+		ORDER BY e.key ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("query portfolio snapshot: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			epic                    models.Epic
+			featuresJSON, tasksJSON string
+		)
+		if err := rows.Scan(
+			&epic.ID,
+			&epic.Key,
+			&epic.Title,
+			&epic.Status,
+			&epic.Priority,
+			&epic.BusinessValue,
+			&featuresJSON,
+			&tasksJSON,
+		); err != nil {
+			return fmt.Errorf("scan portfolio snapshot epic: %w", err)
+		}
+		snapshot.Epics = append(snapshot.Epics, &epic)
+		if err := appendSnapshotChildren(snapshot, epic.ID, epic.Key, featuresJSON, tasksJSON); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate portfolio snapshot: %w", err)
+	}
+	return nil
+}
+
+// listSnapshotClaims reads every claim for the snapshot.
+//
+// last_heartbeat is normalized in SQL to one canonical RFC 3339 UTC form rather
+// than scanned as a driver-converted timestamp, so both persisted shapes decode
+// identically: production writes it via DEFAULT CURRENT_TIMESTAMP
+// ("YYYY-MM-DD HH:MM:SS"), fixtures bind a time.Time. COALESCE falls back to
+// the raw text for any value strftime cannot parse, so parseSnapshotTime's
+// layouts stay the safety net.
+func (r *Repository) listSnapshotClaims(ctx context.Context) ([]*models.EntityClaim, error) {
+	const query = `
+		SELECT c.entity_type,
+		       c.entity_key,
+		       c.claimed_by,
+		       CAST(COALESCE(
+		           strftime('%Y-%m-%dT%H:%M:%fZ', c.last_heartbeat),
+		           c.last_heartbeat
+		       ) AS TEXT) AS last_heartbeat,
+		       c.progress
+		FROM entity_claims c
+		ORDER BY c.entity_type ASC, c.entity_key ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query portfolio snapshot claims: %w", err)
+	}
+	defer rows.Close()
+
+	claims := make([]*models.EntityClaim, 0)
+	for rows.Next() {
+		var (
+			claim     models.EntityClaim
+			heartbeat string
+			progress  sql.NullFloat64
+		)
+		if err := rows.Scan(
+			&claim.EntityType,
+			&claim.EntityKey,
+			&claim.ClaimedBy,
+			&heartbeat,
+			&progress,
+		); err != nil {
+			return nil, fmt.Errorf("scan portfolio snapshot claim: %w", err)
+		}
+		parsed, err := parseSnapshotTime(heartbeat)
+		if err != nil {
+			return nil, fmt.Errorf("decode portfolio snapshot claim %s heartbeat: %w", claim.EntityKey, err)
+		}
+		claim.LastHeartbeat = parsed
+		if progress.Valid {
+			claim.Progress = &progress.Float64
+		}
+		claims = append(claims, &claim)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate portfolio snapshot claims: %w", err)
+	}
+	return claims, nil
+}
+
+type snapshotFeature struct {
+	Key         string   `json:"key"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	ProgressPct *float64 `json:"progress_pct"`
+}
+
+type snapshotTask struct {
+	Key             string `json:"key"`
+	Title           string `json:"title"`
+	Status          string `json:"status"`
+	DirectParentKey string `json:"direct_parent_key"`
+}
+
+func allocatedSnapshot() Snapshot {
+	return Snapshot{
+		Epics:         []*models.Epic{},
+		Children:      []ChildStateRow{},
+		Relationships: []EpicRelationshipRow{},
+		Claims:        []*models.EntityClaim{},
+	}
+}
+
+func appendSnapshotChildren(
+	snapshot *Snapshot,
+	epicID int64,
+	epicKey string,
+	featuresJSON string,
+	tasksJSON string,
+) error {
+	var features []snapshotFeature
+	if err := json.Unmarshal([]byte(featuresJSON), &features); err != nil {
+		return fmt.Errorf("decode portfolio snapshot features for %s: %w", epicKey, err)
+	}
+	for _, feature := range features {
+		snapshot.Children = append(snapshot.Children, ChildStateRow{
+			EpicID:          epicID,
+			EpicKey:         epicKey,
+			EntityType:      models.EntityTypeFeature,
+			EntityKey:       feature.Key,
+			Title:           feature.Title,
+			Status:          feature.Status,
+			DirectParentKey: epicKey,
+			ProgressPct:     feature.ProgressPct,
+		})
+	}
+
+	var tasks []snapshotTask
+	if err := json.Unmarshal([]byte(tasksJSON), &tasks); err != nil {
+		return fmt.Errorf("decode portfolio snapshot tasks for %s: %w", epicKey, err)
+	}
+	for _, task := range tasks {
+		snapshot.Children = append(snapshot.Children, ChildStateRow{
+			EpicID:          epicID,
+			EpicKey:         epicKey,
+			EntityType:      models.EntityTypeTask,
+			EntityKey:       task.Key,
+			Title:           task.Title,
+			Status:          task.Status,
+			DirectParentKey: task.DirectParentKey,
+		})
+	}
+	return nil
+}
+
+func parseSnapshotTime(value string) (time.Time, error) {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		dbconn.TimeFormat,
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05 -0700 MST",
+	} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported timestamp %q", value)
+}
+
+func sortSnapshot(snapshot *Snapshot) {
+	sort.Slice(snapshot.Children, func(i, j int) bool {
+		left, right := snapshot.Children[i], snapshot.Children[j]
+		if left.EpicKey != right.EpicKey {
+			return left.EpicKey < right.EpicKey
+		}
+		if left.EntityType != right.EntityType {
+			return left.EntityType < right.EntityType
+		}
+		return left.EntityKey < right.EntityKey
+	})
+	sort.Slice(snapshot.Relationships, func(i, j int) bool {
+		left, right := snapshot.Relationships[i], snapshot.Relationships[j]
+		if pointerString(left.FromKey) != pointerString(right.FromKey) {
+			return pointerString(left.FromKey) < pointerString(right.FromKey)
+		}
+		if left.RelationshipType != right.RelationshipType {
+			return left.RelationshipType < right.RelationshipType
+		}
+		if pointerString(left.ToKey) != pointerString(right.ToKey) {
+			return pointerString(left.ToKey) < pointerString(right.ToKey)
+		}
+		if left.FromEpicID != right.FromEpicID {
+			return left.FromEpicID < right.FromEpicID
+		}
+		return left.ToEpicID < right.ToEpicID
+	})
+}
+
+func pointerString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // ListChildStates returns all feature and task state grouped by verified epic

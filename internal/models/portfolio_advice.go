@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// PortfolioAdviceMode identifies the response mode returned by bare shark next.
+// PortfolioAdviceMode identifies the internal portfolio evidence mode.
 type PortfolioAdviceMode string
 
 const (
@@ -58,7 +58,8 @@ const (
 	PortfolioWarningDanglingRelationship PortfolioWarningCode = "DANGLING_RELATIONSHIP"
 )
 
-// PortfolioAdviceEnvelope is the stable JSON response returned by bare shark next.
+// PortfolioAdviceEnvelope is the read-only evidence assembled for bare
+// `shark plan` epic selection.
 type PortfolioAdviceEnvelope struct {
 	Mode             PortfolioAdviceMode         `json:"mode"`
 	EvidenceComplete bool                        `json:"evidence_complete"`

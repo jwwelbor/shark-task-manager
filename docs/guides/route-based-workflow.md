@@ -131,11 +131,21 @@ directory.
 
 ## 4. Claim / session lease
 
-Status is a pure phase; the **claim is the lease**. Keyed `shark next <root>`
-selects only unclaimed dispatchable entities. Bare `shark next` is read-only
-portfolio advice and does not select or lease an entity. After keyed selection,
-an agent claims the entity before working it. Heartbeats renew the lease, and a
-TTL backstop reclaims dead leases.
+Status is a pure phase; the **claim is the lease**. Keyed `shark next <key>`
+requires an entity key and never selects or leases work on its own — it
+resolves the requested entity's dispatch step, cascading internally until it
+reaches either one dispatchable descendant or a default fan-out fork. A fork
+returns a read-only `hierarchy_selection` / `parallel_candidates` response; it
+does not claim candidates. Choose the integration-safe candidate or candidates,
+then invoke `shark next <child-key>` for each chosen key. Use the
+[`sequential_dispatch` configuration](../cli-reference/configuration.md#sequential-dispatch)
+to collapse a surviving fork to its first eligible candidate.
+
+Work selection is a separate, read-only surface: `shark plan
+[root|collection]` returns an epic, a one-level hierarchy tier, or a
+standalone-collection tier without claiming or leasing anything. After
+selecting or resolving an entity, an agent claims it before working it.
+Heartbeats renew the lease, and a TTL backstop reclaims dead leases.
 
 ```bash
 shark claim E07-F01-001 --by dev-agent          # prints a session id
@@ -157,7 +167,7 @@ The harness dispatch loop becomes:
 
 ```
 loop:
-  entity = shark next <root>        # returns only unclaimed entities
+  entity = shark plan <root>        # select the next entity, no claim/lease
   shark claim <entity> --by <agent> # acquire the lease (session id)
   ... run the agent for the step ...
   shark heartbeat <entity> --session <sid> --progress <p>   # periodically

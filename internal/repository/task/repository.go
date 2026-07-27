@@ -260,7 +260,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (_ *models.Task,
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("task not found with id %d", id)
+		return nil, fmt.Errorf("task not found with id %d: %w", id, repoerr.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task: %w", err)
@@ -1416,10 +1416,18 @@ func (r *TaskRepository) updateStatusForcedInternalWithTx(ctx context.Context, t
 		}
 	}
 
-	// Auto-unblock dependents when transitioning to completed or archived
+	// Auto-unblock dependents when transitioning into a terminal status.
+	//
+	// FOLLOW-UP: this positional path (UpdateStatusForced /
+	// UpdateStatusForcedWithUnblock, 8 exported args) has no channel for the
+	// service-resolved terminal-status list, so it uses the documented
+	// defaultTaskTerminalStatuses fallback. Giving it config-driven terminality
+	// means adding a 9th argument to two exported repository methods and their
+	// service callers; the params-based path (StatusUpdateRawWithTx) is the
+	// primary transition route and is already config-driven.
 	var unblockedKeys []string
-	if newStatus == models.TaskStatus("completed") || newStatus == models.TaskStatus("archived") {
-		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, taskKey)
+	if isTerminalTaskStatus(nil, newStatus) {
+		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, taskKey, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
 		}
@@ -1537,10 +1545,12 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 		}
 	}
 
-	// Auto-unblock dependents when transitioning to completed or archived
+	// Auto-unblock dependents when transitioning into a terminal status.
+	// Terminality comes from params.TerminalStatuses (resolved by the service
+	// layer from the task workflow), not a hardcoded completed/archived pair.
 	var unblockedKeys []string
-	if params.NewStatus == models.TaskStatus("completed") || params.NewStatus == models.TaskStatus("archived") {
-		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, params.TaskKey)
+	if isTerminalTaskStatus(params.TerminalStatuses, params.NewStatus) {
+		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, params.TaskKey, params.TerminalStatuses)
 		if err != nil {
 			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
 		}

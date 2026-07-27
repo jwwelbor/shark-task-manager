@@ -971,9 +971,23 @@ func (s *TaskService) ValidateDependencies(ctx context.Context, key string, targ
 		return nil
 	}
 
+	// Terminal classification is config-driven: a dependency is satisfied when
+	// its status is terminal in the *task* workflow. Delegating to
+	// workflow.Service.IsTerminalStatus (rather than a hardcoded
+	// completed/archived pair) keeps custom workflows that rename or add
+	// terminal statuses working, and matches CascadeService.dependenciesSatisfied
+	// so "is this dependency satisfied?" has one answer across the codebase.
+	// A nil workflow yields "not terminal", so a dependency blocks rather than
+	// silently passing (mirrors plan_hierarchy_service.go).
+	taskWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelTask)
+	var terminal []string
+	if taskWf != nil {
+		terminal = taskWf.GetTerminalStatuses()
+	}
 	for _, dep := range dependencies {
-		if dep.Status != models.TaskStatus("completed") && dep.Status != models.TaskStatus("archived") {
-			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be completed or archived)", key, dep.Key, dep.Status)
+		if taskWf == nil || !taskWf.IsTerminalStatus(string(dep.Status)) {
+			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be one of: %s)",
+				key, dep.Key, dep.Status, strings.Join(terminal, ", "))
 		}
 	}
 
@@ -1521,6 +1535,11 @@ type taskEntityRepoAdapter struct {
 	// unblockedKeys captures the auto-unblocked task keys from StatusUpdateRaw,
 	// retrieved by TaskService after EntityService.TransitionStatus returns.
 	unblockedKeys []string
+	// terminalStatuses is the task-level terminal-status list resolved from the
+	// workflow service. Passed down to StatusUpdateRaw so the repository's
+	// auto-unblock gate and dependency-satisfaction check use configured
+	// terminality instead of a hardcoded completed/archived pair.
+	terminalStatuses []string
 }
 
 func (a *taskEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
@@ -1576,6 +1595,8 @@ func (a *taskEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, stat
 		StartedAt:       task.StartedAt,
 		CompletedAt:     task.CompletedAt,
 		BlockedAt:       task.BlockedAt,
+
+		TerminalStatuses: a.terminalStatuses,
 	}
 
 	var unblockedKeys []string
@@ -1632,6 +1653,8 @@ func (a *taskEntityRepoAdapter) UpdateStatusIfCurrent(ctx context.Context, id in
 		CompletedAt:     task.CompletedAt,
 		BlockedAt:       task.BlockedAt,
 		Guarded:         true,
+
+		TerminalStatuses: a.terminalStatuses,
 	}
 
 	var unblockedKeys []string
@@ -1698,7 +1721,19 @@ func (s *TaskService) makeTaskEntityAdapter(opts TransitionOptions) *taskEntityR
 			documentPath: docPathPtr,
 			force:        opts.Force,
 		},
+		terminalStatuses: s.taskTerminalStatuses(),
 	}
+}
+
+// taskTerminalStatuses returns the configured terminal statuses for the task
+// workflow. Used to hand the repository layer a config-driven terminal set
+// instead of letting it apply its hardcoded fallback.
+func (s *TaskService) taskTerminalStatuses() []string {
+	wf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelTask)
+	if wf == nil {
+		return nil
+	}
+	return wf.GetTerminalStatuses()
 }
 
 // GetTaskHistory retrieves the complete status change history for a task.

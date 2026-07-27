@@ -3358,3 +3358,95 @@ func TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_StaleRejectionPropagates(t 
 	require.NoError(t, err, "a lost CAS race is a normal (false, nil) outcome, not an error")
 	assert.False(t, ok)
 }
+
+// ---------------------------------------------------------------------------
+// ValidateDependencies terminal-status regression tests
+//
+// "Is this dependency satisfied?" must be answered by
+// workflow.Service.IsTerminalStatus for the *task* level, not by a hardcoded
+// completed/archived pair. These tests fail if the literal is reintroduced.
+// ---------------------------------------------------------------------------
+
+// taskShippedWorkflowConfig renames the task terminal status to "shipped" and
+// deliberately leaves "completed" a non-terminal status, so a hardcoded
+// completed/archived check gives the opposite answer to the configured one.
+const taskShippedWorkflowConfig = `{
+  "task_workflow": {
+    "statuses": ["todo", "completed", "shipped"],
+    "status_flow": {
+      "todo": ["completed"],
+      "completed": ["shipped"],
+      "shipped": []
+    },
+    "special_statuses": {
+      "_start_": ["todo"],
+      "_complete_": ["shipped"]
+    },
+    "status_metadata": {
+      "todo": {"color": "gray", "phase": "planning"},
+      "completed": {"color": "blue", "phase": "review"},
+      "shipped": {"color": "green", "phase": "done"}
+    }
+  }
+}`
+
+func newValidateDepsService(t *testing.T, wf *workflow.Service, depStatus string) *TaskService {
+	t.Helper()
+	mockRepo := &MockTaskRepository{
+		GetTaskDependenciesFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-000"}, Status: models.TaskStatus(depStatus)},
+			}, nil
+		},
+	}
+	return NewTaskService(mockRepo, NewEntityService(wf), nil)
+}
+
+// TestTaskService_ValidateDependencies_CustomTerminalStatus proves the terminal
+// set is read from the workflow config: under a workflow whose only terminal
+// task status is "shipped", a "shipped" dependency satisfies and a "completed"
+// dependency does not. The hardcoded completed/archived check answers both
+// backwards.
+func TestTaskService_ValidateDependencies_CustomTerminalStatus(t *testing.T) {
+	wf := newTaskReopenWorkflowService(t, taskShippedWorkflowConfig)
+
+	err := newValidateDepsService(t, wf, "shipped").
+		ValidateDependencies(context.Background(), "E15-F04-001", "in_progress")
+	assert.NoError(t, err, "dependency in the configured terminal status %q must satisfy", "shipped")
+
+	err = newValidateDepsService(t, wf, "completed").
+		ValidateDependencies(context.Background(), "E15-F04-001", "in_progress")
+	require.Error(t, err, `"completed" is NOT terminal in this workflow, so the dependency must block`)
+	assert.Contains(t, err.Error(), "dependency not met")
+}
+
+// TestTaskService_ValidateDependencies_DefaultWorkflowTerminalSet pins the
+// shipped default task workflow, whose terminal steps are "cancelled" and
+// "completed" — notably NOT "archived". The old literal set (completed +
+// archived) is wrong in both directions here.
+func TestTaskService_ValidateDependencies_DefaultWorkflowTerminalSet(t *testing.T) {
+	cases := []struct {
+		depStatus string
+		satisfied bool
+		why       string
+	}{
+		{"completed", true, "terminal in the default task workflow"},
+		{"cancelled", true, "terminal in the default task workflow; the old literal set omitted it"},
+		{"archived", false, "NOT a step in the default task workflow; the old literal set wrongly accepted it"},
+		{"todo", false, "non-terminal"},
+		{"in_progress", false, "non-terminal"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.depStatus, func(t *testing.T) {
+			err := newValidateDepsService(t, newMockWorkflowService(), tc.depStatus).
+				ValidateDependencies(context.Background(), "E15-F04-001", "in_progress")
+			if tc.satisfied {
+				assert.NoError(t, err, "dependency status %q should satisfy: %s", tc.depStatus, tc.why)
+				return
+			}
+			require.Error(t, err, "dependency status %q should block: %s", tc.depStatus, tc.why)
+			assert.Contains(t, err.Error(), "dependency not met")
+		})
+	}
+}

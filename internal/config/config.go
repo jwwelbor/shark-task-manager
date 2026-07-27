@@ -20,6 +20,10 @@ const DefaultSharkDataPath = "shark-data"
 // list views (~85-90 column terminals leave room for surrounding chrome).
 const DefaultConsoleWidth = 120
 
+// DefaultMaxParallelItems is the maximum number of tied candidates returned
+// by `shark plan` when max_parallel_items is absent or non-positive.
+const DefaultMaxParallelItems = 5
+
 // MinConsoleWidth is the lower clamp applied to GetConsoleWidth when the
 // configured value is positive but extremely small. Below ~40 columns column
 // titles and dashes do not fit in any reasonable list view, so we clamp.
@@ -73,6 +77,8 @@ type Config struct {
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow YAML directory or index. Empty uses embedded defaults.
 	SharkDataPath          *string                `json:"shark_data_path,omitempty"`          // Content-bundle root (skills/, prompts/, agents/, overrides/) relative to project root. Default: "shark-data". SEPARATE from workflow_config.
 	ClaimTTLSeconds        *int                   `json:"claim_ttl_seconds,omitempty"`        // Optional claim/lease TTL in seconds. Nil falls back to env/default; 0 disables claim expiry.
+	MaxParallelItems       int                    `json:"max_parallel_items,omitempty"`       // Maximum tied candidates returned by shark plan. Non-positive values use DefaultMaxParallelItems.
+	SequentialDispatch     bool                   `json:"sequential_dispatch,omitempty"`      // Collapses a keyed-next fork to its first eligible candidate. Default false (surface forks).
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
@@ -346,6 +352,27 @@ func (c *Config) GetRecentDefaultLimit() int {
 		return builtinDefault
 	}
 	return c.Recent.DefaultLimit
+}
+
+// GetMaxParallelItems returns the maximum number of tied candidates that
+// `shark plan` may return. The accessor is nil-safe and treats missing,
+// zero, or negative values as the built-in default of 5.
+func (c *Config) GetMaxParallelItems() int {
+	if c == nil || c.MaxParallelItems <= 0 {
+		return DefaultMaxParallelItems
+	}
+	return c.MaxParallelItems
+}
+
+// GetSequentialDispatch returns whether `shark next` should collapse a
+// surviving fork to its first eligible candidate. The accessor is nil-safe
+// and treats a nil *Config (or an absent field) as false — surfacing forks is
+// the default.
+func (c *Config) GetSequentialDispatch() bool {
+	if c == nil {
+		return false
+	}
+	return c.SequentialDispatch
 }
 
 // GetConsoleWidth returns the console width to use when rendering CLI list

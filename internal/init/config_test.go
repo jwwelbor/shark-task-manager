@@ -236,6 +236,7 @@ func TestCreateConfigShape(t *testing.T) {
 		"json_output",
 		"interactive_mode",
 		"require_rejection_reason",
+		"max_parallel_items",
 		"database",
 		"shark_data_path",
 		"observability",
@@ -244,6 +245,9 @@ func TestCreateConfigShape(t *testing.T) {
 		if _, exists := actual[field]; !exists {
 			t.Errorf("Config missing required field: %s", field)
 		}
+	}
+	if actual["max_parallel_items"] != float64(5) {
+		t.Errorf("max_parallel_items = %v, want 5", actual["max_parallel_items"])
 	}
 
 	// workflow_config must NOT be written by init — a bare init has no

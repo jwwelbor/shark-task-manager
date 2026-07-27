@@ -29,6 +29,7 @@ The `.sharkconfig.json` file is automatically created by `shark admin init` and 
   "shark_data_path": "shark-data",
   "workflow_config": "shark-data/workflow/",
   "console_width": 0,
+  "max_parallel_items": 5,
   "web": {
     "port": 7777
   },
@@ -258,6 +259,75 @@ shark status advance E38-F07 --outcome fail \
 | `advance_guard.enabled` | bool | `false` | Master on/off switch. `false` preserves historical `status advance` behavior. |
 | `advance_guard.mode` | string | `"session_from_status"` | Guard strategy. The current implementation supports `session_from_status`. |
 | `advance_guard.allow_repeat_with_force` | bool | `false` when absent | Allows `--force-repeat --reason ...` to override a replay rejection. |
+
+<a id="max-parallel-items"></a>
+#### `max_parallel_items`
+
+Caps the number of tied candidates returned for an equally-ranked tier. Two
+callers read this field:
+
+- `shark plan` — bare epic selection, one-level hierarchy selection (`shark
+  plan <epic|feature>`), and standalone-collection selection (`shark plan
+  bugs|change-cards|tech-debt`).
+- `shark next <key>` — when a keyed cascade fan-out (the default; see
+  [`sequential_dispatch`](#sequential-dispatch)) stops at a fork, this bounds
+  how many tied candidates are included in the returned `parallel_candidates`
+  selection.
+
+It does not change rank/order semantics, only how many tied candidates are
+included in the response.
+
+```json
+{
+  "max_parallel_items": 5
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_parallel_items` | int | `5` | Maximum tied candidates returned per planning scope. Absent, zero, or negative values fall back to the default. A cap below `2` disables fan-out — see below for what each caller does in that case. |
+
+**A cap below `2` (i.e. `0` or `1`) disables fan-out**, but the two callers
+respond differently:
+
+- `shark plan` truncates the tied tier to one candidate and returns a
+  deterministic `select_<type>` envelope (`Entity`, not `Entities`) —
+  appropriate for a read-only selection surface with no dispatch contract to
+  satisfy.
+- `shark next`'s fork path does not emit a selection envelope at all in this
+  case. A singleton `parallel_candidates` envelope would carry no `prompt` and
+  no `agent_type`, which is outside the keyed-dispatch wire vocabulary
+  (`spawn_agent` / `pause` / `archive`) and would stall a harness waiting on
+  one of those actions. Instead, `shark next` dispatches the first surviving
+  candidate directly, exactly as if the cascade had never forked.
+
+<a id="sequential-dispatch"></a>
+#### `sequential_dispatch`
+
+Controls only how `shark next` emits a surviving child tie. Both modes use the
+same claim-aware, dependency-aware, deterministically ordered hierarchy
+snapshot. By default, a keyed `shark next <key>` call that cascades into a
+*fork* — a tier with two or more equally-ranked dispatchable children —
+returns the candidate tier (bounded by
+[`max_parallel_items`](#max-parallel-items)). With
+`sequential_dispatch: true`, `shark next` collapses that fork and dispatches
+the first eligible candidate instead.
+
+```json
+{
+  "sequential_dispatch": true
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sequential_dispatch` | bool | `false` | When `true`, `shark next` collapses a fork to its first eligible candidate. |
+
+**Relationship to `--sequential`:** `shark next` also accepts a `--sequential`
+flag that forces the same fork-collapsing behavior for a single invocation.
+Precedence: an explicitly passed `--sequential` flag always wins; when the
+flag is not passed, the `sequential_dispatch` config value applies; when
+neither is set, the default is fan-out.
 
 ### Web Server Configuration
 
