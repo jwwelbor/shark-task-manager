@@ -2,7 +2,18 @@
 
 **Epic:** E38 — Shark Attack Team Orchestration
 **Date:** 2026-07-13
-**Scope:** F04, F05, F06, and F07
+**Scope:** Completed first protocol tranche: F04, F05, F06, and F07
+
+## Scope status
+
+This plan is the acceptance record for the first protocol tranche completed on
+2026-07-13. The approved v2 triage re-scoped F05 and added F08–F11 after this
+plan was written. Those features are active roadmap scope, but they are not
+covered by this historical UAT plan and are not implied to have passed UAT.
+
+F08–F10 require feature-level acceptance plans before implementation begins.
+F11 owns the separate complicated-lifecycle qualification, including its own
+integration, independent review, QA, UAT, and literal-approval evidence.
 
 This plan verifies a reusable role-based skill and host-side Rider procedure
 over ordinary Shark CLI primitives. It deliberately does not require a team

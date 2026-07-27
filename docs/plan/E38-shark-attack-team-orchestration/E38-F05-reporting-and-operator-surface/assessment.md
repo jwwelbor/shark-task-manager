@@ -1,10 +1,11 @@
-# Superseded assessment: lightweight handoff and operator guidance
+# F05 assessment and v2 triage amendment
 
-> Superseded on 2026-07-26. This assessment considered only the original F05
-> feature file and omitted the approved Shark Attack v2 triage decision. The
-> v2 implementation plan assigns Tranche B deterministic council tooling to
-> F05. Use the implementation plan and the F05 future-scope note as the
-> current scope.
+> **Historical assessment superseded on 2026-07-26:** The original assessment
+> below considered only the lightweight F05 feature file and omitted the
+> approved Shark Attack v2 triage decision. The v2 triage amendment beginning
+> at [Corrected scope decision](#corrected-scope-decision) is current. It
+> assigns Tranche B deterministic council tooling to F05 while retaining the
+> implementation plan's unresolved design decisions.
 
 ## Goal
 
@@ -24,7 +25,7 @@ The remaining F05 wording does not identify an independent user outcome,
 runtime surface, or contract that those features do not provide. Adding a
 separate status or reporting subsystem would violate its out-of-scope boundary.
 
-## Superseded scope decision
+## Corrected scope decision
 
 This conclusion is invalid because it omitted the approved v2 re-scope. F05
 owns the deterministic council-artifact contract: typed artifacts, validated
@@ -53,8 +54,9 @@ protocol.
 8. Regression risk: 1/3 — documentation could misstate Rider ownership.
 9. Execution effort: 1/3 — a bounded review and contract check are required.
 
-**Technical total:** 2/18  
-**Execution total:** 3/9  
+**Technical total:** 2/18
+
+**Execution total:** 3/9
 **Overall total:** 5/27
 
 ## Corrected complexity triage

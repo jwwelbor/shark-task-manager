@@ -733,7 +733,8 @@ Start with the integrity defects that would invalidate later evidence: non-mutat
 
 ### Decisions requiring confirmation
 
-Confirm the admin command namespace, scope union, immutable revision model, closeout role, capability-profile names, worker-owned-child compatibility, experimental provider policy, the `shark plan` read-only semantic change, the skill canonical-authoring direction, and the real hard-test epic/feature.
+Confirm the decisions in [§8: Risks and open decisions](#8-risks-and-open-decisions) before
+implementation.
 
 ### Explicit non-goals
 
