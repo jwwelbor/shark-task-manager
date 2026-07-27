@@ -2,7 +2,7 @@
 epic_key: E38
 title: Shark Attack Team Orchestration
 description: Provide a reusable role-based team skill and Rider procedure for coordinating specialized workers around existing Shark workflow, claims, prompts, quality gates, and escalation paths.
-last_updated: 2026-07-13
+last_updated: 2026-07-26
 ---
 
 # Shark Attack Team Orchestration
@@ -83,8 +83,11 @@ preserving the ordinary Shark workflow as the single source of truth.
 ### Locked design decisions
 
 > Direction reset: the runtime-oriented F01–F03 design was superseded on
-> 2026-07-13. Their documents remain as historical design records only; the
-> active delivery boundary is F04, F05, F06, and F07.
+> 2026-07-13. Their documents remain as historical design records only. F04,
+> F06, and F07 delivered the first Shark Attack protocol tranche; the approved
+> v2 triage re-scoped F05 and added F08–F11 as the active roadmap. Completing
+> the first tranche does not approve the open implementation decisions recorded
+> in the v2 plan or satisfy the future v2 qualification.
 
 - **Team artifact**: the primary deliverable is an elaborate, reusable set of
   prompts and Markdown skill procedures, not a new autonomous AI runtime. Any
@@ -125,10 +128,12 @@ preserving the ordinary Shark workflow as the single source of truth.
 
 ## 3. Scope: in-scope and out-of-scope boundaries
 
-The active implementation boundary is prompts, Markdown procedures, role
-filtering, and Rider coordination around existing Shark commands. The former
-planner/scheduler/ledger/aggregate bullets below are retained only as historical
-context and are not implementation commitments.
+The active implementation boundary is provider-neutral skill and Rider
+coordination around existing Shark commands, plus the narrow deterministic data
+tooling and validation required by the approved v2 F05 scope. It does not add a
+team runtime, scheduler, ledger, aggregate router, or second lifecycle store.
+The former planner/scheduler/ledger/aggregate bullets below are retained only as
+historical context and are not implementation commitments.
 
 ### In scope
 
@@ -138,6 +143,12 @@ context and are not implementation commitments.
   claim leases, heartbeat, and release behavior.
 - A Rider procedure around `shark next`, host-agent dispatch, worker outcomes,
   configured status advancement, and clean stop conditions.
+- Deterministic council artifacts and validation, with only the thin Shark
+  admin surface needed to create and validate those artifacts.
+- Provider-neutral question routing, same-worker resume where supported, and
+  bounded replacement-worker fallback where it is not.
+- Integrity prerequisites, adapter conformance evidence, and a separately
+  approved complicated-lifecycle qualification run for Shark Attack v2.
 - Clear ownership rules: Rider owns claims and parent transitions; workers own
   craft and evidence; the council owns questions, decisions, and escalation.
 - Compatibility with ordinary Shark CLI behavior and existing single-worker
