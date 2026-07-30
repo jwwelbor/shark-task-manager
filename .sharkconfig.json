@@ -21,7 +21,5 @@
     "service_name": "shark",
     "tracing_enabled": false
   },
-  "require_rejection_reason": true,
-  "shark_data_path": "shark-data",
-  "workflow_config": "examples/route-based-codex/workflow.yaml"
+  "require_rejection_reason": true
 }
