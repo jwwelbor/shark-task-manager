@@ -97,6 +97,14 @@ type Config struct {
 	// A nil or absent AdvanceGuard means "disabled" for backward compatibility.
 	AdvanceGuard *AdvanceGuardConfig `json:"advance_guard,omitempty"`
 
+	// RequireOwnerApproval lists the entity workflow levels whose completion
+	// routes are gated behind an injected owner_approval human sign-off step.
+	// Parsed from "require_owner_approval": true (all levels), a single level
+	// name, or a list of level names. Nil/empty means disabled. The workflow
+	// loader is the enforcement point; this field exists so `config show`
+	// reflects the setting.
+	RequireOwnerApproval []string `json:"require_owner_approval,omitempty"`
+
 	// Recent holds optional configuration for the `shark recent` command.
 	// A nil or absent Recent means "use built-in defaults" (limit = 5).
 	Recent *RecentConfig `json:"recent,omitempty"`

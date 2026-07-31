@@ -78,6 +78,30 @@ func (m *MultiLevelWorkflow) GetByType(entityType string) *WorkflowConfig {
 	return nil
 }
 
+// setByType stores wf in the slot for the given entity type. It mirrors
+// GetByType's entity-type → slot mapping; extend both together when adding a
+// new entity type. Unknown types are ignored.
+func (m *MultiLevelWorkflow) setByType(entityType string, wf *WorkflowConfig) {
+	entityType = entitytype.WorkflowLevelOrSelf(entityType)
+
+	switch entityType {
+	case "epic":
+		m.Epic = wf
+	case "feature":
+		m.Feature = wf
+	case "task":
+		m.Task = wf
+	case "sprint":
+		m.Sprint = wf
+	case "bug":
+		m.Bug = wf
+	case "change":
+		m.Change = wf
+	case "tech_debt":
+		m.TechDebt = wf
+	}
+}
+
 // RawForLevel returns the raw (possibly nil) workflow config for the given
 // level. Unlike GetWorkflowForLevel, it does NOT fall back to defaults — a nil
 // return means "no custom workflow configured for this level."

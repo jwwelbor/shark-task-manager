@@ -295,6 +295,9 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		if isIndex {
 			applyIndexResult(result, idxMLW, workflowFilePath)
 			fillDefaultSources(result)
+			if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
+				return nil, err
+			}
 			cacheMultiLevel(result, configPath)
 			return result, nil
 		}
@@ -508,6 +511,12 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		if _, ok := result.Sources[level]; !ok {
 			result.Sources[level] = "default"
 		}
+	}
+
+	// Inject owner-approval gates (require_owner_approval) after all slots are
+	// resolved so the gated copies are what gets cached and served.
+	if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
+		return nil, err
 	}
 
 	// Also update the legacy single-level cache for backward compatibility
