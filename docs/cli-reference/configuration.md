@@ -655,6 +655,57 @@ check).
 
 ---
 
+### `require_owner_approval`
+
+The optional `require_owner_approval` field gates entity completion behind a
+human sign-off. At workflow-load time, every route into a gated workflow's
+primary completion terminal is rewritten to pass through an injected
+`owner_approval` step (`action: pause`, `responsibility: human`). The dispatch
+loop stops there; the owner then decides:
+
+```bash
+shark status advance E07-F01 --outcome pass   # approve → completed
+shark status advance E07-F01 --outcome fail   # send back for rework
+```
+
+#### JSON shape
+
+```json
+{
+  "require_owner_approval": ["feature"]
+}
+```
+
+Accepted values:
+
+| Value                  | Effect                                            |
+|------------------------|---------------------------------------------------|
+| `true`                 | Gate every entity workflow level                  |
+| `"feature"`            | Gate a single level                               |
+| `["feature", "epic"]`  | Gate the listed levels                            |
+| `false`, absent, `[]`  | Disabled (completion routes unchanged)            |
+
+Level names accept the usual aliases (`tech-debt` → `tech_debt`) and are
+validated at load time — an unknown level fails the config load. Most projects
+want `["feature"]`: the feature-level UAT gate's `pass` then parks at
+`owner_approval` instead of auto-completing, while task/bug flows stay
+autonomous.
+
+Notes:
+
+- Routes to non-primary terminals (e.g. `cancelled`) are not gated.
+- A workflow that already defines its own `owner_approval` step is left
+  untouched — its explicit routing wins.
+- Requires route-based (`steps:`) workflows; the embedded defaults qualify.
+- If you disable the flag while entities are parked at `owner_approval`,
+  move them manually with `shark status set <key> <status> --force`.
+- The bundled UAT skill defers its owner-review step to this flag (v3.1.0):
+  with the flag unset, a clean Codex Accept completes the feature without
+  asking the owner; with the flag set, review happens at the `owner_approval`
+  parking step instead of an in-session prompt.
+
+---
+
 ### Environment Variables
 
 Shark supports environment variable substitution in config values:

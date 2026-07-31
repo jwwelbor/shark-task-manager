@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 )
 
 // Manager handles config file operations
@@ -182,6 +184,15 @@ func (m *Manager) Load() (*Config, error) {
 			ag.AllowRepeatWithForce = allowRepeat
 		}
 		config.AdvanceGuard = ag
+	}
+
+	// Parse require_owner_approval if present. The workflow loader is the
+	// enforcement point (it fails loudly on invalid values); here we parse
+	// best-effort so `config show` reflects the setting.
+	if raw, ok := rawData["require_owner_approval"]; ok {
+		if levels, err := workflow.NormalizeOwnerApprovalLevels(raw); err == nil {
+			config.RequireOwnerApproval = levels
+		}
 	}
 
 	// Parse tag_required_for list if present. This mirrors the maintainer
