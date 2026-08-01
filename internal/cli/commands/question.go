@@ -87,8 +87,7 @@ func runQuestionCreate(cmd *cobra.Command, args []string) error {
 	requester, _ := cmd.Flags().GetString("requester")
 	description, _ := cmd.Flags().GetString("description")
 	blocking, _ := cmd.Flags().GetBool("blocking")
-	status, _ := cmd.Flags().GetString("status")
-	q, err := getQuestionService().CreateQuestion(cmd.Context(), services.CreateQuestionInput{Title: args[0], Summary: summary, Requester: requester, Description: description, Blocking: blocking, Status: status})
+	q, err := getQuestionService().CreateQuestion(cmd.Context(), services.CreateQuestionInput{Title: args[0], Summary: summary, Requester: requester, Description: description, Blocking: blocking})
 	if err != nil {
 		return err
 	}
@@ -476,7 +475,6 @@ func init() {
 	questionCreateCmd.Flags().String("requester", "", "Question requester")
 	questionCreateCmd.Flags().String("description", "", "Question description")
 	questionCreateCmd.Flags().Bool("blocking", false, "Question blocks progress")
-	questionCreateCmd.Flags().String("status", "", "Initial status (draft only)")
 	questionListCmd.Flags().String("status", "", "Exact status")
 	questionListCmd.Flags().String("requester", "", "Exact requester")
 	questionListCmd.Flags().String("blocking", "", "Boolean blocking filter")

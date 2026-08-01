@@ -610,6 +610,32 @@ func GetQuestionBlocker() *services.QuestionBlocker {
 	return blocker
 }
 
+// GetQuestionDocumentService returns the generic EntityDocumentService wired
+// for Questions, used by `shark related-docs add/delete/list --question`.
+// QuestionService itself does not expose LinkDocument/UnlinkDocument/
+// ListDocuments wrapper methods the way BugService/ChangeCardService/
+// TaskService do, so this accessor mirrors their construction (wiring
+// through cli.GetDB/FindProjectRoot/GetEntityRegistry here rather than
+// inline in the commands package) without changing the *ByKey call shape
+// the Question document commands already use.
+func GetQuestionDocumentService(ctx context.Context) *services.EntityDocumentService {
+	db, err := GetDB(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for question documents: %v", err))
+	}
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeQuestion)
+	return services.NewEntityDocumentService(
+		repository.NewDocumentRepository(db),
+		repository.NewEntityDocumentRepository(db),
+		services.EntityLookupFnFromRepo(entityRepo),
+		projectRoot,
+	)
+}
+
 // GetCascadeService returns a CascadeService instance.
 // Creates a new instance each call with the global DB connection and workflow service.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).

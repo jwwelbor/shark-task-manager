@@ -677,11 +677,7 @@ func (c *RunController) handleCascade(
 			if refreshedChildren.TotalChildren > 0 && refreshedChildren.NonTerminalChildren == 0 {
 				return c.autoAdvanceCascadeParent(ctx, key, currentStatus, nextInfo, opts, result, stageStart, startTime)
 			}
-			result.FinalStatus = currentStatus
-			result.Outcome = "paused"
-			result.QuestionBlock = nil
-			result.TotalDuration = time.Since(startTime)
-			return stageOutcome{done: true}
+			return pauseCascade(result, currentStatus, nil, startTime)
 		}
 		return stageOutcome{nextStatus: refreshed.CurrentStatus, nextInfo: refreshed}
 	}
@@ -691,9 +687,17 @@ func (c *RunController) handleCascade(
 	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
 		return c.autoAdvanceCascadeParent(ctx, key, currentStatus, nextInfo, opts, result, stageStart, startTime)
 	}
+	return pauseCascade(result, currentStatus, allParkedQuestionBlock, startTime)
+}
+
+// pauseCascade records a cascade parent's stall (partial or fully blocked
+// progress, no auto-advance) as a completed-but-paused run stage. block is
+// nil when the parent simply has non-terminal children still pending, or the
+// compact handoff when every candidate is Question-blocked.
+func pauseCascade(result *RunResult, currentStatus string, block *services.QuestionBlock, startTime time.Time) stageOutcome {
 	result.FinalStatus = currentStatus
 	result.Outcome = "paused"
-	result.QuestionBlock = allParkedQuestionBlock
+	result.QuestionBlock = block
 	result.TotalDuration = time.Since(startTime)
 	return stageOutcome{done: true}
 }

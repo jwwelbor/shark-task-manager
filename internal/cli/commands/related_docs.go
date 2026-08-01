@@ -6,8 +6,6 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -101,7 +99,7 @@ func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, quest
 		return printDocLinked(title, path, "change-card", change, 0)
 	}
 	if question != "" {
-		doc, err := questionDocumentService(ctx).LinkDocumentByKey(ctx, question, title, path)
+		doc, err := cli.GetQuestionDocumentService(ctx).LinkDocumentByKey(ctx, question, title, path)
 		if err != nil {
 			return fmt.Errorf("failed to link document to question: %w", err)
 		}
@@ -189,7 +187,7 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 		return printDocUnlinked(title, "change-card", change)
 	}
 	if question != "" {
-		if err := questionDocumentService(ctx).UnlinkDocumentByKey(ctx, question, title); err != nil {
+		if err := cli.GetQuestionDocumentService(ctx).UnlinkDocumentByKey(ctx, question, title); err != nil {
 			return fmt.Errorf("unlink document from question %s: %w", question, err)
 		}
 		return printDocUnlinked(title, "question", question)
@@ -243,7 +241,7 @@ func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change, que
 		return docs, nil
 	}
 	if question != "" {
-		docs, err := questionDocumentService(ctx).ListDocumentsByKey(ctx, question)
+		docs, err := cli.GetQuestionDocumentService(ctx).ListDocumentsByKey(ctx, question)
 		if err != nil {
 			return nil, fmt.Errorf("question not found: %w", err)
 		}
@@ -276,27 +274,6 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return printRelatedDocs(docs, useJSON)
-}
-
-// questionDocumentService reuses the generic document service and the
-// registered Question adapter. It deliberately adds no Question-specific
-// document semantics; the CLI only supplies the missing generic registration.
-func questionDocumentService(ctx context.Context) *services.EntityDocumentService {
-	db, err := cli.GetDB(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("failed to get database for question documents: %v", err))
-	}
-	projectRoot, _ := cli.FindProjectRoot()
-	if projectRoot == "" {
-		projectRoot = "."
-	}
-	entityRepo := cli.GetEntityRegistry().MustGetRepository(models.EntityTypeQuestion)
-	return services.NewEntityDocumentService(
-		repository.NewDocumentRepository(db),
-		repository.NewEntityDocumentRepository(db),
-		services.EntityLookupFnFromRepo(entityRepo),
-		projectRoot,
-	)
 }
 
 // printRelatedDocs outputs a list of related documents.

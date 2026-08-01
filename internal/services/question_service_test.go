@@ -195,7 +195,6 @@ func TestQuestionServiceCreateQuestionNormalizesAndPersists(t *testing.T) {
 		Requester:   "  release-manager  ",
 		Description: "keep exact description",
 		Blocking:    true,
-		Status:      " DRAFT ",
 	})
 	if err != nil {
 		t.Fatalf("CreateQuestion() error = %v", err)
@@ -573,6 +572,68 @@ func TestQuestionServiceResolveRejectsUnreadyQuestion_TC106(t *testing.T) {
 	}
 }
 
+// TestQuestionServiceResolveRejectsInvalidDestination_TC106 locks in
+// validateResolutionDestination/validateResolutionDocument's negative paths,
+// including the path-traversal guard (filepath.IsAbs / "../" escape) on
+// feature_change/architecture_decision document pointers. Without this,
+// stubbing either validator to always return nil would still pass the full
+// suite -- these are the guards that gate every Resolve() call.
+func TestQuestionServiceResolveRejectsInvalidDestination_TC106(t *testing.T) {
+	readyState := models.QuestionState{
+		ResolutionOwner: "release-owner",
+		Responders:      []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}},
+		Responses:       []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}},
+	}
+	encoded, err := models.EncodeQuestionState(nil, readyState)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name           string
+		kind, pointer  string
+		followUpExists bool
+		noteExists     bool
+	}{
+		{name: "local_clarification_missing_note_prefix", kind: "local_clarification", pointer: "Q001:42", followUpExists: true, noteExists: true},
+		{name: "local_clarification_nonexistent_note", kind: "local_clarification", pointer: "note:404", followUpExists: true, noteExists: false},
+		{name: "follow_up_work_nonexistent_destination", kind: "follow_up_work", pointer: "E99-F99", followUpExists: false, noteExists: true},
+		{name: "product_decision_missing_anchor", kind: "product_decision", pointer: "docs/product/progress.md", followUpExists: true, noteExists: true},
+		{name: "product_decision_wrong_document", kind: "product_decision", pointer: "docs/other.md#decision-1", followUpExists: true, noteExists: true},
+		{name: "architecture_decision_single_path", kind: "architecture_decision", pointer: "docs/architecture/coding-standards.md", followUpExists: true, noteExists: true},
+		{name: "feature_change_nonexistent_file", kind: "feature_change", pointer: "docs/architecture/does-not-exist.md", followUpExists: true, noteExists: true},
+		{name: "feature_change_absolute_path", kind: "feature_change", pointer: "/etc/passwd", followUpExists: true, noteExists: true},
+		{name: "feature_change_path_traversal", kind: "feature_change", pointer: "../../../../etc/passwd", followUpExists: true, noteExists: true},
+		{name: "architecture_decision_one_path_escapes", kind: "architecture_decision", pointer: "docs/architecture/coding-standards.md;../../../../etc/passwd", followUpExists: true, noteExists: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", ContextData: encoded}, Status: "ready_for_resolution", Summary: "Summary", Requester: "owner"}
+			resolveCalled := false
+			repo := &mockQuestionRepository{
+				getByKeyFn:           func(context.Context, string) (*models.Question, error) { return question, nil },
+				followUpWorkExistsFn: func(context.Context, string) (bool, error) { return tc.followUpExists, nil },
+				noteExistsFn:         func(context.Context, string) (bool, error) { return tc.noteExists, nil },
+				resolveFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error {
+					resolveCalled = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			svc.SetProjectRoot("../..")
+			if _, err := svc.Resolve(context.Background(), ResolveQuestionInput{Key: "Q001", Owner: "release-owner", Kind: tc.kind, Pointer: tc.pointer}); err == nil {
+				t.Fatalf("Resolve(kind=%q, pointer=%q) error = nil, want rejection", tc.kind, tc.pointer)
+			}
+			if resolveCalled {
+				t.Fatalf("Resolve(kind=%q, pointer=%q) called the repository write despite invalid destination", tc.kind, tc.pointer)
+			}
+		})
+	}
+}
+
 // TC-107: terminal provenance accepts only the configured owner and leaves
 // target validation and atomic terminal write at the typed repository seam.
 func TestQuestionServiceWithdrawAndSupersede_TC107(t *testing.T) {
@@ -799,7 +860,6 @@ func TestQuestionServiceCreateQuestionRejectsInvalidInputBeforeMutation(t *testi
 		{Summary: "summary", Requester: "requester"},
 		{Title: "title", Requester: "requester"},
 		{Title: "title", Summary: "summary"},
-		{Title: "title", Summary: "summary", Requester: "requester", Status: "resolved"},
 	}
 	for _, input := range cases {
 		t.Run("invalid", func(t *testing.T) {
@@ -1065,6 +1125,32 @@ func TestQuestionServiceGetNextStatusUnconfiguredPauses_TC103(t *testing.T) {
 	}
 	if !info.IsTerminal || info.CurrentStatus != "archived" {
 		t.Fatalf("GetNextStatus(archived) = %#v, want terminal archived", info)
+	}
+}
+
+// TestQuestionServiceGetNextStatusOpenWithNilContextDataIsTerminal locks in
+// GetNextStatus's "state == nil || state.CurrentResponder() == \"\"" guard
+// for the open/answering branch. Without it, a migrated-but-unconfigured
+// Question sitting in open/answering (see migrateQuestionDraftsToOpen) would
+// reach state.CurrentResponder() on a nil *QuestionState and panic instead
+// of reporting a safe terminal pause.
+func TestQuestionServiceGetNextStatusOpenWithNilContextDataIsTerminal(t *testing.T) {
+	for _, status := range []models.QuestionStatus{models.QuestionStatusOpen, models.QuestionStatusAnswering} {
+		t.Run(string(status), func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 8, Key: "Q001", ContextData: nil}, Status: status, Summary: "Summary", Requester: "owner"}
+			repo := &mockQuestionRepository{getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil }}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := svc.GetNextStatus(context.Background(), "Q001")
+			if err != nil {
+				t.Fatalf("GetNextStatus() error = %v", err)
+			}
+			if !info.IsTerminal || len(info.AvailableTransitions) != 0 {
+				t.Fatalf("GetNextStatus() = %#v, want terminal pause for nil context data", info)
+			}
+		})
 	}
 }
 

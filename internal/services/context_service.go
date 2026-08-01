@@ -54,6 +54,19 @@ func (s *ContextService) SetContextField(ctx context.Context, entityType models.
 	}
 
 	// Get current context data
+	//
+	// KNOWN LIMITATION (deep-review 2026-08-01, non-blocker): for Questions,
+	// this read-merge-write has a TOCTOU race against QuestionRepository.
+	// persistTransition's guarded writes (ConfigureWorkflow, RecordResponse,
+	// Resolve, Withdraw/Supersede) -- the emulated EntityRepository.
+	// UpdateContextData path (entity_adapter.go) has no compare-and-swap, so
+	// a workflow transition committed between this read and that write could
+	// be silently lost. An outright refusal was tried and reverted: it broke
+	// the legitimate case of setting a generic field (e.g. current_step) on
+	// an already-configured Question, which TC-406 exercises deliberately.
+	// A correct fix needs either a guarded UpdateContextData variant on the
+	// EntityRepository contract (affects all 9 adapters) or a retry loop
+	// scoped to Question; deferred as tech debt rather than rushed here.
 	contextJSON, err := s.getContextJSON(ctx, entityType, entityKey)
 	if err != nil {
 		return err

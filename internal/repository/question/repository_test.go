@@ -253,6 +253,69 @@ func TestQuestionRepositoryGetByKeyIsStrictAndNotFoundIsTyped(t *testing.T) {
 	}
 }
 
+// TestQuestionRepositoryFollowUpWorkExists locks in both sides of the
+// follow_up_work resolution-destination check QuestionService.
+// validateResolutionDestination depends on: a nonexistent key must report
+// false (not error), and a real Shark work item must report true.
+func TestQuestionRepositoryFollowUpWorkExists(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewQuestionRepository(dbconn.NewDB(database))
+
+	found, err := repo.FollowUpWorkExists(ctx, "E99")
+	if err != nil {
+		t.Fatalf("FollowUpWorkExists(nonexistent) error = %v", err)
+	}
+	if found {
+		t.Error("FollowUpWorkExists(nonexistent) = true, want false")
+	}
+
+	if _, err := database.Exec(`INSERT INTO epics (key, title, status, priority) VALUES ('E99', 'Test Epic', 'active', 'medium')`); err != nil {
+		t.Fatalf("seed epic: %v", err)
+	}
+	found, err = repo.FollowUpWorkExists(ctx, "E99")
+	if err != nil {
+		t.Fatalf("FollowUpWorkExists(epic) error = %v", err)
+	}
+	if !found {
+		t.Error("FollowUpWorkExists(epic) = false, want true")
+	}
+}
+
+// TestQuestionRepositoryNoteExists locks in both sides of the
+// local_clarification resolution-destination check QuestionService.
+// validateResolutionDestination depends on: a nonexistent note ID must
+// report false (not error), and a real note must report true.
+func TestQuestionRepositoryNoteExists(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewQuestionRepository(dbconn.NewDB(database))
+
+	found, err := repo.NoteExists(ctx, "999999")
+	if err != nil {
+		t.Fatalf("NoteExists(nonexistent) error = %v", err)
+	}
+	if found {
+		t.Error("NoteExists(nonexistent) = true, want false")
+	}
+
+	res, err := database.Exec(`INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by) VALUES ('question', 1, 'comment', 'clarified inline', 'tester')`)
+	if err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("read seeded note id: %v", err)
+	}
+	found, err = repo.NoteExists(ctx, fmt.Sprintf("%d", id))
+	if err != nil {
+		t.Fatalf("NoteExists(note) error = %v", err)
+	}
+	if !found {
+		t.Error("NoteExists(note) = false, want true")
+	}
+}
+
 func TestQuestionRepositoryListUsesBoundedExactFiltersAndKeyOrder(t *testing.T) {
 	ctx := context.Background()
 	repo := questionTestRepository(t)

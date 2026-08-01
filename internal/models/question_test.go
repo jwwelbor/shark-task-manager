@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -170,6 +171,16 @@ func TestQuestionStateValidateAndDeriveCurrentResponder_TC102(t *testing.T) {
 				t.Fatalf("TC-102 QuestionState.Validate() error = %v, want %q", err, tt.want)
 			}
 		})
+	}
+
+	// TC-102: the 10-responder upper bound is inclusive on the accepted
+	// side too -- "eleven responders" above only pins the rejected side.
+	tenResponders := make([]QuestionResponder, 10)
+	for i := range tenResponders {
+		tenResponders[i] = QuestionResponder{Identity: fmt.Sprintf("r%02d", i+1), Status: QuestionResponderPending}
+	}
+	if err := (QuestionState{ResolutionOwner: "owner", Responders: tenResponders}).Validate(); err != nil {
+		t.Fatalf("TC-102 QuestionState.Validate() with exactly 10 responders error = %v, want nil", err)
 	}
 }
 

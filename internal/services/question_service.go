@@ -70,7 +70,6 @@ type CreateQuestionInput struct {
 	Requester   string
 	Description string
 	Blocking    bool
-	Status      string
 }
 
 // QuestionClaimReader is the read-only portion of ClaimService needed by the
@@ -165,14 +164,6 @@ func (s *QuestionService) CreateQuestion(ctx context.Context, input CreateQuesti
 	}
 	if requester == "" {
 		return nil, fmt.Errorf("question requester is required")
-	}
-
-	status := strings.ToLower(strings.TrimSpace(input.Status))
-	if status == "" {
-		status = string(models.QuestionStatusDraft)
-	}
-	if status != string(models.QuestionStatusDraft) {
-		return nil, fmt.Errorf("question status must be %q at creation, got %q", models.QuestionStatusDraft, input.Status)
 	}
 
 	slug := utils.GenerateSlug(title)

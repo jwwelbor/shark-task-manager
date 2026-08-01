@@ -40,14 +40,19 @@ type QuestionServicer interface {
 	ListQuestionsBlocking(context.Context, models.EntityType, string, int, int) ([]*services.QuestionBlock, error)
 	ReadQuestionFull(context.Context, string, string) (*models.QuestionFullProjection, error)
 }
+
+// QuestionHandler serves the Question HTTP transport over a QuestionServicer.
 type QuestionHandler struct{ svc QuestionServicer }
 
+// NewQuestionHandler constructs a QuestionHandler bound to svc.
 func NewQuestionHandler(svc QuestionServicer) *QuestionHandler {
 	if svc == nil {
 		panic("QuestionHandler: svc is required")
 	}
 	return &QuestionHandler{svc: svc}
 }
+
+// RegisterRoutes mounts every Question HTTP route on mux.
 func (h *QuestionHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/questions", h.ListQuestions)
 	mux.HandleFunc("POST /api/v1/questions", h.CreateQuestion)
@@ -233,7 +238,6 @@ type questionRequest struct {
 	Requester   *string `json:"requester,omitempty"`
 	Description *string `json:"description,omitempty"`
 	Blocking    *bool   `json:"blocking,omitempty"`
-	Status      string  `json:"status,omitempty"`
 }
 
 // questionUpdateRequest deliberately has a separate transport shape from
@@ -288,6 +292,8 @@ func requiredQuestionRequestField(w http.ResponseWriter, field string, value *st
 	return *value, true
 }
 
+// ConfigureWorkflow sets a Question's resolution owner and responder order.
+// POST /api/v1/questions/{key}/workflow
 func (h *QuestionHandler) ConfigureWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req configureQuestionWorkflowRequest
 	if !decodeQuestionOperation(w, r, &req) {
@@ -309,6 +315,8 @@ func (h *QuestionHandler) ConfigureWorkflow(w http.ResponseWriter, r *http.Reque
 	respondJSON(w, http.StatusOK, models.ProjectQuestion(question))
 }
 
+// RecordResponse persists the current responder's answer.
+// POST /api/v1/questions/{key}/response
 func (h *QuestionHandler) RecordResponse(w http.ResponseWriter, r *http.Request) {
 	var req questionResponseRequest
 	if !decodeQuestionOperation(w, r, &req) {
@@ -338,6 +346,8 @@ func (h *QuestionHandler) RecordResponse(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, models.ProjectQuestion(question))
 }
 
+// Resolve closes a fully-answered Question with classified resolution evidence.
+// POST /api/v1/questions/{key}/resolve
 func (h *QuestionHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 	var req resolveQuestionRequest
 	if !decodeQuestionOperation(w, r, &req) {
@@ -367,6 +377,8 @@ func (h *QuestionHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, models.ProjectQuestion(question))
 }
 
+// Withdraw closes an eligible Question with a bounded reason.
+// POST /api/v1/questions/{key}/withdraw
 func (h *QuestionHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	var req closeQuestionRequest
 	if !decodeQuestionOperation(w, r, &req) {
@@ -388,6 +400,8 @@ func (h *QuestionHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, models.ProjectQuestion(question))
 }
 
+// Supersede closes an eligible Question in favor of another existing Question.
+// POST /api/v1/questions/{key}/supersede
 func (h *QuestionHandler) Supersede(w http.ResponseWriter, r *http.Request) {
 	var req closeQuestionRequest
 	if !decodeQuestionOperation(w, r, &req) {
@@ -413,6 +427,8 @@ func (h *QuestionHandler) Supersede(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, models.ProjectQuestion(question))
 }
 
+// CreateQuestion creates a new Question in draft status.
+// POST /api/v1/questions
 func (h *QuestionHandler) CreateQuestion(w http.ResponseWriter, r *http.Request) {
 	var req questionRequest
 	decoder := json.NewDecoder(r.Body)
@@ -425,7 +441,7 @@ func (h *QuestionHandler) CreateQuestion(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusBadRequest, "title, summary, and requester are required")
 		return
 	}
-	q, err := h.svc.CreateQuestion(r.Context(), services.CreateQuestionInput{Title: *req.Title, Summary: *req.Summary, Requester: *req.Requester, Description: valueOrEmpty(req.Description), Blocking: boolOrFalse(req.Blocking), Status: req.Status})
+	q, err := h.svc.CreateQuestion(r.Context(), services.CreateQuestionInput{Title: *req.Title, Summary: *req.Summary, Requester: *req.Requester, Description: valueOrEmpty(req.Description), Blocking: boolOrFalse(req.Blocking)})
 	if err != nil {
 		handleServiceError(w, err, "question")
 		return
@@ -466,6 +482,9 @@ func (h *QuestionHandler) TransitionStatus(w http.ResponseWriter, r *http.Reques
 	}
 	respondJSON(w, http.StatusOK, result)
 }
+
+// GetQuestion returns the compact base-record projection for one Question.
+// GET /api/v1/questions/{key}
 func (h *QuestionHandler) GetQuestion(w http.ResponseWriter, r *http.Request) {
 	q, err := h.svc.GetQuestion(r.Context(), pathParam(r, "key"))
 	if err != nil {
@@ -474,6 +493,9 @@ func (h *QuestionHandler) GetQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusOK, models.ProjectQuestion(q))
 }
+
+// ListQuestions returns a filtered, bounded page of compact Question projections.
+// GET /api/v1/questions
 func (h *QuestionHandler) ListQuestions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if err := validateQuestionListQuery(q); err != nil {
@@ -525,6 +547,10 @@ func validateQuestionListQuery(query url.Values) error {
 	}
 	return nil
 }
+
+// UpdateQuestion applies the finite mutable base-record fields; status is a
+// forbidden PATCH member (workflow commands own status transitions).
+// PATCH /api/v1/questions/{key}
 func (h *QuestionHandler) UpdateQuestion(w http.ResponseWriter, r *http.Request) {
 	var req questionUpdateRequest
 	if !decodeQuestionOperation(w, r, &req) {
@@ -555,6 +581,9 @@ func rejectTrailingJSON(decoder *json.Decoder) error {
 	}
 	return nil
 }
+
+// DeleteQuestion resolves a Question by key and deletes it.
+// DELETE /api/v1/questions/{key}
 func (h *QuestionHandler) DeleteQuestion(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.DeleteQuestion(r.Context(), pathParam(r, "key")); err != nil {
 		handleServiceError(w, err, "question")

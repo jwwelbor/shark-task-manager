@@ -231,6 +231,15 @@ func IsTechDebtKey(s string) bool {
 	return techDebtKeyPattern.MatchString(normalized)
 }
 
+// IsQuestionKey validates if a string is a valid Question key format
+// (Q001-Q999). Case insensitive: q001 is normalized to Q001 before
+// validation. Q000 is reserved and intentionally rejected.
+func IsQuestionKey(s string) bool {
+	normalized := Normalize(s)
+	m := questionKeyPattern.FindStringSubmatch(normalized)
+	return m != nil && m[1] != "000"
+}
+
 // IsIdeaKey validates if a string is a valid idea key format (I-YYYY-MM-DD-##).
 // Case insensitive: i-2026-01-01-01 is normalized to I-2026-01-01-01 before validation.
 func IsIdeaKey(s string) bool {

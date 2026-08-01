@@ -340,6 +340,34 @@ func TestIsTechDebtKey(t *testing.T) {
 	}
 }
 
+func TestIsQuestionKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"valid lower boundary Q001", "Q001", true},
+		{"valid lowercase q100", "q100", true},
+		{"valid upper boundary Q999", "Q999", true},
+		{"invalid reserved Q000", "Q000", false},
+		{"invalid two digits Q01", "Q01", false},
+		{"invalid four digits Q0001", "Q0001", false},
+		{"invalid no digits Q", "Q", false},
+		{"invalid wrong prefix B001", "B001", false},
+		{"invalid task key", "T-E01-F01-001", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsQuestionKey(tt.input)
+			if got != tt.want {
+				t.Errorf("IsQuestionKey(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsSprintKey(t *testing.T) {
 	tests := []struct {
 		name  string

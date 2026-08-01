@@ -1940,7 +1940,7 @@ func detectEntityType(key string) (models.EntityType, error) {
 		return models.EntityTypeChange, nil
 	case keys.IsTechDebtKey(upper):
 		return models.EntityTypeTechDebt, nil
-	case keys.NewKeyService().DetectEntityType(upper) == keys.EntityTypeQuestion:
+	case keys.IsQuestionKey(upper):
 		return models.EntityTypeQuestion, nil
 	}
 	return "", fmt.Errorf("unrecognized entity key format: %q", key)
