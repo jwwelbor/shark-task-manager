@@ -1,6 +1,6 @@
 Verification passed for feature {{.id}} ("{{.title}}"). Launch UAT red-team review.
 
-This is the final quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
+This is the final automated quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
 READ:
 (1) Feature spec at {{.file_path}} for all acceptance criteria and architectural intent

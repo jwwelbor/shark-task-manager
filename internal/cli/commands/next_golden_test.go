@@ -34,7 +34,10 @@ var updateGolden = flag.Bool("update", false,
 func goldenVars() map[string]string {
 	return map[string]string{
 		"id":                  "E07-F01",
+		"key":                 "Q001",
 		"title":               "Sample feature for golden test",
+		"summary":             "Sample Question summary",
+		"current_responder":   "alice",
 		"file_path":           "docs/plan/E07/E07-F01/E07-F01.md",
 		"epic_id":             "E07",
 		"task_id":             "E07-F01-001",

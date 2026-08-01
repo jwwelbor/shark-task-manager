@@ -21,5 +21,7 @@
     "service_name": "shark",
     "tracing_enabled": false
   },
-  "require_rejection_reason": true
+  "require_rejection_reason": true,
+  "size_required_for": ["task", "feature", "epic", "bug", "change", "idea", "tech_debt"],
+  "tag_required_for": ["epic"]
 }

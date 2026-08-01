@@ -187,6 +187,49 @@ func (r *EntityRelationshipRepository) GetIncoming(
 	return r.scanRelationships(rows)
 }
 
+// GetIncomingPage returns one finite, stable page of incoming typed edges.
+// It is the repository seam for focused consumers; qualification of a source
+// Question remains in QuestionBlocker and its callers.
+func (r *EntityRelationshipRepository) GetIncomingPage(
+	ctx context.Context,
+	entityType models.EntityType,
+	entityID int64,
+	relTypes []models.EntityRelationshipType,
+	limit, offset int,
+) ([]*models.EntityRelationship, error) {
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("list incoming relationship page: limit must be between 1 and 100, got %d", limit)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("list incoming relationship page: offset must be zero or greater, got %d", offset)
+	}
+
+	args := []interface{}{entityType, entityID}
+	filterClause := ""
+	if len(relTypes) > 0 {
+		placeholders := make([]string, len(relTypes))
+		for i, rt := range relTypes {
+			placeholders[i] = "?"
+			args = append(args, rt)
+		}
+		filterClause = fmt.Sprintf("AND relationship_type IN (%s)", strings.Join(placeholders, ","))
+	}
+	args = append(args, limit, offset)
+	query := fmt.Sprintf(`
+		SELECT id, from_entity_type, from_entity_id,
+		       to_entity_type, to_entity_id, relationship_type, created_at
+		FROM entity_relationships
+		WHERE to_entity_type = ? AND to_entity_id = ? %s
+		ORDER BY created_at ASC, id ASC
+		LIMIT ? OFFSET ?`, filterClause)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query incoming relationship page: %w", err)
+	}
+	defer rows.Close()
+	return r.scanRelationships(rows)
+}
+
 // scanRelationships is a helper that scans query rows into EntityRelationship slices.
 func (r *EntityRelationshipRepository) scanRelationships(
 	rows *sql.Rows,

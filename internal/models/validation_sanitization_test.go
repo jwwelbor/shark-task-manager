@@ -237,7 +237,7 @@ func TestValidateNoteType_ErrorMessageLocksAllowlist(t *testing.T) {
 func TestValidateRelationshipType_EnumAllowlist(t *testing.T) {
 	validTypes := []string{
 		"depends_on", "blocks", "related_to", "follows",
-		"spawned_from", "duplicates", "references",
+		"spawned_from", "duplicates", "references", "linked_to", "question_blocks",
 	}
 
 	for _, validType := range validTypes {

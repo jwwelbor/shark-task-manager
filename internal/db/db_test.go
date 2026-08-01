@@ -9,6 +9,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/epic"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/feature"
 )
 
 // TestInitDB_ConnectionPoolSettings verifies that InitDB configures the sql.DB
@@ -650,8 +655,481 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 28, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 28 (E38 guarded advances: session/from-status replay protection table)")
+	assert.Equal(t, 32, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 32 (E39-F03 question_blocks relationship vocabulary)")
+}
+
+// TC-302: the persisted relationship vocabulary must match the application
+// vocabulary so a valid Question transport cannot fail at SQLite after all
+// service validation has accepted it.
+func TestEntityRelationshipsAcceptQuestionBlocks_TC302(t *testing.T) {
+	database, err := InitDB(t.TempDir() + "/question-blocks.db")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+
+	_, err = database.Exec(`INSERT INTO entity_relationships
+		(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		VALUES ('question', 1, 'feature', 1, 'question_blocks')`)
+	require.NoError(t, err, "question_blocks must be accepted by the durable relationship vocabulary")
+}
+
+// TC-301: a v31 database must be upgraded in place when question_blocks joins
+// the finite relationship vocabulary. The fixture deliberately has the old
+// relationship CHECK while retaining the real F01 Question artifacts, rows,
+// indexes, and dependent views; rebuilding an already-v32 database would not
+// exercise the upgrade path.
+func TestMigration_QuestionBlocksVocabularyUpgradePreservesDurableArtifacts_TC301(t *testing.T) {
+	database, err := InitDB(t.TempDir() + "/question-blocks-v31.db")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+
+	var questionID int64
+	require.NoError(t, database.QueryRow(`
+		INSERT INTO questions (key, title, status, summary, blocking, requester)
+		VALUES ('Q001', 'Preserved Question', 'open', 'Bounded summary', 1, 'owner')
+		RETURNING id`).Scan(&questionID))
+	_, err = database.Exec(`
+		INSERT INTO entity_relationships
+			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at)
+		VALUES ('question', ?, 'feature', 91, 'linked_to', '2026-07-31 00:00:00')`, questionID)
+	require.NoError(t, err)
+
+	require.NoError(t, makeEntityRelationshipsV31ForQuestionBlocksUpgradeTest(database))
+	_, err = database.Exec(`DELETE FROM schema_version`)
+	require.NoError(t, err)
+	require.NoError(t, setSchemaVersion(database, 31))
+
+	// Production initialization drives the migration and the schema-version
+	// write; calling the migration helper directly would not prove the upgrade
+	// contract used by an existing Shark database.
+	require.NoError(t, ApplySchemaAndMigrations(database))
+
+	version, err := getSchemaVersion(database)
+	require.NoError(t, err)
+	assert.Equal(t, CurrentSchemaVersion, version)
+
+	var relationshipType, createdAt string
+	require.NoError(t, database.QueryRow(`
+		SELECT relationship_type, strftime('%Y-%m-%d %H:%M:%S', created_at) FROM entity_relationships
+		WHERE from_entity_type = 'question' AND from_entity_id = ?`, questionID).Scan(&relationshipType, &createdAt))
+	assert.Equal(t, "linked_to", relationshipType)
+	assert.Equal(t, "2026-07-31 00:00:00", createdAt)
+
+	assertSQLiteObjectsExist(t, database,
+		"idx_er_from", "idx_er_to", "idx_er_type",
+		"epic_display_data", "feature_display_data", "task_display_data", "viewer_task_relationships",
+		"entity_relationships_cascade_delete_question",
+	)
+	assertSQLiteViewsReadable(t, database, "epic_display_data", "feature_display_data", "task_display_data", "viewer_task_relationships")
+	assertEntityRelationshipIndexSelected(t, database,
+		`SELECT * FROM entity_relationships WHERE from_entity_type = 'question' AND from_entity_id = ?`, "idx_er_from", questionID)
+	assertEntityRelationshipIndexSelected(t, database,
+		`SELECT * FROM entity_relationships WHERE to_entity_type = 'feature' AND to_entity_id = ?`, "idx_er_to", 91)
+	assertEntityRelationshipIndexSelected(t, database,
+		`SELECT * FROM entity_relationships WHERE relationship_type = 'linked_to'`, "idx_er_type")
+
+	_, err = database.Exec(`
+		INSERT INTO entity_relationships
+			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		VALUES ('question', ?, 'feature', 92, 'question_blocks')`, questionID)
+	require.NoError(t, err, "the v32 CHECK must accept the approved vocabulary")
+
+	_, err = database.Exec(`DELETE FROM questions WHERE id = ?`, questionID)
+	require.NoError(t, err)
+	var remaining int
+	require.NoError(t, database.QueryRow(`
+		SELECT COUNT(*) FROM entity_relationships WHERE from_entity_type = 'question' AND from_entity_id = ?`, questionID).Scan(&remaining))
+	assert.Zero(t, remaining, "the Question relationship cleanup trigger must survive the table rebuild")
+}
+
+func makeEntityRelationshipsV31ForQuestionBlocksUpgradeTest(database *sql.DB) error {
+	tx, err := database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, statement := range []string{
+		`DROP VIEW IF EXISTS epic_display_data`,
+		`DROP VIEW IF EXISTS feature_display_data`,
+		`DROP VIEW IF EXISTS task_display_data`,
+		`DROP VIEW IF EXISTS viewer_task_relationships`,
+		`DROP TRIGGER IF EXISTS entity_relationships_cascade_delete_question`,
+		`CREATE TABLE entity_relationships_v31 (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			from_entity_type TEXT NOT NULL,
+			from_entity_id INTEGER NOT NULL,
+			to_entity_type TEXT NOT NULL,
+			to_entity_id INTEGER NOT NULL,
+			relationship_type TEXT NOT NULL CHECK(relationship_type IN (
+				'depends_on','blocks','related_to','follows',
+				'spawned_from','duplicates','references','linked_to'
+			)),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		)`,
+		`INSERT INTO entity_relationships_v31
+			(id, from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at)
+			SELECT id, from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at
+			FROM entity_relationships`,
+		`DROP TABLE entity_relationships`,
+		`ALTER TABLE entity_relationships_v31 RENAME TO entity_relationships`,
+		`CREATE INDEX idx_er_from ON entity_relationships(from_entity_type, from_entity_id)`,
+		`CREATE INDEX idx_er_to ON entity_relationships(to_entity_type, to_entity_id)`,
+		`CREATE INDEX idx_er_type ON entity_relationships(relationship_type)`,
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+		`CREATE TRIGGER entity_relationships_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_relationships
+				WHERE (from_entity_type = 'question' AND from_entity_id = OLD.id)
+				   OR (to_entity_type = 'question' AND to_entity_id = OLD.id);
+			END`,
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("construct v31 relationship vocabulary fixture: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func assertSQLiteObjectsExist(t *testing.T, database *sql.DB, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		var count int
+		require.NoError(t, database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = ?`, name).Scan(&count), name)
+		assert.Equalf(t, 1, count, "missing durable schema object %q after relationship vocabulary upgrade", name)
+	}
+}
+
+func assertSQLiteViewsReadable(t *testing.T, database *sql.DB, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		rows, err := database.Query("SELECT * FROM " + name + " LIMIT 1")
+		require.NoError(t, err, name)
+		require.NoError(t, rows.Close(), name)
+	}
+}
+
+func assertEntityRelationshipIndexSelected(t *testing.T, database *sql.DB, query, wantIndex string, arguments ...any) {
+	t.Helper()
+	rows, err := database.Query("EXPLAIN QUERY PLAN "+query, arguments...)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+		plan = append(plan, detail)
+	}
+	require.NoError(t, rows.Err())
+	assert.Contains(t, strings.Join(plan, "\n"), wantIndex)
+}
+
+func TestMigration_QuestionsSchemaArtifactsAndRetryPreservePredecessorData(t *testing.T) {
+	type predecessorFixture struct {
+		name       string
+		seed       func(t *testing.T, database *sql.DB) migrationSnapshot
+		forceError bool
+	}
+
+	fixtures := []predecessorFixture{
+		{name: "P0 empty initialized database", seed: func(t *testing.T, database *sql.DB) migrationSnapshot { return snapshotPredecessor(t, database, 0) }, forceError: true},
+		{name: "P1 one task", seed: seedPredecessorTask, forceError: true},
+		{name: "P2 task with every polymorphic association", seed: seedPredecessorTaskWithAssociations, forceError: true},
+	}
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			path := t.TempDir() + "/questions-migration.db"
+			predecessor := initPreQuestionDatabase(t, path)
+			snapshot := fixture.seed(t, predecessor)
+
+			if fixture.forceError {
+				// The view is installed on the real v28 predecessor before the
+				// first v30 initialization. It blocks only the first additive
+				// Question DDL statement; no post-migration schema is edited.
+				_, err := predecessor.Exec(`CREATE VIEW questions AS SELECT 1 AS id`)
+				require.NoError(t, err)
+			}
+			require.NoError(t, predecessor.Close())
+
+			database, err := InitDB(path)
+			if fixture.forceError {
+				require.Error(t, err)
+				require.Nil(t, database)
+				require.Contains(t, err.Error(), "questions table migration")
+				require.Contains(t, err.Error(), "create questions unique key index")
+				require.Contains(t, err.Error(), "views may not be indexed")
+
+				// Inspect the failed migration before removing the injected fault.
+				// This proves that both the original v28 marker and every P0/P1/P2
+				// predecessor row survive an interrupted additive migration; retry
+				// success alone would not detect a destructive failure path.
+				failed, openErr := sql.Open("sqlite", path+"?_foreign_keys=on")
+				require.NoError(t, openErr)
+				assertPredecessorSnapshot(t, failed, snapshot)
+				version, versionErr := getSchemaVersion(failed)
+				require.NoError(t, versionErr)
+				assert.Equal(t, 28, version, "failed Question migration must retain the predecessor schema marker")
+				require.NoError(t, failed.Close())
+
+				retry, openErr := sql.Open("sqlite", path+"?_foreign_keys=on")
+				require.NoError(t, openErr)
+				_, openErr = retry.Exec(`DROP VIEW questions`)
+				require.NoError(t, openErr)
+				require.NoError(t, retry.Close())
+				database, err = InitDB(path)
+			}
+			require.NoError(t, err)
+			defer database.Close()
+
+			assertPredecessorSnapshot(t, database, snapshot)
+			assertQuestionMigrationArtifacts(t, database)
+			_, err = database.Exec(`
+				INSERT INTO questions (key, title, status, summary, requester, created_at, updated_at)
+				VALUES ('Q001', 'Question', 'draft', 'Summary', 'test', '2000-01-01 00:00:00', '2000-01-01 00:00:00')
+			`)
+			require.NoError(t, err)
+			_, err = database.Exec(`UPDATE questions SET title = 'Updated question' WHERE key = 'Q001'`)
+			require.NoError(t, err)
+			var updatedAt string
+			require.NoError(t, database.QueryRow(`SELECT updated_at FROM questions WHERE key = 'Q001'`).Scan(&updatedAt))
+			assert.NotEqual(t, "2000-01-01 00:00:00", updatedAt, "questions_updated_at must refresh updated_at")
+		})
+	}
+}
+
+// TC-101: the F02 migration changes only the predecessor draft state. It must
+// preserve the exact context bytes and leave unrelated association/claim rows
+// intact when applied repeatedly.
+func TestMigration_QuestionDraftsBecomeOpenAndPreservePredecessorData_TC101(t *testing.T) {
+	database, err := InitDB(t.TempDir() + "/question-state-migration.db")
+	require.NoError(t, err)
+	defer database.Close()
+	contextData := `{"metadata":{"existing":"preserve"}}`
+	_, err = database.Exec(`INSERT INTO questions (key, title, status, summary, requester, context_data) VALUES ('Q001', 'Question', 'draft', 'Summary', 'owner', ?), ('Q002', 'Control', 'archived', 'Summary', 'owner', '{}')`, contextData)
+	require.NoError(t, err)
+	var questionID int64
+	require.NoError(t, database.QueryRow(`SELECT id FROM questions WHERE key = 'Q001'`).Scan(&questionID))
+	_, err = database.Exec(`INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id) VALUES ('question', 'Q001', 'owner', 'session-a')`)
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO entity_history (entity_type, entity_id, to_status) VALUES ('question', ?, 'draft')`, questionID)
+	require.NoError(t, err)
+
+	require.NoError(t, migrateQuestionDraftsToOpen(database))
+	assertQuestionStateMigrationSnapshot(t, database, "Q001", "open", contextData, 1, 1)
+	assertQuestionStateMigrationSnapshot(t, database, "Q002", "archived", "{}", 0, 0)
+	require.NoError(t, migrateQuestionDraftsToOpen(database))
+	assertQuestionStateMigrationSnapshot(t, database, "Q001", "open", contextData, 1, 1)
+}
+
+func assertQuestionStateMigrationSnapshot(t *testing.T, database *sql.DB, key, wantStatus, wantContext string, wantClaims, wantHistory int) {
+	t.Helper()
+	var status, contextData string
+	require.NoError(t, database.QueryRow(`SELECT status, context_data FROM questions WHERE key = ?`, key).Scan(&status, &contextData))
+	assert.Equal(t, wantStatus, status)
+	assert.Equal(t, wantContext, contextData)
+	var claims int
+	require.NoError(t, database.QueryRow(`SELECT COUNT(*) FROM entity_claims WHERE entity_type = 'question' AND entity_key = ?`, key).Scan(&claims))
+	assert.Equal(t, wantClaims, claims)
+	var history int
+	require.NoError(t, database.QueryRow(`SELECT COUNT(*) FROM entity_history h JOIN questions q ON q.id = h.entity_id WHERE h.entity_type = 'question' AND q.key = ?`, key).Scan(&history))
+	assert.Equal(t, wantHistory, history)
+}
+
+// TestMigration_QuestionsQueryPlansUseRequiredIndexes_TC004 keeps the schema
+// acceptance oracle tied to a database opened through the production InitDB
+// migration path. These are the same exact-key and fully bounded list shapes
+// used by the Question repository; checking sqlite_master alone would not
+// prove that SQLite can select the required indexes for those callers.
+func TestMigration_QuestionsQueryPlansUseRequiredIndexes_TC004(t *testing.T) {
+	database, err := InitDB(t.TempDir() + "/questions-query-plan.db")
+	require.NoError(t, err)
+	defer database.Close()
+
+	assertQuestionQueryPlanUsesIndex(t, database,
+		`SELECT id, key, title, slug, description, status, summary, blocking, requester,
+			context_data, file_path, size, created_at, updated_at
+		 FROM questions WHERE key = ?`,
+		[]any{"Q001"},
+		"questions exact-key lookup")
+	assertQuestionQueryPlanUsesIndex(t, database,
+		`SELECT id, key, title, slug, description, status, summary, blocking, requester,
+			context_data, file_path, size, created_at, updated_at
+		 FROM questions
+		 WHERE status = ? AND requester = ? AND blocking = ?
+		 ORDER BY key ASC LIMIT ? OFFSET ?`,
+		[]any{"draft", "alice", false, 50, 0},
+		"questions bounded status/requester/blocking list")
+}
+
+func assertQuestionQueryPlanUsesIndex(t *testing.T, database *sql.DB, query string, args []any, caller string) {
+	t.Helper()
+	rows, err := database.Query("EXPLAIN QUERY PLAN "+query, args...)
+	require.NoError(t, err, caller)
+	defer rows.Close()
+
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail), caller)
+		details = append(details, detail)
+	}
+	require.NoError(t, rows.Err(), caller)
+	plan := strings.Join(details, "\n")
+	assert.NotEmpty(t, details, "%s produced no EXPLAIN QUERY PLAN rows", caller)
+	assert.Contains(t, strings.ToUpper(plan), "SEARCH QUESTIONS", "%s must search Questions rather than scan: %s", caller, plan)
+	assert.Contains(t, strings.ToUpper(plan), "INDEX", "%s must select a Question index: %s", caller, plan)
+}
+
+type migrationSnapshot struct {
+	rowCounts map[string]int
+	taskID    int64
+	taskKey   string
+	taskTitle string
+}
+
+var questionMigrationPredecessorTables = []string{
+	"tasks",
+	"entity_notes",
+	"entity_history",
+	"entity_documents",
+	"entity_relationships",
+	"entity_tags",
+	"entity_claims",
+	"work_sessions",
+}
+
+// initPreQuestionDatabase constructs a real schema-v28 database using the
+// production pre-Question schema and migration operations. It intentionally
+// does not initialize current migrations: the caller's subsequent InitDB call
+// is the migration under test.
+func initPreQuestionDatabase(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite", path+"?_foreign_keys=on")
+	require.NoError(t, err)
+	require.NoError(t, configureSQLite(database))
+	require.NoError(t, createSchema(database))
+	require.NoError(t, createPolymorphicCompatibilityTriggers(database))
+	require.NoError(t, runPreQuestionMigrations(database))
+	require.NoError(t, setSchemaVersion(database, 28))
+	return database
+}
+
+func seedPredecessorTask(t *testing.T, database *sql.DB) migrationSnapshot {
+	t.Helper()
+	connection := dbconn.NewDB(database)
+	epicModel := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E91", Title: "Migration epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, epic.NewEpicRepository(connection).Create(t.Context(), epicModel))
+	featureModel := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E91-F01", Title: "Migration feature"},
+		EpicID:     epicModel.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	require.NoError(t, feature.NewFeatureRepository(connection).Create(t.Context(), featureModel))
+	// The task repository imports db configuration, which imports this package;
+	// this package-level migration test cannot import it without a Go cycle.
+	// The task row is therefore the only direct fixture insert.
+	result, err := database.Exec(`
+		INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+		VALUES (?, 'T-E91-F01-001', 'Predecessor task', 'todo', 'developer', 5, '[]')
+	`, featureModel.ID)
+	require.NoError(t, err)
+	taskID, err := result.LastInsertId()
+	require.NoError(t, err)
+	return snapshotPredecessor(t, database, taskID)
+}
+
+func seedPredecessorTaskWithAssociations(t *testing.T, database *sql.DB) migrationSnapshot {
+	t.Helper()
+	snapshot := seedPredecessorTask(t, database)
+	taskID := snapshot.taskID
+
+	for _, insert := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO entity_notes (entity_type, entity_id, note_type, content) VALUES ('task', ?, 'comment', 'preserve')`, []any{taskID}},
+		{`INSERT INTO entity_history (entity_type, entity_id, to_status) VALUES ('task', ?, 'todo')`, []any{taskID}},
+		{`INSERT INTO documents (title, file_path) VALUES ('preserve', '/tmp/preserve')`, nil},
+		{`INSERT INTO entity_relationships (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type) VALUES ('task', ?, 'task', ?, 'linked_to')`, []any{taskID, taskID}},
+		{`INSERT INTO tags (name) VALUES ('preserve-question-migration')`, nil},
+		{`INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id) VALUES ('task', 'T-E91-F01-001', 'test', 'preserve-session')`, nil},
+		{`INSERT INTO work_sessions (entity_type, entity_key, task_id, agent_id, session_id, started_at) VALUES ('task', 'T-E91-F01-001', ?, 'test', 'preserve-session', CURRENT_TIMESTAMP)`, []any{taskID}},
+	} {
+		_, err := database.Exec(insert.query, insert.args...)
+		require.NoError(t, err, insert.query)
+	}
+	var documentID, tagID int64
+	require.NoError(t, database.QueryRow(`SELECT id FROM documents WHERE title = 'preserve'`).Scan(&documentID))
+	require.NoError(t, database.QueryRow(`SELECT id FROM tags WHERE name = 'preserve-question-migration'`).Scan(&tagID))
+	_, err := database.Exec(`INSERT INTO entity_documents (entity_type, entity_id, document_id) VALUES ('task', ?, ?)`, taskID, documentID)
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO entity_tags (entity_type, entity_id, tag_id) VALUES ('task', ?, ?)`, taskID, tagID)
+	require.NoError(t, err)
+	return snapshotPredecessor(t, database, taskID)
+}
+
+func snapshotPredecessor(t *testing.T, database *sql.DB, taskID int64) migrationSnapshot {
+	t.Helper()
+	snapshot := migrationSnapshot{rowCounts: make(map[string]int), taskID: taskID}
+	for _, table := range questionMigrationPredecessorTables {
+		var count int
+		require.NoError(t, database.QueryRow("SELECT COUNT(*) FROM "+table).Scan(&count), table)
+		snapshot.rowCounts[table] = count
+	}
+	if taskID != 0 {
+		require.NoError(t, database.QueryRow(`SELECT key, title FROM tasks WHERE id = ?`, taskID).Scan(&snapshot.taskKey, &snapshot.taskTitle))
+	}
+	return snapshot
+}
+
+func assertPredecessorSnapshot(t *testing.T, database *sql.DB, snapshot migrationSnapshot) {
+	t.Helper()
+	for _, table := range questionMigrationPredecessorTables {
+		var count int
+		require.NoError(t, database.QueryRow("SELECT COUNT(*) FROM "+table).Scan(&count), table)
+		assert.Equal(t, snapshot.rowCounts[table], count, "%s predecessor rows changed", table)
+	}
+	if snapshot.taskID != 0 {
+		var key, title string
+		require.NoError(t, database.QueryRow(`SELECT key, title FROM tasks WHERE id = ?`, snapshot.taskID).Scan(&key, &title))
+		assert.Equal(t, snapshot.taskKey, key)
+		assert.Equal(t, snapshot.taskTitle, title)
+	}
+}
+
+func assertQuestionMigrationArtifacts(t *testing.T, database *sql.DB) {
+	t.Helper()
+	for _, object := range []string{
+		"idx_questions_key_unique",
+		"idx_questions_key_lookup",
+		"idx_questions_status_requester_blocking_key",
+		"questions_updated_at",
+		"entity_notes_cascade_delete_question",
+		"entity_history_cascade_delete_question",
+		"entity_documents_cascade_delete_question",
+		"entity_relationships_cascade_delete_question",
+		"entity_tags_cascade_delete_question",
+		"entity_claims_cascade_delete_question",
+		"work_sessions_cascade_delete_question",
+		"advance_guard_consumptions_cascade_delete_question",
+	} {
+		var count int
+		require.NoError(t, database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = ?`, object).Scan(&count), object)
+		assert.Equal(t, 1, count, "missing Question schema object %s", object)
+	}
 }
 
 func TestMigration_WorkSessionsTaskCascadePreserved(t *testing.T) {

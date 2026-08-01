@@ -11,38 +11,41 @@ import (
 type EntityRelationshipType string
 
 const (
-	EntityRelDependsOn   EntityRelationshipType = "depends_on"   // Cannot start until target completes
-	EntityRelBlocks      EntityRelationshipType = "blocks"       // Prevents target from starting
-	EntityRelRelatedTo   EntityRelationshipType = "related_to"   // Informational link
-	EntityRelFollows     EntityRelationshipType = "follows"      // Should be done after target
-	EntityRelSpawnedFrom EntityRelationshipType = "spawned_from" // Created as result of target
-	EntityRelDuplicates  EntityRelationshipType = "duplicates"   // Same work as target
-	EntityRelReferences  EntityRelationshipType = "references"   // Mentions or uses target output
-	EntityRelLinkedTo    EntityRelationshipType = "linked_to"    // Informal context link (bug pattern)
+	EntityRelDependsOn      EntityRelationshipType = "depends_on"      // Cannot start until target completes
+	EntityRelBlocks         EntityRelationshipType = "blocks"          // Prevents target from starting
+	EntityRelRelatedTo      EntityRelationshipType = "related_to"      // Informational link
+	EntityRelFollows        EntityRelationshipType = "follows"         // Should be done after target
+	EntityRelSpawnedFrom    EntityRelationshipType = "spawned_from"    // Created as result of target
+	EntityRelDuplicates     EntityRelationshipType = "duplicates"      // Same work as target
+	EntityRelReferences     EntityRelationshipType = "references"      // Mentions or uses target output
+	EntityRelLinkedTo       EntityRelationshipType = "linked_to"       // Informal context link (bug pattern)
+	EntityRelQuestionBlocks EntityRelationshipType = "question_blocks" // Direct Question-only gate
 )
 
 // Backward-compatible untyped constants (used by existing code).
 const (
-	RelDependsOn   = "depends_on"
-	RelBlocks      = "blocks"
-	RelRelatedTo   = "related_to"
-	RelFollows     = "follows"
-	RelSpawnedFrom = "spawned_from"
-	RelDuplicates  = "duplicates"
-	RelReferences  = "references"
-	RelLinkedTo    = "linked_to"
+	RelDependsOn      = "depends_on"
+	RelBlocks         = "blocks"
+	RelRelatedTo      = "related_to"
+	RelFollows        = "follows"
+	RelSpawnedFrom    = "spawned_from"
+	RelDuplicates     = "duplicates"
+	RelReferences     = "references"
+	RelLinkedTo       = "linked_to"
+	RelQuestionBlocks = "question_blocks"
 )
 
 // ValidEntityRelationshipTypeSet is the set of all valid relationship types.
 var ValidEntityRelationshipTypeSet = map[EntityRelationshipType]bool{
-	EntityRelDependsOn:   true,
-	EntityRelBlocks:      true,
-	EntityRelRelatedTo:   true,
-	EntityRelFollows:     true,
-	EntityRelSpawnedFrom: true,
-	EntityRelDuplicates:  true,
-	EntityRelReferences:  true,
-	EntityRelLinkedTo:    true,
+	EntityRelDependsOn:      true,
+	EntityRelBlocks:         true,
+	EntityRelRelatedTo:      true,
+	EntityRelFollows:        true,
+	EntityRelSpawnedFrom:    true,
+	EntityRelDuplicates:     true,
+	EntityRelReferences:     true,
+	EntityRelLinkedTo:       true,
+	EntityRelQuestionBlocks: true,
 }
 
 // CyclicRelationshipTypes are the relationship types for which circular
@@ -59,7 +62,7 @@ var CyclicRelationshipTypes = map[EntityRelationshipType]bool{
 func ValidEntityRelationshipTypes() []string {
 	return []string{
 		RelDependsOn, RelBlocks, RelRelatedTo, RelFollows,
-		RelSpawnedFrom, RelDuplicates, RelReferences, RelLinkedTo,
+		RelSpawnedFrom, RelDuplicates, RelReferences, RelLinkedTo, RelQuestionBlocks,
 	}
 }
 

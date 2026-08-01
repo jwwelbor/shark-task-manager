@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	_ "github.com/jwwelbor/shark-task-manager/internal/cli/commands" // Import command packages for side effects
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // Build-time variables set via -ldflags
@@ -82,8 +83,19 @@ func main() {
 		// and handleEntityServiceError via "exit code N: ..." prefix).
 		exitCode := extractExitCode(err, 1)
 
-		// In JSON mode, output structured error to stdout
+		// In JSON mode, output structured error to stdout.
 		if cli.GlobalConfig.JSON {
+			var blocked *services.QuestionBlockedError
+			if errors.As(err, &blocked) {
+				cli.ErrorJSON(cli.CLIError{
+					Code:          cli.ErrCodeQuestionBlocked,
+					Message:       blocked.Error(),
+					Entity:        string(blocked.CandidateType),
+					EntityKey:     blocked.CandidateKey,
+					QuestionBlock: blocked.QuestionBlock,
+				})
+				os.Exit(exitCode)
+			}
 			cli.ErrorJSON(cli.CLIError{
 				Code:    cli.ErrCodeCommandError,
 				Message: err.Error(),

@@ -5,9 +5,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // ErrorResponse is the standard JSON error response body.
@@ -44,6 +47,11 @@ func respondError(w http.ResponseWriter, statusCode int, message string, details
 // Services in this codebase return string-based errors; "not found" suffix is
 // the conventional signal for a missing entity.
 func handleServiceError(w http.ResponseWriter, err error, entityLabel string) {
+	var denied *services.QuestionFullReadDeniedError
+	if errors.As(err, &denied) {
+		respondError(w, http.StatusForbidden, denied.Error())
+		return
+	}
 	if strings.Contains(err.Error(), "not found") {
 		respondError(w, http.StatusNotFound, err.Error())
 		return

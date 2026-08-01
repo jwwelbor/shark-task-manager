@@ -14,6 +14,7 @@ var KnownLevels = []string{
 	"bug",
 	"change",
 	"tech_debt",
+	"question",
 }
 
 // MultiLevelWorkflow holds workflow configurations for all entity levels.
@@ -26,6 +27,7 @@ type MultiLevelWorkflow struct {
 	Bug      *WorkflowConfig
 	Change   *WorkflowConfig
 	TechDebt *WorkflowConfig
+	Question *WorkflowConfig
 
 	// TemplateDirectory from the workflow file, if present.
 	// When non-nil, takes precedence over Config.TemplateDirectory.
@@ -74,8 +76,36 @@ func (m *MultiLevelWorkflow) GetByType(entityType string) *WorkflowConfig {
 		return m.Change
 	case "tech_debt":
 		return m.TechDebt
+	case "question":
+		return m.Question
 	}
 	return nil
+}
+
+// setByType stores wf in the slot for the given entity type. It mirrors
+// GetByType's entity-type → slot mapping; extend both together when adding a
+// new entity type. Unknown types are ignored.
+func (m *MultiLevelWorkflow) setByType(entityType string, wf *WorkflowConfig) {
+	entityType = entitytype.WorkflowLevelOrSelf(entityType)
+
+	switch entityType {
+	case "epic":
+		m.Epic = wf
+	case "feature":
+		m.Feature = wf
+	case "task":
+		m.Task = wf
+	case "sprint":
+		m.Sprint = wf
+	case "bug":
+		m.Bug = wf
+	case "change":
+		m.Change = wf
+	case "tech_debt":
+		m.TechDebt = wf
+	case "question":
+		m.Question = wf
+	}
 }
 
 // RawForLevel returns the raw (possibly nil) workflow config for the given
@@ -95,7 +125,7 @@ func (m *MultiLevelWorkflow) RawForLevel(level string) *WorkflowConfig {
 // and stay in sync as new entity types are added) should range over this
 // slice rather than maintaining a parallel list.
 func EntityTypes() []string {
-	return []string{"epic", "feature", "task", "sprint", "bug", "change", "tech_debt"}
+	return []string{"epic", "feature", "task", "sprint", "bug", "change", "tech_debt", "question"}
 }
 
 // GetWorkflowForLevel returns the workflow config for the given level.
@@ -135,6 +165,8 @@ func defaultForType(entityType string) *WorkflowConfig {
 		return DefaultChangeCardWorkflow()
 	case "tech_debt":
 		return DefaultTechDebtWorkflow()
+	case "question":
+		return DefaultQuestionWorkflow()
 	default:
 		return DefaultWorkflow()
 	}

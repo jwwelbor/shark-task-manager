@@ -60,6 +60,41 @@ func (f entityTransitionerFunc) TransitionStatus(ctx context.Context, key string
 	return f(ctx, key, targetStatus, opts)
 }
 
+// guardQuestionBlockedStatusAdvance preserves the single direct Question gate
+// at the supported linked-work command boundary. It is intentionally after
+// next-status/target resolution and immediately before the transition write;
+// direct service and Question lifecycle callers remain outside this scope.
+func guardQuestionBlockedStatusAdvance(ctx context.Context, checker questionBlockChecker, entityType, key string) error {
+	if checker == nil {
+		return nil
+	}
+	var candidateType models.EntityType
+	switch entityType {
+	case "epic":
+		candidateType = models.EntityTypeEpic
+	case "feature":
+		candidateType = models.EntityTypeFeature
+	case "task":
+		candidateType = models.EntityTypeTask
+	case "bug":
+		candidateType = models.EntityTypeBug
+	case "change", "change_card":
+		candidateType = models.EntityTypeChange
+	case "tech_debt":
+		candidateType = models.EntityTypeTechDebt
+	default:
+		return nil
+	}
+	block, err := checker.Check(ctx, candidateType, key)
+	if err != nil {
+		return err
+	}
+	if block == nil {
+		return nil
+	}
+	return services.NewQuestionBlockedError(candidateType, key, block)
+}
+
 // --- Command definitions ---
 
 // statusSetCmd sets an entity to a specific status.
@@ -198,6 +233,8 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 		return getChangeCardService().TransitionStatus(ctx, key, targetStatus, opts)
 	case "tech_debt":
 		return cli.GetTechDebtService().TransitionStatus(ctx, key, targetStatus, opts)
+	case "question":
+		return getQuestionService().TransitionStatus(ctx, key, targetStatus, opts)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -218,6 +255,8 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 		return getChangeCardService().GetNextStatus(ctx, key)
 	case "tech_debt":
 		return cli.GetTechDebtService().GetNextStatus(ctx, key)
+	case "question":
+		return getQuestionService().GetNextStatus(ctx, key)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -489,6 +528,11 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	svc := entityTransitionerFunc(func(ctx context.Context, k string, ts string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 		return dispatchTransition(ctx, entityType, k, ts, opts)
 	})
+
+	if err := guardQuestionBlockedStatusAdvance(ctx, cli.GetQuestionBlocker(), entityType, entityKey); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
 
 	if err := performEntityTransition(ctx, svc, entityKey, autoTarget, opts, result); err != nil {
 		span.SetStatus(codes.Error, err.Error())

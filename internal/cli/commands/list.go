@@ -41,6 +41,10 @@ func init() {
 
 	// Add flags that apply to all list operations
 	listCmd.Flags().String("status", "", "Filter by status")
+	listCmd.Flags().String("requester", "", "Exact Question requester filter")
+	listCmd.Flags().String("blocking", "", "Boolean Question blocking filter")
+	listCmd.Flags().Int("limit", 50, "Question page limit (1-100)")
+	listCmd.Flags().Int("offset", 0, "Question page offset")
 	listCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 	listCmd.Flags().Bool("show-all", false, "Show all items including completed (by default, completed items are hidden)")
 	_ = listCmd.Flags().MarkDeprecated("show-all", "use --all instead")
@@ -130,6 +134,8 @@ func runList(cmd *cobra.Command, args []string) error {
 			return runSprintBacklog(cmd, []string{*epicKey})
 		}
 		return runSprintList(sprintListCmd, []string{})
+	case "question":
+		return runQuestionList(cmd, nil)
 
 	default:
 		// Should never happen

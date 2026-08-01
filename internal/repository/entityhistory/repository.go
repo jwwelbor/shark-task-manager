@@ -275,6 +275,10 @@ func (r *EntityHistoryRepository) ListRecentAcrossEntities(ctx context.Context, 
 		SELECT 'change'  AS entity_type, cc.key, cc.title, eh.from_status, eh.to_status, eh.changed_at
 		FROM entity_history eh
 		INNER JOIN change_cards cc ON cc.id = eh.entity_id AND eh.entity_type = 'change'
+		UNION ALL
+		SELECT 'question' AS entity_type, q.key, q.title, eh.from_status, eh.to_status, eh.changed_at
+		FROM entity_history eh
+		INNER JOIN questions q ON q.id = eh.entity_id AND eh.entity_type = 'question'
 	`
 
 	// Wrap in an outer SELECT so we can apply WHERE filters and ORDER BY / LIMIT

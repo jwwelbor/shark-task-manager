@@ -14,7 +14,7 @@ import (
 )
 
 // validSearchTypes lists all accepted values for the --type flag.
-var validSearchTypes = []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt"}
+var validSearchTypes = []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt", "question"}
 
 type searchServicer interface {
 	SearchAll(ctx context.Context, query string, entityType string, tags []string) ([]*repository.EntitySearchResult, error)
@@ -53,7 +53,7 @@ File search mode (--file flag):
   shark search --file="completion" --feature E10-F02
   shark search --file="models/task.go" --json
 
-Valid --type values: epic, feature, task, bug, change, idea, tech_debt.
+Valid --type values: epic, feature, task, bug, change, idea, tech_debt, question.
 Aliases such as changes, change-card, change_card, tech-debt, and td are accepted.`,
 	RunE: runSearch,
 }

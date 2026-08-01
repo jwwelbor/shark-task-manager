@@ -138,11 +138,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	runLease, err = acquireRunLease(ctx, entityType, normalizedKey, runDryRun)
-	if err != nil {
-		return fmt.Errorf("claim %s before run: %w", normalizedKey, err)
-	}
-
 	// Step 2: Build entity-type adapters.
 	transitioner, err := buildTransitioner(ctx, entityType)
 	if err != nil {
@@ -161,6 +156,31 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	actionSvc := narrowActionServiceForEntity(actionSvcRoot, entityType)
 
+	// A Question's responder identity is meaningful only for a dispatchable
+	// worker action. Check the current status/action before deriving that
+	// identity or acquiring a lease: a ready-for-resolution checkpoint (and
+	// every other pause-only action) must remain claim-free.
+	questionBlocker := cli.GetQuestionBlocker()
+	childrenSvc := cli.GetCascadeService()
+	if cascadeBlock, preflightStatus, err := preflightCascadeQuestionBlock(ctx, transitioner, actionSvcRoot, childrenSvc, questionBlocker, buildTransitioner, entityType, normalizedKey); err != nil {
+		return fmt.Errorf("preflight cascade Question block for %s: %w", normalizedKey, err)
+	} else if cascadeBlock != nil {
+		runResult = &runner.RunResult{
+			EntityKey: normalizedKey, FinalStatus: preflightStatus, Outcome: "paused", QuestionBlock: cascadeBlock,
+		}
+		return outputRunResult(runResult)
+	}
+	runLease, questionBlock, preflightStatus, err := acquireRunLeaseForRunnableAction(ctx, transitioner, actionSvc, questionBlocker, entityType, normalizedKey, runDryRun)
+	if err != nil {
+		return fmt.Errorf("claim %s before run: %w", normalizedKey, err)
+	}
+	if questionBlock != nil {
+		runResult = &runner.RunResult{
+			EntityKey: normalizedKey, FinalStatus: preflightStatus, Outcome: "paused", QuestionBlock: questionBlock,
+		}
+		return outputRunResult(runResult)
+	}
+
 	workflowSvc := cli.GetWorkflowService()
 
 	// Step 4: Build dispatcher map (REQ-F02-011).
@@ -172,8 +192,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		"codex":     codexDispatcher,
 		"openai":    codexDispatcher,
 	}
-	childrenSvc := cli.GetCascadeService()
-
 	var runChild runner.CascadeChildRunner
 	runChild = func(ctx context.Context, childType, key string, childOpts runner.RunOptions) (*runner.RunResult, error) {
 		childTransitioner, err := buildTransitioner(ctx, childType)
@@ -192,14 +210,24 @@ func runRun(cmd *cobra.Command, args []string) error {
 			PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
 				return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
 			}),
-			ChildrenSvc: childrenSvc,
-			RunChild:    runChild,
+			ChildrenSvc:       childrenSvc,
+			RunChild:          runChild,
+			QuestionResponses: buildQuestionResponsePersister(childType),
+			QuestionBlocker:   questionBlocker,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cascade child controller for %s %s: %w", childType, key, err)
 		}
 
-		childLease, err := acquireRunLease(ctx, childType, key, childOpts.DryRun)
+		// Cascade children use the same preflight as the top-level run. In
+		// particular, a parked Question must not attempt responder lookup or
+		// create a lease before its pause action is observed.
+		if cascadeBlock, cascadeStatus, err := preflightCascadeQuestionBlock(ctx, childTransitioner, actionSvcRoot, childrenSvc, questionBlocker, buildTransitioner, childType, key); err != nil {
+			return nil, fmt.Errorf("preflight cascade Question block for %s %s: %w", childType, key, err)
+		} else if cascadeBlock != nil {
+			return &runner.RunResult{EntityKey: key, FinalStatus: cascadeStatus, Outcome: "paused", QuestionBlock: cascadeBlock}, nil
+		}
+		childLease, childBlock, childStatus, err := acquireRunLeaseForRunnableAction(ctx, childTransitioner, childActionSvc, questionBlocker, childType, key, childOpts.DryRun)
 		if err != nil {
 			if errors.Is(err, claimrepo.ErrAlreadyClaimed) {
 				return &runner.RunResult{
@@ -210,6 +238,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 			}
 			return nil, fmt.Errorf("claim cascade child %s %s: %w", childType, key, err)
 		}
+		if childBlock != nil {
+			return &runner.RunResult{EntityKey: key, FinalStatus: childStatus, Outcome: "paused", QuestionBlock: childBlock}, nil
+		}
 		childOpts.EntityType = childType
 		if childLease != nil {
 			childOpts.SessionID = childLease.sessionID
@@ -219,8 +250,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 		if childResult != nil && childResult.Outcome != "" {
 			outcome = childResult.Outcome
 		}
-		if releaseErr := childLease.Release(outcome); releaseErr != nil {
-			return nil, fmt.Errorf("release cascade child claim for %s %s: %w", childType, key, releaseErr)
+		if childLease != nil {
+			if releaseErr := childLease.Release(outcome); releaseErr != nil {
+				return nil, fmt.Errorf("release cascade child claim for %s %s: %w", childType, key, releaseErr)
+			}
 		}
 		if runErr != nil {
 			return nil, runErr
@@ -254,8 +287,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
 			return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
 		}),
-		ChildrenSvc: childrenSvc,
-		RunChild:    runChild,
+		ChildrenSvc:       childrenSvc,
+		RunChild:          runChild,
+		QuestionResponses: buildQuestionResponsePersister(entityType),
+		QuestionBlocker:   questionBlocker,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
@@ -321,12 +356,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	runResult = result // captured for deferred run.end emitter
 
-	// Step 7: Format output.
+	return outputRunResult(result)
+}
+
+func outputRunResult(result *runner.RunResult) error {
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(result)
 	}
 
-	// Human-readable output.
 	fmt.Printf("Run complete for %s\n", result.EntityKey)
 	fmt.Printf("  Outcome:    %s\n", result.Outcome)
 	fmt.Printf("  Status:     %s\n", result.FinalStatus)
@@ -365,7 +402,7 @@ type activeRunLease struct {
 	heartbeatDoneCh <-chan struct{}
 }
 
-func acquireRunLease(ctx context.Context, entityType, entityKey string, dryRun bool) (*activeRunLease, error) {
+func acquireRunLease(ctx context.Context, entityType, entityKey, claimedBy string, dryRun bool) (*activeRunLease, error) {
 	if dryRun {
 		return nil, nil
 	}
@@ -374,6 +411,7 @@ func acquireRunLease(ctx context.Context, entityType, entityKey string, dryRun b
 	claim, err := svc.Claim(ctx, services.ClaimInput{
 		EntityType: entityType,
 		EntityKey:  entityKey,
+		ClaimedBy:  claimedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -389,6 +427,177 @@ func acquireRunLease(ctx context.Context, entityType, entityKey string, dryRun b
 		stopHeartbeat:   stopHeartbeat,
 		heartbeatDoneCh: doneCh,
 	}, nil
+}
+
+// acquireRunLeaseForRunnableAction owns the action-ordering boundary shared by
+// top-level and cascade runs. It intentionally reads the unpopulated action:
+// deciding whether a lease is needed must not render Question responder
+// placeholders (or derive a responder) for a non-dispatch checkpoint.
+func acquireRunLeaseForRunnableAction(ctx context.Context, transitioner runner.EntityTransitioner, actionSvc config.ActionService, blocker questionBlockChecker, entityType, entityKey string, dryRun bool) (*activeRunLease, *services.QuestionBlock, string, error) {
+	nextInfo, err := transitioner.GetNextStatus(ctx, entityKey)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("get status for %s before run claim: %w", entityKey, err)
+	}
+	if nextInfo.IsTerminal {
+		return nil, nil, nextInfo.CurrentStatus, nil
+	}
+	if blocker != nil {
+		block, err := blocker.Check(ctx, models.EntityType(entityType), entityKey)
+		if err != nil {
+			return nil, nil, nextInfo.CurrentStatus, fmt.Errorf("check Question block for %s before run claim: %w", entityKey, err)
+		}
+		if block != nil {
+			return nil, block, nextInfo.CurrentStatus, nil
+		}
+	}
+
+	workflowAction, err := actionSvc.GetStatusAction(ctx, nextInfo.CurrentStatus)
+	if err != nil {
+		return nil, nil, nextInfo.CurrentStatus, fmt.Errorf("get action for %s before run claim: %w", entityKey, err)
+	}
+	if workflowAction == nil || runActionDoesNotDispatch(workflowAction.Action) {
+		return nil, nil, nextInfo.CurrentStatus, nil
+	}
+
+	claimedBy, err := runClaimedBy(ctx, entityType, entityKey)
+	if err != nil {
+		return nil, nil, nextInfo.CurrentStatus, err
+	}
+	lease, err := acquireRunLease(ctx, entityType, entityKey, claimedBy, dryRun)
+	return lease, nil, nextInfo.CurrentStatus, err
+}
+
+// preflightCascadeQuestionBlock walks only the configured workflow hierarchy
+// before the parent run acquires a lease. A blocked child is parked, matching
+// keyed-next semantics: an eligible sibling keeps the cascade live, while an
+// all-parked subtree returns its first compact handoff without a parent lease.
+// It is intentionally separate from QuestionBlocker: hierarchy traversal
+// belongs to the runner, while the gate remains a direct candidate lookup.
+func preflightCascadeQuestionBlock(
+	ctx context.Context,
+	rootTransitioner runner.EntityTransitioner,
+	actionSvcRoot config.ActionService,
+	childrenSvc runner.CascadeChildrenService,
+	blocker questionBlockChecker,
+	buildChildTransitioner func(context.Context, string) (runner.EntityTransitioner, error),
+	entityType, entityKey string,
+) (*services.QuestionBlock, string, error) {
+	if blocker == nil {
+		return nil, "", nil
+	}
+
+	var rootStatus string
+	type cascadeAvailability struct {
+		live  bool
+		block *services.QuestionBlock
+	}
+	var walk func(runner.EntityTransitioner, string, string) (cascadeAvailability, error)
+	walk = func(transitioner runner.EntityTransitioner, candidateType, candidateKey string) (cascadeAvailability, error) {
+		info, err := transitioner.GetNextStatus(ctx, candidateKey)
+		if err != nil {
+			return cascadeAvailability{}, fmt.Errorf("get status for %s: %w", candidateKey, err)
+		}
+		if rootStatus == "" {
+			rootStatus = info.CurrentStatus
+		}
+		if info.IsTerminal {
+			return cascadeAvailability{}, nil
+		}
+		block, err := blocker.Check(ctx, models.EntityType(candidateType), candidateKey)
+		if err != nil {
+			return cascadeAvailability{}, fmt.Errorf("check Question block for %s: %w", candidateKey, err)
+		}
+		if block != nil {
+			return cascadeAvailability{block: block}, nil
+		}
+
+		actionSvc := narrowActionServiceForEntity(actionSvcRoot, candidateType)
+		workflowAction, err := actionSvc.GetStatusAction(ctx, info.CurrentStatus)
+		if err != nil {
+			return cascadeAvailability{}, fmt.Errorf("get action for %s: %w", candidateKey, err)
+		}
+		if workflowAction == nil || runActionDoesNotDispatch(workflowAction.Action) {
+			return cascadeAvailability{}, nil
+		}
+		if workflowAction.Action != config.ActionCascade {
+			return cascadeAvailability{live: true}, nil
+		}
+		if childrenSvc == nil {
+			return cascadeAvailability{}, fmt.Errorf("cascade action for %s has no children service", candidateKey)
+		}
+		children, err := childrenSvc.DescribeDispatchableChildren(ctx, candidateType, candidateKey)
+		if err != nil {
+			return cascadeAvailability{}, fmt.Errorf("list cascade children for %s: %w", candidateKey, err)
+		}
+		var firstBlock *services.QuestionBlock
+		for _, child := range children.Children {
+			childTransitioner, err := buildChildTransitioner(ctx, string(child.EntityType))
+			if err != nil {
+				return cascadeAvailability{}, fmt.Errorf("build transitioner for cascade child %s %s: %w", child.EntityType, child.Key, err)
+			}
+			childState, err := walk(childTransitioner, string(child.EntityType), child.Key)
+			if err != nil {
+				return cascadeAvailability{}, err
+			}
+			if childState.live {
+				return cascadeAvailability{live: true}, nil
+			}
+			if firstBlock == nil && childState.block != nil {
+				firstBlock = childState.block
+			}
+		}
+		return cascadeAvailability{block: firstBlock}, nil
+	}
+
+	state, err := walk(rootTransitioner, entityType, entityKey)
+	return state.block, rootStatus, err
+}
+
+func runActionDoesNotDispatch(action string) bool {
+	switch action {
+	case config.ActionPause, config.ActionWaitForTriage, config.ActionCheckOrResume, config.ActionArchive:
+		return true
+	default:
+		return false
+	}
+}
+
+// runClaimedBy binds a Question lease to the derived current responder before
+// dispatch. Other entity types retain ClaimService's normal actor identity.
+// This is parent-loop work: a worker never selects an identity or writes a
+// response directly.
+func runClaimedBy(ctx context.Context, entityType, entityKey string) (string, error) {
+	if entityType != "question" {
+		return "", nil
+	}
+	question, err := getQuestionService().GetQuestion(ctx, entityKey)
+	if err != nil {
+		return "", fmt.Errorf("load Question %s before run claim: %w", entityKey, err)
+	}
+	state, err := models.DecodeQuestionState(question.ContextData)
+	if err != nil {
+		return "", fmt.Errorf("decode Question %s before run claim: %w", entityKey, err)
+	}
+	if state == nil || state.CurrentResponder() == "" {
+		return "", fmt.Errorf("Question %s has no current responder to claim", entityKey)
+	}
+	return state.CurrentResponder(), nil
+}
+
+func buildQuestionResponsePersister(entityType string) runner.QuestionResponsePersister {
+	if entityType != "question" {
+		return nil
+	}
+	return runner.QuestionResponsePersisterFunc(func(ctx context.Context, handoff runner.QuestionResponseHandoff) error {
+		_, err := getQuestionService().RecordResponse(ctx, services.RecordQuestionResponseInput{
+			Key:             handoff.Key,
+			SessionID:       handoff.SessionID,
+			Responder:       handoff.Responder,
+			Summary:         handoff.Summary,
+			EvidencePointer: handoff.EvidencePointer,
+		})
+		return err
+	})
 }
 
 func (l *activeRunLease) Release(outcome string) error {
@@ -464,6 +673,8 @@ func buildTransitioner(_ context.Context, entityType string) (runner.EntityTrans
 		return cli.GetChangeCardService(), nil
 	case "tech_debt":
 		return cli.GetTechDebtService(), nil
+	case "question":
+		return getQuestionService(), nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %q", entityType)
 	}
@@ -485,6 +696,8 @@ func buildPlaceholderGenerator(_ context.Context, entityType string) runner.Plac
 		return &changeCardPlaceholderAdapter{svc: cli.GetChangeCardService()}
 	case "tech_debt":
 		return &techDebtPlaceholderAdapter{svc: cli.GetTechDebtService()}
+	case "question":
+		return &questionPlaceholderAdapter{svc: getQuestionService()}
 	default:
 		return nil
 	}
@@ -558,6 +771,27 @@ type techDebtPlaceholderAdapter struct {
 	svc *services.TechDebtService
 }
 
+type questionPlaceholderAdapter struct{ svc questionServicer }
+
+func (a *questionPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
+	question, err := a.svc.GetQuestion(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get question %s for placeholders: %w", key, err)
+	}
+	state, err := models.DecodeQuestionState(question.ContextData)
+	if err != nil {
+		return nil, fmt.Errorf("decode Question state for placeholders: %w", err)
+	}
+	if state == nil || state.CurrentResponder() == "" {
+		return nil, fmt.Errorf("Question %s has no current responder", key)
+	}
+	vars := config.EntityPlaceholders(question)
+	vars["summary"] = question.Summary
+	vars["requester"] = question.Requester
+	vars["current_responder"] = state.CurrentResponder()
+	return vars, nil
+}
+
 func (a *techDebtPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
 	td, err := a.svc.GetTechDebt(ctx, key)
 	if err != nil {
@@ -576,6 +810,7 @@ var (
 	_ runner.EntityTransitioner = (*services.BugService)(nil)
 	_ runner.EntityTransitioner = (*services.ChangeCardService)(nil)
 	_ runner.EntityTransitioner = (*services.TechDebtService)(nil)
+	_ runner.EntityTransitioner = (*services.QuestionService)(nil)
 
 	// Placeholder adapters remain entity-specific.
 	_ runner.PlaceholderGenerator = (*taskPlaceholderAdapter)(nil)
@@ -584,4 +819,5 @@ var (
 	_ runner.PlaceholderGenerator = (*bugPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*changeCardPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*techDebtPlaceholderAdapter)(nil)
+	_ runner.PlaceholderGenerator = (*questionPlaceholderAdapter)(nil)
 )

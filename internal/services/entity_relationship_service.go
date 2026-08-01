@@ -97,6 +97,9 @@ func (s *EntityRelationshipService) CreateRelationship(
 	if err := rel.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid relationship: %w", err)
 	}
+	if err := validateQuestionBlocksDirection(rel); err != nil {
+		return nil, err
+	}
 
 	// Prevent duplicate directed edges before attempting the insert.
 	existing, err := s.repo.GetOutgoing(ctx, fromType, fromID, nil)
@@ -147,11 +150,34 @@ func (s *EntityRelationshipService) UnlinkEntities(
 	toType models.EntityType, toID int64,
 	relType models.EntityRelationshipType,
 ) error {
+	if err := validateQuestionBlocksDirection(&models.EntityRelationship{
+		FromEntityType: fromType, FromEntityID: fromID,
+		ToEntityType: toType, ToEntityID: toID,
+		RelationshipType: relType,
+	}); err != nil {
+		return err
+	}
 	if err := s.repo.DeleteByEntitiesAndType(ctx, fromType, fromID, toType, toID, relType); err != nil {
 		return fmt.Errorf("failed to unlink %s(%d) -[%s]-> %s(%d): %w",
 			fromType, fromID, relType, toType, toID, err)
 	}
 	return nil
+}
+
+func validateQuestionBlocksDirection(rel *models.EntityRelationship) error {
+	if rel.RelationshipType != models.EntityRelQuestionBlocks {
+		return nil
+	}
+	if rel.FromEntityType != models.EntityTypeQuestion {
+		return fmt.Errorf("invalid question_blocks relationship: source must be question")
+	}
+	switch rel.ToEntityType {
+	case models.EntityTypeEpic, models.EntityTypeFeature, models.EntityTypeTask,
+		models.EntityTypeBug, models.EntityTypeChange, models.EntityTypeTechDebt:
+		return nil
+	default:
+		return fmt.Errorf("invalid question_blocks relationship: target type %q is not eligible", rel.ToEntityType)
+	}
 }
 
 // GetRelationships returns all relationships (incoming and outgoing) for an entity.

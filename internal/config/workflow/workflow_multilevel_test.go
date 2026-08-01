@@ -51,6 +51,34 @@ func TestGetWorkflowForLevel_TaskWithNil(t *testing.T) {
 	}
 }
 
+// TC-103: Question's shipped workflow contains the complete F02 serial route.
+// The responder dispatch path, resolution pause, and every terminal provenance
+// state must be present in the embedded fallback bundle.
+func TestDefaultQuestionWorkflow_TC103(t *testing.T) {
+	m := &MultiLevelWorkflow{}
+	wf := m.GetWorkflowForLevel("question")
+	if wf == nil {
+		t.Fatal("GetWorkflowForLevel(question) = nil")
+	}
+	for _, status := range []string{"open", "answering", "ready_for_resolution", "resolved", "withdrawn", "superseded"} {
+		if _, ok := wf.StatusFlow[status]; !ok {
+			t.Fatalf("Question workflow missing %s", status)
+		}
+	}
+	terminals := map[string]bool{}
+	for _, status := range wf.SpecialStatuses[CompleteStatusKey] {
+		terminals[status] = true
+	}
+	for _, status := range []string{"resolved", "withdrawn", "superseded"} {
+		if !terminals[status] {
+			t.Fatalf("Question %s status must be terminal", status)
+		}
+	}
+	if got := wf.StatusMetadata["open"].OrchestratorAction.Action; got != "spawn_agent" {
+		t.Fatalf("Question open action = %q, want spawn_agent", got)
+	}
+}
+
 func TestGetWorkflowForLevel_CustomEpic(t *testing.T) {
 	customEpic := &WorkflowConfig{
 		Version: "1.0",
@@ -667,6 +695,7 @@ func TestGetByType_AllSlotsAndUnknown(t *testing.T) {
 		Bug:      mark("bug-cfg"),
 		Change:   mark("change-cfg"),
 		TechDebt: mark("tech_debt-cfg"),
+		Question: mark("question-cfg"),
 	}
 
 	tests := []struct {
@@ -685,6 +714,8 @@ func TestGetByType_AllSlotsAndUnknown(t *testing.T) {
 		{"tech_debt", "tech_debt-cfg"},
 		{"tech-debt", "tech_debt-cfg"},
 		{"td", "tech_debt-cfg"},
+		{"question", "question-cfg"},
+		{"questions", "question-cfg"},
 		{"unknown", ""},
 		{"", ""},
 	}

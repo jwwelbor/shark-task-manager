@@ -13,6 +13,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
+	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
 	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -23,6 +24,25 @@ import (
 type mockViewerEpicRepo struct {
 	ListFunc          func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
 	CountByStatusFunc func(ctx context.Context) (map[string]int, error)
+}
+
+type mockViewerQuestionRepo struct {
+	GetByKeyFunc func(ctx context.Context, key string) (*models.Question, error)
+	ListFunc     func(ctx context.Context, filter questionrepo.QuestionListFilter) ([]*models.Question, error)
+}
+
+func (m *mockViewerQuestionRepo) GetByKey(ctx context.Context, key string) (*models.Question, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
+	return nil, nil
+}
+
+func (m *mockViewerQuestionRepo) List(ctx context.Context, filter questionrepo.QuestionListFilter) ([]*models.Question, error) {
+	if m.ListFunc != nil {
+		return m.ListFunc(ctx, filter)
+	}
+	return []*models.Question{}, nil
 }
 
 func (m *mockViewerEpicRepo) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
@@ -728,6 +748,154 @@ func TestViewerService_Hierarchy_Empty(t *testing.T) {
 	}
 	if len(resp.Epics) != 0 {
 		t.Errorf("expected 0 epics, got %d", len(resp.Epics))
+	}
+}
+
+// TC-302 / UAT-001: Questions must have the same bounded generic hierarchy
+// source as the other flat entities. The Viewer uses this source to resolve a
+// selected Q001 before it exposes the generic relationship mutation controls.
+func TestViewerService_Hierarchy_IncludesQuestionsForViewerSelection_TC302(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithQuestionRepo(&mockViewerQuestionRepo{ListFunc: func(_ context.Context, filter questionrepo.QuestionListFilter) ([]*models.Question, error) {
+		if filter.Limit != 100 || filter.Offset != 0 {
+			t.Fatalf("Question hierarchy list filter = %+v, want first bounded page", filter)
+		}
+		return []*models.Question{{
+			BaseEntity: models.BaseEntity{ID: 7, Key: "Q001", Title: "Release question"},
+			Status:     models.QuestionStatusOpen,
+		}}, nil
+	}})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{})
+	if err != nil {
+		t.Fatalf("Hierarchy() error = %v", err)
+	}
+	if len(resp.Questions) != 1 {
+		t.Fatalf("questions = %#v, want one Viewer source", resp.Questions)
+	}
+	question := resp.Questions[0]
+	if question.Key != "Q001" || question.Title != "Release question" || question.Status != "open" {
+		t.Errorf("question source = %#v, want Q001 generic selection projection", question)
+	}
+}
+
+// TC-302 regression: Questions are a hierarchy flat section and must take the
+// same tag-filter, decoration, and prune path as every other flat entity.
+func TestViewerService_Hierarchy_QuestionsUseTagInventory_TC302(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	svc.WithQuestionRepo(&mockViewerQuestionRepo{ListFunc: func(_ context.Context, filter questionrepo.QuestionListFilter) ([]*models.Question, error) {
+		if filter.Limit != 100 || filter.Offset != 0 {
+			t.Fatalf("Question hierarchy list filter = %+v, want first bounded page", filter)
+		}
+		return []*models.Question{
+			{BaseEntity: models.BaseEntity{ID: 7, Key: "Q001", Title: "Tagged"}, Status: models.QuestionStatusOpen},
+			{BaseEntity: models.BaseEntity{ID: 8, Key: "Q002", Title: "Untagged"}, Status: models.QuestionStatusOpen},
+		}, nil
+	}})
+
+	var questionFilterCalled, questionDecorationCalled bool
+	svc.WithTagService(&mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, entityType models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			if entityType == models.EntityTypeQuestion {
+				questionFilterCalled = true
+				return []int64{7}, nil
+			}
+			return []int64{}, nil
+		},
+		AttachedTagNamesByIDsFunc: func(_ context.Context, entityType models.EntityType, ids []int64) (map[int64][]string, error) {
+			if entityType == models.EntityTypeQuestion {
+				questionDecorationCalled = true
+				if len(ids) != 2 || ids[0] != 7 || ids[1] != 8 {
+					t.Fatalf("Question tag decoration IDs = %v, want [7 8]", ids)
+				}
+				return map[int64][]string{7: {"voice"}}, nil
+			}
+			return map[int64][]string{}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("Hierarchy() error = %v", err)
+	}
+	if !questionFilterCalled {
+		t.Fatal("Question was omitted from hierarchy tag filtering")
+	}
+	if !questionDecorationCalled {
+		t.Fatal("Question was omitted from hierarchy tag decoration")
+	}
+	if len(resp.Questions) != 1 || resp.Questions[0].Key != "Q001" {
+		t.Fatalf("filtered Questions = %#v, want only Q001", resp.Questions)
+	}
+	if got := resp.Questions[0].Tags; len(got) != 1 || got[0] != "voice" {
+		t.Errorf("Q001 tags = %v, want [voice]", got)
+	}
+}
+
+// TC-302 regression: a selected tag with no matching Question must prune the
+// flat Question source completely. The partial-match case above cannot catch
+// a future fallback that accidentally keeps every Question in the sidebar.
+func TestViewerService_Hierarchy_QuestionsPruneWhenNoTagsMatch_TC302(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	questionSourceReads := 0
+	svc.WithQuestionRepo(&mockViewerQuestionRepo{ListFunc: func(_ context.Context, filter questionrepo.QuestionListFilter) ([]*models.Question, error) {
+		questionSourceReads++
+		if filter.Limit != 100 || filter.Offset != 0 {
+			t.Fatalf("Question hierarchy list filter = %+v, want first bounded page", filter)
+		}
+		return []*models.Question{{
+			BaseEntity: models.BaseEntity{ID: 7, Key: "Q001", Title: "Unmatched question"},
+			Status:     models.QuestionStatusOpen,
+		}}, nil
+	}})
+
+	questionFilterCalled := false
+	svc.WithTagService(&mockTagReader{
+		EntityIDsByTagsFunc: func(_ context.Context, entityType models.EntityType, _ []string, _ TagQueryOp) ([]int64, error) {
+			if entityType == models.EntityTypeQuestion {
+				questionFilterCalled = true
+			}
+			return []int64{}, nil
+		},
+		AttachedTagNamesByIDsFunc: func(context.Context, models.EntityType, []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background(), HierarchyOptions{Tags: []string{"missing"}})
+	if err != nil {
+		t.Fatalf("Hierarchy() error = %v", err)
+	}
+	if questionSourceReads != 1 {
+		t.Fatalf("Question source reads = %d, want 1 before pruning", questionSourceReads)
+	}
+	if !questionFilterCalled {
+		t.Fatal("Question was omitted from hierarchy tag filtering")
+	}
+	if len(resp.Questions) != 0 {
+		t.Fatalf("unmatched Questions = %#v, want empty flat source", resp.Questions)
 	}
 }
 

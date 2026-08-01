@@ -11,4 +11,5 @@ const (
 	LevelBug      = "bug"
 	LevelChange   = "change"
 	LevelTechDebt = "tech_debt"
+	LevelQuestion = "question"
 )

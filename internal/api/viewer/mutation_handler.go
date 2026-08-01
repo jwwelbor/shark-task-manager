@@ -12,7 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
-// MutationHandler handles viewer write requests for epic, feature, and task entities.
+// MutationHandler handles viewer write requests for existing viewer entities.
 // It is a thin wrapper: parse/validate -> call service -> format JSON response.
 type MutationHandler struct {
 	svc MutationServicer
@@ -55,10 +55,12 @@ func (h *MutationHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.Handle("POST "+prefix+"/epics/{key}/relationships", wrap(http.HandlerFunc(h.CreateRelationship)))
 	mux.Handle("POST "+prefix+"/features/{key}/relationships", wrap(http.HandlerFunc(h.CreateRelationship)))
 	mux.Handle("POST "+prefix+"/tasks/{key}/relationships", wrap(http.HandlerFunc(h.CreateRelationship)))
+	mux.Handle("POST "+prefix+"/questions/{key}/relationships", wrap(http.HandlerFunc(h.CreateRelationship)))
 
 	mux.Handle("DELETE "+prefix+"/epics/{key}/relationships/{relationship_type}/{to_key}", wrap(http.HandlerFunc(h.DeleteRelationship)))
 	mux.Handle("DELETE "+prefix+"/features/{key}/relationships/{relationship_type}/{to_key}", wrap(http.HandlerFunc(h.DeleteRelationship)))
 	mux.Handle("DELETE "+prefix+"/tasks/{key}/relationships/{relationship_type}/{to_key}", wrap(http.HandlerFunc(h.DeleteRelationship)))
+	mux.Handle("DELETE "+prefix+"/questions/{key}/relationships/{relationship_type}/{to_key}", wrap(http.HandlerFunc(h.DeleteRelationship)))
 }
 
 type epicMutationRequest struct {
@@ -502,6 +504,10 @@ func validateAndNormalizeMutationKey(rawKey string) (string, error) {
 		return key, nil
 	case keys.IsShortTaskKey(key), keys.IsTaskKey(key):
 		return keys.NormalizeTaskKey(key)
+	case keys.IsBugKey(key), keys.IsChangeKey(key), keys.IsTechDebtKey(key):
+		return key, nil
+	case keys.NewKeyService().DetectEntityType(key) == keys.EntityTypeQuestion:
+		return key, nil
 	default:
 		return "", errors.New("invalid entity key")
 	}

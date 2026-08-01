@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -23,6 +28,14 @@ var _ PlaceholderGenerator = (*MockPlaceholderGen)(nil)
 var _ config.ActionService = (*MockActionService)(nil)
 var _ AgentDispatcher = (*MockDispatcher)(nil)
 var _ CascadeChildrenService = (*MockCascadeChildrenService)(nil)
+
+type mockQuestionBlocker struct {
+	check func(context.Context, models.EntityType, string) (*services.QuestionBlock, error)
+}
+
+func (m mockQuestionBlocker) Check(ctx context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+	return m.check(ctx, entityType, key)
+}
 
 // ---------------------------------------------------------------------------
 // Mock types
@@ -433,6 +446,208 @@ func TestRunController_AlreadyTerminal(t *testing.T) {
 	}
 }
 
+// TC-307/TC-308: The production RunController entrypoint must return the
+// compact I-03 pause before either placeholder/action work or a dispatcher in
+// both real and dry-run modes. CLI preflight protects the lease; this test
+// proves direct controller callers retain the same safe contract.
+func TestRunController_BlockedCandidatePausesBeforeDispatchWork_TC307_TC308(t *testing.T) {
+	for _, dryRun := range []bool{false, true} {
+		t.Run(map[bool]string{false: "normal", true: "dry_run"}[dryRun], func(t *testing.T) {
+			placeholderCalls := 0
+			actionCalls := 0
+			dispatchCalls := 0
+			controller, err := NewRunController(RunControllerDeps{
+				Transitioner: &MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+					return &services.NextStatusInfo{CurrentStatus: "active"}, nil
+				}},
+				Placeholders: &MockPlaceholderGen{GenerateFunc: func(context.Context, string) (map[string]string, error) {
+					placeholderCalls++
+					return nil, errors.New("blocked run must not generate placeholders")
+				}},
+				ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+					actionCalls++
+					return nil, errors.New("blocked run must not resolve action")
+				}},
+				WorkflowSvc: defaultWorkflowSvc(),
+				Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+					dispatchCalls++
+					return nil, errors.New("blocked run must not dispatch worker")
+				}}},
+				QuestionBlocker: mockQuestionBlocker{check: func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+					if entityType != models.EntityTypeFeature || key != "E39-F03" {
+						t.Fatalf("blocker candidate = %s %s, want feature E39-F03", entityType, key)
+					}
+					return &services.QuestionBlock{QuestionKey: "Q001", Summary: "Choose", ResolutionOwner: "owner", CurrentResponder: "alice"}, nil
+				}},
+			})
+			if err != nil {
+				t.Fatalf("NewRunController() error = %v", err)
+			}
+
+			got, err := controller.Run(context.Background(), "E39-F03", RunOptions{EntityType: "feature", DryRun: dryRun})
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got.Outcome != "paused" || got.FinalStatus != "active" || got.QuestionBlock == nil {
+				t.Fatalf("Run() = %#v, want compact blocked pause", got)
+			}
+			if *got.QuestionBlock != (services.QuestionBlock{QuestionKey: "Q001", Summary: "Choose", ResolutionOwner: "owner", CurrentResponder: "alice"}) {
+				t.Fatalf("question_block = %#v, want I-03 handoff", got.QuestionBlock)
+			}
+			if placeholderCalls != 0 || actionCalls != 0 || dispatchCalls != 0 {
+				t.Fatalf("blocked run placeholder/action/dispatch calls = %d/%d/%d, want 0/0/0", placeholderCalls, actionCalls, dispatchCalls)
+			}
+		})
+	}
+}
+
+// TC-103: a ready Question is a non-dispatching human checkpoint. The real
+// runner must stop before asking the responder placeholder adapter or action
+// renderer for a responder that no longer exists.
+func TestRunController_ReadyQuestionPausesBeforeResponderRendering_TC103(t *testing.T) {
+	transitioner := &MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+		return &services.NextStatusInfo{CurrentStatus: "ready_for_resolution", IsTerminal: true}, nil
+	}}
+	placeholderCalls := 0
+	actionCalls := 0
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{GenerateFunc: func(context.Context, string) (map[string]string, error) {
+			placeholderCalls++
+			return nil, errors.New("responder placeholders must not run")
+		}},
+		ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			actionCalls++
+			return nil, errors.New("workflow action lookup must not run")
+		}},
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{}},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() error = %v", err)
+	}
+
+	result, err := controller.Run(context.Background(), "Q001", RunOptions{EntityType: "question"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome != "paused" || result.FinalStatus != "ready_for_resolution" || len(result.Stages) != 0 {
+		t.Fatalf("Run() = %+v, want paused ready checkpoint without stages", result)
+	}
+	if placeholderCalls != 0 || actionCalls != 0 {
+		t.Fatalf("ready Question rendered placeholders=%d actions=%d, want neither", placeholderCalls, actionCalls)
+	}
+}
+
+// TC-103/TC-104: Every Question status that carries the terminal dispatch
+// signal because there is no responder is a pause checkpoint, not a completed
+// Question. This includes the F01-compatible unconfigured draft and the
+// migration-compatible open/answering statuses with no persisted responder
+// state. Dry runs use the same controller path, so both modes must agree.
+func TestRunController_QuestionNoResponderCheckpointsPause_TC103_TC104(t *testing.T) {
+	for _, status := range []string{"draft", "open", "answering", "ready_for_resolution"} {
+		t.Run(status, func(t *testing.T) {
+			for _, dryRun := range []bool{false, true} {
+				t.Run(map[bool]string{false: "run", true: "dry_run"}[dryRun], func(t *testing.T) {
+					placeholderCalls := 0
+					actionCalls := 0
+					controller, err := NewRunController(RunControllerDeps{
+						Transitioner: &MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+							return &services.NextStatusInfo{CurrentStatus: status, IsTerminal: true}, nil
+						}},
+						Placeholders: &MockPlaceholderGen{GenerateFunc: func(context.Context, string) (map[string]string, error) {
+							placeholderCalls++
+							return nil, errors.New("Question responder placeholders must not run")
+						}},
+						ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+							actionCalls++
+							return nil, errors.New("Question workflow action must not run")
+						}},
+						WorkflowSvc: defaultWorkflowSvc(),
+						Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{}},
+					})
+					if err != nil {
+						t.Fatalf("NewRunController() error = %v", err)
+					}
+
+					result, err := controller.Run(context.Background(), "Q001", RunOptions{EntityType: "question", DryRun: dryRun})
+					if err != nil {
+						t.Fatalf("Run() error = %v", err)
+					}
+					if result.Outcome != "paused" || result.FinalStatus != status || len(result.Stages) != 0 {
+						t.Fatalf("Run() = %+v, want paused %s checkpoint without stages", result, status)
+					}
+					if placeholderCalls != 0 || actionCalls != 0 {
+						t.Fatalf("Question %s rendered placeholders=%d actions=%d, want neither", status, placeholderCalls, actionCalls)
+					}
+				})
+			}
+		})
+	}
+}
+
+// TC-103: Responder-less checkpoints are pauses, but real Question terminal
+// states retain the normal archive/already-terminal contract.
+func TestRunController_QuestionDurableTerminalsRemainAlreadyTerminal_TC103(t *testing.T) {
+	for _, status := range []string{"resolved", "withdrawn", "superseded", "archived"} {
+		t.Run(status, func(t *testing.T) {
+			controller := makeController(t,
+				&MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+					return &services.NextStatusInfo{CurrentStatus: status, IsTerminal: true}, nil
+				}},
+				&MockActionService{}, nil,
+			)
+			result, err := controller.Run(context.Background(), "Q001", RunOptions{EntityType: "question"})
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if result.Outcome != "already_terminal" || result.FinalStatus != status {
+				t.Fatalf("Run(%s) = %+v, want durable terminal result", status, result)
+			}
+		})
+	}
+}
+
+// TC-104: A cascade child that is paused for lack of a Question responder
+// must not count as progress or auto-advance its parent. This uses the real
+// child RunController rather than returning a fabricated child outcome.
+func TestRunController_CascadeQuestionNoResponderPausesParent_TC104(t *testing.T) {
+	child := makeController(t,
+		&MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "open", IsTerminal: true}, nil
+		}},
+		&MockActionService{}, nil,
+	)
+	parent, err := NewRunController(RunControllerDeps{
+		Transitioner: &MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "active"}, nil
+		}},
+		ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade}, nil
+		}},
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{}},
+		ChildrenSvc: &MockCascadeChildrenService{DescribeDispatchableChildrenFunc: func(context.Context, string, string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{Children: []services.CascadeChild{{Key: "Q001", EntityType: models.EntityTypeQuestion}}, TotalChildren: 1, NonTerminalChildren: 1}, nil
+		}},
+		RunChild: func(ctx context.Context, entityType, key string, opts RunOptions) (*RunResult, error) {
+			opts.EntityType = entityType
+			return child.Run(ctx, key, opts)
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController(parent) error = %v", err)
+	}
+
+	result, err := parent.Run(context.Background(), "E01-F01", RunOptions{EntityType: "feature"})
+	if err != nil {
+		t.Fatalf("parent Run() error = %v", err)
+	}
+	if result.Outcome != "paused" || result.StagesCompleted != 0 {
+		t.Fatalf("parent Run() = %+v, want paused parent with no child progress", result)
+	}
+}
+
 // TestRunController_NoActionForStatus verifies that when no action is configured
 // for the current status, Run() returns with outcome "no_action".
 func TestRunController_NoActionForStatus(t *testing.T) {
@@ -490,6 +705,158 @@ func TestRunController_PauseAction(t *testing.T) {
 	}
 	if result.FinalStatus != "ready_for_approval" {
 		t.Errorf("expected FinalStatus=ready_for_approval, got %s", result.FinalStatus)
+	}
+}
+
+// TestRunController_QuestionResponseHandoffPersistsBeforeReturning proves the
+// parent-run lifecycle for a serial Question: the worker returns only bounded
+// response data, the parent persists it under alice's lease, and the run stops
+// before bob can be dispatched under that same lease. A later keyed dispatch
+// can therefore route bob only after the parent has released alice's lease.
+func TestRunController_QuestionResponseHandoffPersistsBeforeReturning(t *testing.T) {
+	state := "open"
+	var persisted []QuestionResponseHandoff
+	transitionCalls := 0
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: state,
+				AvailableTransitions: []services.TransitionInfoWithAction{{
+					TransitionInfo: workflow.TransitionInfo{TargetStatus: "answering"},
+				}},
+			}, nil
+		},
+		TransitionStatusFunc: func(context.Context, string, string, services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionCalls++
+			return &services.TransitionResult{ToStatus: "answering"}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, AgentType: "responder"}, nil
+		},
+	}
+	persister := QuestionResponsePersisterFunc(func(_ context.Context, handoff QuestionResponseHandoff) error {
+		persisted = append(persisted, handoff)
+		state = "answering" // Alice's committed response makes bob eligible after release.
+		return nil
+	})
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{GenerateFunc: func(context.Context, string) (map[string]string, error) {
+			return map[string]string{"current_responder": "alice"}, nil
+		}},
+		ActionSvc:   actionSvc,
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{ExitCode: 0, Stdout: "QUESTION_RESPONSE_JSON: {\"summary\":\"approved\",\"evidence_pointer\":\"docs/spec.md\"}"}, nil
+		}}},
+		QuestionResponses: persister,
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() error = %v", err)
+	}
+
+	result, err := controller.Run(context.Background(), "Q001", RunOptions{EntityType: "question", SessionID: "session-alice"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome != "completed" || result.FinalStatus != "answering" {
+		t.Fatalf("result = %+v, want completed at answering", result)
+	}
+	if len(persisted) != 1 {
+		t.Fatalf("persisted handoffs = %d, want 1", len(persisted))
+	}
+	if got := persisted[0]; got.Key != "Q001" || got.SessionID != "session-alice" || got.Responder != "alice" || got.Summary != "approved" || got.EvidencePointer != "docs/spec.md" {
+		t.Fatalf("handoff = %+v", got)
+	}
+	if transitionCalls != 0 {
+		t.Fatalf("Question run transitioned %d times; response persistence must finish before lease release and later bob routing", transitionCalls)
+	}
+	if result.Stages[0].OutputSummary != "" {
+		t.Fatalf("Question worker response leaked into stage output: %q", result.Stages[0].OutputSummary)
+	}
+}
+
+// TestRunController_QuestionResponseLifecyclePersistsAliceThenRoutesBob uses
+// the real Question, claim, and SQLite services through the runner's parent
+// handoff seam. It proves the CLI runner lifecycle rather than a worker-side
+// direct service call: alice's result commits under the parent lease, release
+// happens afterwards, and the next read exposes bob as the sole responder.
+func TestRunController_QuestionResponseLifecyclePersistsAliceThenRoutesBob(t *testing.T) {
+	ctx := context.Background()
+	sqlDB, err := db.InitDB(filepath.Join(t.TempDir(), "question-runner.db"))
+	if err != nil {
+		t.Fatalf("InitDB() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	repoDB := repository.NewDB(sqlDB)
+	questionRepo := repository.NewQuestionRepository(repoDB)
+	questionSvc, err := services.NewQuestionService(questionRepo)
+	if err != nil {
+		t.Fatalf("NewQuestionService() error = %v", err)
+	}
+	question, err := questionSvc.CreateQuestion(ctx, services.CreateQuestionInput{Title: "Runner response", Summary: "Route one responder", Requester: "test"})
+	if err != nil {
+		t.Fatalf("CreateQuestion() error = %v", err)
+	}
+	if _, err := questionSvc.ConfigureWorkflow(ctx, services.ConfigureWorkflowInput{Key: question.Key, ResolutionOwner: "owner", Responders: []string{"alice", "bob"}}); err != nil {
+		t.Fatalf("ConfigureWorkflow() error = %v", err)
+	}
+	claimSvc := services.NewClaimService(claimrepo.NewRepository(repoDB), nil)
+	questionSvc.SetClaimReader(claimSvc)
+	claim, err := claimSvc.Claim(ctx, services.ClaimInput{EntityType: string(models.EntityTypeQuestion), EntityKey: question.Key, ClaimedBy: "alice"})
+	if err != nil {
+		t.Fatalf("Claim(alice) error = %v", err)
+	}
+
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: questionSvc,
+		Placeholders: &MockPlaceholderGen{GenerateFunc: func(context.Context, string) (map[string]string, error) {
+			return map[string]string{"current_responder": "alice"}, nil
+		}},
+		ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, AgentType: "responder"}, nil
+		}},
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{ExitCode: 0, Stdout: "QUESTION_RESPONSE_JSON: {\"summary\":\"approved\",\"evidence_pointer\":\"docs/spec.md\"}"}, nil
+		}}},
+		QuestionResponses: QuestionResponsePersisterFunc(func(ctx context.Context, handoff QuestionResponseHandoff) error {
+			_, err := questionSvc.RecordResponse(ctx, services.RecordQuestionResponseInput{Key: handoff.Key, SessionID: handoff.SessionID, Responder: handoff.Responder, Summary: handoff.Summary, EvidencePointer: handoff.EvidencePointer})
+			return err
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() error = %v", err)
+	}
+	result, err := controller.Run(ctx, question.Key, RunOptions{EntityType: string(models.EntityTypeQuestion), SessionID: claim.SessionID})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome != "completed" || result.FinalStatus != "answering" {
+		t.Fatalf("run result = %+v, want completed answering", result)
+	}
+	if _, err := claimSvc.Release(ctx, string(models.EntityTypeQuestion), question.Key, claim.SessionID, "completed", false); err != nil {
+		t.Fatalf("Release(alice) error = %v", err)
+	}
+	persisted, err := questionSvc.GetQuestion(ctx, question.Key)
+	if err != nil {
+		t.Fatalf("GetQuestion() error = %v", err)
+	}
+	state, err := models.DecodeQuestionState(persisted.ContextData)
+	if err != nil || state == nil {
+		t.Fatalf("DecodeQuestionState() = %#v, %v", state, err)
+	}
+	if state.CurrentResponder() != "bob" || len(state.Responses) != 1 || state.Responses[0].Responder != "alice" {
+		t.Fatalf("persisted Question state = %#v, want alice response and bob current", state)
+	}
+	next, err := questionSvc.GetNextStatus(ctx, question.Key)
+	if err != nil {
+		t.Fatalf("GetNextStatus() error = %v", err)
+	}
+	if next.IsClaimed || next.CurrentStatus != "answering" {
+		t.Fatalf("next after alice release = %#v, want unclaimed answering for bob", next)
 	}
 }
 
@@ -657,6 +1024,67 @@ func TestRunController_CascadeAction_RunsDispatchableChildrenAndAutoAdvancesPare
 	}
 	if result.Stages[1].Action != config.ActionAdvanceStatus {
 		t.Errorf("expected second stage action=%s, got %s", config.ActionAdvanceStatus, result.Stages[1].Action)
+	}
+}
+
+// TC-308: a directly blocked cascade child is parked, rather than ending the
+// parent run. The runner must continue to a later eligible sibling exactly as
+// keyed next does; only an all-parked cascade returns the compact block pause.
+func TestRunController_CascadeFallsThroughBlockedChild_TC308(t *testing.T) {
+	secondChildRan := false
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			if secondChildRan {
+				return &services.NextStatusInfo{CurrentStatus: "in_review"}, nil
+			}
+			return &services.NextStatusInfo{CurrentStatus: "active"}, nil
+		},
+	}
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(_ context.Context, status string, _ map[string]string) (*config.PopulatedAction, error) {
+			if status == "in_review" {
+				return &config.PopulatedAction{Action: config.ActionPause}, nil
+			}
+			return &config.PopulatedAction{Action: config.ActionCascade}, nil
+		}},
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{
+			"": &MockDispatcher{},
+		},
+		ChildrenSvc: &MockCascadeChildrenService{DescribeDispatchableChildrenFunc: func(context.Context, string, string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{Children: []services.CascadeChild{
+				{Key: "E39-F03", EntityType: models.EntityTypeFeature},
+				{Key: "E39-F04", EntityType: models.EntityTypeFeature},
+			}, TotalChildren: 2, NonTerminalChildren: 2}, nil
+		}},
+		RunChild: func(_ context.Context, _ string, key string, _ RunOptions) (*RunResult, error) {
+			switch key {
+			case "E39-F03":
+				return &RunResult{EntityKey: key, Outcome: "paused", QuestionBlock: &services.QuestionBlock{QuestionKey: "Q001", Summary: "Gate", ResolutionOwner: "owner", CurrentResponder: "alice"}}, nil
+			case "E39-F04":
+				secondChildRan = true
+				return &RunResult{EntityKey: key, FinalStatus: "completed", Outcome: "completed"}, nil
+			default:
+				t.Fatalf("unexpected cascade child %q", key)
+				return nil, nil
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() error = %v", err)
+	}
+
+	got, err := controller.Run(context.Background(), "E39", RunOptions{EntityType: "epic"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !secondChildRan {
+		t.Fatal("blocked first child prevented the eligible sibling from running")
+	}
+	if got.Outcome != "paused" || got.QuestionBlock != nil {
+		t.Fatalf("Run() = %#v, want sibling-driven pause without blocked-child handoff", got)
 	}
 }
 

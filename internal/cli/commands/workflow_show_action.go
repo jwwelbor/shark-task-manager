@@ -8,6 +8,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -205,6 +206,24 @@ func lookupEntityPlaceholders(ctx context.Context, key string, entityType string
 			return fallbackPlaceholders(key), nil
 		}
 		return config.TechDebtPlaceholders(td), nil
+
+	case "question":
+		question, err := getQuestionService().GetQuestion(ctx, key)
+		if err != nil || question == nil {
+			return fallbackPlaceholders(key), nil
+		}
+		state, err := models.DecodeQuestionState(question.ContextData)
+		if err != nil {
+			return nil, fmt.Errorf("decode Question state for placeholders: %w", err)
+		}
+		if state == nil || state.CurrentResponder() == "" {
+			return nil, fmt.Errorf("Question %s has no current responder", key)
+		}
+		placeholders := config.EntityPlaceholders(question)
+		placeholders["summary"] = question.Summary
+		placeholders["requester"] = question.Requester
+		placeholders["current_responder"] = state.CurrentResponder()
+		return placeholders, nil
 
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)

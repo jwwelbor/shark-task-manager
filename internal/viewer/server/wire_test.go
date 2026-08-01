@@ -1,11 +1,18 @@
 package server
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/api"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +26,67 @@ func newTestRepoDB(t *testing.T) *repository.DB {
 	sqlDB, err := db.InitDB(":memory:")
 	require.NoError(t, err)
 	return repository.NewDB(sqlDB)
+}
+
+// TC-109: the HTTP composition root must inject the same claim-reading
+// authority as the CLI composition root, so a valid Question response can
+// reach the service through its registered POST route.
+func TestWireServices_QuestionResponseRouteUsesClaimReader_TC109(t *testing.T) {
+	ctx := context.Background()
+	repoDB := newTestRepoDB(t)
+	container := WireServices(repoDB, t.TempDir())
+
+	question, err := container.QuestionService.CreateQuestion(ctx, services.CreateQuestionInput{
+		Title: "Release decision", Summary: "Choose a rollout", Requester: "owner",
+	})
+	require.NoError(t, err)
+	question, err = container.QuestionService.ConfigureWorkflow(ctx, services.ConfigureWorkflowInput{
+		Key: question.Key, ResolutionOwner: "owner", Responders: []string{"alice"},
+	})
+	require.NoError(t, err)
+	_, err = claimrepo.NewRepository(repoDB).Claim(ctx, &models.EntityClaim{
+		EntityType: string(models.EntityTypeQuestion), EntityKey: question.Key,
+		ClaimedBy: "alice", SessionID: "session-a",
+	})
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	api.NewQuestionHandler(container.QuestionService).RegisterRoutes(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+		"/api/v1/questions/"+question.Key+"/response",
+		strings.NewReader(`{"session":"session-a","responder":"alice","summary":"approved","evidence_pointer":"docs/spec.md"}`)))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("Question response status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+// TC-302: the viewer composition root must resolve both the new Question
+// source and the Tech Debt target through the same generic mutation service.
+// This catches a transport that validates the keys but fails only in the live
+// registry because one of the typed repositories was not wired.
+func TestWireServices_QuestionBlocksResolvesQuestionAndTechDebt_TC302(t *testing.T) {
+	ctx := context.Background()
+	repoDB := newTestRepoDB(t)
+	container := WireServices(repoDB, t.TempDir())
+
+	question, err := container.QuestionService.CreateQuestion(ctx, services.CreateQuestionInput{
+		Title: "Release decision", Summary: "Choose a rollout", Requester: "owner",
+	})
+	require.NoError(t, err)
+
+	techDebtRepo := repository.NewTechDebtRepository(repoDB)
+	techDebt := &models.TechDebt{
+		BaseEntity: models.BaseEntity{Key: "TD-039", Title: "Viewer target inventory"},
+		Status:     models.TechDebtStatus("identified"),
+		Category:   models.TechDebtCategoryCodeQuality,
+		Severity:   models.TechDebtSeverityMedium,
+	}
+	require.NoError(t, techDebtRepo.Create(ctx, techDebt))
+
+	_, err = container.MutationService.CreateRelationship(ctx, question.Key, techDebt.Key, string(models.EntityRelQuestionBlocks))
+	require.NoError(t, err)
 }
 
 // TestWireServices_ConstructsTagService verifies that WireServices returns a

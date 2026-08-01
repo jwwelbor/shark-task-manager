@@ -80,6 +80,8 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	case "sprint":
 		return runSprintGet(cmd, []string{key})
+	case "question":
+		return runQuestionGet(cmd, []string{key})
 
 	default:
 		// Should never happen

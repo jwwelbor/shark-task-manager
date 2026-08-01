@@ -440,3 +440,31 @@ func TestMutationService_NoteAndRelationshipDelegates(t *testing.T) {
 		}
 	})
 }
+
+// TC-302: the resolver used by the viewer relationship transport must classify
+// the complete, explicitly approved Question gate target vocabulary.
+func TestResolveMutationKey_QuestionBlockEligibleTargets_TC302(t *testing.T) {
+	tests := []struct {
+		key      string
+		wantType models.EntityType
+		wantKey  string
+	}{
+		{key: "E39", wantType: models.EntityTypeEpic, wantKey: "E39"},
+		{key: "e39-f03", wantType: models.EntityTypeFeature, wantKey: "E39-F03"},
+		{key: "e39-f03-003", wantType: models.EntityTypeTask, wantKey: "T-E39-F03-003"},
+		{key: "b039", wantType: models.EntityTypeBug, wantKey: "B039"},
+		{key: "cc-039", wantType: models.EntityTypeChange, wantKey: "CC-039"},
+		{key: "td-039", wantType: models.EntityTypeTechDebt, wantKey: "TD-039"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			gotType, gotKey, err := resolveMutationKey(tt.key)
+			if err != nil {
+				t.Fatalf("TC-302 resolveMutationKey(%q) error = %v", tt.key, err)
+			}
+			if gotType != tt.wantType || gotKey != tt.wantKey {
+				t.Fatalf("TC-302 resolveMutationKey(%q) = (%q, %q), want (%q, %q)", tt.key, gotType, gotKey, tt.wantType, tt.wantKey)
+			}
+		})
+	}
+}

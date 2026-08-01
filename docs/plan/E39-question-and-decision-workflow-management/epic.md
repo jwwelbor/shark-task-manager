@@ -1,198 +1,148 @@
 ---
 epic_key: E39
 title: Question and Decision Workflow Management
-description: Introduce first-class Question entities for routed, serially answered, blocking questions with authoritative resolution records; discovered while reviewing E38-F09 live-question gaps.
+description: A first-class, serial Question workflow that preserves accountable answers and blocks only the work explicitly waiting on them.
+open_questions:
+  - "Which roles may create, claim, respond to, resolve, withdraw, or supersede a Question, and how are those roles authenticated or authorized?"
+  - "What key prefix, workflow state/outcome names, exact context schema limits, relationship types, and gate timing best fit existing Shark conventions?"
+  - "Which CLI/API/viewer/search/reporting surfaces are required for the first release, and which are deferred?"
+  - "What telemetry source, baseline, target, release cohort, and accountable owner should govern post-release adoption and time-to-resolution metrics?"
 ---
 
 # Question and Decision Workflow Management
 
 **Epic Key**: E39
 
-## Goal
+This document is E39's single source of business context. Feature specifications
+must reference it for the problem, goals, boundaries, constraints, stakeholders,
+and epic-level UAT rather than restating them. Detailed, traceable requirements
+are in [Requirements](./requirements.md); explicit exclusions are in
+[Scope](./scope.md); role context, journeys, and measurement are in
+[Personas](./personas.md), [User Journeys](./user-journeys.md), and
+[Success Metrics](./success-metrics.md).
 
-Give teams a dependable way to raise, route, answer, and resolve questions that
-otherwise disappear in worker output or at the end of Markdown files. A question
-must stay visible until an accountable responder resolves it, and a blocking
-question must prevent only the work it explicitly blocks from moving forward.
+## 1. Problem Statement and Business Justification
 
-This epic creates a first-class **Question** entity. It reuses Shark's existing
-workflow, keyed dispatch, claims, notes, context, relationship, history, and
-search patterns instead of creating another council-only queue or runtime engine.
+People and AI workers can discover a question that needs a specific responder,
+but Shark currently has no accountable, queryable record that keeps the question
+visible through answer and resolution. A note or report can preserve prose, but
+cannot reliably state who must answer, whether the issue is still open, which
+work is blocked, or where a consequential decision was recorded. The result is
+lost decisions, unnecessary context recovery, and either premature advancement
+or overly broad blocking.
 
-## Problem
+E39 provides a first-class Question entity with a serial responder workflow and
+an explicit owner resolution. It reuses Shark's existing entity, workflow,
+claim, note, context, relationship, history, search, and keyed-dispatch
+capabilities. The business value is high: the capability makes a bounded answer
+queue visible to humans and agents, preserves decision provenance, and limits a
+blocking question to the linked work that actually depends on it.
 
-Agents and people frequently discover questions that need another persona or an
-owner to answer. Today, they can be written as notes or appended to a report,
-but neither form reliably provides all of the following:
+## 2. Goals and Success Criteria
 
-- an accountable recipient;
-- a compact view of outstanding questions;
-- a distinction between open and resolved questions;
-- a way to request several perspectives without losing progress;
-- a gate that exposes a blocking question before linked work advances; and
-- a durable record of where the final answer belongs.
+### Goals
 
-E38-F09 made this gap concrete. Its live-worker protocol can receive a bounded
-question, but the UAT review showed that a question needs a parent-owned
-lifecycle and a durable route to an answer. E39 generalizes that product need;
-it is not a reimplementation of F09's provider-adapter repair.
+1. Give a requester an accountable, durable Question record instead of relying
+   on transient worker output or unstructured notes.
+2. Enable multiple requested perspectives without concurrent writes by routing
+   exactly one pending responder at a time under the existing claim lifecycle.
+3. Prevent a linked entity from advancing only when it has an open, explicitly
+   blocking Question; do not block unrelated work.
+4. Require a resolver to classify a consequential answer and point to its
+   authoritative destination before resolution.
 
-## Approved direction from discovery
+### Release success criteria
 
-The following direction was agreed during discovery and is the starting point
-for refinement. It is not an implementation plan or acceptance approval.
+The release is successful only when all of the following are demonstrated by
+automated coverage and the UAT scenarios in section 6:
 
-### Model questions as entities
+- A Question can be created, opened, listed, retrieved, linked, claimed,
+  serially answered, and resolved with its history preserved.
+- At no time can two responders hold an active claim for the same Question, and
+  the next dispatch selects only the first pending responder.
+- An unresolved blocking Question stops advancement of each explicitly linked
+  entity; an unresolved Question has no effect on an entity without that link.
+- Every resolved Question has a `resolution_kind` and a valid pointer to the
+  required durable record when its answer changes requirements, product
+  direction, architecture, or implementation work.
+- Question context rejects prompt text, transcripts, credentials, and response
+  content beyond the documented bound; long material is retained by typed note
+  or authoritative document pointer instead.
 
-A Question is a top-level Shark entity, analogous to a bug or change card. It
-has its own key, workflow, claim lifecycle, history, notes, context, and links
-to one or more affected epics, features, tasks, bugs, change cards, or other
-Questions where the relationship is valid.
+Post-release adoption and elapsed-time targets are intentionally not set: no
+baseline, telemetry source, release cohort, or accountable metric owner has
+been supplied. Those are deferred open questions, not assumed product facts.
 
-The entity is the coordination record. It is not automatically a work item.
-When an answer reveals implementation work, the resolver creates or links the
-appropriate task, bug, change card, tech-debt item, feature, or epic.
+## 3. Scope
 
-### Reuse the PR-review interaction shape
+### In scope
 
-Use a Question in the same way a team uses a pull request:
+- A generic top-level Question entity with a key, workflow, claims, history,
+  notes, structured context, relationships, search, CLI/query surfaces, and
+  keyed dispatch.
+- Serial responder routing stored in structured `question_state`, including
+  responder identity/state, bounded response summaries, evidence pointers, and
+  owner resolution readiness.
+- Focused read views for open Questions by recipient and by entity blocked.
+- A precise advancement gate that consults only open, blocking Questions linked
+  to the entity being dispatched or advanced.
+- Resolution classification and durable-record validation for consequential
+  answers, with links to created follow-up Shark work where applicable.
 
-| Question concept | Comparable review concept |
-|---|---|
-| Question entity | Pull request |
-| Current claimant | Maintainer performing the current action |
-| Requested responders | Requested reviewers |
-| Bounded responses | Reviews or comments |
-| Resolution | Merge or close decision |
-| Blocking link | Required approval before merge |
+### Out of scope
 
-The first version deliberately uses **serial** responses. A claimant has the
-Question checked out while responding, so no other responder can update its
-state concurrently. That trades parallel response collection for a simpler,
-safer implementation that reuses existing claim behavior.
+The exclusions and their rationale are authoritative in [Scope](./scope.md).
+They include repairing E38-F09's current adapter/continuation defects,
+unbounded conversational storage, worker-owned transitions on linked work,
+global blocking, and implementation work created before E39 is refined and
+decomposed.
 
-### Keep responder state in entity context
+## 4. Constraints and Assumptions
 
-Use structured `question_state` context for responder routing and bounded
-results. Do not overload free-form notes or unrelated context fields such as
-`implementation_decisions`.
+- E39 must reuse existing workflow, keyed dispatch, claim, relationship,
+  context, note, history, and search patterns; it must not introduce a parallel
+  council queue, runtime, workflow engine, or claim store.
+- One Question has at most one active claimant. Responses are intentionally
+  serial in the first release; parallel collection is not implied.
+- `question_state` is structured, bounded coordination state. Prompts,
+  transcripts, credentials, and unbounded worker output are forbidden there.
+- A Question is a coordination record, not automatic implementation work. A
+  resolver creates or links a task, bug, change card, tech-debt item, feature,
+  or epic only when the answer reveals such work.
+- The exact key format, workflow labels/outcomes, role-routing policy, context
+  schema limits, authorization model, API/viewer form, search/reporting shape,
+  relationship semantics, and gate timing remain design decisions. They must
+  not be treated as settled by this PRD.
+- E39 is likely to decompose into three or more features because it spans entity
+  registration, workflow/claims, advancement gates, and read/query surfaces.
+  The design phase must create `E39-interaction-map.md` from the interaction-map
+  template, assigning I-## identifiers only after each cross-feature shape
+  resolves to an `architecture.md` section. No I-## identifiers are assigned in
+  this PRD.
+- Document-set decision: personas, journeys, and success metrics are included
+  because human owners, assigned responders, and agent workers have distinct
+  workflows and the release claims verifiable outcomes. No optional PRD detail
+  document is excluded.
 
-Illustrative shape:
+## 5. Stakeholder Impact
 
-```json
-{
-  "question_state": {
-    "blocking": true,
-    "linked_entities": ["E38-F09", "T-E38-F09-003"],
-    "owner_role": "architect",
-    "responders": [
-      {"role": "architect", "state": "pending"},
-      {"role": "developer", "state": "pending"},
-      {"role": "qa", "state": "pending"}
-    ],
-    "responses": []
-  }
-}
-```
+| Stakeholder | Impact | Required outcome |
+|---|---|---|
+| Requester (human or agent) | Can create a durable question and see its owner, state, links, and final record. | The question does not disappear into a report or chat transcript. |
+| Requested responder | Receives one scoped Question at a time and can provide a bounded answer with evidence. | The responder knows what requires action without scanning unrelated history. |
+| Resolution owner | Classifies the answer and records consequential decisions in the correct authoritative location. | Closure has accountable provenance rather than a free-form “done” note. |
+| Linked-work owner | Sees only Questions that explicitly block that work. | Relevant work pauses safely; unrelated work continues. |
+| Shark maintainer and API/CLI consumer | Gains a new supported entity and query surface that must follow established platform conventions. | Existing entity and workflow behavior remains intact. |
 
-Store only concise response summaries and evidence pointers in context. Store a
-long response or a material record in a typed note or authoritative document,
-then retain its pointer. Never store prompts, transcripts, credentials, or
-unbounded worker output in Question context.
+## 6. High-Level Acceptance Criteria (UAT Scenarios)
 
-### Route one responder at a time
+| ID | Scenario | Demonstrable outcome |
+|---|---|---|
+| UAT-01 | A requester opens a blocking Question linked to one feature and one task. | The Question is discoverable by recipient and by each linked entity, with its blocking flag and links visible. |
+| UAT-02 | Three responders are requested for one Question. | Only the first pending responder receives dispatch while claimed; after a successful bounded response and release, exactly the next pending responder becomes eligible. |
+| UAT-03 | A linked entity is ready to advance while its open blocking Question remains unresolved. | That entity is stopped with a compact Question summary; a different, unlinked entity remains eligible to advance. |
+| UAT-04 | A responder supplies an answer that changes feature behavior. | The resolver selects the applicable resolution kind, updates the authoritative feature specification, records its pointer, and only then resolves the Question. |
+| UAT-05 | A responder attempts to save a transcript, prompt, credential, or over-limit content in Question context. | Validation rejects the content and directs durable long-form material to a typed note or authoritative record pointer. |
+| UAT-06 | An answer identifies implementation work rather than a durable decision. | The resolver links a newly created or existing Shark work item and preserves the Question resolution history without automatically mutating linked work. |
 
-`shark question next <key>` should identify the first pending responder in
-`question_state` and render that responder's scoped prompt. A successful
-response records a bounded result, marks that responder complete, releases the
-claim, and either routes the next responder or makes the Question ready for an
-owner's resolution.
-
-The intended lifecycle is:
-
-```text
-draft → open → awaiting input → ready for resolution → resolved
-                         ↘ withdrawn or superseded
-```
-
-The exact workflow names and outcome map remain design work. The invariants do
-not: one active claimant at a time, serial responder routing, explicit owner
-resolution, and no silent disappearance of an unresolved blocking question.
-
-## Expose outstanding questions without flooding context
-
-Agents must not scan every note, report, or historical question before they
-work. The open Question view is the source for outstanding work:
-
-```text
-shark question list --status open --recipient <role>
-shark question list --blocks <entity-key>
-shark question get <question-key>
-```
-
-These command names illustrate the required read model; the final CLI design is
-not yet decided. Before a linked entity dispatches or advances, the parent
-checks only its open blocking Questions. A prompt receives a compact summary
-(identifier, recipient, blocking state, one-line question, and record pointer)
-and reads the full record only when it is the assigned responder.
-
-Question notes remain useful as backlinks and search anchors. They are not the
-source of truth for whether a Question is open or resolved.
-
-## Resolve questions into authoritative records
-
-Answering a Question is not sufficient. Before resolution, the workflow must
-classify the answer and verify its durable destination:
-
-| Resolution kind | Required destination |
-|---|---|
-| Local clarification with no lasting contract change | Question context and a concise linked entity note |
-| Feature behavior, requirements, or acceptance change | The authoritative feature specification or feature document |
-| Product direction, priority, sequencing, or owner decision | `docs/product/progress.md` decision log |
-| Shared technical policy or cross-feature architecture | An ADR and affected architecture/spec references |
-| Newly discovered implementation work | A linked Shark task, bug, change card, tech-debt item, feature, or epic |
-| No lasting consequence | A bounded context answer and resolved Question history |
-
-The resolver must provide a `resolution_kind` and record pointer before the
-Question can transition to `resolved`. If an answer changes what the project
-builds, tests, routes, or accepts, the resolver updates the authoritative
-record; a note alone is not enough.
-
-## Scope boundaries
-
-E39 includes the generic Question entity and the platform surfaces necessary to
-use it safely: storage, key parsing, model/service/repository registration,
-workflow configuration, claims, context, relationships, CLI/query surfaces,
-prompt dispatch, and advancement gates.
-
-E39 does not authorize these changes by itself:
-
-- repairing the current F09 native-adapter provenance or live-continuation
-  defects;
-- turning a Question into an unrestricted chat or transcript store;
-- allowing worker-owned workflow transitions or claims on linked work;
-- blocking unrelated entities because an open Question exists elsewhere; or
-- creating implementation tasks before the epic is refined and decomposed.
-
-## Business value
-
-**Rating**: High
-
-The entity gives people and agents a reliable answer queue with ownership,
-history, and precise advancement gates. It prevents decision loss, reduces
-context flooding during resume, and makes the difference between a temporary
-clarification and a durable product or architecture decision explicit.
-
-## Open design work
-
-- Define the Question key format and all entity registration touchpoints.
-- Decide the exact configurable workflow states, outcomes, and role-routing
-  mechanism for serial responders.
-- Define context validation, bounded response size, and evidence-pointer rules.
-- Define relationship semantics and the precise advancement-gate behavior.
-- Define CLI, API/viewer, search, and reporting requirements for open Questions.
-- Specify authorization for creating, claiming, responding to, and resolving a
-  Question, including owner and persona behavior.
-- Decompose the epic without re-scoping the blocked E38-F09 feature.
-
-*Last updated*: 2026-07-30
+*Last Updated*: 2026-07-30

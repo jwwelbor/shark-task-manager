@@ -19,6 +19,7 @@ func TestToModelEntityType(t *testing.T) {
 		{"change_card", "change_card", models.EntityTypeChange, false},
 		{"change", "change", models.EntityTypeChange, false},
 		{"bug", "bug", models.EntityTypeBug, false},
+		{"question", "question", models.EntityTypeQuestion, false},
 		{"invalid", "unknown", "", true},
 	}
 

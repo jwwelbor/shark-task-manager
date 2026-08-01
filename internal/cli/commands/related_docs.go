@@ -6,6 +6,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -73,7 +75,7 @@ Examples:
 }
 
 // dispatchAddDoc links a document to an epic, feature, task, bug, or change-card based on which key is set.
-func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, title, path string) error {
+func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, question, title, path string) error {
 	if epic != "" {
 		if err := cli.GetEpicService().LinkDocument(ctx, epic, title, path); err != nil {
 			return fmt.Errorf("failed to link document to epic: %w", err)
@@ -98,6 +100,13 @@ func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, title
 		}
 		return printDocLinked(title, path, "change-card", change, 0)
 	}
+	if question != "" {
+		doc, err := questionDocumentService(ctx).LinkDocumentByKey(ctx, question, title, path)
+		if err != nil {
+			return fmt.Errorf("failed to link document to question: %w", err)
+		}
+		return printDocLinked(doc.Title, doc.FilePath, "question", question, doc.ID)
+	}
 	doc, err := cli.GetTaskServiceWithDocs().LinkDocument(ctx, task, title, path)
 	if err != nil {
 		return fmt.Errorf("failed to link document to task: %w", err)
@@ -113,14 +122,15 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 	task, _ := cmd.Flags().GetString("task")
 	bug, _ := cmd.Flags().GetString("bug")
 	change, _ := cmd.Flags().GetString("change")
+	question, _ := cmd.Flags().GetString("question")
 
-	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "") + boolInt(bug != "") + boolInt(change != "")
+	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "") + boolInt(bug != "") + boolInt(change != "") + boolInt(question != "")
 	if count != 1 {
 		_ = cmd.Usage()
 		return nil
 	}
 
-	return dispatchAddDoc(cmd.Context(), epic, feature, task, bug, change, title, path)
+	return dispatchAddDoc(cmd.Context(), epic, feature, task, bug, change, question, title, path)
 }
 
 // boolInt converts a bool to 0 or 1.
@@ -154,6 +164,7 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	task, _ := cmd.Flags().GetString("task")
 	bug, _ := cmd.Flags().GetString("bug")
 	change, _ := cmd.Flags().GetString("change")
+	question, _ := cmd.Flags().GetString("question")
 	ctx := cmd.Context()
 
 	if epic != "" {
@@ -177,6 +188,12 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 		_ = cli.GetChangeCardService().UnlinkDocument(ctx, change, title)
 		return printDocUnlinked(title, "change-card", change)
 	}
+	if question != "" {
+		if err := questionDocumentService(ctx).UnlinkDocumentByKey(ctx, question, title); err != nil {
+			return fmt.Errorf("unlink document from question %s: %w", question, err)
+		}
+		return printDocUnlinked(title, "question", question)
+	}
 
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{"status": "unlinked", "title": title})
@@ -196,7 +213,7 @@ func printDocUnlinked(title, entityType, parentKey string) error {
 }
 
 // dispatchListDocs fetches related documents for the first non-empty entity key.
-func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change string) ([]*models.Document, error) {
+func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change, question string) ([]*models.Document, error) {
 	if epic != "" {
 		docs, err := cli.GetEpicService().ListRelatedDocumentsByKey(ctx, epic)
 		if err != nil {
@@ -225,6 +242,13 @@ func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change stri
 		}
 		return docs, nil
 	}
+	if question != "" {
+		docs, err := questionDocumentService(ctx).ListDocumentsByKey(ctx, question)
+		if err != nil {
+			return nil, fmt.Errorf("question not found: %w", err)
+		}
+		return docs, nil
+	}
 	docs, err := cli.GetTaskServiceWithDocs().ListRelatedDocuments(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("task not found: %w", err)
@@ -239,18 +263,40 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	task, _ := cmd.Flags().GetString("task")
 	bug, _ := cmd.Flags().GetString("bug")
 	change, _ := cmd.Flags().GetString("change")
+	question, _ := cmd.Flags().GetString("question")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	useJSON := jsonOutput || cli.GlobalConfig.JSON
 
-	if epic == "" && feature == "" && task == "" && bug == "" && change == "" {
-		return fmt.Errorf("one of --epic, --feature, --task, --bug, or --change must be specified")
+	if epic == "" && feature == "" && task == "" && bug == "" && change == "" && question == "" {
+		return fmt.Errorf("one of --epic, --feature, --task, --bug, --change, or --question must be specified")
 	}
 
-	docs, err := dispatchListDocs(cmd.Context(), epic, feature, task, bug, change)
+	docs, err := dispatchListDocs(cmd.Context(), epic, feature, task, bug, change, question)
 	if err != nil {
 		return err
 	}
 	return printRelatedDocs(docs, useJSON)
+}
+
+// questionDocumentService reuses the generic document service and the
+// registered Question adapter. It deliberately adds no Question-specific
+// document semantics; the CLI only supplies the missing generic registration.
+func questionDocumentService(ctx context.Context) *services.EntityDocumentService {
+	db, err := cli.GetDB(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for question documents: %v", err))
+	}
+	projectRoot, _ := cli.FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	entityRepo := cli.GetEntityRegistry().MustGetRepository(models.EntityTypeQuestion)
+	return services.NewEntityDocumentService(
+		repository.NewDocumentRepository(db),
+		repository.NewEntityDocumentRepository(db),
+		services.EntityLookupFnFromRepo(entityRepo),
+		projectRoot,
+	)
 }
 
 // printRelatedDocs outputs a list of related documents.
@@ -281,6 +327,7 @@ func init() {
 	relatedDocsAddCmd.Flags().String("task", "", "Task key (e.g., T-E01-F01-001)")
 	relatedDocsAddCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
 	relatedDocsAddCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
+	relatedDocsAddCmd.Flags().String("question", "", "Question key (e.g., Q001)")
 
 	// Add flags for delete command
 	relatedDocsDeleteCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
@@ -288,6 +335,7 @@ func init() {
 	relatedDocsDeleteCmd.Flags().String("task", "", "Task key (e.g., T-E01-F01-001)")
 	relatedDocsDeleteCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
 	relatedDocsDeleteCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
+	relatedDocsDeleteCmd.Flags().String("question", "", "Question key (e.g., Q001)")
 
 	// Add flags for list command
 	relatedDocsListCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
@@ -295,5 +343,6 @@ func init() {
 	relatedDocsListCmd.Flags().String("task", "", "Task key (e.g., T-E01-F01-001)")
 	relatedDocsListCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
 	relatedDocsListCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
+	relatedDocsListCmd.Flags().String("question", "", "Question key (e.g., Q001)")
 	relatedDocsListCmd.Flags().Bool("json", false, "Output in JSON format")
 }

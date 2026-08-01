@@ -237,6 +237,14 @@ func resolveMutationKey(rawKey string) (models.EntityType, string, error) {
 			return "", "", err
 		}
 		return models.EntityTypeTask, key, nil
+	case keys.IsBugKey(upper):
+		return models.EntityTypeBug, upper, nil
+	case keys.IsChangeKey(upper):
+		return models.EntityTypeChange, upper, nil
+	case keys.IsTechDebtKey(upper):
+		return models.EntityTypeTechDebt, upper, nil
+	case keys.NewKeyService().DetectEntityType(upper) == keys.EntityTypeQuestion:
+		return models.EntityTypeQuestion, upper, nil
 	default:
 		return "", "", fmt.Errorf("invalid entity key: %s", rawKey)
 	}

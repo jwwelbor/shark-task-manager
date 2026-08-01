@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,46 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TC-309: every supported non-Question status-advance route must stop at the
+// direct gate before the transition service receives a write request.
+func TestGuardQuestionBlockedStatusAdvance_TC309(t *testing.T) {
+	block := &services.QuestionBlock{QuestionKey: "Q001", Summary: "Release decision", ResolutionOwner: "owner", CurrentResponder: "alice"}
+	checker := questionBlockerFunc(func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+		if key == "Q001" || entityType == models.EntityTypeQuestion {
+			t.Fatalf("Question self-transition must not call the linked-work gate: %s %s", entityType, key)
+		}
+		return block, nil
+	})
+
+	for _, candidate := range []struct {
+		entityType string
+		modelType  models.EntityType
+		key        string
+	}{
+		{"epic", models.EntityTypeEpic, "E39"},
+		{"feature", models.EntityTypeFeature, "E39-F03"},
+		{"task", models.EntityTypeTask, "T-E39-F03-003"},
+		{"bug", models.EntityTypeBug, "B039"},
+		{"change", models.EntityTypeChange, "CC-039"},
+		{"tech_debt", models.EntityTypeTechDebt, "TD-039"},
+	} {
+		t.Run(candidate.entityType, func(t *testing.T) {
+			err := guardQuestionBlockedStatusAdvance(context.Background(), checker, candidate.entityType, candidate.key)
+			var blocked *services.QuestionBlockedError
+			if !errors.As(err, &blocked) {
+				t.Fatalf("TC-309 guard error = %v, want QuestionBlockedError", err)
+			}
+			if blocked.CandidateType != candidate.modelType || blocked.CandidateKey != candidate.key || blocked.QuestionBlock != block {
+				t.Fatalf("TC-309 blocked error = %#v", blocked)
+			}
+		})
+	}
+
+	if err := guardQuestionBlockedStatusAdvance(context.Background(), checker, "question", "Q001"); err != nil {
+		t.Fatalf("TC-310 Question self-transition guard error = %v", err)
+	}
+}
 
 // mapEntityHistoryToEntries converts EntityHistory records to StatusHistoryEntry slices.
 // Shared helper to avoid copy-pasting this mapping across tests.

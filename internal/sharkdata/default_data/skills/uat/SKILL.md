@@ -25,9 +25,9 @@ outputs:
   - results_document: markdown written to results_path
   - rejected_tasks: list of {task_id, classification: "AC Violation" | "Spec Gap", defect_class, unmet_criteria, fix_required}
   - non_blocking_findings: list of {description, codex_severity, ac_or_location_ref} ready for triage routing
-  - approved_task_ids: list of task IDs the user approved
+  - approved_task_ids: list of task IDs approved for completion (owner-ratified when owner review is on; derived from the Codex verdict otherwise)
 user_invocable: false
-version: 3.0.0
+version: 3.1.0
 ---
 
 # User Acceptance Testing (UAT)
@@ -125,16 +125,14 @@ Build the UAT report containing:
 
 **Do NOT add Claude's opinion, agreement/disagreement analysis, or recommendations.** The report presents evidence + Codex assessment for the human to review.
 
-### Step 5 — Human review (present and get verdict)
+### Step 5 — Owner review (config-gated)
 
-Present the report to the user. The user reviews evidence + Codex's assessment, then makes the final judgment. The user may:
+Whether a human ratifies the verdict before completion is a **project configuration decision**, not a skill default. Resolve the mode from the project's `.sharkconfig.json` `require_owner_approval` field:
 
-- **Approve all** — proceed to mark tasks completed (only after explicit approval).
-- **Reject specific scenarios** — record which and why.
-- **Request re-review** — if evidence is insufficient.
-- **Override Codex** — user judgment is final.
+- **Owner review ON** — the field is `true` or lists this entity's workflow level. Do not ask for approval in-session; release the Codex verdict as the recommended outcome and let the workflow park the entity at its owner-approval step. The owner reviews the written report there and releases pass (complete) or fail (rework) via a status advance. The owner may override Codex in either direction — owner judgment is final.
+- **Owner review OFF** — the field is absent, `false`, or does not list this level. The Codex verdict is final: do not stop to ask. Map the verdict to the outcome per the Verdict rules and populate `approved_task_ids` with every passing task. The report and results documents are the owner's asynchronous audit trail.
 
-Use a question-asking mechanism appropriate to the host (for example, a host-provided question tool or a direct CLI prompt). Never auto-approve.
+In both modes, the Step 4 report is written **before** any outcome is released — asynchronous owner review must always be possible. If the user interactively asks to review or override at any point, their judgment is final regardless of mode.
 
 ### Step 6 — Record results and update state
 
@@ -146,7 +144,7 @@ Write a session results document to `results_path` containing:
 - User's per-scenario decisions.
 - Approved task IDs.
 
-**Do NOT auto-complete tasks.** Tasks are marked completed only after explicit user approval — the host workflow handles the actual state transition (this skill returns `approved_task_ids`).
+**This skill never transitions state itself.** It returns `approved_task_ids`; the host workflow performs the actual transitions. Whether a human ratifies before completion is governed by the owner-review mode (Step 5), not by this skill.
 
 ### Step 7 — Route rejections (per-task classification)
 
@@ -210,8 +208,8 @@ The severity→verdict mapping is **pinned** so verdicts are comparable across r
 
 Full verdict set:
 
-- **Accept** — Codex returns Accept; user approves all scenarios.
-- **Accept with Conditions** — Codex found MEDIUM-severity issues only; user approves but the conditions become tracked work (handled via `non_blocking_findings`).
+- **Accept** — Codex returns Accept (ratified by the owner at the owner-approval gate when owner review is on).
+- **Accept with Conditions** — Codex found MEDIUM-severity issues only; the conditions become tracked work (handled via `non_blocking_findings`).
 - **Reject** — any CRITICAL/HIGH or blocking finding; or user rejects specific scenarios.
 - **Insufficient Evidence** — Codex failed to complete OR evidence file is incomplete/missing key artifacts. Stop — do not present to user; instead, return a summary of what's missing.
 
@@ -233,5 +231,5 @@ Full verdict set:
 - **Evidence collection is not analysis.** Don't editorialize.
 - **Codex is the sole assessor.** Never skip.
 - **No Claude opinion in the report.** The user makes the call from evidence + Codex assessment.
-- **No auto-complete.** Tasks transition only after explicit user approval.
+- **No state changes from this skill.** The host workflow transitions; the `require_owner_approval` config decides whether a human ratifies first.
 - **Every non-blocking finding gets triaged.** Otherwise it's invisible.

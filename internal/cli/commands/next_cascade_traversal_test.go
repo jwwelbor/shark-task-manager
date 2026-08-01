@@ -93,3 +93,55 @@ func TestResolveNextTraversesMultiLevelCascadeAndRecordsResolvedVia(t *testing.T
 	require.Equal(t, "spawn_agent", resp.Action)
 	require.Equal(t, []string{"E01", "E01-F01"}, resp.ResolvedVia)
 }
+
+// TC-103: cascade resolution must treat a ready Question as parked before
+// responder rendering, then leave its parent paused rather than surfacing the
+// child as a broken worker dispatch.
+func TestResolveNextCascadeSkipsReadyQuestionBeforeResponderRendering_TC103(t *testing.T) {
+	originalDescribe := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = originalDescribe }()
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		if entityType == "feature" && key == "E01-F01" {
+			return services.PlanHierarchyChildrenState{
+				Children: []services.PlanHierarchyChild{{Key: "Q001", EntityType: models.EntityTypeQuestion}}, TotalChildren: 1, NonTerminalChildren: 1,
+			}, nil
+		}
+		return services.PlanHierarchyChildrenState{}, nil
+	}
+	questionPlaceholderCalls := 0
+	questionActionCalls := 0
+	cache := &nextAdapterCache{entries: map[string]*nextAdapters{
+		"feature": {
+			transitioner: keyedByEntityTransitioner{statuses: map[string]string{"E01-F01": "active"}},
+			generator:    fixedNextPlaceholders{vars: map[string]string{}},
+			actionSvc: &action.MockActionService{GetStatusActionPopulatedFunc: func(_ context.Context, status string, _ map[string]string) (*action.PopulatedAction, error) {
+				if status != "active" {
+					t.Fatalf("parent action status = %q", status)
+				}
+				return &action.PopulatedAction{Action: "cascade", Instruction: "delegate"}, nil
+			}},
+		},
+		"question": {
+			transitioner: nextStatusOnlyTransitioner{next: &services.NextStatusInfo{EntityType: models.EntityTypeQuestion, EntityKey: "Q001", CurrentStatus: "ready_for_resolution", IsTerminal: true}},
+			generator: runnerPlaceholderFunc(func(context.Context, string) (map[string]string, error) {
+				questionPlaceholderCalls++
+				return nil, context.Canceled
+			}),
+			actionSvc: &action.MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*action.PopulatedAction, error) {
+				questionActionCalls++
+				return nil, context.Canceled
+			}},
+		},
+	}}
+
+	resp, err := resolveNext(context.Background(), cache, "feature", "E01-F01", 0)
+	if err != nil {
+		t.Fatalf("resolveNext(cascade ready Question) error = %v", err)
+	}
+	if resp.EntityKey != "E01-F01" || resp.Action != action.ActionPause || resp.Prompt != "" {
+		t.Fatalf("resolveNext(cascade ready Question) = %#v, want paused parent", resp)
+	}
+	if questionPlaceholderCalls != 0 || questionActionCalls != 0 {
+		t.Fatalf("cascade ready Question rendered placeholders=%d actions=%d, want neither", questionPlaceholderCalls, questionActionCalls)
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
+	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -177,6 +178,14 @@ type ViewerTechDebtRepository interface {
 	CountByStatus(ctx context.Context) (map[string]int, error)
 }
 
+// ViewerQuestionRepository resolves Question records for the existing generic
+// viewer read paths. It deliberately exposes no focused Question query API;
+// F01 only extends the established key-based viewer surfaces.
+type ViewerQuestionRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Question, error)
+	List(ctx context.Context, filter questionrepo.QuestionListFilter) ([]*models.Question, error)
+}
+
 // TagReader is the narrow consumer contract that ViewerService needs from TagService.
 // *services.TagService satisfies it. Defined here so the viewer service can be tested
 // with an in-memory mock without importing the full tag package chain.
@@ -297,6 +306,7 @@ type HierarchyEpic struct {
 type HierarchyResponse struct {
 	ProjectName string           `json:"project_name"`
 	Epics       []*HierarchyEpic `json:"epics"`
+	Questions   []*FlatEntity    `json:"questions,omitempty"`
 	Bugs        []*FlatEntity    `json:"bugs,omitempty"`
 	ChangeCards []*FlatEntity    `json:"change_cards,omitempty"`
 	TechDebts   []*FlatEntity    `json:"tech_debts,omitempty"`
@@ -535,6 +545,7 @@ type ViewerService struct {
 	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
 	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
 	techDebtRepo       ViewerTechDebtRepository          // optional; used by Summary and Hierarchy for tech-debt flat list
+	questionRepo       ViewerQuestionRepository          // optional; used by generic key-based viewer reads
 	tagSvc             TagReader                         // optional; used by Tags, Hierarchy, FeatureTasks (REQ-F-015)
 	sprintSvc          ViewerSprintService               // optional; used by Sprint Overview and Plan
 	sprintAnalyticsSvc ViewerSprintAnalyticsService      // optional; used by Sprint Report
@@ -627,6 +638,12 @@ func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository)
 // History, File, and RelatedDocs. Call after NewViewerService; safe to skip.
 func (s *ViewerService) WithTechDebtRepo(r ViewerTechDebtRepository) {
 	s.techDebtRepo = r
+}
+
+// WithQuestionRepo wires the optional typed Question repository into the
+// existing History, File, Notes, and RelatedDocs viewer paths.
+func (s *ViewerService) WithQuestionRepo(r ViewerQuestionRepository) {
+	s.questionRepo = r
 }
 
 // WithTagService wires the optional tag reader used by Tags, Hierarchy, and FeatureTasks.
@@ -1117,8 +1134,9 @@ func parseViewerRelationships(jsonStr string) []ViewerRelatedEntity {
 // (ADR-F06-4, REQ-F-010).  When tagSvc is nil, opts.Tags is silently ignored
 // and every entity DTO carries Tags: []string{} (REQ-F-015, ADR-F06-2).
 //
-// Tag decoration (REQ-F-004): at most 7 calls to tagSvc.AttachedTagNamesByIDs,
-// one per entity type present (epic, feature, task, bug, change, tech debt, idea).
+// Tag decoration (REQ-F-004): at most one call to tagSvc.AttachedTagNamesByIDs
+// per entity type present (epic, feature, task, question, bug, change, tech debt,
+// idea).
 func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*HierarchyResponse, error) {
 	// ── Step 1: Build the unfiltered tree and flat lists ──
 
@@ -1268,9 +1286,30 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 		result.Epics = append(result.Epics, he)
 	}
 
-	// ── Flat sections: bugs, change cards, tech debt, ideas ──
+	// ── Flat sections: Questions, bugs, change cards, tech debt, ideas ──
 	bugSvc := s.workflowSvc.ForLevel(workflow.LevelBug)
 	ccSvc := s.workflowSvc.ForLevel(workflow.LevelChange)
+	questionSvc := s.workflowSvc.ForLevel(workflow.LevelQuestion)
+
+	if s.questionRepo != nil {
+		questions, err := s.listHierarchyQuestions(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("viewer hierarchy: failed to list questions: %w", err)
+		}
+		result.Questions = make([]*FlatEntity, 0, len(questions))
+		for _, question := range questions {
+			meta := questionSvc.GetStatusMetadata(string(question.Status))
+			result.Questions = append(result.Questions, &FlatEntity{
+				Key:         question.Key,
+				Title:       question.Title,
+				Status:      string(question.Status),
+				StatusColor: colorOrGray(meta.Color),
+				Tags:        []string{},
+				Size:        question.Size,
+				dbID:        question.ID,
+			})
+		}
+	}
 
 	if s.bugListRepo != nil {
 		bugs, err := s.bugListRepo.ListAll(ctx, opts.IncludeTerminal)
@@ -1380,6 +1419,24 @@ func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*
 	return result, nil
 }
 
+// listHierarchyQuestions reads the finite Q001-Q999 namespace in repository
+// pages. The hierarchy is the existing generic Viewer entity source, not a
+// focused Question query route; it supplies only the FlatEntity projection.
+func (s *ViewerService) listHierarchyQuestions(ctx context.Context) ([]*models.Question, error) {
+	const pageSize = 100
+	questions := make([]*models.Question, 0)
+	for offset := 0; ; offset += pageSize {
+		page, err := s.questionRepo.List(ctx, questionrepo.QuestionListFilter{Limit: pageSize, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		questions = append(questions, page...)
+		if len(page) < pageSize {
+			return questions, nil
+		}
+	}
+}
+
 // computeHierarchyTagIDSets calls EntityIDsByTags for each entity type in the hierarchy
 // using the AND operator. Returns *UnregisteredTagError unchanged on invalid tag names.
 // (REQ-F-010, AC-T4, TC-AC07-3)
@@ -1388,6 +1445,7 @@ func (s *ViewerService) computeHierarchyTagIDSets(ctx context.Context, tags []st
 		models.EntityTypeEpic,
 		models.EntityTypeFeature,
 		models.EntityTypeTask,
+		models.EntityTypeQuestion,
 		models.EntityTypeBug,
 		models.EntityTypeChange,
 		models.EntityTypeTechDebt,
@@ -1409,7 +1467,7 @@ func (s *ViewerService) computeHierarchyTagIDSets(ctx context.Context, tags []st
 }
 
 // fetchTagsForHierarchy collects entity IDs from the result tree (using the unexported
-// dbID field on FlatEntity) and issues at most 7 batched AttachedTagNamesByIDs calls —
+// dbID field on FlatEntity) and issues at most one batched AttachedTagNamesByIDs call
 // one per entity type present in the response. Non-present types are skipped.
 // Returns a nested map[EntityType]map[ID][]string for O(1) per-entity lookup.
 // (REQ-F-004, AC-16, ADR-F06-1)
@@ -1443,6 +1501,14 @@ func (s *ViewerService) fetchTagsForHierarchy(ctx context.Context, resp *Hierarc
 	fetch(models.EntityTypeFeature, featureIDs)
 
 	// Flat entities — IDs come from the unexported dbID field set during construction.
+	questionIDs := make([]int64, 0, len(resp.Questions))
+	for _, question := range resp.Questions {
+		if question.dbID != 0 {
+			questionIDs = append(questionIDs, question.dbID)
+		}
+	}
+	fetch(models.EntityTypeQuestion, questionIDs)
+
 	bugIDs := make([]int64, 0, len(resp.Bugs))
 	for _, b := range resp.Bugs {
 		if b.dbID != 0 {
@@ -1505,6 +1571,18 @@ func applyTagsToHierarchy(resp *HierarchyResponse, tagsByEntity map[models.Entit
 	}
 
 	// Flat entities: use unexported dbID for lookup.
+	questionMap := tagsByEntity[models.EntityTypeQuestion]
+	for _, question := range resp.Questions {
+		if question.dbID != 0 {
+			if tags, ok := questionMap[question.dbID]; ok {
+				question.Tags = tags
+			}
+		}
+		if question.Tags == nil {
+			question.Tags = []string{}
+		}
+	}
+
 	bugMap := tagsByEntity[models.EntityTypeBug]
 	for _, b := range resp.Bugs {
 		if b.dbID != 0 {
@@ -1591,6 +1669,21 @@ func pruneHierarchy(resp *HierarchyResponse, idSets map[models.EntityType]map[in
 	resp.Epics = prunedEpics
 
 	// Prune flat entities independently using dbID.
+	questionMatchIDs := idSets[models.EntityTypeQuestion]
+	if resp.Questions != nil {
+		prunedQuestions := make([]*FlatEntity, 0, len(resp.Questions))
+		for _, question := range resp.Questions {
+			if question.dbID != 0 {
+				if _, ok := questionMatchIDs[question.dbID]; ok {
+					prunedQuestions = append(prunedQuestions, question)
+				}
+			} else {
+				prunedQuestions = append(prunedQuestions, question) // no ID — pass through (shouldn't happen)
+			}
+		}
+		resp.Questions = prunedQuestions
+	}
+
 	bugMatchIDs := idSets[models.EntityTypeBug]
 	if resp.Bugs != nil {
 		prunedBugs := make([]*FlatEntity, 0, len(resp.Bugs))
@@ -1847,6 +1940,8 @@ func detectEntityType(key string) (models.EntityType, error) {
 		return models.EntityTypeChange, nil
 	case keys.IsTechDebtKey(upper):
 		return models.EntityTypeTechDebt, nil
+	case keys.NewKeyService().DetectEntityType(upper) == keys.EntityTypeQuestion:
+		return models.EntityTypeQuestion, nil
 	}
 	return "", fmt.Errorf("unrecognized entity key format: %q", key)
 }
@@ -1913,6 +2008,19 @@ func (s *ViewerService) resolveEntityID(ctx context.Context, entityType models.E
 			return 0, fmt.Errorf("tech debt %q not found", key)
 		}
 		return td.ID, nil
+
+	case models.EntityTypeQuestion:
+		if s.questionRepo == nil {
+			return 0, fmt.Errorf("question history lookup not available")
+		}
+		question, err := s.questionRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up question %q: %w", key, err)
+		}
+		if question == nil {
+			return 0, fmt.Errorf("question not found: %q", key)
+		}
+		return question.ID, nil
 
 	default:
 		return 0, fmt.Errorf("unsupported entity type for history lookup: %q", entityType)
@@ -2166,6 +2274,19 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 		}
 		if td.FilePath != nil {
 			return *td.FilePath, nil
+		}
+		return "", nil
+
+	case models.EntityTypeQuestion:
+		if s.questionRepo == nil {
+			return "", nil
+		}
+		question, err := s.questionRepo.GetByKey(ctx, key)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up question %q: %w", key, err)
+		}
+		if question != nil && question.FilePath != nil {
+			return *question.FilePath, nil
 		}
 		return "", nil
 

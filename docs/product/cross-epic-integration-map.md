@@ -1,7 +1,7 @@
 ---
 type: cross-epic-integration-map
-last_updated: 2026-07-13
-updated_by: E38 design
+last_updated: 2026-07-30
+updated_by: E39 design
 ---
 # Cross-Epic Integration Map
 
@@ -17,6 +17,7 @@ boundaries. Keep per-epic `I-##` cross-feature interaction maps separate.
 | X-03 | E19 — Sprint Management and Planning | E38 — Shark Attack Team Orchestration | Supply priority/dependency order and workflow-role-aware pull/claim behavior for team members | E38 architecture §4.1 and §4.6; sprint pull/claim contract | Scrum Master monitors sequence while specialists self-pull eligible work; no legacy agent assignment is revived | E38-F04 Shark Attack Skill and Role Protocol | assigned | E38 uat-plan.md UAT-01, UAT-02; tests/contracts/e38_f04_interactions_test.go#TC-003 |
 | X-04 | E23 — OpenTelemetry Observability | E38 — Shark Attack Team Orchestration | Carry run, root, child, wave, claim/session, duration, and outcome context into existing structured telemetry | E38 architecture §6; existing E23 observability contract | Operators can follow a paused or failed handoff without exposing prompts or worker secrets | E38-F05 Reporting and Operator Surface | assigned | E38 uat-plan.md UAT-03, UAT-04, UAT-06, UAT-07 |
 | X-05 | E32 — Shark 2.0 Single-Artifact Consolidation | E38 — Shark Attack Team Orchestration | Distribute `shark-attack`, roster, and communication procedures through embedded Shark-data and replace-only overrides | E38 architecture §2 ADR-007 and §5 Phase 4; E32 embedded bundle contract | Setup explains where the skill and optional private council memory live; refreshed workers see the same versioned procedure | E38-F04 Shark Attack Skill and Role Protocol | assigned | E38 uat-plan.md UAT-08, UAT-09 |
+| X-06 | E39 — Question and Decision Workflow Management (E39-F04) | E38 — Shark Attack Team Orchestration (E38-F09, activation owner) | Supply a durable serial Question lifecycle, scoped blocking visibility, and authoritative resolution for provider-neutral live-question handling | E39 architecture §2–§4; E38-F09 feature.md | One scoped responder prompt; compact blocked-work handoff; Question state rather than chat/council copies supports resume | Producer: E39-F04 Focused Question Read Surfaces and Consumer Handoff; consumer activation: E38-F09 Provider-Neutral Coordination and Live Resume | assigned | E39 uat-plan.md UAT-01–06 and X-06; E38-F09 remains blocked on E39 and must add consumer coverage when resumed |
 
 ## Status values
 
@@ -30,3 +31,5 @@ boundaries. Keep per-epic `I-##` cross-feature interaction maps separate.
 | Date | Updated by | Decision |
 |---|---|---|
 | 2026-07-13 | E38 design | Added X-01 through X-05 for the E22 dispatch seam, E16/E35 workflow routing, E19 role-aware sprint pull, E23 telemetry, and E32 Shark-data distribution. All are assigned to intended E38 feature boundaries and covered by E38 UAT pointers; implementation coverage remains a later gate. |
+| 2026-07-30 | E39 design | Added proposed X-06 for E39's Question lifecycle as E38-F09's future consumer seam; feature/activation ownership and consumer coverage are deferred to decomposition, and no E38 adapter behavior changed. |
+| 2026-07-30 | E39 decomposition | Assigned X-06 producer-facing ownership to E39-F04 and named E38-F09 as the blocked activation consumer. E39 UAT-01–06 plus X-06 verify E39's production-facing contract; E38-F09 retains the consumer-coverage obligation when E39 unblocks it. |

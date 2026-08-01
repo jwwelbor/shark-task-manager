@@ -15,6 +15,7 @@ import (
 	featurepkg "github.com/jwwelbor/shark-task-manager/internal/repository/feature"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/question"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/search"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	taskpkg "github.com/jwwelbor/shark-task-manager/internal/repository/task"
@@ -22,6 +23,17 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/templateenrich"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 )
+
+// --- Question ---
+
+// QuestionRepository is an alias for question.QuestionRepository.
+type QuestionRepository = question.QuestionRepository
+
+// QuestionListFilter is an alias for question.QuestionListFilter.
+type QuestionListFilter = question.QuestionListFilter
+
+// NewQuestionRepository creates a new QuestionRepository.
+var NewQuestionRepository = question.NewQuestionRepository
 
 // --- Idea ---
 
