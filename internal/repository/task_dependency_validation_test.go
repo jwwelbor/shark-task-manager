@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -9,6 +10,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// createTestEpicAndFeature inserts a minimal epic/feature pair directly via
+// SQL and registers cleanup for both rows via t.Cleanup. Returns their IDs.
+func createTestEpicAndFeature(t *testing.T, ctx context.Context, database *sql.DB, epicKey, epicTitle, epicDesc, featureKey, featureTitle, featureDesc string) (epicID, featureID int64) {
+	t.Helper()
+
+	epicResult, err := database.ExecContext(ctx, `
+		INSERT INTO epics (key, title, description, status, priority)
+		VALUES (?, ?, ?, 'active', 'high')
+	`, epicKey, epicTitle, epicDesc)
+	require.NoError(t, err)
+	epicID, err = epicResult.LastInsertId()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) })
+
+	featureResult, err := database.ExecContext(ctx, `
+		INSERT INTO features (epic_id, key, title, description, status)
+		VALUES (?, ?, ?, ?, 'active')
+	`, epicID, featureKey, featureTitle, featureDesc)
+	require.NoError(t, err)
+	featureID, err = featureResult.LastInsertId()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) })
+
+	return epicID, featureID
+}
 
 func TestTaskRepository_ValidateTaskDependencies_Create(t *testing.T) {
 	ctx := context.Background()
@@ -484,6 +511,91 @@ func TestTaskRepository_ValidateTaskDependencies_Update(t *testing.T) {
 	}
 }
 
+// TestTaskRepository_ValidateTaskDependencies_CrossFeature pins the TD-063 fix:
+// a dependency key that exists, but in a different feature, must be reported
+// distinctly from a key that does not exist anywhere. depends_on only
+// supports same-feature dependencies (see ValidateTaskDependencies doc
+// comment) — the error must say so instead of falsely claiming the key
+// "does not exist", which would send a reader chasing a typo that isn't
+// there.
+func TestTaskRepository_ValidateTaskDependencies_CrossFeature(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean up test data first - E99 is feature A (from SeedTestData), E96 is
+	// a second, independent feature standing in for feature B.
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%' OR key LIKE 'T-E96-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN ('E99-F99', 'E96-F01')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E99', 'E96')")
+
+	// Feature A: the standard seeded fixture.
+	_, featureAID := test.SeedTestData()
+	require.NotZero(t, featureAID)
+
+	// Feature B: a second, independent epic/feature pair.
+	_, featureBID := createTestEpicAndFeature(t, ctx, database,
+		"E96", "Test Epic B", "Second test epic",
+		"E96-F01", "Test Feature B", "Second test feature")
+
+	// Task that only exists in feature B.
+	taskInFeatureB := &models.Task{
+		BaseEntity: models.BaseEntity{
+			Key:         "T-E96-F01-001",
+			Title:       "Task in feature B",
+			Description: stringPtr("Task in feature B"),
+		},
+		FeatureID: featureBID,
+		Status:    models.TaskStatus("todo"),
+		Priority:  5,
+		DependsOn: nil,
+	}
+	require.NoError(t, taskRepo.Create(ctx, taskInFeatureB))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskInFeatureB.ID) }()
+
+	t.Run("cross-feature dependency is rejected with an accurate message", func(t *testing.T) {
+		newTask := &models.Task{
+			BaseEntity: models.BaseEntity{
+				Key:         "T-E99-F01-101",
+				Title:       "Task in feature A depending on feature B",
+				Description: stringPtr("Task in feature A"),
+			},
+			FeatureID: featureAID,
+			Status:    models.TaskStatus("todo"),
+			Priority:  5,
+			DependsOn: stringPtr(`["T-E96-F01-001"]`),
+		}
+		defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = ?", newTask.Key) }()
+
+		err := taskRepo.Create(ctx, newTask)
+		require.Error(t, err, "cross-feature dependency must be rejected")
+		assert.Contains(t, err.Error(), "exists in a different feature",
+			"error must explain the dependency exists elsewhere, not claim it doesn't exist")
+		assert.NotContains(t, err.Error(), "dependency does not exist",
+			"error must not falsely claim a real, existing task doesn't exist")
+	})
+
+	t.Run("truly missing dependency keeps the does-not-exist message", func(t *testing.T) {
+		newTask := &models.Task{
+			BaseEntity: models.BaseEntity{
+				Key:         "T-E99-F01-102",
+				Title:       "Task depending on a key that exists nowhere",
+				Description: stringPtr("Task in feature A"),
+			},
+			FeatureID: featureAID,
+			Status:    models.TaskStatus("todo"),
+			Priority:  5,
+			DependsOn: stringPtr(`["T-E99-F01-999"]`),
+		}
+		defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = ?", newTask.Key) }()
+
+		err := taskRepo.Create(ctx, newTask)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dependency does not exist: T-E99-F01-999")
+	})
+}
+
 func TestTaskRepository_GetTaskDependents(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -496,23 +608,11 @@ func TestTaskRepository_GetTaskDependents(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
 
 	// Create test epic and feature directly
-	epicResult, err := database.ExecContext(ctx, `
-		INSERT INTO epics (key, title, description, status, priority)
-		VALUES ('E97', 'Test Epic 97', 'Test epic for dependents', 'active', 'high')
-	`)
-	require.NoError(t, err)
-	epicID, _ := epicResult.LastInsertId()
-
-	featureResult, err := database.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, title, description, status)
-		VALUES (?, 'E97-F01', 'Test Feature 97', 'Test feature', 'active')
-	`, epicID)
-	require.NoError(t, err)
-	featureID, _ := featureResult.LastInsertId()
+	_, featureID := createTestEpicAndFeature(t, ctx, database,
+		"E97", "Test Epic 97", "Test epic for dependents",
+		"E97-F01", "Test Feature 97", "Test feature")
 
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID) }()
-	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) }()
-	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) }()
 
 	// Create test tasks with dependency structure
 	// Task 1 (no dependencies)
@@ -622,7 +722,7 @@ func TestTaskRepository_GetTaskDependents(t *testing.T) {
 		})
 	}
 
-	_, err = database.ExecContext(ctx, `
+	_, err := database.ExecContext(ctx, `
 		INSERT INTO entity_relationships
 			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
 		VALUES ('task', ?, 'task', ?, 'depends_on')
