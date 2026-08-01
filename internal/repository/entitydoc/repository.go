@@ -136,7 +136,7 @@ func (r *EntityDocumentRepository) ListForEntity(ctx context.Context, entityType
 	}
 
 	query := `
-		SELECT d.id, d.title, d.file_path, d.created_at
+		SELECT d.id, d.title, d.file_path, ed.created_at
 		FROM documents d
 		INNER JOIN entity_documents ed ON d.id = ed.document_id
 		WHERE ed.entity_type = ? AND ed.entity_id = ?
