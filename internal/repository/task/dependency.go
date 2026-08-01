@@ -98,10 +98,16 @@ func (r *TaskRepository) ValidateTaskDependencies(ctx context.Context, task *mod
 // dependencies (see ValidateTaskDependencies doc comment), so the message
 // points the caller at the supported alternative.
 func (r *TaskRepository) dependencyNotFoundError(ctx context.Context, dep string) error {
-	if _, err := r.GetByKey(ctx, dep); err == nil {
+	_, err := r.GetByKey(ctx, dep)
+	if err == nil {
 		return fmt.Errorf("dependency %s exists in a different feature: depends_on only supports same-feature dependencies; use 'shark task link --depends-on' to create a cross-feature dependency", dep)
 	}
-	return fmt.Errorf("dependency does not exist: %s", dep)
+	if strings.Contains(err.Error(), "not found") {
+		return fmt.Errorf("dependency does not exist: %s", dep)
+	}
+	// GetByKey failed for a reason other than not-found (e.g. a transient DB
+	// error) — propagate it instead of claiming the dependency doesn't exist.
+	return fmt.Errorf("dependency does not exist: %s (existence check failed: %w)", dep, err)
 }
 
 // BuildDependencyGraphForFeature builds a dependency graph for all tasks in a feature.

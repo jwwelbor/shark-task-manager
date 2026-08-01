@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -9,6 +10,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// createTestEpicAndFeature inserts a minimal epic/feature pair directly via
+// SQL and registers cleanup for both rows via t.Cleanup. Returns their IDs.
+func createTestEpicAndFeature(t *testing.T, ctx context.Context, database *sql.DB, epicKey, epicTitle, epicDesc, featureKey, featureTitle, featureDesc string) (epicID, featureID int64) {
+	t.Helper()
+
+	epicResult, err := database.ExecContext(ctx, `
+		INSERT INTO epics (key, title, description, status, priority)
+		VALUES (?, ?, ?, 'active', 'high')
+	`, epicKey, epicTitle, epicDesc)
+	require.NoError(t, err)
+	epicID, err = epicResult.LastInsertId()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) })
+
+	featureResult, err := database.ExecContext(ctx, `
+		INSERT INTO features (epic_id, key, title, description, status)
+		VALUES (?, ?, ?, ?, 'active')
+	`, epicID, featureKey, featureTitle, featureDesc)
+	require.NoError(t, err)
+	featureID, err = featureResult.LastInsertId()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) })
+
+	return epicID, featureID
+}
 
 func TestTaskRepository_ValidateTaskDependencies_Create(t *testing.T) {
 	ctx := context.Background()
@@ -508,24 +535,9 @@ func TestTaskRepository_ValidateTaskDependencies_CrossFeature(t *testing.T) {
 	require.NotZero(t, featureAID)
 
 	// Feature B: a second, independent epic/feature pair.
-	epicResult, err := database.ExecContext(ctx, `
-		INSERT INTO epics (key, title, description, status, priority)
-		VALUES ('E96', 'Test Epic B', 'Second test epic', 'active', 'high')
-	`)
-	require.NoError(t, err)
-	epicBID, err := epicResult.LastInsertId()
-	require.NoError(t, err)
-
-	featureResult, err := database.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, title, description, status)
-		VALUES (?, 'E96-F01', 'Test Feature B', 'Second test feature', 'active')
-	`, epicBID)
-	require.NoError(t, err)
-	featureBID, err := featureResult.LastInsertId()
-	require.NoError(t, err)
-
-	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureBID) }()
-	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicBID) }()
+	_, featureBID := createTestEpicAndFeature(t, ctx, database,
+		"E96", "Test Epic B", "Second test epic",
+		"E96-F01", "Test Feature B", "Second test feature")
 
 	// Task that only exists in feature B.
 	taskInFeatureB := &models.Task{
@@ -596,23 +608,11 @@ func TestTaskRepository_GetTaskDependents(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
 
 	// Create test epic and feature directly
-	epicResult, err := database.ExecContext(ctx, `
-		INSERT INTO epics (key, title, description, status, priority)
-		VALUES ('E97', 'Test Epic 97', 'Test epic for dependents', 'active', 'high')
-	`)
-	require.NoError(t, err)
-	epicID, _ := epicResult.LastInsertId()
-
-	featureResult, err := database.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, title, description, status)
-		VALUES (?, 'E97-F01', 'Test Feature 97', 'Test feature', 'active')
-	`, epicID)
-	require.NoError(t, err)
-	featureID, _ := featureResult.LastInsertId()
+	_, featureID := createTestEpicAndFeature(t, ctx, database,
+		"E97", "Test Epic 97", "Test epic for dependents",
+		"E97-F01", "Test Feature 97", "Test feature")
 
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID) }()
-	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) }()
-	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) }()
 
 	// Create test tasks with dependency structure
 	// Task 1 (no dependencies)
@@ -722,7 +722,7 @@ func TestTaskRepository_GetTaskDependents(t *testing.T) {
 		})
 	}
 
-	_, err = database.ExecContext(ctx, `
+	_, err := database.ExecContext(ctx, `
 		INSERT INTO entity_relationships
 			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
 		VALUES ('task', ?, 'task', ?, 'depends_on')
