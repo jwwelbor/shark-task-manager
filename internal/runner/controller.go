@@ -552,8 +552,8 @@ func isQuestionResponderPauseCheckpoint(entityType, status string) bool {
 	if entityType != string(models.EntityTypeQuestion) {
 		return false
 	}
-	switch status {
-	case "draft", "open", "answering", "ready_for_resolution":
+	switch models.QuestionStatus(status) {
+	case models.QuestionStatusDraft, models.QuestionStatusOpen, models.QuestionStatusAnswering, models.QuestionStatusReadyForResolution:
 		return true
 	default:
 		return false

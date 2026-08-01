@@ -10,7 +10,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 type questionServicer interface {
@@ -294,24 +293,7 @@ func questionReadPage(cmd *cobra.Command) (int, int, error) {
 }
 
 func validateQuestionListFlags(cmd *cobra.Command) error {
-	var unsupported string
-	cmd.Flags().Visit(func(flag *pflag.Flag) {
-		if unsupported != "" {
-			return
-		}
-		// Root persistent flags control transport/configuration, not Question
-		// filtering. Only a local list flag can violate this list contract.
-		if cmd.LocalFlags().Lookup(flag.Name) == nil {
-			return
-		}
-		if _, ok := questionListFlagNames[flag.Name]; !ok {
-			unsupported = flag.Name
-		}
-	})
-	if unsupported != "" {
-		return fmt.Errorf("unsupported Question list flag --%s", unsupported)
-	}
-	return nil
+	return validateAllowedLocalFlags(cmd, questionListFlagNames, "list")
 }
 func runQuestionUpdate(cmd *cobra.Command, args []string) error {
 	u := services.QuestionUpdates{}

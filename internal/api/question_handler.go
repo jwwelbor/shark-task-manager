@@ -210,26 +210,7 @@ func questionReadPage(query url.Values) (int, int, error) {
 }
 
 func focusedQuestionTarget(rawKey string) (models.EntityType, string, error) {
-	upper := strings.ToUpper(rawKey)
-	keyService := keys.NewKeyService()
-	switch {
-	case keys.IsEpicKey(upper):
-		return models.EntityTypeEpic, keyService.Normalize(upper), nil
-	case keys.IsFeatureKey(upper):
-		return models.EntityTypeFeature, keyService.Normalize(upper), nil
-	case keys.IsShortTaskKey(upper), keys.IsTaskKey(upper):
-		return models.EntityTypeTask, keyService.NormalizeTaskKey(upper), nil
-	case keys.IsBugKey(upper):
-		return models.EntityTypeBug, keyService.Normalize(upper), nil
-	case keys.IsChangeKey(upper):
-		return models.EntityTypeChange, keyService.Normalize(upper), nil
-	case keys.IsTechDebtKey(upper):
-		return models.EntityTypeTechDebt, upper, nil
-	case keyService.DetectEntityType(upper) == keys.EntityTypeQuestion:
-		return "", "", fmt.Errorf("entity_key must not identify a Question")
-	default:
-		return "", "", fmt.Errorf("entity_key is invalid")
-	}
+	return keys.ClassifyQuestionLinkTarget(rawKey)
 }
 
 type questionRequest struct {

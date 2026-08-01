@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // readPriorityIntFromFlag returns the integer value of the --priority flag,
@@ -253,23 +252,5 @@ func validateUnifiedQuestionUpdateFlags(cmd *cobra.Command) error {
 	allowed := map[string]struct{}{
 		"title": {}, "summary": {}, "requester": {}, "description": {}, "blocking": {},
 	}
-	var unsupported string
-	cmd.Flags().Visit(func(flag *pflag.Flag) {
-		if unsupported != "" {
-			return
-		}
-		// Cobra's Flags() is the parsed union of local and inherited flags.
-		// A Question update owns only its local mutation flags; root flags
-		// configure execution and are intentionally outside this contract.
-		if cmd.LocalFlags().Lookup(flag.Name) == nil {
-			return
-		}
-		if _, ok := allowed[flag.Name]; !ok {
-			unsupported = flag.Name
-		}
-	})
-	if unsupported != "" {
-		return fmt.Errorf("unsupported Question update flag --%s", unsupported)
-	}
-	return nil
+	return validateAllowedLocalFlags(cmd, allowed, "update")
 }

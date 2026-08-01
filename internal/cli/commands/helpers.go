@@ -15,6 +15,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // NormalizeKey converts a key to canonical uppercase format.
@@ -1039,6 +1041,29 @@ func handleServiceError(err error, entityType, key string) {
 // The defensive branch ("should never trigger") handles the theoretical case
 // where a non-canonical value somehow reached the model — it falls back to
 // the raw number rather than panicking.
+// validateAllowedLocalFlags rejects the first explicitly-set, command-local
+// flag not present in allowed. Root persistent flags (e.g. --db, --json)
+// configure execution rather than entity mutation/filtering and are excluded
+// via the LocalFlags() lookup below, regardless of what the caller passed.
+func validateAllowedLocalFlags(cmd *cobra.Command, allowed map[string]struct{}, verb string) error {
+	var unsupported string
+	cmd.Flags().Visit(func(flag *pflag.Flag) {
+		if unsupported != "" {
+			return
+		}
+		if cmd.LocalFlags().Lookup(flag.Name) == nil {
+			return
+		}
+		if _, ok := allowed[flag.Name]; !ok {
+			unsupported = flag.Name
+		}
+	})
+	if unsupported != "" {
+		return fmt.Errorf("unsupported Question %s flag --%s", verb, unsupported)
+	}
+	return nil
+}
+
 func formatSize(s *int) string {
 	if s == nil {
 		return "—"
