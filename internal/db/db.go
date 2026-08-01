@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/searchindex"
 	_ "modernc.org/sqlite"
 )
@@ -1258,11 +1259,46 @@ func migrateQuestionsTable(db *sql.DB) error {
 }
 
 // migrateQuestionDraftsToOpen forward-corrects only predecessor F01 Question
-// rows. It is intentionally a single additive update: no state is synthesized
-// and no context, association, history, or claim row is read or overwritten.
+// rows that already carry a configured question_state -- those were "open"
+// under the F02+ model and only read "draft" because F01 predates the
+// distinction. A draft row with no decodable question_state is a genuinely
+// unconfigured Question under the current model (ConfigureWorkflow hasn't
+// run yet) and must stay "draft": promoting it to "open" without state would
+// later make ListOpenQuestionsByResponder fail to decode it and abort its
+// entire response for every responder. It is intentionally a single
+// additive update: no state is synthesized and no context, association,
+// history, or claim row is read or overwritten.
 func migrateQuestionDraftsToOpen(db *sql.DB) error {
-	if _, err := db.Exec(`UPDATE questions SET status = 'open' WHERE status = 'draft'`); err != nil {
-		return fmt.Errorf("convert Question draft records to open: %w", err)
+	rows, err := db.Query(`SELECT id, context_data FROM questions WHERE status = 'draft'`)
+	if err != nil {
+		return fmt.Errorf("find predecessor Question draft records: %w", err)
+	}
+	var configuredIDs []int64
+	for rows.Next() {
+		var id int64
+		var contextData sql.NullString
+		if err := rows.Scan(&id, &contextData); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan predecessor Question draft record: %w", err)
+		}
+		var cd *string
+		if contextData.Valid {
+			cd = &contextData.String
+		}
+		if state, decodeErr := models.DecodeQuestionState(cd); decodeErr == nil && state != nil {
+			configuredIDs = append(configuredIDs, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate predecessor Question draft records: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close predecessor Question draft record cursor: %w", err)
+	}
+	for _, id := range configuredIDs {
+		if _, err := db.Exec(`UPDATE questions SET status = 'open' WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("convert Question draft record %d to open: %w", id, err)
+		}
 	}
 	return nil
 }

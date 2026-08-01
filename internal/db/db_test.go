@@ -905,15 +905,27 @@ func TestMigration_QuestionsSchemaArtifactsAndRetryPreservePredecessorData(t *te
 	}
 }
 
-// TC-101: the F02 migration changes only the predecessor draft state. It must
-// preserve the exact context bytes and leave unrelated association/claim rows
-// intact when applied repeatedly.
+// TC-101: the F02 migration promotes only predecessor draft rows that already
+// carry a configured question_state (F01 predates the open/draft distinction,
+// so those rows are "open" under the current model in all but name). It must
+// preserve the exact context bytes, leave unrelated association/claim rows
+// intact, apply idempotently, and -- critically -- leave a genuinely
+// unconfigured draft (no question_state) alone: promoting that row to "open"
+// without state would later make ListOpenQuestionsByResponder fail to decode
+// it and abort its entire response for every responder.
 func TestMigration_QuestionDraftsBecomeOpenAndPreservePredecessorData_TC101(t *testing.T) {
 	database, err := InitDB(t.TempDir() + "/question-state-migration.db")
 	require.NoError(t, err)
 	defer database.Close()
-	contextData := `{"metadata":{"existing":"preserve"}}`
-	_, err = database.Exec(`INSERT INTO questions (key, title, status, summary, requester, context_data) VALUES ('Q001', 'Question', 'draft', 'Summary', 'owner', ?), ('Q002', 'Control', 'archived', 'Summary', 'owner', '{}')`, contextData)
+	configuredState := models.QuestionState{ResolutionOwner: "owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderPending}}}
+	configuredEncoded, err := models.EncodeQuestionState(nil, configuredState)
+	require.NoError(t, err)
+	contextData := *configuredEncoded
+	unconfiguredContext := `{"metadata":{"existing":"preserve"}}`
+	_, err = database.Exec(`INSERT INTO questions (key, title, status, summary, requester, context_data) VALUES
+		('Q001', 'Question', 'draft', 'Summary', 'owner', ?),
+		('Q002', 'Control', 'archived', 'Summary', 'owner', '{}'),
+		('Q003', 'Unconfigured', 'draft', 'Summary', 'owner', ?)`, contextData, unconfiguredContext)
 	require.NoError(t, err)
 	var questionID int64
 	require.NoError(t, database.QueryRow(`SELECT id FROM questions WHERE key = 'Q001'`).Scan(&questionID))
@@ -925,8 +937,10 @@ func TestMigration_QuestionDraftsBecomeOpenAndPreservePredecessorData_TC101(t *t
 	require.NoError(t, migrateQuestionDraftsToOpen(database))
 	assertQuestionStateMigrationSnapshot(t, database, "Q001", "open", contextData, 1, 1)
 	assertQuestionStateMigrationSnapshot(t, database, "Q002", "archived", "{}", 0, 0)
+	assertQuestionStateMigrationSnapshot(t, database, "Q003", "draft", unconfiguredContext, 0, 0)
 	require.NoError(t, migrateQuestionDraftsToOpen(database))
 	assertQuestionStateMigrationSnapshot(t, database, "Q001", "open", contextData, 1, 1)
+	assertQuestionStateMigrationSnapshot(t, database, "Q003", "draft", unconfiguredContext, 0, 0)
 }
 
 func assertQuestionStateMigrationSnapshot(t *testing.T, database *sql.DB, key, wantStatus, wantContext string, wantClaims, wantHistory int) {
