@@ -449,14 +449,7 @@ func (h *QuestionHandler) GetNextStatus(w http.ResponseWriter, r *http.Request) 
 // POST /api/v1/questions/{key}/transition
 func (h *QuestionHandler) TransitionStatus(w http.ResponseWriter, r *http.Request) {
 	var req TransitionStatusRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if err := rejectTrailingJSON(decoder); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if !decodeQuestionOperation(w, r, &req) {
 		return
 	}
 	if req.TargetStatus == "" {
@@ -518,10 +511,10 @@ func (h *QuestionHandler) ListQuestions(w http.ResponseWriter, r *http.Request) 
 	}
 	qs, err := h.svc.ListQuestions(r.Context(), f)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		handleServiceError(w, err, "question")
 		return
 	}
-	respondJSON(w, http.StatusOK, projectQuestions(qs))
+	respondJSON(w, http.StatusOK, models.ProjectQuestions(qs))
 }
 
 func validateQuestionListQuery(query url.Values) error {
@@ -534,14 +527,7 @@ func validateQuestionListQuery(query url.Values) error {
 }
 func (h *QuestionHandler) UpdateQuestion(w http.ResponseWriter, r *http.Request) {
 	var req questionUpdateRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if err := rejectTrailingJSON(decoder); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if !decodeQuestionOperation(w, r, &req) {
 		return
 	}
 	if req.Status != nil {
@@ -583,13 +569,5 @@ func valueOrEmpty(v *string) string {
 	return *v
 }
 func boolOrFalse(v *bool) bool { return v != nil && *v }
-
-func projectQuestions(questions []*models.Question) []models.QuestionProjection {
-	projected := make([]models.QuestionProjection, 0, len(questions))
-	for _, question := range questions {
-		projected = append(projected, models.ProjectQuestion(question))
-	}
-	return projected
-}
 
 var _ QuestionServicer = (*services.QuestionService)(nil)

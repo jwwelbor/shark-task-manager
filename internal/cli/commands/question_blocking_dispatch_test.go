@@ -61,6 +61,47 @@ func TestResolveNextBlockedCandidatePausesBeforeDispatchWork_TC305(t *testing.T)
 	}
 }
 
+// TestResolveNextPropagatesQuestionBlockerCheckError locks in that a
+// questionBlocker.Check failure (a real read/state error, not "no block")
+// propagates out of resolveNext and stops before any placeholder/action
+// dispatch work runs -- a regression that silently swallowed the error
+// (e.g. `block, _ := cache.questionBlocker.Check(...)`) would otherwise pass
+// every other test in this file, since none of them exercise the error path.
+func TestResolveNextPropagatesQuestionBlockerCheckError(t *testing.T) {
+	placeholderCalls := 0
+	actionCalls := 0
+	checkErr := errors.New("Question blocker load candidate: repository unavailable")
+	cache := &nextAdapterCache{
+		questionBlocker: questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
+			return nil, checkErr
+		}),
+		entries: map[string]*nextAdapters{
+			"feature": {
+				transitioner: fixedNextTransitioner{info: &services.NextStatusInfo{EntityType: models.EntityTypeFeature, EntityKey: "E39-F03", CurrentStatus: "active"}},
+				generator: runnerPlaceholderFunc(func(context.Context, string) (map[string]string, error) {
+					placeholderCalls++
+					return nil, errors.New("blocker error must not reach placeholder generation")
+				}),
+				actionSvc: &action.MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*action.PopulatedAction, error) {
+					actionCalls++
+					return nil, errors.New("blocker error must not reach action resolution")
+				}},
+			},
+		},
+	}
+
+	_, err := resolveNext(context.Background(), cache, "feature", "E39-F03", 0)
+	if err == nil {
+		t.Fatal("resolveNext() error = nil, want the propagated Question blocker error")
+	}
+	if !errors.Is(err, checkErr) {
+		t.Fatalf("resolveNext() error = %v, want it to wrap %v", err, checkErr)
+	}
+	if placeholderCalls != 0 || actionCalls != 0 {
+		t.Fatalf("blocker error placeholder/action calls = %d/%d, want 0/0", placeholderCalls, actionCalls)
+	}
+}
+
 // TC-306: a blocked child is parked, not a cascade result. Keyed next must
 // continue to an unlinked live sibling without changing the parent.
 func TestResolveNextCascadeFallsThroughBlockedChild_TC306(t *testing.T) {

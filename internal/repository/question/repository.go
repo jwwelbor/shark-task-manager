@@ -205,6 +205,41 @@ func (r *QuestionRepository) UpdateStatusIfCurrent(ctx context.Context, id int64
 	return updated, nil
 }
 
+// persistTransition is the shared atomic shape behind every Question
+// mutation that moves status and context_data together: a conditional
+// UPDATE guarded by (expectedStatus, expectedContextData), a bounded audit
+// note, and an entity_history row, all in one transaction. ConfigureWorkflow,
+// RecordResponse, and close (Resolve/Withdraw's shared terminal path) differ
+// only in their target status, actor, note text, and conflict message.
+func (r *QuestionRepository) persistTransition(ctx context.Context, id int64, expectedStatus, newStatus models.QuestionStatus, expectedContextData, contextData *string, actor, note, conflictMsg string) error {
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return fmt.Errorf("begin Question transition transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE questions SET context_data = ?, status = ? WHERE id = ? AND status = ? AND context_data IS ?`, contextData, newStatus, id, expectedStatus, expectedContextData)
+	if err != nil {
+		return fmt.Errorf("persist Question transition state: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read Question transition rows: %w", err)
+	}
+	if rows != 1 {
+		return errors.New(conflictMsg)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by) VALUES ('question', ?, 'implementation', ?, ?)`, id, note, actor); err != nil {
+		return fmt.Errorf("record Question transition note: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_history (entity_type, entity_id, to_status, changed_by, notes, forced, changed_at) VALUES ('question', ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`, id, newStatus, actor, note); err != nil {
+		return fmt.Errorf("record Question transition history: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Question transition: %w", err)
+	}
+	return nil
+}
+
 // ConfigureWorkflow atomically persists an already-validated initial
 // QuestionState and its concise audit evidence. The service owns validation;
 // this repository method owns the parameterized state/note/history transaction.
@@ -212,43 +247,8 @@ func (r *QuestionRepository) ConfigureWorkflow(ctx context.Context, id int64, ex
 	if contextData == nil {
 		return errors.New("configure Question workflow: context data is required")
 	}
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("begin configure Question workflow transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	result, err := tx.ExecContext(ctx, `
-		UPDATE questions SET context_data = ?, status = 'open'
-		WHERE id = ? AND status = ? AND context_data IS ?
-	`, contextData, id, expectedStatus, expectedContextData)
-	if err != nil {
-		return fmt.Errorf("persist configured Question state: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read configured Question state rows: %w", err)
-	}
-	if rows != 1 {
-		return errors.New("configure Question workflow: Question changed or is already configured")
-	}
 	note := "Question workflow configured; responder identities are retained in Question-owned state."
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by)
-		VALUES ('question', ?, 'implementation', ?, ?)
-	`, id, note, resolutionOwner); err != nil {
-		return fmt.Errorf("record configured Question note: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO entity_history (entity_type, entity_id, to_status, changed_by, notes, forced, changed_at)
-		VALUES ('question', ?, 'open', ?, ?, 0, CURRENT_TIMESTAMP)
-	`, id, resolutionOwner, note); err != nil {
-		return fmt.Errorf("record configured Question history: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit configured Question workflow: %w", err)
-	}
-	return nil
+	return r.persistTransition(ctx, id, expectedStatus, models.QuestionStatusOpen, expectedContextData, contextData, resolutionOwner, note, "configure Question workflow: Question changed or is already configured")
 }
 
 // RecordResponse commits the serial state, bounded audit note, and history
@@ -258,33 +258,8 @@ func (r *QuestionRepository) RecordResponse(ctx context.Context, id int64, expec
 	if contextData == nil {
 		return errors.New("record Question response: context data is required")
 	}
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("begin record Question response transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `UPDATE questions SET context_data = ?, status = ? WHERE id = ? AND status = ? AND context_data IS ?`, contextData, status, id, expectedStatus, expectedContextData)
-	if err != nil {
-		return fmt.Errorf("persist Question response state: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read Question response rows: %w", err)
-	}
-	if rows != 1 {
-		return errors.New("record Question response: Question changed or is not answerable")
-	}
 	note := "Question response recorded for configured responder."
-	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by) VALUES ('question', ?, 'implementation', ?, ?)`, id, note, responder); err != nil {
-		return fmt.Errorf("record Question response note: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_history (entity_type, entity_id, to_status, changed_by, notes, forced, changed_at) VALUES ('question', ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`, id, status, responder, note); err != nil {
-		return fmt.Errorf("record Question response history: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit Question response: %w", err)
-	}
-	return nil
+	return r.persistTransition(ctx, id, expectedStatus, status, expectedContextData, contextData, responder, note, "record Question response: Question changed or is not answerable")
 }
 
 // FollowUpWorkExists reports whether key identifies a durable Shark work item.
@@ -326,32 +301,7 @@ func (r *QuestionRepository) close(ctx context.Context, id int64, expected, stat
 	if contextData == nil {
 		return errors.New("close Question: context data is required")
 	}
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("begin close Question transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `UPDATE questions SET context_data = ?, status = ? WHERE id = ? AND status = ? AND context_data IS ?`, contextData, status, id, expected, expectedContextData)
-	if err != nil {
-		return fmt.Errorf("persist terminal Question state: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read terminal Question rows: %w", err)
-	}
-	if rows != 1 {
-		return errors.New("close Question: Question is not eligible for terminal operation")
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by) VALUES ('question', ?, 'implementation', ?, ?)`, id, note, owner); err != nil {
-		return fmt.Errorf("record terminal Question note: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_history (entity_type, entity_id, to_status, changed_by, notes, forced, changed_at) VALUES ('question', ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`, id, status, owner, note); err != nil {
-		return fmt.Errorf("record terminal Question history: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit terminal Question: %w", err)
-	}
-	return nil
+	return r.persistTransition(ctx, id, expected, status, expectedContextData, contextData, owner, note, "close Question: Question is not eligible for terminal operation")
 }
 
 // List returns the finite Question page in canonical key order.

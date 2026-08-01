@@ -80,7 +80,7 @@ func (s QuestionState) CurrentResponder() string {
 // routing. Actionable errors name the rejected field and classify the durable
 // alternative without echoing potentially sensitive input.
 func (s QuestionState) Validate() error {
-	if err := validateQuestionStateText("resolution_owner", s.ResolutionOwner, 1, questionIdentityMaxBytes); err != nil {
+	if err := ValidateQuestionBoundedText("resolution_owner", s.ResolutionOwner, 1, questionIdentityMaxBytes); err != nil {
 		return err
 	}
 	if len(s.Responders) < 1 || len(s.Responders) > 10 {
@@ -89,19 +89,19 @@ func (s QuestionState) Validate() error {
 	seenResponders := make(map[string]struct{}, len(s.Responders))
 	responses := make(map[string]QuestionResponse, len(s.Responses))
 	for _, response := range s.Responses {
-		if err := validateQuestionStateText("responses.session_id", response.SessionID, 1, questionIdentityMaxBytes); err != nil {
+		if err := ValidateQuestionBoundedText("responses.session_id", response.SessionID, 1, questionIdentityMaxBytes); err != nil {
 			return err
 		}
-		if err := validateQuestionStateText("responses.responder", response.Responder, 1, questionIdentityMaxBytes); err != nil {
+		if err := ValidateQuestionBoundedText("responses.responder", response.Responder, 1, questionIdentityMaxBytes); err != nil {
 			return err
 		}
 		if _, exists := responses[response.Responder]; exists {
 			return fmt.Errorf("responses contains duplicate responder; use a typed note or authoritative record pointer")
 		}
-		if err := validateQuestionStateText("responses.summary", response.Summary, 1, questionResponseMaxBytes); err != nil {
+		if err := ValidateQuestionBoundedText("responses.summary", response.Summary, 1, questionResponseMaxBytes); err != nil {
 			return err
 		}
-		if err := validateQuestionStateText("responses.evidence_pointer", response.EvidencePointer, 1, questionPointerMaxBytes); err != nil {
+		if err := ValidateQuestionBoundedText("responses.evidence_pointer", response.EvidencePointer, 1, questionPointerMaxBytes); err != nil {
 			return err
 		}
 		if response.RecordedAt.IsZero() {
@@ -110,7 +110,7 @@ func (s QuestionState) Validate() error {
 		responses[response.Responder] = response
 	}
 	for _, responder := range s.Responders {
-		if err := validateQuestionStateText("responders.identity", responder.Identity, 1, questionIdentityMaxBytes); err != nil {
+		if err := ValidateQuestionBoundedText("responders.identity", responder.Identity, 1, questionIdentityMaxBytes); err != nil {
 			return err
 		}
 		if _, exists := seenResponders[responder.Identity]; exists {
@@ -158,7 +158,7 @@ func (s QuestionState) validateResolutionProvenance() error {
 	}
 	switch s.ResolutionKind {
 	case "local_clarification", "feature_change", "product_decision", "architecture_decision", "follow_up_work":
-		return validateQuestionStateText("resolution_pointer", s.ResolutionPointer, 1, questionPointerMaxBytes)
+		return ValidateQuestionBoundedText("resolution_pointer", s.ResolutionPointer, 1, questionPointerMaxBytes)
 	case "no_lasting_consequence":
 		if s.ResolutionPointer != "" {
 			return fmt.Errorf("no_lasting_consequence requires an empty resolution pointer; use a typed note or authoritative record pointer")
@@ -169,7 +169,13 @@ func (s QuestionState) validateResolutionProvenance() error {
 	}
 }
 
-func validateQuestionStateText(field, value string, minBytes, maxBytes int) error {
+// ValidateQuestionBoundedText enforces the shared bounded-text contract used
+// by every free-text Question field: trimmed, valid UTF-8, within
+// [minBytes, maxBytes], and free of the forbidden credential/rendered-prompt/
+// transcript markers. Shared by QuestionState validation (this package) and
+// QuestionService's terminal-reason validation so the marker allowlist has a
+// single source of truth.
+func ValidateQuestionBoundedText(field, value string, minBytes, maxBytes int) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed != value {
 		return fmt.Errorf("%s must be trimmed; use a typed note or authoritative record pointer", field)
@@ -304,6 +310,16 @@ func ProjectQuestion(question *Question) QuestionProjection {
 		Blocking:    question.Blocking,
 		Requester:   question.Requester,
 	}
+}
+
+// ProjectQuestions projects a slice of Questions to their user-visible
+// metadata transport shape, in order.
+func ProjectQuestions(questions []*Question) []QuestionProjection {
+	projected := make([]QuestionProjection, 0, len(questions))
+	for _, question := range questions {
+		projected = append(projected, ProjectQuestion(question))
+	}
+	return projected
 }
 
 // ProjectQuestionFull returns the explicit bounded full-read representation.

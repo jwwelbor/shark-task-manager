@@ -7,6 +7,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,6 +179,70 @@ func TestRunLeasePreflight_BlockedCandidateSkipsActionAndClaim_TC307_TC308(t *te
 				t.Fatalf("blocked preflight action/claim calls = %d/%d, want 0/0", actionCalls, len(claims.claims))
 			}
 		})
+	}
+}
+
+// TestAcquireRunLeaseForRunnableActionPropagatesQuestionBlockerCheckError
+// locks in that a questionBlocker.Check failure propagates out of
+// acquireRunLeaseForRunnableAction and stops before action lookup or lease
+// acquisition -- no existing test double for this function ever returns a
+// non-nil error, so a regression that silently swallowed it would otherwise
+// pass every other preflight test in this file.
+func TestAcquireRunLeaseForRunnableActionPropagatesQuestionBlockerCheckError(t *testing.T) {
+	claims := &mockRunClaimService{}
+	withRunClaimSvcOverride(t, claims)
+	actionCalls := 0
+	checkErr := errors.New("Question blocker load candidate: repository unavailable")
+	lease, block, _, err := acquireRunLeaseForRunnableAction(
+		context.Background(),
+		fixedNextTransitioner{info: &services.NextStatusInfo{EntityType: models.EntityTypeFeature, EntityKey: "E39-F03", CurrentStatus: "active"}},
+		&config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+			actionCalls++
+			return nil, nil
+		}},
+		questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
+			return nil, checkErr
+		}),
+		"feature", "E39-F03", false,
+	)
+	if err == nil {
+		t.Fatal("acquireRunLeaseForRunnableAction() error = nil, want the propagated Question blocker error")
+	}
+	if !errors.Is(err, checkErr) {
+		t.Fatalf("acquireRunLeaseForRunnableAction() error = %v, want it to wrap %v", err, checkErr)
+	}
+	if lease != nil || block != nil {
+		t.Fatalf("blocker error lease=%#v block=%#v, want nil/nil", lease, block)
+	}
+	if actionCalls != 0 || len(claims.claims) != 0 {
+		t.Fatalf("blocker error action/claim calls = %d/%d, want 0/0", actionCalls, len(claims.claims))
+	}
+}
+
+// TestPreflightCascadeQuestionBlockPropagatesCheckError locks in that a
+// questionBlocker.Check failure during cascade traversal propagates out of
+// preflightCascadeQuestionBlock instead of being treated as "no block."
+func TestPreflightCascadeQuestionBlockPropagatesCheckError(t *testing.T) {
+	checkErr := errors.New("Question blocker load candidate: repository unavailable")
+	blocker := questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
+		return nil, checkErr
+	})
+	actions := &config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+		t.Fatal("blocker error must not reach action resolution")
+		return nil, nil
+	}}
+	root := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "parent"}}
+
+	got, _, err := preflightCascadeQuestionBlock(context.Background(), root, actions, &mockRunCascadeChildrenService{}, blocker,
+		func(context.Context, string) (runner.EntityTransitioner, error) { return root, nil }, "epic", "E39")
+	if err == nil {
+		t.Fatal("preflightCascadeQuestionBlock() error = nil, want the propagated Question blocker error")
+	}
+	if !errors.Is(err, checkErr) {
+		t.Fatalf("preflightCascadeQuestionBlock() error = %v, want it to wrap %v", err, checkErr)
+	}
+	if got != nil {
+		t.Fatalf("preflightCascadeQuestionBlock() block = %#v, want nil on error", got)
 	}
 }
 

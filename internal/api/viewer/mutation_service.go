@@ -121,6 +121,14 @@ func (s *MutationService) UpdateTask(ctx context.Context, key string, updates se
 }
 
 // TransitionEpic delegates to the existing epic transition service.
+//
+// Unlike the CLI's `shark status advance`, this and the two Transition*
+// methods below do not check the E39-F03 Question-blocking gate
+// (guardQuestionBlockedStatusAdvance) -- that gate's v1 scope is CLI-only
+// per the E39-F03 spec (REQ-F-005 names only "shark status advance"). If the
+// gate is ever pushed here, prefer moving the check into the shared
+// TransitionStatus path both CLI commands and this viewer already use,
+// rather than a third duplicated call site.
 func (s *MutationService) TransitionEpic(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 	return s.epicSvc.TransitionStatus(ctx, key, targetStatus, opts)
 }

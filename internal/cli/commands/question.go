@@ -133,7 +133,7 @@ func runQuestionList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(projectQuestions(qs))
+		return cli.OutputJSON(models.ProjectQuestions(qs))
 	}
 	for _, q := range qs {
 		fmt.Printf("%s\t%s\t%s\n", q.Key, q.Status, q.Title)
@@ -466,14 +466,6 @@ func outputQuestion(q *models.Question, prefix string) error {
 	}
 	fmt.Printf("%s\t%s\t%s\n", q.Key, q.Status, q.Title)
 	return nil
-}
-
-func projectQuestions(questions []*models.Question) []models.QuestionProjection {
-	projected := make([]models.QuestionProjection, 0, len(questions))
-	for _, question := range questions {
-		projected = append(projected, models.ProjectQuestion(question))
-	}
-	return projected
 }
 
 func init() {

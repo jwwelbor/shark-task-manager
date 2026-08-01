@@ -9,6 +9,26 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
+// questionBlockMatch pairs a qualifying incoming question_blocks edge with
+// its compact block handoff, shared by QuestionBlocker.Check and
+// QuestionService.collectQuestionsBlocking so both order matches by the same
+// oldest-edge-first rule.
+type questionBlockMatch struct {
+	edge  *models.EntityRelationship
+	block *QuestionBlock
+}
+
+// sortQuestionBlockMatches orders matches deterministically: earliest edge
+// creation time first, ties broken by edge ID.
+func sortQuestionBlockMatches(matches []questionBlockMatch) {
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].edge.CreatedAt.Equal(matches[j].edge.CreatedAt) {
+			return matches[i].edge.ID < matches[j].edge.ID
+		}
+		return matches[i].edge.CreatedAt.Before(matches[j].edge.CreatedAt)
+	})
+}
+
 // QuestionBlock is the compact I-03 handoff for a directly blocked candidate.
 // It deliberately contains no Question response, provenance, or relationship data.
 type QuestionBlock struct {
@@ -63,7 +83,7 @@ func QualifyQuestionBlock(question *models.Question) (*QuestionBlock, error) {
 	if question == nil {
 		return nil, errors.New("source Question is required")
 	}
-	if !question.Blocking || (question.Status != "open" && question.Status != "answering") {
+	if !question.Blocking || (question.Status != models.QuestionStatusOpen && question.Status != models.QuestionStatusAnswering) {
 		return nil, nil
 	}
 	if err := models.ValidateQuestionKey(question.Key); err != nil {
@@ -123,11 +143,7 @@ func (b *QuestionBlocker) Check(ctx context.Context, candidateType models.Entity
 	if err != nil {
 		return nil, fmt.Errorf("Question blocker load incoming relationships for %s: %w", candidateKey, err)
 	}
-	type match struct {
-		edge  *models.EntityRelationship
-		block *QuestionBlock
-	}
-	matches := make([]match, 0, len(edges))
+	matches := make([]questionBlockMatch, 0, len(edges))
 	for _, edge := range edges {
 		if edge == nil || edge.RelationshipType != models.EntityRelQuestionBlocks || edge.FromEntityType != models.EntityTypeQuestion {
 			continue
@@ -144,17 +160,12 @@ func (b *QuestionBlocker) Check(ctx context.Context, candidateType models.Entity
 			return nil, fmt.Errorf("Question blocker %w", err)
 		}
 		if block != nil {
-			matches = append(matches, match{edge: edge, block: block})
+			matches = append(matches, questionBlockMatch{edge: edge, block: block})
 		}
 	}
 	if len(matches) == 0 {
 		return nil, nil
 	}
-	sort.Slice(matches, func(i, j int) bool {
-		if matches[i].edge.CreatedAt.Equal(matches[j].edge.CreatedAt) {
-			return matches[i].edge.ID < matches[j].edge.ID
-		}
-		return matches[i].edge.CreatedAt.Before(matches[j].edge.CreatedAt)
-	})
+	sortQuestionBlockMatches(matches)
 	return matches[0].block, nil
 }

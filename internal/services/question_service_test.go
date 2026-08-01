@@ -267,6 +267,78 @@ func TestQuestionServiceConfigureWorkflow_TC102(t *testing.T) {
 	}
 }
 
+// TestQuestionServiceConfigureWorkflowRejectsDuplicateResponderIdentity_TC102
+// exercises QuestionState.Validate's duplicate-identity rejection directly,
+// on a freshly unconfigured Question. TestQuestionServiceConfigureWorkflow_TC102's
+// second call reuses an already-configured Question, so it actually
+// re-triggers the "already configured" guard (ContextData != nil) before
+// state.Validate() is ever reached -- a regression that dropped or inverted
+// the duplicate-identity check there would still pass.
+func TestQuestionServiceConfigureWorkflowRejectsDuplicateResponderIdentity_TC102(t *testing.T) {
+	question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001"}, Status: models.QuestionStatusOpen, Summary: "Confirm release", Requester: "alice"}
+	configureWorkflowCalled := false
+	repo := &mockQuestionRepository{
+		getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil },
+		configureWorkflowFn: func(context.Context, int64, models.QuestionStatus, *string, *string, string) error {
+			configureWorkflowCalled = true
+			return nil
+		},
+	}
+	svc, err := NewQuestionService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.ConfigureWorkflow(context.Background(), ConfigureWorkflowInput{
+		Key: "Q001", ResolutionOwner: "release-owner", Responders: []string{"alice", "alice"},
+	})
+	if err == nil {
+		t.Fatal("ConfigureWorkflow() error = nil, want rejection of a duplicate responder identity")
+	}
+	if configureWorkflowCalled {
+		t.Fatal("repository write called despite the duplicate responder identity")
+	}
+}
+
+// TestQuestionServiceConfigureWorkflowRejectsDisallowedStatus_TC102 locks in
+// ConfigureWorkflow's "must be draft or open" precondition: a Question that
+// has already progressed past open (answering, ready_for_resolution, or any
+// terminal status) must not be reconfigurable.
+func TestQuestionServiceConfigureWorkflowRejectsDisallowedStatus_TC102(t *testing.T) {
+	for _, status := range []models.QuestionStatus{
+		models.QuestionStatusAnswering,
+		models.QuestionStatusReadyForResolution,
+		models.QuestionStatusResolved,
+		models.QuestionStatusWithdrawn,
+		models.QuestionStatusSuperseded,
+		models.QuestionStatusArchived,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001"}, Status: status, Summary: "Confirm release", Requester: "alice"}
+			configureWorkflowCalled := false
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil },
+				configureWorkflowFn: func(context.Context, int64, models.QuestionStatus, *string, *string, string) error {
+					configureWorkflowCalled = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = svc.ConfigureWorkflow(context.Background(), ConfigureWorkflowInput{
+				Key: "Q001", ResolutionOwner: "release-owner", Responders: []string{"alice"},
+			})
+			if err == nil {
+				t.Fatalf("ConfigureWorkflow() error = nil, want rejection for status %q", status)
+			}
+			if configureWorkflowCalled {
+				t.Fatalf("repository write called for disallowed status %q", status)
+			}
+		})
+	}
+}
+
 // TC-105: the production service entrypoint accepts only the active claim
 // holder and atomically delegates the completed, bounded response state.
 func TestQuestionServiceRecordResponse_TC105(t *testing.T) {
@@ -808,6 +880,31 @@ func TestQuestionServiceReadListUpdateAndStatus(t *testing.T) {
 
 // TC-402: the service derives the responder only from validated QuestionState
 // and keeps the compact transport projection free of raw persisted context.
+// TestNormalizeQuestionReadPageRejectsOutOfRangeBounds locks in
+// normalizeQuestionReadPage's own boundary checks directly at the service
+// layer -- previously this was only exercised indirectly through CLI/HTTP
+// transports that pre-validate the same range before calling in.
+func TestNormalizeQuestionReadPageRejectsOutOfRangeBounds(t *testing.T) {
+	if _, err := normalizeQuestionReadPage(0, 0); err != nil {
+		t.Errorf("normalizeQuestionReadPage(0, 0) error = %v, want the default limit accepted", err)
+	}
+	if limit, err := normalizeQuestionReadPage(100, 0); err != nil || limit != 100 {
+		t.Errorf("normalizeQuestionReadPage(100, 0) = (%d, %v), want (100, nil) at the upper bound", limit, err)
+	}
+	if _, err := normalizeQuestionReadPage(101, 0); err == nil {
+		t.Error("normalizeQuestionReadPage(101, 0) error = nil, want rejection over the 100 limit")
+	}
+	if _, err := normalizeQuestionReadPage(-1, 0); err == nil {
+		t.Error("normalizeQuestionReadPage(-1, 0) error = nil, want rejection of a negative limit")
+	}
+	if _, err := normalizeQuestionReadPage(50, -1); err == nil {
+		t.Error("normalizeQuestionReadPage(50, -1) error = nil, want rejection of a negative offset")
+	}
+	if limit, err := normalizeQuestionReadPage(50, 0); err != nil || limit != 50 {
+		t.Errorf("normalizeQuestionReadPage(50, 0) = (%d, %v), want (50, nil)", limit, err)
+	}
+}
+
 func TestQuestionServiceListOpenQuestionsByResponderTC402(t *testing.T) {
 	state := models.QuestionState{ResolutionOwner: "owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderPending}}}
 	encoded, err := models.EncodeQuestionState(nil, state)

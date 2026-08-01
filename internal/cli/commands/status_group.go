@@ -64,6 +64,15 @@ func (f entityTransitionerFunc) TransitionStatus(ctx context.Context, key string
 // at the supported linked-work command boundary. It is intentionally after
 // next-status/target resolution and immediately before the transition write;
 // direct service and Question lifecycle callers remain outside this scope.
+//
+// This is a v1 scope decision (E39-F03 spec REQ-F-005 names only
+// "shark status advance"; architecture.md's risk register lists "alternate
+// gate bypass" as an accepted risk), not an oversight: runStatusSet (`shark
+// status set`) and the web viewer's TransitionEpic/Feature/Task intentionally
+// do not call this guard. If the gate is ever pushed to those surfaces,
+// prefer moving the check into the shared transition path both CLI commands
+// and the generic EntityService.TransitionStatus use, rather than a third
+// duplicated call site.
 func guardQuestionBlockedStatusAdvance(ctx context.Context, checker questionBlockChecker, entityType, key string) error {
 	if checker == nil {
 		return nil
@@ -104,6 +113,10 @@ var statusSetCmd = &cobra.Command{
 	Long: `Set an epic, feature, or task to a specific status. Entity type is auto-detected from the key format.
 
 Idempotent: if the entity is already at the target status, returns exit 0 with "changed": false.
+
+Note: unlike "shark status advance", this command does NOT check for an open
+blocking Question on the target entity. Use "shark status advance" when a
+Question-blocking gate must be enforced.
 
 Key Formats:
   E07                Epic

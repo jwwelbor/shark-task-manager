@@ -69,6 +69,10 @@ Set an epic, feature, or task to a specific status. Entity type is auto-detected
 
 This command is **idempotent**: if the entity is already at the target status, it returns exit code 0 with `"changed": false` in JSON output.
 
+> **Note:** unlike `shark status advance`, this command does **not** check for an
+> open blocking Question on the target entity. Use `shark status advance` when a
+> Question-blocking gate must be enforced.
+
 ### Usage
 
 ```

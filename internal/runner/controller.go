@@ -549,7 +549,7 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 // ready_for_resolution is the resolution-owner checkpoint. Durable Question
 // terminal states intentionally do not appear here and remain already_terminal.
 func isQuestionResponderPauseCheckpoint(entityType, status string) bool {
-	if entityType != "question" {
+	if entityType != string(models.EntityTypeQuestion) {
 		return false
 	}
 	switch status {
@@ -1123,7 +1123,7 @@ func (c *RunController) handleSpawnAgent(
 		Duration:  dispatchResult.Duration,
 		ExitCode:  dispatchResult.ExitCode,
 	}
-	if dispatchResult.ExitCode == 0 && opts.EntityType != "question" {
+	if dispatchResult.ExitCode == 0 && opts.EntityType != string(models.EntityTypeQuestion) {
 		stage.OutputSummary = dispatchResult.Stdout
 	}
 	result.Stages = append(result.Stages, stage)
@@ -1148,84 +1148,10 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	// A Question responder has one additional parent-owned success step. The
-	// worker returns bounded data; the parent binds it to the actual entity,
-	// lease session, and routed responder, then persists it before the lease is
-	// released by run.go. Do not use the generic transition path here: a second
-	// responder must not run under the first responder's lease.
-	if opts.EntityType == "question" {
-		if c.questionResponses == nil {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "question_response_handoff",
-				Error:     "Question response persister is not configured",
-				RunID:     opts.RunID,
-			})
-			return stageOutcome{done: true}
-		}
-		response, err := parseQuestionResponseHandoff(dispatchResult.Stdout)
-		if err != nil {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "question_response_handoff",
-				Error:     err.Error(),
-				RunID:     opts.RunID,
-			})
-			return stageOutcome{done: true}
-		}
-		responder := strings.TrimSpace(vars["current_responder"])
-		if responder == "" || opts.SessionID == "" {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "question_response_handoff",
-				Error:     "Question response requires a routed responder and parent lease session",
-				RunID:     opts.RunID,
-			})
-			return stageOutcome{done: true}
-		}
-		response.Key = key
-		response.SessionID = opts.SessionID
-		response.Responder = responder
-		if err := c.questionResponses.PersistQuestionResponse(ctx, response); err != nil {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "question_response_handoff",
-				Error:     fmt.Sprintf("persist Question response: %v", err),
-				RunID:     opts.RunID,
-			})
-			return stageOutcome{done: true}
-		}
-
-		refreshed, err := c.transitioner.GetNextStatus(ctx, key)
-		if err != nil {
-			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-				EntityKey: key,
-				Status:    currentStatus,
-				Phase:     "question_response_handoff",
-				Error:     fmt.Sprintf("refresh Question after response: %v", err),
-				RunID:     opts.RunID,
-			})
-			return stageOutcome{done: true}
-		}
-		result.StagesCompleted++
-		emitStageComplete(ctx, opts.Observability, stageCompleteParams{
-			EntityKey:  key,
-			Status:     currentStatus,
-			AgentType:  action.AgentType,
-			Provider:   action.Provider,
-			ExitCode:   dispatchResult.ExitCode,
-			DurationMS: dispatchResult.Duration.Milliseconds(),
-			NextStatus: refreshed.CurrentStatus,
-			RunID:      opts.RunID,
-		})
-		result.FinalStatus = refreshed.CurrentStatus
-		result.Outcome = "completed"
-		result.TotalDuration = time.Since(startTime)
-		return stageOutcome{done: true}
+	// A Question responder has one additional parent-owned success step, kept
+	// out of this already-large function: see handleQuestionResponseHandoff.
+	if opts.EntityType == string(models.EntityTypeQuestion) {
+		return c.handleQuestionResponseHandoff(ctx, key, currentStatus, action, vars, opts, result, startTime, dispatchResult)
 	}
 
 	result.StagesCompleted++
@@ -1359,6 +1285,92 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 	return stageOutcome{nextStatus: transResult.ToStatus}
+}
+
+// handleQuestionResponseHandoff is handleSpawnAgent's Question-specific
+// success continuation, kept separate to keep handleSpawnAgent's own length
+// down. The worker returns bounded data; the parent binds it to the actual
+// entity, lease session, and routed responder, then persists it before the
+// lease is released by run.go. Do not use the generic transition path here:
+// a second responder must not run under the first responder's lease.
+func (c *RunController) handleQuestionResponseHandoff(
+	ctx context.Context, key, currentStatus string,
+	action *config.PopulatedAction, vars map[string]string, opts RunOptions,
+	result *RunResult, startTime time.Time,
+	dispatchResult *DispatchResult,
+) stageOutcome {
+	if c.questionResponses == nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     "Question response persister is not configured",
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	response, err := parseQuestionResponseHandoff(dispatchResult.Stdout)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	responder := strings.TrimSpace(vars["current_responder"])
+	if responder == "" || opts.SessionID == "" {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     "Question response requires a routed responder and parent lease session",
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	response.Key = key
+	response.SessionID = opts.SessionID
+	response.Responder = responder
+	if err := c.questionResponses.PersistQuestionResponse(ctx, response); err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     fmt.Sprintf("persist Question response: %v", err),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+
+	refreshed, err := c.transitioner.GetNextStatus(ctx, key)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     fmt.Sprintf("refresh Question after response: %v", err),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	result.StagesCompleted++
+	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+		EntityKey:  key,
+		Status:     currentStatus,
+		AgentType:  action.AgentType,
+		Provider:   action.Provider,
+		ExitCode:   dispatchResult.ExitCode,
+		DurationMS: dispatchResult.Duration.Milliseconds(),
+		NextStatus: refreshed.CurrentStatus,
+		RunID:      opts.RunID,
+	})
+	result.FinalStatus = refreshed.CurrentStatus
+	result.Outcome = "completed"
+	result.TotalDuration = time.Since(startTime)
+	return stageOutcome{done: true}
 }
 
 const questionResponseHandoffPrefix = "QUESTION_RESPONSE_JSON:"
