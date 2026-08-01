@@ -11,23 +11,32 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 type mockQuestionRepository struct {
-	createFn             func(context.Context, *models.Question) error
-	getByKeyFn           func(context.Context, string) (*models.Question, error)
-	getByIDFn            func(context.Context, int64) (*models.Question, error)
-	deleteFn             func(context.Context, int64) error
-	listFn               func(context.Context, questionrepo.QuestionListFilter) ([]*models.Question, error)
-	listOpenCandidatesFn func(context.Context, int, int) ([]*models.Question, error)
-	updateFn             func(context.Context, *models.Question) error
-	statusFn             func(context.Context, int64, models.QuestionStatus) error
-	configureWorkflowFn  func(context.Context, int64, models.QuestionStatus, *string, *string, string) error
-	recordResponseFn     func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string) error
-	followUpWorkExistsFn func(context.Context, string) (bool, error)
-	noteExistsFn         func(context.Context, string) (bool, error)
-	resolveFn            func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error
-	withdrawFn           func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error
+	createFn                func(context.Context, *models.Question) error
+	getByKeyFn              func(context.Context, string) (*models.Question, error)
+	getByIDFn               func(context.Context, int64) (*models.Question, error)
+	deleteFn                func(context.Context, int64) error
+	listFn                  func(context.Context, questionrepo.QuestionListFilter) ([]*models.Question, error)
+	listOpenCandidatesFn    func(context.Context, int, int) ([]*models.Question, error)
+	updateFn                func(context.Context, *models.Question) error
+	statusFn                func(context.Context, int64, models.QuestionStatus) error
+	configureWorkflowFn     func(context.Context, int64, models.QuestionStatus, *string, *string, string) error
+	recordResponseFn        func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string) error
+	followUpWorkExistsFn    func(context.Context, string) (bool, error)
+	noteExistsFn            func(context.Context, string) (bool, error)
+	resolveFn               func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error
+	withdrawFn              func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error
+	updateStatusIfCurrentFn func(context.Context, int64, models.QuestionStatus, models.QuestionStatus) (bool, error)
+}
+
+func (r *mockQuestionRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expected, next models.QuestionStatus) (bool, error) {
+	if r.updateStatusIfCurrentFn != nil {
+		return r.updateStatusIfCurrentFn(ctx, id, expected, next)
+	}
+	return false, errors.New("unexpected UpdateStatusIfCurrent call")
 }
 
 type focusedRelationshipReader struct {
@@ -372,6 +381,92 @@ func TestQuestionServiceRecordResponse_TC105(t *testing.T) {
 	got, err := models.DecodeQuestionState(persisted)
 	if err != nil || got == nil || got.Responders[0].Status != models.QuestionResponderCompleted || got.CurrentResponder() != "bob" || len(got.Responses) != 1 {
 		t.Fatalf("TC-105 persisted state = %#v, %v", got, err)
+	}
+}
+
+// TestQuestionServiceRecordResponseRejectsAuthorizationGuardViolations_TC105
+// locks in RecordResponse's five authorization/session-binding guards: no
+// claim reader wired, an empty session or responder, a claim whose session
+// or claimant doesn't match the caller, and a claim held by a responder who
+// isn't the currently routed one. None of these were previously exercised
+// by any test -- a regression in any one would ship undetected.
+func TestQuestionServiceRecordResponseRejectsAuthorizationGuardViolations_TC105(t *testing.T) {
+	newQuestion := func() (*models.Question, *string) {
+		state := models.QuestionState{ResolutionOwner: "release-owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderPending}, {Identity: "bob", Status: models.QuestionResponderPending}}}
+		encoded, err := models.EncodeQuestionState(nil, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", Title: "Question", ContextData: encoded}, Status: models.QuestionStatus("answering"), Summary: "Summary", Requester: "owner"}, encoded
+	}
+
+	cases := []struct {
+		name        string
+		input       RecordQuestionResponseInput
+		claim       *models.EntityClaim
+		skipClaimer bool
+	}{
+		{
+			name:        "no_claim_reader_wired",
+			input:       RecordQuestionResponseInput{Key: "Q001", SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			skipClaimer: true,
+		},
+		{
+			name:  "empty_session_id",
+			input: RecordQuestionResponseInput{Key: "Q001", SessionID: "", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			claim: &models.EntityClaim{EntityType: "question", EntityKey: "Q001", ClaimedBy: "alice", SessionID: "session-a"},
+		},
+		{
+			name:  "empty_responder",
+			input: RecordQuestionResponseInput{Key: "Q001", SessionID: "session-a", Responder: "", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			claim: &models.EntityClaim{EntityType: "question", EntityKey: "Q001", ClaimedBy: "alice", SessionID: "session-a"},
+		},
+		{
+			name:  "no_active_claim",
+			input: RecordQuestionResponseInput{Key: "Q001", SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			claim: nil,
+		},
+		{
+			name:  "claim_session_mismatch",
+			input: RecordQuestionResponseInput{Key: "Q001", SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			claim: &models.EntityClaim{EntityType: "question", EntityKey: "Q001", ClaimedBy: "alice", SessionID: "session-other"},
+		},
+		{
+			name:  "claim_claimant_mismatch",
+			input: RecordQuestionResponseInput{Key: "Q001", SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			claim: &models.EntityClaim{EntityType: "question", EntityKey: "Q001", ClaimedBy: "someone-else", SessionID: "session-a"},
+		},
+		{
+			name:  "claim_valid_but_not_current_responder",
+			input: RecordQuestionResponseInput{Key: "Q001", SessionID: "session-b", Responder: "bob", Summary: "approved", EvidencePointer: "docs/spec.md"},
+			claim: &models.EntityClaim{EntityType: "question", EntityKey: "Q001", ClaimedBy: "bob", SessionID: "session-b"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			question, _ := newQuestion()
+			recordResponseCalled := false
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil },
+				recordResponseFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string) error {
+					recordResponseCalled = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.skipClaimer {
+				svc.SetClaimReader(fakeQuestionClaimReader{claim: tc.claim})
+			}
+			if _, err := svc.RecordResponse(context.Background(), tc.input); err == nil {
+				t.Fatal("RecordResponse() error = nil, want rejection")
+			}
+			if recordResponseCalled {
+				t.Fatal("repository write called despite the authorization guard violation")
+			}
+		})
 	}
 }
 
@@ -1182,6 +1277,60 @@ func TestQuestionServiceGetNextStatusReadyForResolutionStopsResponderDispatch_TC
 	}
 	if !info.IsTerminal || info.IsClaimed || len(info.AvailableTransitions) != 0 {
 		t.Fatalf("GetNextStatus() = %#v, want non-dispatching ready-for-resolution checkpoint", info)
+	}
+}
+
+// TestQuestionServiceTransitionStatusRejectsWorkflowOwnedTargets locks in a
+// shipped-and-caught regression: TransitionStatus satisfies
+// runner.EntityTransitioner and is reachable directly via `shark status set
+// <key> <status>` and the HTTP transition endpoint, NEITHER of which consult
+// GetNextStatus's restricted AvailableTransitions/Outcomes first (unlike
+// `shark status advance`). Delegating unconditionally to
+// EntityService.TransitionStatus let a caller force a Question through
+// ready_for_resolution/resolved/withdrawn/superseded via question.yaml's
+// ordinary forward edges, completely bypassing RecordResponse/Resolve/
+// Withdraw/Supersede's responder-completion, resolution-owner, and
+// provenance checks -- and silently defeating the F03 blocking gate for
+// anything linked to that Question. This test exercises exactly the
+// delegated (entitySvc/entityRepo wired) path production uses via
+// SetEntityTransitioner, not just the mock-backed fallback, since that's
+// the boundary the bug shipped on.
+func TestQuestionServiceTransitionStatusRejectsWorkflowOwnedTargets(t *testing.T) {
+	state := models.QuestionState{
+		ResolutionOwner: "owner",
+		Responders:      []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}},
+		Responses:       []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}},
+	}
+	encoded, err := models.EncodeQuestionState(nil, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, target := range []string{"ready_for_resolution", "resolved", "withdrawn", "superseded"} {
+		t.Run(target, func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", ContextData: encoded}, Status: models.QuestionStatusOpen, Summary: "Summary", Requester: "owner"}
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil },
+				statusFn: func(context.Context, int64, models.QuestionStatus) error {
+					t.Fatal("repository status write called despite rejected workflow-owned target")
+					return nil
+				},
+				updateStatusIfCurrentFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus) (bool, error) {
+					t.Fatal("repository conditional status write called despite rejected workflow-owned target")
+					return false, nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entitySvc := NewEntityService(workflow.NewService(""))
+			svc.SetEntityTransitioner(entitySvc, NewQuestionRepositoryAdapter(repo))
+
+			if _, err := svc.TransitionStatus(context.Background(), "Q001", target, TransitionOptions{}); err == nil {
+				t.Fatalf("TransitionStatus(target=%q) error = nil, want rejection", target)
+			}
+		})
 	}
 }
 
