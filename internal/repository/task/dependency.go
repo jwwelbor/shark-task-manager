@@ -22,6 +22,12 @@ const (
 // ValidateTaskDependencies validates that adding a task with given dependencies
 // would not create circular dependencies. This should be called before creating
 // or updating a task with dependencies.
+//
+// Scope contract: dependency existence and cycle detection are both scoped to
+// task.FeatureID — the depends_on JSON field only supports same-feature
+// dependencies. This is intentional: cross-feature dependencies are supported
+// via the entity_relationships table instead (see EntityRelationshipService,
+// `shark task link --depends-on`), which is unaffected by this method.
 func (r *TaskRepository) ValidateTaskDependencies(ctx context.Context, task *models.Task) error {
 	if task.DependsOn == nil || *task.DependsOn == "" || *task.DependsOn == "[]" {
 		return nil
@@ -71,7 +77,7 @@ func (r *TaskRepository) ValidateTaskDependencies(ctx context.Context, task *mod
 			return fmt.Errorf("task cannot depend on itself: %s", task.Key)
 		}
 		if !existingKeys[dep] {
-			return fmt.Errorf("dependency does not exist: %s", dep)
+			return r.dependencyNotFoundError(ctx, dep)
 		}
 	}
 
@@ -83,6 +89,19 @@ func (r *TaskRepository) ValidateTaskDependencies(ctx context.Context, task *mod
 	}
 
 	return nil
+}
+
+// dependencyNotFoundError builds the error returned when a dependency key is
+// absent from the task's own feature. A key that exists in another feature
+// gets a distinct, accurate message instead of the misleading "does not
+// exist" — the depends_on JSON field simply doesn't support cross-feature
+// dependencies (see ValidateTaskDependencies doc comment), so the message
+// points the caller at the supported alternative.
+func (r *TaskRepository) dependencyNotFoundError(ctx context.Context, dep string) error {
+	if _, err := r.GetByKey(ctx, dep); err == nil {
+		return fmt.Errorf("dependency %s exists in a different feature: depends_on only supports same-feature dependencies; use 'shark task link --depends-on' to create a cross-feature dependency", dep)
+	}
+	return fmt.Errorf("dependency does not exist: %s", dep)
 }
 
 // BuildDependencyGraphForFeature builds a dependency graph for all tasks in a feature.
