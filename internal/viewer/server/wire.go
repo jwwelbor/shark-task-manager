@@ -417,6 +417,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	questionService.SetSearchIndexer(searchRepo)
 	questionService.SetClaimReader(services.NewClaimService(claimrepo.NewRepository(db), nil))
 	questionService.SetFocusedReadDependencies(entityrel.NewEntityRelationshipRepository(db), registry)
+	questionService.SetEntityTransitioner(entitySvc, registry.MustGetRepository(models.EntityTypeQuestion))
 	questionService.SetProjectRoot(projectRoot)
 	taskService.SetEntityHistoryRepo(entityHistoryRepo)
 	taskService.SetTagService(tagSvc)

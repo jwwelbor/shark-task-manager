@@ -441,6 +441,66 @@ func TestQuestionServiceResolve_TC106(t *testing.T) {
 	}
 }
 
+// TestQuestionServiceResolveRejectsUnreadyQuestion_TC106 locks in Resolve's
+// core precondition: status must be ready_for_resolution AND every responder
+// must have completed. Without this guard, a caller could resolve a Question
+// while responders are still pending or before any response was recorded.
+func TestQuestionServiceResolveRejectsUnreadyQuestion_TC106(t *testing.T) {
+	pendingState := models.QuestionState{
+		ResolutionOwner: "release-owner",
+		Responders:      []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}, {Identity: "bob", Status: models.QuestionResponderPending}},
+		Responses:       []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}},
+	}
+	pendingEncoded, err := models.EncodeQuestionState(nil, pendingState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyState := models.QuestionState{
+		ResolutionOwner: "release-owner",
+		Responders:      []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}},
+		Responses:       []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}},
+	}
+	readyEncoded, err := models.EncodeQuestionState(nil, readyState)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name   string
+		status models.QuestionStatus
+		ctx    *string
+	}{
+		{"draft_status", models.QuestionStatusDraft, readyEncoded},
+		{"open_status", models.QuestionStatusOpen, readyEncoded},
+		{"answering_status", models.QuestionStatusAnswering, readyEncoded},
+		{"ready_for_resolution_with_pending_responder", models.QuestionStatusReadyForResolution, pendingEncoded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", ContextData: tc.ctx}, Status: tc.status, Summary: "Summary", Requester: "owner"}
+			resolveCalled := false
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil },
+				resolveFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error {
+					resolveCalled = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			svc.SetProjectRoot("../..")
+			if _, err := svc.Resolve(context.Background(), ResolveQuestionInput{Key: "Q001", Owner: "release-owner", Kind: "no_lasting_consequence"}); err == nil {
+				t.Fatal("Resolve() error = nil, want rejection for a Question that is not ready for resolution")
+			}
+			if resolveCalled {
+				t.Fatal("Resolve() called the repository write despite failing its precondition")
+			}
+		})
+	}
+}
+
 // TC-107: terminal provenance accepts only the configured owner and leaves
 // target validation and atomic terminal write at the typed repository seam.
 func TestQuestionServiceWithdrawAndSupersede_TC107(t *testing.T) {
@@ -495,6 +555,124 @@ func TestQuestionServiceWithdrawAndSupersede_TC107(t *testing.T) {
 				t.Fatalf("TC-107 %s did not call atomic repository write", tc.name)
 			}
 		})
+	}
+}
+
+// TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107 locks in
+// the two guards closeWithReason/loadClosableQuestion enforce before Withdraw
+// or Supersede may close a Question: the caller must be the configured
+// resolution owner, and the Question must not already be terminal. Without
+// these, any caller could re-close an already-resolved Question or close one
+// they don't own.
+func TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107(t *testing.T) {
+	openState := models.QuestionState{ResolutionOwner: "release-owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderPending}}}
+	openEncoded, err := models.EncodeQuestionState(nil, openState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalState := models.QuestionState{
+		ResolutionOwner: "release-owner",
+		Responders:      []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}},
+		Responses:       []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}},
+	}
+	terminalEncoded, err := models.EncodeQuestionState(nil, terminalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, action := range []struct {
+		name string
+		call func(*QuestionService) error
+	}{
+		{name: "withdraw", call: func(s *QuestionService) error {
+			_, err := s.Withdraw(context.Background(), WithdrawQuestionInput{Key: "Q001", Owner: "release-owner", Reason: "no longer needed"})
+			return err
+		}},
+		{name: "supersede", call: func(s *QuestionService) error {
+			_, err := s.Supersede(context.Background(), SupersedeQuestionInput{Key: "Q001", Owner: "release-owner", Reason: "replaced", SupersededBy: "Q002"})
+			return err
+		}},
+	} {
+		t.Run(action.name+"/wrong_owner", func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", ContextData: openEncoded}, Status: "open", Summary: "Summary", Requester: "owner"}
+			called := false
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(_ context.Context, key string) (*models.Question, error) {
+					if key == "Q002" {
+						return &models.Question{BaseEntity: models.BaseEntity{ID: 40, Key: "Q002"}}, nil
+					}
+					return question, nil
+				},
+				withdrawFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error {
+					called = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// "someone-else" does not match the configured release-owner.
+			var callErr error
+			switch action.name {
+			case "withdraw":
+				_, callErr = svc.Withdraw(context.Background(), WithdrawQuestionInput{Key: "Q001", Owner: "someone-else", Reason: "no longer needed"})
+			case "supersede":
+				_, callErr = svc.Supersede(context.Background(), SupersedeQuestionInput{Key: "Q001", Owner: "someone-else", Reason: "replaced", SupersededBy: "Q002"})
+			}
+			if callErr == nil {
+				t.Fatal("error = nil, want rejection for a caller that is not the configured resolution owner")
+			}
+			if called {
+				t.Fatal("repository write called despite the owner mismatch")
+			}
+		})
+
+		t.Run(action.name+"/already_terminal", func(t *testing.T) {
+			question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", ContextData: terminalEncoded}, Status: models.QuestionStatusResolved, Summary: "Summary", Requester: "owner"}
+			called := false
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(_ context.Context, key string) (*models.Question, error) {
+					if key == "Q002" {
+						return &models.Question{BaseEntity: models.BaseEntity{ID: 40, Key: "Q002"}}, nil
+					}
+					return question, nil
+				},
+				withdrawFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error {
+					called = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := action.call(svc); err == nil {
+				t.Fatal("error = nil, want rejection for an already-terminal (resolved) Question")
+			}
+			if called {
+				t.Fatal("repository write called despite the Question already being terminal")
+			}
+		})
+	}
+}
+
+// TestValidateTerminalReasonEnforcesByteBoundaries locks in
+// validateTerminalReason's byte-range check, used by Withdraw/Supersede to
+// bound the caller-supplied close reason. Zero tests exercised this helper
+// before -- an empty or oversized reason would previously go unchecked here.
+func TestValidateTerminalReasonEnforcesByteBoundaries(t *testing.T) {
+	if err := validateTerminalReason(""); err == nil {
+		t.Error("validateTerminalReason(\"\") error = nil, want rejection of an empty reason")
+	}
+	if err := validateTerminalReason(strings.Repeat("a", 1001)); err == nil {
+		t.Error("validateTerminalReason(1001 bytes) error = nil, want rejection over the 1000-byte bound")
+	}
+	if err := validateTerminalReason(strings.Repeat("a", 1000)); err != nil {
+		t.Errorf("validateTerminalReason(1000 bytes) error = %v, want acceptance at the bound", err)
+	}
+	if err := validateTerminalReason("a"); err != nil {
+		t.Errorf("validateTerminalReason(\"a\") error = %v, want acceptance of a minimal reason", err)
 	}
 }
 

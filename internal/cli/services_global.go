@@ -585,6 +585,7 @@ func GetQuestionService() *services.QuestionService {
 	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 	svc.SetClaimReader(GetClaimService())
 	svc.SetFocusedReadDependencies(entityrel.NewEntityRelationshipRepository(db), GetEntityRegistry())
+	svc.SetEntityTransitioner(GetEntityService(), GetEntityRegistry().MustGetRepository(models.EntityTypeQuestion))
 	projectRoot, _ := FindProjectRoot()
 	if projectRoot == "" {
 		projectRoot = "."

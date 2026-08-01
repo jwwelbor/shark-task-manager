@@ -129,6 +129,8 @@ type QuestionService struct {
 	focusedEdges    QuestionFocusedRelationshipReader
 	focusedRegistry QuestionBlockerRegistry
 	projectRoot     string
+	entitySvc       *EntityService // optional: shared config-driven transition engine, see SetEntityTransitioner
+	entityRepo      EntityRepository
 }
 
 // NewQuestionService constructs the Question lifecycle service.
@@ -168,6 +170,18 @@ func (s *QuestionService) SetClaimReader(reader QuestionClaimReader) { s.claimRe
 func (s *QuestionService) SetFocusedReadDependencies(edges QuestionFocusedRelationshipReader, registry QuestionBlockerRegistry) {
 	s.focusedEdges = edges
 	s.focusedRegistry = registry
+}
+
+// SetEntityTransitioner wires the shared, config-driven transition engine
+// every sibling entity service (Bug, ChangeCard, TechDebt, Task, Feature,
+// Epic) uses for TransitionStatus, via the level-scoped workflow.Service and
+// the existing Question EntityRepository adapter. entitySvc is stored scoped
+// to workflow.LevelQuestion. Optional: TransitionStatus falls back to a
+// hand-rolled check when unset, matching prior behavior for callers (tests)
+// that don't wire it.
+func (s *QuestionService) SetEntityTransitioner(entitySvc *EntityService, entityRepo EntityRepository) {
+	s.entitySvc = entitySvc.ForLevel(workflow.LevelQuestion)
+	s.entityRepo = entityRepo
 }
 
 // CreateQuestion validates the finite F01 input contract before persistence.
@@ -849,6 +863,16 @@ func (s *QuestionService) SetQuestionStatus(ctx context.Context, key, status str
 // the draft pause action; this service only reports persisted state and the
 // terminal archived boundary, so keyed-next cannot mutate a Question while it
 // resolves a dispatch response.
+//
+// This intentionally does not delegate to EntityService.GetNextStatus (unlike
+// TransitionStatus above): question.yaml's ready_for_resolution/resolved/
+// withdrawn/superseded steps declare non-empty `outcomes:` for Resolve/
+// Withdraw/Supersede's typed use, but those are human-owned resolution-owner
+// actions, not machine-dispatchable transitions. The generic engine would
+// read that same config and report ready_for_resolution as non-terminal with
+// available transitions, which would make `shark next`/`shark run` treat a
+// human-owned checkpoint as dispatchable again -- the exact regression this
+// method's IsTerminal override below exists to prevent.
 func (s *QuestionService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
 	question, err := s.GetQuestion(ctx, key)
 	if err != nil {
@@ -904,10 +928,28 @@ func (s *QuestionService) GetNextStatus(ctx context.Context, key string) (*NextS
 }
 
 // TransitionStatus satisfies runner.EntityTransitioner for the bounded
-// Question workflow. F01 has no automatic transition, but keeping the sole
-// terminal transition explicit prevents a future runner path from writing an
-// arbitrary stored status.
-func (s *QuestionService) TransitionStatus(ctx context.Context, key, targetStatus string, _ TransitionOptions) (*TransitionResult, error) {
+// Question workflow. GetNextStatus above only ever offers "answering" (from
+// open/answering) and "archived" (from draft) as targets, so this only ever
+// needs to validate and persist that narrow pair -- but it does so through
+// the same shared, config-driven EntityService.TransitionStatus every
+// sibling entity (Bug, ChangeCard, TechDebt, Task, Feature, Epic) uses, when
+// SetEntityTransitioner has wired one in, so the transition is validated
+// against question.yaml instead of a hardcoded Go check and gets
+// entity_history recording for free. Falls back to the direct, hand-rolled
+// path when unset (e.g. mock-backed unit tests that don't wire a full
+// EntityService/workflow.Service).
+func (s *QuestionService) TransitionStatus(ctx context.Context, key, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	if s.entitySvc != nil && s.entityRepo != nil {
+		result, err := s.entitySvc.TransitionStatus(ctx, s.entityRepo, models.EntityTypeQuestion, key, targetStatus, opts, SimpleTransitionFeatures(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("transition question %s: %w", key, err)
+		}
+		if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeQuestion, result.EntityID); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
 	question, err := s.GetQuestion(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("transition question %s: %w", key, err)

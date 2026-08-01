@@ -1,6 +1,18 @@
 version: "1.0"
-start: open
+start: draft
 steps:
+  draft:
+    phase: planning
+    color: gray
+    display_token: DFT
+    description: "Question created but not yet configured with a resolution owner and responders"
+    progress_weight: 0.0
+    responsibility: none
+    action: pause
+    outcomes:
+      pass: open
+      fail: archived
+      blocked: archived
   open:
     phase: active
     color: blue
@@ -63,6 +75,15 @@ steps:
     color: gray
     display_token: SUP
     description: "Question superseded"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+  archived:
+    phase: done
+    color: gray
+    display_token: ARC
+    description: "Question archived before it was configured with a resolution owner and responders"
     progress_weight: 1.0
     responsibility: none
     action: archive
