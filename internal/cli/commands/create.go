@@ -296,7 +296,6 @@ func init() {
 	createQuestionCmd.Flags().String("requester", "", "Question requester")
 	createQuestionCmd.Flags().String("description", "", "Question description")
 	createQuestionCmd.Flags().Bool("blocking", false, "Question blocks progress")
-	createQuestionCmd.Flags().String("status", "", "Initial status (draft only)")
 
 	// ======================================================================
 	// Note Create Flags
