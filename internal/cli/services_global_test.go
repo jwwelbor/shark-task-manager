@@ -2,9 +2,109 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
+
+// TestGetQuestionServiceResolvesDocumentPointerAgainstProjectRootFromSubdirectory
+// proves GetQuestionService wires QuestionService with the project root
+// FindProjectRoot() discovers, not the process's current directory -- a
+// relative feature_change/architecture_decision resolution pointer must
+// still resolve when a shark command is invoked from a nested subdirectory
+// (the common case for AI agents working in docs/plan/<epic>/<feature>/).
+// Before this wiring existed, resolution defaulted to ".", so this same
+// pointer would fail with "document destination ... does not exist" whenever
+// invoked from anywhere but the project root.
+func TestGetQuestionServiceResolvesDocumentPointerAgainstProjectRootFromSubdirectory(t *testing.T) {
+	cleanup := setupAccessorTestDB(t)
+	defer cleanup()
+
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	docDir := filepath.Join(projectRoot, "docs", "architecture")
+	if err := os.MkdirAll(docDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docs/architecture) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docDir, "coding-standards.md"), []byte("# Standards\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(coding-standards.md) error = %v", err)
+	}
+
+	subdir := filepath.Join(projectRoot, "work", "session")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subdir) error = %v", err)
+	}
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatalf("Chdir(subdir) error = %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(projectRoot); err != nil {
+			t.Fatalf("restore Chdir(projectRoot) error = %v", err)
+		}
+	}()
+
+	svc := GetQuestionService()
+	ctx := context.Background()
+	question, err := svc.CreateQuestion(ctx, services.CreateQuestionInput{
+		Title: "Root-aware resolution", Summary: "Prove subdirectory invocation resolves docs against project root", Requester: "release-owner",
+	})
+	if err != nil {
+		t.Fatalf("CreateQuestion() error = %v", err)
+	}
+	if _, err := svc.ConfigureWorkflow(ctx, services.ConfigureWorkflowInput{Key: question.Key, ResolutionOwner: "release-owner", Responders: []string{"alice"}}); err != nil {
+		t.Fatalf("ConfigureWorkflow() error = %v", err)
+	}
+
+	// Force the Question directly to ready_for_resolution with a completed
+	// responder. The full responder dispatch/claim lifecycle is exercised
+	// elsewhere (TC102/TC103/TC105); this test isolates the root-aware
+	// document-pointer seam that Resolve's feature_change/architecture_decision
+	// kinds exercise.
+	sqlDB, err := GetDB(ctx)
+	if err != nil {
+		t.Fatalf("GetDB() error = %v", err)
+	}
+	questionRepo := repository.NewQuestionRepository(sqlDB)
+	persisted, err := questionRepo.GetByKey(ctx, question.Key)
+	if err != nil {
+		t.Fatalf("GetByKey() error = %v", err)
+	}
+	state, err := models.DecodeQuestionState(persisted.ContextData)
+	if err != nil || state == nil {
+		t.Fatalf("DecodeQuestionState() = %v, %v", state, err)
+	}
+	state.Responders[0].Status = models.QuestionResponderCompleted
+	state.Responses = append(state.Responses, models.QuestionResponse{
+		SessionID: "session-alice", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC(),
+	})
+	encoded, err := models.EncodeQuestionState(persisted.ContextData, *state)
+	if err != nil {
+		t.Fatalf("EncodeQuestionState() error = %v", err)
+	}
+	persisted.ContextData = encoded
+	if err := questionRepo.Update(ctx, persisted); err != nil {
+		t.Fatalf("Update(context data) error = %v", err)
+	}
+	// Update() deliberately excludes status -- it's set only through the
+	// typed status paths -- so advance it separately.
+	if err := questionRepo.UpdateStatus(ctx, persisted.ID, models.QuestionStatusReadyForResolution); err != nil {
+		t.Fatalf("UpdateStatus(ready_for_resolution) error = %v", err)
+	}
+
+	if _, err := svc.Resolve(ctx, services.ResolveQuestionInput{
+		Key: question.Key, Owner: "release-owner", Kind: "feature_change", Pointer: "docs/architecture/coding-standards.md",
+	}); err != nil {
+		t.Fatalf("Resolve() from subdirectory error = %v, want root-aware resolution to succeed", err)
+	}
+}
 
 func TestGetPortfolioAdviceServiceWiresProductionReaders(t *testing.T) {
 	cleanup := setupAccessorTestDB(t)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/searchindex"
 	_ "modernc.org/sqlite"
 )
@@ -472,9 +473,13 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	27 — E36 metrics (drop entity_notes.note_type CHECK — app-layer
 //	             validation only; adds 'review-finding' note type)
 //	28 — E38 guarded advances (session/from-status replay protection table)
+//	29 — E39-F01 (Questions base table, indexes, update and dependent-row cleanup triggers)
+//	30 — E39-F01 (add Question metadata to the unified search projection)
+//	31 — E39-F02 (convert predecessor Question draft records to open)
+//	32 — E39-F03 (add question_blocks to entity_relationships durable vocabulary)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 28
+const CurrentSchemaVersion = 32
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -627,8 +632,96 @@ func CheckIntegrity(db *sql.DB) error {
 	return nil
 }
 
-// runMigrations runs all pending migrations for backwards compatibility
+// runMigrations applies the current schema migration tail after the stable
+// pre-Question migration spine. Keeping the predecessor spine separate lets
+// migration tests construct real v28 databases without editing a newer schema
+// back into an artificial predecessor state.
 func runMigrations(db *sql.DB) error {
+	if err := runPreQuestionMigrations(db); err != nil {
+		return err
+	}
+
+	if err := migrateQuestionsTable(db); err != nil {
+		return fmt.Errorf("questions table migration: %w", err)
+	}
+	if err := migrateQuestionDraftsToOpen(db); err != nil {
+		return fmt.Errorf("Question state migration: %w", err)
+	}
+	if err := migrateQuestionBlocksRelationshipType(db); err != nil {
+		return fmt.Errorf("Question relationship vocabulary migration: %w", err)
+	}
+
+	// Run search FTS migration after all source and note tables are current so
+	// the unified index can be rebuilt during the migration. Questions are one
+	// such source table and must exist before its metadata projection runs.
+	if err := migrateSearchFTS(db); err != nil {
+		return fmt.Errorf("failed to migrate search FTS: %w", err)
+	}
+
+	return nil
+}
+
+// migrateQuestionBlocksRelationshipType widens only the persisted
+// relationship-type enum. SQLite cannot alter a CHECK constraint in place, so
+// it rebuilds the table with the existing view-safe recreation sequence. The
+// application already validates relationship direction; this migration merely
+// keeps durable storage aligned with that finite vocabulary.
+func migrateQuestionBlocksRelationshipType(db *sql.DB) error {
+	schema, err := readTableSQL(db, "entity_relationships")
+	if err != nil {
+		return fmt.Errorf("read entity_relationships schema: %w", err)
+	}
+	if strings.Contains(schema, "'question_blocks'") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, statement := range []string{
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		`DROP VIEW IF EXISTS viewer_task_relationships;`,
+		`DROP TRIGGER IF EXISTS entity_relationships_cascade_delete_question;`,
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("drop dependent view: %w", err)
+		}
+	}
+	if err := rebuildEntityRelationshipsTx(tx); err != nil {
+		return fmt.Errorf("rebuild entity_relationships: %w", err)
+	}
+	for _, statement := range []string{
+		epicDisplayDataViewSQL,
+		featureDisplayDataViewSQL,
+		taskDisplayDataViewSQL,
+		viewerTaskRelationshipsViewSQL,
+		`CREATE TRIGGER IF NOT EXISTS entity_relationships_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_relationships
+				WHERE (from_entity_type = 'question' AND from_entity_id = OLD.id)
+				   OR (to_entity_type = 'question' AND to_entity_id = OLD.id);
+			END;`,
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("recreate dependent view: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit entity_relationships rebuild: %w", err)
+	}
+	return nil
+}
+
+// runPreQuestionMigrations is the complete v28 migration spine. It is kept
+// callable from package tests so predecessor fixtures use the same migration
+// operations that produced deployed v28 databases.
+func runPreQuestionMigrations(db *sql.DB) error {
 	// Check if epics table has file_path column; if not, add it
 	var columnExists int
 	err := db.QueryRow(`
@@ -1024,12 +1117,6 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("drop sprint active index migration: %w", err)
 	}
 
-	// Run search FTS migration after all source and note tables are current so
-	// the unified index can be rebuilt during the migration.
-	if err := migrateSearchFTS(db); err != nil {
-		return fmt.Errorf("failed to migrate search FTS: %w", err)
-	}
-
 	// E36 metrics: rebuild work_sessions entity-generic so claim/release can
 	// log sessions for every entity type, not just tasks.
 	if err := migrateWorkSessionsEntityGeneric(db); err != nil {
@@ -1072,6 +1159,146 @@ CREATE INDEX IF NOT EXISTS idx_advance_guard_lookup
 `)
 	if err != nil {
 		return fmt.Errorf("failed to create advance_guard_consumptions table: %w", err)
+	}
+	return nil
+}
+
+// migrateQuestionsTable creates the durable base table for Question records and
+// cleanup triggers for polymorphic association tables. It is additive and
+// idempotent: a failed statement retains predecessor data and a later run can
+// finish the remaining DDL without a destructive rollback.
+func migrateQuestionsTable(db *sql.DB) error {
+	statements := []struct {
+		operation string
+		sql       string
+	}{
+		{"create questions table", `
+			CREATE TABLE IF NOT EXISTS questions (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				key TEXT NOT NULL UNIQUE CHECK (key GLOB 'Q[0-9][0-9][0-9]' AND key <> 'Q000'),
+				title TEXT NOT NULL,
+				slug TEXT,
+				description TEXT,
+				status TEXT NOT NULL,
+				summary TEXT NOT NULL,
+				blocking INTEGER NOT NULL DEFAULT 0 CHECK (blocking IN (0, 1)),
+				requester TEXT NOT NULL,
+				context_data TEXT,
+				file_path TEXT,
+				size INTEGER,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);`},
+		{"create questions unique key index", `CREATE UNIQUE INDEX IF NOT EXISTS idx_questions_key_unique ON questions(key);`},
+		{"create questions key lookup index", `CREATE INDEX IF NOT EXISTS idx_questions_key_lookup ON questions(key);`},
+		{"create questions bounded list index", `CREATE INDEX IF NOT EXISTS idx_questions_status_requester_blocking_key ON questions(status, requester, blocking, key);`},
+		{"create questions updated_at trigger", `
+			CREATE TRIGGER IF NOT EXISTS questions_updated_at
+			AFTER UPDATE ON questions
+			FOR EACH ROW BEGIN
+				UPDATE questions SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END;`},
+		{"create Question note cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'question' AND entity_id = OLD.id;
+			END;`},
+		{"create Question history cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS entity_history_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_history WHERE entity_type = 'question' AND entity_id = OLD.id;
+			END;`},
+		{"create Question document cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS entity_documents_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_documents WHERE entity_type = 'question' AND entity_id = OLD.id;
+			END;`},
+		{"create Question relationship cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS entity_relationships_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_relationships
+				WHERE (from_entity_type = 'question' AND from_entity_id = OLD.id)
+				   OR (to_entity_type = 'question' AND to_entity_id = OLD.id);
+			END;`},
+		{"create Question tag cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS entity_tags_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_tags WHERE entity_type = 'question' AND entity_id = OLD.id;
+			END;`},
+		{"create Question claim cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS entity_claims_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM entity_claims WHERE entity_type = 'question' AND entity_key = OLD.key;
+			END;`},
+		{"create Question work session cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS work_sessions_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM work_sessions WHERE entity_type = 'question' AND entity_key = OLD.key;
+			END;`},
+		{"create Question advance guard cleanup trigger", `
+			CREATE TRIGGER IF NOT EXISTS advance_guard_consumptions_cascade_delete_question
+			AFTER DELETE ON questions
+			FOR EACH ROW BEGIN
+				DELETE FROM advance_guard_consumptions WHERE entity_type = 'question' AND entity_id = OLD.id;
+			END;`},
+	}
+
+	for _, statement := range statements {
+		if _, err := db.Exec(statement.sql); err != nil {
+			return fmt.Errorf("%s: %w", statement.operation, err)
+		}
+	}
+	return nil
+}
+
+// migrateQuestionDraftsToOpen forward-corrects only predecessor F01 Question
+// rows that already carry a configured question_state -- those were "open"
+// under the F02+ model and only read "draft" because F01 predates the
+// distinction. A draft row with no decodable question_state is a genuinely
+// unconfigured Question under the current model (ConfigureWorkflow hasn't
+// run yet) and must stay "draft": promoting it to "open" without state would
+// later make ListOpenQuestionsByResponder fail to decode it and abort its
+// entire response for every responder. It is intentionally a single
+// additive update: no state is synthesized and no context, association,
+// history, or claim row is read or overwritten.
+func migrateQuestionDraftsToOpen(db *sql.DB) error {
+	rows, err := db.Query(`SELECT id, context_data FROM questions WHERE status = 'draft'`)
+	if err != nil {
+		return fmt.Errorf("find predecessor Question draft records: %w", err)
+	}
+	var configuredIDs []int64
+	for rows.Next() {
+		var id int64
+		var contextData sql.NullString
+		if err := rows.Scan(&id, &contextData); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan predecessor Question draft record: %w", err)
+		}
+		var cd *string
+		if contextData.Valid {
+			cd = &contextData.String
+		}
+		if state, decodeErr := models.DecodeQuestionState(cd); decodeErr == nil && state != nil {
+			configuredIDs = append(configuredIDs, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate predecessor Question draft records: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close predecessor Question draft record cursor: %w", err)
+	}
+	for _, id := range configuredIDs {
+		if _, err := db.Exec(`UPDATE questions SET status = 'open' WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("convert Question draft record %d to open: %w", id, err)
+		}
 	}
 	return nil
 }
@@ -3560,7 +3787,7 @@ func migrateAddEntityRelationships(db *sql.DB) error {
             to_entity_id      INTEGER NOT NULL,
             relationship_type TEXT NOT NULL CHECK(relationship_type IN (
                                 'depends_on','blocks','related_to','follows',
-                                'spawned_from','duplicates','references','linked_to'
+                                'spawned_from','duplicates','references','linked_to','question_blocks'
                               )),
             created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(from_entity_type, from_entity_id,
@@ -4824,7 +5051,7 @@ func rebuildEntityRelationshipsTx(tx *sql.Tx) error {
 			to_entity_id      INTEGER NOT NULL,
 			relationship_type TEXT NOT NULL CHECK(relationship_type IN (
 				'depends_on','blocks','related_to','follows',
-				'spawned_from','duplicates','references','linked_to'
+				'spawned_from','duplicates','references','linked_to','question_blocks'
 			)),
 			created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(from_entity_type, from_entity_id,

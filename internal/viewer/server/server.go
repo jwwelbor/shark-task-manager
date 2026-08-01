@@ -127,6 +127,7 @@ func StartServer(ctx context.Context, opts Options) error {
 	api.NewTaskHandler(svcs.TaskService).RegisterRoutes(mux)
 	api.NewFeatureHandler(svcs.FeatureService).RegisterRoutes(mux)
 	api.NewEpicHandler(svcs.EpicService).RegisterRoutes(mux)
+	api.NewQuestionHandler(svcs.QuestionService).RegisterRoutes(mux)
 
 	// Read-only viewer dashboard routes under /api/v1/viewer/ (with CORS).
 	viewer.NewViewerHandler(svcs.ViewerService).RegisterRoutes(mux, "/api/v1/viewer")

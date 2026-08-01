@@ -71,3 +71,8 @@ func DefaultFeatureWorkflow() *WorkflowConfig {
 func DefaultSprintWorkflow() *WorkflowConfig {
 	return loadEmbeddedWorkflow("sprint")
 }
+
+// DefaultQuestionWorkflow returns the embedded minimal Question workflow.
+func DefaultQuestionWorkflow() *WorkflowConfig {
+	return loadEmbeddedWorkflow("question")
+}

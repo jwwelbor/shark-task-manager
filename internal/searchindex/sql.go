@@ -175,6 +175,25 @@ var projections = []projection{
 				''
 			FROM ideas i`,
 	},
+	{
+		entityType: models.EntityTypeQuestion,
+		alias:      "q",
+		// Questions deliberately index only their normal F01 metadata.
+		// ContextData is an internal generic-service carrier and must never
+		// become searchable or appear in a search projection.
+		selectSQL: `
+			SELECT
+				'question',
+				q.id,
+				q.key,
+				q.title,
+				COALESCE(q.summary, ''),
+				'',
+				TRIM(COALESCE(q.requester, '') || ' ' || COALESCE(q.status, '') || ' ' || CASE WHEN q.blocking THEN 'blocking' ELSE '' END),
+				COALESCE(q.status, ''),
+				''
+			FROM questions q`,
+	},
 }
 
 var projectionByType = func() map[models.EntityType]projection {

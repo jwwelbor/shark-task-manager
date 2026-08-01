@@ -162,6 +162,7 @@ func TestWorkflowListCommand(t *testing.T) {
 				"Bug Workflow (default)",
 				"Change Workflow (default)",
 				"Tech Debt Workflow (default)",
+				"Question Workflow (default)",
 				"draft",
 				"development",
 				"completed",
@@ -489,7 +490,7 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 			}`,
 			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
 				// All levels in config.KnownWorkflowLevels should be present.
-				for _, lvl := range []string{"epic", "feature", "task", "sprint", "bug", "change", "tech_debt"} {
+				for _, lvl := range []string{"epic", "feature", "task", "sprint", "bug", "change", "tech_debt", "question"} {
 					if findLevel(display, lvl) == nil {
 						t.Fatalf("Expected %s level in JSON output", lvl)
 					}
@@ -836,7 +837,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     false,
 			expectValid:    true,
-			expectedLevels: 7,
+			expectedLevels: 8,
 		},
 		{
 			name: "custom_epic_workflow",
@@ -856,7 +857,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     false,
 			expectValid:    true,
-			expectedLevels: 7,
+			expectedLevels: 8,
 		},
 		{
 			name: "custom_feature_workflow",
@@ -876,7 +877,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     false,
 			expectValid:    true,
-			expectedLevels: 7,
+			expectedLevels: 8,
 		},
 		{
 			name: "invalid_epic_workflow_valid_others",
@@ -933,7 +934,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     true,
 			expectValid:    true,
-			expectedLevels: 7,
+			expectedLevels: 8,
 		},
 	}
 

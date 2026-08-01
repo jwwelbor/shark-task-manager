@@ -2,12 +2,12 @@ package services
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// BugAdapterRepository defines the minimal interface needed by BugRepositoryAdapter.
+// BugAdapterRepository defines the minimal interface needed by
+// NewBugRepositoryAdapter.
 type BugAdapterRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Bug, error)
 	GetByID(ctx context.Context, id int64) (*models.Bug, error)
@@ -18,47 +18,7 @@ type BugAdapterRepository interface {
 	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
 
-// BugRepositoryAdapter wraps a typed bug repository to satisfy EntityRepository.
-type BugRepositoryAdapter struct {
-	repo BugAdapterRepository
-}
-
-// Compile-time check that BugRepositoryAdapter implements EntityRepository.
-var _ EntityRepository = (*BugRepositoryAdapter)(nil)
-
-// NewBugRepositoryAdapter creates an adapter wrapping the given bug repository.
-func NewBugRepositoryAdapter(repo BugAdapterRepository) *BugRepositoryAdapter {
-	return &BugRepositoryAdapter{repo: repo}
-}
-
-func (a *BugRepositoryAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
-	return a.repo.GetByKey(ctx, key)
-}
-
-func (a *BugRepositoryAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
-	return a.repo.GetByID(ctx, id)
-}
-
-func (a *BugRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return a.repo.UpdateStatus(ctx, id, models.BugStatus(status))
-}
-
-func (a *BugRepositoryAdapter) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
-	return a.repo.UpdateStatusIfCurrent(ctx, id, models.BugStatus(expectedCurrentStatus), models.BugStatus(newStatus))
-}
-
-func (a *BugRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {
-	bug, ok := entity.(*models.Bug)
-	if !ok {
-		return fmt.Errorf("BugRepositoryAdapter.Update: expected *models.Bug, got %T", entity)
-	}
-	return a.repo.Update(ctx, bug)
-}
-
-func (a *BugRepositoryAdapter) GetContextData(ctx context.Context, id int64) (*string, error) {
-	return a.repo.GetContextData(ctx, id)
-}
-
-func (a *BugRepositoryAdapter) UpdateContextData(ctx context.Context, id int64, data *string) error {
-	return a.repo.UpdateContextData(ctx, id, data)
+// NewBugRepositoryAdapter creates an EntityRepository adapter for bugs.
+func NewBugRepositoryAdapter(repo BugAdapterRepository) EntityRepository {
+	return newEntityAdapter[*models.Bug, models.BugStatus]("Bug", repo)
 }

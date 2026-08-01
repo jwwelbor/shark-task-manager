@@ -54,6 +54,19 @@ func (s *ContextService) SetContextField(ctx context.Context, entityType models.
 	}
 
 	// Get current context data
+	//
+	// KNOWN LIMITATION (deep-review 2026-08-01, non-blocker): for Questions,
+	// this read-merge-write has a TOCTOU race against QuestionRepository.
+	// persistTransition's guarded writes (ConfigureWorkflow, RecordResponse,
+	// Resolve, Withdraw/Supersede) -- the emulated EntityRepository.
+	// UpdateContextData path (entity_adapter.go) has no compare-and-swap, so
+	// a workflow transition committed between this read and that write could
+	// be silently lost. An outright refusal was tried and reverted: it broke
+	// the legitimate case of setting a generic field (e.g. current_step) on
+	// an already-configured Question, which TC-406 exercises deliberately.
+	// A correct fix needs either a guarded UpdateContextData variant on the
+	// EntityRepository contract (affects all 9 adapters) or a retry loop
+	// scoped to Question; deferred as tech debt rather than rushed here.
 	contextJSON, err := s.getContextJSON(ctx, entityType, entityKey)
 	if err != nil {
 		return err
@@ -74,8 +87,10 @@ func (s *ContextService) SetContextField(ctx context.Context, entityType models.
 		return fmt.Errorf("failed to update field: %w", err)
 	}
 
-	// Convert back to JSON and save
-	jsonStr, err := contextData.ToJSON()
+	// Convert back to JSON while retaining fields that the generic ContextData
+	// DTO intentionally does not own. Question's bounded workflow state is one
+	// such field; serializing only ContextData here would silently erase it.
+	jsonStr, err := mergeGenericContextData(contextJSON, contextData)
 	if err != nil {
 		return fmt.Errorf("failed to serialize context data: %w", err)
 	}
@@ -85,7 +100,81 @@ func (s *ContextService) SetContextField(ctx context.Context, entityType models.
 
 // ClearContext removes all context data from an entity.
 func (s *ContextService) ClearContext(ctx context.Context, entityType models.EntityType, entityKey string) error {
+	contextJSON, err := s.getContextJSON(ctx, entityType, entityKey)
+	if err != nil {
+		return err
+	}
+	if entityType == models.EntityTypeQuestion {
+		hasQuestionState, err := hasQuestionOwnedContextData(contextJSON)
+		if err != nil {
+			return fmt.Errorf("inspect Question context data before clear: %w", err)
+		}
+		if hasQuestionState {
+			return fmt.Errorf("cannot clear context for configured Question: generic context clear would discard Question-owned state")
+		}
+	}
 	return s.setContextJSON(ctx, entityType, entityKey, nil)
+}
+
+var genericContextFieldNames = []string{
+	"progress",
+	"implementation_decisions",
+	"open_questions",
+	"blockers",
+	"metadata",
+}
+
+// mergeGenericContextData preserves fields outside ContextData's generic
+// contract while retaining the established generic serialization behavior for
+// its own fields. In particular, Question-owned I-02 fields must survive a
+// generic context update because this service cannot validate or recreate
+// their workflow semantics.
+func mergeGenericContextData(existing *string, contextData *models.ContextData) (string, error) {
+	fields := make(map[string]json.RawMessage)
+	if existing != nil && *existing != "" {
+		if err := json.Unmarshal([]byte(*existing), &fields); err != nil {
+			return "", fmt.Errorf("decode existing raw context data: %w", err)
+		}
+	}
+	for _, name := range genericContextFieldNames {
+		delete(fields, name)
+	}
+	genericJSON, err := contextData.ToJSON()
+	if err != nil {
+		return "", err
+	}
+	var genericFields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(genericJSON), &genericFields); err != nil {
+		return "", fmt.Errorf("decode serialized generic context data: %w", err)
+	}
+	for name, value := range genericFields {
+		fields[name] = value
+	}
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return "", fmt.Errorf("encode merged context data: %w", err)
+	}
+	return string(merged), nil
+}
+
+// hasQuestionOwnedContextData identifies the private persisted fields that a
+// generic clear cannot safely reconstruct. It intentionally checks raw JSON:
+// even malformed private data must not be silently discarded by a generic
+// operation that does not own it.
+func hasQuestionOwnedContextData(contextJSON *string) (bool, error) {
+	if contextJSON == nil || *contextJSON == "" {
+		return false, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*contextJSON), &fields); err != nil {
+		return false, fmt.Errorf("decode raw context data: %w", err)
+	}
+	for _, name := range []string{"question_state", "question_terminal_provenance"} {
+		if _, found := fields[name]; found {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // getContextJSON retrieves the raw context JSON string for an entity via the registry.

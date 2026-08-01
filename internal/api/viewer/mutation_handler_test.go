@@ -582,6 +582,65 @@ func TestMutationHandler_ServiceErrorsAreReturned(t *testing.T) {
 	}
 }
 
+// TC-302: the existing generic relationship transport must accept the
+// registered Question key as a source and leave direction enforcement to the
+// normalized relationship service shared with the CLI.
+func TestMutationHandler_QuestionRelationshipTransport_TC302(t *testing.T) {
+	mock := &mockMutationServicer{
+		createRelFn: func(_ context.Context, fromKey, toKey, relType string) (*models.EntityRelationship, error) {
+			if fromKey != "Q001" || toKey != "E39-F03" || relType != "question_blocks" {
+				t.Fatalf("TC-302 transport args = %q %q %q", fromKey, toKey, relType)
+			}
+			return &models.EntityRelationship{RelationshipType: models.EntityRelQuestionBlocks}, nil
+		},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/viewer/questions/Q001/relationships", bytes.NewBufferString(`{"relationship_type":"question_blocks","to_key":"E39-F03"}`))
+	rec := httptest.NewRecorder()
+	newMutationHandlerMux(mock).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("TC-302 Question relationship status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if mock.createRelCalls != 1 {
+		t.Fatalf("TC-302 relationship service calls = %d, want 1", mock.createRelCalls)
+	}
+}
+
+// TC-302: every eligible Question gate target must survive the real viewer
+// relationship transport validation. This is deliberately table driven so a
+// future source-only route change cannot silently exclude a supported target
+// key family before the shared relationship service checks direction.
+func TestMutationHandler_QuestionRelationshipTransport_AllEligibleTargets_TC302(t *testing.T) {
+	targets := []string{
+		"E39",
+		"E39-F03",
+		"T-E39-F03-003",
+		"B039",
+		"CC-039",
+		"TD-039",
+	}
+	for _, target := range targets {
+		t.Run(target, func(t *testing.T) {
+			mock := &mockMutationServicer{
+				createRelFn: func(_ context.Context, fromKey, toKey, relType string) (*models.EntityRelationship, error) {
+					if fromKey != "Q001" || toKey != target || relType != "question_blocks" {
+						t.Fatalf("TC-302 transport args = %q %q %q", fromKey, toKey, relType)
+					}
+					return &models.EntityRelationship{RelationshipType: models.EntityRelQuestionBlocks}, nil
+				},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/viewer/questions/Q001/relationships", bytes.NewBufferString(`{"relationship_type":"question_blocks","to_key":"`+target+`"}`))
+			rec := httptest.NewRecorder()
+			newMutationHandlerMux(mock).ServeHTTP(rec, req)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("TC-302 Question -> %s status = %d body=%s", target, rec.Code, rec.Body.String())
+			}
+			if mock.createRelCalls != 1 {
+				t.Fatalf("TC-302 Question -> %s relationship calls = %d, want 1", target, mock.createRelCalls)
+			}
+		})
+	}
+}
+
 func TestMutationHandler_InternalErrorsAreGeneric(t *testing.T) {
 	rawErr := "sqlite: UNIQUE constraint failed: secret_table.internal_column"
 	mock := &mockMutationServicer{

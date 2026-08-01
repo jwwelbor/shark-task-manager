@@ -22,6 +22,6 @@
     "tracing_enabled": false
   },
   "require_rejection_reason": true,
-  "shark_data_path": "shark-data",
-  "workflow_config": "examples/route-based-codex/workflow.yaml"
+  "size_required_for": ["task", "feature", "epic", "bug", "change", "idea", "tech_debt"],
+  "tag_required_for": ["epic"]
 }

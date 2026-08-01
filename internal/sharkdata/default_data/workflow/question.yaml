@@ -1,0 +1,90 @@
+version: "1.0"
+start: draft
+steps:
+  draft:
+    phase: planning
+    color: gray
+    display_token: DFT
+    description: "Question created but not yet configured with a resolution owner and responders"
+    progress_weight: 0.0
+    responsibility: none
+    action: pause
+    outcomes:
+      pass: open
+      fail: archived
+      blocked: archived
+  open:
+    phase: active
+    color: blue
+    display_token: OPN
+    description: "Question is ready for its first pending responder"
+    progress_weight: 0.1
+    responsibility: responder
+    action: spawn_agent
+    outcomes:
+      pass: answering
+      fail: withdrawn
+      blocked: superseded
+    prompt: question/respond.md
+  answering:
+    phase: active
+    color: blue
+    display_token: ANS
+    description: "Question awaits its current pending responder"
+    progress_weight: 0.5
+    responsibility: responder
+    action: spawn_agent
+    outcomes:
+      pass: ready_for_resolution
+      fail: withdrawn
+      blocked: superseded
+    prompt: question/respond.md
+  ready_for_resolution:
+    phase: paused
+    color: yellow
+    display_token: RFR
+    description: "All requested responses are recorded; resolution owner action is required"
+    progress_weight: 0.8
+    responsibility: human
+    action: pause
+    outcomes:
+      pass: resolved
+      fail: withdrawn
+      blocked: superseded
+  resolved:
+    phase: done
+    color: green
+    display_token: RES
+    description: "Question resolved"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+    primary: true
+  withdrawn:
+    phase: done
+    color: gray
+    display_token: WDN
+    description: "Question withdrawn"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+  superseded:
+    phase: done
+    color: gray
+    display_token: SUP
+    description: "Question superseded"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true
+  archived:
+    phase: done
+    color: gray
+    display_token: ARC
+    description: "Question archived before it was configured with a resolution owner and responders"
+    progress_weight: 1.0
+    responsibility: none
+    action: archive
+    terminal: true

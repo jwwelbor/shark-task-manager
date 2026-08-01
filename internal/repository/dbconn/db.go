@@ -56,7 +56,7 @@ func (db *DB) BeginTx() (*sql.Tx, error) {
 // interpolation surface while centralizing compare-and-swap semantics.
 func ConditionalStatusUpdate(ctx context.Context, db *DB, table string, id int64, expectedStatus, newStatus string, touchUpdatedAt bool) (bool, error) {
 	switch table {
-	case "bugs", "change_cards", "epics", "features", "ideas", "sprints", "tech_debts":
+	case "bugs", "change_cards", "epics", "features", "ideas", "questions", "sprints", "tech_debts":
 	default:
 		return false, fmt.Errorf("unsupported status table %q", table)
 	}

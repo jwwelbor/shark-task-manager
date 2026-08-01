@@ -151,6 +151,8 @@ Examples:
 	RunE: runIdeaCreate,
 }
 
+var createQuestionCmd = &cobra.Command{Use: "question <title>", Args: cobra.ExactArgs(1), RunE: runQuestionCreate}
+
 // createChangeCardCmd is an alias for createChangeCmd (accepts "change-card")
 var createChangeCardCmd = &cobra.Command{
 	Use:   "change-card <title> [flags]",
@@ -283,12 +285,17 @@ func init() {
 	createCmd.AddCommand(createChangeCardCmd)
 	createCmd.AddCommand(createTechDebtCmd)
 	createCmd.AddCommand(createIdeaCmd)
+	createCmd.AddCommand(createQuestionCmd)
 	createCmd.AddCommand(createNoteCmd)
 
 	// Tech-debt alias under `shark create` needs the same flags as
 	// `shark td create` since cobra subcommands don't inherit flags from
 	// peer commands. registerTdCreateFlags is the shared helper.
 	registerTdCreateFlags(createTechDebtCmd)
+	createQuestionCmd.Flags().String("summary", "", "Question summary")
+	createQuestionCmd.Flags().String("requester", "", "Question requester")
+	createQuestionCmd.Flags().String("description", "", "Question description")
+	createQuestionCmd.Flags().Bool("blocking", false, "Question blocks progress")
 
 	// ======================================================================
 	// Note Create Flags

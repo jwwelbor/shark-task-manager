@@ -247,6 +247,121 @@ func TestViewerHTMLMutationControls(t *testing.T) {
 	}
 }
 
+// TC-302 / UAT-001: Question is a valid source for the directed
+// question_blocks relationship. The embedded client must expose that source,
+// send requests to the registered Question route, and keep the specialized
+// relationship type out of non-Question forms.
+func TestViewerHTMLQuestionBlockingRelationshipTransport_TC302(t *testing.T) {
+	content := viewerHTMLContent()
+
+	for _, marker := range []string{
+		"case 'question':\n      url = `/api/v1/viewer/questions/${encodeURIComponent(key)}/relationships`;",
+		"['epic', 'feature', 'task', 'question'].includes(entity.type)",
+		"function relationshipTypeOptions(entityType, value)",
+		"entityType === 'question'",
+		"{ value: 'question_blocks', label: 'Question Blocks' }",
+	} {
+		if !strings.Contains(content, marker) {
+			t.Errorf("Question relationship transport missing marker: %q", marker)
+		}
+	}
+
+	createBody := extractJSFunction(t, content, "async function apiCreateViewerRelationship")
+	deleteBody := extractJSFunction(t, content, "async function apiDeleteViewerRelationship")
+	for _, body := range []string{createBody, deleteBody} {
+		if !strings.Contains(body, "case 'question':") || !strings.Contains(body, "/api/v1/viewer/questions/") {
+			t.Error("Question relationship request does not use the registered viewer route")
+		}
+	}
+
+	nonQuestionOptions := extractJSFunction(t, content, "function relationshipTypeOptions")
+	if !strings.Contains(nonQuestionOptions, "entityType === 'question'") {
+		t.Error("Question Blocks option must remain source-aware")
+	}
+}
+
+// TC-302 / UAT-001: the Question relationship form must be reachable from a
+// real Viewer entity source. Questions are a flat hierarchy section, just as
+// Bugs and Change Cards are, so selection must resolve Q001 before mutation
+// controls are rendered.
+func TestViewerHTMLQuestionRelationshipSelectionSource_TC302(t *testing.T) {
+	content := viewerHTMLContent()
+
+	findEntity := extractJSFunction(t, content, "function findEntityByKey")
+	if !strings.Contains(findEntity, "['question',    hierarchyData.questions]") {
+		t.Error("findEntityByKey must search hierarchyData.questions for Question selection")
+	}
+
+	renderSidebar := extractJSFunction(t, content, "function renderSidebar()")
+	for _, marker := range []string{
+		"hierarchyData?.questions",
+		"renderSidebarSection('questions', 'Questions'",
+		"buildFlatSectionBodyHtml(questions, 'question')",
+	} {
+		if !strings.Contains(renderSidebar, marker) {
+			t.Errorf("Question selection source missing marker: %q", marker)
+		}
+	}
+
+	entityView := extractJSFunction(t, content, "function renderEntityView")
+	if !strings.Contains(entityView, "entity.type === 'question'") {
+		t.Error("Question detail selection must use the simple-entity path so its relationship form is rendered")
+	}
+}
+
+// F02 terminal states must honor the existing Show all items control just as
+// the other hierarchy flat sections do. Execute the embedded filter and
+// renderer rather than asserting the status-map source markers: this catches
+// inverted show-all polarity and a terminal state skipped by the real loop.
+func TestViewerHTMLQuestionTerminalVisibilityBehavior(t *testing.T) {
+	content := viewerHTMLContent()
+
+	terminalStart := strings.Index(content, "const TERMINAL_STATUSES")
+	terminalEnd := strings.Index(content[terminalStart:], "/** Prefix for synthetic folder keys")
+	if terminalStart < 0 || terminalEnd < 0 {
+		t.Fatal("viewer.html missing terminal-status inventory source")
+	}
+	terminalSource := content[terminalStart : terminalStart+terminalEnd]
+	fnSource := terminalSource + "\n" + extractJSFunction(t, content, "function buildFlatSectionBodyHtml")
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("node is required for viewer terminal visibility behavior test: %v", err)
+	}
+
+	script := fnSource + `
+function escapeHtml(value) { return String(value); }
+function buildStatusDotHtml() { return ''; }
+function buildSizeBadgeHtml() { return ''; }
+let selectedKey = null;
+const questions = [
+  { key: 'Q-open', title: 'Open', status: 'open' },
+  { key: 'Q-resolved', title: 'Resolved', status: 'resolved' },
+  { key: 'Q-withdrawn', title: 'Withdrawn', status: 'withdrawn' },
+  { key: 'Q-superseded', title: 'Superseded', status: 'superseded' },
+];
+
+let showCompleted = false;
+const hidden = buildFlatSectionBodyHtml(questions, 'question');
+if (!hidden.includes('Q-open')) throw new Error('open Question was hidden with Show all items off');
+for (const key of ['Q-resolved', 'Q-withdrawn', 'Q-superseded']) {
+  if (hidden.includes(key)) throw new Error(key + ' was visible with Show all items off');
+}
+
+showCompleted = true;
+const shown = buildFlatSectionBodyHtml(questions, 'question');
+for (const key of ['Q-open', 'Q-resolved', 'Q-withdrawn', 'Q-superseded']) {
+  if (!shown.includes(key)) throw new Error(key + ' was hidden with Show all items on');
+}
+`
+
+	cmd := exec.Command(nodePath, "-e", script)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node-based Question terminal visibility behavior test failed: %v\n%s", err, output)
+	}
+}
+
 // TestViewerHTMLIsComplete verifies that viewer.html is valid UTF-8, contains
 // required closing tags, and meets the minimum size threshold (~30KB).
 // TC-SMOKE-03.

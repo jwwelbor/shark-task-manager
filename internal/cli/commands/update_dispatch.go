@@ -145,6 +145,9 @@ func init() {
 	// Common flags (all entities)
 	updateCmd.Flags().String("title", "", "New title")
 	updateCmd.Flags().StringP("description", "d", "", "New description")
+	updateCmd.Flags().String("summary", "", "New question summary (question only)")
+	updateCmd.Flags().String("requester", "", "New question requester (question only)")
+	updateCmd.Flags().Bool("blocking", false, "Set Question blocking (question only)")
 	updateCmd.Flags().Int("order", -1, "New execution order (-1=no change)")
 	updateCmd.Flags().Bool("parallel", false, "Set --order without renumbering siblings (preserves duplicate-order parallel groups; task & feature only)")
 	updateCmd.Flags().StringSlice("tag", nil, "Tag to apply additively (repeatable). Empty = no change; detach via the entity-specific 'tag rm' command.")
@@ -228,7 +231,26 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return runIdeaUpdate(cmd, args)
 	case "sprint":
 		return runSprintUpdate(cmd, args)
+	case "question":
+		if err := validateUnifiedQuestionUpdateFlags(cmd); err != nil {
+			return err
+		}
+		return runQuestionUpdate(cmd, args)
 	default:
 		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), CC-### (change card, C###/CC### aliases accepted), TD-### (tech-debt), I-YYYY-MM-DD-## (idea), or S### (sprint)", key)
 	}
+}
+
+// validateUnifiedQuestionUpdateFlags prevents the broad unified update flag
+// surface from being silently ignored for Questions. The direct Question
+// command gets this boundary from Cobra's smaller flag set; the unified
+// dispatcher must inspect explicitly changed command-local update flags before
+// invoking the Question service. Root persistent flags such as --db and
+// --json configure command execution rather than Question mutation and must
+// not be treated as unsupported updates.
+func validateUnifiedQuestionUpdateFlags(cmd *cobra.Command) error {
+	allowed := map[string]struct{}{
+		"title": {}, "summary": {}, "requester": {}, "description": {}, "blocking": {},
+	}
+	return validateAllowedLocalFlags(cmd, allowed, "update")
 }

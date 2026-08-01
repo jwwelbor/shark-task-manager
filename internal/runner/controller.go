@@ -5,12 +5,14 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -100,6 +102,10 @@ type RunResult struct {
 
 	// Error is the error message if outcome is "failed" (empty otherwise).
 	Error string `json:"error,omitempty"`
+
+	// QuestionBlock is the optional compact I-03 handoff when a directly
+	// linked open blocking Question pauses this run before dispatch work.
+	QuestionBlock *services.QuestionBlock `json:"question_block,omitempty"`
 }
 
 // StageLog captures per-stage execution details.
@@ -152,6 +158,40 @@ type CascadeChildrenService interface {
 
 // CascadeChildRunner runs a nested child entity through its own controller loop.
 type CascadeChildRunner func(ctx context.Context, entityType, key string, opts RunOptions) (*RunResult, error)
+
+// QuestionBlockChecker is the narrow, read-only I-03 gate used by runner
+// entry points. It deliberately exposes no Question mutation capability.
+type QuestionBlockChecker interface {
+	Check(ctx context.Context, candidateType models.EntityType, candidateKey string) (*services.QuestionBlock, error)
+}
+
+// QuestionResponseHandoff is the bounded worker result that the parent loop
+// persists for a Question responder. The worker supplies only the response
+// body; the parent supplies the entity key, lease session, and responder from
+// the already-rendered dispatch context.
+type QuestionResponseHandoff struct {
+	Key             string `json:"-"`
+	SessionID       string `json:"-"`
+	Responder       string `json:"-"`
+	Summary         string `json:"summary"`
+	EvidencePointer string `json:"evidence_pointer"`
+}
+
+// QuestionResponsePersister is the parent-owned persistence seam for a
+// successful Question responder result. It deliberately exposes neither
+// claim/release nor generic status mutation, so a child worker cannot own
+// Shark lifecycle state.
+type QuestionResponsePersister interface {
+	PersistQuestionResponse(ctx context.Context, handoff QuestionResponseHandoff) error
+}
+
+// QuestionResponsePersisterFunc adapts a function for focused runner tests
+// and the CLI wiring adapter.
+type QuestionResponsePersisterFunc func(ctx context.Context, handoff QuestionResponseHandoff) error
+
+func (f QuestionResponsePersisterFunc) PersistQuestionResponse(ctx context.Context, handoff QuestionResponseHandoff) error {
+	return f(ctx, handoff)
+}
 
 // PlaceholderGenerator abstracts template variable generation for different entity types.
 // An adapter implementation in run.go dispatches to the correct config.*Placeholders()
@@ -220,6 +260,14 @@ type RunControllerDeps struct {
 	// RunChild dispatches a child entity through a nested RunController. Optional
 	// by design for non-cascade entry points.
 	RunChild CascadeChildRunner
+
+	// QuestionResponses persists the typed response returned by a Question
+	// worker. It is required only for Question spawn_agent stages.
+	QuestionResponses QuestionResponsePersister
+
+	// QuestionBlocker qualifies directly linked open blocking Questions before
+	// placeholder, action, or worker work. Optional for non-CLI embeddings.
+	QuestionBlocker QuestionBlockChecker
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -229,14 +277,16 @@ type RunControllerDeps struct {
 // All dependencies are injected via RunControllerDeps; no global state is used,
 // enabling full mock-based testing without a real database or agent processes.
 type RunController struct {
-	transitioner EntityTransitioner
-	placeholders PlaceholderGenerator
-	actionSvc    config.ActionService
-	workflowSvc  *workflow.Service
-	dispatchers  map[string]AgentDispatcher
-	assembler    PromptAssembler
-	childrenSvc  CascadeChildrenService
-	runChild     CascadeChildRunner
+	transitioner      EntityTransitioner
+	placeholders      PlaceholderGenerator
+	actionSvc         config.ActionService
+	workflowSvc       *workflow.Service
+	dispatchers       map[string]AgentDispatcher
+	assembler         PromptAssembler
+	childrenSvc       CascadeChildrenService
+	runChild          CascadeChildRunner
+	questionResponses QuestionResponsePersister
+	questionBlocker   QuestionBlockChecker
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -263,14 +313,16 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 	}
 
 	return &RunController{
-		transitioner: deps.Transitioner,
-		placeholders: deps.Placeholders,
-		actionSvc:    deps.ActionSvc,
-		workflowSvc:  deps.WorkflowSvc,
-		dispatchers:  deps.Dispatchers,
-		assembler:    assembler,
-		childrenSvc:  deps.ChildrenSvc,
-		runChild:     deps.RunChild,
+		transitioner:      deps.Transitioner,
+		placeholders:      deps.Placeholders,
+		actionSvc:         deps.ActionSvc,
+		workflowSvc:       deps.WorkflowSvc,
+		dispatchers:       deps.Dispatchers,
+		assembler:         assembler,
+		childrenSvc:       deps.ChildrenSvc,
+		runChild:          deps.RunChild,
+		questionResponses: deps.QuestionResponses,
+		questionBlocker:   deps.QuestionBlocker,
 	}, nil
 }
 
@@ -314,9 +366,36 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 	// Step 2: Already terminal? Return immediately.
 	if nextInfo.IsTerminal {
 		result.FinalStatus = currentStatus
-		result.Outcome = "already_terminal"
+		// Question uses NextStatusInfo.IsTerminal as a non-dispatching signal
+		// for responder-less checkpoints as well as durable terminal states.
+		// Those checkpoints must preserve keyed-next's pause semantics in every
+		// runner entry point; only resolved/withdrawn/superseded are completed
+		// Question terminals.
+		if isQuestionResponderPauseCheckpoint(opts.EntityType, currentStatus) {
+			result.Outcome = "paused"
+		} else {
+			result.Outcome = "already_terminal"
+		}
 		result.TotalDuration = time.Since(startTime)
 		return result, nil
+	}
+
+	// Gate a direct runner invocation after identity/status are known but before
+	// any placeholder, action, worker, or transition work. CLI preflight uses
+	// this same checker before lease acquisition; retaining it here protects
+	// direct controller consumers and cascade child controllers as well.
+	if c.questionBlocker != nil && opts.EntityType != "" {
+		block, err := c.questionBlocker.Check(ctx, models.EntityType(opts.EntityType), key)
+		if err != nil {
+			return nil, fmt.Errorf("check Question block for %s: %w", key, err)
+		}
+		if block != nil {
+			result.FinalStatus = currentStatus
+			result.Outcome = "paused"
+			result.QuestionBlock = block
+			result.TotalDuration = time.Since(startTime)
+			return result, nil
+		}
 	}
 
 	// Main loop.
@@ -463,6 +542,24 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 
 }
 
+// isQuestionResponderPauseCheckpoint identifies Question states where the
+// Question service deliberately suppresses responder dispatch with
+// NextStatusInfo.IsTerminal. The draft case preserves F01 compatibility;
+// open/answering cover migrated or otherwise unconfigured Questions; and
+// ready_for_resolution is the resolution-owner checkpoint. Durable Question
+// terminal states intentionally do not appear here and remain already_terminal.
+func isQuestionResponderPauseCheckpoint(entityType, status string) bool {
+	if entityType != string(models.EntityTypeQuestion) {
+		return false
+	}
+	switch models.QuestionStatus(status) {
+	case models.QuestionStatusDraft, models.QuestionStatusOpen, models.QuestionStatusAnswering, models.QuestionStatusReadyForResolution:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *RunController) handleCascade(
 	ctx context.Context,
 	key, currentStatus string,
@@ -496,6 +593,10 @@ func (c *RunController) handleCascade(
 	}
 
 	progressed := false
+	// Keep the first compact handoff only if every cascade child is parked.
+	// A directly blocked child is unavailable work, not a reason to prevent a
+	// later independent sibling from running.
+	var allParkedQuestionBlock *services.QuestionBlock
 	for _, child := range childrenState.Children {
 		childOpts := opts
 		childOpts.EntityType = string(child.EntityType)
@@ -513,6 +614,15 @@ func (c *RunController) handleCascade(
 		if childResult != nil {
 			result.Stages = append(result.Stages, childResult.Stages...)
 			result.StagesCompleted += childResult.StagesCompleted
+		}
+		// A directly blocked cascade child is parked. Preserve its compact I-03
+		// handoff in case every child is parked, but continue to later siblings
+		// so cascade run has the same fall-through semantics as keyed next.
+		if childResult != nil && childResult.QuestionBlock != nil {
+			if allParkedQuestionBlock == nil {
+				allParkedQuestionBlock = childResult.QuestionBlock
+			}
+			continue
 		}
 		if childResult != nil && childResult.Outcome == "failed" {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -535,7 +645,12 @@ func (c *RunController) handleCascade(
 
 	if progressed {
 		// Child progress may have moved the parent status, so refresh once and
-		// let the top-level loop resolve the next status transition.
+		// let the top-level loop resolve the next status transition. When the
+		// parent itself remains at the cascade status, stopping here preserves
+		// the sibling's successful result: re-entering the same cascade would
+		// see only the earlier parked child and incorrectly resurrect its
+		// Question handoff (and loops forever in dry-run, where no child write
+		// can change the hierarchy).
 		refreshed, err := c.transitioner.GetNextStatus(ctx, key)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -547,6 +662,23 @@ func (c *RunController) handleCascade(
 			})
 			return stageOutcome{done: true}
 		}
+		if refreshed.CurrentStatus == currentStatus {
+			refreshedChildren, err := c.childrenSvc.DescribeDispatchableChildren(ctx, opts.EntityType, key)
+			if err != nil {
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+					EntityKey: key,
+					Status:    currentStatus,
+					Phase:     "cascade_children_refresh",
+					Error:     fmt.Sprintf("failed to refresh cascade children for %s %s: %v", opts.EntityType, key, err),
+					RunID:     opts.RunID,
+				})
+				return stageOutcome{done: true}
+			}
+			if refreshedChildren.TotalChildren > 0 && refreshedChildren.NonTerminalChildren == 0 {
+				return c.autoAdvanceCascadeParent(ctx, key, currentStatus, nextInfo, opts, result, stageStart, startTime)
+			}
+			return pauseCascade(result, currentStatus, nil, startTime)
+		}
 		return stageOutcome{nextStatus: refreshed.CurrentStatus, nextInfo: refreshed}
 	}
 
@@ -555,8 +687,17 @@ func (c *RunController) handleCascade(
 	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
 		return c.autoAdvanceCascadeParent(ctx, key, currentStatus, nextInfo, opts, result, stageStart, startTime)
 	}
+	return pauseCascade(result, currentStatus, allParkedQuestionBlock, startTime)
+}
+
+// pauseCascade records a cascade parent's stall (partial or fully blocked
+// progress, no auto-advance) as a completed-but-paused run stage. block is
+// nil when the parent simply has non-terminal children still pending, or the
+// compact handoff when every candidate is Question-blocked.
+func pauseCascade(result *RunResult, currentStatus string, block *services.QuestionBlock, startTime time.Time) stageOutcome {
 	result.FinalStatus = currentStatus
 	result.Outcome = "paused"
+	result.QuestionBlock = block
 	result.TotalDuration = time.Since(startTime)
 	return stageOutcome{done: true}
 }
@@ -986,7 +1127,7 @@ func (c *RunController) handleSpawnAgent(
 		Duration:  dispatchResult.Duration,
 		ExitCode:  dispatchResult.ExitCode,
 	}
-	if dispatchResult.ExitCode == 0 {
+	if dispatchResult.ExitCode == 0 && opts.EntityType != string(models.EntityTypeQuestion) {
 		stage.OutputSummary = dispatchResult.Stdout
 	}
 	result.Stages = append(result.Stages, stage)
@@ -1009,6 +1150,12 @@ func (c *RunController) handleSpawnAgent(
 		// StagesCompleted so it reflects only SUCCESSFUL stages.
 		result.StagesCompleted = len(result.Stages) - 1
 		return stageOutcome{done: true}
+	}
+
+	// A Question responder has one additional parent-owned success step, kept
+	// out of this already-large function: see handleQuestionResponseHandoff.
+	if opts.EntityType == string(models.EntityTypeQuestion) {
+		return c.handleQuestionResponseHandoff(ctx, key, currentStatus, action, vars, opts, result, startTime, dispatchResult)
 	}
 
 	result.StagesCompleted++
@@ -1142,6 +1289,124 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 	return stageOutcome{nextStatus: transResult.ToStatus}
+}
+
+// handleQuestionResponseHandoff is handleSpawnAgent's Question-specific
+// success continuation, kept separate to keep handleSpawnAgent's own length
+// down. The worker returns bounded data; the parent binds it to the actual
+// entity, lease session, and routed responder, then persists it before the
+// lease is released by run.go. Do not use the generic transition path here:
+// a second responder must not run under the first responder's lease.
+func (c *RunController) handleQuestionResponseHandoff(
+	ctx context.Context, key, currentStatus string,
+	action *config.PopulatedAction, vars map[string]string, opts RunOptions,
+	result *RunResult, startTime time.Time,
+	dispatchResult *DispatchResult,
+) stageOutcome {
+	if c.questionResponses == nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     "Question response persister is not configured",
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	response, err := parseQuestionResponseHandoff(dispatchResult.Stdout)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	responder := strings.TrimSpace(vars["current_responder"])
+	if responder == "" || opts.SessionID == "" {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     "Question response requires a routed responder and parent lease session",
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	response.Key = key
+	response.SessionID = opts.SessionID
+	response.Responder = responder
+	if err := c.questionResponses.PersistQuestionResponse(ctx, response); err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     fmt.Sprintf("persist Question response: %v", err),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+
+	refreshed, err := c.transitioner.GetNextStatus(ctx, key)
+	if err != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "question_response_handoff",
+			Error:     fmt.Sprintf("refresh Question after response: %v", err),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	result.StagesCompleted++
+	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+		EntityKey:  key,
+		Status:     currentStatus,
+		AgentType:  action.AgentType,
+		Provider:   action.Provider,
+		ExitCode:   dispatchResult.ExitCode,
+		DurationMS: dispatchResult.Duration.Milliseconds(),
+		NextStatus: refreshed.CurrentStatus,
+		RunID:      opts.RunID,
+	})
+	result.FinalStatus = refreshed.CurrentStatus
+	result.Outcome = "completed"
+	result.TotalDuration = time.Since(startTime)
+	return stageOutcome{done: true}
+}
+
+const questionResponseHandoffPrefix = "QUESTION_RESPONSE_JSON:"
+
+// parseQuestionResponseHandoff accepts exactly one line of compact worker
+// output. Keeping the marker line-oriented prevents surrounding explanation
+// from becoming persistence input and leaves validation of all byte/content
+// limits to QuestionService.
+func parseQuestionResponseHandoff(stdout string) (QuestionResponseHandoff, error) {
+	var found *QuestionResponseHandoff
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, questionResponseHandoffPrefix) {
+			continue
+		}
+		if found != nil {
+			return QuestionResponseHandoff{}, errors.New("Question worker emitted more than one response handoff")
+		}
+		var handoff QuestionResponseHandoff
+		body := strings.TrimSpace(strings.TrimPrefix(line, questionResponseHandoffPrefix))
+		if err := json.Unmarshal([]byte(body), &handoff); err != nil {
+			return QuestionResponseHandoff{}, fmt.Errorf("invalid Question response handoff: %w", err)
+		}
+		if strings.TrimSpace(handoff.Summary) == "" || strings.TrimSpace(handoff.EvidencePointer) == "" {
+			return QuestionResponseHandoff{}, errors.New("Question response handoff requires summary and evidence_pointer")
+		}
+		found = &handoff
+	}
+	if found == nil {
+		return QuestionResponseHandoff{}, errors.New("Question worker did not emit QUESTION_RESPONSE_JSON handoff")
+	}
+	return *found, nil
 }
 
 // recordStageFailure marks the run as failed and emits one run.stage.error

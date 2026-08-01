@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -42,6 +43,11 @@ func TestMapDetectedTypeToEntityType(t *testing.T) {
 			name:     "change_card",
 			detected: "change_card",
 			want:     models.EntityTypeChange,
+		},
+		{
+			name:     "question",
+			detected: "question",
+			want:     models.EntityTypeQuestion,
 		},
 		{
 			name:     "unknown type returns error",
@@ -109,5 +115,21 @@ func TestLinkCommandRelationshipTypeValidation(t *testing.T) {
 	invalid := models.EntityRelationshipType("invalid_type")
 	if models.ValidEntityRelationshipTypeSet[invalid] {
 		t.Error("expected 'invalid_type' to be rejected as invalid relationship type")
+	}
+}
+
+// TC-302 / UAT-001: the generic link surface must advertise the directed
+// Question gate rather than requiring users to discover an undocumented type.
+func TestLinkHelpAdvertisesDirectedQuestionBlocks(t *testing.T) {
+	for _, help := range []string{linkCmd.Long, linkCmd.Flag("type").Usage} {
+		if !strings.Contains(help, "question_blocks") {
+			t.Errorf("link help %q does not advertise question_blocks", help)
+		}
+	}
+	if !strings.Contains(linkCmd.Long, "Question") || !strings.Contains(linkCmd.Long, "eligible") {
+		t.Errorf("link long help does not describe Question's directed eligible-target rule: %q", linkCmd.Long)
+	}
+	if !strings.Contains(unlinkCmd.Long, "question_blocks") {
+		t.Errorf("unlink long help does not advertise removal of a Question gate: %q", unlinkCmd.Long)
 	}
 }

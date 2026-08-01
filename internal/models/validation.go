@@ -34,7 +34,7 @@ var (
 	ErrInvalidNoteType         = errors.New("invalid note type")
 	ErrInvalidTaskID           = errors.New("task_id must be greater than 0")
 	ErrEmptyContent            = errors.New("content cannot be empty")
-	ErrInvalidRelationshipType = errors.New("invalid relationship type: must be depends_on, blocks, related_to, follows, spawned_from, duplicates, or references")
+	ErrInvalidRelationshipType = errors.New("invalid relationship type: must be depends_on, blocks, related_to, follows, spawned_from, duplicates, references, linked_to, or question_blocks")
 	ErrSelfRelationship        = errors.New("task cannot have a relationship with itself")
 	ErrCircularDependency      = errors.New("circular dependency detected")
 	ErrInvalidFeatureID        = errors.New("feature_id must be greater than 0")
@@ -269,16 +269,7 @@ func ValidateNoteType(noteType string) error {
 
 // ValidateRelationshipType validates the relationship type enum
 func ValidateRelationshipType(relType string) error {
-	validTypes := map[string]bool{
-		"depends_on":   true,
-		"blocks":       true,
-		"related_to":   true,
-		"follows":      true,
-		"spawned_from": true,
-		"duplicates":   true,
-		"references":   true,
-	}
-	if !validTypes[relType] {
+	if !ValidEntityRelationshipTypeSet[EntityRelationshipType(relType)] {
 		return fmt.Errorf("%w: got %q", ErrInvalidRelationshipType, relType)
 	}
 	return nil

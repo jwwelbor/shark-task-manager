@@ -3,10 +3,12 @@ package commands
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/cli/scope"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -36,6 +38,7 @@ Examples:
   shark view E10-F01                View feature E10-F01 spec (combined)
   shark view E10 F01 001            View task T-E10-F01-001 spec
   shark view T-E10-F01-001          View task spec (full key)
+  shark view Q001                   View Question metadata
   shark view e10                    View epic E10 (case insensitive)
 `,
 	RunE: runView,
@@ -48,6 +51,22 @@ func init() {
 
 // runView executes the view command
 func runView(cmd *cobra.Command, args []string) error {
+	// Questions are durable records without a generated specification file. A
+	// Q key must therefore use the registered Question read path rather than
+	// falling through to file-scope resolution, which has no Question scope.
+	// ProjectQuestion is the explicit metadata boundary: ContextData must never
+	// be sent to this generic read surface.
+	if len(args) == 1 && DetectEntityType(args[0]) == "question" {
+		question, err := getQuestionService().GetQuestion(cmd.Context(), strings.ToUpper(args[0]))
+		if err != nil {
+			return err
+		}
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(models.ProjectQuestion(question))
+		}
+		return outputQuestion(question, "")
+	}
+
 	ctx := cmd.Context()
 
 	// Step 1: Parse arguments - load viewer config (presentation concern)

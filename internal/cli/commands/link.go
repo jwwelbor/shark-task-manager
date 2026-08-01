@@ -23,9 +23,13 @@ Entity type is auto-detected from the key format:
   E##-F##-###    -> task
   B###           -> bug
   CC-###         -> change
+  Q###           -> Question
 
 Relationship types: depends_on, blocks, related_to, follows,
-  spawned_from, duplicates, references, linked_to
+  spawned_from, duplicates, references, linked_to, question_blocks
+
+question_blocks is directed: its source must be a Question and its target must
+be an eligible non-Question workflow entity.
 
 Examples:
   shark link E07-F01-001 E07-F01-002 --type=depends_on
@@ -39,6 +43,9 @@ var unlinkCmd = &cobra.Command{
 	Use:   "unlink <from-key> <to-key>",
 	Short: "Remove a relationship between two entities",
 	Long: `Remove a typed relationship between two entities.
+
+To remove a Question gate, use the same directed relationship type:
+  shark unlink Q001 E07-F01 --type=question_blocks
 
 Examples:
   shark unlink E07-F01-001 E07-F01-002 --type=depends_on
@@ -61,7 +68,7 @@ Examples:
 }
 
 func init() {
-	linkCmd.Flags().StringVar(&linkRelType, "type", "", "Relationship type (required): depends_on, blocks, related_to, follows, spawned_from, duplicates, references, linked_to")
+	linkCmd.Flags().StringVar(&linkRelType, "type", "", "Relationship type (required): depends_on, blocks, related_to, follows, spawned_from, duplicates, references, linked_to, question_blocks (Question -> eligible non-Question)")
 	if err := linkCmd.MarkFlagRequired("type"); err != nil {
 		panic(fmt.Sprintf("failed to mark flag required: %v", err))
 	}
@@ -117,6 +124,8 @@ func mapDetectedTypeToEntityType(detected string) (models.EntityType, error) {
 		return models.EntityTypeChange, nil
 	case "tech_debt":
 		return models.EntityTypeTechDebt, nil
+	case "question":
+		return models.EntityTypeQuestion, nil
 	default:
 		return "", fmt.Errorf("unrecognized entity type: %s", detected)
 	}

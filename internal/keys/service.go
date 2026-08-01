@@ -30,6 +30,9 @@ const (
 	// not sprint keys.
 	EntityTypeSprint EntityType = "sprint"
 
+	// EntityTypeQuestion identifies a question key in the closed Q001-Q999 domain.
+	EntityTypeQuestion EntityType = "question"
+
 	// EntityTypeUnknown indicates the key format could not be recognized
 	EntityTypeUnknown EntityType = "unknown"
 )
@@ -71,6 +74,10 @@ type ParsedKey struct {
 	// Always 3 digits when populated. Empty for non-sprint keys.
 	SprintNum string
 
+	// QuestionNum is the numeric part of a question key (e.g., "001" from Q001).
+	// It is populated only for the closed Q001-Q999 key domain.
+	QuestionNum string
+
 	// Slug is the optional human-readable suffix (e.g., "user-management" from E07-user-management).
 	// Empty if no slug is present. Stored in lowercase.
 	Slug string
@@ -105,6 +112,10 @@ var (
 	// Unlike bug/change patterns, sprint keys are intentionally fixed-width to keep
 	// `S###` visually distinct from sprint-related text (e.g., "S1" stays unknown).
 	sprintKeyPattern = regexp.MustCompile(`^S(\d{3})$`)
+
+	// questionKeyPattern matches the strict ASCII Q001-Q999 domain. It deliberately
+	// has no optional slug and Parse never trims its input.
+	questionKeyPattern = regexp.MustCompile(`^Q([0-9]{3})$`)
 )
 
 // KeyService provides centralized entity key parsing and normalization.
@@ -218,6 +229,14 @@ func (ks *KeyService) Parse(key string) ParsedKey {
 		return result
 	}
 
+	// Question key: Q001 through Q999 (strict ASCII, no slugs).
+	if m := questionKeyPattern.FindStringSubmatch(upper); m != nil && m[1] != "000" {
+		result.EntityType = EntityTypeQuestion
+		result.QuestionNum = m[1]
+		result.Normalized = fmt.Sprintf("Q%s", m[1])
+		return result
+	}
+
 	return result
 }
 
@@ -300,6 +319,9 @@ func (ks *KeyService) Format(parsed ParsedKey) string {
 
 	case EntityTypeSprint:
 		return fmt.Sprintf("S%s", parsed.SprintNum)
+
+	case EntityTypeQuestion:
+		return fmt.Sprintf("Q%s", parsed.QuestionNum)
 
 	default:
 		return ""

@@ -28,6 +28,7 @@ var yamlEntityFiles = []struct {
 	{Slot: "bug", Filename: "bug.yaml"},
 	{Slot: "change", Filename: "change.yaml"},
 	{Slot: "tech_debt", Filename: "tech-debt.yaml"},
+	{Slot: "question", Filename: "question.yaml"},
 	{Slot: "sprint", Filename: "sprint.yaml"},
 }
 
@@ -264,5 +265,7 @@ func assignSlot(mlw *MultiLevelWorkflow, slot string, cfg *WorkflowConfig) {
 		mlw.Change = cfg
 	case "tech_debt":
 		mlw.TechDebt = cfg
+	case "question":
+		mlw.Question = cfg
 	}
 }

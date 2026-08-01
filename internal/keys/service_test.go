@@ -372,6 +372,66 @@ func TestKeyService_Parse_Unknown(t *testing.T) {
 	}
 }
 
+func TestKeyService_Parse_Question_TC003(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name string
+		key  string
+		want EntityType
+		norm string
+		num  string
+	}{
+		{name: "lower boundary", key: "Q001", want: EntityTypeQuestion, norm: "Q001", num: "001"},
+		{name: "lowercase normalizes", key: "q100", want: EntityTypeQuestion, norm: "Q100", num: "100"},
+		{name: "upper boundary", key: "Q999", want: EntityTypeQuestion, norm: "Q999", num: "999"},
+		{name: "zero is invalid", key: "Q000", want: EntityTypeUnknown},
+		{name: "too short is invalid", key: "Q1", want: EntityTypeUnknown},
+		{name: "too long is invalid", key: "Q0001", want: EntityTypeUnknown},
+		{name: "suffix is invalid", key: "Q001-extra", want: EntityTypeUnknown},
+		{name: "non digit is invalid", key: "q00a", want: EntityTypeUnknown},
+		{name: "leading whitespace is invalid", key: " Q001", want: EntityTypeUnknown},
+		{name: "trailing whitespace is invalid", key: "Q001 ", want: EntityTypeUnknown},
+		{name: "unicode digits are invalid", key: "Q\u0660\u0660\u0661", want: EntityTypeUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Parse(tt.key)
+			if got.EntityType != tt.want {
+				t.Errorf("TC-003 Parse(%q).EntityType = %q, want %q", tt.key, got.EntityType, tt.want)
+			}
+			if got.Normalized != tt.norm {
+				t.Errorf("TC-003 Parse(%q).Normalized = %q, want %q", tt.key, got.Normalized, tt.norm)
+			}
+			if got.QuestionNum != tt.num {
+				t.Errorf("TC-003 Parse(%q).QuestionNum = %q, want %q", tt.key, got.QuestionNum, tt.num)
+			}
+			if got.Raw != tt.key {
+				t.Errorf("TC-003 Parse(%q).Raw = %q, want %q", tt.key, got.Raw, tt.key)
+			}
+		})
+	}
+}
+
+func TestKeyService_Normalize_Question_TC003(t *testing.T) {
+	ks := NewKeyService()
+
+	for _, tt := range []struct {
+		key  string
+		want string
+	}{
+		{key: "q001", want: "Q001"},
+		{key: "Q999", want: "Q999"},
+		{key: " Q001", want: " Q001"},
+		{key: "Q001 ", want: "Q001 "},
+	} {
+		if got := ks.Normalize(tt.key); got != tt.want {
+			t.Errorf("TC-003 Normalize(%q) = %q, want %q", tt.key, got, tt.want)
+		}
+	}
+}
+
 func TestKeyService_Normalize(t *testing.T) {
 	ks := NewKeyService()
 

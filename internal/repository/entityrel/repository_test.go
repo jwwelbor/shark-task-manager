@@ -529,6 +529,44 @@ func TestEntityRelationshipRepository_GetIncoming(t *testing.T) {
 	})
 }
 
+// TC-404: focused Question-blocking reads are direct, bounded, and use the
+// same created-at/ID order that QuestionBlocker applies after qualification.
+func TestEntityRelationshipRepositoryGetIncomingPageTC404UsesStableBoundedOrder(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewEntityRelationshipRepository(dbconn.NewDB(database))
+	cleanupEntityRelationships(ctx)
+	epicID, featureID := test.SeedTestData()
+
+	for _, rel := range []*models.EntityRelationship{
+		{FromEntityType: models.EntityTypeQuestion, FromEntityID: 30, ToEntityType: models.EntityTypeEpic, ToEntityID: epicID, RelationshipType: models.EntityRelQuestionBlocks},
+		{FromEntityType: models.EntityTypeQuestion, FromEntityID: 10, ToEntityType: models.EntityTypeEpic, ToEntityID: epicID, RelationshipType: models.EntityRelQuestionBlocks},
+		{FromEntityType: models.EntityTypeQuestion, FromEntityID: 20, ToEntityType: models.EntityTypeEpic, ToEntityID: epicID, RelationshipType: models.EntityRelQuestionBlocks},
+		{FromEntityType: models.EntityTypeFeature, FromEntityID: featureID, ToEntityType: models.EntityTypeEpic, ToEntityID: epicID, RelationshipType: models.RelBlocks},
+	} {
+		if err := repo.Create(ctx, rel); err != nil {
+			t.Fatalf("Create(%#v) error = %v", rel, err)
+		}
+	}
+	if _, err := database.ExecContext(ctx, "UPDATE entity_relationships SET created_at = '2026-01-01 00:00:00' WHERE to_entity_type = 'epic' AND to_entity_id = ?", epicID); err != nil {
+		t.Fatalf("set equal created_at: %v", err)
+	}
+
+	rels, err := repo.GetIncomingPage(ctx, models.EntityTypeEpic, epicID, []models.EntityRelationshipType{models.EntityRelQuestionBlocks}, 1, 1)
+	if err != nil {
+		t.Fatalf("GetIncomingPage() error = %v", err)
+	}
+	if len(rels) != 1 || rels[0].FromEntityID != 10 {
+		t.Fatalf("GetIncomingPage(limit=1, offset=1) = %#v, want the second ID-ordered Question edge", rels)
+	}
+
+	for _, page := range []struct{ limit, offset int }{{0, 0}, {101, 0}, {1, -1}} {
+		if _, err := repo.GetIncomingPage(ctx, models.EntityTypeEpic, epicID, []models.EntityRelationshipType{models.EntityRelQuestionBlocks}, page.limit, page.offset); err == nil {
+			t.Errorf("GetIncomingPage(%d, %d) error = nil, want finite page validation", page.limit, page.offset)
+		}
+	}
+}
+
 // TestEntityRelFeatureKeyAdapter_ListRelatedFeatureKeys validates IS-3 and AC-3:
 // The new EntityRelFeatureKeyAdapter queries entity_relationships for feature-to-feature
 // relationships and returns the related feature keys.

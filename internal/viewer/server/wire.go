@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/bug"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/changecard"
+	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
@@ -337,8 +338,9 @@ type ServiceContainer struct {
 	EditSvc           *services.EditService
 	// TagService is constructed once and injected into every entity service
 	// for tag attach/detach and tag_required_for enforcement.
-	TagService    *services.TagService
-	SearchService *services.SearchService
+	TagService      *services.TagService
+	SearchService   *services.SearchService
+	QuestionService *services.QuestionService
 }
 
 // WireServices constructs all services with their dependencies.
@@ -358,8 +360,10 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 
 	// Step 2: Construct repositories (data access layer)
 	taskRepo := repository.NewTaskRepository(db)
+	questionRepo := repository.NewQuestionRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
+	techDebtRepo := techdebtrepo.NewTechDebtRepository(db)
 	noteRepo := repository.NewEntityNoteRepository(db)
 	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
@@ -376,10 +380,12 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	registry.Register(models.EntityTypeEpic, services.NewEpicRepositoryAdapter(epicRepo))
 	registry.Register(models.EntityTypeFeature, services.NewFeatureRepositoryAdapter(featureRepo))
 	registry.Register(models.EntityTypeTask, services.NewTaskRepositoryAdapter(taskRepo))
+	registry.Register(models.EntityTypeQuestion, services.NewQuestionRepositoryAdapter(questionRepo))
 	bugRepoAdapter := repository.NewBugRepository(db)
 	registry.Register(models.EntityTypeBug, services.NewBugRepositoryAdapter(bugRepoAdapter))
 	changeCardRepoAdapter := repository.NewChangeCardRepository(db)
 	registry.Register(models.EntityTypeChange, services.NewChangeCardRepositoryAdapter(changeCardRepoAdapter))
+	registry.Register(models.EntityTypeTechDebt, services.NewTechDebtRepositoryAdapter(techDebtRepo))
 
 	// Step 3b: Construct EntityHistoryRepository for polymorphic history recording
 	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
@@ -403,6 +409,16 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 
 	// Step 4: Construct entity-specific services
 	taskService := services.NewTaskService(taskRepo, entitySvc, creatorSvc)
+	questionService, err := services.NewQuestionService(questionRepo)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create QuestionService: %v", err))
+	}
+	questionService.SetHistoryRepo(entityHistoryRepo)
+	questionService.SetSearchIndexer(searchRepo)
+	questionService.SetClaimReader(services.NewClaimService(claimrepo.NewRepository(db), nil))
+	questionService.SetFocusedReadDependencies(entityrel.NewEntityRelationshipRepository(db), registry)
+	questionService.SetEntityTransitioner(entitySvc, registry.MustGetRepository(models.EntityTypeQuestion))
+	questionService.SetProjectRoot(projectRoot)
 	taskService.SetEntityHistoryRepo(entityHistoryRepo)
 	taskService.SetTagService(tagSvc)
 	taskService.SetSearchIndexer(searchRepo)
@@ -483,8 +499,6 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	sprintSvc := services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, nil, db)
 	sprintAnalyticsSvc := services.NewSprintAnalyticsService(&sprintAnalyticsAdapter{repo: sprintAnalyticsRepo}, sprintRepo)
 
-	techDebtRepo := techdebtrepo.NewTechDebtRepository(db)
-
 	// Step 5b: Construct ViewerService for the read-only dashboard API.
 	viewerService := services.NewViewerService(
 		epicRepo,
@@ -510,6 +524,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		terminalStatuses: workflowSvc.ForLevel(workflow.LevelChange).GetTerminalStatuses(),
 	})
 	viewerService.WithTechDebtRepo(techDebtRepo)
+	viewerService.WithQuestionRepo(questionRepo)
 	viewerService.WithNoteRepo(repnote.NewEntityNoteRepository(db))
 	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
 	viewerService.WithSprintService(sprintSvc)
@@ -550,6 +565,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		EditSvc:           editService,
 		TagService:        tagSvc,
 		SearchService:     searchService,
+		QuestionService:   questionService,
 	}
 }
 

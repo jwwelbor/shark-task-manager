@@ -498,6 +498,8 @@ func validateAndNormalizeAnyKey(rawKey string) (string, error) {
 		return upper, nil
 	case keys.IsTechDebtKey(upper):
 		return upper, nil
+	case keys.NewKeyService().DetectEntityType(upper) == keys.EntityTypeQuestion:
+		return upper, nil
 	}
 	return "", errors.New("unrecognized entity key format")
 }

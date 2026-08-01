@@ -31,6 +31,7 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -49,14 +50,22 @@ type nextAdapters struct {
 	actionSvc    action.ActionService
 }
 
+// questionBlockChecker is the narrow read-only I-03 seam used at keyed-next
+// dispatch boundaries. The service owns qualification; commands only decide
+// whether a qualifying compact handoff means dispatch must pause.
+type questionBlockChecker interface {
+	Check(ctx context.Context, candidateType models.EntityType, candidateKey string) (*services.QuestionBlock, error)
+}
+
 // nextAdapterCache is the per-invocation cache hoisted into runNext and passed
 // through resolveNext recursion. Lookup is keyed by entity type; entries are
 // populated lazily on first use and reused for the remainder of the call.
 // Reset between top-level `shark next` calls (no cross-invocation caching).
 type nextAdapterCache struct {
-	entries       map[string]*nextAdapters
-	actionSvcRoot action.ActionService
-	surfaceForks  bool
+	entries         map[string]*nextAdapters
+	actionSvcRoot   action.ActionService
+	surfaceForks    bool
+	questionBlocker questionBlockChecker
 }
 
 // newNextAdapterCache constructs an empty cache with the root action service
@@ -68,8 +77,9 @@ func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
 		return nil, fmt.Errorf("failed to initialize action service: %w", err)
 	}
 	return &nextAdapterCache{
-		entries:       make(map[string]*nextAdapters),
-		actionSvcRoot: root,
+		entries:         make(map[string]*nextAdapters),
+		actionSvcRoot:   root,
+		questionBlocker: cli.GetQuestionBlocker(),
 	}, nil
 }
 
@@ -159,6 +169,10 @@ type NextResponse struct {
 	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
 
 	Error string `json:"error,omitempty"`
+
+	// QuestionBlock is the optional, compact I-03 handoff for a directly
+	// linked open blocking Question. It is omitted from ordinary next output.
+	QuestionBlock *services.QuestionBlock `json:"question_block,omitempty"`
 
 	// selection is an unexported carrier used to return a hierarchy selection
 	// through the shared NextResponse type instead of the plain wire shape
@@ -468,6 +482,30 @@ func resolveEntity(
 		}
 		return resp, nil
 	}
+	// A live lease is an operational dispatch boundary, not a terminal
+	// workflow state. Pause a competing keyed-next caller, while preserving
+	// the non-terminal NextStatusInfo used by the owning parent to advance and
+	// release its worker stage.
+	if nextInfo.IsClaimed {
+		resp.Action = "pause"
+		return resp, nil
+	}
+
+	// Keyed next alone owns the F03 dispatch gate. Planning remains advisory;
+	// it deliberately reuses this resolver without turning ordinary planning
+	// reads into a blocking surface. The check occurs after identity/status are
+	// known and before placeholders, action/prompt work, or cascade traversal.
+	if strategy.mode == nextResolutionMode && cache.questionBlocker != nil {
+		block, err := cache.questionBlocker.Check(ctx, models.EntityType(entityType), normalizedKey)
+		if err != nil {
+			return NextResponse{}, fmt.Errorf("check Question block for %s: %w", normalizedKey, err)
+		}
+		if block != nil {
+			resp.Action = action.ActionPause
+			resp.QuestionBlock = block
+			return resp, nil
+		}
+	}
 
 	// Step 5: Generate placeholders for template rendering. The agent body
 	// and instruction template both consume this map; AugmentPlaceholderAliases
@@ -560,6 +598,17 @@ func resolveEntity(
 		return wireResp, nil
 	}
 	resp = wireResp
+	// Question's F01 workflow is an explicit read-only pause/archive fixture.
+	// It is not a worker dispatch, so its exact response envelope intentionally
+	// omits both an instruction and the parent-loop ownership preamble.
+	if entityType == "question" && (resp.Action == action.ActionPause || resp.Action == action.ActionArchive) {
+		resp.AgentType = ""
+		resp.Provider = ""
+		resp.Model = ""
+		resp.Effort = ""
+		resp.Prompt = ""
+		return resp, nil
+	}
 
 	// Step 9: Auto-inline the agent body so the harness receives the agent
 	// persona / config alongside the action prompt. attachAgentBody runs
@@ -607,6 +656,11 @@ func tryCascadeCandidates(
 	}
 
 	remaining := childrenState.Children
+	// Preserve the first compact Question handoff encountered while every
+	// candidate is parked. If a later sibling is dispatchable it is intentionally
+	// discarded with the parked child; if none is, the parent pause must retain
+	// the actionable reason that made the cascade unavailable.
+	var allParkedQuestionBlock *services.QuestionBlock
 	for len(remaining) > 0 {
 		selected, reason := selectPlanChildTier(remaining)
 		if len(selected) == 0 {
@@ -635,6 +689,9 @@ func tryCascadeCandidates(
 			if childResp.Action == "error" {
 				// Propagate child errors up untouched.
 				return prependFanoutParent(childResp, normalizedKey), nil
+			}
+			if childResp.QuestionBlock != nil && allParkedQuestionBlock == nil {
+				allParkedQuestionBlock = childResp.QuestionBlock
 			}
 			// A nested selection means the child has dispatchable descendants
 			// of its own, so it counts as live work.
@@ -695,6 +752,7 @@ func tryCascadeCandidates(
 	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
+	resp.QuestionBlock = allParkedQuestionBlock
 	return resp, nil
 }
 

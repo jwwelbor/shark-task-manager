@@ -183,6 +183,9 @@ func buildIsolatedDispatchCmd(t *testing.T) *cobra.Command {
 	// downstream entity runners can read them via cmd.Flags().
 	cmd.Flags().String("title", "", "title")
 	cmd.Flags().StringP("description", "d", "", "description")
+	cmd.Flags().String("summary", "", "summary (question)")
+	cmd.Flags().String("requester", "", "requester (question)")
+	cmd.Flags().Bool("blocking", false, "blocking (question)")
 	cmd.Flags().Int("order", -1, "order")
 	cmd.Flags().Bool("parallel", false, "parallel")
 	cmd.Flags().String("key", "", "key")

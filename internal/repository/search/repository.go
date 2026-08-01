@@ -39,7 +39,7 @@ type EntitySearchResult struct {
 // SearchAll performs an FTS5 search across all indexed Shark entity types.
 // If entityType is non-nil and non-empty, results are filtered in SQL to that
 // type only. Valid entityType values: "epic", "feature", "task", "bug",
-// "change", "tech_debt", and "idea".
+// "change", "tech_debt", "idea", and "question".
 // An empty query returns an empty result set (no error).
 func (r *SearchRepository) SearchAll(ctx context.Context, query string, entityType *string) ([]*EntitySearchResult, error) {
 	matchQuery := buildFTSQuery(query)

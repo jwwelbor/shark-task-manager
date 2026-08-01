@@ -44,7 +44,7 @@ func buildSearchQueryCmdForTest() *cobra.Command {
 // --- validateSearchType tests ---
 
 func TestValidateSearchType_ValidTypes(t *testing.T) {
-	validTypes := []string{"epic", "feature", "task", "bug", "change", "changes", "change-card", "change_card", "idea", "ideas", "tech_debt", "tech-debt", "td"}
+	validTypes := []string{"epic", "feature", "task", "bug", "change", "changes", "change-card", "change_card", "idea", "ideas", "tech_debt", "tech-debt", "td", "question"}
 	for _, typ := range validTypes {
 		t.Run(typ, func(t *testing.T) {
 			err := validateSearchType(typ)
@@ -71,7 +71,7 @@ func TestValidateSearchType_InvalidType_ListsAllValidTypes(t *testing.T) {
 	err := validateSearchType("invalid")
 	require.Error(t, err)
 	msg := err.Error()
-	for _, valid := range []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt"} {
+	for _, valid := range []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt", "question"} {
 		assert.Contains(t, msg, valid, "error should list valid type %q", valid)
 	}
 }

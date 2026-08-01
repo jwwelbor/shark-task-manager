@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
 	planhierarchyrepo "github.com/jwwelbor/shark-task-manager/internal/repository/planhierarchy"
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
@@ -102,6 +103,8 @@ func GetEntityRegistry() *services.EntityRegistry {
 			services.NewSprintRepositoryAdapter(repository.NewSprintRepository(db)))
 		c.registry.Register(models.EntityTypeIdea,
 			services.NewIdeaRepositoryAdapter(repository.NewIdeaRepository(db)))
+		c.registry.Register(models.EntityTypeQuestion,
+			services.NewQuestionRepositoryAdapter(repository.NewQuestionRepository(db)))
 	})
 	return c.registry
 }
@@ -564,6 +567,73 @@ func GetTechDebtService() *services.TechDebtService {
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo, projectRoot)
 	return svc
+}
+
+// GetQuestionService returns the direct service for the bounded Question
+// entity. It is intentionally constructed per call like the other simple
+// entity accessors and contains no CLI concerns.
+func GetQuestionService() *services.QuestionService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for QuestionService: %v", err))
+	}
+	svc, err := services.NewQuestionService(repository.NewQuestionRepository(db))
+	if err != nil {
+		panic(fmt.Sprintf("failed to create QuestionService: %v", err))
+	}
+	svc.SetHistoryRepo(repository.NewEntityHistoryRepository(db))
+	svc.SetSearchIndexer(repository.NewSearchRepository(db))
+	svc.SetClaimReader(GetClaimService())
+	svc.SetFocusedReadDependencies(entityrel.NewEntityRelationshipRepository(db), GetEntityRegistry())
+	svc.SetEntityTransitioner(GetEntityService(), GetEntityRegistry().MustGetRepository(models.EntityTypeQuestion))
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	svc.SetProjectRoot(projectRoot)
+	return svc
+}
+
+// GetQuestionBlocker returns the read-only direct Question gate used by
+// dispatch and transition boundaries.
+func GetQuestionBlocker() *services.QuestionBlocker {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for QuestionBlocker: %v", err))
+	}
+	blocker, err := services.NewQuestionBlocker(
+		repository.NewEntityRelationshipRepository(db), GetEntityRegistry(), GetQuestionService(),
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create QuestionBlocker: %v", err))
+	}
+	return blocker
+}
+
+// GetQuestionDocumentService returns the generic EntityDocumentService wired
+// for Questions, used by `shark related-docs add/delete/list --question`.
+// QuestionService itself does not expose LinkDocument/UnlinkDocument/
+// ListDocuments wrapper methods the way BugService/ChangeCardService/
+// TaskService do, so this accessor mirrors their construction (wiring
+// through cli.GetDB/FindProjectRoot/GetEntityRegistry here rather than
+// inline in the commands package) without changing the *ByKey call shape
+// the Question document commands already use.
+func GetQuestionDocumentService(ctx context.Context) *services.EntityDocumentService {
+	db, err := GetDB(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for question documents: %v", err))
+	}
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeQuestion)
+	return services.NewEntityDocumentService(
+		repository.NewDocumentRepository(db),
+		repository.NewEntityDocumentRepository(db),
+		services.EntityLookupFnFromRepo(entityRepo),
+		projectRoot,
+	)
 }
 
 // GetCascadeService returns a CascadeService instance.

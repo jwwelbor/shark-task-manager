@@ -96,6 +96,12 @@ type NextStatusInfo struct {
 	AvailableTransitions []TransitionInfoWithAction `json:"available_transitions"`
 	IsTerminal           bool                       `json:"is_terminal"`
 
+	// IsClaimed distinguishes a live lease from a terminal workflow state. A
+	// keyed dispatcher must not issue a second worker while this is true, but
+	// the parent holding that lease must still be able to advance its workflow
+	// status before releasing it.
+	IsClaimed bool `json:"is_claimed,omitempty"`
+
 	// Outcomes is the route-based outcome→target map for the current step
 	// (E35-F02). Empty for legacy (status_flow) workflows and for
 	// terminal/parking steps. When present, callers may release a semantic

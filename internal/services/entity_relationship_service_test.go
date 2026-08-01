@@ -127,6 +127,71 @@ func TestCreateRelationship_ValidationError(t *testing.T) {
 	}
 }
 
+func TestCreateRelationshipTC301ValidatesQuestionBlocksDirection(t *testing.T) {
+	eligible := []models.EntityType{
+		models.EntityTypeEpic,
+		models.EntityTypeFeature,
+		models.EntityTypeTask,
+		models.EntityTypeBug,
+		models.EntityTypeChange,
+		models.EntityTypeTechDebt,
+	}
+	for _, targetType := range eligible {
+		t.Run("accepts-question-to-"+string(targetType), func(t *testing.T) {
+			created := false
+			svc := NewEntityRelationshipService(&MockEntityRelationshipRepository{
+				CreateFunc: func(context.Context, *models.EntityRelationship) error { created = true; return nil },
+			}, nil)
+			if _, err := svc.CreateRelationship(ctx(), models.EntityTypeQuestion, 1, targetType, 2, models.EntityRelQuestionBlocks); err != nil {
+				t.Fatalf("TC-301 CreateRelationship() error = %v", err)
+			}
+			if !created {
+				t.Fatal("TC-301 accepted edge was not persisted")
+			}
+		})
+	}
+
+	for _, invalid := range []struct {
+		name     string
+		fromType models.EntityType
+		toType   models.EntityType
+	}{
+		{"reverse", models.EntityTypeFeature, models.EntityTypeQuestion},
+		{"question-target", models.EntityTypeQuestion, models.EntityTypeQuestion},
+		{"sprint-target", models.EntityTypeQuestion, models.EntityTypeSprint},
+		{"idea-target", models.EntityTypeQuestion, models.EntityTypeIdea},
+	} {
+		t.Run("rejects-"+invalid.name, func(t *testing.T) {
+			created := false
+			svc := NewEntityRelationshipService(&MockEntityRelationshipRepository{
+				CreateFunc: func(context.Context, *models.EntityRelationship) error { created = true; return nil },
+			}, nil)
+			if _, err := svc.CreateRelationship(ctx(), invalid.fromType, 1, invalid.toType, 2, models.EntityRelQuestionBlocks); err == nil {
+				t.Fatal("TC-301 CreateRelationship() error = nil, want direction rejection")
+			}
+			if created {
+				t.Fatal("TC-301 rejected edge reached persistence")
+			}
+		})
+	}
+}
+
+func TestUnlinkEntitiesTC301RejectsInvalidQuestionBlocksDirectionBeforeDelete(t *testing.T) {
+	deleted := false
+	svc := NewEntityRelationshipService(&MockEntityRelationshipRepository{
+		DeleteByEntitiesAndTypeFunc: func(context.Context, models.EntityType, int64, models.EntityType, int64, models.EntityRelationshipType) error {
+			deleted = true
+			return nil
+		},
+	}, nil)
+	if err := svc.UnlinkEntities(ctx(), models.EntityTypeFeature, 1, models.EntityTypeQuestion, 2, models.EntityRelQuestionBlocks); err == nil {
+		t.Fatal("TC-301 UnlinkEntities() error = nil, want direction rejection")
+	}
+	if deleted {
+		t.Fatal("TC-301 invalid unlink reached persistence")
+	}
+}
+
 func TestCreateRelationship_SelfReference(t *testing.T) {
 	mockRepo := &MockEntityRelationshipRepository{}
 	svc := NewEntityRelationshipService(mockRepo, nil)

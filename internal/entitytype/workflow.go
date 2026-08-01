@@ -12,6 +12,7 @@ const (
 	WorkflowBug      = "bug"
 	WorkflowChange   = "change"
 	WorkflowTechDebt = "tech_debt"
+	WorkflowQuestion = "question"
 )
 
 var workflowLevelAliases = map[string]string{
@@ -38,6 +39,9 @@ var workflowLevelAliases = map[string]string{
 	"techdebt":   WorkflowTechDebt,
 	"techdebts":  WorkflowTechDebt,
 	"td":         WorkflowTechDebt,
+
+	"question":  WorkflowQuestion,
+	"questions": WorkflowQuestion,
 }
 
 // NormalizeWorkflowLevel maps user/config/runtime entity-type spellings to

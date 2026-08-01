@@ -2426,6 +2426,7 @@ const HIDDEN_TERMINAL_BY_TYPE = {
   epic:        new Set(['completed', 'cancelled', 'closed', 'wont_fix', 'rejected']),
   feature:     new Set(['completed', 'cancelled', 'closed', 'wont_fix', 'rejected']),
   task:        new Set(['completed', 'done', 'cancelled', 'closed', 'wont_fix', 'rejected']),
+  question:    new Set(['resolved', 'withdrawn', 'superseded', 'archived']),
   bug:         new Set(['completed', 'done', 'verified', 'closed', 'wont_fix', 'rejected']),
   change_card: new Set(['completed', 'done', 'approved', 'rejected', 'closed']),
   tech_debt:   new Set(['completed', 'done', 'resolved', 'cancelled', 'closed', 'wont_fix', 'rejected', 'archived']),
@@ -2832,6 +2833,9 @@ async function apiCreateViewerRelationship(entityType, key, payload) {
     case 'task':
       url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}/relationships`;
       break;
+    case 'question':
+      url = `/api/v1/viewer/questions/${encodeURIComponent(key)}/relationships`;
+      break;
     default:
       throw new Error('unsupported entity type');
   }
@@ -2865,6 +2869,9 @@ async function apiDeleteViewerRelationship(entityType, key, relType, toKey) {
       break;
     case 'task':
       url = `/api/v1/viewer/tasks/${encodeURIComponent(key)}/relationships/${encodeURIComponent(relType)}/${encodeURIComponent(toKey)}`;
+      break;
+    case 'question':
+      url = `/api/v1/viewer/questions/${encodeURIComponent(key)}/relationships/${encodeURIComponent(relType)}/${encodeURIComponent(toKey)}`;
       break;
     default:
       throw new Error('unsupported entity type');
@@ -4415,6 +4422,7 @@ function findEntityByKey(key) {
       ['change_card', hierarchyData.change_cards],
       ['tech_debt',   hierarchyData.tech_debts],
       ['idea',        hierarchyData.ideas],
+      ['question',    hierarchyData.questions],
     ];
     for (const [type, items] of flatLists) {
       if (!Array.isArray(items)) continue;
@@ -4844,8 +4852,8 @@ function noteTypeOptions(value) {
   ]);
 }
 
-function relationshipTypeOptions(value) {
-  return mutationSelect('relationship_type', value || 'related_to', [
+function relationshipTypeOptions(entityType, value) {
+  const options = [
     { value: 'depends_on', label: 'Depends On' },
     { value: 'blocks', label: 'Blocks' },
     { value: 'related_to', label: 'Related To' },
@@ -4854,7 +4862,13 @@ function relationshipTypeOptions(value) {
     { value: 'duplicates', label: 'Duplicates' },
     { value: 'references', label: 'References' },
     { value: 'linked_to', label: 'Linked To' },
-  ]);
+  ];
+  // question_blocks is intentionally source-aware. The server enforces the
+  // remaining directed target rule, so an invalid pasted target is rejected.
+  if (entityType === 'question') {
+    options.push({ value: 'question_blocks', label: 'Question Blocks' });
+  }
+  return mutationSelect('relationship_type', value || 'related_to', options);
 }
 
 function renderNoteControls(entity) {
@@ -4878,7 +4892,7 @@ function renderNoteControls(entity) {
 }
 
 function renderRelationshipControls(entity) {
-  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return '';
+  if (!entity || !['epic', 'feature', 'task', 'question'].includes(entity.type)) return '';
   const key = escapeHtml(entity.key || '');
   const kind = escapeHtml(entity.type);
   return `
@@ -4886,7 +4900,7 @@ function renderRelationshipControls(entity) {
       <div class="mutation-section-title">Relationships</div>
       <form class="mutation-form" id="entity-relationship-create-form" data-entity-key="${key}" data-entity-type="${kind}">
         <div class="mutation-form-grid">
-          ${mutationField('Relationship Type', relationshipTypeOptions('related_to'))}
+          ${mutationField('Relationship Type', relationshipTypeOptions(entity.type, 'related_to'))}
           ${mutationField('Target Key', mutationTextInput('to_key', '', 'placeholder="E07-F01 or T-E07-F01-001" required'))}
         </div>
         <div class="mutation-actions">
@@ -4895,7 +4909,7 @@ function renderRelationshipControls(entity) {
       </form>
       <form class="mutation-form" id="entity-relationship-delete-form" data-entity-key="${key}" data-entity-type="${kind}" style="margin-top:10px">
         <div class="mutation-form-grid">
-          ${mutationField('Relationship Type', relationshipTypeOptions('depends_on'))}
+          ${mutationField('Relationship Type', relationshipTypeOptions(entity.type, 'depends_on'))}
           ${mutationField('Target Key', mutationTextInput('to_key', '', 'placeholder="E07-F01 or T-E07-F01-001" required'))}
         </div>
         <div class="mutation-actions">
@@ -4969,10 +4983,18 @@ function renderMutationTransitionControls(entity) {
 }
 
 function renderMutationControls(entity) {
-  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return '';
+  if (!entity || !['epic', 'feature', 'task', 'question'].includes(entity.type)) return '';
 
   const key = escapeHtml(entity.key || '');
   const kind = escapeHtml(entity.type);
+
+  if (entity.type === 'question') {
+    return `
+      <details class="mutation-panel" id="entity-mutation-panel" data-entity-key="${key}" data-entity-type="${kind}">
+        <summary>Relationships</summary>
+        <div class="mutation-panel-body">${renderRelationshipControls(entity)}</div>
+      </details>`;
+  }
 
   return `
     <details class="mutation-panel" id="entity-mutation-panel" data-entity-key="${key}" data-entity-type="${kind}">
@@ -5170,7 +5192,7 @@ async function deleteViewerRelationship(entity, form) {
 }
 
 function wireMutationControls(entity) {
-  if (!entity || !['epic', 'feature', 'task'].includes(entity.type)) return;
+  if (!entity || !['epic', 'feature', 'task', 'question'].includes(entity.type)) return;
 
   const panel = document.getElementById('entity-mutation-panel');
   if (!panel) return;
@@ -7636,7 +7658,7 @@ function renderEntityView() {
 
   const entity = findEntityByKey(selectedKey);
   const isEpic = entity?.type === 'epic';
-  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'tech_debt' || entity.type === 'idea');
+  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'tech_debt' || entity.type === 'idea' || entity.type === 'question');
 
   // Guard: if history state restored 'dashboard' for a non-epic, coerce to 'overview' (AC-001.5)
   if (entityViewTab === 'dashboard' && !isEpic) {
@@ -8311,6 +8333,9 @@ function renderSidebar() {
 
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
   html += renderSidebarSection('ideas', 'Ideas', buildFlatSectionHtml('Ideas', ideas, 'idea'));
+
+  const questions = Array.isArray(hierarchyData?.questions) ? hierarchyData.questions : [];
+  html += renderSidebarSection('questions', 'Questions', buildFlatSectionBodyHtml(questions, 'question'));
 
   // ── Docs browser ──
   html += renderSidebarSection('docs', 'Docs', buildDocsBrowserBodyHtml(), { keepEmpty: true });

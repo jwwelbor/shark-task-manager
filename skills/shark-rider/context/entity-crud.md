@@ -209,6 +209,8 @@ shark link B001 E01-F02-003 --type=related_to
 shark link E01-F01 E01-F02 --type=follows
 
 # Types: depends_on, blocks, related_to, follows, spawned_from, duplicates, references, linked_to
+# Question-only gate: Question -> eligible non-Question entity
+shark link Q001 E01-F01 --type=question_blocks
 
 # Legacy task-specific syntax (still works)
 shark task link E01-F02-001 E01-F02-002 --type=depends_on

@@ -21,6 +21,8 @@ const (
 	// such as notes (B030). Added so `shark create note S###` resolves to the
 	// sprint repository via the EntityRegistry.
 	EntityTypeSprint EntityType = "sprint"
+	// EntityTypeQuestion identifies a Question entity for polymorphic operations.
+	EntityTypeQuestion EntityType = "question"
 )
 
 // ValidEntityTypes is the set of valid entity types
@@ -33,6 +35,7 @@ var ValidEntityTypes = map[EntityType]bool{
 	EntityTypeTechDebt: true,
 	EntityTypeIdea:     true,
 	EntityTypeSprint:   true,
+	EntityTypeQuestion: true,
 }
 
 // EntityNote represents a typed note attached to any entity (epic, feature, or task)

@@ -7,13 +7,16 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
@@ -22,6 +25,14 @@ type mockRunClaimService struct {
 	claims     []services.ClaimInput
 	releases   []runReleaseCall
 	heartbeats []runHeartbeatCall
+}
+
+type mockRunCascadeChildrenService struct {
+	state services.CascadeChildrenState
+}
+
+func (m *mockRunCascadeChildrenService) DescribeDispatchableChildren(context.Context, string, string) (services.CascadeChildrenState, error) {
+	return m.state, nil
 }
 
 type runReleaseCall struct {
@@ -89,7 +100,7 @@ func TestAcquireRunLease_DryRunSkipsClaim(t *testing.T) {
 	mock := &mockRunClaimService{}
 	withRunClaimSvcOverride(t, mock)
 
-	lease, err := acquireRunLease(context.Background(), "bug", "B041", true)
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", true)
 	if err != nil {
 		t.Fatalf("acquireRunLease dry-run: %v", err)
 	}
@@ -105,7 +116,7 @@ func TestRunLease_ReleasesAcquiredSession(t *testing.T) {
 	mock := &mockRunClaimService{}
 	withRunClaimSvcOverride(t, mock)
 
-	lease, err := acquireRunLease(context.Background(), "bug", "B041", false)
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", false)
 	if err != nil {
 		t.Fatalf("acquireRunLease: %v", err)
 	}
@@ -131,6 +142,276 @@ func TestRunLease_ReleasesAcquiredSession(t *testing.T) {
 	}
 	if got.force {
 		t.Fatal("run release used force; want session-scoped release")
+	}
+}
+
+// TC-307/TC-308: CLI run preflight must recognize a direct Question block
+// after reading candidate status and before action lookup, responder work, or
+// any normal/dry-run lease attempt.
+func TestRunLeasePreflight_BlockedCandidateSkipsActionAndClaim_TC307_TC308(t *testing.T) {
+	for _, dryRun := range []bool{false, true} {
+		t.Run(map[bool]string{false: "normal", true: "dry_run"}[dryRun], func(t *testing.T) {
+			claims := &mockRunClaimService{}
+			withRunClaimSvcOverride(t, claims)
+			actionCalls := 0
+			lease, block, status, err := acquireRunLeaseForRunnableAction(
+				context.Background(),
+				fixedNextTransitioner{info: &services.NextStatusInfo{EntityType: models.EntityTypeFeature, EntityKey: "E39-F03", CurrentStatus: "active"}},
+				&config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+					actionCalls++
+					return nil, nil
+				}},
+				questionBlockerFunc(func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+					if entityType != models.EntityTypeFeature || key != "E39-F03" {
+						t.Fatalf("blocker candidate = %s %s, want feature E39-F03", entityType, key)
+					}
+					return &services.QuestionBlock{QuestionKey: "Q001", Summary: "Gate", ResolutionOwner: "owner", CurrentResponder: "alice"}, nil
+				}),
+				"feature", "E39-F03", dryRun,
+			)
+			if err != nil {
+				t.Fatalf("blocked run preflight error = %v", err)
+			}
+			if lease != nil || block == nil || status != "active" {
+				t.Fatalf("blocked run preflight lease=%#v block=%#v status=%q, want nil/non-nil/active", lease, block, status)
+			}
+			if actionCalls != 0 || len(claims.claims) != 0 {
+				t.Fatalf("blocked preflight action/claim calls = %d/%d, want 0/0", actionCalls, len(claims.claims))
+			}
+		})
+	}
+}
+
+// TestAcquireRunLeaseForRunnableActionPropagatesQuestionBlockerCheckError
+// locks in that a questionBlocker.Check failure propagates out of
+// acquireRunLeaseForRunnableAction and stops before action lookup or lease
+// acquisition -- no existing test double for this function ever returns a
+// non-nil error, so a regression that silently swallowed it would otherwise
+// pass every other preflight test in this file.
+func TestAcquireRunLeaseForRunnableActionPropagatesQuestionBlockerCheckError(t *testing.T) {
+	claims := &mockRunClaimService{}
+	withRunClaimSvcOverride(t, claims)
+	actionCalls := 0
+	checkErr := errors.New("Question blocker load candidate: repository unavailable")
+	lease, block, _, err := acquireRunLeaseForRunnableAction(
+		context.Background(),
+		fixedNextTransitioner{info: &services.NextStatusInfo{EntityType: models.EntityTypeFeature, EntityKey: "E39-F03", CurrentStatus: "active"}},
+		&config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+			actionCalls++
+			return nil, nil
+		}},
+		questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
+			return nil, checkErr
+		}),
+		"feature", "E39-F03", false,
+	)
+	if err == nil {
+		t.Fatal("acquireRunLeaseForRunnableAction() error = nil, want the propagated Question blocker error")
+	}
+	if !errors.Is(err, checkErr) {
+		t.Fatalf("acquireRunLeaseForRunnableAction() error = %v, want it to wrap %v", err, checkErr)
+	}
+	if lease != nil || block != nil {
+		t.Fatalf("blocker error lease=%#v block=%#v, want nil/nil", lease, block)
+	}
+	if actionCalls != 0 || len(claims.claims) != 0 {
+		t.Fatalf("blocker error action/claim calls = %d/%d, want 0/0", actionCalls, len(claims.claims))
+	}
+}
+
+// TestPreflightCascadeQuestionBlockPropagatesCheckError locks in that a
+// questionBlocker.Check failure during cascade traversal propagates out of
+// preflightCascadeQuestionBlock instead of being treated as "no block."
+func TestPreflightCascadeQuestionBlockPropagatesCheckError(t *testing.T) {
+	checkErr := errors.New("Question blocker load candidate: repository unavailable")
+	blocker := questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
+		return nil, checkErr
+	})
+	actions := &config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+		t.Fatal("blocker error must not reach action resolution")
+		return nil, nil
+	}}
+	root := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "parent"}}
+
+	got, _, err := preflightCascadeQuestionBlock(context.Background(), root, actions, &mockRunCascadeChildrenService{}, blocker,
+		func(context.Context, string) (runner.EntityTransitioner, error) { return root, nil }, "epic", "E39")
+	if err == nil {
+		t.Fatal("preflightCascadeQuestionBlock() error = nil, want the propagated Question blocker error")
+	}
+	if !errors.Is(err, checkErr) {
+		t.Fatalf("preflightCascadeQuestionBlock() error = %v, want it to wrap %v", err, checkErr)
+	}
+	if got != nil {
+		t.Fatalf("preflightCascadeQuestionBlock() block = %#v, want nil on error", got)
+	}
+}
+
+// TC-308: preflight may suppress the parent lease only when all selected
+// cascade work is parked. A blocked first child must fall through to a later
+// runnable sibling so the controller can dispatch it.
+func TestPreflightCascadeQuestionBlockFallsThroughToLiveSibling_TC308(t *testing.T) {
+	blocker := questionBlockerFunc(func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+		if entityType == models.EntityTypeFeature && key == "E39-F03" {
+			return &services.QuestionBlock{QuestionKey: "Q001", Summary: "Gate", ResolutionOwner: "owner", CurrentResponder: "alice"}, nil
+		}
+		return nil, nil
+	})
+	actions := &config.MockActionService{GetStatusActionFunc: func(_ context.Context, status string) (*config.OrchestratorAction, error) {
+		switch status {
+		case "parent":
+			return &config.OrchestratorAction{Action: config.ActionCascade}, nil
+		case "child":
+			return &config.OrchestratorAction{Action: config.ActionSpawnAgent}, nil
+		default:
+			t.Fatalf("unexpected action status %q", status)
+			return nil, nil
+		}
+	}}
+	cascadeChildren := &mockRunCascadeChildrenService{state: services.CascadeChildrenState{Children: []services.CascadeChild{
+		{Key: "E39-F03", EntityType: models.EntityTypeFeature},
+		{Key: "E39-F04", EntityType: models.EntityTypeFeature},
+	}}}
+	root := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "parent"}}
+	child := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "child"}}
+
+	got, status, err := preflightCascadeQuestionBlock(context.Background(), root, actions, cascadeChildren, blocker,
+		func(context.Context, string) (runner.EntityTransitioner, error) { return child, nil }, "epic", "E39")
+	if err != nil {
+		t.Fatalf("preflightCascadeQuestionBlock() error = %v", err)
+	}
+	if got != nil || status != "parent" {
+		t.Fatalf("preflight = block=%#v status=%q, want live sibling/no block/parent", got, status)
+	}
+}
+
+// TC-308: when every selected child is blocked, preflight returns the first
+// compact handoff and keeps the parent lease-free in normal and dry-run paths.
+func TestPreflightCascadeQuestionBlockAllBlockedReturnsCompactPause_TC308(t *testing.T) {
+	blocker := questionBlockerFunc(func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+		if entityType != models.EntityTypeFeature {
+			return nil, nil
+		}
+		return &services.QuestionBlock{QuestionKey: "Q" + key[len(key)-2:], Summary: key, ResolutionOwner: "owner", CurrentResponder: "alice"}, nil
+	})
+	actions := &config.MockActionService{GetStatusActionFunc: func(_ context.Context, status string) (*config.OrchestratorAction, error) {
+		if status == "parent" {
+			return &config.OrchestratorAction{Action: config.ActionCascade}, nil
+		}
+		return &config.OrchestratorAction{Action: config.ActionSpawnAgent}, nil
+	}}
+	cascadeChildren := &mockRunCascadeChildrenService{state: services.CascadeChildrenState{Children: []services.CascadeChild{
+		{Key: "E39-F03", EntityType: models.EntityTypeFeature},
+		{Key: "E39-F04", EntityType: models.EntityTypeFeature},
+	}}}
+	root := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "parent"}}
+	child := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "child"}}
+
+	got, status, err := preflightCascadeQuestionBlock(context.Background(), root, actions, cascadeChildren, blocker,
+		func(context.Context, string) (runner.EntityTransitioner, error) { return child, nil }, "epic", "E39")
+	if err != nil {
+		t.Fatalf("preflightCascadeQuestionBlock() error = %v", err)
+	}
+	if got == nil || got.QuestionKey != "Q03" || got.Summary != "E39-F03" || status != "parent" {
+		t.Fatalf("preflight = block=%#v status=%q, want first compact child block/parent", got, status)
+	}
+}
+
+// TC-104: the production run lease boundary must inspect a Question pause
+// action before it derives a responder-bound claim identity. A Question with
+// no responder is a valid parked checkpoint, not a run failure or a claim.
+func TestRunLeasePreflight_TopLevelQuestionPauseSkipsResponderClaim_TC104(t *testing.T) {
+	claims := &mockRunClaimService{}
+	withRunClaimSvcOverride(t, claims)
+
+	transitioner := fixedNextTransitioner{info: &services.NextStatusInfo{
+		EntityType:    models.EntityTypeQuestion,
+		EntityKey:     "Q001",
+		CurrentStatus: "ready_for_resolution",
+	}}
+	actions := &config.MockActionService{GetStatusActionFunc: func(_ context.Context, status string) (*config.OrchestratorAction, error) {
+		if status != "ready_for_resolution" {
+			t.Fatalf("preflight status = %q, want ready_for_resolution", status)
+		}
+		return &config.OrchestratorAction{Action: config.ActionPause}, nil
+	}}
+
+	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false)
+	if err != nil {
+		t.Fatalf("top-level Question pause preflight: %v", err)
+	}
+	if lease != nil {
+		t.Fatalf("pause preflight lease = %#v, want nil", lease)
+	}
+	if block != nil {
+		t.Fatalf("pause preflight block = %#v, want nil", block)
+	}
+	if len(claims.claims) != 0 {
+		t.Fatalf("pause preflight claims = %#v, want none", claims.claims)
+	}
+}
+
+// TC-104: cascade children enter the same lease boundary. A ready Question
+// has a terminal dispatch signal and must stop before either action rendering
+// or responder-bound claim derivation.
+func TestRunLeasePreflight_CascadeReadyQuestionSkipsActionAndClaim_TC104(t *testing.T) {
+	claims := &mockRunClaimService{}
+	withRunClaimSvcOverride(t, claims)
+
+	transitioner := fixedNextTransitioner{info: &services.NextStatusInfo{
+		EntityType:    models.EntityTypeQuestion,
+		EntityKey:     "Q001",
+		CurrentStatus: "ready_for_resolution",
+		IsTerminal:    true,
+	}}
+	actions := &config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+		t.Fatal("cascade ready Question looked up an action before stopping")
+		return nil, nil
+	}}
+
+	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false)
+	if err != nil {
+		t.Fatalf("cascade ready Question preflight: %v", err)
+	}
+	if lease != nil {
+		t.Fatalf("cascade ready Question lease = %#v, want nil", lease)
+	}
+	if block != nil {
+		t.Fatalf("cascade ready Question block = %#v, want nil", block)
+	}
+	if len(claims.claims) != 0 {
+		t.Fatalf("cascade ready Question claims = %#v, want none", claims.claims)
+	}
+}
+
+// TC-104: The CLI run preflight receives the same responder-less dispatch
+// signal as keyed next and the controller. It must avoid both action lookup
+// and responder-bound claims for every checkpoint in dry-run and real-run
+// modes, including F01's unconfigured draft compatibility state.
+func TestRunLeasePreflight_QuestionNoResponderParity_TC104(t *testing.T) {
+	for _, status := range []string{"draft", "open", "answering", "ready_for_resolution"} {
+		t.Run(status, func(t *testing.T) {
+			for _, dryRun := range []bool{false, true} {
+				t.Run(map[bool]string{false: "run", true: "dry_run"}[dryRun], func(t *testing.T) {
+					claims := &mockRunClaimService{}
+					withRunClaimSvcOverride(t, claims)
+					transitioner := fixedNextTransitioner{info: &services.NextStatusInfo{
+						EntityType: models.EntityTypeQuestion, EntityKey: "Q001", CurrentStatus: status, IsTerminal: true,
+					}}
+					actions := &config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
+						t.Fatal("Question no-responder preflight looked up a workflow action")
+						return nil, nil
+					}}
+
+					lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", dryRun)
+					if err != nil {
+						t.Fatalf("Question %s preflight: %v", status, err)
+					}
+					if lease != nil || block != nil || len(claims.claims) != 0 {
+						t.Fatalf("Question %s preflight lease=%#v block=%#v claims=%#v, want none", status, lease, block, claims.claims)
+					}
+				})
+			}
+		})
 	}
 }
 

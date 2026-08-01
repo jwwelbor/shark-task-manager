@@ -19,7 +19,7 @@ func setupSearchAllTestDB(t *testing.T) *DB {
 	return &DB{DB: testDB}
 }
 
-// seedSearchAllTestData inserts minimal epics/features/tasks/bugs/change_cards.
+// seedSearchAllTestData inserts minimal searchable records for each supported entity type.
 func seedSearchAllTestData(t *testing.T, repoDb *DB) {
 	t.Helper()
 	ctx := context.Background()
@@ -89,6 +89,14 @@ func seedSearchAllTestData(t *testing.T, repoDb *DB) {
 		VALUES ('I-2026-07-05-01', 'Search everything idea', 'Users should find notes and ideas with full text search', '2026-07-05', 'new')
 	`)
 	require.NoError(t, err)
+
+	// Question metadata is searchable, while ContextData must remain outside
+	// the FTS projection. The explicit sentinel is asserted below.
+	_, err = repoDb.ExecContext(ctx, `
+		INSERT INTO questions (key, title, summary, requester, blocking, status, context_data)
+		VALUES ('Q001', 'Login decision question', 'Choose the login provider', 'security-owner', 1, 'draft', 'search-context-sentinel-must-not-project')
+	`)
+	require.NoError(t, err)
 }
 
 // --- SearchAll tests ---
@@ -131,6 +139,30 @@ func TestSearchAll_ReturnsAllEntityTypes(t *testing.T) {
 	assert.True(t, typesSeen["task"], "expected task in results")
 	assert.True(t, typesSeen["bug"], "expected bug in results")
 	assert.True(t, typesSeen["change"], "expected change-card in results")
+}
+
+func TestSearchAll_QuestionMetadataIsDiscoverableWithoutContextData(t *testing.T) {
+	repoDb := setupSearchAllTestDB(t)
+	defer repoDb.Close()
+	seedSearchAllTestData(t, repoDb)
+	repo := NewSearchRepository(repoDb)
+	rebuildSearchAllIndex(t, repo)
+
+	entityType := "question"
+	results, err := repo.SearchAll(context.Background(), "login", &entityType)
+	require.NoError(t, err)
+	result := requireSearchResult(t, results, "question", "Q001")
+	assert.Equal(t, "draft", result.Status)
+	assert.NotContains(t, strings.ToLower(result.Snippet), "search-context-sentinel-must-not-project")
+
+	var indexedBody, indexedNotes, indexedMetadata string
+	require.NoError(t, repoDb.QueryRow(`
+		SELECT body, note_text, metadata_text FROM entity_search_fts
+		WHERE entity_type = 'question' AND key = 'Q001'
+	`).Scan(&indexedBody, &indexedNotes, &indexedMetadata))
+	assert.Contains(t, indexedBody, "Choose the login provider")
+	assert.Empty(t, indexedNotes)
+	assert.NotContains(t, indexedBody+indexedNotes+indexedMetadata, "search-context-sentinel-must-not-project")
 }
 
 func TestSearchAll_EmptyQueryReturnsEmpty(t *testing.T) {
