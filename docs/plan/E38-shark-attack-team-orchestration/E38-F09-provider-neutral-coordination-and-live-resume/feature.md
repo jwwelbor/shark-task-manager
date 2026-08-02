@@ -28,3 +28,17 @@ This is an incremental v2 capability beyond completed E38-F04 and E38-F07; it
 must reuse their authority boundary instead of reopening or duplicating their
 delivered scope. Decisions about capability-profile names, worker-owned child
 pulling, and the canonical authored/embedded direction remain unresolved.
+
+## Amendments
+
+### 2026-08-01 — E39 dependency resolved, unblocking
+
+F09 was hard-blocked pending E39 (Question and Decision Workflow Management),
+since F09's live-question control needed a first-class Question lifecycle
+rather than a bespoke persistent question/responder/handoff/resolution flow
+(owner decision, see feature notes). E39 shipped complete on 2026-07-31
+(all four features completed; PR #145). F09 must now integrate with E39's
+Question entity and workflow instead of the design assumed by the prior
+specification/task pass. Rewound to `research` to re-investigate the live
+question loop against E39's actual delivered API surface before revising the
+specification.
