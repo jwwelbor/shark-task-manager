@@ -203,13 +203,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	// Gather related data via single-query view (errors non-fatal — display is best-effort)
 	displayData, _ := svc.GetTaskDisplayData(ctx, task)
 	var relatedDocs []*models.Document
-	var blockedBy, blocks []services.RelationshipWithTask
+	var blockedBy, blocks, relationships []services.RelationshipWithTask
 	var deps []*models.Task
 	var notes []*models.EntityNote
 	if displayData != nil {
 		relatedDocs = displayData.RelatedDocs
 		blockedBy = displayData.BlockedBy
 		blocks = displayData.Blocks
+		relationships = displayData.Relationships
 		deps = displayData.Dependencies
 		notes = displayData.Notes
 	}
@@ -225,7 +226,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 
 	if cli.GlobalConfig.JSON {
-		jsonResult := buildTaskGetJSON(task, deps, blockedBy, blocks,
+		jsonResult := buildTaskGetJSON(task, deps, blockedBy, blocks, relationships,
 			relatedDocs, validTransitions, orchestratorAction, notes, contextData)
 		// REQ-F-015: "tags" field always present in JSON, never null.
 		if tags == nil {

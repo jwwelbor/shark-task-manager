@@ -2452,24 +2452,26 @@ func (r *TaskRepository) CountsByFeature(ctx context.Context) (map[int64]Feature
 // TaskDisplayDataRaw holds the raw JSON strings from the task_display_data view.
 // The service layer is responsible for unmarshaling these into domain types.
 type TaskDisplayDataRaw struct {
-	BlockedByJSON    string
-	BlocksJSON       string
-	DependenciesJSON string
-	DocumentsJSON    string
-	NotesJSON        string
+	BlockedByJSON     string
+	BlocksJSON        string
+	RelationshipsJSON string
+	DependenciesJSON  string
+	DocumentsJSON     string
+	NotesJSON         string
 }
 
 // GetTaskDisplayDataRaw fetches all display data for a task in a single query
 // using the task_display_data view. Returns raw JSON strings that the service
 // layer unmarshals into domain types.
 func (r *TaskRepository) GetTaskDisplayDataRaw(ctx context.Context, taskID int64) (*TaskDisplayDataRaw, error) {
-	query := `SELECT blocked_by_json, blocks_json, dependencies_json, documents_json, notes_json
+	query := `SELECT blocked_by_json, blocks_json, relationships_json, dependencies_json, documents_json, notes_json
 		FROM task_display_data WHERE id = ?`
 
 	raw := &TaskDisplayDataRaw{}
 	err := r.db.QueryRowContext(ctx, query, taskID).Scan(
 		&raw.BlockedByJSON,
 		&raw.BlocksJSON,
+		&raw.RelationshipsJSON,
 		&raw.DependenciesJSON,
 		&raw.DocumentsJSON,
 		&raw.NotesJSON,

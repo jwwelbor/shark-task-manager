@@ -34,7 +34,7 @@ func TestJSONConsistency_CommonEnrichmentFields(t *testing.T) {
 			Priority: 5,
 		}
 
-		result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+		result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		parsed := marshalAndParse(t, result)
 
 		for _, field := range commonEnrichmentFields {
@@ -192,7 +192,7 @@ func TestJSONConsistency_FieldNaming(t *testing.T) {
 			AgentType:      &agentType,
 			ExecutionOrder: &execOrder,
 		}
-		result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+		result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		parsed := marshalAndParse(t, result)
 		assertSnakeCase(t, parsed, "task")
 	})
@@ -244,7 +244,7 @@ func TestJSONConsistency_FieldFlagAccess(t *testing.T) {
 
 		CreatedAt: time.Now(), UpdatedAt: time.Now()}, Status: "todo", Priority: 5,
 	}
-	taskJSON := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	taskJSON := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	taskParsed := marshalAndParse(t, taskJSON)
 
 	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", Title: "Test",

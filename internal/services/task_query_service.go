@@ -208,11 +208,12 @@ func (s *TaskQueryService) SearchByFile(ctx context.Context, filePath string, fi
 // Turso cloud databases where each round-trip costs ~150-200ms.
 func (s *TaskQueryService) GetTaskDisplayData(ctx context.Context, task *models.Task) (*TaskDisplayData, error) {
 	result := &TaskDisplayData{
-		BlockedBy:    make([]RelationshipWithTask, 0),
-		Blocks:       make([]RelationshipWithTask, 0),
-		Dependencies: make([]*models.Task, 0),
-		RelatedDocs:  make([]*models.Document, 0),
-		Notes:        make([]*models.EntityNote, 0),
+		BlockedBy:     make([]RelationshipWithTask, 0),
+		Blocks:        make([]RelationshipWithTask, 0),
+		Relationships: make([]RelationshipWithTask, 0),
+		Dependencies:  make([]*models.Task, 0),
+		RelatedDocs:   make([]*models.Document, 0),
+		Notes:         make([]*models.EntityNote, 0),
 	}
 
 	raw, err := s.repo.GetTaskDisplayDataRaw(ctx, task.ID)
@@ -231,6 +232,12 @@ func (s *TaskQueryService) GetTaskDisplayData(ctx context.Context, task *models.
 		return nil, fmt.Errorf("failed to unmarshal blocks for task %s: %w", task.Key, err)
 	}
 	result.Blocks = blocksRaw
+
+	relationshipsRaw, err := unmarshalJSONArray[RelationshipWithTask](raw.RelationshipsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal relationships for task %s: %w", task.Key, err)
+	}
+	result.Relationships = relationshipsRaw
 
 	depsRaw, err := unmarshalJSONArray[taskDependencyJSON](raw.DependenciesJSON)
 	if err != nil {

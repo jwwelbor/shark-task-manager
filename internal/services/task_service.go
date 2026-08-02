@@ -1226,24 +1226,37 @@ func (s *TaskService) ListRelatedDocuments(ctx context.Context, taskKey string) 
 	return docs, nil
 }
 
-// RelationshipWithTask combines relationship and task info for output.
-// This type is returned by GetTaskRelationships, GetTaskBlockedBy, GetTaskBlocks.
+// RelationshipWithTask combines relationship and related-entity info for
+// output. This type is returned by GetTaskRelationships, GetTaskBlockedBy,
+// GetTaskBlocks, and (via TaskDisplayData) GetTaskDisplayData.
+//
+// B049: the related entity is not always a task -- task_display_data's
+// blocked_by_json/blocks_json/relationships_json now cover cross-entity
+// relationships (e.g. a task blocking a feature). The TaskKey/TaskTitle/
+// TaskStatus field names are kept as-is for backward compatibility with
+// existing JSON consumers; they hold the *related entity's* key/title/status
+// regardless of its type. EntityType disambiguates what that entity actually
+// is ("task", "feature", "epic", "bug", "change", "tech_debt", "question").
+// Producers that only ever resolve tasks (e.g. resolveTaskRelationships) set
+// EntityType to "task".
 type RelationshipWithTask struct {
 	RelationshipType string `json:"relationship_type"`
 	Direction        string `json:"direction"` // "outgoing" or "incoming"
 	TaskKey          string `json:"task_key"`
 	TaskTitle        string `json:"task_title"`
 	TaskStatus       string `json:"task_status"`
+	EntityType       string `json:"entity_type,omitempty"`
 }
 
 // TaskDisplayData holds all supplementary data needed to render a task detail view.
 // This is returned by GetTaskDisplayData which fetches everything in a single SQL query.
 type TaskDisplayData struct {
-	BlockedBy    []RelationshipWithTask
-	Blocks       []RelationshipWithTask
-	Dependencies []*models.Task
-	RelatedDocs  []*models.Document
-	Notes        []*models.EntityNote
+	BlockedBy     []RelationshipWithTask
+	Blocks        []RelationshipWithTask
+	Relationships []RelationshipWithTask
+	Dependencies  []*models.Task
+	RelatedDocs   []*models.Document
+	Notes         []*models.EntityNote
 }
 
 // taskDependencyJSON is the JSON helper for dependency rows from the task_display_data view.
