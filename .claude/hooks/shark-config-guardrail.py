@@ -23,9 +23,10 @@ misleading "repository not found" error; recovered via `git checkout --
 Fixes this class of mistake structurally: agents (main loop or subagents)
 that need to run mutating shark commands should use an isolated scratch
 project (scripts/shark-scratch-env.sh) instead of the live checkout. This
-hook denies the two specific commands that caused the incident and points at
-that script rather than relying on every future agent reading a warning in
-CLAUDE.md.
+hook denies the two specific commands unconditionally (it has no cwd check —
+it matches on command text alone, not on whether the shell is currently
+inside the repo) and points at that script rather than relying on every
+future agent reading a warning in CLAUDE.md.
 """
 
 import json
@@ -33,9 +34,15 @@ import re
 import sys
 
 # Matches `shark admin init` / `shark cloud init` however the binary is
-# invoked (`shark`, `./bin/shark`, `$HOME/go/bin/shark`, etc.) and regardless
-# of surrounding flags or shell chaining (&&, ;, |).
-DANGEROUS_PATTERN = re.compile(r"\bshark\s+(admin\s+init|cloud\s+init)\b")
+# invoked (`shark`, `./bin/shark`, `$HOME/go/bin/shark`, etc.), with global
+# persistent flags (--db, --config, --json, -v, --no-color, ...) optionally
+# interleaved between the tokens, and regardless of shell chaining (&&, ;, |).
+# This is a plain substring match with no execution context — it also denies
+# commands that merely mention the phrase (e.g. in a quoted string or
+# comment), which is an intentional fail-safe trade-off.
+DANGEROUS_PATTERN = re.compile(
+    r"\bshark\b(?:\s+-{1,2}\S+)*\s+(admin|cloud)(?:\s+-{1,2}\S+)*\s+init\b"
+)
 
 DENY_MESSAGE = (
     "Blocked: `shark admin init` / `shark cloud init` rewrite "
@@ -76,10 +83,17 @@ def main():
         print(f"[shark-config-guardrail] ERROR: failed to parse hook input: {e}", file=sys.stderr)
         return  # fail open
 
+    if not isinstance(event, dict):
+        return
+
     if event.get("tool_name") != "Bash":
         return
 
-    command = event.get("tool_input", {}).get("command", "")
+    tool_input = event.get("tool_input", {})
+    if not isinstance(tool_input, dict):
+        return
+
+    command = tool_input.get("command", "")
     if not isinstance(command, str) or not command:
         return
 

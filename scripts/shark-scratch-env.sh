@@ -12,7 +12,7 @@
 # Usage:
 #   scripts/shark-scratch-env.sh [name]
 #   cd "$(scripts/shark-scratch-env.sh my-repro)"
-#   ./bin/shark task create ...   # <- run from inside the printed directory
+#   ./shark task create ...       # <- run from inside the printed directory
 #
 # The scratch directory is created under $TMPDIR (or /tmp) — always outside
 # this repo tree. Shark's project-root auto-detection walks UP from the
