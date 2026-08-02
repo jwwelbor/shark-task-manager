@@ -390,6 +390,7 @@ func (s *EntityRelationshipService) resolveTaskRelationships(
 			TaskKey:          relatedTask.Key,
 			TaskTitle:        relatedTask.Title,
 			TaskStatus:       string(relatedTask.Status),
+			EntityType:       string(models.EntityTypeTask),
 		})
 	}
 

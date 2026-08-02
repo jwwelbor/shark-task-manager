@@ -540,7 +540,7 @@ func TestBuildTaskGetJSON_ContainsTagsField(t *testing.T) {
 	}
 	tags := []string{"auth", "voice"}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	result["tags"] = tags
 
 	if _, ok := result["tags"]; !ok {
@@ -571,7 +571,7 @@ func TestBuildTaskGetJSON_EmptyTagsField(t *testing.T) {
 		Priority: 5,
 	}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	result["tags"] = []string{}
 
 	tagsRaw := result["tags"]

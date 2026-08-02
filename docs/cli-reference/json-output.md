@@ -64,6 +64,59 @@ All commands support `--json` flag for machine-readable output.
 }
 ```
 
+### Task Relationship Fields
+
+`shark task get`/`shark get <task-key> --json` additionally include `blocked_by`,
+`blocks`, and `relationships` arrays sourced from `entity_relationships`. The
+related entity is not always another task — `entity_type` identifies what it
+actually is (`task`, `feature`, `epic`, `bug`, `change`, `tech_debt`, or
+`question`). The `task_key`/`task_title`/`task_status` field names are kept
+for backward compatibility and hold the *related entity's* key/title/status
+regardless of its type.
+
+- `blocked_by` — entities this task `depends_on` (outgoing).
+- `blocks` — entities this task's `depends_on`/`blocks` relationships block
+  (incoming `depends_on` + outgoing `blocks`).
+- `relationships` — every relationship in either direction, of any type
+  (`depends_on`, `blocks`, `related_to`, `follows`, `spawned_from`,
+  `duplicates`, `references`, `linked_to`, `question_blocks`), matching what
+  `shark links <key>` shows. Non-blocking types are surfaced here only —
+  they are never folded into `blocked_by`/`blocks`.
+
+```json
+{
+  "blocked_by": [],
+  "blocks": [
+    {
+      "relationship_type": "blocks",
+      "direction": "outgoing",
+      "task_key": "E07-F04",
+      "task_title": "Deploy pipeline",
+      "task_status": "todo",
+      "entity_type": "feature"
+    }
+  ],
+  "relationships": [
+    {
+      "relationship_type": "blocks",
+      "direction": "outgoing",
+      "task_key": "E07-F04",
+      "task_title": "Deploy pipeline",
+      "task_status": "todo",
+      "entity_type": "feature"
+    },
+    {
+      "relationship_type": "related_to",
+      "direction": "outgoing",
+      "task_key": "T-E07-F01-005",
+      "task_title": "Spike: token refresh",
+      "task_status": "todo",
+      "entity_type": "task"
+    }
+  ]
+}
+```
+
 ## Usage in Scripts
 
 ### Bash Example

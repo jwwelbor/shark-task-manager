@@ -20,6 +20,7 @@ func buildTaskGetJSON(
 	deps []*models.Task,
 	blockedBy []services.RelationshipWithTask,
 	blocks []services.RelationshipWithTask,
+	relationships []services.RelationshipWithTask,
 	relatedDocs []*models.Document,
 	validTransitions []string,
 	orchestratorAction *config.PopulatedAction,
@@ -105,6 +106,7 @@ func buildTaskGetJSON(
 	result["dependencies"] = deps
 	result["blocked_by"] = blockedBy
 	result["blocks"] = blocks
+	result["relationships"] = relationships
 	result["related_documents"] = relatedDocs
 	result["valid_transitions"] = validTransitions
 	result["orchestrator_action"] = orchestratorAction

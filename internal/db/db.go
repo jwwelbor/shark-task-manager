@@ -477,9 +477,12 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	30 — E39-F01 (add Question metadata to the unified search projection)
 //	31 — E39-F02 (convert predecessor Question draft records to open)
 //	32 — E39-F03 (add question_blocks to entity_relationships durable vocabulary)
+//	33 — B049   (task_display_data view: generalize blocked_by_json/blocks_json
+//	             beyond task-to-task, add relationships_json for non-blocking
+//	             relationship types)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 32
+const CurrentSchemaVersion = 33
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -2798,39 +2801,120 @@ func migrateFeatureDisplayDataView(db *sql.DB) error {
 	return err
 }
 
+// taskDisplayRelationshipEntities lists the entity types (and their backing
+// tables) that participate in cross-entity task relationships surfaced by
+// task_display_data (B049). All of these tables expose key/title/status
+// columns, which is what makes a single generic UNION ALL possible instead of
+// one bespoke query per entity type.
+//
+// idea and sprint are intentionally excluded: they are not among the workflow
+// entity types depends_on/blocks/etc. relationships connect in practice (see
+// docs/plan/bugs/B049.research-report.md and validateQuestionBlocksDirection's
+// eligible target set), and the bug report's own "regardless of entity type"
+// list names only task, feature, epic, bug, change, tech-debt, question.
+var taskDisplayRelationshipEntities = []struct {
+	entityType string
+	table      string
+}{
+	{"task", "tasks"},
+	{"feature", "features"},
+	{"epic", "epics"},
+	{"bug", "bugs"},
+	{"change", "change_cards"},
+	{"tech_debt", "tech_debts"},
+	{"question", "questions"},
+}
+
+// taskRelationshipUnionSQL builds a UNION ALL of one SELECT branch per entry
+// in taskDisplayRelationshipEntities, for entity_relationships rows where the
+// current task (t.id) is on the `taskSide` ('from' or 'to') side and the
+// other side is joined against its own table to resolve key/title/status.
+//
+// When relType is empty, every relationship_type matches and the actual
+// stored value is projected (used to build the generalized relationships_json
+// column). When relType is non-empty, only that relationship type matches
+// (used to build blocked_by_json/blocks_json, which intentionally keep their
+// existing depends_on/blocks semantics -- see B049 decision to generalize
+// entity type only, not relationship type, for those two fields).
+func taskRelationshipUnionSQL(taskSide, relType string) string {
+	taskSideType, taskSideID, otherSideType, otherSideID, direction := "from_entity_type", "from_entity_id", "to_entity_type", "to_entity_id", "outgoing"
+	if taskSide == "to" {
+		taskSideType, taskSideID, otherSideType, otherSideID, direction = "to_entity_type", "to_entity_id", "from_entity_type", "from_entity_id", "incoming"
+	}
+
+	relTypeSelect, relTypeFilter := "er.relationship_type", ""
+	if relType != "" {
+		relTypeSelect = fmt.Sprintf("'%s'", relType)
+		relTypeFilter = fmt.Sprintf(" AND er.relationship_type = '%s'", relType)
+	}
+
+	branches := make([]string, 0, len(taskDisplayRelationshipEntities))
+	for _, ent := range taskDisplayRelationshipEntities {
+		branches = append(branches, fmt.Sprintf(`SELECT %s AS rt, '%s' AS dir,
+      e2.key AS ekey, e2.title AS etitle, e2.status AS estatus, '%s' AS etype
+    FROM entity_relationships er JOIN %s e2 ON e2.id = er.%s
+    WHERE er.%s = 'task' AND er.%s = t.id
+      AND er.%s = '%s'%s`,
+			relTypeSelect, direction, ent.entityType, ent.table, otherSideID,
+			taskSideType, taskSideID, otherSideType, ent.entityType, relTypeFilter))
+	}
+	return strings.Join(branches, "\nUNION ALL\n")
+}
+
 // taskDisplayDataViewSQL is the canonical CREATE VIEW statement for
 // task_display_data. Defined once so it can be reused inside other migrations'
 // transactions when entity_notes or entity_relationships is rebuilt.
-const taskDisplayDataViewSQL = `
+//
+// B049: blocked_by_json/blocks_json used to hardcode from/to_entity_type =
+// 'task', so cross-entity relationships (e.g. a task blocking a feature) were
+// silently dropped from `shark get`/`shark task get --json`, even though
+// `shark links` showed them correctly. The subqueries now generalize across
+// entity types via taskRelationshipUnionSQL. A new relationships_json column
+// additionally surfaces every relationship type (related_to, follows,
+// spawned_from, duplicates, references, linked_to, question_blocks) in either
+// direction, matching what `shark links` shows -- those types are NOT folded
+// into blocked_by/blocks, which keep their existing depends_on/blocks-only
+// semantics so a `related_to` link can never masquerade as a blocker.
+var taskDisplayDataViewSQL = fmt.Sprintf(`
 CREATE VIEW IF NOT EXISTS task_display_data AS
 SELECT
   t.*,
 
-  -- Blocked-by: outgoing depends_on relationships (tasks this task depends on)
-  (SELECT COALESCE(json_group_array(json_object(
-    'relationship_type', 'depends_on', 'direction', 'outgoing',
-    'task_key', t2.key, 'task_title', t2.title, 'task_status', t2.status
-  )), '[]') FROM entity_relationships er JOIN tasks t2 ON t2.id = er.to_entity_id
-  WHERE er.from_entity_type = 'task' AND er.from_entity_id = t.id
-    AND er.to_entity_type = 'task' AND er.relationship_type = 'depends_on'
-  ) AS blocked_by_json,
-
-  -- Blocks: incoming depends_on + outgoing blocks (tasks blocked by this task)
+  -- Blocked-by: outgoing depends_on relationships (entities this task depends on)
   (SELECT COALESCE(json_group_array(json_object(
     'relationship_type', sub.rt, 'direction', sub.dir,
-    'task_key', sub.key, 'task_title', sub.title, 'task_status', sub.status
+    'task_key', sub.ekey, 'task_title', sub.etitle, 'task_status', sub.estatus,
+    'entity_type', sub.etype
   )), '[]') FROM (
-    SELECT 'depends_on' as rt, 'incoming' as dir, t2.key, t2.title, t2.status
-    FROM entity_relationships er JOIN tasks t2 ON t2.id = er.from_entity_id
-    WHERE er.to_entity_type = 'task' AND er.to_entity_id = t.id
-      AND er.from_entity_type = 'task' AND er.relationship_type = 'depends_on'
-    UNION ALL
-    SELECT 'blocks' as rt, 'outgoing' as dir, t2.key, t2.title, t2.status
-    FROM entity_relationships er JOIN tasks t2 ON t2.id = er.to_entity_id
-    WHERE er.from_entity_type = 'task' AND er.from_entity_id = t.id
-      AND er.to_entity_type = 'task' AND er.relationship_type = 'blocks'
+%s
+  ) sub
+  ) AS blocked_by_json,
+
+  -- Blocks: incoming depends_on + outgoing blocks (entities blocked by this task)
+  (SELECT COALESCE(json_group_array(json_object(
+    'relationship_type', sub.rt, 'direction', sub.dir,
+    'task_key', sub.ekey, 'task_title', sub.etitle, 'task_status', sub.estatus,
+    'entity_type', sub.etype
+  )), '[]') FROM (
+%s
+UNION ALL
+%s
   ) sub
   ) AS blocks_json,
+
+  -- Relationships: every relationship type in either direction, to any
+  -- entity type (B049) -- generalizes task get --json to match the links
+  -- command instead of silently omitting non-blocking types.
+  (SELECT COALESCE(json_group_array(json_object(
+    'relationship_type', sub.rt, 'direction', sub.dir,
+    'task_key', sub.ekey, 'task_title', sub.etitle, 'task_status', sub.estatus,
+    'entity_type', sub.etype
+  )), '[]') FROM (
+%s
+UNION ALL
+%s
+  ) sub
+  ) AS relationships_json,
 
   -- Dependencies: all related tasks (both directions, distinct)
   (SELECT COALESCE(json_group_array(json_object(
@@ -2862,7 +2946,13 @@ SELECT
   ) AS notes_json
 
 FROM tasks t;
-`
+`,
+	taskRelationshipUnionSQL("from", "depends_on"),
+	taskRelationshipUnionSQL("to", "depends_on"),
+	taskRelationshipUnionSQL("from", "blocks"),
+	taskRelationshipUnionSQL("from", ""),
+	taskRelationshipUnionSQL("to", ""),
+)
 
 // migrateTaskDisplayDataView creates the task_display_data SQL view that aggregates
 // all task-related data (blocked_by, blocks, dependencies, documents, notes) into a single

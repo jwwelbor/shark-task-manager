@@ -54,6 +54,13 @@ func TestBuildTaskGetJSON(t *testing.T) {
 		{TaskKey: "T-E07-F01-003", TaskTitle: "Deploy", TaskStatus: "todo", RelationshipType: "blocks", Direction: "outgoing"},
 	}
 
+	// B049: relationships carries every relationship type/entity type,
+	// including cross-entity ones (e.g. a task blocking a feature).
+	relationships := []services.RelationshipWithTask{
+		{TaskKey: "E07-F02", TaskTitle: "Onboarding", TaskStatus: "in_progress", RelationshipType: "blocks", Direction: "outgoing", EntityType: "feature"},
+		{TaskKey: "T-E07-F01-004", TaskTitle: "Spike", TaskStatus: "todo", RelationshipType: "related_to", Direction: "outgoing", EntityType: "task"},
+	}
+
 	relatedDocs := []*models.Document{
 		{FilePath: "docs/specs/auth.md", Title: "Auth Spec"},
 	}
@@ -78,7 +85,7 @@ func TestBuildTaskGetJSON(t *testing.T) {
 		},
 	}
 
-	result := buildTaskGetJSON(task, deps, blockedBy, blocks, relatedDocs,
+	result := buildTaskGetJSON(task, deps, blockedBy, blocks, relationships, relatedDocs,
 		validTransitions, orchestratorAction, notes, contextData)
 
 	// Verify it marshals to valid JSON
@@ -179,6 +186,37 @@ func TestBuildTaskGetJSON(t *testing.T) {
 		}
 	})
 
+	t.Run("includes relationships with cross-entity entries", func(t *testing.T) {
+		r, ok := parsed["relationships"]
+		if !ok {
+			t.Fatal("missing relationships in JSON output")
+		}
+		rArr, ok := r.([]interface{})
+		if !ok {
+			t.Fatalf("relationships is not an array, got %T", r)
+		}
+		if len(rArr) != 2 {
+			t.Fatalf("expected 2 relationships entries, got %d", len(rArr))
+		}
+		first, ok := rArr[0].(map[string]interface{})
+		if !ok {
+			t.Fatalf("relationships[0] is not an object, got %T", rArr[0])
+		}
+		if first["entity_type"] != "feature" {
+			t.Errorf("expected relationships[0].entity_type=feature (cross-entity), got %v", first["entity_type"])
+		}
+		if first["relationship_type"] != "blocks" {
+			t.Errorf("expected relationships[0].relationship_type=blocks, got %v", first["relationship_type"])
+		}
+		second, ok := rArr[1].(map[string]interface{})
+		if !ok {
+			t.Fatalf("relationships[1] is not an object, got %T", rArr[1])
+		}
+		if second["relationship_type"] != "related_to" {
+			t.Errorf("expected relationships[1].relationship_type=related_to (non-blocking type), got %v", second["relationship_type"])
+		}
+	})
+
 	t.Run("includes dependencies", func(t *testing.T) {
 		d, ok := parsed["dependencies"]
 		if !ok {
@@ -237,7 +275,7 @@ func TestBuildTaskGetJSON_EmptyOptionals(t *testing.T) {
 		Priority: 5,
 	}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jsonBytes, err := json.Marshal(result)
 	if err != nil {

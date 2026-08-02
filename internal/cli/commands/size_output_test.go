@@ -96,7 +96,7 @@ func TestBuildTaskGetJSON_SizeIncludedWhenNonNil(t *testing.T) {
 		Priority: 3,
 	}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	if _, ok := result["size"]; !ok {
 		t.Error("buildTaskGetJSON: expected 'size' key when Size is non-nil, but it is absent")
@@ -145,7 +145,7 @@ func TestBuildTaskGetJSON_SizeAbsentWhenNil(t *testing.T) {
 		Priority: 3,
 	}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	v, ok := result["size"]
 	if !ok {
@@ -386,7 +386,7 @@ func TestBuildTaskGetJSON_SizeLabelIncludedWhenNonNil(t *testing.T) {
 		Priority: 1,
 	}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	sizeLabelVal, ok := result["size_label"]
 	if !ok {
@@ -411,7 +411,7 @@ func TestBuildTaskGetJSON_SizeLabelAbsentWhenNil(t *testing.T) {
 		Priority: 1,
 	}
 
-	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
+	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	v, ok := result["size_label"]
 	if !ok {
