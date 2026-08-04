@@ -1,0 +1,55 @@
+# Worker control envelope (ephemeral, REQ-F-003/D-005). A dispatched worker's
+# final response carries exactly one of these five `kind` values. This file
+# is a schema/prose contract only — it is not a durable record and F09
+# introduces no Go type or running processor for it; the parent renders it as
+# instructions and reads a worker's plain-text reply against this shape.
+kind: final|question|needs_council|blocked_external|failed
+
+# --- kind: final -------------------------------------------------------------
+# recommended_outcome is present only for kind: final, and it is OPAQUE: this
+# schema declares no enum, allowed-value list, or mapping table for it. The
+# parent passes recommended_outcome to `shark status advance --outcome
+# <recommended_outcome>` byte-for-byte, unmodified. `--outcome`'s own
+# validity check (does the CURRENT workflow step define this outcome key?)
+# belongs to the already-existing, unrelated `shark status advance` command
+# (internal/cli/commands/status_group.go) — it is never re-checked or
+# normalized against this envelope's five `kind` values above. A
+# recommended_outcome value absent from the `kind` vocabulary (e.g.
+# `deep_verify`, `simple`, `standard`) round-trips exactly like a value that
+# happens to collide with a `kind` name — there is no special-casing either
+# way.
+example_final:
+  kind: final
+  recommended_outcome: deep_verify
+  evidence: []
+
+# --- kind: question ------------------------------------------------------
+# The question variant carries NO `question_id` field (D-005): the parent —
+# never the worker — mints the E39 `Q###` identity via `shark create
+# question`. This schema deliberately omits the field so an implementation
+# cannot round-trip a worker-authored identity by accident; a worker that
+# emits one is ignored by the parent, which mints its own `Q###` regardless.
+example_question:
+  kind: question
+  entity_key: <string>                                     # required
+  category: product|requirements|architecture|quality|process  # required
+  question: <string>                                        # required
+  why_blocking: <string>                                    # required
+  evidence: []                                              # required, may be empty
+  options: []                                               # optional
+  recommendation: <string>                                  # optional
+
+# --- kind: needs_council / blocked_external / failed --------------------
+# These three variants carry only the common evidence[] field; none defines
+# recommended_outcome or question_id.
+example_needs_council:
+  kind: needs_council
+  evidence: []
+
+example_blocked_external:
+  kind: blocked_external
+  evidence: []
+
+example_failed:
+  kind: failed
+  evidence: []

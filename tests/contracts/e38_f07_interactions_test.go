@@ -125,21 +125,31 @@ func TestTC004_FailureMissingOutcomeAndKickbackOrdering(t *testing.T) {
 // into the F07 Rider loop. A role-aware self-pull may select by workflow role,
 // but must reenter /shark-rider run so shark next supplies the canonical
 // prompt and metadata before the Rider claims a concrete entity.
+//
+// T-E38-F09-024 retired workflows/execute.md, the file this test originally
+// read for the self-pull contract: that content restated pull-by-role.md's
+// own sanctioned path in different words, which is exactly the kind of
+// duplication D-010's router restructure removes (AC-017). The self-pull
+// contract now reads directly from pull-by-role.md, its one remaining
+// canonical source, plus direct.md's pointer into it.
 func TestTC005_RoleAwareSelfPullReentersCanonicalRiderDispatch(t *testing.T) {
-	execute := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/execute.md"))
+	direct := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/direct.md"))
 	pullByRole := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/pull-by-role.md"))
 	workerOwnership := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/context/worker-ownership.md"))
 	skill := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/SKILL.md"))
 	run := normalizeF07Content(readF07RepositoryFile(t, "skills/shark-rider/verbs/run.md"))
 
+	if !strings.Contains(direct, "a role-aware self-pull (`pull-by-role.md`'s sanctioned path)") {
+		t.Error("Direct dispatch procedure must point a role-aware self-pull at pull-by-role.md's sanctioned path")
+	}
 	for _, want := range []string{
-		"workflow-resolved role selection",
-		"Roster membership, responsibility prose, legacy assignment, and `model_tier` never grant authority.",
-		"`shark sprint next --agent=<type>` only to select `selected-key`",
-		"invoke `/shark-rider run <selected-key>`",
-		"Do not claim the `BacklogItemView` selection directly.",
+		"Start from the workflow role already resolved for the worker.",
+		"Roster membership describes available expertise; it does not grant claim or status authority.",
+		"`shark sprint next --agent=<type>`",
+		"Invoke `/shark-rider run <selected-key>`.",
+		"Role-aware Rider self-pull never claims or executes the returned `BacklogItemView` directly.",
 	} {
-		if !strings.Contains(execute, want) {
+		if !strings.Contains(pullByRole, want) {
 			t.Errorf("F07 Rider self-pull procedure omits %q", want)
 		}
 	}
@@ -193,31 +203,51 @@ func TestTC005_RoleAwareSelfPullReentersCanonicalRiderDispatch(t *testing.T) {
 
 // TestTC006_MaterialEscalationUsesBoundedCouncilContract verifies F07 invokes
 // the existing I-04 artifact contract with the required routing metadata.
+//
+// T-E38-F09-024 retired workflows/escalate.md; council.md (T-E38-F09-013) is
+// its successor and now the sole canonical source for the material-question
+// artifact contract (D-010, AC-017 — the rule may not be stated in both
+// files). run.md already routes a mid-run `kind: needs_council` consultation
+// through council.md rather than duplicating its threshold or procedure.
 func TestTC006_MaterialEscalationUsesBoundedCouncilContract(t *testing.T) {
-	execute := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/execute.md"))
+	council := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/council.md"))
+	run := normalizeF07Content(readF07RepositoryFile(t, "skills/shark-rider/verbs/run.md"))
+
 	for _, want := range []string{
-		"material scope/architecture/quality questions",
-		"material question, evidence, responsible role, requested decision, route, and next owner",
-		"follow `escalate.md`",
-		"absent policy routes to `council-review`",
+		"specialists disagree, a cross-feature or cross-epic contract is missing or inconsistent, the change has high blast radius, the change is irreversible, or a worker cannot proceed safely from project evidence",
+		"artifact ID, trigger, requested decision, evidence, sender and recipient roles, root key, optional child key, route, status, and `next_action`",
+		"docs/product/escalation_triggers.md",
+		"set `status: unresolved`, set `route: council-review`, and recommend `pause/review`",
 	} {
-		if !strings.Contains(execute, want) {
+		if !strings.Contains(council, want) {
 			t.Errorf("F07 escalation procedure omits %q", want)
 		}
+	}
+	if !strings.Contains(run, "workflows/council.md") {
+		t.Error("Rider procedure must route a mid-run material consultation through workflows/council.md")
 	}
 }
 
 // TestTC007_RefreshUsesSharkAndBoundedCouncilPointers verifies the procedure
 // resumes from existing state and council artifacts, not a second run ledger.
+//
+// T-E38-F09-024 retired workflows/execute.md, which previously stated this
+// refresh contract in its own paraphrase. The router (SKILL.md) now points a
+// refresh at resume.md (T-E38-F09-014), which is the sole canonical source
+// for the no-second-replacement and no-transcript-storage invariants.
 func TestTC007_RefreshUsesSharkAndBoundedCouncilPointers(t *testing.T) {
-	execute := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/execute.md"))
+	skill := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/SKILL.md"))
+	resume := normalizeF07Content(readF07EmbeddedFile(t, "skills/shark-attack/workflows/resume.md"))
+
+	if !strings.Contains(skill, "the parent follows `workflows/resume.md`") {
+		t.Error("Shark Attack skill router must point worker refresh at workflows/resume.md")
+	}
 	for _, want := range []string{
-		"Shark claims, history, and `shark next` remain the operational source of truth.",
-		"coordinator follows `resume.md`",
-		"do not create a second resume record",
-		"store prompts, credentials, transcripts, or unrestricted output",
+		"without depending on prior chat history and without storing sensitive transcripts",
+		"It excludes rendered prompt content, credentials, access tokens, and transcripts.",
+		"Never start more than one replacement",
 	} {
-		if !strings.Contains(execute, want) {
+		if !strings.Contains(resume, want) {
 			t.Errorf("F07 refresh procedure omits %q", want)
 		}
 	}

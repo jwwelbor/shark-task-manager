@@ -1,4 +1,4 @@
-.PHONY: help build run test clean install dev lint fmt vet demo test-db test-e2e shark install-shark
+.PHONY: help build run test clean install dev lint fmt vet demo test-db test-e2e shark install-shark sync-shark-attack-skill
 
 # Default target
 help:
@@ -15,6 +15,7 @@ help:
 	@echo "  make lint       - Run linter"
 	@echo "  make fmt        - Format code"
 	@echo "  make vet        - Run go vet"
+	@echo "  make sync-shark-attack-skill - Sync canonical embedded Shark Attack skill tree to authored mirror"
 	@echo "  make clean      - Clean build artifacts"
 
 # Install dependencies
@@ -132,6 +133,11 @@ test-db: build
 test-e2e: shark
 	@echo "Running E2E shell tests..."
 	@bash test/e2e/test_enhanced_status.sh
+
+# Restore authored skills/shark-attack/ from the canonical embedded tree,
+# then run `make test` to confirm byte parity.
+sync-shark-attack-skill:
+	@go run ./cmd/sync-shark-attack-skill
 
 # Clean build artifacts
 clean:
