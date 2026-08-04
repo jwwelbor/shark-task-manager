@@ -26,13 +26,19 @@ epic.md, architecture.md, `E38-interaction-map.md`, `E38-cross-epic-map.md`,
 
 1. **No scope creep or narrowing found.** Every REQ-F-### traces to a named
    epic §2/§3 clause, an I-## row, or an X-## row. `internal/runner/` is
-   explicitly out of scope (D-002) and the file table lists exactly one
-   production Go file (`internal/cli/commands/next.go`) plus three new test
-   files and a skill-content tree — verified against the live tree: no
+   explicitly out of scope (D-002) and the file table lists exactly two
+   production Go files (`internal/cli/commands/next.go` for the provenance
+   wire change, and `internal/sharkdata/embed.go` for the `capability_profile`
+   roster-validator extension and `model_tier` deprecation warning — both
+   declared explicitly, see spec.md Architecture) plus three new test files
+   and a skill-content tree — verified against the live tree: no
    `prompt_sha256`, `PromptSHA256`, or `--prompt-out` symbol exists anywhere
    in `internal/` today, and `skills/shark-rider/verbs/run.md` contains zero
    occurrences of "question" (grep-verified), confirming REQ-F-011 and
-   REQ-F-005/006's gap claims are accurate, not aspirational.
+   REQ-F-005/006's gap claims are accurate, not aspirational. `embed.go`'s
+   inclusion is consistent with this plan's own TC-003-04..07 table row and
+   the Integration Scenarios row below, both of which already target
+   `embed.go:1169`'s `allowedMember` map directly.
 2. **Confirmed, not drift: F08/F05 degraded-upstream handling.** spec.md's
    claim that E38-F08 and E38-F05 report Shark `completed` with no
    implementation reachable from `main` is independently re-verifiable
@@ -107,7 +113,7 @@ No BLOCKER-level drift found. spec.md is buildable as written.
 | AC-015 | Contract surface enumeration (per-provider supported/unsupported operation matrix) | TC-003-08..09 | Provider reference is itself a capability contract surface |
 | AC-016 | Attack-class enumeration (byte drift injected into either tree; embedded-only file) | TC-008-01..03 | "No drift possible" is a defensive property |
 | AC-017 | Contract surface enumeration (fresh-agent reachability for 3 scenario classes) + Attack-class enumeration (near-duplicate rule detection) | TC-003-11, TC-003-12 (content-only, redesigned post-red-team) | Router-file navigability across 3 known destinations; "no rule duplicated" requires a rule inventory, not a single-sentence spot check |
-| AC-018 | Attack-class enumeration (any sanctioned-claim phrase surviving in `pull-by-role.md`) | TC-007-01 (content-only) | Confirms the *absence* of a previously-sanctioned path |
+| AC-018 | Attack-class enumeration (any sanctioned-claim phrase surviving in `pull-by-role.md`, or a live child-claim authorization anywhere in the rendered corpus) | TC-007-01, TC-007-04 (content-only) | Confirms the *absence* of a previously-sanctioned path, corpus-wide |
 | AC-019 | State Transition (single atomic commit, no intermediate red) | TC-CI-01 (build/CI-level, not unit) | Verified via `git log`/CI green-at-HEAD, not a Go test |
 | AC-020 | Equivalence Partitioning (unchanged-diff class) | TC-CI-01 | Diff-scope assertion |
 | AC-021 | Decision Table (resume-supported × resume-unsupported) | TC-010-05..07 | Capability flag drives exactly one of two disjoint code paths |
@@ -224,6 +230,7 @@ replacement/deadline procedures).
 | TC-006-01..04 (council routing threshold, I-04) | content-only — `skills/shark-attack/workflows/council.md` and `route-question.md`, read via `sharkdata.ReadEmbedded` | `sharkdata.ReadEmbedded` | n/a — content-only | A skill that routed every question (routine and material alike) through the council artifact path would create noise that buries real escalations; the routine-fixture sub-case (TC-006-01) asserts zero artifact creation for a scope-bounded question, which a "route everything to council" implementation would fail |
 | TC-CI-01 (skill/contract-test atomicity, runner untouched — CI gate, not a numbered contract TC) | build/CI-level: `git diff --name-only <base>...<head>` scoped to `internal/runner/` (must be empty) plus `go test ./internal/runner/... ./tests/contracts/...` green at the same commit | n/a — this is a repository-state assertion, not a unit test with an injectable seam | Do not run this check against an intermediate commit — REQ-NF-006 requires the single-commit property, so the assertion must run against the final merged state | A PR that split the skill restructure from its replacement contract tests across two commits would show a transient red `e38_f04_interactions_test.go`/`e38_f07_interactions_test.go` at the intermediate commit; CI history (not just HEAD) is the evidence this counter-factual requires |
 | TC-007-01 (`pull-by-role.md` retirement) | content-only — `skills/shark-attack/workflows/pull-by-role.md`, read via `sharkdata.ReadEmbedded`, same pattern as `e38_f07_interactions_test.go`'s `pullByRole` read | `sharkdata.ReadEmbedded` | n/a — content-only | A retirement that kept the phrase "the normal path" without the compatibility-reference framing would still describe a sanctioned claim route; the test asserts the specific reference-only framing, not just file existence |
+| TC-007-04/05 (UAT round-1 corpus-wide claim-authorization sweep) | content-only — every `.md` file under the embedded `skills/shark-attack/` tree, read via `sharkdata.ReadEmbedded`, walked the same way TC-007-02's corpus scan already does | `sharkdata.ReadEmbedded` | n/a — content-only | TC-007-02 only scans files that cite `pull-by-role.md` by name; a live authorization added to a file that never mentions `pull-by-role.md` (as `SKILL.md` and `worker-ownership.md` both did) would pass TC-007-02 while still violating AC-018 — TC-007-04 closes that blind spot by scanning the whole corpus regardless of cross-reference, and TC-007-05 proves the fix didn't just delete the compatibility reference outright |
 | TC-008-01/04 (parity gate, real trees) | `internal/sharkdata/shark_attack_parity_test.go` (new): `compareParity(authored, embedded fs.FS) []Drift` invoked with `os.DirFS("skills/shark-attack")` vs. an `fs.FS` adapter over `sharkdata.ReadEmbedded`'s backing embed.FS, mirroring the walk-and-compare shape research-report Findings #4 already performed manually (`diff -rq`) | the real authored/embedded FS pair — no service mocks apply, this is a filesystem/embed-FS parity check | Do not compare against a cached/snapshotted copy of either tree — both reads must be live at test time so a future edit to either tree is caught | An embedded-only file with no authored counterpart (a file added straight to `internal/sharkdata/default_data/skills/shark-attack/` without ever landing in `skills/shark-attack/`) would pass a naive "authored ⊆ embedded" check; the test walks the embedded tree too and fails on any embedded-only path |
 | TC-008-02/03 (parity gate, comparator unit tests) | `compareParity(authored, embedded fs.FS) []Drift` invoked with two `testing/fstest.MapFS` fixtures — a compiled `go:embed` tree is immutable at test time, so fixture-injected drift/embedded-only cases must go through the pure-function seam, not the real embedded FS | `testing/fstest.MapFS` (standard library) | Do not skip the pure-function seam and try to mutate `sharkdata`'s embed.FS directly — it is compiled-in and cannot be written to | A comparator that only checked "every authored path exists in embedded" (one-directional) would miss an embedded-only file; the MapFS fixture with an embedded-only path is what catches a one-directional implementation |
 | TC-009-01..02 (degraded-upstream behavior) | content-only + structural: `skills/shark-attack/**` prose asserting no `shark plan` read-only-probe instruction exists, and Go-level: `grep`-style source scan (or `go/ast` symbol check) confirming no import of `internal/models/council_artifact` (which does not exist) or the retired `parent_control.go` shape | `sharkdata.ReadEmbedded` for prose; direct `go list -deps` or import-scan for the Go-level absence assertion | n/a | An implementation that "helpfully" called `shark plan <root>` from the skill to double-check state before dispatch would silently mutate via `autoAdvanceCascadeParent` (`plan.go:631`) under F08's actual (unrepaired) trunk behavior; the prose-absence test catches the instruction, and a live-DB CLI assertion (reusing the TC-004 seam) can additionally prove `shark plan` is never invoked in F09's own dispatch path |
@@ -446,6 +453,18 @@ scenario table above; TC-005-01..13 assert the rules exist in
   authorizes running logically dependent (producer/consumer
   contract-ordered) work in parallel — grep both files for an explicit
   ordering-preserved statement and assert its presence; absence is a FAIL.
+- TC-005-17 (regression guard, added during T-008 rework —
+  code-review-2026-08-03T0801-E38-F09.md finding #1/blocker): row 9's
+  "independent in both directions" claim is classification-time only.
+  `operating-model.md` must never again assert that a `Direct`-classified
+  request executes an actual parallel dispatch "exactly like"
+  `Batch`/`Council` — that specific phrasing contradicted `coordinate.md`'s
+  routing (topology never changes which procedure file is selected) and
+  `direct.md`'s own "performs no topology-selection step of its own"
+  statement. Assert the forbidden phrase is absent, that
+  `operating-model.md` explicitly connects row 9 to `direct.md`'s
+  classification-only behavior, and that row 9's resolved-topology cell
+  itself says "classification only".
 
 ---
 
@@ -502,6 +521,8 @@ atomicity are unrelated concerns).
 - TC-007-01: `pull-by-role.md` (post-restructure) frames itself as a compatibility reference (not a sanctioned normal-path claim route) — reuse and extend the existing F07-owned assertions (`"Do not hand this child session to /shark-rider run."`, `"worker-owned child mode"`, `"not /shark-rider run"`) and additionally assert the file's introductory framing explicitly labels itself historical/compatibility-only.
 - TC-007-02: No other file in the rendered `skills/shark-attack/` corpus references `pull-by-role.md` as the normal claim path (grep every workflow file for a still-sanctioning cross-reference).
 - TC-007-03 (**added per codex red-team CONCERN**): an enumerated forbidden-vocabulary list, **derived from — not authored independently of — T-009's phrase-by-phrase adjudication of `internal/sharkdata/shark_attack_pull_test.go`'s 16 pinned phrases** (the subset T-009 marks "sanctioned claim route → retire", not the "authority description → keep" subset) — none of these phrases, nor any close paraphrase, appears anywhere in the post-restructure `pull-by-role.md` outside a clearly marked "historical reference" or "compatibility note" block. This replaces reliance on the two specific phrases the original sub-case checked with a maintained, explicit list that cannot silently diverge from the pinning test's own vocabulary.
+- TC-007-04 (**added per UAT round-1 finding UAT-001, HIGH**): TC-007-02 only scans files that reference `pull-by-role.md` by name, so it missed a live worker-owned-child claim/heartbeat/release authorization that never cites `pull-by-role.md` at all — `SKILL.md`'s router pointed a reader at worker-owned child mode as something to "use ... when," and `context/worker-ownership.md` authorized a worker to "Claim, heartbeat and release" its own child lease. TC-007-04 sweeps the **complete** rendered `skills/shark-attack/` corpus for that phrase set, honoring the same clearly marked historical/compatibility section boundary `pull-by-role.md` already established (reused, not reinvented, so the two markers cannot diverge) — content before the marker, or the whole file when no marker exists, must not contain either forbidden phrase.
+- TC-007-05: positive-control companion to TC-007-04 — the retired direct-claim phrase must still exist inside `worker-ownership.md`'s own historical/compatibility section (reference retained, not silently deleted), matching the retirement-not-deletion discipline TC-007-03 already proves for `pull-by-role.md`.
 
 ---
 

@@ -123,11 +123,22 @@ feature reuses, extends, and refuses to re-implement.
 
 ### Component changes
 
-**Go production code — exactly one file changes.**
+**Go production code — four files change.** `next.go` carries the
+provenance wire change; `embed.go` is a narrowly-scoped production
+change because the `capability_profile` roster field (AC-014, REQ-F-014)
+must validate through the same in-place YAML-shape validator `model_tier`
+already uses (`sharkAttackRosterMember`/`allowedMember` at
+`embed.go:982-1184`) — adding a parallel validator elsewhere would create
+the second bespoke roster-validation path REQ-F-003's "provider-neutral and
+opaque to the parent" boundary forbids. Both files are declared explicitly;
+no other production Go file changes.
 
 | File | Change |
 |---|---|
 | `internal/cli/commands/next.go` | Add `PromptSHA256 string \`json:"prompt_sha256,omitempty"\`` and `PromptBytes int \`json:"prompt_bytes,omitempty"\`` to `NextResponse` (currently next.go:140-183). Populate both immediately after `assembleDispatchPrompt` at next.go:619-623, so the hash covers the final assembled payload including the ownership preamble and agent body. Register a `--prompt-out <path>` flag alongside the existing `--sequential` flag (next.go:257-264) writing `resp.Prompt` bytes with no trailing newline. Update `nextCmd.Long` to include `question` in the documented `entity_type` set (currently omitted despite working). |
+| `internal/sharkdata/embed.go` | Extend `sharkAttackRosterMember` (embed.go:982-988) with `capability_profile` and add it to the `allowedMember` map (embed.go:1169) so a roster using the new field validates. Add an `IssueLevelWarning`-only deprecation notice for `model_tier` (embed.go:1132-1133) — never `IssueLevelError`, since the shipped default roster still uses `model_tier` and `shark_attack_test.go:34`'s `TestTC101` asserts `HasErrors() == false` on it. No provider→model mapping table; `model_tier` support is not removed. |
+| `internal/sharkdata/shark_attack_sync.go` | Provide the filesystem-only `SyncSharkAttackTree` helper used by the repair-path test and the explicit sync command. It copies the canonical embedded source tree to the authored mirror without changing runtime dispatch behavior. |
+| `cmd/sync-shark-attack-skill/main.go` | Expose the explicit `make sync-shark-attack-skill` repair command around `SyncSharkAttackTree`; it is a developer tool, not a dispatch/runtime path. |
 
 **Go test code (new).**
 

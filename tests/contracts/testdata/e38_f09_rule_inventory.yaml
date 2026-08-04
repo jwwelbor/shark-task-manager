@@ -1,0 +1,136 @@
+# E38-F09 rule-inventory fixture — T-E38-F09-025 (TC-003-11, spec.md AC-017's
+# no-duplication half, test-plan.md #tc-003).
+#
+# This is a test-only artifact: it does not live under skills/shark-attack/
+# and is intentionally outside REQ-F-016's parity gate (that gate only
+# compares skills/shark-attack/ against its embedded mirror).
+#
+# Each row names one normative rule REQ-F-015's restructured file table
+# introduces, its single canonical source file (relative to the embedded
+# tree, i.e. the exact relPath sharkdata.ReadEmbedded expects), the rule's
+# verbatim canonical text, and the files that are allowed to reference the
+# rule via a link/pointer — never a restated paraphrase. The corpus-wide
+# scan in e38_f09_interactions_test.go asserts, for every row:
+#   (a) canonical_text appears verbatim in exactly one file — canonical_file
+#       (or, when canonical_file is empty, in no file at all: the rule is
+#       enforced entirely outside skills/shark-attack/**);
+#   (b) no other file in the embedded skills/shark-attack/** corpus restates
+#       it as a near-duplicate paraphrase (>80% token-window Jaccard
+#       overlap);
+#   (c) SKILL.md carries zero rule statements from this inventory.
+#
+# canonical_text is copied verbatim (word-for-word, including Markdown
+# emphasis/backtick markup) from canonical_file as of T-024's restructure.
+# If canonical_file's prose changes, this fixture's canonical_text must be
+# updated to match — the exactly-one-file assertion fails loudly otherwise
+# rather than silently passing on stale text.
+
+rules:
+  - rule_id: sequential-default
+    canonical_file: skills/shark-attack/context/operating-model.md
+    canonical_text: >-
+      `Sequential` is the default topology. A parallel topology (`Parallel
+      with ownership` or `Parallel with isolation`) requires captured,
+      recorded evidence matching that specific topology. Whenever the
+      required evidence cannot be produced, the request **MUST degrade to
+      `Sequential`** — regardless of the requested coordination level.
+    allowed_cross_references:
+      - skills/shark-attack/SKILL.md
+      - skills/shark-attack/workflows/coordinate.md
+      - skills/shark-attack/workflows/batch.md
+      - skills/shark-attack/workflows/council.md
+      - skills/shark-attack/workflows/execute-wave.md
+      - skills/shark-attack/providers/codex.md
+
+  - rule_id: evidence-must-match-topology
+    canonical_file: skills/shark-attack/context/operating-model.md
+    canonical_text: >-
+      Ownership evidence alone does not authorize `Parallel with isolation`,
+      and isolation evidence alone does not authorize `Parallel with
+      ownership`; each parallel topology needs its own matching evidence.
+    allowed_cross_references:
+      - skills/shark-attack/workflows/execute-wave.md
+
+  - rule_id: producer-consumer-order-survives-isolation
+    canonical_file: skills/shark-attack/context/operating-model.md
+    canonical_text: >-
+      **Isolation does not make logically dependent work parallel.**
+      Isolation evidence never authorizes running logically dependent
+      (producer/consumer contract-ordered) work in parallel. Regardless of
+      which topology is selected, producer/consumer contract order still
+      applies.
+    allowed_cross_references:
+      - skills/shark-attack/workflows/batch.md
+      - skills/shark-attack/workflows/execute-wave.md
+
+  - rule_id: capability-discovery-before-selection
+    canonical_file: skills/shark-attack/workflows/resume.md
+    canonical_text: >-
+      Perform capability discovery **before** selecting an execution
+      topology, coordination level, or resume path (REQ-F-012). A missing
+      follow-up, interrupt, or isolation capability is data that drives one
+      of this file's documented fallbacks below — never license to invent an
+      unverified provider command.
+    allowed_cross_references:
+      - skills/shark-attack/SKILL.md
+      - skills/shark-attack/providers/codex.md
+      - skills/shark-attack/providers/claude-code.md
+
+  - rule_id: material-question-threshold
+    canonical_file: skills/shark-attack/workflows/council.md
+    canonical_text: >-
+      A question is material when it trips any
+      `context/operating-model.md` Axis-1 Council criterion — specialists
+      disagree, a cross-feature or cross-epic contract is missing or
+      inconsistent, the change has high blast radius, the change is
+      irreversible, or a worker cannot proceed safely from project evidence
+      — or when it is not scope-bounded and single-role within one of three
+      named impact areas: **scope** (product intent or feature/epic scope),
+      **architecture** (a structural or contract decision), or
+      **quality-gate** (an existing quality gate is blocked).
+    allowed_cross_references:
+      - skills/shark-attack/SKILL.md
+      - skills/shark-attack/workflows/route-question.md
+
+  - rule_id: parent-authority-boundary
+    canonical_file: skills/shark-attack/context/authority.md
+    canonical_text: >-
+      **Parent** — the Rider loop or an equivalent dispatching coordinator.
+      It is the only role that ever claims, heartbeats, releases, or
+      transitions Shark workflow state. It retains that authority for the
+      whole life of a dispatched entity, including every consultation opened
+      while that entity is claimed.
+    allowed_cross_references:
+      - skills/shark-attack/SKILL.md
+      - skills/shark-attack/context/worker-ownership.md
+      - skills/shark-attack/workflows/route-question.md
+      - skills/shark-attack/workflows/council.md
+      - skills/shark-attack/workflows/pull-by-role.md
+
+  - rule_id: parity-gate
+    # REQ-F-016 / D-009's byte-drift-impossible parity gate is enforced
+    # entirely in Go (internal/sharkdata/shark_attack_parity_test.go) and
+    # named in spec.md — it is never restated as skill content prose.
+    # canonical_file is deliberately empty: this row's assertion is that the
+    # text below appears in ZERO files under skills/shark-attack/**, not
+    # that it appears in exactly one.
+    #
+    # Falsifier (what would turn this row red): a future author documenting
+    # the parity gate as skill prose — e.g. adding a sentence to SKILL.md or
+    # a workflows/*.md file that restates this exact tree-pair phrase,
+    # instead of leaving the requirement solely in spec.md and the Go gate.
+    # canonical_text is trimmed to that load-bearing tree-pair phrase (not
+    # REQ-F-016's full sentence) so a literal restatement of it trips the
+    # verbatim check; a passing mention of "parity" in unrelated prose does
+    # not share enough of this phrase's specific tokens to trip the
+    # near-duplicate scan either.
+    canonical_text: >-
+      byte-drift between the authored `skills/shark-attack/` tree and the
+      embedded `internal/sharkdata/default_data/skills/shark-attack/` tree
+    allowed_cross_references: []
+
+# Note on files with no canonical row: context/roster-schema.yaml and
+# context/worker-control-schema.yaml are schema definitions, not rule prose
+# — they are scanned as candidates by every row above (via
+# f09WalkEmbeddedSharkAttackAllFiles) but deliberately own no rule_id of
+# their own. That is intentional, not an inventory gap.

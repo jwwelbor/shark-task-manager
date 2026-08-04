@@ -980,11 +980,20 @@ type sharkAttackEscalation struct {
 }
 
 type sharkAttackRosterMember struct {
-	ID               string   `yaml:"id"`
-	Role             string   `yaml:"role"`
-	Responsibilities []string `yaml:"responsibilities"`
-	Persona          string   `yaml:"persona"`
-	ModelTier        string   `yaml:"model_tier"`
+	ID                string                 `yaml:"id"`
+	Role              string                 `yaml:"role"`
+	Responsibilities  []string               `yaml:"responsibilities"`
+	Persona           string                 `yaml:"persona"`
+	ModelTier         string                 `yaml:"model_tier"`
+	CapabilityProfile string                 `yaml:"capability_profile"`
+	Requirements      map[string]interface{} `yaml:"requirements"`
+}
+
+// sharkAttackValidCapabilityProfiles is the additive, provider-neutral
+// capability_profile enum (REQ-F-014/D-008). It grants no selection, claim,
+// or status authority and maps to no provider.
+var sharkAttackValidCapabilityProfiles = map[string]struct{}{
+	"fast": {}, "balanced": {}, "deep": {},
 }
 
 // validateSharkAttackRoster checks the structural contract of the optional
@@ -1129,8 +1138,22 @@ func validateRosterMember(dataRoot, rosterPath string, index int, member sharkAt
 			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.persona %q does not resolve to an embedded persona", memberPath, persona))
 		}
 	}
-	if member.ModelTier != "" && strings.TrimSpace(member.ModelTier) == "" {
-		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.model_tier must not be blank when present", memberPath))
+	if member.ModelTier != "" {
+		if strings.TrimSpace(member.ModelTier) == "" {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.model_tier must not be blank when present", memberPath))
+		} else {
+			// model_tier is deprecated (REQ-F-014/D-008): warn, never error —
+			// the shipped default roster still uses it — and apply no
+			// provider mapping.
+			report.AddIssue(IssueLevelWarning, rosterPath, fmt.Sprintf("%s.model_tier is deprecated; use capability_profile instead (model_tier produces no provider mapping)", memberPath))
+		}
+	}
+	if profile := strings.TrimSpace(member.CapabilityProfile); member.CapabilityProfile != "" && profile == "" {
+		report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.capability_profile must not be blank when present", memberPath))
+	} else if profile != "" {
+		if _, ok := sharkAttackValidCapabilityProfiles[profile]; !ok {
+			report.AddIssue(IssueLevelError, rosterPath, fmt.Sprintf("%s.capability_profile must be one of fast, balanced, deep (got %q)", memberPath, profile))
+		}
 	}
 }
 
@@ -1166,7 +1189,7 @@ func validateRosterFields(raw map[string]interface{}, rosterPath string, report 
 	if !ok {
 		return
 	}
-	allowedMember := map[string]struct{}{"id": {}, "role": {}, "responsibilities": {}, "persona": {}, "model_tier": {}}
+	allowedMember := map[string]struct{}{"id": {}, "role": {}, "responsibilities": {}, "persona": {}, "model_tier": {}, "capability_profile": {}, "requirements": {}}
 	for index, value := range members {
 		member, ok := value.(map[string]interface{})
 		if !ok {

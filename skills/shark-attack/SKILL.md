@@ -13,76 +13,73 @@ the owning dispatch loop, and the existing claim service remain authoritative.
 It does not create an AI runtime, provider configuration, credential store,
 workflow engine, or second lease store.
 
+## Two axes and coordination routing
+
+Classify coordination level and execution topology independently — see
+`context/operating-model.md` for both axes' definitions, the illustrative
+examples, and the degradation rule that governs a parallel-topology request
+with no matching evidence.
+
+`workflows/coordinate.md` applies the classified coordination level to select
+exactly one destination procedure:
+
+| Coordination level | Scenario | Destination |
+|---|---|---|
+| `Direct` | one bounded entity, clear acceptance, small edit surface | `workflows/direct.md` |
+| `Batch` | several related entities needing one scope/conflict pass | `workflows/batch.md` |
+| `Council` | cross-entity ambiguity, high blast radius, or specialist disagreement | `workflows/council.md` |
+
+The selected procedure then applies the topology already classified above to
+decide whether it dispatches one worker, a Sequential wave, or a parallel wave
+through `workflows/execute-wave.md`.
+
+## Parent loop
+
+The parent — the Rider loop or an equivalent dispatching coordinator — holds
+all Shark workflow authority for a dispatched entity; a worker never mutates
+that state directly. `context/authority.md` is the single source for the
+parent/worker/council authority boundary and its consultation and
+lease-loss rules.
+
+Rider re-entry (`workflows/pull-by-role.md`'s "Sanctioned path: Rider
+re-entry") is the only sanctioned claim path. The worker-owned child mode is
+not `/shark-rider run`; it is retired and documented only as a historical /
+compatibility reference in `context/worker-ownership.md` — never as a live
+claim instruction.
+
+On a live-consultation follow-up or any other worker refresh, the parent
+follows `workflows/resume.md`, which selects the active host's follow-up,
+interrupt, and isolation capability from `providers/codex.md` or
+`providers/claude-code.md` before choosing a resume path.
+
+## Question loop
+
+A dispatched worker that cannot proceed returns a `question` control envelope
+(`context/worker-control-schema.yaml`) instead of guessing. A routine
+question — scope-bounded, single-role, no cross-entity impact — routes
+through the full mint-through-resolve E39 `Q###` loop in
+`workflows/route-question.md`. A question that trips `workflows/council.md`'s
+material threshold instead routes through that file — never through a second
+escalation format or destination.
+
 ## Setup and roster
 
-Use `context/roster-schema.yaml` as the canonical roster template. Its `team`
-value is `shark-attack`; its chair is a roster member who facilitates a
-decision, not a new workflow authority. Stable built-in IDs resolve to existing
-personas: tech-director, product-manager, architect, business-analyst,
-scrum-master, developer, and qa. A project specialist may omit `persona`.
+Use `context/roster-schema.yaml` as the canonical roster template; its chair
+facilitates a decision, not a new workflow authority, and `model_tier` is an
+optional preference that cannot select work, override workflow metadata, or
+affect a claim. Follow `workflows/setup.md` to prepare a project's durable
+`docs/council/` layout and its replace-only override subtree.
 
-`model_tier` is an optional preference only. It cannot select work, override
-workflow metadata, modify status, or affect a claim. Use Shark's workflow and
-claim procedures for operational actions.
+## Links
 
-Keep council memory below `docs/council/`:
-
-- `decisions/` for durable direction and rationale.
-- `handoffs/` for bounded scope, evidence, owner, and next action.
-- `escalations/` for unresolved material questions and their resolution.
-- `inbox/<member-id>/` for short-lived messages.
-
-Private council material may be ignored locally. Do not put credentials,
-access tokens, rendered prompts, or unrestricted worker output in council
-artifacts.
-
-## Communication and ownership
-
-Every inbox message identifies sender role, recipient role, root key, optional
-child key, subject, requested action or question, urgency, evidence links, and
-creation time. After the recipient acts, acknowledge or remove the message and
-preserve the resulting decision, handoff, unresolved question, or resolution in
-the durable directories. Store bounded paths and metadata, never transcripts.
-
-The protocol has two explicit execution modes:
-
-- In `/shark-rider run`, the Rider parent calls `shark next` and then claims
-  the returned concrete entity, retains that session, and dispatches the
-  canonical prompt. A role-aware self-pull first supplies only a selected key
-  to `/shark-rider run`; it never directly claims or executes the sprint
-  selection. A Rider-dispatched worker performs craft, returns bounded evidence
-  and an outcome, and never claims, heartbeats, releases, selects a replacement
-  entity, or changes the dispatched entity's workflow state.
-- The worker-owned child mode is not `/shark-rider run`. It is available only
-  to an existing coordinator that explicitly delegates an authorized child and
-  retains its separate child-lease lifecycle. Do not hand that child session to
-  the Rider loop or treat it as a Rider-dispatched worker.
-
-Role-aware selection always uses the resolved workflow role and existing
-priority/dependency ordering. Roster membership and model tier grant no claim
-or status authority.
-
-## Escalation and resume
-
-Escalate missing evidence, material direction changes, specialist disagreement,
-or unresolved process/quality blockers. If the project has no escalation policy,
-record an unresolved escalation, route it to `council-review`, and recommend
-pause/review. Never invent a fixed human destination.
-
-A refreshed worker reads durable decisions, handoffs, unresolved escalations,
-and its inbox before acting. Preserve unresolved context with bounded pointers
-so the next worker can continue without relying on prior chat.
-
-## Execution
-
-Use `workflows/execute.md` for the chair-led procedure around an ordinary
-`/shark-rider run` loop. It composes the existing role-pull, escalation, and
-resume workflows; it does not grant the chair workflow or lease authority.
-
-## Distribution
-
-This skill ships in the embedded Shark-data bundle. Project customizations use
-the replace-only overrides skill subtree for shark-attack; an
-override replaces the matching shark-attack file and does not shadow unrelated
-embedded skills. Use the existing Shark Rider, sprint, notes, context, and
-claim procedures rather than copying their implementation here.
+- Two axes: `context/operating-model.md`
+- Coordination routing: `workflows/coordinate.md`, `workflows/direct.md`,
+  `workflows/batch.md`, `workflows/council.md`, `workflows/execute-wave.md`
+- Authority and roles: `context/authority.md`, `context/worker-ownership.md`
+- Role-aware selection and Rider re-entry: `workflows/pull-by-role.md`
+- Questions and consultation: `workflows/route-question.md`,
+  `context/worker-control-schema.yaml`
+- Resume and providers: `workflows/resume.md`, `providers/codex.md`,
+  `providers/claude-code.md`
+- Council artifacts: `context/message-schema.md`
+- Setup and roster: `workflows/setup.md`, `context/roster-schema.yaml`

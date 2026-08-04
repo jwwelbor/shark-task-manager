@@ -1,7 +1,7 @@
 ---
 type: cross-epic-integration-map
 epic: E38
-last_updated: 2026-07-13
+last_updated: 2026-08-03
 ---
 # E38 Cross-Epic Integration Map
 
@@ -18,7 +18,8 @@ council-memory continuity.
 | X-03 | E19 — Sprint Management and Planning | E38 — Shark Attack Team Orchestration | Supply priority/dependency order and workflow-role-aware pull/claim behavior for team members | E38 architecture §4.1 and §4.6; sprint pull/claim contract | Scrum Master monitors sequence while specialists self-pull eligible work; no legacy agent assignment is revived | E38-F04 Shark Attack Skill and Role Protocol | assigned | E38 uat-plan.md UAT-01, UAT-02; tests/contracts/e38_f04_interactions_test.go#TC-003 |
 | X-04 | E23 — OpenTelemetry Observability | E38 — Shark Attack Team Orchestration | Carry run, root, child, wave, claim/session, duration, and outcome context into existing structured telemetry | E38 architecture §6; existing E23 observability contract | Operators can follow a paused or failed handoff without exposing prompts or worker secrets | E38-F05 Reporting and Operator Surface | assigned | E38 uat-plan.md UAT-03, UAT-04, UAT-06, UAT-07 |
 | X-05 | E32 — Shark 2.0 Single-Artifact Consolidation | E38 — Shark Attack Team Orchestration | Distribute `shark-attack`, roster, and communication procedures through embedded Shark-data and replace-only overrides | E38 architecture §2 ADR-007 and §5 Phase 4; E32 embedded bundle contract | Setup explains where the skill and optional private council memory live; refreshed workers see the same versioned procedure | E38-F04 Shark Attack Skill and Role Protocol | assigned | E38 uat-plan.md UAT-08, UAT-09 |
+| X-06 | E39 — Question and Decision Workflow Management (E39-F04) | E38 — Shark Attack Team Orchestration (E38-F09, activation owner) | Supply a durable serial Question lifecycle, scoped blocking visibility, and authoritative resolution for provider-neutral live-question handling | E39 architecture §2–§4; E38-F09 feature.md | One scoped responder prompt; compact blocked-work handoff; Question state rather than chat/council copies supports resume | E38-F09 Provider-Neutral Coordination and Live Resume | assigned | E39 uat-plan.md UAT-01–06 and X-06; E38-F09 unblocked 2026-08-01 (E39 shipped complete, PR #145) and adds consumer-activation coverage at `tests/contracts/e38_f09_interactions_test.go#TC-004`, citing `e39_interactions_test.go#TC-004` verbatim as producer-shape proof |
 
-These five X-## rows are the stable product-level integrations for E38. Any
+These six X-## rows are the stable product-level integrations for E38. Any
 new producer or consumer must receive a new X-## ID in the global map before it
 is referenced by decomposition or feature specifications.

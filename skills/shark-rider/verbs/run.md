@@ -98,6 +98,8 @@ Parse the JSON response:
 | `response.entity_type` | Concrete entity type |
 | `response.status` | Current workflow status |
 | `response.prompt` | Self-contained execution prompt |
+| `response.prompt_sha256` | Hex-encoded SHA-256 digest of the exact `response.prompt` bytes (REQ-F-011) |
+| `response.prompt_bytes` | Byte length of `response.prompt`, computed alongside `prompt_sha256` |
 | `response.agent_type` | Shark persona metadata, not a native host subagent name |
 | `response.provider` | Provider metadata, e.g. `anthropic`, `openai`, `codex` |
 | `response.model` | Model to dispatch the worker with (e.g. `sonnet`, `opus`, `haiku`, `fable`) when `response.provider` is `anthropic` |
@@ -106,6 +108,12 @@ Parse the JSON response:
 | `response.error` | Error detail when action is `error` or pause carries a warning |
 
 Report: `Entity {response.entity_key} is at status: {response.status}`.
+
+CLI adapters that need the exact prompt bytes on disk rather than in memory
+add `--prompt-out <path>` to the `shark next` call above; verify the written
+file's SHA-256 against `response.prompt_sha256` before spawning. See
+`context/host-adapter-contract.md` for the full provider-neutral
+request/result field set an adapter exchanges with the parent.
 
 ## Step 2 — Execute the wire action
 
@@ -147,6 +155,34 @@ For long steps, periodically renew the parent lease:
 ```bash
 shark heartbeat {response.entity_key} --session "$SID" --progress <0..1> --note "<step>"
 ```
+
+### Mid-run consultation (`kind: question` / `kind: needs_council`)
+
+Before the worker returns a final result, it may instead pause with a
+control envelope (the shark-attack skill's
+`context/worker-control-schema.yaml`,
+`kind: final|question|needs_council|blocked_external|failed`) — distinct
+from the `RECOMMENDED OUTCOME:` vocabulary below, which only ever applies
+to `kind: final`. Keep heartbeating the dispatched entity's own lease for
+the whole consultation, bounded by its remaining claim lease — never let it
+lapse while a responder is pending.
+
+- **`kind: question`** — route the consultation through the shark-attack
+  skill's `workflows/route-question.md` (mint the `Q###`, configure, gate,
+  route, respond, resolve); do not restate that procedure here. Deliver the
+  answer back to the worker using the resume path
+  `context/host-adapter-contract.md` and the shark-attack skill's
+  `workflows/resume.md` describe: the same worker identity by native
+  follow-up when the host supports resume, otherwise exactly one bounded
+  replacement worker built from an immutable handoff. Once delivered, the
+  worker keeps running under this step — it may pause again with another
+  `kind: question`, or eventually return `kind: final`.
+- **`kind: needs_council`** — route through the shark-attack skill's
+  `workflows/council.md`; do not duplicate its threshold or procedure here.
+- **`kind: blocked_external` or `kind: failed`** — no `RECOMMENDED OUTCOME:`
+  line follows. Treat it exactly like the "No outcome at all" case below:
+  record a blocker note quoting the envelope's `evidence`, then advance
+  with outcome `blocked`.
 
 When the worker returns, parse its final response for the directive markers
 the workflow prompts emit, apply them in this order, then advance:

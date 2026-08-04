@@ -1,6 +1,13 @@
 # Canonical roster template for the embedded shark-attack protocol.
 # It describes collaboration. Shark's workflow and claim services decide
 # routing, leases, and other operational actions.
+#
+# capability_profile (fast|balanced|deep, optional, additive) and its
+# optional requirements block are non-authoritative worker-capability
+# preferences (REQ-F-014/D-008): they select nothing and grant no provider,
+# selection, claim, or status authority. model_tier is retained for backward
+# compatibility, is deprecated (validation now emits a warning, never an
+# error, when it is present), and produces no provider mapping.
 team: shark-attack
 chair: tech-director
 memory_root: docs/council
@@ -51,6 +58,7 @@ members:
       - Return bounded evidence
     persona: developer
     model_tier: high
+    capability_profile: deep
   - id: qa
     role: Quality Analyst
     responsibilities:

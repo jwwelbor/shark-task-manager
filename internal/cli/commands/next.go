@@ -18,6 +18,8 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -148,6 +150,20 @@ type NextResponse struct {
 	Effort     string `json:"effort,omitempty"` // reasoning-effort override (low, medium, high, xhigh)
 	Prompt     string `json:"prompt"`           // fully-rendered, skill-inlined prompt
 
+	// PromptSHA256 is the hex-encoded SHA-256 digest of the exact Prompt bytes
+	// (REQ-F-011). It is computed once, immediately after assembleDispatchPrompt,
+	// over the fully assembled prompt — including the ownership preamble and
+	// agent body (D-004) — so it always matches what --prompt-out writes and
+	// what the harness actually spawns the worker with. Empty and omitted from
+	// the wire when the response carries no prompt (pause/archive/fork).
+	PromptSHA256 string `json:"prompt_sha256,omitempty"`
+
+	// PromptBytes is len(Prompt) in bytes, computed alongside PromptSHA256 from
+	// the same materialized string. runNext's OTel prompt_bytes span attribute
+	// reuses this value rather than recomputing len(Prompt) a second time
+	// (REQ-NF-007: a single SHA-256 pass, computed once per response).
+	PromptBytes int `json:"prompt_bytes,omitempty"`
+
 	// ResolvedVia records the parent entity keys the engine traversed when
 	// `shark next` was called on a parent whose status mapped to action
 	// "cascade". The harness never receives "cascade" on the wire — the
@@ -203,13 +219,15 @@ parents or agentless advance_status placeholders.
 Keyed dispatch JSON shape:
   {
     "entity_key":   "<key>",
-    "entity_type":  "task" | "feature" | "epic" | "bug" | "change" | "tech_debt",
+    "entity_type":  "task" | "feature" | "epic" | "bug" | "change" | "tech_debt" | "question",
     "status":       "<current status>",
     "action":       "spawn_agent" | "pause" | "archive",
     "agent_type":   "<agent type if action=spawn_agent>",
     "provider":     "<provider>",
     "model":        "<model override>",
     "prompt":       "<fully-rendered, skill-inlined prompt>",
+    "prompt_sha256": "<hex sha256 of the exact prompt bytes>",
+    "prompt_bytes":  <byte length of the exact prompt>,
     "unresolved_placeholders": ["<token>", ...]  // omitted when empty
   }
 
@@ -259,6 +277,11 @@ func init() {
 		"sequential",
 		false,
 		"Collapse a keyed-next fork to its first eligible candidate",
+	)
+	nextCmd.Flags().String(
+		"prompt-out",
+		"",
+		"Write the exact UTF-8 prompt bytes to <path> (no trailing newline); fails loudly if the target is unwritable",
 	)
 	cli.RootCmd.AddCommand(nextCmd)
 }
@@ -342,6 +365,23 @@ func runNext(cmd *cobra.Command, args []string) error {
 	// Record per-dispatch span attributes so traces capture the full
 	// dispatch decision for this entity step.
 	resp = annotateUnresolvedPlaceholders(resp)
+
+	// --prompt-out: write the exact prompt bytes the wire response carries, no
+	// trailing newline. Written before the JSON response is emitted so an
+	// unwritable target fails loudly (non-zero exit, no success output)
+	// instead of silently skipping the write (REQ-F-011/AC-013).
+	promptOutPath, err := cmd.Flags().GetString("prompt-out")
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("read --prompt-out flag: %w", err)
+	}
+	if promptOutPath != "" {
+		if writeErr := os.WriteFile(promptOutPath, []byte(resp.Prompt), 0o644); writeErr != nil {
+			span.SetStatus(codes.Error, writeErr.Error())
+			return fmt.Errorf("failed to write --prompt-out file %q: %w", promptOutPath, writeErr)
+		}
+	}
+
 	span.SetAttributes(
 		attribute.String("entity_key", resp.EntityKey),
 		attribute.String("entity_type", resp.EntityType),
@@ -349,7 +389,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 		attribute.String("action", resp.Action),
 		attribute.String("agent_type", resp.AgentType),
 		attribute.String("model", resp.Model),
-		attribute.Int("prompt_bytes", len(resp.Prompt)),
+		attribute.Int("prompt_bytes", resp.PromptBytes),
 		attribute.Int("unresolved_placeholders", len(resp.UnresolvedPlaceholders)),
 		attribute.String("exit_status", "ok"),
 	)
@@ -621,6 +661,16 @@ func resolveEntity(
 		return NextResponse{}, err
 	}
 	resp.Prompt = attached
+
+	// Hash the fully assembled prompt — post-assembly, including the
+	// ownership preamble and agent body (D-004) — so PromptSHA256/PromptBytes
+	// always describe exactly what the harness receives and what --prompt-out
+	// writes. Computed once here; runNext's OTel span attribute and the
+	// --prompt-out write both reuse resp.Prompt/resp.PromptBytes rather than
+	// re-hashing or re-measuring (REQ-NF-007).
+	sum := sha256.Sum256([]byte(attached))
+	resp.PromptSHA256 = hex.EncodeToString(sum[:])
+	resp.PromptBytes = len(attached)
 
 	return resp, nil
 }
