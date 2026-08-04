@@ -68,3 +68,5 @@ feature_reviews/
 docs/review/
 
 test-results/
+
+cache/
