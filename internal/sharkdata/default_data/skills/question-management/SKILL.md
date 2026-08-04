@@ -59,7 +59,7 @@ the rationale in the working document instead of creating a Question.
    marker.
 
 4. When Shark Attack governs the execution, route through its canonical
-   material threshold at `skills/shark-attack/workflows/council.md`. Its
+   material threshold at `shark-attack/workflows/council.md`. Its
    classification and category/default-path table decide council versus routine
    routing; do not restate or replace that policy here. A Question classified
    routine remains in the standard E39 lifecycle and creates no council
