@@ -517,14 +517,6 @@ func resolveEntity(
 		EntityType: entityType,
 		Status:     currentStatus,
 	}
-	if entityType == string(models.EntityTypeQuestion) {
-		responder, err := nextQuestionCurrentResponder(ctx, normalizedKey)
-		if err != nil {
-			return NextResponse{}, err
-		}
-		resp.CurrentResponder = responder
-	}
-
 	// Terminal status: nothing to dispatch.
 	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
 		if isArchivedStatus(entityType, currentStatus) {
@@ -650,6 +642,9 @@ func resolveEntity(
 		return wireResp, nil
 	}
 	resp = wireResp
+	if entityType == string(models.EntityTypeQuestion) {
+		resp.CurrentResponder = vars["current_responder"]
+	}
 	// Question's F01 workflow is an explicit read-only pause/archive fixture.
 	// It is not a worker dispatch, so its exact response envelope intentionally
 	// omits both an instruction and the parent-loop ownership preamble.
@@ -685,21 +680,6 @@ func resolveEntity(
 	resp.PromptBytes = len(attached)
 
 	return resp, nil
-}
-
-func nextQuestionCurrentResponder(ctx context.Context, key string) (string, error) {
-	question, err := getQuestionService().GetQuestion(ctx, key)
-	if err != nil {
-		return "", fmt.Errorf("load Question %s for next response: %w", key, err)
-	}
-	state, err := models.DecodeQuestionState(question.ContextData)
-	if err != nil {
-		return "", fmt.Errorf("decode Question %s for next response: %w", key, err)
-	}
-	if state == nil {
-		return "", nil
-	}
-	return state.CurrentResponder(), nil
 }
 
 func actionRequiresInstruction(internalAction string) bool {
