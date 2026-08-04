@@ -3933,26 +3933,38 @@ func TestTC003_03bShardStatusSetAbsentFromRiderExecutablePaths(t *testing.T) {
 }
 
 // f09ShardPlanReadOnlyProbeMarker is the literal substring TC-009-01
-// forbids: an instruction to call `shark plan` from within the
-// skills/shark-attack/ corpus. Per spec.md's "Degraded upstream
-// dependencies" table, `plan.go:631` still calls `autoAdvanceCascadeParent`
-// on current trunk (pinned by `plan_dispatch_test.go:254`), so any such
-// instruction would silently mutate state under F08's unrepaired gap.
+// forbids outside the F12 parallel-team topology adapter. Per spec.md's
+// "Degraded upstream dependencies" table, `plan.go:631` still calls
+// `autoAdvanceCascadeParent` on current trunk (pinned by
+// `plan_dispatch_test.go:254`), so an inspection-oriented plan instruction
+// would silently mutate state under F08's unrepaired gap. E38-F12 is the one
+// explicit integration exception: its coordinator needs keyed plan selection
+// and guards completion through a terminal-list check.
 const f09ShardPlanReadOnlyProbeMarker = "shark plan"
 
+const f12ParallelTeamWorkflowPath = "skills/shark-attack/workflows/parallel-team.md"
+
 // TestTC009_01NoShardAttackFileInstructsReadOnlyShardPlanProbe is TC-009-01
-// (test-plan.md #tc-009, REQ-F-018, I-08): no file under the embedded
-// skills/shark-attack/** tree instructs a chair/parent to call `shark plan
-// <key>` as a read-only inspection step — F09's own selection is chair-side
-// and uses keyed `shark next` instead (spec.md's degraded-upstream table).
+// (test-plan.md #tc-009, REQ-F-018, I-08): no F09 workflow file instructs a
+// chair/parent to call `shark plan <key>` as a read-only inspection step —
+// F09's own selection is chair-side and uses keyed `shark next` instead
+// (spec.md's degraded-upstream table). E38-F12's parallel-team.md is an
+// explicit, narrow topology-selection exception; it must retain its plan
+// contract and no other Shark Attack file may gain the marker.
 func TestTC009_01NoShardAttackFileInstructsReadOnlyShardPlanProbe(t *testing.T) {
 	corpus := f09EmbeddedSharkAttackCorpus(t)
 	if len(corpus) == 0 {
 		t.Fatal("TC-009-01 fixture assumption broken: embedded skills/shark-attack/ corpus resolved zero files")
 	}
 	for rel, content := range corpus {
+		if rel == f12ParallelTeamWorkflowPath {
+			if !strings.Contains(content, f09ShardPlanReadOnlyProbeMarker) {
+				t.Errorf("TC-009-01: F12 topology exception %s lost required %q selection contract", rel, f09ShardPlanReadOnlyProbeMarker)
+			}
+			continue
+		}
 		if strings.Contains(content, f09ShardPlanReadOnlyProbeMarker) {
-			t.Errorf("TC-009-01: %s contains %q — F08's `shark plan` still mutates on trunk (plan.go:631 autoAdvanceCascadeParent); no skill file may instruct a read-only inspection call", rel, f09ShardPlanReadOnlyProbeMarker)
+			t.Errorf("TC-009-01: %s contains %q — only %s may use plan selection; no F09 skill file may instruct a read-only inspection call", rel, f09ShardPlanReadOnlyProbeMarker, f12ParallelTeamWorkflowPath)
 		}
 	}
 }

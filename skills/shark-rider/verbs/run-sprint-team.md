@@ -1,21 +1,27 @@
-# /shark-rider run-sprint-team — Team sprint execution
+# /shark-rider run-sprint-team — Team sprint topology alias
 
-Team pull-loop: groups sprint entities by feature, dispatches each feature group
-via `/shark-rider run-agent-team` (one team at a time), falls back to `/shark-rider run` for standalones.
+Run the active sprint through the canonical team topology.
 
-Usage: `/shark-rider run-sprint-team S### [--size=N] [--features=E##-F##,...] [--carryover=VALUE]`
-
-- `--size=N` — override teammate count per feature team
-- `--features=E##-F##,...` — restrict dispatch to specific feature groups
-- `--carryover=VALUE` — pass to `shark sprint close` if the user confirms close
+Usage: `/shark-rider run-sprint-team S###`
 
 ## Procedure
 
-1. Read `skills/sprint-execution/SKILL.md` (under this shark skill's directory),
-   follow the **team (`/shark-rider run-sprint-team`)** workflow described there, passing any
-   remaining arguments through.
+1. Validate the `S###` key, then follow
+   `skills/sprint-execution/workflows/run-sprint-team.md`. That workflow reads
+   the live sprint and allows delegation only from its configured
+   execution-phase status; validation never starts or closes a sprint.
 
-## Notes
+2. After that read-only preflight succeeds, delegate to:
 
-- Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`.
-- For solo sequential execution, use `/shark-rider run-sprint`.
+   ```
+   /shark-rider run-agent-team --sprint S###
+   ```
+
+3. Report the resulting terminal or paused state. Ask the owner whether to
+   close the sprint only after the run; never start or close it automatically.
+
+## Result
+
+The team path uses the active backlog and the topology adapter. It does not
+group entities by feature, create nested teams, or replace the solo
+`/shark-rider run-sprint` workflow.

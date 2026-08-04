@@ -1,14 +1,17 @@
 ---
 name: sprint-execution
 display_name: Sprint Execution
-description: Solo and team sprint pull-loop skills that drive an active sprint to completion by pulling entities from shark sprint next and delegating per-entity dispatch to the existing /shark-rider run (or /shark-rider run-agent-team) orchestration skill.
+description: Solo and team sprint execution skills. The solo pull-loop uses /shark-rider run; the team alias delegates active-backlog selection and dispatch to the canonical /shark-rider run-agent-team topology adapter.
 ---
 
 # Sprint Execution
 
 ## What This Is
 
-A **sprint-shaped harness around the existing orchestration skill**. It knows how to loop over a sprint's work queue by calling `shark sprint next --json`, then hands each returned entity to `/shark-rider run` (or `/shark-rider run-agent-team` for team mode) for per-entity execution. It does not re-implement dispatch logic — that lives in the orchestration skill and shark's `orchestrator_action` field.
+A **sprint-shaped harness around the existing orchestration skill**. Solo mode
+calls `shark sprint next --json` and hands each returned entity to
+`/shark-rider run`. Team mode delegates active-backlog selection and keyed
+dispatch to the canonical topology adapter. Neither mode builds worker prompts.
 
 ```
 shark sprint next --json → entity key → /shark-rider run {entity_key} → loop until empty
@@ -17,7 +20,12 @@ shark sprint next --json → entity key → /shark-rider run {entity_key} → lo
 This skill covers **two execution modes**:
 
 - **`/shark-rider run-sprint S###`** (solo) — sequential pull-loop for a single Claude session. Pulls one entity at a time, drives it to terminal status via `/shark-rider run`, then pulls the next. Suitable for any sprint regardless of entity mix.
-- **`/shark-rider run-sprint-team S###`** (team) — groups sprint entities by feature and bootstraps a Claude Code agent team per feature group via `/shark-rider run-agent-team`. Features are dispatched serially (one team at a time, per the agent-teams primitive constraint). Standalone entities (bugs, change-cards, tech-debt without a feature parent) fall back to sequential `/shark-rider run` dispatch.
+- **`/shark-rider run-sprint-team S###`** (team) — a thin alias for
+  `/shark-rider run-agent-team --sprint S###`. The canonical topology adapter
+  uses the active backlog as the selection universe only after a read-only
+  `shark sprint get S### --json` preflight confirms the sprint's configured
+  execution-phase status. It sends each selected key to an ordinary keyed
+  Rider parent. It does not group work by feature or create nested teams.
 
 Both modes gate the sprint close operation on explicit user confirmation.
 
@@ -29,9 +37,7 @@ Both modes gate the sprint close operation on explicit user confirmation.
 /shark-rider run-sprint S### --max-iterations=N           # Cap loop at N (default 50)
 /shark-rider run-sprint S### --carryover=backlog          # Carryover strategy if user confirms close
 
-/shark-rider run-sprint-team S###                         # Team execution, one feature at a time
-/shark-rider run-sprint-team S### --size=N                # Override teammate count per feature team
-/shark-rider run-sprint-team S### --features=E##-F##,...  # Restrict to specific features
+/shark-rider run-sprint-team S###                         # Team topology alias
 ```
 
 See: `workflows/run-sprint.md` for the solo pull-loop workflow.
@@ -39,7 +45,13 @@ See: `workflows/run-sprint-team.md` for the team execution workflow.
 
 ## Key Design Decisions
 
-- **Delegation to `/shark-rider run`**: Sprint execution delegates per-entity dispatch to the existing orchestration skill rather than re-implementing it. This ensures `orchestrator_action.instruction` is always honored and workflow source-of-truth stays in shark.
+- **Delegation to `/shark-rider run`**: Solo sprint execution delegates
+  per-entity dispatch to the existing orchestration skill rather than
+  re-implementing it. This ensures keyed `response.prompt` remains the worker
+  payload and workflow source-of-truth stays in Shark.
+- **Team topology alias**: Team sprint execution delegates to
+  `/shark-rider run-agent-team --sprint S###`; `parallel-team.md` owns
+  active-backlog selection, topology, and integration.
 - **`--max-iterations` cap**: Prevents runaway loops when `shark sprint next` returns the same entity repeatedly (e.g., an entity that bounced back to a non-terminal state). Default cap is 50.
 - **Explicit close gate**: Closing a sprint with carryover is a planning decision. Both skills require explicit user confirmation before calling `shark sprint close`.
 - **JSON-only shark consumption**: All shark calls use `--json` or `--field`. Human-readable output is not a stable contract.

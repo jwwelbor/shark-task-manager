@@ -14,7 +14,7 @@ This section covers how an agent plans and executes a sprint end-to-end using th
 |---|---|
 | `/plan-sprint S###` | Fill the sprint backlog before starting — proposes assignments, confirms with user, never starts the sprint |
 | `/run-sprint S###` | Drive an active sprint solo — pulls one entity at a time via `shark sprint next`, dispatches each via `/run` |
-| `/run-sprint-team S###` | Drive an active sprint with a parallel agent team — groups tasks by feature, dispatches each feature group via `/run-agent-team`, standalones via `/run` |
+| `/run-sprint-team S###` | Drive an active sprint through the canonical team topology — the active backlog is its sole selection universe. |
 | `/retro-sprint S###` | Post-close retrospective — reads `shark sprint summary --detailed` and velocity data, produces a five-section markdown report |
 
 ### Full Lifecycle Walkthrough
@@ -83,27 +83,33 @@ Useful flags:
 /run-sprint S005 --carryover=next      # pre-set carryover mode for the close prompt
 ```
 
-#### 4b. Execute — team (parallel agents per feature)
+#### 4b. Execute — team topology
 
 ```bash
 /run-sprint-team S005
 ```
 
-The team dispatch loop:
-1. Reads `shark sprint backlog S005 --json`
-2. Groups tasks by feature key (`E##-F##`); bugs/CCs/TDs go to a standalone list
-3. For each feature group: dispatches `/run-agent-team {FEATURE_KEY}` and **waits** before moving on — only one agent team active at a time
-4. Dispatches standalones sequentially via `/run`
-5. Prints a burndown between each feature group
-6. **Asks before closing**
+`/run-sprint-team` is a thin alias for:
 
 ```bash
-/run-sprint-team S005 --size=4                        # team of 4 per feature
-/run-sprint-team S005 --features=E07-F01,E07-F02      # only those two features
-/run-sprint-team S005 --carryover=backlog             # pre-set carryover for close
+/run-agent-team --sprint S005
 ```
 
-> **Prerequisites for `/run-sprint-team`**: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set in `~/.claude/settings.json`, Claude Code ≥ 2.1.32, and a clean git branch. The skill checks all preconditions before dispatching anything.
+The canonical topology adapter uses the active backlog as its sole selection
+universe, applies its recorded evidence-based topology, and assigns each
+selected delivery key to an ordinary keyed `/run` parent. It does not group
+work by feature, make nested teams, construct worker prompts, or use repeated
+`shark sprint next` calls to form a wave. It reports terminal or paused work
+and **asks the owner before closing**; it never starts or closes a sprint
+automatically.
+
+> **Prerequisites for `/run-sprint-team`**: the selected topology requires the
+> corresponding host team, follow-up, interrupt, and isolation capabilities,
+> plus a suitable branch and worktree. It first reads `shark sprint get S###
+> --json` and runs only when the sprint has its configured execution-phase
+> status (`active` in the bundled workflow); it never starts a planning sprint
+> or revives a closed one. Missing capability or evidence degrades execution to
+> the canonical sequential topology.
 
 #### 5. Close the sprint
 
@@ -140,10 +146,10 @@ After the report, the skill optionally offers to archive the sprint. You must co
 | Situation | Use |
 |---|---|
 | Solo developer, sequential work | `/run-sprint` |
-| Multiple features with parallel task work | `/run-sprint-team` |
-| Only bugs/CCs/TDs in the sprint (no features) | `/run-sprint` — team skill routes standalones the same way |
+| Active backlog with recorded parallel-topology evidence | `/run-sprint-team` |
+| Active backlog without matching team/isolation evidence | `/run-sprint-team` — canonical topology degrades to sequential |
 | You want a capacity cap or agent-type filter | `/run-sprint --agent=backend` |
-| Agent-teams env var not set | `/run-sprint` (team skill requires it) |
+| You prefer a simple single-session pull-loop | `/run-sprint` |
 
 ### Safety Guarantees
 

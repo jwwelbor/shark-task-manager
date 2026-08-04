@@ -216,3 +216,74 @@ func TestTC008_05SyncHelperRepairsFixtureDrift(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, after, "sync helper must leave the real parity comparator clean")
 }
+
+// TestTC012ParallelTeamParityDetectsBothDirectionsAndRepairs verifies the
+// E38-F12 distribution contract for the new parallel-team workflow. The two
+// MapFS fixtures exercise both possible tree directions; the temporary on-disk
+// repair then drives the same synchronizer used by make sync-shark-attack-skill.
+func TestTC012ParallelTeamParityDetectsBothDirectionsAndRepairs(t *testing.T) {
+	t.Run("authored byte drift fails", func(t *testing.T) {
+		authored := fstest.MapFS{
+			"workflows/parallel-team.md": &fstest.MapFile{Data: []byte("authored drift")},
+		}
+		embedded := fstest.MapFS{
+			"workflows/parallel-team.md": &fstest.MapFile{Data: []byte("embedded canonical")},
+		}
+
+		drifts, err := compareParity(authored, embedded)
+		require.NoError(t, err)
+		require.Len(t, drifts, 1)
+		assert.Equal(t, "workflows/parallel-team.md", drifts[0].Path)
+		assert.Contains(t, drifts[0].Reason, "byte drift")
+	})
+
+	t.Run("embedded-only drift fails", func(t *testing.T) {
+		authored := fstest.MapFS{
+			"workflows/parallel-team.md": &fstest.MapFile{Data: []byte("canonical")},
+		}
+		embedded := fstest.MapFS{
+			"workflows/parallel-team.md": &fstest.MapFile{Data: []byte("canonical")},
+			"workflows/orphan.md":        &fstest.MapFile{Data: []byte("embedded-only")},
+		}
+
+		drifts, err := compareParity(authored, embedded)
+		require.NoError(t, err)
+		require.Len(t, drifts, 1)
+		assert.Equal(t, "workflows/orphan.md", drifts[0].Path)
+		assert.Contains(t, drifts[0].Reason, "embedded-only")
+	})
+
+	t.Run("authored-only drift fails", func(t *testing.T) {
+		authored := fstest.MapFS{
+			"workflows/parallel-team.md": &fstest.MapFile{Data: []byte("canonical")},
+			"workflows/orphan.md":        &fstest.MapFile{Data: []byte("authored-only")},
+		}
+		embedded := fstest.MapFS{
+			"workflows/parallel-team.md": &fstest.MapFile{Data: []byte("canonical")},
+		}
+
+		drifts, err := compareParity(authored, embedded)
+		require.NoError(t, err)
+		require.Len(t, drifts, 1)
+		assert.Equal(t, "workflows/orphan.md", drifts[0].Path)
+		assert.Contains(t, drifts[0].Reason, "authored-only")
+	})
+
+	t.Run("synchronizer repairs authored mirror", func(t *testing.T) {
+		embeddedRoot := t.TempDir()
+		authoredRoot := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(embeddedRoot, "workflows"), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(authoredRoot, "workflows"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(embeddedRoot, "workflows", "parallel-team.md"), []byte("canonical"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(authoredRoot, "workflows", "parallel-team.md"), []byte("drifted"), 0o644))
+
+		before, err := compareParity(os.DirFS(authoredRoot), os.DirFS(embeddedRoot))
+		require.NoError(t, err)
+		require.NotEmpty(t, before)
+		require.NoError(t, SyncSharkAttackTree(embeddedRoot, authoredRoot))
+
+		after, err := compareParity(os.DirFS(authoredRoot), os.DirFS(embeddedRoot))
+		require.NoError(t, err)
+		assert.Empty(t, after)
+	})
+}

@@ -16,7 +16,7 @@ Print the verb groups plus the compact command reference below.
 ```
 Getting started:  /shark-rider project bootstrap | product-design | vision "idea"
 Day-to-day:       /shark-rider run <key> | triage "desc" | demo <epic-key|feature-key> [--draft] | walkthrough <entity-key|docs-path> [scope] | viewer | status | list <key> | get <key>
-Sprint:           /shark-rider plan-sprint <key> | run-sprint <key> | run-sprint-team <key> | retro-sprint <key>
+Sprint:           /shark-rider plan-sprint <key> | run-sprint <key> | run-agent-team <epic-key|feature-key> | run-sprint-team <sprint-key> | retro-sprint <key>
 Maintenance:      /shark-rider update-docs | amend <key> "change" | revalidate <key> | help [commands|<verb>]
 
 Read:             shark status [key] | shark list [epic] [feature] | shark get <key> | shark view <key> | shark search "query"
@@ -55,7 +55,8 @@ fall through to state-aware help.
 | `get` | Read one entity by key: `/shark-rider get <key>`. |
 | `plan-sprint` | Scope a sprint from backlog and readiness data, then ask before adding work. |
 | `run-sprint` | Sequential sprint pull-loop using `/shark-rider run` per entity. |
-| `run-sprint-team` | Sprint execution grouped by feature, with standalone entities run sequentially. |
+| `run-agent-team` | Run a selected root through the canonical topology adapter. The adapter selects keys and assigns each to an ordinary keyed Rider parent. |
+| `run-sprint-team` | Run an active sprint through the canonical topology adapter. It uses the active backlog and retains an explicit owner-only close gate. |
 | `retro-sprint` | Post-close sprint retrospective from Shark sprint analytics. |
 | `update-docs` | Diff-driven refresh of `docs/architecture/*`. |
 | `amend` | Apply a spec change to an entity and rewind it to the appropriate phase. |
