@@ -112,6 +112,24 @@ Writing a council artifact does not claim work, release a root lease, or
 advance a root workflow state. Use the existing Shark Rider, sprint, notes,
 context, and claim procedures for those operations.
 
+## Sprint ceremonies
+
+Sprint planning and retro are council ceremonies, not coordinator scheduling
+or lifecycle actions. During planning, the product-manager chairs; the
+scrum-master supplies capacity, velocity, readiness, and planning evidence;
+the business-analyst confirms acceptance-criteria readiness. Record the
+proposed scope and evidence snapshot as one bounded decision under
+`docs/council/decisions/`, then stage reversible sprint membership while the
+sprint is still planning. The council proposes only: the owner alone starts
+the sprint.
+
+After an owner closes a sprint, the scrum-master chairs retro using the
+existing retro report. Record only a bounded ledger entry: report pointer,
+adopted process decisions, and follow-up owners. Do not copy the report,
+rendered prompts, credentials, tokens, or unrestricted transcripts into
+`docs/council/`. The owner alone closes a sprint; no ceremony automatically
+starts or closes one.
+
 ## Result
 
 A routine question stays in the E39 `Q###` loop and creates no

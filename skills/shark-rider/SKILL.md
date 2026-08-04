@@ -137,7 +137,8 @@ the lease and every transition; the child never claims/advances/releases. See
 | Verb | Recipe |
 |------|--------|
 | `/shark-rider run-sprint S###` | Read `skills/sprint-execution/SKILL.md`; `shark sprint next` → `/shark-rider run` per entity; gate close on user confirmation → `verbs/run-sprint.md` |
-| `/shark-rider run-sprint-team S###` | Same sub-skill; group by feature → `/shark-rider run-agent-team` per group, standalones via `/shark-rider run` → `verbs/run-sprint-team.md` |
+| `/shark-rider run-agent-team <epic\|feature>` | Confirm host topology prerequisites, then delegate to the canonical Shark Attack topology adapter → `verbs/run-agent-team.md` |
+| `/shark-rider run-sprint-team S###` | Thin alias for `/shark-rider run-agent-team --sprint S###`; the owner retains the sprint close gate → `verbs/run-sprint-team.md` |
 
 ### Mode 3 — Local AI recipes (verb / sub-skill + CLI around it)
 
@@ -215,7 +216,7 @@ command. It may auto-advance cascade-complete parents or agentless
 
 Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, `plan`, `triage`, `demo`, `walkthrough`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
-`viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-sprint-team`,
+`viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-agent-team`, `run-sprint-team`,
 `retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,
 `revalidate`, `help`. Everything else (including `status` / `list` / `get`)
 falls through to `query`. `/shark-rider run` and `/run` both route to `verbs/run.md`.
@@ -247,7 +248,7 @@ Host-local AI-orchestration procedures that Mode-3 verbs read directly.
 | `deep-review` | `/deep-review` or `/shark-rider deep-review` | Multi-angle parallel code review. Six specialist subagents (bugs, removed behavior, contracts, reuse, tests, standards) then a consolidator produce a PASS/FAIL report with Blocker/Non-blocker/Nit triage. Flags: `--fix`, `--comment`. Aliases: `/comprehensive-review`, `/pr-review`. Read `shark-rider/skills/deep-review/SKILL.md`. |
 | `triage` | `/triage` or `/shark-rider triage` | Quick-capture and classify a discovered work item under the right parent. Dedups first, confirms before creating. Read `skills/triage/SKILL.md`. |
 | `sprint-planning` | `/shark-rider plan-sprint` | Mode-aware sprint scoping: reads sprint plan + readiness, proposes assignments, confirms. Never calls `shark sprint start`. Read `skills/sprint-planning/SKILL.md`. |
-| `sprint-execution` | `/shark-rider run-sprint`, `/shark-rider run-sprint-team` | Sprint pull-loop harnesses (solo and team). Delegate per-entity dispatch to `/shark-rider run` or `/shark-rider run-agent-team`; gate close on confirmation. Read `skills/sprint-execution/SKILL.md`. |
+| `sprint-execution` | `/shark-rider run-sprint`, `/shark-rider run-sprint-team` | Sprint pull-loop harnesses. The solo loop delegates per-entity dispatch to `/shark-rider run`; the team alias delegates to `/shark-rider run-agent-team --sprint`. The owner gates sprint closure. Read `skills/sprint-execution/SKILL.md`. |
 | `sprint-analytics` | `/shark-rider retro-sprint` | Post-close retrospective from `shark sprint summary --detailed` + velocity → five-section report. Read `skills/sprint-analytics/SKILL.md`. |
 
 ## Detailed references
