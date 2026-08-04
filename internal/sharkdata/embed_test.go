@@ -1,6 +1,7 @@
 package sharkdata
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -568,6 +569,27 @@ func TestValidate_LegacyStatusLiteralRejectedInActiveInstructions(t *testing.T) 
 	assertReportHasErrorContaining(t, report, "in_progress")
 }
 
+func TestValidate_CanonicalQuestionStatusLiteralAllowedInInstructions(t *testing.T) {
+	root := t.TempDir()
+	_, err := Init(root)
+	require.NoError(t, err)
+
+	workflowPath := filepath.Join(root, SharkDataDirName, "workflow", "question.yaml")
+	workflow, err := os.ReadFile(workflowPath)
+	require.NoError(t, err)
+	workflow = bytes.ReplaceAll(workflow, []byte("ready_for_resolution"), []byte("ready_for_question_owner"))
+	require.NoError(t, os.WriteFile(workflowPath, workflow, 0644))
+
+	skillPath := filepath.Join(root, SharkDataDirName, "skills", "quality", "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte("Review Questions in ready_for_question_owner."), 0644))
+
+	report, err := Validate(root)
+	require.NoError(t, err)
+	for _, issue := range report.Issues {
+		assert.NotContains(t, issue.Message, "ready_for_question_owner")
+	}
+}
+
 // TestValidate_MissingWorkflowYAML_SingleFile verifies that when one of the
 // expected per-entity workflow YAML files is absent from shark-data/workflow/,
 // shark validate surfaces an error-level issue (not silently falls back to
@@ -770,6 +792,11 @@ func TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007(t *testing.T) {
 			}
 		})
 	}
+	for _, forbidden := range []string{
+		"shark question resolve", "shark question withdraw", "shark question supersede",
+	} {
+		assert.NotContains(t, files["skill"], forbidden)
+	}
 }
 
 func TestSolutionWalkthroughBundle(t *testing.T) {
@@ -786,6 +813,18 @@ func TestSolutionWalkthroughBundle(t *testing.T) {
 		"skill": {
 			"name: solution-walkthrough",
 			"authoritative project document",
+			"outstanding Question entities",
+			"ready_for_resolution",
+			"increasing `--offset` until a page is short",
+			"reviewed-but-out-of-scope Questions",
+			"shark next <question-key>",
+			"current_responder",
+			"shark question respond <question-key>",
+			"shark claim <question-key>",
+			"--by=<current-responder> --json",
+			"returned `session_id`",
+			"Release the claim afterward",
+			"never impersonate that responder",
 			"docs/product/progress.md",
 			"docs/architecture/adr/ADR-<next-number>-<slug>.md",
 			"entity-local `decisions.md`",

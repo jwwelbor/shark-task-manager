@@ -668,6 +668,7 @@ func isLegacyPromptInFilename(rel, base string) bool {
 }
 
 func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport) {
+	canonicalQuestionSteps := canonicalQuestionStepLiterals(dataRoot)
 	for _, subdir := range []string{"agents", "prompts", "skills"} {
 		root := filepath.Join(dataRoot, subdir)
 		if _, err := os.Stat(root); err != nil {
@@ -690,7 +691,7 @@ func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport
 				return nil
 			}
 			rel := relTo(dataRoot, path)
-			for _, literal := range legacyInstructionLiterals(rel, string(data)) {
+			for _, literal := range legacyInstructionLiterals(rel, string(data), canonicalQuestionSteps) {
 				report.AddIssue(
 					IssueLevelError,
 					rel,
@@ -702,7 +703,28 @@ func validateLegacyInstructionLiterals(dataRoot string, report *ValidationReport
 	}
 }
 
-func legacyInstructionLiterals(rel, content string) []string {
+// canonicalQuestionStepLiterals returns the current Question workflow step
+// names. Question's ready_for_resolution state is canonical, despite matching
+// the legacy-status pattern that remains invalid for task and feature flows.
+func canonicalQuestionStepLiterals(dataRoot string) map[string]bool {
+	data, err := os.ReadFile(filepath.Join(dataRoot, "workflow", "question.yaml"))
+	if err != nil {
+		return nil
+	}
+	var workflow struct {
+		Steps map[string]yaml.Node `yaml:"steps"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		return nil
+	}
+	steps := make(map[string]bool, len(workflow.Steps))
+	for step := range workflow.Steps {
+		steps[step] = true
+	}
+	return steps
+}
+
+func legacyInstructionLiterals(rel, content string, canonicalQuestionSteps map[string]bool) []string {
 	pattern := regexp.MustCompile(`\bready_for_[A-Za-z0-9_]+\b|\bin_[A-Za-z0-9_]+\b`)
 	matches := pattern.FindAllString(content, -1)
 	if len(matches) == 0 {
@@ -711,6 +733,9 @@ func legacyInstructionLiterals(rel, content string) []string {
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, match := range matches {
+		if canonicalQuestionSteps[match] {
+			continue
+		}
 		// `in_progress` is tech-debt's canonical current status, not removed
 		// legacy language. Exempt it anywhere under the tech-debt namespace
 		// (not just the single prompts/tech_debt/in_progress.md file) so

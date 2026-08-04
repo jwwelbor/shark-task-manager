@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -261,13 +262,27 @@ func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 			"shark get <key> --json",
 			"shark skill get solution-walkthrough",
 			"shark related-docs list --epic=<epic-key> --json",
+			"shark question list --status=open --limit=100 --offset=0 --json",
+			"shark question list --status=answering --limit=100 --offset=0 --json",
+			"shark question list --status=ready_for_resolution --limit=100 --offset=0 --json",
+			"increasing `--offset` until a page is short",
+			"shark question blocking-for <entity-key> --limit=100 --offset=0 --json",
+			"shark related-docs list --question=<key> --json",
+			"shark next <question-key> --json",
+			"current_responder",
+			"shark claim <question-key> --by=<current-responder> --json",
+			"returned `session_id`",
+			"shark question respond <question-key> --session=<session-id> --responder=<current-responder> --summary=\"<approved answer>\" --evidence-pointer=<durable-record-path>",
+			"shark release <question-key> --session=<session-id>",
+			"hand the Question to that responder",
+			"impersonate a responder. A response is not a resolution",
 			"document explicitly names",
 			"Reviewed and confirmed",
 			"docs/product/progress.md",
 			"docs/architecture/adr/",
 			"shark related-docs add \"Decision Record\" <path> --feature=<feature-key>",
 			"shark create note <key> \"Decision record: <path>\" --type=reference",
-			"Do not call claim, status-transition, approval, or automatic triage commands.",
+			"Do not call status-transition, approval, or automatic triage commands.",
 			"Do not create a decision record before the operator has resolved that decision.",
 		},
 	} {
@@ -276,6 +291,11 @@ func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 				require.Contains(t, contents[name], expected)
 			}
 		})
+	}
+	for _, forbidden := range []string{
+		"shark question resolve", "shark question withdraw", "shark question supersede",
+	} {
+		assert.NotContains(t, contents["procedure"], forbidden)
 	}
 }
 

@@ -190,6 +190,11 @@ type NextResponse struct {
 	// linked open blocking Question. It is omitted from ordinary next output.
 	QuestionBlock *services.QuestionBlock `json:"question_block,omitempty"`
 
+	// CurrentResponder is the derived Question responder identity needed by a
+	// host to claim and record a routed Question response. It is omitted for
+	// other entity types and Questions without a pending responder.
+	CurrentResponder string `json:"current_responder,omitempty"`
+
 	// selection is an unexported carrier used to return a hierarchy selection
 	// through the shared NextResponse type instead of the plain wire shape
 	// above: `shark plan` sets it for a one-level selection, and keyed
@@ -512,6 +517,13 @@ func resolveEntity(
 		EntityType: entityType,
 		Status:     currentStatus,
 	}
+	if entityType == string(models.EntityTypeQuestion) {
+		responder, err := nextQuestionCurrentResponder(ctx, normalizedKey)
+		if err != nil {
+			return NextResponse{}, err
+		}
+		resp.CurrentResponder = responder
+	}
 
 	// Terminal status: nothing to dispatch.
 	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
@@ -673,6 +685,21 @@ func resolveEntity(
 	resp.PromptBytes = len(attached)
 
 	return resp, nil
+}
+
+func nextQuestionCurrentResponder(ctx context.Context, key string) (string, error) {
+	question, err := getQuestionService().GetQuestion(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("load Question %s for next response: %w", key, err)
+	}
+	state, err := models.DecodeQuestionState(question.ContextData)
+	if err != nil {
+		return "", fmt.Errorf("decode Question %s for next response: %w", key, err)
+	}
+	if state == nil {
+		return "", nil
+	}
+	return state.CurrentResponder(), nil
 }
 
 func actionRequiresInstruction(internalAction string) bool {

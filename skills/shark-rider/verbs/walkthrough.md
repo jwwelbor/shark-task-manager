@@ -51,6 +51,29 @@ Log, interaction maps, and cross-epic map. Treat Shark state and its linked
 records as the relationship authority when an entity is known; use code and
 documentation to ground recommendations, not to infer unrecorded approval.
 
+Review outstanding Question entities as a separate input to every walk.
+Outstanding means `open`, `answering`, or `ready_for_resolution`; page each
+status with `--limit=100` and increasing `--offset` until a page is short:
+
+```bash
+shark question list --status=open --limit=100 --offset=0 --json
+shark question list --status=answering --limit=100 --offset=0 --json
+shark question list --status=ready_for_resolution --limit=100 --offset=0 --json
+```
+
+For a non-Question entity target, also inspect its direct Question blockers:
+
+```bash
+shark question blocking-for <entity-key> --limit=100 --offset=0 --json
+```
+
+Read each potentially relevant Question with `shark question get <key> --json`
+and its linked records with `shark related-docs list --question=<key> --json`.
+Prioritize Questions that directly block the target or explicitly name the
+target or document. Include every material Question in the decision queue and
+report reviewed-but-out-of-scope Questions separately. Do not infer a new
+association while reviewing it.
+
 ## Step 2 — Retrieve the craft skill and begin the walk
 
 ```bash
@@ -65,6 +88,28 @@ framing, lead with a recommendation, and wait for an approve/amend/redirect
 response. A previously documented important choice may be ratified only after
 this same review; record it as **Reviewed and confirmed** in the authoritative
 source rather than duplicating it.
+
+When the operator approves an answer to an in-scope Question, first write or
+update the durable decision record that supplies its evidence pointer. Then use
+the Question workflow to record that answer. Read `shark next <question-key>
+--json`; continue only when it routes that Question to the walkthrough
+operator. Claim the Question under that returned responder identity, record the
+approved answer, and release the claim. Continue only when `current_responder`
+in the `shark next` JSON matches the authenticated walkthrough operator.
+Capture the `session_id` returned by the claim JSON and use that exact value in
+the response and release commands:
+
+```bash
+shark claim <question-key> --by=<current-responder> --json
+shark question respond <question-key> --session=<session-id> --responder=<current-responder> --summary="<approved answer>" --evidence-pointer=<durable-record-path>
+shark release <question-key> --session=<session-id>
+```
+
+If `current_responder` is not the walkthrough operator,
+record the approved decision in its durable source and hand the Question to the
+configured responder. Do not infer or impersonate a responder. A response is
+not a resolution: do not automatically resolve a Question after recording the
+response.
 
 ## Step 3 — Persist and link approved outcomes
 
@@ -101,7 +146,11 @@ approval evidence or lifecycle changes.
 
 ## Boundaries
 
-- Do not call claim, status-transition, approval, or automatic triage commands.
+- Do not claim or modify a Question except to record an operator-approved
+  response through the documented Question workflow.
+- Do not call status-transition, approval, or automatic triage commands.
+- Do not resolve, withdraw, supersede, or otherwise close a Question as part
+  of the walk.
 - Do not create a decision record before the operator has resolved that decision.
 - Do not treat a completed status, prior implementation, or a note as proof
   that an architectural choice remains valid.
