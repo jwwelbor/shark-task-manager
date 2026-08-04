@@ -190,6 +190,11 @@ type NextResponse struct {
 	// linked open blocking Question. It is omitted from ordinary next output.
 	QuestionBlock *services.QuestionBlock `json:"question_block,omitempty"`
 
+	// CurrentResponder is the derived Question responder identity needed by a
+	// host to claim and record a routed Question response. It is omitted for
+	// other entity types and Questions without a pending responder.
+	CurrentResponder string `json:"current_responder,omitempty"`
+
 	// selection is an unexported carrier used to return a hierarchy selection
 	// through the shared NextResponse type instead of the plain wire shape
 	// above: `shark plan` sets it for a one-level selection, and keyed
@@ -512,7 +517,6 @@ func resolveEntity(
 		EntityType: entityType,
 		Status:     currentStatus,
 	}
-
 	// Terminal status: nothing to dispatch.
 	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
 		if isArchivedStatus(entityType, currentStatus) {
@@ -638,6 +642,9 @@ func resolveEntity(
 		return wireResp, nil
 	}
 	resp = wireResp
+	if entityType == string(models.EntityTypeQuestion) {
+		resp.CurrentResponder = vars["current_responder"]
+	}
 	// Question's F01 workflow is an explicit read-only pause/archive fixture.
 	// It is not a worker dispatch, so its exact response envelope intentionally
 	// omits both an instruction and the parent-loop ownership preamble.

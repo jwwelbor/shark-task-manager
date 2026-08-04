@@ -16,11 +16,21 @@ project's documentation as the evidence base.
    also read its Shark file, related documents, and parent/child context when
    material. For a document, identify explicit entity keys, referenced records,
    and its owning documentation area; do not invent a Shark association.
+   Review outstanding Question entities: `open`, `answering`, and
+   `ready_for_resolution`. Page each status with `shark question list` using
+   `--limit=100` and increasing `--offset` until a page is short. For an
+   non-Question entity target, also read
+   `shark question blocking-for <entity-key>`. Read potentially relevant
+   Questions and their linked documents. Prioritize
+   Questions that directly block the target or explicitly name the selected
+   entity or document. Report reviewed-but-out-of-scope Questions separately;
+   do not infer a relationship from topical similarity.
    Then read the relevant project documents:
    `docs/product/progress.md`, `docs/product/cross-epic-integration-map.md`,
    `docs/architecture/`, and existing ADRs or decision records.
-2. Build a queue from explicit open questions plus consequential directions
-   already stated in the documents. Do not reopen a settled decision unless the
+2. Build a queue from material outstanding Question entities, explicit open
+   questions in the selected records, and consequential directions already
+   stated in the documents. Do not reopen a settled decision unless the
    operator placed it in scope.
 3. Show the queue and recommend dependency order. Confirm the order before the
    first decision. Work one decision at a time.
@@ -39,7 +49,20 @@ project's documentation as the evidence base.
 4. **Record only after a response.** Approval records a resolution; an amendment
    updates the source section and leaves the item open; a reopened direction
    returns to the queue. Never invent approval, silently lock a decision, or
-   turn a discussion into a status change.
+   turn a discussion into a status change. When the operator approves an answer
+   to an in-scope Question, first write or update the durable decision record
+   that supplies its evidence pointer. Then retrieve `shark next <question-key>
+   --json`. Continue only when its `current_responder` matches the authenticated
+   walkthrough operator; then claim it with `shark claim
+   <question-key> --by=<current-responder> --json`, capture the returned
+   `session_id`, and
+   record the approved answer with
+   `shark question respond <question-key> --session=<session-id>
+   --responder=<current-responder> --summary="<approved answer>"
+   --evidence-pointer=<durable-record-path>`. Release the claim afterward. If
+   the operator cannot verify that it is the responder, hand off the durable
+   decision and Question; never infer or impersonate a responder. Do not resolve, withdraw, supersede, or
+   otherwise close a Question as part of the walk.
 
 ## Ratifying documented decisions
 
