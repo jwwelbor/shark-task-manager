@@ -38,6 +38,13 @@ For each participant, capture:
 
 Capture sessions one at a time. Ask the user to share notes for each.
 
+## Record material Questions
+
+When a test-protocol or evidence-routing decision remains materially
+unresolved, use `skills/question-management/SKILL.md` to create or reuse a
+linked Q###. Record a non-material rationale in the test-results artifact
+instead. Do not treat the absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] All participants are assigned stable IDs (P1, P2…).

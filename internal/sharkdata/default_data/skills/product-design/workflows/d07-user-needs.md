@@ -47,6 +47,13 @@ Before finalizing, present the top 3 needs to the human stakeholder:
 
 Use `AskUserQuestion`. Do not finalize without this confirmation — needs are a human-validated input, not a model inference.
 
+## Record material Questions
+
+When a prioritized user-need decision remains materially unresolved, use
+`skills/question-management/SKILL.md` to create or reuse a linked Q###. Record
+a non-material rationale in the needs artifact instead. Do not treat the
+absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] Every need statement is solution-agnostic (no product features named).

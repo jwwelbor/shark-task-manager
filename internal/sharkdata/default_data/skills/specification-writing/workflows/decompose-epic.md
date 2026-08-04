@@ -245,6 +245,13 @@ Before returning, run through:
 - [ ] Every I-## from the interaction map is named in exactly the feature
       candidates that produce or consume it
 
+## Record material Questions
+
+When a feature-boundary or dependency-order decision remains materially
+unresolved, use `skills/question-management/SKILL.md` to create or reuse a
+linked Q###. Record a non-material rationale in the decomposition summary
+instead. Do not treat the absence of `TBD` text as decision closure.
+
 ## MANDATORY: Interactive Review with User
 
 After generating the decomposition, present it to the user for review **before returning**. Do NOT silently proceed.

@@ -133,7 +133,7 @@ sequenceDiagram
 
 ## Open Questions & Decisions Required
 
-{List ALL unresolved questions, concerns, assumptions, or decisions that need stakeholder input. These will be surfaced interactively after document generation.}
+{For a material unresolved design decision, follow `skills/question-management/SKILL.md` and record a linked Q###. For a non-material item, record a non-material rationale here instead. Do not treat the absence of `TBD` text as decision closure.}
 
 1. **{Question/Concern}**
    - **Context**: {Why this needs to be decided}

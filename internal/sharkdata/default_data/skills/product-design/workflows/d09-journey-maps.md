@@ -36,6 +36,13 @@ Document:
 - **Touchpoints** — which channels, screens, or interactions they use
 - **What needs to be true** — what the product/service must deliver for them to advance to the next stage
 
+## Record material Questions
+
+When a journey scope or critical-stage decision remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the journey map instead. Do not treat the
+absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] Every stage anchored to a D08 persona ID.

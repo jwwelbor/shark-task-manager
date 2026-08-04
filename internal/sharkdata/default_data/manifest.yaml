@@ -59,6 +59,7 @@ skills:
   - { name: implementation, ownership: canonical }
   - { name: overconfidence-prevention, ownership: canonical }
   - { name: product-design, ownership: canonical }
+  - { name: question-management, ownership: canonical }
   - { name: quality, ownership: canonical }
   - { name: research, ownership: canonical }
   - { name: solution-walkthrough, ownership: canonical }

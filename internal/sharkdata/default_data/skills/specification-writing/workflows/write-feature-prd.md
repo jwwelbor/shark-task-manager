@@ -159,6 +159,13 @@ If the user's request lacks critical details, proactively ask targeted questions
 
 Create a PRD so comprehensive and clear that an engineering team can use it to drive an implementation plan. A reader who knows nothing about the feature should finish the PRD knowing what to build, why, for whom, and what is explicitly out of scope.
 
+## Record material Questions
+
+When a feature scope or requirement decision remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the PRD instead. Do not treat the absence
+of `TBD` text as decision closure.
+
 ## MANDATORY: Interactive Review of Open Questions
 
 After generating the PRD, surface any open questions, unresolved decisions, concerns, or assumptions to the user **before returning**. Do NOT silently move on.

@@ -23,6 +23,13 @@ PRODUCE epic PRD with these sections (and ONLY these — this is the single sour
 
 CRITICAL: This PRD is the source of truth for business context. Features will REFERENCE this document — they must not restate its content.
 
+## Durable unresolved decisions
+
+For each material unresolved decision, use
+`skills/question-management/SKILL.md` to create or reuse a linked Q###. Record
+a non-material rationale in the PRD; do not treat the absence of `TBD` text as
+decision closure.
+
 EXIT GATE:
 - All 6 sections populated with specific, measurable content
 - No TBDs, no vague language

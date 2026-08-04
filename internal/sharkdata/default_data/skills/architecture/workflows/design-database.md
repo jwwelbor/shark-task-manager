@@ -377,6 +377,13 @@ Write the data design markdown to `data_design_path`, following the template ref
 - NULL = active, timestamp = deleted
 - Filter deleted records in queries
 
+## Record material design Questions
+
+When a schema, retention, or migration decision remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the design document instead. Do not treat
+the absence of `TBD` text as decision closure.
+
 ## MANDATORY: Interactive Review of Open Questions
 
 After generating the document, you MUST surface any open questions, unresolved decisions, concerns, or assumptions to the user **before proceeding to the next workflow step**. Do NOT silently move on.

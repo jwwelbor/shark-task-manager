@@ -57,6 +57,13 @@ If "not feasible": name the blocking constraint and what would need to change fo
 - **Greenfield** (provisional stack): recommended route = re-run bootstrap in **reconcile mode**, so `greenfield-scaffold.md` revises `tech-stack.md` against this report (its Phase 3.5).
 - **Brownfield**: apply the initiative posture to the gap. Preserve integration obligations, but evaluate target options for `new-capability`, `extend`, `modernize`, or `replace`; route only genuinely deferred remediation to a tech-debt entry or constraint note with its driver.
 
+## Record material Questions
+
+When a feasibility conclusion or proposed route remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the feasibility report instead. Do not
+treat the absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] Every risk is specific — not "technical risks exist" but "the OCR library does not support handwritten forms."

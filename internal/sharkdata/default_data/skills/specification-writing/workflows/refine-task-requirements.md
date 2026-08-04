@@ -345,6 +345,13 @@ If the BA didn't specify something critical (e.g., "Should admins be able to for
 - [ ] All blocker notes from developers addressed
 - [ ] No undefined "TBD" or "TODO" in critical sections
 
+## Record material Questions
+
+When a task requirement or architecture decision remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the authoritative refinement document
+instead. Do not treat the absence of `TBD` text as decision closure.
+
 ## Common Mistakes
 
 - **Not reading task notes** — miss blocker notes from developers; don't know WHY you were assigned; waste time on the wrong problems.
