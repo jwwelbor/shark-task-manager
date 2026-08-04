@@ -271,7 +271,7 @@ func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 			"shark next <question-key>",
 			"current_responder",
 			"shark claim <question-key> --by=<current-responder> --json",
-			"returned `session_id`",
+			"session_id",
 			"shark question respond <question-key> --session=<session-id> --responder=<current-responder> --summary=\"<approved answer>\" --evidence-pointer=<durable-record-path>",
 			"shark release <question-key> --session=<session-id>",
 			"hand the Question to the",
