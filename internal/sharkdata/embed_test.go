@@ -799,6 +799,67 @@ func TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007(t *testing.T) {
 	}
 }
 
+// TestE34F04QuestionManagementBundle_TC001_TC005 guards the embedded
+// Question-management procedure and its content-only delivery boundary.
+func TestE34F04QuestionManagementBundle_TC001_TC005(t *testing.T) {
+	files := map[string]string{
+		"manifest": readEmbeddedString(t, "manifest.yaml"),
+		"index":    readEmbeddedString(t, "skills/README.md"),
+		"skill":    readEmbeddedString(t, "skills/question-management/SKILL.md"),
+	}
+
+	for name, want := range map[string][]string{
+		"manifest": {"name: question-management", "ownership: canonical"},
+		"index":    {"`question-management`", "durable Question lifecycle"},
+		"skill": {
+			"name: question-management",
+			"materiality test",
+			"non-material",
+			"deduplication",
+			"Search Questions for the decision phrase",
+			"shark question create",
+			"shark question configure-workflow",
+			"shark related-docs add",
+			"shark link Q### <entity-key>",
+			"--type=question_blocks",
+			"before adding a block",
+			"Shark Attack",
+			"solution-walkthrough",
+			"owns Question creation",
+			"local_clarification",
+			"feature_change",
+			"product_decision",
+			"architecture_decision",
+			"follow_up_work",
+			"no_lasting_consequence",
+			"Do not put credentials",
+			"rendered prompts",
+			"full transcripts",
+			"unbounded chat history",
+			"shark claim Q### --by=<current-responder> --json",
+			"shark question respond Q### --session=<session-id>",
+			"--responder=<current-responder>",
+			"--summary=\"<bounded response>\"",
+			"--evidence-pointer=<durable-record-path>",
+			"shark release Q### --session=<session-id>",
+			"shark question resolve Q### --owner=<resolution-owner>",
+			"--resolution-kind=<resolution-kind>",
+			"--resolution-pointer=<durable-record-path>",
+			"--resolution-kind=no_lasting_consequence",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				assert.Contains(t, files[name], expected)
+			}
+		})
+	}
+
+	assert.Contains(t, files["skill"], "| `no_lasting_consequence` | No pointer")
+	assert.Contains(t, files["skill"], "For `no_lasting_consequence`, omit `--resolution-pointer`")
+	assert.NotContains(t, files["skill"], "--resolution-kind=no_lasting_consequence \\\n+     --resolution-pointer=")
+}
+
 func TestSolutionWalkthroughBundle(t *testing.T) {
 	files := map[string]string{
 		"manifest": readEmbeddedString(t, "manifest.yaml"),

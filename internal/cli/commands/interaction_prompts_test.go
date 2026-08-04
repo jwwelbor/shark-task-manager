@@ -151,6 +151,143 @@ func TestE34F03PromptBundleAndReferences(t *testing.T) {
 	}
 }
 
+// TestE34F04QuestionManagementPromptReferences reads shipped decision producers
+// and rendered prompts. TC-002 and TC-003 are finite content contracts, so
+// they must not emulate Question lifecycle policy.
+func TestE34F04QuestionManagementPromptReferences(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	cases := []struct {
+		name string
+		path string
+		cue  string
+	}{
+		{
+			name: "architecture template",
+			path: "internal/sharkdata/default_data/skills/architecture/context/templates/architecture-doc.md",
+			cue:  "material unresolved design decision",
+		},
+		{
+			name: "system design",
+			path: "internal/sharkdata/default_data/skills/architecture/workflows/design-system.md",
+			cue:  "cross-domain architecture decision",
+		},
+		{
+			name: "backend design",
+			path: "internal/sharkdata/default_data/skills/architecture/workflows/design-backend.md",
+			cue:  "backend interface or service-boundary decision",
+		},
+		{
+			name: "database design",
+			path: "internal/sharkdata/default_data/skills/architecture/workflows/design-database.md",
+			cue:  "schema, retention, or migration decision",
+		},
+		{
+			name: "frontend architecture",
+			path: "internal/sharkdata/default_data/skills/architecture/workflows/design-frontend.md",
+			cue:  "frontend interaction or UX architecture decision",
+		},
+		{
+			name: "security design",
+			path: "internal/sharkdata/default_data/skills/architecture/workflows/design-security.md",
+			cue:  "security control or risk-acceptance decision",
+		},
+		{
+			name: "aesthetic direction",
+			path: "internal/sharkdata/default_data/skills/frontend-design/workflows/commit-to-aesthetic-direction.md",
+			cue:  "missing or contested aesthetic direction",
+		},
+		{
+			name: "product vision",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d01-vision.md",
+			cue:  "vision, scope, or constraint decision",
+		},
+		{
+			name: "product feasibility",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d04-feasibility.md",
+			cue:  "feasibility conclusion or proposed route",
+		},
+		{
+			name: "user insights",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d06-user-insights.md",
+			cue:  "research gap that changes a product decision",
+		},
+		{
+			name: "user needs",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d07-user-needs.md",
+			cue:  "prioritized user-need decision",
+		},
+		{
+			name: "user personas",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d08-user-personas.md",
+			cue:  "persona-priority or trade-off decision",
+		},
+		{
+			name: "journey maps",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d09-journey-maps.md",
+			cue:  "journey scope or critical-stage decision",
+		},
+		{
+			name: "test results",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d12-test-results.md",
+			cue:  "test-protocol or evidence-routing decision",
+		},
+		{
+			name: "validated designs",
+			path: "internal/sharkdata/default_data/skills/product-design/workflows/d14-validated-designs.md",
+			cue:  "validated-design verdict or follow-up decision",
+		},
+		{
+			name: "write epic",
+			path: "internal/sharkdata/default_data/skills/specification-writing/workflows/write-epic.md",
+			cue:  "epic scope or requirement decision",
+		},
+		{
+			name: "write feature PRD",
+			path: "internal/sharkdata/default_data/skills/specification-writing/workflows/write-feature-prd.md",
+			cue:  "feature scope or requirement decision",
+		},
+		{
+			name: "refine task requirements",
+			path: "internal/sharkdata/default_data/skills/specification-writing/workflows/refine-task-requirements.md",
+			cue:  "task requirement or architecture decision",
+		},
+		{
+			name: "decompose epic",
+			path: "internal/sharkdata/default_data/skills/specification-writing/workflows/decompose-epic.md",
+			cue:  "feature-boundary or dependency-order decision",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join(repoRoot, tc.path))
+			require.NoError(t, err)
+			content := string(body)
+			require.Contains(t, content, "skills/question-management/SKILL.md")
+			require.Contains(t, content, tc.cue)
+			require.Contains(t, content, "non-material rationale")
+			assert.NotContains(t, content, "shark question resolve")
+			assert.NotContains(t, content, "--type=question_blocks")
+		})
+	}
+
+	promptsDir := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(promptsDir)
+	require.NoError(t, err)
+	for _, tmpl := range []string{
+		"epic/refinement.md",
+		"epic/design.md",
+		"feature/specification.md",
+	} {
+		t.Run("render "+tmpl, func(t *testing.T) {
+			rendered, err := renderer.Render(tmpl, goldenVars())
+			require.NoError(t, err)
+			require.Contains(t, rendered, "skills/question-management/SKILL.md")
+			require.Contains(t, rendered, "linked Q###")
+		})
+	}
+}
+
 // TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008 guards the documented
 // content contract for the explicit, host-local demo action. It intentionally
 // checks shipped procedure text rather than inventing a runtime policy engine.

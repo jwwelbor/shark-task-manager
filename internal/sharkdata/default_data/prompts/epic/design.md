@@ -118,6 +118,13 @@ Rules:
 
 CRITICAL: Architecture must align with existing patterns from research report. Do not propose patterns that contradict CLAUDE.md conventions.
 
+## Durable unresolved decisions
+
+For each material unresolved architecture decision, use
+`skills/question-management/SKILL.md` to create or reuse a linked Q###. Record
+a non-material rationale in the architecture document; do not treat the
+absence of `TBD` text as decision closure.
+
 EXIT GATE:
 - Architecture follows existing codebase patterns
 - Every technical decision has rationale

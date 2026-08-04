@@ -44,6 +44,13 @@ Most good product problems have a central tension — two things users want that
 
 What do we still not know about users that would meaningfully affect design decisions? These become research debts to address before or during validation.
 
+## Record material Questions
+
+When a research gap that changes a product decision remains materially
+unresolved, use `skills/question-management/SKILL.md` to create or reuse a
+linked Q###. Record a non-material rationale in the insight artifact instead.
+Do not treat the absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] Every insight traces to D05 evidence or D03 market observation — no new claims invented here.

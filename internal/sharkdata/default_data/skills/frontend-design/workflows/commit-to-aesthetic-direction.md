@@ -58,6 +58,11 @@ the direction is not committed. Push toward a sharper extreme and rewrite it.
 
 ## Output
 
+If a missing or contested aesthetic direction remains material after the four
+lenses, use `skills/question-management/SKILL.md` to create or reuse a linked
+Q###. Record a non-material rationale in the design record instead. Do not
+treat the absence of `TBD` text as decision closure.
+
 A single committed-direction statement plus the four lens answers, used as the
 fixed reference point while refining the five aesthetic dimensions
 (`refine-aesthetics.md`). Bold maximalism and refined minimalism are equally

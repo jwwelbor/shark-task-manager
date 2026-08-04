@@ -214,6 +214,13 @@ Before returning, verify:
 - [ ] Checked `existing_personas_index` for existing personas before authoring new ones
 - [ ] Personas referenced consistently by name across all files
 
+## Record material Questions
+
+When an epic scope or requirement decision remains materially unresolved, use
+`skills/question-management/SKILL.md` to create or reuse a linked Q###. Record
+a non-material rationale in the epic files instead. Do not treat the absence
+of `TBD` text as decision closure.
+
 ## MANDATORY: Interactive Review of Open Questions
 
 After generating all epic files, surface any open questions, unresolved decisions, concerns, or assumptions to the user **before returning**. Do NOT silently move on.

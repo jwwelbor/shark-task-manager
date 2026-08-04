@@ -45,6 +45,13 @@ Present the persona list and the primary designation. Ask:
 
 Use `AskUserQuestion`. Adjust based on feedback — the persona set is a human-validated input.
 
+## Record material Questions
+
+When a persona-priority or trade-off decision remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the persona artifact instead. Do not treat
+the absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] 2–4 personas only — no inflation.

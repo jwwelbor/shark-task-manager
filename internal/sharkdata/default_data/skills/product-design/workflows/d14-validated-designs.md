@@ -25,6 +25,13 @@ Present the D13 summary to the human stakeholder and walk through each design to
 
 > "Based on the test results, [Design X] had [summary]. I'd suggest the verdict is [Validated / Needs rework / Scrapped]. Do you agree, or do you see it differently?"
 
+## Record material Questions
+
+When a validated-design verdict or follow-up decision remains materially
+unresolved, use `skills/question-management/SKILL.md` to create or reuse a
+linked Q###. Record a non-material rationale in the validation record instead.
+Do not treat the absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] Every design under test has a verdict.

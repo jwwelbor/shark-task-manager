@@ -106,6 +106,13 @@ CRITICAL RULES:
   docs/product/cross-epic-integration-map.md exactly. Interfaces crossing epic
   boundaries use X-##, not I-## or CONTRACT-###.
 
+## Durable unresolved decisions
+
+For each material unresolved requirement or architecture decision, use
+`skills/question-management/SKILL.md` to create or reuse a linked Q###. Record
+a non-material rationale in `spec.md`; do not treat the absence of `TBD` text
+as decision closure.
+
 EXIT GATE:
 - Every requirement is testable
 - Every architecture decision references existing patterns or explains deviation

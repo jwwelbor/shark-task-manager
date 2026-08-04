@@ -429,6 +429,13 @@ Write the security design markdown to `security_design_path`, following the temp
 - Consider security from the start
 - Build it into the architecture
 
+## Record material design Questions
+
+When a security control or risk-acceptance decision remains materially
+unresolved, use `skills/question-management/SKILL.md` to create or reuse a
+linked Q###. Record a non-material rationale in the design document instead.
+Do not treat the absence of `TBD` text as decision closure.
+
 ## MANDATORY: Interactive Review of Open Questions
 
 After generating the document, you MUST surface any open questions, unresolved decisions, concerns, or assumptions to the user **before proceeding to the next workflow step**. Do NOT silently move on.

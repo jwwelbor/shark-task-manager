@@ -44,6 +44,13 @@ If `docs/architecture/tech-stack.md` already exists (a brownfield project, or a 
 **8. Assumptions and Risks**
 > "What are you assuming to be true that hasn't been verified? What's the biggest risk to this initiative?"
 
+## Record material Questions
+
+When a vision, scope, or constraint decision remains materially unresolved,
+use `skills/question-management/SKILL.md` to create or reuse a linked Q###.
+Record a non-material rationale in the vision statement instead. Do not treat
+the absence of `TBD` text as decision closure.
+
 ## Quality Criteria
 
 - [ ] Every section filled by the user, not inferred by the model.
