@@ -176,4 +176,55 @@ for e in data["entries"]:
 print(f"TC-007: lint.json has {len(data['entries'])} entries, toolchain block present")
 PYEOF
 
+# --- Regression: version-valid golangci-lint that crashes with no report ---
+# UAT round 1 (T-E40-F01-008 rejection): a temporary golangci-lint
+# executable that correctly reports version 2.9.0 for `version` but exits
+# non-zero with no JSON report for `run` made build-ledgers.sh exit 0 and
+# silently write a zero-entry lint.json -- a linter crash or
+# misconfiguration became indistinguishable from "genuinely zero lint
+# issues", which would corrupt every downstream diff-ledgers.sh comparison.
+# This section pins that regression: the stub is version-valid on purpose,
+# so a check that only compares the reported version (instead of requiring
+# a parseable report) could not catch it.
+echo "TC-007: regression - version-valid golangci-lint that crashes with no report"
+
+STUB_BIN_DIR="$WORKDIR/stub-bin"
+mkdir -p "$STUB_BIN_DIR"
+cat >"$STUB_BIN_DIR/golangci-lint" <<'STUBEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "version" ]]; then
+	echo "golangci-lint has version 2.9.0 built with go1.26.0 from deadbeef on 2026-01-01T00:00:00Z"
+	exit 0
+fi
+# Version-valid but crashes on `run` -- no JSON report on stdout, matching
+# the UAT reproduction exactly (exit 1, empty stdout, stderr diagnostic).
+echo "stub golangci-lint: simulated config load failure" >&2
+exit 1
+STUBEOF
+chmod +x "$STUB_BIN_DIR/golangci-lint"
+
+regression_dir="$WORKDIR/regression"
+regression_checkout="$regression_dir/checkout"
+regression_output="$regression_dir/ledgers"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$regression_checkout" >/dev/null
+
+set +e
+PATH="$STUB_BIN_DIR:$PATH" "$BUILD_LEDGERS_SCRIPT" "$regression_checkout" "$regression_output" >"$regression_dir/build.log" 2>&1
+regression_exit=$?
+set -e
+
+[[ "$regression_exit" -ne 0 ]] || fail "build-ledgers.sh exited 0 against a crashing golangci-lint stub -- must fail loudly instead of accepting an empty lint ledger"
+
+if [[ -e "$regression_output/lint.json" ]]; then
+	fail "build-ledgers.sh wrote lint.json despite golangci-lint producing no parseable report: $(cat "$regression_output/lint.json")"
+fi
+if [[ -e "$regression_output/tests.json" ]]; then
+	fail "build-ledgers.sh wrote tests.json despite failing lint validation -- ledgers must be written all-or-nothing"
+fi
+
+grep -qi "golangci-lint" "$regression_dir/build.log" || fail "failure diagnostic does not name golangci-lint: $(cat "$regression_dir/build.log")"
+grep -qi "report" "$regression_dir/build.log" || fail "failure diagnostic does not mention the missing/unparseable report: $(cat "$regression_dir/build.log")"
+
+echo "TC-007: crashing-linter regression correctly rejected (exit $regression_exit, no ledger written)"
+
 echo "TC-007: PASS"

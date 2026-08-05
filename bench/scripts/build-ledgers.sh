@@ -35,6 +35,26 @@
 # `go test` and `golangci-lint run` both exit non-zero when they observe a
 # failing test or a lint issue -- that is expected data for a ledger, not a
 # script failure, so this script does not treat their exit codes as fatal.
+#
+# Defect-class guard (UAT round 1, T-E40-F01-008 rejection): a subprocess
+# exiting non-zero is not distinguishable, by exit code alone, from that
+# same subprocess crashing or being misconfigured -- both can exit 1. This
+# script therefore never infers "zero results" from a subprocess's exit
+# code or from empty/unparseable output; it requires a parseable result
+# shape before accepting one as ledger data, and fails loudly, naming the
+# diagnostic, when a producer cannot supply one:
+#   - the lint producer requires the v2 JSON report's "Issues" key to be
+#     present after parsing the first stdout line -- a linter that exits
+#     non-zero with no report (crash, incompatible flags, config load
+#     failure) is refused, not silently written as a zero-issue ledger;
+#   - the test producer treats a `go test -json` build-failure event
+#     (Action":"fail" with no "Test" field and a "FailedBuild" package) as
+#     a hard error naming the package, instead of silently omitting that
+#     package's tests from the ledger, which a set-based reader would
+#     otherwise indistinguishably read as "package removed";
+#   - both producers already require a parseable event before writing
+#     anything -- see "no test entries observed" and the lint-report check
+#     below.
 set -euo pipefail
 
 usage() {
@@ -90,19 +110,26 @@ golangci_config_sha256="$(sha256sum "$golangci_config" | awk '{print $1}')"
 
 # --- Test ledger: real `go test -json ./...` ---------------------------
 test_raw="$(mktemp)"
-trap 'rm -f "$test_raw" "$lint_raw"' EXIT
+lint_raw="$(mktemp)"
+lint_err="$(mktemp)"
+trap 'rm -f "$test_raw" "$lint_raw" "$lint_err"' EXIT
 (cd "$checkout_dir" && go test -json ./...) >"$test_raw" 2>&1 || true
 
 # --- Lint ledger: real `golangci-lint run --output.json.path stdout` ---
-lint_raw="$(mktemp)"
-(cd "$checkout_dir" && golangci-lint run --output.json.path stdout) >"$lint_raw" 2>/dev/null || true
+# Exit code alone cannot distinguish "issues found" (expected, non-zero)
+# from "crashed before producing a report" (also non-zero, sometimes even
+# the same code) -- stdout and stderr are captured separately so the
+# python parser below can require a parseable report and surface the real
+# diagnostic on failure, rather than treating `|| true` as "no issues".
+lint_exit=0
+(cd "$checkout_dir" && golangci-lint run --output.json.path stdout) >"$lint_raw" 2>"$lint_err" || lint_exit=$?
 
-python3 - "$test_raw" "$lint_raw" "$output_dir" \
+python3 - "$test_raw" "$lint_raw" "$lint_err" "$lint_exit" "$output_dir" \
 	"$go_version" "$golangci_lint_version" "$goos" "$goarch" "$golangci_config_sha256" <<'PYEOF'
 import json
 import sys
 
-test_raw_path, lint_raw_path, output_dir, go_version, golangci_lint_version, goos, goarch, golangci_config_sha256 = sys.argv[1:9]
+test_raw_path, lint_raw_path, lint_err_path, lint_exit, output_dir, go_version, golangci_lint_version, goos, goarch, golangci_config_sha256 = sys.argv[1:11]
 
 toolchain = {
     "go_version": go_version,
@@ -117,8 +144,20 @@ toolchain = {
 # a non-null "Test" field and an Action of pass/fail/skip; package-level
 # summary events (no "Test" field) are not test identities and are
 # dropped. "Elapsed" is dropped by construction: it is never read below.
+#
+# A package that fails to *build* never emits per-test events at all -- Go
+# reports it instead as a package-level {"Action":"fail","FailedBuild":
+# "<pkg>"} event with no "Test" field. Left unguarded, that package's
+# tests would simply be absent from tests.json -- indistinguishable, to
+# any downstream reader, from "those tests were legitimately removed"
+# (diff-ledgers.sh --kind=test's own "removed" classification). That is
+# the same defect class as the lint gap below wearing a different face: a
+# subprocess transport/build failure silently becomes an empty domain
+# result. Any build-failed package is therefore a hard error here, named,
+# before any ledger is written.
 terminal_actions = {"pass", "fail", "skip"}
 entries_by_identity = {}
+build_failed_packages = set()
 with open(test_raw_path) as f:
     for line in f:
         line = line.strip()
@@ -128,15 +167,25 @@ with open(test_raw_path) as f:
             event = json.loads(line)
         except ValueError:
             continue
-        test_name = event.get("Test")
         action = event.get("Action")
+        test_name = event.get("Test")
+        package = event.get("Package")
+        if action == "fail" and not test_name and package and event.get("FailedBuild"):
+            build_failed_packages.add(package)
+            continue
         if not test_name or action not in terminal_actions:
             continue
-        package = event.get("Package")
         if not package:
             continue
         identity = f"{package}::{test_name}"
         entries_by_identity[identity] = action
+
+if build_failed_packages:
+    sys.exit(
+        "build-ledgers: 'go test -json' reported a build failure for package(s) "
+        f"{sorted(build_failed_packages)} -- refusing to write a test ledger that "
+        "would silently omit that package's tests instead of naming the failure"
+    )
 
 if not entries_by_identity:
     sys.exit("build-ledgers: no test entries observed from 'go test -json' -- "
@@ -147,30 +196,66 @@ test_entries = [
     for identity in sorted(entries_by_identity)
 ]
 
-with open(f"{output_dir}/tests.json", "w") as f:
-    json.dump({"toolchain": toolchain, "entries": test_entries}, f, indent=2, sort_keys=True)
-    f.write("\n")
-
 # --- lint.json -----------------------------------------------------------
 # golangci-lint's JSON report is the first line of stdout; any trailing
 # human-readable summary lines are ignored. Identity is
 # (from_linter, fixture-relative path, text) -- line/column are recorded
 # nowhere in the ledger (ADR-F01-03). Identical identities are kept as
 # repeated entries (a multiset), not deduplicated.
-lint_entries = []
+#
+# UAT round 1 finding (defect class: transport failure misclassified as an
+# empty domain result): `golangci-lint run` exits non-zero both when it
+# reports real issues (expected) and when it crashes or is misconfigured
+# before emitting any report (a producer failure) -- the two are not
+# distinguishable by exit code alone, so this script never infers "zero
+# issues" from a non-zero exit or from empty/unparseable stdout. A
+# parseable v2 report (JSON object with an "Issues" key -- present, as an
+# empty list, even on a genuine zero-issue run) is REQUIRED before any
+# lint.json is written; its absence is a hard, named error carrying the
+# real exit code and captured stderr, not a silently-accepted empty
+# ledger.
+lint_report = None
 with open(lint_raw_path) as f:
     first_line = f.readline().strip()
 if first_line:
-    report = json.loads(first_line)
-    for issue in report.get("Issues") or []:
-        pos = issue.get("Pos") or {}
-        lint_entries.append({
-            "from_linter": issue.get("FromLinter", ""),
-            "path": pos.get("Filename", ""),
-            "text": issue.get("Text", ""),
-        })
+    try:
+        candidate = json.loads(first_line)
+    except ValueError:
+        candidate = None
+    if isinstance(candidate, dict) and "Issues" in candidate:
+        lint_report = candidate
+
+if lint_report is None:
+    with open(lint_err_path) as f:
+        stderr_text = f.read().strip()
+    sys.exit(
+        "build-ledgers: 'golangci-lint run --output.json.path stdout' did not "
+        f"produce a parseable v2 JSON report (exit {lint_exit}); refusing to "
+        "write an empty lint ledger. captured stderr: "
+        f"{stderr_text or '(empty)'} | captured stdout (first 500 chars): "
+        f"{first_line[:500]!r}"
+    )
+
+lint_entries = []
+for issue in lint_report.get("Issues") or []:
+    pos = issue.get("Pos") or {}
+    lint_entries.append({
+        "from_linter": issue.get("FromLinter", ""),
+        "path": pos.get("Filename", ""),
+        "text": issue.get("Text", ""),
+    })
 
 lint_entries.sort(key=lambda e: (e["from_linter"], e["path"], e["text"]))
+
+# --- Write both ledgers together ----------------------------------------
+# Both producers above are fully validated by this point (build failures
+# and unparseable lint reports already exited non-zero). Writing both
+# files only now, after both are known-good, means a run that fails
+# partway through validation never leaves a lone tests.json or lint.json
+# on disk that a caller could mistake for a complete, successful build.
+with open(f"{output_dir}/tests.json", "w") as f:
+    json.dump({"toolchain": toolchain, "entries": test_entries}, f, indent=2, sort_keys=True)
+    f.write("\n")
 
 with open(f"{output_dir}/lint.json", "w") as f:
     json.dump({"toolchain": toolchain, "entries": lint_entries}, f, indent=2, sort_keys=True)
