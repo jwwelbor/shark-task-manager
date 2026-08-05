@@ -1,0 +1,9 @@
+type: task
+title: "Reject a negative quantity in Stock.Reserve"
+description: |
+  Stock.Reserve does not validate that quantity is non-negative. A negative
+  quantity is currently accepted and increases available stock instead of
+  reserving it, bypassing reservation semantics. Add validation that
+  returns a clear, descriptive error and leaves the stock level unchanged
+  when quantity is negative, leaving behavior for non-negative quantities
+  unchanged.

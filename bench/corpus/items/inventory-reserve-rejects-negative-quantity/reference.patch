@@ -1,0 +1,14 @@
+diff --git a/pkg/inventory/inventory.go b/pkg/inventory/inventory.go
+index 97e36cd..f7a291f 100644
+--- a/pkg/inventory/inventory.go
++++ b/pkg/inventory/inventory.go
+@@ -31,6 +31,9 @@ func (s *Stock) Available(sku string) int {
+ // Reserve decrements sku's available quantity by quantity, or returns
+ // ErrInsufficientStock if not enough stock is available.
+ func (s *Stock) Reserve(sku string, quantity int) error {
++	if quantity < 0 {
++		return errors.New("quantity must not be negative")
++	}
+ 	if s.levels[sku] <= quantity {
+ 		return ErrInsufficientStock
+ 	}

@@ -1,0 +1,14 @@
+diff --git a/pkg/inventory/inventory.go b/pkg/inventory/inventory.go
+index 97e36cd..46abe34 100644
+--- a/pkg/inventory/inventory.go
++++ b/pkg/inventory/inventory.go
+@@ -48,6 +48,9 @@ func (s *Stock) Release(sku string, quantity int) {
+ // sku's available quantity, for reconciling stock counts outside the normal
+ // reserve/release flow.
+ func (s *Stock) Adjust(sku string, delta int) error {
++	if s.levels[sku]+delta < 0 {
++		return errors.New("adjustment would drive available stock negative")
++	}
+ 	s.levels[sku] += delta
+ 	return nil
+ }

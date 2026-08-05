@@ -20,7 +20,7 @@ schema_version: "1.0"
 
 fixture:
   submodule_path: bench/fixture-repo
-  base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+  base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
   toolchain:
     # go.mod pins "go 1.25.0"; the local dev toolchain observed while
     # authoring this task was go1.26.0. T-E40-F01-004/008 (freeze + build
@@ -46,10 +46,15 @@ p2p_sets:
     run_selector: ""
     exclude_tests: []
 
-# items are the admitted corpus (REQ-F-006: >=10 required in total). This
-# first wave (T-E40-F01-002) establishes the item-authoring pattern with 4
-# items; T-E40-F01-003 completes the set to >=10, including a bug item whose
-# F2P oracle is an author-written repro test.
+# items are the admitted corpus (REQ-F-006: >=10 required in total). The
+# first wave (T-E40-F01-002) established the item-authoring pattern with 4
+# items; T-E40-F01-003 completes the set to 10 (4 bug, 6 task) here. Every
+# bug item's F2P oracle is an author-written repro test (REQ-F-006); its
+# `f2p.test_names` below is the "repro test set" E40-F02 names to emit
+# repro_confirmed — no separate manifest field is needed since REQ-F-002's
+# field inventory already carries it. inventory-reserve-boundary is the
+# canonical example: its held-back test reproduces the reported defect
+# exactly and is named in that item's f2p block.
 items:
   - id: inventory-reserve-boundary
     type: bug
@@ -62,7 +67,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveExactAvailableStockSucceeds"
     p2p_set: default
     reference_patch_path: items/inventory-reserve-boundary/reference.patch
-    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
 
   - id: pricing-discount-rounding
     type: bug
@@ -75,7 +80,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount_RoundsDown"
     p2p_set: default
     reference_patch_path: items/pricing-discount-rounding/reference.patch
-    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
 
   - id: validate-sku-max-length
     type: task
@@ -88,7 +93,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsOverlongValue"
     p2p_set: default
     reference_patch_path: items/validate-sku-max-length/reference.patch
-    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
 
   - id: pricing-negative-subtotal
     type: task
@@ -101,7 +106,85 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount_RejectsNegativeSubtotal"
     p2p_set: default
     reference_patch_path: items/pricing-negative-subtotal/reference.patch
-    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+
+  - id: cart-remove-item-last-match
+    type: bug
+    prompt_path: items/cart-remove-item-last-match/prompt.md
+    seed_path: items/cart-remove-item-last-match/seed.yaml
+    f2p:
+      paths:
+        - items/cart-remove-item-last-match/testdata/f2p/remove_item_last_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_RemoveItemRemovesLastMatch"
+    p2p_set: default
+    reference_patch_path: items/cart-remove-item-last-match/reference.patch
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+
+  - id: pricing-rounded-unit-price-truncation
+    type: bug
+    prompt_path: items/pricing-rounded-unit-price-truncation/prompt.md
+    seed_path: items/pricing-rounded-unit-price-truncation/seed.yaml
+    f2p:
+      paths:
+        - items/pricing-rounded-unit-price-truncation/testdata/f2p/rounded_unit_price_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestRoundedUnitPrice_RoundsUpOnRemainder"
+    p2p_set: default
+    reference_patch_path: items/pricing-rounded-unit-price-truncation/reference.patch
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+
+  - id: inventory-adjust-rejects-negative-result
+    type: task
+    prompt_path: items/inventory-adjust-rejects-negative-result/prompt.md
+    seed_path: items/inventory-adjust-rejects-negative-result/seed.yaml
+    f2p:
+      paths:
+        - items/inventory-adjust-rejects-negative-result/testdata/f2p/adjust_negative_result_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_AdjustRejectsNegativeResult"
+    p2p_set: default
+    reference_patch_path: items/inventory-adjust-rejects-negative-result/reference.patch
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+
+  - id: pricing-apply-flat-fee-rejects-negative-fee
+    type: task
+    prompt_path: items/pricing-apply-flat-fee-rejects-negative-fee/prompt.md
+    seed_path: items/pricing-apply-flat-fee-rejects-negative-fee/seed.yaml
+    f2p:
+      paths:
+        - items/pricing-apply-flat-fee-rejects-negative-fee/testdata/f2p/apply_flat_fee_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyFlatFee_RejectsNegativeFee"
+    p2p_set: default
+    reference_patch_path: items/pricing-apply-flat-fee-rejects-negative-fee/reference.patch
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+
+  - id: inventory-reserve-rejects-negative-quantity
+    type: task
+    prompt_path: items/inventory-reserve-rejects-negative-quantity/prompt.md
+    seed_path: items/inventory-reserve-rejects-negative-quantity/seed.yaml
+    f2p:
+      paths:
+        - items/inventory-reserve-rejects-negative-quantity/testdata/f2p/reserve_negative_quantity_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveRejectsNegativeQuantity"
+    p2p_set: default
+    reference_patch_path: items/inventory-reserve-rejects-negative-quantity/reference.patch
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+
+  - id: validate-sku-min-length
+    type: task
+    prompt_path: items/validate-sku-min-length/prompt.md
+    seed_path: items/validate-sku-min-length/seed.yaml
+    f2p:
+      paths:
+        - items/validate-sku-min-length/testdata/f2p/sku_min_length_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsTooShortValue"
+    p2p_set: default
+    reference_patch_path: items/validate-sku-min-length/reference.patch
+    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
 
 # negative_items is populated by T-E40-F01-004 with exactly three
 # deliberately-broken candidates (rejection branches a/b/d). Empty here by

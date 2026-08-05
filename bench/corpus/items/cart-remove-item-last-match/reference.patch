@@ -1,0 +1,15 @@
+diff --git a/pkg/cart/cart.go b/pkg/cart/cart.go
+index aa930af..643fed7 100644
+--- a/pkg/cart/cart.go
++++ b/pkg/cart/cart.go
+@@ -55,8 +55,8 @@ func (c *Cart) ItemCount() int {
+ func (c *Cart) RemoveItem(sku string) bool {
+ 	removed := false
+ 	kept := make([]Item, 0, len(c.items))
+-	for i, it := range c.items {
+-		if !removed && it.SKU == sku && i != len(c.items)-1 {
++	for _, it := range c.items {
++		if !removed && it.SKU == sku {
+ 			removed = true
+ 			continue
+ 		}

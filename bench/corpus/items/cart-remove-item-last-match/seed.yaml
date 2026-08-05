@@ -1,0 +1,10 @@
+type: bug
+title: "Cart.RemoveItem fails to remove a matching item when it is the last line item"
+description: |
+  RemoveItem is supposed to remove the first line item matching a given SKU
+  and report true, or report false and leave the cart unchanged if no item
+  matches. Currently, removal works correctly for a match anywhere except
+  the cart's last line item; a match in the last position is incorrectly
+  left in place and RemoveItem reports false. Fix RemoveItem so it removes
+  the first matching item regardless of position.
+severity: medium

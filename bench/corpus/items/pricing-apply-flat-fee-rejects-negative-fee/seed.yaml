@@ -1,0 +1,7 @@
+type: task
+title: "Reject a negative fee in ApplyFlatFee"
+description: |
+  ApplyFlatFee adds a flat fee to a subtotal but does not validate that the
+  fee is non-negative, silently accepting a negative fee. Add validation
+  that returns a clear, descriptive error when feeCents is negative,
+  leaving behavior for non-negative fees unchanged.
