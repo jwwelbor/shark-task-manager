@@ -5,30 +5,35 @@
 # See bench/README.md (T-E40-F01-011) for the full field reference and the
 # diff-ledgers.sh method this manifest's ledgers are read against.
 #
-# fixture.base_sha is PROVISIONAL as of T-E40-F01-002/003 — T-E40-F01-004
-# freezes the final value once every admitted and negative item exists.
-# INVARIANT (until frozen): fixture.base_sha and every item's
-# fixture_base_sha field must be byte-identical to each other. Update ALL
-# occurrences together on every fixture-content commit — a partial update
-# (top-level advanced, one item's fixture_base_sha stale) is exactly the
-# drift TC-001's cross-encoding check (AC-013) exists to catch, and that
-# check does not land until T-E40-F01-010. Before committing a base_sha
-# change, grep this file for the old SHA and confirm zero remaining hits:
+# fixture.base_sha is FROZEN as of T-E40-F01-004: this is the fixture's
+# final commit for E40-F01. Every admitted item (T-E40-F01-002/003) and
+# every negative item (T-E40-F01-004, below) is evaluated against this
+# exact commit; no later E40-F01 task adds further fixture-repo commits
+# (task spec AC-T4). T-E40-F01-008's ledgers and T-E40-F01-010's
+# cross-encoding check (AC-013) are both generated/asserted against this
+# SHA.
+# INVARIANT: fixture.base_sha and every item's fixture_base_sha field must
+# be byte-identical to each other. Update ALL occurrences together on any
+# future fixture-content commit — a partial update (top-level advanced, one
+# item's fixture_base_sha stale) is exactly the drift TC-001's
+# cross-encoding check (AC-013) exists to catch. Before committing a
+# base_sha change, grep this file for the old SHA and confirm zero
+# remaining hits:
 #   grep -c '<old_sha>' bench/corpus/corpus.yaml   # must be 0
 
 schema_version: "1.0"
 
 fixture:
   submodule_path: bench/fixture-repo
-  base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+  base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
   toolchain:
-    # go.mod pins "go 1.25.0"; the local dev toolchain observed while
-    # authoring this task was go1.26.0. T-E40-F01-004/008 (freeze + build
-    # ledgers) must reconcile this field against whatever `go` actually
-    # builds the ledgers, per REQ-F-010 ("manifest MUST carry the same
-    # values" as the ledgers) — not resolved here, flagged for that
-    # hand-off.
-    go_version: "go1.25.0"
+    # go.mod pins "go 1.25.0" as the module's language version, but the
+    # toolchain that actually built bench/corpus/ledgers/<base_sha>/*.json
+    # (T-E40-F01-008, `go env GOVERSION` inside build-ledgers.sh) is
+    # go1.26.0. REQ-F-010 requires this field to carry the same value as
+    # the ledgers it is compared against, so it is pinned to the toolchain
+    # that produced them, not to go.mod's minimum language version.
+    go_version: "go1.26.0"
     golangci_lint_version: "v2.9.0"
     goos: "linux"
     goarch: "amd64"
@@ -39,8 +44,24 @@ fixture:
 # pass-to-pass set. Per REQ-F-003, the default set is the fixture's whole
 # suite; the item's own F2P test names are always subtracted from whatever
 # set it names, so no set needs to list them itself.
+#
+# default excludes pkg/inventory::TestStock_PermanentlyFailingRegressionProbe,
+# a deliberately wrong assertion committed to the fixture (T-E40-F01-004) so
+# every admitted item and the cart-new-cart-zero-subtotal /
+# validate-sku-uppercase-only negative items still see a green P2P set.
+# full_suite_no_exclusions is the same packages with no exclusions, named
+# only by the cart-add-item-rejects-negative-quantity negative item
+# (rejection branch (b)) so its P2P set is red at base for a reason
+# intrinsic to the set. This also exercises REQ-F-003's "every item MUST
+# name exactly one set that exists" against more than one set.
 p2p_sets:
   default:
+    packages:
+      - "./..."
+    run_selector: ""
+    exclude_tests:
+      - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_PermanentlyFailingRegressionProbe"
+  full_suite_no_exclusions:
     packages:
       - "./..."
     run_selector: ""
@@ -67,7 +88,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveExactAvailableStockSucceeds"
     p2p_set: default
     reference_patch_path: items/inventory-reserve-boundary/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: pricing-discount-rounding
     type: bug
@@ -80,7 +101,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount_RoundsDown"
     p2p_set: default
     reference_patch_path: items/pricing-discount-rounding/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: validate-sku-max-length
     type: task
@@ -93,7 +114,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsOverlongValue"
     p2p_set: default
     reference_patch_path: items/validate-sku-max-length/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: pricing-negative-subtotal
     type: task
@@ -106,7 +127,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount_RejectsNegativeSubtotal"
     p2p_set: default
     reference_patch_path: items/pricing-negative-subtotal/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: cart-remove-item-last-match
     type: bug
@@ -119,7 +140,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_RemoveItemRemovesLastMatch"
     p2p_set: default
     reference_patch_path: items/cart-remove-item-last-match/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: pricing-rounded-unit-price-truncation
     type: bug
@@ -132,7 +153,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestRoundedUnitPrice_RoundsUpOnRemainder"
     p2p_set: default
     reference_patch_path: items/pricing-rounded-unit-price-truncation/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: inventory-adjust-rejects-negative-result
     type: task
@@ -145,7 +166,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_AdjustRejectsNegativeResult"
     p2p_set: default
     reference_patch_path: items/inventory-adjust-rejects-negative-result/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: pricing-apply-flat-fee-rejects-negative-fee
     type: task
@@ -158,7 +179,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyFlatFee_RejectsNegativeFee"
     p2p_set: default
     reference_patch_path: items/pricing-apply-flat-fee-rejects-negative-fee/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: inventory-reserve-rejects-negative-quantity
     type: task
@@ -171,7 +192,7 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveRejectsNegativeQuantity"
     p2p_set: default
     reference_patch_path: items/inventory-reserve-rejects-negative-quantity/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
   - id: validate-sku-min-length
     type: task
@@ -184,9 +205,84 @@ items:
         - "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsTooShortValue"
     p2p_set: default
     reference_patch_path: items/validate-sku-min-length/reference.patch
-    fixture_base_sha: "1f91126244328a675ac06eb662431e546b85d1ab"
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
 
-# negative_items is populated by T-E40-F01-004 with exactly three
-# deliberately-broken candidates (rejection branches a/b/d). Empty here by
-# scope boundary — this task authors admitted items only.
-negative_items: []
+# negative_items is the committed rejection-path corpus (REQ-F-007):
+# exactly three deliberately-broken candidates, one per admission-gate
+# branch (a)/(b)/(d), stored apart from items[] and never emitted into any
+# run list bench/scripts/admit.sh (T-E40-F01-006) or E40-F02 consumes.
+# Branches (c) patch-apply-failure and (e) post-patch-P2P-failure need no
+# committed fixture per REQ-F-007 — they are built transiently at test time
+# by T-E40-F01-006's own tests from a copy of an admitted item's
+# reference.patch: (c) truncates the copy to a malformed diff so `git
+# apply` itself fails; (e) applies the copy unmodified and then makes one
+# additional test-time mutation to the copy that flips one P2P test from
+# pass to fail. See this task's completion note (`shark task note add`) for
+# the full hand-off to T-E40-F01-006.
+negative_items:
+  - id: cart-new-cart-zero-subtotal
+    type: bug
+    # Rejection branch (a): F2P already green at base. The prompt/seed
+    # describe a plausible-sounding but nonexistent defect — a fresh Cart
+    # from cart.New() already reports a zero Subtotal/ItemCount at the
+    # frozen base commit, so the held-back F2P oracle below passes
+    # immediately, without reference.patch. admit.sh MUST reject this
+    # candidate at check (a) — F2P-green-at-base — and MUST NOT admit it.
+    prompt_path: negative/cart-new-cart-zero-subtotal/prompt.md
+    seed_path: negative/cart-new-cart-zero-subtotal/seed.yaml
+    f2p:
+      paths:
+        - negative/cart-new-cart-zero-subtotal/testdata/f2p/new_cart_zero_subtotal_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_NewCartHasZeroSubtotal"
+    p2p_set: default
+    reference_patch_path: negative/cart-new-cart-zero-subtotal/reference.patch
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
+
+  - id: cart-add-item-rejects-negative-quantity
+    type: task
+    # Rejection branch (b): P2P already red at base. This item's own
+    # held-back F2P oracle (TestCart_AddItemRejectsNegativeQuantity) is an
+    # ordinary, well-formed red-at-base test for a genuine unfixed defect —
+    # AddItem does not reject a negative Quantity — so check (a) passes
+    # honestly. Separately, its manifest entry below names p2p_set
+    # full_suite_no_exclusions, a p2p_sets entry (unlike every other item's
+    # "default") that does NOT exclude
+    # pkg/inventory::TestStock_PermanentlyFailingRegressionProbe — a
+    # deliberately wrong assertion committed straight into the fixture's
+    # own pkg/inventory/inventory_test.go (this task's one fixture-repo
+    # commit) that is already failing at the base commit, independent of
+    # any candidate's F2P injection. admit.sh MUST reject this candidate at
+    # check (b) — P2P-red-at-base — because its own p2p_set already
+    # contains a failing test before any patch, and MUST NOT admit it.
+    prompt_path: negative/cart-add-item-rejects-negative-quantity/prompt.md
+    seed_path: negative/cart-add-item-rejects-negative-quantity/seed.yaml
+    f2p:
+      paths:
+        - negative/cart-add-item-rejects-negative-quantity/testdata/f2p/add_item_negative_quantity_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_AddItemRejectsNegativeQuantity"
+    p2p_set: full_suite_no_exclusions
+    reference_patch_path: negative/cart-add-item-rejects-negative-quantity/reference.patch
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"
+
+  - id: validate-sku-uppercase-only
+    type: task
+    # Rejection branch (d): reference patch leaves F2P red. The held-back
+    # F2P oracle correctly fails at base (SKU has no uppercase-only rule
+    # yet), but reference.patch is deliberately incomplete — it adds only a
+    # TODO comment above SKU and never adds the guard clause, so SKU's
+    # behavior is byte-identical before and after the patch and the F2P
+    # oracle is still red once it applies. admit.sh MUST reject this
+    # candidate at check (d) — F2P-still-red-post-patch — after passing
+    # checks (a)-(c), and MUST NOT admit it.
+    prompt_path: negative/validate-sku-uppercase-only/prompt.md
+    seed_path: negative/validate-sku-uppercase-only/seed.yaml
+    f2p:
+      paths:
+        - negative/validate-sku-uppercase-only/testdata/f2p/sku_uppercase_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsLowercaseLetters"
+    p2p_set: default
+    reference_patch_path: negative/validate-sku-uppercase-only/reference.patch
+    fixture_base_sha: "4c24986844b09122e2d516f9bc1ec470b155b441"

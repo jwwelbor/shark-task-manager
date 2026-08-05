@@ -1,0 +1,27 @@
+{
+  "entries": [
+    {
+      "action": "pass",
+      "identity": "pkg::A"
+    },
+    {
+      "action": "fail",
+      "identity": "pkg::B"
+    },
+    {
+      "action": "fail",
+      "identity": "pkg::D"
+    },
+    {
+      "action": "fail",
+      "identity": "pkg::E"
+    }
+  ],
+  "toolchain": {
+    "go_version": "go1.26.0",
+    "goarch": "amd64",
+    "golangci_config_sha256": "09ed800a017fc82f8ad89d274326168fec18d4ddeec58eccf9f624352200719c",
+    "golangci_lint_version": "v2.9.0",
+    "goos": "linux"
+  }
+}

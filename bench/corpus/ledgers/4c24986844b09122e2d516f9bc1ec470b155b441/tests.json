@@ -1,0 +1,99 @@
+{
+  "entries": [
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_ItemCountSumsQuantities"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_RemoveItemRemovesMatchNotAtEnd"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_RemoveItemReportsFalseWhenNoMatch"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/cart::TestCart_SubtotalSumsPriceTimesQuantity"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_AdjustAppliesPositiveDelta"
+    },
+    {
+      "action": "skip",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_BackorderReservation"
+    },
+    {
+      "action": "fail",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_PermanentlyFailingRegressionProbe"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReleaseRestoresAvailability"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveDecrementsAvailability"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveRejectsInsufficientStock"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount/fifty_percent_halves_the_subtotal"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount/hundred_percent_zeroes_the_subtotal"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount/negative_percent_is_rejected"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount/over_hundred_percent_is_rejected"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount/zero_percent_leaves_subtotal_unchanged"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyFlatFee_AddsFeeToSubtotal"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestRoundedUnitPrice_ExactDivisionNeedsNoRounding"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestTaxAmount"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestNonEmpty_AcceptsNonBlankInput"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestNonEmpty_RejectsBlankInput"
+    },
+    {
+      "action": "pass",
+      "identity": "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsWhitespace"
+    }
+  ],
+  "toolchain": {
+    "go_version": "go1.26.0",
+    "goarch": "amd64",
+    "golangci_config_sha256": "09ed800a017fc82f8ad89d274326168fec18d4ddeec58eccf9f624352200719c",
+    "golangci_lint_version": "v2.9.0",
+    "goos": "linux"
+  }
+}

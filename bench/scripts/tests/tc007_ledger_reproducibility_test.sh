@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# TC-007 (test-plan.md AC test matrix; T-E40-F01-008 task spec Test Cases).
+#
+# Exercises AC-006 / AC-T1 / AC-T4 (REQ-F-008, REQ-F-012): `build-ledgers.sh
+# <checkout_dir> <output_dir>`, invoked once per independently provisioned
+# checkout of the same base SHA, produces:
+#   - one tests.json entry per <package>::<test>, subtests as distinct
+#     slash-named entries, covering all three terminal actions
+#     (pass/fail/skip);
+#   - a byte-identical entry set for BOTH tests.json and lint.json across
+#     the two independently provisioned checkouts.
+#
+# "Independently provisioned" (Determinism boundary, test-plan.md) means
+# two separate checkout-fixture.sh invocations into two different temp
+# directories -- not one checkout read twice -- so a build-ledgers.sh that
+# memoized or re-read its own prior output instead of re-running `go test`
+# and `golangci-lint` could not pass this test by accident.
+#
+# Caller-Path Contract (test-plan.md TC-007): drives the real
+# build-ledgers.sh entrypoint, which itself shells out to real
+# `go test -json` and a real `golangci-lint` subprocess inside fresh
+# checkout-fixture.sh checkouts each round -- no subprocess output is
+# stubbed, no ledger is read back instead of regenerated.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BENCH_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+
+BUILD_LEDGERS_SCRIPT="$SCRIPTS_DIR/build-ledgers.sh"
+CHECKOUT_SCRIPT="$SCRIPTS_DIR/checkout-fixture.sh"
+CORPUS_YAML="$BENCH_DIR/corpus/corpus.yaml"
+
+fail() {
+	echo "TC-007 FAIL: $1" >&2
+	exit 1
+}
+
+[[ -x "$BUILD_LEDGERS_SCRIPT" ]] || fail "build-ledgers.sh missing or not executable"
+[[ -x "$CHECKOUT_SCRIPT" ]] || fail "checkout-fixture.sh missing or not executable"
+[[ -f "$CORPUS_YAML" ]] || fail "corpus.yaml missing: $CORPUS_YAML"
+
+WORKDIR="$(mktemp -d)"
+cleanup() { rm -rf "$WORKDIR"; }
+trap cleanup EXIT
+
+BASE_SHA="$(python3 - "$CORPUS_YAML" <<'PYEOF'
+import sys
+import yaml
+
+with open(sys.argv[1]) as f:
+    data = yaml.safe_load(f)
+print(data["fixture"]["base_sha"])
+PYEOF
+)"
+[[ -n "$BASE_SHA" ]] || fail "could not derive base_sha from $CORPUS_YAML"
+
+# run_round <round_dir> -> provisions its own fresh checkout-fixture.sh
+# checkout of $BASE_SHA and runs build-ledgers.sh against it. No state is
+# shared between rounds: each gets its own checkout directory and its own
+# output directory.
+run_round() {
+	local round_dir="$1"
+	local checkout_dir="$round_dir/checkout"
+	local output_dir="$round_dir/ledgers"
+
+	"$CHECKOUT_SCRIPT" "$BASE_SHA" "$checkout_dir" >/dev/null
+
+	set +e
+	"$BUILD_LEDGERS_SCRIPT" "$checkout_dir" "$output_dir" >"$round_dir/build.log" 2>&1
+	echo $? >"$round_dir/build.exit"
+	set -e
+}
+
+echo "TC-007: round 1 - independently provisioned checkout"
+run_round "$WORKDIR/round1"
+[[ "$(cat "$WORKDIR/round1/build.exit")" -eq 0 ]] || fail "build-ledgers.sh did not exit 0 in round 1: $(cat "$WORKDIR/round1/build.log")"
+
+echo "TC-007: round 2 - independently provisioned checkout"
+run_round "$WORKDIR/round2"
+[[ "$(cat "$WORKDIR/round2/build.exit")" -eq 0 ]] || fail "build-ledgers.sh did not exit 0 in round 2: $(cat "$WORKDIR/round2/build.log")"
+
+TESTS_1="$WORKDIR/round1/ledgers/tests.json"
+TESTS_2="$WORKDIR/round2/ledgers/tests.json"
+LINT_1="$WORKDIR/round1/ledgers/lint.json"
+LINT_2="$WORKDIR/round2/ledgers/lint.json"
+
+for f in "$TESTS_1" "$TESTS_2" "$LINT_1" "$LINT_2"; do
+	[[ -f "$f" ]] || fail "expected ledger file missing: $f"
+done
+
+echo "TC-007: comparing round 1 vs round 2 for byte-identical ledgers"
+
+if ! cmp -s "$TESTS_1" "$TESTS_2"; then
+	fail "tests.json round 1 and round 2 are not byte-identical: $(diff "$TESTS_1" "$TESTS_2" | head -20)"
+fi
+echo "TC-007: tests.json byte-identical across both rounds"
+
+if ! cmp -s "$LINT_1" "$LINT_2"; then
+	fail "lint.json round 1 and round 2 are not byte-identical: $(diff "$LINT_1" "$LINT_2" | head -20)"
+fi
+echo "TC-007: lint.json byte-identical across both rounds"
+
+# Elapsed must never appear in the written test ledger (AC-T1).
+if grep -q '"Elapsed"' "$TESTS_1"; then
+	fail "tests.json contains an 'Elapsed' field -- must be dropped before writing"
+fi
+
+python3 - "$TESTS_1" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+
+entries = data["entries"]
+if not entries:
+    sys.exit("TC-007 FAIL: tests.json has zero entries")
+
+identities = [e["identity"] for e in entries]
+if len(identities) != len(set(identities)):
+    sys.exit("TC-007 FAIL: tests.json has duplicate identities -- one entry per <package>::<test> required")
+
+actions = {e["action"] for e in entries}
+missing = {"pass", "fail", "skip"} - actions
+if missing:
+    sys.exit(f"TC-007 FAIL: tests.json is missing terminal action(s) {sorted(missing)} -- "
+              "fixture suite must exercise pass/fail/skip and the ledger must record all three")
+
+for e in entries:
+    if set(e.keys()) != {"identity", "action"}:
+        sys.exit(f"TC-007 FAIL: tests.json entry has unexpected fields (Elapsed must be dropped): {e}")
+
+# Subtests must appear as distinct slash-named entries under their parent,
+# not collapsed into the parent's identity (AC-006 negative case).
+subtest_identities = [i for i in identities if "::TestApplyDiscount/" in i]
+if len(subtest_identities) < 2:
+    sys.exit("TC-007 FAIL: expected TestApplyDiscount subtests as distinct slash-named "
+              f"entries, found {len(subtest_identities)}: {subtest_identities}")
+parent_identity = [i for i in identities if i.endswith("::TestApplyDiscount")]
+if not parent_identity:
+    sys.exit("TC-007 FAIL: expected a distinct entry for the TestApplyDiscount parent test itself")
+
+toolchain = data["toolchain"]
+required_toolchain_fields = {"go_version", "golangci_lint_version", "goos", "goarch", "golangci_config_sha256"}
+if set(toolchain.keys()) != required_toolchain_fields:
+    sys.exit(f"TC-007 FAIL: tests.json toolchain block has unexpected field set: {sorted(toolchain.keys())}")
+for field in required_toolchain_fields:
+    if not toolchain[field]:
+        sys.exit(f"TC-007 FAIL: tests.json toolchain.{field} is empty")
+
+print(f"TC-007: tests.json has {len(entries)} entries covering actions {sorted(actions)}")
+PYEOF
+
+python3 - "$LINT_1" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+
+toolchain = data["toolchain"]
+required_toolchain_fields = {"go_version", "golangci_lint_version", "goos", "goarch", "golangci_config_sha256"}
+if set(toolchain.keys()) != required_toolchain_fields:
+    sys.exit(f"TC-007 FAIL: lint.json toolchain block has unexpected field set: {sorted(toolchain.keys())}")
+for field in required_toolchain_fields:
+    if not toolchain[field]:
+        sys.exit(f"TC-007 FAIL: lint.json toolchain.{field} is empty")
+
+for e in data["entries"]:
+    if set(e.keys()) != {"from_linter", "path", "text"}:
+        sys.exit(f"TC-007 FAIL: lint.json entry excludes only line/column but has unexpected field set: {e}")
+    if "line" in e or "column" in e or "Line" in e or "Column" in e:
+        sys.exit(f"TC-007 FAIL: lint.json entry retains line/column, which must be excluded from identity: {e}")
+
+print(f"TC-007: lint.json has {len(data['entries'])} entries, toolchain block present")
+PYEOF
+
+echo "TC-007: PASS"

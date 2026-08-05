@@ -1,0 +1,18 @@
+diff --git a/pkg/cart/cart.go b/pkg/cart/cart.go
+index aa930af..97828f6 100644
+--- a/pkg/cart/cart.go
++++ b/pkg/cart/cart.go
+@@ -21,8 +21,12 @@ func New() *Cart {
+ 	return &Cart{}
+ }
+ 
+-// AddItem appends item to the cart.
++// AddItem appends item to the cart. Items with a negative Quantity are
++// silently ignored and never added.
+ func (c *Cart) AddItem(item Item) {
++	if item.Quantity < 0 {
++		return
++	}
+ 	c.items = append(c.items, item)
+ }
+ 

@@ -1,0 +1,7 @@
+type: task
+title: "Require SKU values to be uppercase-only"
+description: |
+  validate.SKU currently accepts SKUs containing lowercase letters. Add a
+  rule that rejects any value containing a lowercase letter, returning a
+  clear, descriptive error, while preserving the existing non-empty and
+  no-whitespace checks.

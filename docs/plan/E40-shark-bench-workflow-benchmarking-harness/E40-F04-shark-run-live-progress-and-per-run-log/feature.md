@@ -2,7 +2,7 @@
 feature_key: E40-F04-shark-run-live-progress-and-per-run-log
 epic_key: E40
 title: shark run live progress and per-run log
-description: shark run gives no liveness signal in the paths that matter: --json mode (used by all agent/skill/bench invocations) suppresses the heartbeat ticker and per-stage progress entirely and emits nothing until the final RunResult; the plain-mode heartbeat lacks stage/agent context; cascade child progress prints the parent key (run.go closure uses normalizedKey instead of update.EntityKey); and run events go only to the global shark.log, so there is no per-run log to tail. Add stderr progress events in --json mode (stdout stays a single clean RunResult), stage-scoped heartbeats (entity, stage status, agent/provider, stage elapsed + total elapsed), correct child-entity labeling, and a per-run log file under .shark/runs/<run_id>/ written unconditionally.
+description: shark run gives no liveness signal in the paths that matter: --json mode (used by all agent/skill/bench invocations) suppresses the heartbeat ticker and per-stage progress entirely and emits nothing until the final RunResult; the plain-mode heartbeat lacks stage/agent context; cascade child progress prints the parent key (run.go closure uses normalizedKey instead of update.EntityKey); and run events go only to the global shark.log, so there is no per-run log to tail. Add stderr progress events in --json mode (stdout stays a single clean RunResult), stage-scoped heartbeats (entity, stage status, agent/provider, stage elapsed + total elapsed), correct child-entity labeling, and a per-run log file under .shark/runs/<run_id>/ written unconditionally. Produces: I-03. Produces: X-08.
 ---
 
 # shark run live progress and per-run log

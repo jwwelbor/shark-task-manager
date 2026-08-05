@@ -1,0 +1,8 @@
+type: bug
+title: "New cart reports a non-zero subtotal before any item is added"
+description: |
+  Checkout QA reports that a freshly created Cart from cart.New() sometimes
+  shows a non-zero Subtotal() or ItemCount() before any item has been
+  added. Investigate and fix cart.New(), Cart.Subtotal(), and
+  Cart.ItemCount() so a brand-new, empty Cart always reports zero for both.
+severity: low
