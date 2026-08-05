@@ -15,7 +15,7 @@ description: Make feature boundaries independently demonstrable, declare intenti
 
 ## Epic
 
-- **Epic PRD**: [Epic](../../epic.md)
+- **Epic PRD**: [Epic](../epic.md)
 - **Related feature**: [E34-F02 Evidence-Based Demo Script Skill](../E34-F02-evidence-based-demo-script-skill/feature.md)
 
 ## Source evidence

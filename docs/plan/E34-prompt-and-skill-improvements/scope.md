@@ -1,65 +1,115 @@
-# Scope Boundaries
+# E34 Scope Boundaries
 
 **Epic**: [Prompt and Skill Improvements](./epic.md)
 
----
+## In scope
 
-## Overview
+1. Layered, reusable prompt and skill content for interaction tracking,
+   demonstration, Questions, defect classes, state planning, decisions, tiers,
+   and quality gates.
+2. A bounded GateResult contract and parent-owned persistence in Shark Rider
+   and the Go core runner.
+3. Canonical route-based workflow changes required for a final epic integration
+   review.
+4. Content manifest/index updates, prompt rendering, workflow validation,
+   parity tests, and full repository quality gates.
+5. Read-only override drift classification, explicit canonical baseline
+   provenance, upgrade summary integration, and acknowledgement metadata.
+6. A planned cross-repository WWGM adoption item that promotes reusable
+   behavior, retains local policy, removes stale overrides, adds local
+   safeguards, and reuses existing change records.
+7. Later E40 benchmark scenarios that do not block E34 delivery.
 
-What is explicitly NOT included in this epic.
+## Out of scope
 
----
+### Application-specific validation in Shark defaults
 
-## Out of Scope
+WWGM method-length scripts, test-selection scripts, Python environment setup,
+test database derivation, skip policy, coding standards, lint configuration,
+model selection, and workflow order remain in WWGM. Shark defines the generic
+evidence and guard contract only.
 
-**1. Refactoring all skills in `~/.claude/skills`**
-- **Why**: The skill extraction prompt (Feature Area 3) is a tool to enable extraction — it doesn't commit to extracting every skill in this epic
-- **Future Consideration**: Each skill extraction is a candidate for a future feature or sub-task
-- **Workaround**: Use the extraction prompt ad hoc as skills are touched during other epics
+### Automatic override modification
 
-**2. Changes to shark's orchestration engine or workflow JSON files**
-- **Why**: This epic improves the skill *content*, not the orchestration mechanism. Workflow JSON changes belong in the enhancements epic (E07).
-- **Future Consideration**: Once skills are layered, the workflow engine can be updated to route to workflow-layer files directly
+Shark does not merge, patch, delete, disable, or rewrite override files. It
+reports digests, baselines, and classifications so an operator can reconcile
+them explicitly.
 
-**3. Interaction contract enforcement for bug or change-card workflows**
-- **Why**: Cross-feature interaction tracking applies to feature-level decomposition. Bug and change-card workflows operate at a different granularity.
-- **Future Consideration**: Could be extended if complex bugs span multiple features
+### New defect, decision, or interaction storage
 
-**4. Automated skill linting or CI checks**
-- **Why**: Out of scope for this epic; enforcement is agent-driven via exit gates in skill workflows
-- **Future Consideration**: A lint pass that checks for workflow-layer content in skill files
+This epic reuses typed notes, existing entity workflows, I/X maps, Questions,
+and councils. It does not add a review-finding table, recurrence table,
+decision entity, or interaction database entity.
 
-**5. Writing new skills from scratch**
-- **Why**: This epic improves and layers existing skills, not creates new domains
-- **Future Consideration**: New skill domains are independent epics
+### Runtime application state machines
 
----
+Closed transition tables and state-aware tests are planning requirements. Shark
+does not generate or execute a project's domain state machine.
 
-## Alternative Approaches Considered But Rejected
+### Retry-count escalation
 
-**Alternative: Single "mega-skill" with inline workflow control**
-- **Description**: Keep skills monolithic but add clearer section markers
-- **Pros**: No structural changes to existing files
-- **Cons**: Doesn't enable orchestration routing; section markers drift without enforcement
-- **Decision Rationale**: Doesn't solve the composability problem
+No automatic architect dispatch at round three or owner hard-stop at round
+five is added. Escalation follows completed-sweep evidence and existing
+Question/council materiality.
 
-**Alternative: Extract interaction contracts into a separate shark entity type**
-- **Description**: Track `I-##` IDs as shark entities (like bugs or change-cards)
-- **Pros**: Full shark tracking, searchable
-- **Cons**: Heavyweight for design-time artefacts; markdown files suffice; adds DB schema complexity
-- **Decision Rationale**: Interaction maps as markdown files registered via `related-docs` is sufficient
+### Global owner-approval policy
 
----
+The final integration gate cannot silently supersede feature rejection, but
+E34 does not add or change a global `require_owner_approval` setting. WWGM's
+historical E04-F02 record is reconciled as project work.
 
-## Future Epic Candidates
+### QA for every STANDARD feature
 
-| Future Epic Concept | Priority | Dependency |
-|---|---|---|
-| Extract `specification-writing` skill into layered architecture | High | This epic (extraction prompt) |
-| Extract `quality` skill into layered architecture | High | This epic (extraction prompt) |
-| Shark orchestration engine routing to workflow-layer files | Medium | Skill extraction complete |
-| Automated skill layer validation (lint) | Low | Layered skills exist |
+STANDARD retains a combined code-review/QA gate and no standalone QA artifact.
+E34 aligns prompts with that route instead of adding a gate to satisfy stale
+artifact expectations.
 
----
+### Premature rules-routing infrastructure
 
-*See also*: [Requirements](./requirements.md)
+A generic `rules.py` selector and editor hook remain deferred until more than
+one project or measured context growth justifies them. WWGM receives a thin
+root `AGENTS.md` and local executable guards.
+
+### E40 as a delivery gate
+
+E40 is underway and can later measure these workflow changes. E34 does not wait
+for its corpus, harness, or baseline report.
+
+## Alternatives considered
+
+### Let gate workers write Shark notes directly
+
+Rejected because it violates parent-owned lifecycle authority and weakens
+session binding, ordering, and replay safety.
+
+### Extend free-form directive lines independently in Rider and core runner
+
+Rejected because it preserves two parsers and makes nested finding, sweep, and
+evidence validation brittle.
+
+### Escalate from review-round count
+
+Rejected because the count does not say whether a finding is new, recurring,
+already dispositioned, or outside an earlier sweep. Durable class evidence is
+the general signal.
+
+### Limit cross-entity state analysis to one foreign-key hop
+
+Rejected because consumers also cross services, APIs, events, files, CLI
+outputs, and epics. Interaction maps and production caller paths define the
+real boundary.
+
+### Automatically three-way merge overrides
+
+Rejected because Markdown templates and route-based YAML carry semantic policy
+that cannot be merged safely from text position alone.
+
+## Future candidates
+
+- Cross-project rules indexing after broader evidence
+- Automated benchmark comparison after E40 is ready
+- Aggregate analytics over structured GateResult notes after adoption data
+  demonstrates a concrete reporting need
+- Finer-grained overlay/patch override semantics as a separate design effort
+
+*See also*: [Requirements catalog](./requirements.md)

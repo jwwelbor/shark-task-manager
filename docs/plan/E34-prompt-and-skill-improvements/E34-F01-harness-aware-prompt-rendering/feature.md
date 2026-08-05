@@ -13,8 +13,8 @@ description: Record harness metadata at claim/dispatch time and use it to render
 
 ## Epic
 
-- **Epic PRD**: [Epic](../../epic.md)
-- **Epic Architecture**: [Architecture](../../architecture.md) _(if available)_
+- **Epic PRD**: [Epic](../epic.md)
+- **Epic Architecture**: [Architecture](../architecture.md)
 
 ---
 

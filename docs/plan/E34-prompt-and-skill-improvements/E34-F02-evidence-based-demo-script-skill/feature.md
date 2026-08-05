@@ -13,8 +13,8 @@ description: Provide a portable Shark Rider demo-script recipe that turns accept
 
 ## Epic
 
-- **Epic PRD**: [Epic](../../epic.md)
-- **Epic Architecture**: [Architecture](../../architecture.md) _(if available)_
+- **Epic PRD**: [Epic](../epic.md)
+- **Epic Architecture**: [Architecture](../architecture.md)
 
 ---
 

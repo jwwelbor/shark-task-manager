@@ -1,117 +1,226 @@
-# Requirements
+# E34 Requirements
 
 **Epic**: [Prompt and Skill Improvements](./epic.md)
 
----
-
 ## Overview
 
-Requirements for improving the skills and prompts in `~/.claude/skills` that drive shark's AI-orchestrated development workflows.
+This catalog defines the epic-level capabilities. Feature files contain the
+detailed field contracts, acceptance scenarios, implementation sequences, and
+verification plans.
 
----
+## Functional requirements
 
-## Functional Requirements
+### Area 1: Cross-feature interaction lifecycle — E34-F03
 
-### Feature Area 1: Cross-Feature Interaction Lifecycle Enforcement
+**REQ-F-001 — Interaction map creation**
 
-Applies to 8 skill files across `specification-writing` and `quality`. Detailed spec: `/home/jwwel/.claude/plans/review-dev-artifacts-interaction-prompt-logical-sketch.md`.
+- Multi-feature epics produce a registered interaction map with stable I-##
+  IDs, producers, consumers, shape sources, payloads, and styles.
 
-**REQ-F-001**: Interaction map creation in epic design
-- **Description**: When an epic decomposes into 3+ features, `write-epic.md` must produce `{{epicId}}-interaction-map.md` with stable `I-##` IDs
-- **Acceptance Criteria**:
-  - [ ] Interaction map produced automatically for multi-feature epics
-  - [ ] Table schema: `| ID | Producer feature | Consumer feature(s) | Shape | Payload | Style |`
-  - [ ] Each I-## shape resolves to a section in `architecture.md`
-  - [ ] File registered in shark via `shark related-docs add`
-  - [ ] Epic cannot advance to decomposition without the interaction map (exit gate)
+**REQ-F-002 — Interaction preservation**
 
-**REQ-F-002**: Interaction wire preservation in decomposition
-- **Description**: `decompose-epic.md` must read the interaction map and ensure every I-## has a producer and consumer feature
-- **Acceptance Criteria**:
-  - [ ] Each feature description names the I-## IDs it produces or consumes
-  - [ ] Orphan wires (no producer or no consumer) cause FAIL at exit gate
+- Decomposition, feature specifications, tasks, test planning, review, QA, and
+  UAT preserve every applicable I-## and one shared contract-test pointer.
 
-**REQ-F-003**: Cross-feature interactions section in feature PRDs
-- **Description**: `write-feature-prd.md` must include a "Cross-feature interactions" section for STANDARD/COMPLEX features under multi-feature epics
-- **Acceptance Criteria**:
-  - [ ] Produces and Consumes subsections present with I-## IDs verbatim from interaction map
-  - [ ] Shape source and contract test pointers included
-  - [ ] Producer and consumer reference the same shape source and contract test pointer
+**REQ-F-003 — Staged integration integrity**
 
-**REQ-F-004**: Contract test design in test planning
-- **Description**: `test-planning.md` must design at least one contract test per I-## declared in the feature spec
-- **Acceptance Criteria**:
-  - [ ] TC name and file path match the contract test pointer in the feature spec
-  - [ ] TC tagged with I-## ID
-  - [ ] Same TC referenced by both producer and consumer (no twin tests)
+- `live` remains the default. A predeclared `contract-only` edge records
+  counterpart identity/status, shared evidence, activation owner, closure key,
+  review basis, and demonstrability disposition without claiming live wiring.
 
-**REQ-F-005**: I-## propagation in task generation
-- **Description**: `write-task.md` must propagate I-## IDs from feature spec to task spec
-- **Acceptance Criteria**:
-  - [ ] Cross-feature interfaces use `I-##` (not `CONTRACT-###`)
-  - [ ] Task spec includes "Integration Contracts > Cross-feature" subsection
-  - [ ] Every I-## the feature declares appears in the task spec (exit gate)
+### Area 2: Evidence and workflow composition — E34-F01/F02
 
-**REQ-F-006**: Interaction-map closure gate in design validation
-- **Description**: `validate-design.md` must verify all I-## have producer and consumer features that name them
-- **Acceptance Criteria**:
-  - [ ] Closure table printed: one row per I-## with producer, consumer(s), shape source, status
-  - [ ] Orphan wires = FAIL
+**REQ-F-004 — Harness-aware rendering**
 
-**REQ-F-007**: I-## mirror check in task validation
-- **Description**: `validate-tasks.md` must verify I-## from feature spec appear in task specs with matching pointers
-- **Acceptance Criteria**:
-  - [ ] Producer and consumer task specs cite the same shape source
-  - [ ] Each I-## has exactly one contract test pointer on both sides
-  - [ ] Missing I-## in task specs = FAIL
+- Shark-owned prompt assembly remains compatible with supported providers and
+  does not duplicate project or harness context unnecessarily.
 
-**REQ-F-008**: Wiring coverage matrix in QA
-- **Description**: `qa-testing.md` must include I-## rows in coverage matrix alongside CONTRACT-### rows
-- **Acceptance Criteria**:
-  - [ ] Columns: producer/consumer, contract test path, test-exists, test-passes
-  - [ ] Missing or failing contract test = FAIL
-  - [ ] On FAIL: producer task reopened in shark, blocker note added to consuming feature
+**REQ-F-005 — Evidence-based demonstration**
 
-**REQ-F-009**: Interaction map template
-- **Description**: Create `skills/specification-writing/context/interaction-map-template.md`
-- **Acceptance Criteria**:
-  - [ ] Template includes table schema, I-## ID assignment rules, shape source linking convention, and example row
-  - [ ] Referenced by `write-epic.md`
+- Demo claims distinguish runnable evidence, staged readiness, owner decision,
+  open conditions, and demonstrability without granting acceptance authority.
 
----
+**REQ-F-006 — Layered workflow extraction**
 
-### Feature Area 2: Dev Artifacts Interaction Prompt
+- Reusable skill content can be separated into workflow, prompt, methodology,
+  and reference layers without breaking current consumers.
 
-**REQ-F-010**: Structured prompt for reviewing dev-artifacts interactions
-- **Description**: A reusable prompt that guides reviewing how interactions between dev-artifact sessions were structured, to surface patterns and anti-patterns
-- **Acceptance Criteria**:
-  - [ ] Prompt covers: what was produced, how the session was routed, what decisions were made
-  - [ ] Prompt can be applied iteratively across multiple dev-artifact directories
-  - [ ] Output format suitable for feeding into a skill improvement workflow
+### Area 3: Durable material Questions — E34-F04
 
----
+**REQ-F-007 — Shared Question adoption**
 
-### Feature Area 3: Skill Extraction Workflow
+- Decision-producing workflows create or reuse a linked Q### for material
+  unresolved items and use the existing Question/council routing boundary.
 
-**REQ-F-011**: Prompt for extracting workflow material from `~/.claude/skills` skills
-- **Description**: A reusable prompt (`dev-artifacts/planning/skill-workflow-extraction-prompt.md`) that guides refactoring any monolithic skill into workflow / prompt / methodology / references layers
-- **Status**: Already drafted — needs review and refinement
-- **Acceptance Criteria**:
-  - [ ] Covers 5-step analysis: inventory, classify, design structure, draft artifacts, identify hazards
-  - [ ] Classification matrix includes all 6 disposition types (KEEP IN SKILL, MOVE TO PROMPT, etc.)
-  - [ ] Output format produces actionable artifacts (workflow skeleton, prompt file list, refactored skill outline)
-  - [ ] Works for any skill in `~/.claude/skills`, not shark-specific
+**REQ-F-008 — Authoritative resolution**
 
----
+- Question resolution points to the narrowest authoritative decision record and
+  does not auto-close or silently block unrelated work.
 
-## Non-Functional Requirements
+### Area 4: Structured gate handoff — E34-F05
 
-**REQ-NF-001**: Backward compatibility
-- Changes to existing skill files must not break existing workflows that omit interaction maps (i.e., solo-feature epics and epics with fewer than 3 features proceed without modification)
+**REQ-F-009 — GateResult v1**
 
-**REQ-NF-002**: No hardcoded status names
-- Any shark CLI calls added to skills must use workflow-driven status names, not hardcoded strings
+- Configured quality gates return one versioned, bounded JSON envelope with an
+  opaque configured outcome, evidence, findings, kickbacks, and sweeps.
 
----
+**REQ-F-010 — Parent persistence before transition**
 
-*See also*: [Scope](./scope.md)
+- Rider and the core runner validate, bind, and idempotently persist the gate
+  result under the parent session before any lifecycle transition.
+
+**REQ-F-011 — Replay and failure safety**
+
+- Exact replay is safe, conflicting replay fails, partial persistence resumes
+  without duplication, and malformed structured output cannot advance work.
+
+**REQ-F-012 — Rider/core parity**
+
+- Shared contract fixtures prove both execution paths accept, reject, persist,
+  and route the same result shapes.
+
+### Area 5: Defect-class completeness — E34-F06
+
+**REQ-F-013 — Reusable class sweep**
+
+- One canonical workflow defines class identity, search scope, enumeration,
+  counts, instance evidence, dispositions, guard closure, and re-verification.
+
+**REQ-F-014 — Backward-looking rework**
+
+- Rework consults code, tests, decisions, tech debt, prior findings, specs, and
+  standards before choosing or diverging from a repair design.
+
+**REQ-F-015 — Evidence-based recurrence**
+
+- Recurrence requires a repeated fingerprint or a new same-class instance
+  inside a previously completed sweep; round number alone has no authority.
+
+**REQ-F-016 — Conflict routing**
+
+- Already-dispositioned findings remain visible without re-litigation absent
+  new evidence, while severity conflicts use existing Questions or councils.
+
+### Area 6: State and decision closure — E34-F07
+
+**REQ-F-017 — Closed lifecycle specification**
+
+- Behavior-bearing lifecycle and disposition fields have complete value and
+  transition tables including failure, recovery, terminal, and invalid paths.
+
+**REQ-F-018 — State-aware test design**
+
+- State-transition and cross-entity decision-table techniques are mandatory
+  when the behavior shape requires them.
+
+**REQ-F-019 — Consumer impact discovery**
+
+- Planning discovers consumers through I/X interactions and production caller
+  paths, re-verifies shipped ACs, and rejects unexplained shared-name drift.
+
+**REQ-F-020 — Decision propagation**
+
+- Material Question, tech-debt, change, ADR, state, or design decisions account
+  for every affected artifact and consumer through amendment or linked work.
+
+### Area 7: Tier-consistent and integrated gates — E34-F08
+
+**REQ-F-021 — Canonical tier matrix**
+
+- SIMPLE uses feature/research and inline task evidence; STANDARD uses
+  spec/test plan with merged review/QA; COMPLEX uses spec/test plan with
+  separate review and QA; all tiers receive final UAT.
+
+**REQ-F-022 — Executable evidence**
+
+- Gate evidence records exact project-declared commands, working directory,
+  exit status, runner counts, expected/unexpected skips, and bounded log
+  pointers. Prose totals alone do not pass.
+
+**REQ-F-023 — Epic integration review**
+
+- Canonical epic workflow includes a final integration step over the complete
+  accumulated diff and every completed/staged feature.
+
+**REQ-F-024 — Integrated closure**
+
+- Final review closes I/X interactions, I-03 sweeps/guards, I-04 impacts,
+  findings, decisions, standards, and predicted debt.
+
+**REQ-F-025 — Non-supersession authority**
+
+- Final review adds a gate and cannot silently convert a rejected required
+  feature gate into acceptance or introduce a global owner-approval setting.
+
+### Area 8: Override drift and adoption — E34-F09
+
+**REQ-F-026 — Drift status**
+
+- `shark admin overrides status [--json]` emits deterministic digest-based
+  current, upstream-changed, identical-redundant, orphaned, and
+  baseline-unknown classifications.
+
+**REQ-F-027 — Explicit baseline provenance**
+
+- Shark stores canonical digests without override content, never advances a
+  known baseline silently, and records a new baseline only after explicit
+  operator acknowledgement.
+
+**REQ-F-028 — Non-destructive upgrade visibility**
+
+- Upgrade and dry-run include drift counts but never merge, rewrite, delete,
+  disable, or expose override content.
+
+**REQ-F-029 — WWGM reconciliation**
+
+- One linked WWGM item promotes reusable content, removes stale overrides,
+  rebases retained workflow policy, adds local safeguards, accounts for the
+  E04-F02 record, and links or resolves CC-007/CC-008.
+
+### Area 9: Proposal traceability
+
+**REQ-F-030 — Complete accounting**
+
+- Every E04 proposal item and current WWGM override has an owner and
+  disposition in
+  [E34-review-quality-improvement-plan.md](./E34-review-quality-improvement-plan.md).
+
+**REQ-F-031 — Non-blocking benchmark follow-up**
+
+- E40 receives later scenarios for tier routing, evidence fidelity,
+  recurrence, integration closure, and override configurations without
+  becoming an E34 dependency.
+
+## Non-functional requirements
+
+**REQ-NF-001 — Workflow compatibility**
+
+- Existing non-gate output and projects without overrides remain compatible
+  through explicit migration behavior.
+
+**REQ-NF-002 — Workflow-driven status**
+
+- Parsers and prompts preserve configured outcome and target-status values; no
+  new hardcoded status route becomes authoritative.
+
+**REQ-NF-003 — Parent authority**
+
+- Dispatched workers never claim, advance, release, or force-set the entity
+  being driven by the parent loop.
+
+**REQ-NF-004 — Bounded and private evidence**
+
+- Structured fields and collections are bounded and reject credentials,
+  rendered prompts, transcripts, and unrestricted output.
+
+**REQ-NF-005 — Project neutrality**
+
+- Canonical policy does not require a specific language, test runner, database,
+  provider, model, or project-local command.
+
+**REQ-NF-006 — Deterministic verification**
+
+- JSON ordering/fields, workflow routes, prompt rendering, digests, replay, and
+  classification behavior are testable without an LLM policy simulator.
+
+*See also*: [Scope boundaries](./scope.md)

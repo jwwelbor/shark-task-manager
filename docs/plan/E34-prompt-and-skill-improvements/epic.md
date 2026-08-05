@@ -6,76 +6,138 @@ size: L
 
 # Prompt and Skill Improvements
 
-**Epic Key**: E34-prompt-and-skill-improvements
-
----
+**Epic Key**: E34
 
 ## Goal
 
 ### Problem
 
-The skills and prompts that power shark's AI-driven development workflows are monolithic: workflow control, step execution guidance, and reusable domain methodology are intermixed in single files. This makes skills hard to maintain, hard to reuse across contexts, and impossible to cleanly route through shark's orchestration layer. Additionally, skills lack mechanisms for enforcing cross-feature interaction contracts in multi-feature epics, leading to silent integration gaps that only surface during QA or post-merge.
+Shark's prompts and skills carry workflow policy across planning,
+implementation, review, and approval, but several contracts remain duplicated
+or implicit. Cross-feature handoffs can lose their producer/consumer shape,
+material Questions can remain in prose, gate workers can return findings the
+parent never persists, and replace-only project overrides can hide canonical
+improvements after an upgrade. These gaps make workflow behavior difficult to
+audit and allow the same defect class or stale decision to cycle through
+multiple review rounds.
 
 ### Solution
 
-Refactor skills and prompts in `~/.claude/skills` into a layered architecture with clear separation between workflow definitions, prompt files, and reusable skill content. In parallel, add cross-feature interaction lifecycle enforcement to the specification and quality workflows so that integration wires get stable IDs, shape sources, and contract tests traceable from epic design through QA.
+Build a layered, reusable workflow-quality system. Preserve the existing
+interaction-map, demo-evidence, staged-integration, and Question capabilities;
+add structured parent-owned gate results, defect-class completeness, state and
+decision propagation, tier-consistent executable gates, final epic integration
+review, and visible override drift. Keep canonical policy project-neutral and
+track project-specific adoption separately.
 
 ### Impact
 
-- Skills become composable: workflow layers can be reused by shark's orchestration engine without pulling in step-execution concerns
-- Cross-feature integration contracts are traceable from epic design to QA remediation
-- Dev artifact review interactions are captured in a structured prompt that can be refined and tracked
-- Future skill improvements can be made incrementally without touching unrelated workflow definitions
+- Cross-feature and cross-epic obligations remain traceable from planning to
+  integrated acceptance.
+- Material decisions and review findings become durable before lifecycle
+  transitions.
+- Rework repairs complete defect classes and leaves executable guards.
+- Every complexity tier is reviewed against the artifacts it actually creates
+  with tool-produced evidence.
+- Epic completion evaluates the full accumulated change without silently
+  overriding a failed feature gate.
+- Customized projects can see and reconcile override drift deliberately.
 
----
+## Business value
 
-## Business Value
+**Rating**: High
 
-**Rating**: Medium
+These workflows drive delivery across every Shark-managed project. Preventing
+one repeated rejection loop, stale decision, or masked canonical gate saves
+multiple agent sessions and restores confidence in the audit record. The value
+compounds because the capabilities are shared by every later epic and project.
 
-This epic improves the reliability and maintainability of the AI agent workflows that power all development in this project. Better layered skills reduce the cost of adding new workflow steps, catch integration failures earlier (preventing rework), and make shark's orchestration layer more capable of autonomous operation. The value is compounding — each skill improved multiplies across every epic that uses it.
+## Epic components
 
----
+- [Requirements catalog](./requirements.md)
+- [Scope boundaries](./scope.md)
+- [Workflow architecture](./architecture.md)
+- [Cross-feature interaction map](./E34-interaction-map.md)
+- [Review quality improvement plan](./E34-review-quality-improvement-plan.md)
 
-## Epic Components
+## Feature portfolio
 
-- **[Requirements](./requirements.md)** - Functional requirements by feature area
-- **[Scope Boundaries](./scope.md)** - Out of scope items and future considerations
+| Feature | Capability | State at this planning handoff |
+|---|---|---|
+| E34-F01 | Harness-aware prompt rendering | Existing feature |
+| E34-F02 | Evidence-based demo script | Existing feature |
+| E34-F03 | Deliverable decomposition and staged integration | Completed |
+| E34-F04 | Question adoption for design and decisions | Completed |
+| E34-F05 | Structured gate results and parent persistence | Draft, fully planned |
+| E34-F06 | Defect-class completeness and recurrence routing | Draft, fully planned |
+| E34-F07 | State-space planning and decision propagation | Draft, fully planned |
+| E34-F08 | Tier-consistent gates and final integration review | Draft, fully planned |
+| E34-F09 | Override drift visibility and WWGM reconciliation | Draft, fully planned |
 
----
+Live lifecycle status remains in Shark; this table describes only the planning
+packet and must not be used as a status cache.
 
-## Quick Reference
+## Success criteria
 
-**Primary Users**: AI agents and Claude Code sessions operating within shark workflows
+1. Every E34 cross-feature handoff has one stable I-## shape source, producer,
+   consumer set, and shared verification obligation.
+2. Every configured structured gate persists bounded evidence, findings,
+   sweeps, and kickbacks before transition in both Rider and core-runner paths.
+3. Recurrence is classified from durable completed-sweep evidence, and every
+   closed blocking class has a verified structural guard.
+4. Lifecycle changes use closed transition tables and every material decision
+   accounts for affected specs, tests, consumers, and ACs.
+5. SIMPLE, STANDARD, and COMPLEX fixtures render exactly the canonical artifact
+   and gate matrix and require tool-produced command results.
+6. Canonical epic workflow contains an additive final integration review over
+   the complete accumulated change.
+7. Override status deterministically classifies current, upstream-changed,
+   redundant, orphaned, and unknown-baseline paths without exposing content or
+   modifying overrides.
+8. Every E04 proposal item and WWGM override has a disposition in the linked
+   improvement plan and E34-F05–F09.
 
-**Key Features**:
-- Cross-feature interaction lifecycle enforcement across specification and quality skills
-- Structured prompt for reviewing dev-artifacts interaction patterns
-- Skill extraction workflow (layered architecture: workflow / prompt / methodology / references)
+## Constraints and assumptions
 
-**Success Criteria**:
-- Multi-feature epics automatically produce an interaction map with stable `I-##` IDs
-- Cross-feature wires traceable from epic design through QA without manual lookup
-- Any skill can be split into layers using the extraction prompt
+- Parent loops retain claim and lifecycle mutation authority.
+- Existing notes, workflow outcomes, Questions, councils, and interaction maps
+  are reused before adding storage or entity types.
+- Canonical content cannot assume one project language, test runner, database,
+  model provider, or local rule.
+- Project override reconciliation remains an explicit operator action.
+- E40 benchmark work is underway but is not a prerequisite; it becomes a later
+  validation consumer.
 
-**Timeline**: No fixed deadline — improvement-driven, features prioritized by workflow frequency
+## High-level acceptance scenarios
 
----
+**Structured failed gate**
 
-## Open Questions & Assumptions
+- Given a gate finds several instances of one defect class,
+- When the worker returns its bounded result,
+- Then the parent persists every finding and sweep, applies validated
+  kickbacks, and only then routes the configured failure outcome.
 
-1. **Which skills to extract first**
-   - **Context**: The extraction prompt targets `~/.claude/skills` broadly; we need to prioritize
-   - **Impact**: Determines feature decomposition order
-   - **Recommendation**: Start with `specification-writing` and `quality` — highest workflow frequency
+**Integrated epic candidate**
 
-2. **Interaction map threshold (2 vs 3+ features)**
-   - **Context**: The cross-feature interaction plan specifies "3+ features" as the trigger for requiring an interaction map
-   - **Impact**: Whether enforcement applies to smaller epics
-   - **Recommendation**: Keep the 3+ threshold; 2-feature epics rarely need formal interaction tracking
+- Given all required feature gates pass and the candidate contains changes
+  from several features,
+- When epic integration review runs,
+- Then it evaluates the full accumulated diff and closes interactions,
+  decisions, findings, guards, standards, and predicted debt.
 
-*NOTE: All items in this section MUST be reviewed interactively with the user before proceeding.*
+**Customized project upgrade**
 
----
+- Given a project carries replace-only overrides and the canonical bundle
+  changes,
+- When an operator runs upgrade dry-run or override status,
+- Then Shark reports digest-based drift classifications and leaves every
+  override untouched.
 
-*Last Updated*: 2026-06-22
+## Open questions and assumptions
+
+All epic-level planning decisions for E34-F05 through E34-F09 are resolved.
+No open Question is required before implementation. The historical WWGM
+E04-F02 lifecycle inconsistency is explicitly assigned to the later WWGM
+reconciliation item; it is not treated as a global approval-policy decision.
+
+*Last Updated*: 2026-08-05
