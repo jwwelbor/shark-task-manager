@@ -344,8 +344,8 @@ type stageOutcome struct {
 //  1. Reads entity's current status via GetNextStatus.
 //  2. Returns immediately if entity is already in a terminal status.
 //  3. Gets orchestrator action for the current status via ActionSvc.
-//  4. Handles the action type: spawn_agent, advance_status, pause/wait_for_triage/check_or_resume, archive.
-//  5. For spawn_agent: dispatches agent, gates advancement on exit code 0.
+//  4. Handles the action type: spawn_agent/check_or_resume, advance_status, pause/wait_for_triage, archive.
+//  5. For spawn_agent/check_or_resume: dispatches agent, gates advancement on exit code 0.
 //  6. After successful advance, checks for terminal and loops.
 //  7. Stops on non-zero exit, missing dispatcher, or context cancellation.
 func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*RunResult, error) {
@@ -493,7 +493,7 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		// Step 6: Route by action type.
 		var outcome stageOutcome
 		switch action.Action {
-		case config.ActionPause, config.ActionWaitForTriage, config.ActionCheckOrResume:
+		case config.ActionPause, config.ActionWaitForTriage:
 			result.FinalStatus = currentStatus
 			result.Outcome = "paused"
 			result.TotalDuration = time.Since(startTime)
@@ -514,7 +514,7 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		case config.ActionAdvanceStatus:
 			outcome = c.handleAdvanceStatus(ctx, key, currentStatus, nextInfo, action, opts, result, stageStart, startTime)
 
-		case config.ActionSpawnAgent:
+		case config.ActionSpawnAgent, config.ActionCheckOrResume:
 			outcome = c.handleSpawnAgent(ctx, key, currentStatus, nextInfo, action, vars, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
 
 		case config.ActionCascade:
