@@ -1263,6 +1263,69 @@ func TestRunController_SpawnAgentUsesRecommendedOutcome(t *testing.T) {
 	}
 }
 
+// TestRunController_CheckOrResumeDispatchesAndTransitions verifies that a
+// populated check_or_resume action follows the normal agent-dispatch path.
+// Tech-debt uses this action at in_progress, so treating it as a pause would
+// leave the entity stalled without invoking its declared developer agent.
+func TestRunController_CheckOrResumeDispatchesAndTransitions(t *testing.T) {
+	var dispatched DispatchInput
+	var transitionedTo string
+
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "in_progress",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+				Outcomes: map[string]string{"pass": "completed"},
+			}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionedTo = target
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(_ context.Context, status string, _ map[string]string) (*config.PopulatedAction, error) {
+			if status != "in_progress" {
+				t.Fatalf("GetStatusActionPopulated() status = %q, want in_progress", status)
+			}
+			return &config.PopulatedAction{
+				Action:      config.ActionCheckOrResume,
+				AgentType:   "developer",
+				Provider:    "anthropic",
+				Model:       "sonnet",
+				Instruction: "Resolve the tech debt",
+			}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(_ context.Context, input DispatchInput) (*DispatchResult, error) {
+			dispatched = input
+			return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: pass"}, nil
+		}},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "TD-001", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Outcome == "paused" {
+		t.Fatalf("Run() outcome = paused, want dispatched check_or_resume action")
+	}
+	if result.Outcome != "completed" {
+		t.Fatalf("Run() outcome = %q, want completed", result.Outcome)
+	}
+	if dispatched.Instruction != "Resolve the tech debt" || dispatched.AgentType != "developer" || dispatched.Model != "sonnet" {
+		t.Fatalf("DispatchInput = %+v, want populated developer dispatch", dispatched)
+	}
+	if transitionedTo != "completed" {
+		t.Fatalf("TransitionStatus() target = %q, want completed", transitionedTo)
+	}
+}
+
 // TestRunController_SpawnAgentDispatchesAssembledPrompt verifies the run loop
 // does not dispatch PopulatedAction.Instruction directly when a prompt
 // assembler is configured. The CLI injects the same final assembly helper used
