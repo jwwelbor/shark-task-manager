@@ -1,0 +1,109 @@
+# shark-bench benchmark corpus manifest (E40-F01, I-01).
+#
+# Schema is pinned by this file's schema_version and validated by
+# tests/contracts/e40_i01_corpus_contract_test.go#TC-001 (T-E40-F01-010).
+# See bench/README.md (T-E40-F01-011) for the full field reference and the
+# diff-ledgers.sh method this manifest's ledgers are read against.
+#
+# fixture.base_sha is PROVISIONAL as of T-E40-F01-002/003 — T-E40-F01-004
+# freezes the final value once every admitted and negative item exists.
+# INVARIANT (until frozen): fixture.base_sha and every item's
+# fixture_base_sha field must be byte-identical to each other. Update ALL
+# occurrences together on every fixture-content commit — a partial update
+# (top-level advanced, one item's fixture_base_sha stale) is exactly the
+# drift TC-001's cross-encoding check (AC-013) exists to catch, and that
+# check does not land until T-E40-F01-010. Before committing a base_sha
+# change, grep this file for the old SHA and confirm zero remaining hits:
+#   grep -c '<old_sha>' bench/corpus/corpus.yaml   # must be 0
+
+schema_version: "1.0"
+
+fixture:
+  submodule_path: bench/fixture-repo
+  base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+  toolchain:
+    # go.mod pins "go 1.25.0"; the local dev toolchain observed while
+    # authoring this task was go1.26.0. T-E40-F01-004/008 (freeze + build
+    # ledgers) must reconcile this field against whatever `go` actually
+    # builds the ledgers, per REQ-F-010 ("manifest MUST carry the same
+    # values" as the ledgers) — not resolved here, flagged for that
+    # hand-off.
+    go_version: "go1.25.0"
+    golangci_lint_version: "v2.9.0"
+    goos: "linux"
+    goarch: "amd64"
+    golangci_config_sha256: "09ed800a017fc82f8ad89d274326168fec18d4ddeec58eccf9f624352200719c"
+
+# p2p_sets maps a p2p_set identifier (named by each item below) to the
+# package patterns and any `-run` selector/exclusions that define its
+# pass-to-pass set. Per REQ-F-003, the default set is the fixture's whole
+# suite; the item's own F2P test names are always subtracted from whatever
+# set it names, so no set needs to list them itself.
+p2p_sets:
+  default:
+    packages:
+      - "./..."
+    run_selector: ""
+    exclude_tests: []
+
+# items are the admitted corpus (REQ-F-006: >=10 required in total). This
+# first wave (T-E40-F01-002) establishes the item-authoring pattern with 4
+# items; T-E40-F01-003 completes the set to >=10, including a bug item whose
+# F2P oracle is an author-written repro test.
+items:
+  - id: inventory-reserve-boundary
+    type: bug
+    prompt_path: items/inventory-reserve-boundary/prompt.md
+    seed_path: items/inventory-reserve-boundary/seed.yaml
+    f2p:
+      paths:
+        - items/inventory-reserve-boundary/testdata/f2p/reserve_exact_boundary_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/inventory::TestStock_ReserveExactAvailableStockSucceeds"
+    p2p_set: default
+    reference_patch_path: items/inventory-reserve-boundary/reference.patch
+    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+
+  - id: pricing-discount-rounding
+    type: bug
+    prompt_path: items/pricing-discount-rounding/prompt.md
+    seed_path: items/pricing-discount-rounding/seed.yaml
+    f2p:
+      paths:
+        - items/pricing-discount-rounding/testdata/f2p/discount_rounding_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount_RoundsDown"
+    p2p_set: default
+    reference_patch_path: items/pricing-discount-rounding/reference.patch
+    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+
+  - id: validate-sku-max-length
+    type: task
+    prompt_path: items/validate-sku-max-length/prompt.md
+    seed_path: items/validate-sku-max-length/seed.yaml
+    f2p:
+      paths:
+        - items/validate-sku-max-length/testdata/f2p/sku_length_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/validate::TestSKU_RejectsOverlongValue"
+    p2p_set: default
+    reference_patch_path: items/validate-sku-max-length/reference.patch
+    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+
+  - id: pricing-negative-subtotal
+    type: task
+    prompt_path: items/pricing-negative-subtotal/prompt.md
+    seed_path: items/pricing-negative-subtotal/seed.yaml
+    f2p:
+      paths:
+        - items/pricing-negative-subtotal/testdata/f2p/discount_negative_subtotal_test.go
+      test_names:
+        - "github.com/jwwelbor/shark-bench-fixture/pkg/pricing::TestApplyDiscount_RejectsNegativeSubtotal"
+    p2p_set: default
+    reference_patch_path: items/pricing-negative-subtotal/reference.patch
+    fixture_base_sha: "5892f4bf989830272a8d314b1f78c4a10aee3d2a"
+
+# negative_items is populated by T-E40-F01-004 with exactly three
+# deliberately-broken candidates (rejection branches a/b/d). Empty here by
+# scope boundary — this task authors admitted items only.
+negative_items: []

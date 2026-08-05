@@ -1,0 +1,7 @@
+type: task
+title: "Reject a negative subtotal in ApplyDiscount"
+description: |
+  ApplyDiscount does not validate that subtotalCents is non-negative,
+  silently producing a negative "discounted" total for negative input. Add
+  validation that returns a clear, descriptive error when subtotalCents is
+  negative, leaving behavior for non-negative subtotals unchanged.

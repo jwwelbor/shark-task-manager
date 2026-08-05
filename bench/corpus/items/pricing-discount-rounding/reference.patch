@@ -1,0 +1,13 @@
+diff --git a/pkg/pricing/pricing.go b/pkg/pricing/pricing.go
+index a363548..90caaf0 100644
+--- a/pkg/pricing/pricing.go
++++ b/pkg/pricing/pricing.go
+@@ -13,7 +13,7 @@ func ApplyDiscount(subtotalCents int, percent int) (int, error) {
+ 	if percent < 0 || percent > 100 {
+ 		return 0, ErrInvalidDiscount
+ 	}
+-	discount := (subtotalCents*percent + 50) / 100
++	discount := subtotalCents * percent / 100
+ 	return subtotalCents - discount, nil
+ }
+ 

@@ -1,0 +1,20 @@
+diff --git a/pkg/pricing/pricing.go b/pkg/pricing/pricing.go
+index a363548..2038eef 100644
+--- a/pkg/pricing/pricing.go
++++ b/pkg/pricing/pricing.go
+@@ -7,9 +7,15 @@ import "errors"
+ // ErrInvalidDiscount is returned when a discount percentage is out of range.
+ var ErrInvalidDiscount = errors.New("discount percent must be between 0 and 100")
+ 
++// ErrNegativeSubtotal is returned when subtotalCents is negative.
++var ErrNegativeSubtotal = errors.New("subtotal must not be negative")
++
+ // ApplyDiscount reduces subtotalCents by percent (0-100 inclusive) and
+ // returns the discounted total, in cents, rounded down.
+ func ApplyDiscount(subtotalCents int, percent int) (int, error) {
++	if subtotalCents < 0 {
++		return 0, ErrNegativeSubtotal
++	}
+ 	if percent < 0 || percent > 100 {
+ 		return 0, ErrInvalidDiscount
+ 	}

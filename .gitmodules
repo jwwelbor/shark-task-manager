@@ -1,0 +1,3 @@
+[submodule "bench/fixture-repo"]
+	path = bench/fixture-repo
+	url = /home/jwwel/projects/shark-bench-fixture

@@ -1,0 +1,9 @@
+type: bug
+title: "Stock.Reserve rejects a reservation exactly equal to available stock"
+description: |
+  Reserving a quantity exactly equal to a SKU's available stock incorrectly
+  fails with ErrInsufficientStock. Reserving any amount strictly less than
+  the available stock works correctly; only the exact-match boundary is
+  affected. Fix Stock.Reserve so a reservation equal to the available
+  quantity succeeds.
+severity: medium
