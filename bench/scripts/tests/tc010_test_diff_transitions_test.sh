@@ -95,4 +95,30 @@ print("TC-010: regressions={'pkg::B'}, removed={'pkg::C'}, "
       "D (fail->fail) and E (skip->fail) correctly produce no entry")
 PYEOF
 
+# --- Regression: structurally incomplete ledger must fail, not "0 result" ---
+# UAT round 2 (UAT-004, T-E40-F01-009 rejection): diff-ledgers.sh used to
+# read `base.get("entries", [])`, so a ledger-shaped document with no
+# "entries" array at all silently scored as zero regressions/zero removed
+# instead of failing loudly -- hiding real test regressions behind a
+# truncated or malformed post-run ledger. testdata/test/
+# malformed_missing_entries.json is a committed, hand-authored ledger
+# carrying a valid "toolchain" block but no "entries" key.
+check_rejected() {
+	local ledger_file="$1" label="$2"
+	local ledger="$TESTDATA_DIR/$ledger_file"
+	[[ -f "$ledger" ]] || fail "$label: fixture missing: $ledger"
+
+	set +e
+	local out
+	out="$("$DIFF_SCRIPT" --kind=test --base="$ledger" --post="$BASE" 2>&1)"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "$label: diff-ledgers.sh exited 0 against a structurally invalid ledger -- must fail loudly instead of scoring it as empty/clean: $out"
+	echo "$out" | grep -qi "entries" || fail "$label: failure message does not name the missing/malformed 'entries' field: $out"
+	echo "TC-010: $label correctly rejected (exit $code): $out"
+}
+
+check_rejected "malformed_missing_entries.json" "regression: ledger missing 'entries' array"
+check_rejected "malformed_bad_entry.json" "regression: ledger entry missing required field"
+
 echo "TC-010: PASS"

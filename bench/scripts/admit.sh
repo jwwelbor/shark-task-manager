@@ -47,6 +47,24 @@
 # same base SHA produce byte-identical output (test-plan.md Determinism
 # boundary; tests/tc006_admit_reproducibility_test.sh).
 #
+# Evidence-completeness guard (UAT round 2, T-E40-F01-006 rejection):
+# `go test -json` reports a package-wide compile failure via a
+# "FailedBuild" marker, but a package that BUILDS fine and then dies at
+# RUNTIME -- a panic outside a test body, TestMain calling os.Exit, an
+# init() crash -- emits only a package-level Action:fail summary with no
+# "Test" field and no "FailedBuild" marker, and none of that package's
+# tests ever appear as per-test terminal events. Reading that package's
+# absence from the per-test results as "no failing tests -> P2P green"
+# lets a reference patch silently break an unrelated package and still
+# admit the candidate. run_go_tests() below therefore reconciles every
+# package-level "fail" against per-test evidence for that package: no
+# explaining per-test fail (and no FailedBuild) makes the whole P2P check
+# a hard "not green" for that phase (P2P-red-at-base /
+# P2P-red-post-patch), the same way an actual build failure already does.
+# The intentional TestStock_PermanentlyFailingRegressionProbe is
+# unaffected -- it fails with a real per-test terminal event, so it is
+# never classified as unexplained.
+#
 # Offline hardening (T-E40-F01-007, REQ-NF-005): before evaluating any
 # candidate (--item or full-set), this script verifies the pinned
 # `golangci-lint` binary named by corpus.yaml's
@@ -197,9 +215,31 @@ def read_module_path(checkout_dir):
 
 def run_go_tests(checkout_dir, packages, run_selector):
     """Runs `go test -json` for packages in checkout_dir and returns
-    (results, build_failed_pkgs) where results maps "<pkg>::<test>" to its
-    terminal action (pass/fail/skip) and build_failed_pkgs is the set of
-    package import paths that failed to compile."""
+    (results, build_failed_pkgs, unexplained_failed_pkgs).
+
+    results maps "<pkg>::<test>" to its terminal action (pass/fail/skip).
+    build_failed_pkgs is the set of package import paths that failed to
+    *compile* (Action:fail with FailedBuild set).
+
+    unexplained_failed_pkgs (UAT round 2, defect class: execution results
+    without complete terminal evidence accepted as passing or empty
+    domain outcomes) is the set of package import paths whose
+    package-level terminal action is "fail" -- the summary line `go test`
+    always emits per package, success or failure -- but that carry
+    neither a FailedBuild marker nor any per-test "fail" entry of their
+    own. A package dies this way when something outside any individual
+    test's pass/fail reporting kills the whole `go test` process for that
+    package: a panic outside a test body, TestMain calling os.Exit, an
+    init() crash. `go test -json` then emits only package-level
+    start/output/fail events -- no "Test" field anywhere -- so every test
+    that package would have run is silently absent from `results`,
+    indistinguishable at the per-test level from "this package has no
+    tests" or "every test in it passed". Callers MUST treat a package in
+    this set as unresolved evidence, not as a pass: folding it into
+    p2p_green's build-failure-style hard "not green" (see evaluate())
+    keeps the intentional TestStock_PermanentlyFailingRegressionProbe
+    working exactly as before, since that probe reports its failure via a
+    real per-test "fail" event and is therefore never in this set."""
     cmd = ["go", "test", "-json"]
     if run_selector:
         cmd += ["-run", run_selector]
@@ -208,6 +248,7 @@ def run_go_tests(checkout_dir, packages, run_selector):
 
     results = {}
     build_failed_pkgs = set()
+    package_level_action = {}
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -221,14 +262,30 @@ def run_go_tests(checkout_dir, packages, run_selector):
         pkg = ev.get("Package")
         if test and action in ("pass", "fail", "skip"):
             results[f"{pkg}::{test}"] = action
-        elif action == "fail" and not test and ev.get("FailedBuild") and pkg:
-            build_failed_pkgs.add(pkg)
-    return results, build_failed_pkgs
+            continue
+        if not test and pkg and action in ("pass", "fail", "skip"):
+            if action == "fail" and ev.get("FailedBuild"):
+                build_failed_pkgs.add(pkg)
+            else:
+                package_level_action[pkg] = action
+
+    unexplained_failed_pkgs = set()
+    for pkg, action in package_level_action.items():
+        if action != "fail":
+            continue
+        explained = any(
+            test_id.startswith(f"{pkg}::") and outcome == "fail"
+            for test_id, outcome in results.items()
+        )
+        if not explained:
+            unexplained_failed_pkgs.add(pkg)
+
+    return results, build_failed_pkgs, unexplained_failed_pkgs
 
 
-def test_status(results, build_failed_pkgs, test_id):
+def test_status(results, build_failed_pkgs, unexplained_failed_pkgs, test_id):
     pkg = test_id.split("::", 1)[0]
-    if pkg in build_failed_pkgs:
+    if pkg in build_failed_pkgs or pkg in unexplained_failed_pkgs:
         return "fail"
     return results.get(test_id, "missing")
 
@@ -277,6 +334,7 @@ def evaluate(item, patch_path):
         "p2p_green_post_patch": None,
     }
     failing_check = None
+    unexplained_failed_packages = []
 
     parent = tempfile.mkdtemp(prefix="admit-")
     try:
@@ -295,10 +353,13 @@ def evaluate(item, patch_path):
 
         copy_f2p_files(item, checkout_dir)
 
-        base_results, base_build_failed = run_go_tests(checkout_dir, packages, run_selector)
+        base_results, base_build_failed, base_unexplained_failed = run_go_tests(
+            checkout_dir, packages, run_selector
+        )
 
         f2p_red_at_base = all(
-            test_status(base_results, base_build_failed, t) == "fail" for t in f2p_ids
+            test_status(base_results, base_build_failed, base_unexplained_failed, t) == "fail"
+            for t in f2p_ids
         )
         checks["f2p_red_at_base"] = f2p_red_at_base
         if not f2p_red_at_base:
@@ -306,12 +367,25 @@ def evaluate(item, patch_path):
 
         if failing_check is None:
             p2p_ids = [t for t in base_results if t not in exclude_from_p2p]
-            p2p_green_at_base = not base_build_failed and all(
-                test_status(base_results, base_build_failed, t) != "fail" for t in p2p_ids
+            # A package whose evidence is incomplete (base_unexplained_failed)
+            # is treated exactly like a build failure -- a hard "not green"
+            # for the whole P2P check, not something test_status() could
+            # ever discover on its own, since a wholesale-dead package
+            # contributes zero entries to base_results/p2p_ids in the first
+            # place (UAT round 2, UAT-002).
+            p2p_green_at_base = (
+                not base_build_failed
+                and not base_unexplained_failed
+                and all(
+                    test_status(base_results, base_build_failed, base_unexplained_failed, t) != "fail"
+                    for t in p2p_ids
+                )
             )
             checks["p2p_green_at_base"] = p2p_green_at_base
             if not p2p_green_at_base:
                 failing_check = FAIL_P2P_RED_AT_BASE
+                if base_unexplained_failed:
+                    unexplained_failed_packages = sorted(base_unexplained_failed)
 
         if failing_check is None:
             apply_proc = subprocess.run(
@@ -326,10 +400,13 @@ def evaluate(item, patch_path):
                 failing_check = FAIL_PATCH_APPLY
 
         if failing_check is None:
-            post_results, post_build_failed = run_go_tests(checkout_dir, packages, run_selector)
+            post_results, post_build_failed, post_unexplained_failed = run_go_tests(
+                checkout_dir, packages, run_selector
+            )
 
             f2p_green_post_patch = all(
-                test_status(post_results, post_build_failed, t) == "pass" for t in f2p_ids
+                test_status(post_results, post_build_failed, post_unexplained_failed, t) == "pass"
+                for t in f2p_ids
             )
             checks["f2p_green_post_patch"] = f2p_green_post_patch
             if not f2p_green_post_patch:
@@ -337,13 +414,19 @@ def evaluate(item, patch_path):
 
             if failing_check is None:
                 p2p_ids_post = [t for t in post_results if t not in exclude_from_p2p]
-                p2p_green_post_patch = not post_build_failed and all(
-                    test_status(post_results, post_build_failed, t) != "fail"
-                    for t in p2p_ids_post
+                p2p_green_post_patch = (
+                    not post_build_failed
+                    and not post_unexplained_failed
+                    and all(
+                        test_status(post_results, post_build_failed, post_unexplained_failed, t) != "fail"
+                        for t in p2p_ids_post
+                    )
                 )
                 checks["p2p_green_post_patch"] = p2p_green_post_patch
                 if not p2p_green_post_patch:
                     failing_check = FAIL_P2P_RED_POST_PATCH
+                    if post_unexplained_failed:
+                        unexplained_failed_packages = sorted(post_unexplained_failed)
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 
@@ -357,6 +440,7 @@ def evaluate(item, patch_path):
         "failing_check": failing_check,
         "checks": checks,
         "repro_confirmed": repro_confirmed,
+        "unexplained_failed_packages": unexplained_failed_packages,
     }
 
 

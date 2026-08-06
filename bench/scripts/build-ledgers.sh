@@ -52,6 +52,13 @@
 #     a hard error naming the package, instead of silently omitting that
 #     package's tests from the ledger, which a set-based reader would
 #     otherwise indistinguishably read as "package removed";
+#   - the test producer ALSO treats a package-level fail with no
+#     FailedBuild and no explaining per-test fail (a runtime death: a
+#     panic outside a test body, TestMain calling os.Exit, an init()
+#     crash -- the package builds fine but `go test -json` emits only
+#     package-level start/output/fail events, no "Test" field anywhere)
+#     the same way: a hard error naming the package (UAT round 2), not a
+#     silent omission indistinguishable from "package removed";
 #   - both producers already require a parseable event before writing
 #     anything -- see "no test entries observed" and the lint-report check
 #     below.
@@ -155,9 +162,25 @@ toolchain = {
 # subprocess transport/build failure silently becomes an empty domain
 # result. Any build-failed package is therefore a hard error here, named,
 # before any ledger is written.
+#
+# A package that BUILDS fine and then dies at runtime -- a panic outside
+# a test body, TestMain calling os.Exit, an init() crash -- carries
+# neither "Test" nor "FailedBuild": `go test -json` emits only the
+# package-level summary line every package gets (Action:pass/fail/skip,
+# no "Test") with Action:"fail", and none of that package's tests ever
+# produced a terminal event of their own (UAT round 2, UAT-003). That is
+# incomplete evidence, not an empty result, and gets the same hard-error
+# treatment as a build failure below -- reconciled per package: a
+# package-level "fail" with a per-test "fail" already recorded for that
+# package (e.g. the intentional
+# TestStock_PermanentlyFailingRegressionProbe, which reports through a
+# real per-test event) is fully explained and keeps working exactly as
+# before; a package-level "fail" with NO per-test "fail" recorded for it
+# is unexplained and refuses the ledger.
 terminal_actions = {"pass", "fail", "skip"}
 entries_by_identity = {}
 build_failed_packages = set()
+package_level_action = {}
 with open(test_raw_path) as f:
     for line in f:
         line = line.strip()
@@ -170,8 +193,11 @@ with open(test_raw_path) as f:
         action = event.get("Action")
         test_name = event.get("Test")
         package = event.get("Package")
-        if action == "fail" and not test_name and package and event.get("FailedBuild"):
-            build_failed_packages.add(package)
+        if not test_name and package and action in terminal_actions:
+            if action == "fail" and event.get("FailedBuild"):
+                build_failed_packages.add(package)
+            else:
+                package_level_action[package] = action
             continue
         if not test_name or action not in terminal_actions:
             continue
@@ -185,6 +211,26 @@ if build_failed_packages:
         "build-ledgers: 'go test -json' reported a build failure for package(s) "
         f"{sorted(build_failed_packages)} -- refusing to write a test ledger that "
         "would silently omit that package's tests instead of naming the failure"
+    )
+
+unexplained_failed_packages = set()
+for package, action in package_level_action.items():
+    if action != "fail":
+        continue
+    explained = any(
+        identity.startswith(f"{package}::") and outcome == "fail"
+        for identity, outcome in entries_by_identity.items()
+    )
+    if not explained:
+        unexplained_failed_packages.add(package)
+
+if unexplained_failed_packages:
+    sys.exit(
+        "build-ledgers: 'go test -json' reported package(s) "
+        f"{sorted(unexplained_failed_packages)} as failed with no per-test failure "
+        "to explain it (a runtime panic, TestMain os.Exit, or init() crash) -- "
+        "refusing to write a test ledger that would silently omit that package's "
+        "tests instead of naming the failure"
     )
 
 if not entries_by_identity:

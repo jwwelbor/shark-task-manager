@@ -126,4 +126,30 @@ if counts[duplicated[0]] != 2:
 print("TC-009: base fixture duplicate-identity depth confirmed at 2")
 PYEOF
 
+# --- Regression: structurally incomplete ledger must fail, not "0 new" ---
+# UAT round 2 (UAT-004, T-E40-F01-009 rejection): diff-ledgers.sh used to
+# read `base.get("entries", [])`, so a ledger-shaped document with no
+# "entries" array at all (a truncated write, a producer crash, a typo'd
+# key) silently scored as a genuinely clean, zero-issue ledger instead of
+# failing loudly. testdata/lint/malformed_missing_entries.json is a
+# committed, hand-authored ledger carrying a valid "toolchain" block but
+# no "entries" key -- exactly the reproduced shape.
+check_rejected() {
+	local post_file="$1" label="$2"
+	local post="$TESTDATA_DIR/$post_file"
+	[[ -f "$post" ]] || fail "$label: fixture missing: $post"
+
+	set +e
+	local out
+	out="$("$DIFF_SCRIPT" --kind=lint --base="$post" --post="$BASE" 2>&1)"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "$label: diff-ledgers.sh exited 0 against a structurally invalid ledger -- must fail loudly instead of scoring it as empty/clean: $out"
+	echo "$out" | grep -qi "entries" || fail "$label: failure message does not name the missing/malformed 'entries' field: $out"
+	echo "TC-009: $label correctly rejected (exit $code): $out"
+}
+
+check_rejected "malformed_missing_entries.json" "regression: base ledger missing 'entries' array"
+check_rejected "malformed_bad_entry.json" "regression: base ledger entry missing required field"
+
 echo "TC-009: PASS"

@@ -227,4 +227,86 @@ grep -qi "report" "$regression_dir/build.log" || fail "failure diagnostic does n
 
 echo "TC-007: crashing-linter regression correctly rejected (exit $regression_exit, no ledger written)"
 
+# --- Regression: package that fails to BUILD (TD-075) ----------------------
+# Code-review round-3 non-blocker (TD-075): commit 1007db59's build-failure
+# guard -- a `go test -json` package-level {"Action":"fail","FailedBuild":
+# "<pkg>"} event must hard-fail the builder, naming the package, instead of
+# silently omitting that package's tests from tests.json -- shipped with no
+# dedicated committed regression test. This section adds it: a real
+# checkout with one package's source deliberately made unbuildable.
+echo "TC-007: regression - go test -json build failure (TD-075)"
+
+buildfail_dir="$WORKDIR/buildfail"
+buildfail_checkout="$buildfail_dir/checkout"
+buildfail_output="$buildfail_dir/ledgers"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$buildfail_checkout" >/dev/null
+
+buildfail_cart_go="$buildfail_checkout/pkg/cart/cart.go"
+[[ -f "$buildfail_cart_go" ]] || fail "build-failure regression: pkg/cart/cart.go not found in checkout"
+printf '\nthis is not valid go syntax {{{\n' >>"$buildfail_cart_go"
+
+set +e
+"$BUILD_LEDGERS_SCRIPT" "$buildfail_checkout" "$buildfail_output" >"$buildfail_dir/build.log" 2>&1
+buildfail_exit=$?
+set -e
+
+[[ "$buildfail_exit" -ne 0 ]] || fail "build-ledgers.sh exited 0 against an unbuildable package -- must fail loudly instead of silently omitting its tests"
+
+if [[ -e "$buildfail_output/tests.json" || -e "$buildfail_output/lint.json" ]]; then
+	fail "build-ledgers.sh wrote a ledger despite a build failure: $(ls "$buildfail_output" 2>&1)"
+fi
+
+grep -qi "build failure" "$buildfail_dir/build.log" || fail "failure diagnostic does not name the build failure: $(cat "$buildfail_dir/build.log")"
+grep -qi "pkg/cart" "$buildfail_dir/build.log" || fail "failure diagnostic does not name the unbuildable package: $(cat "$buildfail_dir/build.log")"
+
+echo "TC-007: build-failure regression correctly rejected (exit $buildfail_exit, no ledger written) -- closes TD-075"
+
+# --- Regression: package that BUILDS but dies at RUNTIME (UAT round 2) -----
+# UAT-003 (T-E40-F01-008 rejection): a package that builds fine and then
+# dies at runtime -- TestMain calling os.Exit(1), a panic outside a test
+# body, an init() crash -- emits only a package-level Action:fail summary
+# from `go test -json`, with no "Test" field and no "FailedBuild" marker.
+# The pre-fix builder silently omitted that package's tests from tests.json
+# and exited 0; a later diff-ledgers.sh comparison could not distinguish
+# that omission from "tests legitimately removed". This section reproduces
+# it against a real checkout: pkg/cart's own tests are replaced with a
+# TestMain that exits 1 before any test in the package can run.
+echo "TC-007: regression - go test -json runtime package failure (UAT-003)"
+
+runtime_dir="$WORKDIR/runtimefail"
+runtime_checkout="$runtime_dir/checkout"
+runtime_output="$runtime_dir/ledgers"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$runtime_checkout" >/dev/null
+
+runtime_cart_test_go="$runtime_checkout/pkg/cart/cart_test.go"
+[[ -f "$runtime_cart_test_go" ]] || fail "runtime-failure regression: pkg/cart/cart_test.go not found in checkout"
+grep -qF 'import "testing"' "$runtime_cart_test_go" || fail "runtime-failure regression: pkg/cart/cart_test.go import line did not match the expected shape -- mutation target moved"
+python3 - "$runtime_cart_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tos.Exit(1)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+set +e
+"$BUILD_LEDGERS_SCRIPT" "$runtime_checkout" "$runtime_output" >"$runtime_dir/build.log" 2>&1
+runtime_exit=$?
+set -e
+
+[[ "$runtime_exit" -ne 0 ]] || fail "build-ledgers.sh exited 0 against a package that died at runtime -- must fail loudly instead of silently omitting its tests"
+
+if [[ -e "$runtime_output/tests.json" || -e "$runtime_output/lint.json" ]]; then
+	fail "build-ledgers.sh wrote a ledger despite an unexplained package-level runtime failure: $(ls "$runtime_output" 2>&1)"
+fi
+
+grep -qi "pkg/cart" "$runtime_dir/build.log" || fail "failure diagnostic does not name the runtime-failed package: $(cat "$runtime_dir/build.log")"
+grep -qi "no per-test failure" "$runtime_dir/build.log" || fail "failure diagnostic does not distinguish this from a build failure: $(cat "$runtime_dir/build.log")"
+
+echo "TC-007: runtime-failure regression correctly rejected (exit $runtime_exit, no ledger written)"
+
 echo "TC-007: PASS"

@@ -168,17 +168,69 @@ from collections import Counter
 
 kind, base_path, post_path = sys.argv[1:4]
 
-with open(base_path) as f:
-    base = json.load(f)
-with open(post_path) as f:
-    post = json.load(f)
+# Ledger-schema validation (UAT round 2, UAT-004; defect class: execution
+# results without complete terminal evidence accepted as passing or empty
+# domain outcomes). A ledger-shaped JSON document missing its required
+# "entries" array is structurally incomplete -- a truncated write, a
+# producer that crashed before finishing, a hand-authored fixture with a
+# typo'd key -- not a legitimate "ran and found nothing" result. Before
+# 1007db59 and this fix, `base.get("entries", [])` silently substituted an
+# empty list for an absent key, so a corrupt or partial ledger scored as
+# clean on both --kind=lint and --kind=test: zero new issues, zero
+# regressions, zero removed. A genuinely empty RESULT is still valid and
+# must keep working ("entries": [] is accepted below) -- only a
+# structurally ABSENT or malformed "entries"/"toolchain"/per-entry field is
+# rejected, named, before either diff mode computes anything.
+REQUIRED_ENTRY_FIELDS = {
+    "lint": {"from_linter": str, "path": str, "text": str},
+    "test": {"identity": str, "action": str},
+}
+
+
+def load_ledger(path, kind):
+    with open(path) as f:
+        doc = json.load(f)
+    if not isinstance(doc, dict):
+        sys.exit(f"diff-ledgers: {kind} ledger {path} is not a JSON object")
+    if not isinstance(doc.get("toolchain"), dict):
+        sys.exit(
+            f"diff-ledgers: {kind} ledger {path} is missing a 'toolchain' object -- "
+            "structurally incomplete ledger, not a valid empty result"
+        )
+    entries = doc.get("entries")
+    if not isinstance(entries, list):
+        found = "absent" if "entries" not in doc else type(entries).__name__
+        sys.exit(
+            f"diff-ledgers: {kind} ledger {path} is missing an 'entries' array (found {found}) "
+            "-- structurally incomplete ledger, not a valid empty result"
+        )
+    required_fields = REQUIRED_ENTRY_FIELDS[kind]
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            sys.exit(f"diff-ledgers: {kind} ledger {path} entries[{i}] is not a JSON object")
+        for field, field_type in required_fields.items():
+            if field not in entry:
+                sys.exit(
+                    f"diff-ledgers: {kind} ledger {path} entries[{i}] is missing "
+                    f"required field {field!r}"
+                )
+            if not isinstance(entry[field], field_type):
+                sys.exit(
+                    f"diff-ledgers: {kind} ledger {path} entries[{i}].{field} has wrong "
+                    f"type: expected {field_type.__name__}, got {type(entry[field]).__name__}"
+                )
+    return entries
+
+
+if kind not in ("lint", "test"):
+    sys.exit(f"diff-ledgers: unknown --kind {kind!r}")
+
+base_entries = load_ledger(base_path, kind)
+post_entries = load_ledger(post_path, kind)
 
 if kind == "lint":
     def identity(entry):
         return (entry.get("from_linter", ""), entry.get("path", ""), entry.get("text", ""))
-
-    base_entries = base.get("entries", [])
-    post_entries = post.get("entries", [])
 
     base_counts = Counter(identity(e) for e in base_entries)
     post_counts = Counter(identity(e) for e in post_entries)
@@ -210,9 +262,9 @@ if kind == "lint":
         "new_issues_count": len(new_entries),
     }
 
-elif kind == "test":
-    base_actions = {e["identity"]: e["action"] for e in base.get("entries", [])}
-    post_actions = {e["identity"]: e["action"] for e in post.get("entries", [])}
+else:  # kind == "test", the only other value load_ledger() accepted above
+    base_actions = {e["identity"]: e["action"] for e in base_entries}
+    post_actions = {e["identity"]: e["action"] for e in post_entries}
 
     regressions = sorted(
         identity
@@ -228,9 +280,6 @@ elif kind == "test":
         "removed": [{"identity": i} for i in removed],
         "removed_count": len(removed),
     }
-
-else:
-    sys.exit(f"diff-ledgers: unknown --kind {kind!r}")
 
 print(json.dumps(result, indent=2, sort_keys=True))
 PYEOF

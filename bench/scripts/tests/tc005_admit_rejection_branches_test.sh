@@ -155,6 +155,64 @@ git -C "$scratch_dir" diff >"$combined_patch"
 out_e="$(run_item "branch (e) $REUSE_ITEM patch + TaxAmount mutation" "$REUSE_ITEM" --patch "$combined_patch")"
 assert_rejected "branch (e)" "$out_e" "P2P-red-post-patch"
 
+echo "TC-005: part 3b - branch (e) variant: runtime package death (UAT round 2, UAT-002)"
+
+# UAT-002 (T-E40-F01-006 rejection): a package that BUILDS fine and then
+# dies at runtime -- TestMain calling os.Exit(1), a panic outside a test
+# body, an init() crash -- emits only a package-level Action:fail summary
+# from `go test -json`, with no "Test" field and no "FailedBuild" marker
+# for any of its tests. The P2P check used to derive pass/fail from
+# per-test events only, so a package that died wholesale contributed zero
+# entries to the per-test map and read as "no failing tests -> green",
+# letting a reference patch silently break an unrelated package and still
+# admit the candidate. This reproduces that exact scenario: $REUSE_ITEM's
+# own valid reference.patch, plus a runtime TestMain failure injected into
+# pkg/cart -- a package $REUSE_ITEM's patch never touches -- must still
+# reject with P2P-red-post-patch, and admit.sh's verdict must name
+# pkg/cart in unexplained_failed_packages.
+runtime_scratch_dir="$WORKDIR/branch-e2-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$runtime_scratch_dir" >/dev/null
+
+git -C "$runtime_scratch_dir" apply "$reuse_patch_abs" || fail "branch (e2): could not apply $REUSE_ITEM's own reference.patch to a fresh checkout"
+
+cart_test_go="$runtime_scratch_dir/pkg/cart/cart_test.go"
+[[ -f "$cart_test_go" ]] || fail "branch (e2): pkg/cart/cart_test.go not found in scratch checkout"
+grep -qF 'import "testing"' "$cart_test_go" || fail "branch (e2): pkg/cart/cart_test.go import line did not match the expected shape -- mutation target moved"
+python3 - "$cart_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tos.Exit(1)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+runtime_patch="$WORKDIR/branch-e2-combined.patch"
+git -C "$runtime_scratch_dir" diff >"$runtime_patch"
+[[ -s "$runtime_patch" ]] || fail "branch (e2): combined patch is empty"
+
+out_e2="$(run_item "branch (e2) $REUSE_ITEM patch + pkg/cart runtime TestMain failure" "$REUSE_ITEM" --patch "$runtime_patch")"
+assert_rejected "branch (e2)" "$out_e2" "P2P-red-post-patch"
+
+python3 - "$out_e2" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+unexplained = verdict.get("unexplained_failed_packages") or []
+if not any(pkg.endswith("/pkg/cart") for pkg in unexplained):
+    sys.exit(
+        "TC-005 FAIL: branch (e2): verdict's unexplained_failed_packages does not "
+        f"name pkg/cart: {unexplained}"
+    )
+print(f"TC-005: branch (e2) unexplained_failed_packages names the runtime-dead package: {unexplained}")
+PYEOF
+
 echo "TC-005: part 4 (AC-T3) - no committed negative appears in a full admit.sh run"
 
 full_out="$WORKDIR/full-run.jsonl"
