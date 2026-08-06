@@ -1,0 +1,8 @@
+{
+  "item_id": "cart-remove-item-last-match",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 2,
+  "timeout_cap_s": 900,
+  "harness_wall_ns": 40000000
+}

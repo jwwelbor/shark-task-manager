@@ -1,0 +1,6 @@
+COMMAND: claude --output-format json
+EXIT: 0
+DURATION: 1800ms
+---STDOUT---
+{"placeholder":"envelope parsing is T-E40-F02-007 scope"}
+---STDERR---

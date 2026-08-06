@@ -1,0 +1,10 @@
+{
+  "entity_key": "T-BENCH-DEMO-006",
+  "final_status": "completed",
+  "stages_completed": 1,
+  "stages": [
+    {"status": "ready_for_qa", "action": "advance_status", "duration_ns": 40000000, "exit_code": 0}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 40000000
+}

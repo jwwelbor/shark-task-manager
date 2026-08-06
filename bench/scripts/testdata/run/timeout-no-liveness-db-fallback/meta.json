@@ -1,0 +1,11 @@
+{
+  "item_id": "validate-sku-uppercase-only",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 60,
+  "harness_wall_ns": 63200000000,
+  "entity_key": "T-BENCH-DEMO-011",
+  "scratch_root": "scratch",
+  "scratch_db_path": "scratch/shark-tasks.db"
+}

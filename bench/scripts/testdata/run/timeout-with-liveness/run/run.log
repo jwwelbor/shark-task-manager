@@ -1,0 +1,3 @@
+2026-08-06T15:00:00.000000000Z  stage_start  T-BENCH-DEMO-010  status=in_development action=spawn_agent agent=developer provider=anthropic stage=0s total=0s
+2026-08-06T15:00:10.000000000Z  heartbeat  T-BENCH-DEMO-010  status=in_development action=spawn_agent agent=developer provider=anthropic stage=10s total=10s
+2026-08-06T15:00:20.000000000Z  heartbeat  T-BENCH-DEMO-010  status=in_development action=spawn_agent agent=developer provider=anthropic stage=20s total=20s

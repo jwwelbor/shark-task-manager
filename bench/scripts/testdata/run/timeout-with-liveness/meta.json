@@ -1,0 +1,8 @@
+{
+  "item_id": "cart-add-item-rejects-negative-quantity",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 60,
+  "harness_wall_ns": 63500000000
+}

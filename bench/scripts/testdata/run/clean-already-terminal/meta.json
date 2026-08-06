@@ -1,0 +1,8 @@
+{
+  "item_id": "validate-sku-max-length",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 900,
+  "harness_wall_ns": 180000000
+}

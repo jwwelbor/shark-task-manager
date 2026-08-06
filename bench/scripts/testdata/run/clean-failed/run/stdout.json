@@ -1,0 +1,9 @@
+{
+  "entity_key": "T-BENCH-DEMO-005",
+  "final_status": "in_development",
+  "stages_completed": 0,
+  "stages": [],
+  "outcome": "failed",
+  "total_duration_ns": 60000000,
+  "error": "failed to get action for status in_development: no orchestrator action configured"
+}

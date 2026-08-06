@@ -1,0 +1,3 @@
+run.log: /scratch/bench-d3b2ea00-0000-4000-8000-000000000003/.shark/runs/d3b2ea00-0000-4000-8000-000000000003/run.log
+{"ts":"2026-08-06T11:00:00.000000000Z","run_id":"d3b2ea00-0000-4000-8000-000000000003","event":"stage_start","entity_key":"T-BENCH-DEMO-003","iteration":1,"status":"completed","action":"advance_status","stage_elapsed_ms":0,"total_elapsed_ms":0}
+{"ts":"2026-08-06T11:00:00.500000000Z","run_id":"d3b2ea00-0000-4000-8000-000000000003","event":"stage_end","entity_key":"T-BENCH-DEMO-003","iteration":1,"status":"completed","action":"advance_status","stage_elapsed_ms":500,"total_elapsed_ms":500}
