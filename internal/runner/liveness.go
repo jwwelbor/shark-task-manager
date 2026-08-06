@@ -8,7 +8,7 @@
 // stderr in jsonMode=false and unconditionally in run.log) and the D4
 // per-event durable file sink.
 //
-// Scope of THIS file as of T-E40-F04-002:
+// Scope of THIS file as of T-E40-F04-003:
 //   - NewLivenessRecorder / Observe, implementing D1's phase table for the
 //     "iteration" and "action" phases (other phases are ignored).
 //   - The jsonMode=true NDJSON stderr renderer (D3's 11-field schema).
@@ -19,11 +19,16 @@
 //     internal/observability/file_jsonl_exporter.go), permissions matching
 //     transcript.go (0o755 dir / 0o644 file), and a no-op file sink when
 //     projectRoot is empty (mirroring NewFileJSONLExporter("")).
+//   - Start()/Stop() and the fixed 10s heartbeat ticker (REQ-N-001,
+//     REQ-F-006): a separately callable unexported tick() method emits a
+//     heartbeat for the open stage, or a top-level-key heartbeat when none is
+//     open (spec.md's "decisions the implementer does not get to make"
+//     table). Start() also announces LogPath() on stderr exactly once,
+//     before any event line (REQ-F-008/AC-10 — this task's resolved
+//     D6-edit-2 deviation; see the task spec's "Deviation" note).
 //
 // Deliberately NOT yet implemented here — added by later F04 tasks, tracked
 // so an absence here is never mistaken for a design decision:
-//   - The 10s heartbeat ticker, Start()/Stop(), and the run.log path
-//     announcement (T-E40-F04-003).
 //   - Finish() and the run_end summary line (T-E40-F04-004).
 //
 // REQ-N-004: this file and its test never touch controller.go or
@@ -43,12 +48,18 @@ import (
 )
 
 // Event names for the D3 NDJSON schema. The enum is closed at exactly three
-// values (spec.md D3); eventHeartbeat is added in T-E40-F04-003 once the
-// ticker exists to emit it.
+// values (spec.md D3).
 const (
 	eventStageStart = "stage_start"
 	eventStageEnd   = "stage_end"
+	eventHeartbeat  = "heartbeat"
 )
+
+// heartbeatInterval is REQ-N-001's fixed heartbeat cadence: a literal 10
+// seconds, independent of any claim/lease duration config and never derived
+// from the claim service's own lease-length accessor (see the "two
+// heartbeats" conflation this spec calls out).
+const heartbeatInterval = 10 * time.Second
 
 // ndjsonLine is the exact D3 wire schema for a single stderr NDJSON line.
 // agent_type/provider are omitted (not emitted as empty strings) when unset;
@@ -104,6 +115,15 @@ type LivenessRecorder struct {
 	logPath string
 
 	open *stageSlot
+
+	// stopCh/stopOnce/wg implement Start()/Stop()'s ticker-goroutine
+	// lifecycle (T-E40-F04-003). stopCh is always initialized by the
+	// constructor, so Stop() is safe even when Start() was never called;
+	// stopOnce guards against a double-close if Stop() is called more than
+	// once.
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 // NewLivenessRecorder constructs a LivenessRecorder. projectRoot, runID, and
@@ -126,6 +146,7 @@ func NewLivenessRecorder(projectRoot, runID, topLevelKey string, jsonMode bool, 
 		jsonMode:    jsonMode,
 		start:       start,
 		logPath:     resolveLogPath(projectRoot, runID),
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -239,7 +260,7 @@ func (r *LivenessRecorder) emitLocked(now time.Time, event string) {
 		return
 	}
 
-	line := ndjsonLine{
+	r.emitLine(ndjsonLine{
 		TS:             now.UTC().Format(time.RFC3339Nano),
 		RunID:          r.runID,
 		Event:          event,
@@ -251,8 +272,15 @@ func (r *LivenessRecorder) emitLocked(now time.Time, event string) {
 		Provider:       r.open.provider,
 		StageElapsedMs: now.Sub(r.open.openedAt).Milliseconds(),
 		TotalElapsedMs: now.Sub(r.start).Milliseconds(),
-	}
+	})
+}
 
+// emitLine renders and writes one already-constructed event line to both
+// sinks: stderr (NDJSON in jsonMode, plain text otherwise — D3) and run.log
+// (always plain text — D3, "run.log in both modes"). Shared by emitLocked
+// (open-slot events) and tick (the no-open-stage heartbeat, which has no
+// slot to read from). Callers must hold r.mu.
+func (r *LivenessRecorder) emitLine(line ndjsonLine) {
 	plain := renderPlainLine(line)
 
 	if r.jsonMode {
@@ -267,6 +295,76 @@ func (r *LivenessRecorder) emitLocked(now time.Time, event string) {
 	}
 
 	r.writeLogLine(plain)
+}
+
+// Start announces the run.log path on stderr exactly once, before any event
+// line (REQ-F-008/AC-10 — the task spec's resolved D6-edit-2 deviation: this
+// prints from Start(), not run.go, per test-plan.md's "Recommendation: move
+// the LogPath() print into Start()"), then launches the REQ-F-006 heartbeat
+// ticker goroutine at the fixed heartbeatInterval. Production calls this
+// exactly once per run (run.go D6 edit 2); a second call would start a
+// second ticker goroutine and is not guarded against, matching Start()'s
+// single-call contract.
+func (r *LivenessRecorder) Start() {
+	fmt.Fprintf(os.Stderr, "run.log: %s\n", r.logPath)
+
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.stopCh:
+				return
+			case <-ticker.C:
+				r.tick()
+			}
+		}
+	}()
+}
+
+// Stop signals the heartbeat goroutine to exit and waits for it to finish.
+// Safe to call even when Start() was never called — stopCh is always
+// initialized by the constructor, so closing it here is a harmless no-op
+// with no goroutine listening — and safe to call more than once (stopOnce
+// guards the channel close). T-E40-F04-004's teardown calls `rec.Stop();
+// rec.Finish(...)` unconditionally, regardless of whether Start() ran.
+func (r *LivenessRecorder) Stop() {
+	r.stopOnce.Do(func() { close(r.stopCh) })
+	r.wg.Wait()
+}
+
+// tick performs one heartbeat action (REQ-F-006/REQ-N-001): emits a
+// heartbeat for the currently open stage, or — when no stage is open — a
+// heartbeat carrying the top-level key with iteration 0 and empty
+// status/action, per spec.md's "decisions the implementer does not get to
+// make" table (a stall during that window would otherwise be invisible).
+// Exposed as a separately callable unexported method (AC-T2) so tests can
+// drive cadence deterministically without a real 10-second sleep; Start()'s
+// ticker loop is the only production caller.
+func (r *LivenessRecorder) tick() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	if r.open != nil {
+		r.emitLocked(now, eventHeartbeat)
+		return
+	}
+
+	elapsed := now.Sub(r.start).Milliseconds()
+	r.emitLine(ndjsonLine{
+		TS:             now.UTC().Format(time.RFC3339Nano),
+		RunID:          r.runID,
+		Event:          eventHeartbeat,
+		EntityKey:      r.topLevelKey,
+		Iteration:      0,
+		Status:         "",
+		Action:         "",
+		StageElapsedMs: elapsed,
+		TotalElapsedMs: elapsed,
+	})
 }
 
 // renderPlainLine renders one event in D3's plain-text format:

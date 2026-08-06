@@ -20,6 +20,13 @@
 //   - TC-023 (EACCES-class file sink failure — fail-soft, slog.Debug)
 //   - TC-028 (run.log / parent-dir permission bits)
 //   - TC-029 (closed JSON field set)
+//
+// T-E40-F04-003 (fixed 10s ticker and heartbeat cadence) adds:
+//   - TC-012 (heartbeat cadence via the directly callable tick() method)
+//   - TC-024 (LogPath() announced once on stderr, before any event line,
+//     both jsonMode values)
+//   - TC-026 (constructor signature + TTL-identifier source scan)
+//   - TC-027 (concurrent Observe + tick under -race)
 package runner
 
 import (
@@ -27,9 +34,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1015,4 +1024,243 @@ func TestLiveness_TC028_PermissionBits(t *testing.T) {
 	if got := parent.Mode().Perm(); got != 0o755 {
 		t.Errorf("run.log parent dir perm = %o, want 0755", got)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-012: heartbeat cadence via the directly callable tick() method
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC012_HeartbeatCadenceViaTick drives the unexported tick()
+// method directly (AC-T2's hard requirement: a separately callable method,
+// not a real 10s sleep) and asserts REQ-F-006's cadence: every tick against
+// an open stage emits exactly one heartbeat line carrying that stage's
+// identity, with no window producing zero heartbeats.
+func TestLiveness_TC012_HeartbeatCadenceViaTick(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc012", "T-E40-F04-003", true, time.Now())
+
+	lines := captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "T-E40-F04-003", Status: "in_development"})
+		rec.Observe(RunProgress{
+			Phase: "action", Iteration: 1, EntityKey: "T-E40-F04-003", Status: "in_development",
+			Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+		})
+		// Three simulated 10s windows, driven directly via tick() — no real
+		// sleep, per AC-T2/TC-012's caller-path contract.
+		rec.tick()
+		rec.tick()
+		rec.tick()
+	})
+	// 1 stage_start (from the action phase) + 3 heartbeats.
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 emitted lines (stage_start + 3 heartbeats), got %d: %v", len(lines), lines)
+	}
+
+	got := parseWireLines(t, lines)
+	if got[0].Event != eventStageStart {
+		t.Fatalf("line 0 = %+v, want stage_start", got[0])
+	}
+	for i := 1; i <= 3; i++ {
+		l := got[i]
+		if l.Event != "heartbeat" {
+			t.Errorf("line %d event = %q, want heartbeat", i, l.Event)
+		}
+		if l.EntityKey != "T-E40-F04-003" || l.Iteration != 1 || l.Status != "in_development" {
+			t.Errorf("line %d identity fields wrong: %+v", i, l)
+		}
+		if l.Action != "spawn_agent" || l.AgentType != "developer" || l.Provider != "anthropic" {
+			t.Errorf("line %d action fields wrong: %+v", i, l)
+		}
+	}
+}
+
+// TestLiveness_TC012_NoOpenStageHeartbeat covers AC-T3 and spec.md's
+// "decisions the implementer does not get to make" table: a tick with no
+// open stage (before the first iteration, or during a cascade lookup gap)
+// still emits a heartbeat carrying the TOP-LEVEL key, iteration 0, and empty
+// status/action, rather than going silent in the exact window a stall would
+// otherwise be invisible.
+func TestLiveness_TC012_NoOpenStageHeartbeat(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc012b", "TOP-LEVEL", true, time.Now())
+
+	lines := captureStderrLines(t, func() {
+		rec.tick()
+	})
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 emitted line, got %d: %v", len(lines), lines)
+	}
+
+	raw := parseRawLines(t, lines)[0]
+	got := parseWireLines(t, lines)[0]
+
+	if got.Event != "heartbeat" {
+		t.Errorf("event = %q, want heartbeat", got.Event)
+	}
+	if got.EntityKey != "TOP-LEVEL" {
+		t.Errorf("entity_key = %q, want top-level key %q", got.EntityKey, "TOP-LEVEL")
+	}
+	if got.Iteration != 0 {
+		t.Errorf("iteration = %d, want 0", got.Iteration)
+	}
+	if got.Status != "" {
+		t.Errorf("status = %q, want empty", got.Status)
+	}
+	if got.Action != "" {
+		t.Errorf("action = %q, want empty", got.Action)
+	}
+	if _, ok := raw["agent_type"]; ok {
+		t.Errorf("agent_type key present though never set: %s", lines[0])
+	}
+	if _, ok := raw["provider"]; ok {
+		t.Errorf("provider key present though never set: %s", lines[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-024: run.log path printed on stderr exactly once, before the first
+// event, in both modes
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC024_LogPathAnnouncedOnceBeforeFirstEvent drives Start() —
+// AC-T4's chosen entrypoint per test-plan.md's "Recommendation: move the
+// LogPath() print into Start()" — followed by an Observe sequence, in both
+// jsonMode values, and asserts REQ-F-008/AC-10: exactly one stderr line
+// carries the absolute LogPath() value, and it precedes every event line.
+func TestLiveness_TC024_LogPathAnnouncedOnceBeforeFirstEvent(t *testing.T) {
+	for _, jsonMode := range []bool{true, false} {
+		name := "json_mode"
+		if !jsonMode {
+			name = "plain_mode"
+		}
+		t.Run(name, func(t *testing.T) {
+			rec := NewLivenessRecorder(t.TempDir(), "run-tc024", "TOP", jsonMode, time.Now())
+
+			lines := captureStderrLines(t, func() {
+				rec.Start()
+				rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "TOP", Status: "s0"})
+				rec.Observe(RunProgress{Phase: "action", Iteration: 1, EntityKey: "TOP", Status: "s0", Action: "spawn_agent"})
+				rec.Observe(RunProgress{Phase: "iteration", Iteration: 2, EntityKey: "TOP", Status: "s1"})
+			})
+			rec.Stop()
+
+			if len(lines) != 3 {
+				t.Fatalf("expected 3 lines total (path + stage_start + stage_end), got %d: %v", len(lines), lines)
+			}
+			if !strings.Contains(lines[0], rec.LogPath()) {
+				t.Fatalf("first stderr line = %q, want it to contain LogPath() %q", lines[0], rec.LogPath())
+			}
+
+			count := 0
+			for _, l := range lines {
+				if strings.Contains(l, rec.LogPath()) {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Fatalf("expected exactly 1 line containing LogPath(), got %d: %v", count, lines)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-026: heartbeat interval is a literal constant, independent of any
+// TTL/config input
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC026_FixedIntervalNoTTLInput asserts AC-T1/REQ-N-001:
+// NewLivenessRecorder's signature carries no time.Duration parameter, and
+// liveness.go's source text never references claim/lease TTL identifiers —
+// the interval must come from nowhere but a literal 10 * time.Second.
+func TestLiveness_TC026_FixedIntervalNoTTLInput(t *testing.T) {
+	fnType := reflect.TypeOf(NewLivenessRecorder)
+	if fnType.NumIn() != 5 {
+		t.Fatalf("NewLivenessRecorder has %d params, want 5 (projectRoot, runID, topLevelKey, jsonMode, start)", fnType.NumIn())
+	}
+	durationType := reflect.TypeOf(time.Duration(0))
+	for i := 0; i < fnType.NumIn(); i++ {
+		if fnType.In(i) == durationType {
+			t.Errorf("param %d is time.Duration — REQ-N-001 forbids a configurable interval", i)
+		}
+	}
+
+	src, err := os.ReadFile("liveness.go")
+	if err != nil {
+		t.Fatalf("read liveness.go: %v", err)
+	}
+	text := string(src)
+	for _, forbidden := range []string{"TTL(", "claim_ttl_seconds", "DefaultClaimTTL"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("liveness.go source contains forbidden TTL identifier %q (REQ-N-001)", forbidden)
+		}
+	}
+	if !strings.Contains(text, "10 * time.Second") {
+		t.Errorf("liveness.go source does not contain the literal heartbeat interval %q (AC-T1)", "10 * time.Second")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-027: concurrent Observe + tick under the race detector
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC027_ConcurrentObserveAndTick drives Observe from many
+// goroutines concurrently with direct tick() calls (REQ-N-003) and asserts
+// no torn writes: every captured stderr line still parses as valid JSON and
+// carries an event within the closed enum. The mutex-guard property itself
+// is enforced by running this test under `go test -race`.
+func TestLiveness_TC027_ConcurrentObserveAndTick(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc027", "TOP", true, time.Now())
+
+	const n = 25
+	lines := captureStderrLines(t, func() {
+		var wg sync.WaitGroup
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				rec.Observe(RunProgress{Phase: "iteration", Iteration: i, EntityKey: "E1", Status: "s0"})
+				rec.Observe(RunProgress{Phase: "action", Iteration: i, EntityKey: "E1", Status: "s0", Action: "spawn_agent"})
+			}(i)
+		}
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				rec.tick()
+			}()
+		}
+		wg.Wait()
+	})
+
+	// parseWireLines fails the test immediately on any line that doesn't
+	// parse as valid JSON — that is what a torn/interleaved write would
+	// produce, and it can only NOT happen if every emitLine call is
+	// serialized by r.mu (REQ-N-003).
+	got := parseWireLines(t, lines)
+	for i, l := range got {
+		if l.Event != eventStageStart && l.Event != eventStageEnd && l.Event != "heartbeat" {
+			t.Errorf("line %d: event %q outside the closed 3-value enum", i, l.Event)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stop(): safe without a prior Start(), and idempotent
+// ---------------------------------------------------------------------------
+
+// TestLiveness_StopSafeWithoutStart asserts the task's "Notes for Agent"
+// requirement: Stop() must be callable unconditionally, even when Start()
+// was never called — T-E40-F04-004's teardown does `rec.Stop();
+// rec.Finish(...)` regardless of whether the run ever reached Start().
+func TestLiveness_StopSafeWithoutStart(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-stop-safe", "TOP", true, time.Now())
+	rec.Stop() // must not panic or block
+}
+
+// TestLiveness_StopIsIdempotent asserts Stop() can be called more than once
+// without panicking (e.g. closing an already-closed channel).
+func TestLiveness_StopIsIdempotent(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-stop-idem", "TOP", true, time.Now())
+	rec.Start()
+	rec.Stop()
+	rec.Stop()
 }
