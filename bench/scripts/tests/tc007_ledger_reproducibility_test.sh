@@ -305,8 +305,59 @@ if [[ -e "$runtime_output/tests.json" || -e "$runtime_output/lint.json" ]]; then
 fi
 
 grep -qi "pkg/cart" "$runtime_dir/build.log" || fail "failure diagnostic does not name the runtime-failed package: $(cat "$runtime_dir/build.log")"
-grep -qi "no per-test failure" "$runtime_dir/build.log" || fail "failure diagnostic does not distinguish this from a build failure: $(cat "$runtime_dir/build.log")"
+grep -qi "independent" "$runtime_dir/build.log" || fail "failure diagnostic does not distinguish this from a build failure: $(cat "$runtime_dir/build.log")"
 
 echo "TC-007: runtime-failure regression correctly rejected (exit $runtime_exit, no ledger written)"
+
+# --- Regression: masked runtime failure behind the excluded probe (UAT-006) -
+# UAT-006 (T-E40-F01-008 rejection round 3): round 2's fix explained a
+# package-level "fail" by checking whether ANY per-test "fail" was also
+# recorded for that package -- but pkg/inventory's own intentional
+# TestStock_PermanentlyFailingRegressionProbe always supplies exactly
+# such a per-test fail, so it masked an independent runtime failure
+# riding on the same package's process exit. This is the UAT report's own
+# reproduction: TestMain(m *testing.M) { m.Run(); os.Exit(1) } added to
+# pkg/inventory, the package that already contains the excluded probe.
+# The pre-round-3 builder wrote both ledgers anyway (the probe's real
+# failure provided cover); this must now be refused, naming pkg/inventory,
+# even though a genuine per-test failure (the probe) is also present.
+echo "TC-007: regression - masked runtime failure behind the excluded probe (UAT-006)"
+
+masked_dir="$WORKDIR/maskedfail"
+masked_checkout="$masked_dir/checkout"
+masked_output="$masked_dir/ledgers"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$masked_checkout" >/dev/null
+
+masked_inventory_test_go="$masked_checkout/pkg/inventory/inventory_test.go"
+[[ -f "$masked_inventory_test_go" ]] || fail "masked-failure regression: pkg/inventory/inventory_test.go not found in checkout"
+grep -qF 'import "testing"' "$masked_inventory_test_go" || fail "masked-failure regression: pkg/inventory/inventory_test.go import line did not match the expected shape -- mutation target moved"
+grep -qF 'TestStock_PermanentlyFailingRegressionProbe' "$masked_inventory_test_go" || fail "masked-failure regression: pkg/inventory/inventory_test.go does not contain the intentional probe -- fixture setup invalid"
+python3 - "$masked_inventory_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tcode := m.Run()\n\t_ = code\n\tos.Exit(1)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+set +e
+"$BUILD_LEDGERS_SCRIPT" "$masked_checkout" "$masked_output" >"$masked_dir/build.log" 2>&1
+masked_exit=$?
+set -e
+
+[[ "$masked_exit" -ne 0 ]] || fail "build-ledgers.sh exited 0 against a package with an independent failure masked behind the excluded probe -- must fail loudly instead of accepting the probe's own failure as sufficient explanation"
+
+if [[ -e "$masked_output/tests.json" || -e "$masked_output/lint.json" ]]; then
+	fail "build-ledgers.sh wrote a ledger despite a masked, unrepresented failure: $(ls "$masked_output" 2>&1)"
+fi
+
+grep -qi "pkg/inventory" "$masked_dir/build.log" || fail "failure diagnostic does not name pkg/inventory: $(cat "$masked_dir/build.log")"
+grep -qi "independent" "$masked_dir/build.log" || fail "failure diagnostic does not describe an independent, unrepresented failure: $(cat "$masked_dir/build.log")"
+
+echo "TC-007: masked-failure regression correctly rejected (exit $masked_exit, no ledger written) despite the probe's own genuine failure"
 
 echo "TC-007: PASS"

@@ -197,6 +197,136 @@ git -C "$runtime_scratch_dir" diff >"$runtime_patch"
 out_e2="$(run_item "branch (e2) $REUSE_ITEM patch + pkg/cart runtime TestMain failure" "$REUSE_ITEM" --patch "$runtime_patch")"
 assert_rejected "branch (e2)" "$out_e2" "P2P-red-post-patch"
 
+echo "TC-005: part 3c - branch (e) variant: masked runtime failure behind the excluded probe (UAT round 3, UAT-005)"
+
+# UAT-005 (T-E40-F01-006 rejection round 3): round 2's fix explained a
+# package-level "fail" by checking whether ANY per-test "fail" was also
+# recorded for that package -- but pkg/inventory's own intentional
+# TestStock_PermanentlyFailingRegressionProbe (excluded from the default
+# p2p_set) always supplies exactly such a per-test fail, so it can MASK
+# an independent runtime failure riding on the same package's process
+# exit. This is the UAT report's own reproduction: a real, valid
+# reference patch for an item whose F2P lives OUTSIDE pkg/inventory
+# (isolating this to the P2P check, not the F2P check -- see the
+# f2p_packages scoping note in admit.sh), plus TestMain(m *testing.M) {
+# m.Run(); os.Exit(1) } injected into pkg/inventory, the package that
+# already contains the excluded probe. Must still reject with
+# P2P-red-post-patch, naming pkg/inventory in
+# unexplained_failed_packages -- the probe's own real failure must not
+# provide cover for it.
+MASK_ITEM="validate-sku-max-length"
+mask_patch="$(python3 - "$CORPUS_YAML" "$MASK_ITEM" <<'PYEOF'
+import sys
+import yaml
+
+corpus_yaml_path, item_id = sys.argv[1:3]
+with open(corpus_yaml_path) as f:
+    data = yaml.safe_load(f)
+for item in data["items"]:
+    if item["id"] == item_id:
+        print(item["reference_patch_path"])
+        break
+else:
+    sys.exit(f"item not found: {item_id}")
+PYEOF
+)"
+mask_patch_abs="$BENCH_DIR/corpus/$mask_patch"
+[[ -f "$mask_patch_abs" ]] || fail "reference patch for $MASK_ITEM not found: $mask_patch_abs"
+
+mask_scratch_dir="$WORKDIR/branch-e3-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$mask_scratch_dir" >/dev/null
+
+git -C "$mask_scratch_dir" apply "$mask_patch_abs" || fail "branch (e3): could not apply $MASK_ITEM's own reference.patch to a fresh checkout"
+
+inventory_test_go="$mask_scratch_dir/pkg/inventory/inventory_test.go"
+[[ -f "$inventory_test_go" ]] || fail "branch (e3): pkg/inventory/inventory_test.go not found in scratch checkout"
+grep -qF 'import "testing"' "$inventory_test_go" || fail "branch (e3): pkg/inventory/inventory_test.go import line did not match the expected shape -- mutation target moved"
+python3 - "$inventory_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tcode := m.Run()\n\t_ = code\n\tos.Exit(1)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+mask_patch_combined="$WORKDIR/branch-e3-combined.patch"
+git -C "$mask_scratch_dir" diff >"$mask_patch_combined"
+[[ -s "$mask_patch_combined" ]] || fail "branch (e3): combined patch is empty"
+
+out_e3="$(run_item "branch (e3) $MASK_ITEM patch + pkg/inventory TestMain masked behind the excluded probe" "$MASK_ITEM" --patch "$mask_patch_combined")"
+assert_rejected "branch (e3)" "$out_e3" "P2P-red-post-patch"
+
+python3 - "$out_e3" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+unexplained = verdict.get("unexplained_failed_packages") or []
+if not any(pkg.endswith("/pkg/inventory") for pkg in unexplained):
+    sys.exit(
+        "TC-005 FAIL: branch (e3): verdict's unexplained_failed_packages does not "
+        f"name pkg/inventory (the probe's own package): {unexplained}"
+    )
+print(f"TC-005: branch (e3) unexplained_failed_packages names pkg/inventory despite the excluded probe's own failure: {unexplained}")
+PYEOF
+
+echo "TC-005: part 3d - branch variant: masked runtime failure in the SAME package as the F2P test (UAT-005's literal reproduction)"
+
+# The UAT report's own adversarial run used inventory-reserve-boundary
+# specifically (F2P test in pkg/inventory, the same package as the
+# probe and the injected TestMain), and asserted only that admit.sh must
+# not admit -- not a specific check name. Under this fix, the F2P check
+# is scoped to exactly the F2P test's own package (see admit.sh's
+# f2p_packages comment), so it observes the same poisoned process exit
+# and correctly rejects as F2P-still-red-post-patch rather than
+# P2P-red-post-patch; either is a correct, safe rejection, but the
+# candidate must never be admitted.
+same_pkg_scratch_dir="$WORKDIR/branch-e4-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$same_pkg_scratch_dir" >/dev/null
+
+git -C "$same_pkg_scratch_dir" apply "$reuse_patch_abs" || fail "branch (e4): could not apply $REUSE_ITEM's own reference.patch to a fresh checkout"
+
+same_pkg_inventory_test_go="$same_pkg_scratch_dir/pkg/inventory/inventory_test.go"
+[[ -f "$same_pkg_inventory_test_go" ]] || fail "branch (e4): pkg/inventory/inventory_test.go not found in scratch checkout"
+grep -qF 'import "testing"' "$same_pkg_inventory_test_go" || fail "branch (e4): pkg/inventory/inventory_test.go import line did not match the expected shape -- mutation target moved"
+python3 - "$same_pkg_inventory_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tcode := m.Run()\n\t_ = code\n\tos.Exit(1)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+same_pkg_patch_combined="$WORKDIR/branch-e4-combined.patch"
+git -C "$same_pkg_scratch_dir" diff >"$same_pkg_patch_combined"
+[[ -s "$same_pkg_patch_combined" ]] || fail "branch (e4): combined patch is empty"
+
+out_e4="$(run_item "branch (e4) $REUSE_ITEM patch + pkg/inventory TestMain (same package as F2P and the probe)" "$REUSE_ITEM" --patch "$same_pkg_patch_combined")"
+python3 - "$out_e4" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+if verdict["status"] != "rejected":
+    sys.exit(
+        "TC-005 FAIL: branch (e4): expected status 'rejected' for a patch that adds "
+        f"an unconditional TestMain os.Exit(1) to pkg/inventory, got {verdict['status']!r}: {verdict}"
+    )
+print(f"TC-005: branch (e4) rejected as {verdict['failing_check']!r} (F2P and P2P share pkg/inventory here; either is a correct, safe rejection)")
+PYEOF
+
 python3 - "$out_e2" <<'PYEOF'
 import json
 import sys

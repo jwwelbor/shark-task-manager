@@ -47,23 +47,31 @@
 # same base SHA produce byte-identical output (test-plan.md Determinism
 # boundary; tests/tc006_admit_reproducibility_test.sh).
 #
-# Evidence-completeness guard (UAT round 2, T-E40-F01-006 rejection):
-# `go test -json` reports a package-wide compile failure via a
-# "FailedBuild" marker, but a package that BUILDS fine and then dies at
-# RUNTIME -- a panic outside a test body, TestMain calling os.Exit, an
-# init() crash -- emits only a package-level Action:fail summary with no
-# "Test" field and no "FailedBuild" marker, and none of that package's
-# tests ever appear as per-test terminal events. Reading that package's
-# absence from the per-test results as "no failing tests -> P2P green"
-# lets a reference patch silently break an unrelated package and still
-# admit the candidate. run_go_tests() below therefore reconciles every
-# package-level "fail" against per-test evidence for that package: no
-# explaining per-test fail (and no FailedBuild) makes the whole P2P check
-# a hard "not green" for that phase (P2P-red-at-base /
-# P2P-red-post-patch), the same way an actual build failure already does.
-# The intentional TestStock_PermanentlyFailingRegressionProbe is
-# unaffected -- it fails with a real per-test terminal event, so it is
-# never classified as unexplained.
+# Evidence-isolation guard (UAT round 3, T-E40-F01-006 rejection,
+# superseding the round-2 fix below): `go test`'s package-level exit code
+# is a single bit. Round 2 tried to explain a package-level "fail" by
+# checking whether ANY per-test "fail" was also recorded for that
+# package -- but the intentional TestStock_PermanentlyFailingRegression
+# Probe (excluded from the default p2p_set) supplies exactly such a
+# per-test fail on every run, so it can mask an unrelated, independent
+# runtime failure (TestMain calling os.Exit after m.Run(), a panic
+# outside a test body, an init() crash) riding on the SAME package's
+# process exit: the probe's real failure and the injected one share one
+# evidence channel, and no amount of "does a fail exist" counting can
+# tell them apart from a single boolean exit code.
+#
+# The fix is structural, not a smarter classifier: evaluate() below never
+# runs a `go test` invocation in which an excluded/expected test is
+# present to hide behind. The P2P check's `go test` call always passes
+# `-skip` for this item's exclude_tests plus its own F2P test names, so
+# those tests do not execute at all in that invocation -- nothing in it
+# is expected to fail, so its raw exit code alone is sufficient (no
+# reconciliation needed, because there is nothing left to explain away).
+# The F2P check's `go test` call scopes `-run` to only this item's F2P
+# test name(s); since a rogue TestMain still executes for the whole
+# package regardless of -run/-skip, an F2P "pass" claim is additionally
+# required to come from an invocation whose own exit code was 0. See
+# evaluate()'s docstring for the full reasoning.
 #
 # Offline hardening (T-E40-F01-007, REQ-NF-005): before evaluating any
 # candidate (--item or full-set), this script verifies the pinned
@@ -150,6 +158,7 @@ fi
 exec python3 - "$corpus_yaml_abs" "$CHECKOUT_SCRIPT" "$item_id" "$patch_override" <<'PYEOF'
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -213,42 +222,50 @@ def read_module_path(checkout_dir):
     return first_line[len("module "):].strip()
 
 
-def run_go_tests(checkout_dir, packages, run_selector):
-    """Runs `go test -json` for packages in checkout_dir and returns
-    (results, build_failed_pkgs, unexplained_failed_pkgs).
+def bare_test_name(identity_or_name):
+    """Strips a "<pkg>::" prefix (if present) and any "/<subtest>" suffix,
+    returning the bare top-level Go test function name."""
+    name = identity_or_name.split("::", 1)[-1]
+    return name.split("/", 1)[0]
 
-    results maps "<pkg>::<test>" to its terminal action (pass/fail/skip).
-    build_failed_pkgs is the set of package import paths that failed to
-    *compile* (Action:fail with FailedBuild set).
 
-    unexplained_failed_pkgs (UAT round 2, defect class: execution results
-    without complete terminal evidence accepted as passing or empty
-    domain outcomes) is the set of package import paths whose
-    package-level terminal action is "fail" -- the summary line `go test`
-    always emits per package, success or failure -- but that carry
-    neither a FailedBuild marker nor any per-test "fail" entry of their
-    own. A package dies this way when something outside any individual
-    test's pass/fail reporting kills the whole `go test` process for that
-    package: a panic outside a test body, TestMain calling os.Exit, an
-    init() crash. `go test -json` then emits only package-level
-    start/output/fail events -- no "Test" field anywhere -- so every test
-    that package would have run is silently absent from `results`,
-    indistinguishable at the per-test level from "this package has no
-    tests" or "every test in it passed". Callers MUST treat a package in
-    this set as unresolved evidence, not as a pass: folding it into
-    p2p_green's build-failure-style hard "not green" (see evaluate())
-    keeps the intentional TestStock_PermanentlyFailingRegressionProbe
-    working exactly as before, since that probe reports its failure via a
-    real per-test "fail" event and is therefore never in this set."""
+def anchored_alternation(names):
+    """Builds a `go test -run`/`-skip` regexp that matches exactly the
+    given bare top-level test names (each anchored on its own so
+    "TestFoo" cannot substring-match "TestFooBar"), or None if names is
+    empty. Go's -run/-skip apply this regexp against each "/"-separated
+    path element of a (sub)test's full name; anchoring the top-level name
+    alone is sufficient to select or exclude that whole test (and every
+    subtest under it)."""
+    bare = sorted({bare_test_name(n) for n in names})
+    if not bare:
+        return None
+    return "^(" + "|".join(re.escape(n) for n in bare) + ")$"
+
+
+def run_go_tests(checkout_dir, packages, run_pattern=None, skip_pattern=None):
+    """Runs `go test -json` for packages in checkout_dir, optionally
+    scoped by a -run and/or -skip regexp (see anchored_alternation), and
+    returns (results, problem_pkgs, returncode).
+
+    results maps "<pkg>::<test>" to its terminal action (pass/fail/skip)
+    for every per-test event this specific invocation observed.
+    problem_pkgs is the set of package import paths this invocation
+    reported as failed at the package level -- compile failures
+    (FailedBuild) and package-level runtime/process failures alike --
+    named for caller diagnostics only. returncode is the raw `go test`
+    process exit code: the single source of truth this script's callers
+    use to decide pass/fail (see evaluate())."""
     cmd = ["go", "test", "-json"]
-    if run_selector:
-        cmd += ["-run", run_selector]
+    if run_pattern:
+        cmd += ["-run", run_pattern]
+    if skip_pattern:
+        cmd += ["-skip", skip_pattern]
     cmd += list(packages)
     proc = subprocess.run(cmd, cwd=checkout_dir, capture_output=True, text=True)
 
     results = {}
-    build_failed_pkgs = set()
-    package_level_action = {}
+    problem_pkgs = set()
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -263,31 +280,10 @@ def run_go_tests(checkout_dir, packages, run_selector):
         if test and action in ("pass", "fail", "skip"):
             results[f"{pkg}::{test}"] = action
             continue
-        if not test and pkg and action in ("pass", "fail", "skip"):
-            if action == "fail" and ev.get("FailedBuild"):
-                build_failed_pkgs.add(pkg)
-            else:
-                package_level_action[pkg] = action
+        if not test and pkg and action == "fail":
+            problem_pkgs.add(pkg)
 
-    unexplained_failed_pkgs = set()
-    for pkg, action in package_level_action.items():
-        if action != "fail":
-            continue
-        explained = any(
-            test_id.startswith(f"{pkg}::") and outcome == "fail"
-            for test_id, outcome in results.items()
-        )
-        if not explained:
-            unexplained_failed_pkgs.add(pkg)
-
-    return results, build_failed_pkgs, unexplained_failed_pkgs
-
-
-def test_status(results, build_failed_pkgs, unexplained_failed_pkgs, test_id):
-    pkg = test_id.split("::", 1)[0]
-    if pkg in build_failed_pkgs or pkg in unexplained_failed_pkgs:
-        return "fail"
-    return results.get(test_id, "missing")
+    return results, problem_pkgs, proc.returncode
 
 
 def copy_f2p_files(item, checkout_dir):
@@ -314,6 +310,43 @@ def copy_f2p_files(item, checkout_dir):
 
 
 def evaluate(item, patch_path):
+    """UAT round 3 (UAT-005): the round-2 "explained by any per-test fail"
+    reconciliation is itself the defect class -- an expected/excluded
+    failure (the intentional TestStock_PermanentlyFailingRegressionProbe)
+    shares its package's evidence channel with an unexpected one, so a
+    single genuinely-failing test can mask an independent runtime failure
+    (a panic outside a test body, TestMain calling os.Exit, an init()
+    crash) riding on the same package's process exit. Counting failures
+    cannot close this: `go test`'s package-level exit code is a single
+    bit, and no amount of "does at least one recorded fail exist" logic
+    can tell "exactly the known failures happened" apart from "the known
+    failures happened AND something else broke too".
+
+    The structural fix is to never let an admission run's evidence
+    channel contain an expected failure in the first place:
+
+    - The P2P-isolated run below always adds `-skip` for exactly this
+      item's exclude_tests union its own F2P test names (both are
+      supposed to be absent from the P2P universe already, per
+      REQ-F-003). With every test this item is allowed to see fail
+      actually skipped -- not merely subtracted from a results dict
+      after the fact -- NOTHING in that specific invocation is expected
+      to fail. Its raw process exit code is therefore sufficient by
+      itself: p2p_green == (that invocation's returncode == 0), full
+      stop, no per-test reconciliation needed, because there is no
+      excluded test left in the run to hide behind.
+    - The F2P-isolated run below scopes `-run` to exactly this item's own
+      F2P test name(s) and nothing else. A rogue TestMain still executes
+      unconditionally for the package and can still force a non-zero
+      process exit regardless of the isolated test's own outcome, so
+      f2p_green additionally requires that invocation's returncode == 0
+      -- a "pass" claim is trusted only when nothing else in the process
+      misbehaved either. A "fail" claim never needs this extra scrutiny:
+      it is real evidence either way.
+
+    This closes the masking channel by construction (the excluded/F2P
+    test physically does not execute in the run being judged), not by a
+    smarter classifier over the same shared-channel evidence."""
     item_id_ = item["id"]
     item_type = item.get("type")
     p2p_set_name = item["p2p_set"]
@@ -321,10 +354,27 @@ def evaluate(item, patch_path):
     if p2p_set is None:
         raise RuntimeError(f"item {item_id_}: unknown p2p_set {p2p_set_name!r}")
     packages = p2p_set.get("packages") or ["./..."]
-    run_selector = p2p_set.get("run_selector") or ""
+    run_selector = p2p_set.get("run_selector") or None
     exclude_tests = set(p2p_set.get("exclude_tests") or [])
     f2p_ids = list(item["f2p"]["test_names"])
+    if not f2p_ids:
+        raise RuntimeError(f"item {item_id_}: f2p.test_names is empty")
     exclude_from_p2p = exclude_tests | set(f2p_ids)
+
+    p2p_skip_pattern = anchored_alternation(exclude_from_p2p)
+    f2p_run_pattern = anchored_alternation(f2p_ids)
+    # The F2P run is scoped to exactly the F2P test(s)' own package(s) --
+    # NOT p2p_set.packages ("./..." for every defined set). `go test
+    # ./...` runs every matched package as its own subprocess and the
+    # overall command exits non-zero if ANY of them does, regardless of
+    # -run selection within each -- so reusing the P2P-wide package glob
+    # here would make the F2P check spuriously sensitive to a completely
+    # unrelated package's runtime failure (e.g. the very
+    # pkg/inventory poisoning this fix exists to catch, when the item's
+    # own F2P test lives elsewhere), reporting F2P-still-red-post-patch
+    # for what is actually a P2P problem. Scoping to the F2P test's own
+    # package(s) keeps the two checks properly independent.
+    f2p_packages = sorted({t.split("::", 1)[0] for t in f2p_ids})
 
     checks = {
         "f2p_red_at_base": None,
@@ -353,39 +403,30 @@ def evaluate(item, patch_path):
 
         copy_f2p_files(item, checkout_dir)
 
-        base_results, base_build_failed, base_unexplained_failed = run_go_tests(
-            checkout_dir, packages, run_selector
+        # F2P-isolated run: -run scopes execution to exactly this item's
+        # own F2P test name(s), so nothing this item does not name can
+        # produce a per-test result here.
+        base_f2p_results, _base_f2p_problem_pkgs, _base_f2p_rc = run_go_tests(
+            checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
         )
-
-        f2p_red_at_base = all(
-            test_status(base_results, base_build_failed, base_unexplained_failed, t) == "fail"
-            for t in f2p_ids
-        )
+        f2p_red_at_base = all(base_f2p_results.get(t) == "fail" for t in f2p_ids)
         checks["f2p_red_at_base"] = f2p_red_at_base
         if not f2p_red_at_base:
             failing_check = FAIL_F2P_GREEN_AT_BASE
 
         if failing_check is None:
-            p2p_ids = [t for t in base_results if t not in exclude_from_p2p]
-            # A package whose evidence is incomplete (base_unexplained_failed)
-            # is treated exactly like a build failure -- a hard "not green"
-            # for the whole P2P check, not something test_status() could
-            # ever discover on its own, since a wholesale-dead package
-            # contributes zero entries to base_results/p2p_ids in the first
-            # place (UAT round 2, UAT-002).
-            p2p_green_at_base = (
-                not base_build_failed
-                and not base_unexplained_failed
-                and all(
-                    test_status(base_results, base_build_failed, base_unexplained_failed, t) != "fail"
-                    for t in p2p_ids
-                )
+            # P2P-isolated run: -skip removes exactly the tests this item
+            # is allowed to see fail (exclude_tests + its own F2P names).
+            # Nothing left running is expected to fail, so the raw exit
+            # code alone is authoritative -- see evaluate()'s docstring.
+            _base_p2p_results, base_p2p_problem_pkgs, base_p2p_rc = run_go_tests(
+                checkout_dir, packages, run_pattern=run_selector, skip_pattern=p2p_skip_pattern
             )
+            p2p_green_at_base = base_p2p_rc == 0
             checks["p2p_green_at_base"] = p2p_green_at_base
             if not p2p_green_at_base:
                 failing_check = FAIL_P2P_RED_AT_BASE
-                if base_unexplained_failed:
-                    unexplained_failed_packages = sorted(base_unexplained_failed)
+                unexplained_failed_packages = sorted(base_p2p_problem_pkgs)
 
         if failing_check is None:
             apply_proc = subprocess.run(
@@ -400,33 +441,32 @@ def evaluate(item, patch_path):
                 failing_check = FAIL_PATCH_APPLY
 
         if failing_check is None:
-            post_results, post_build_failed, post_unexplained_failed = run_go_tests(
-                checkout_dir, packages, run_selector
+            post_f2p_results, _post_f2p_problem_pkgs, post_f2p_rc = run_go_tests(
+                checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
             )
 
-            f2p_green_post_patch = all(
-                test_status(post_results, post_build_failed, post_unexplained_failed, t) == "pass"
-                for t in f2p_ids
+            # A "pass" claim is trusted only when the isolated F2P run's
+            # own process exit also agrees nothing else misbehaved --
+            # otherwise a rogue TestMain forcing a non-zero exit
+            # regardless of this test's real outcome would read as a
+            # false "green" (see evaluate()'s docstring).
+            f2p_green_post_patch = (
+                post_f2p_rc == 0
+                and all(post_f2p_results.get(t) == "pass" for t in f2p_ids)
             )
             checks["f2p_green_post_patch"] = f2p_green_post_patch
             if not f2p_green_post_patch:
                 failing_check = FAIL_F2P_STILL_RED
 
             if failing_check is None:
-                p2p_ids_post = [t for t in post_results if t not in exclude_from_p2p]
-                p2p_green_post_patch = (
-                    not post_build_failed
-                    and not post_unexplained_failed
-                    and all(
-                        test_status(post_results, post_build_failed, post_unexplained_failed, t) != "fail"
-                        for t in p2p_ids_post
-                    )
+                _post_p2p_results, post_p2p_problem_pkgs, post_p2p_rc = run_go_tests(
+                    checkout_dir, packages, run_pattern=run_selector, skip_pattern=p2p_skip_pattern
                 )
+                p2p_green_post_patch = post_p2p_rc == 0
                 checks["p2p_green_post_patch"] = p2p_green_post_patch
                 if not p2p_green_post_patch:
                     failing_check = FAIL_P2P_RED_POST_PATCH
-                    if post_unexplained_failed:
-                        unexplained_failed_packages = sorted(post_unexplained_failed)
+                    unexplained_failed_packages = sorted(post_p2p_problem_pkgs)
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 
