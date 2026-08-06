@@ -230,8 +230,15 @@ exit_status = load_json(rd("run", "exit_status"))
 record = {"schema_version": SCHEMA_VERSION}
 
 # --- manifest (this task's slice: identity fields + run_id resolution) ---
+# "seeded_keys" is T-E40-F02-003's own addition (driver core): the driver
+# writes meta.json's seeded_keys object (the assigned epic/feature/task or
+# bug key(s), captured verbatim from each `shark create ... --json`
+# response -- AC-16), and this pass-through is what puts it on the record
+# without inventing a value; a meta.json without the key (older/synthetic
+# fixtures) simply omits it here too, per the same optional-field guard the
+# rest of this loop already uses.
 manifest = {}
-for key in ("item_id", "item_type", "variant_id", "rep", "timeout_cap_s"):
+for key in ("item_id", "item_type", "variant_id", "rep", "timeout_cap_s", "seeded_keys"):
     if meta.get(key) is not None:
         manifest[key] = meta[key]
 if all(k in manifest for k in ("item_id", "variant_id", "rep")):

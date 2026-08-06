@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# PATH-stub `claude` (test-plan.md TC-016/TC-014 shared infrastructure,
+# T-E40-F02-003's Scope reserves this file for T-E40-F02-005's canary and
+# T-E40-F02-006's Q003 capture to reuse). T-E40-F02-003's own TC-014
+# sub-cases never reach this binary -- `run` is always intercepted at the
+# `shark` stub layer in this task's tests, so real `shark run` dispatch
+# (which would exec `claude`) never happens here. Kept minimal and
+# self-contained: emits a fixed, plausible agent JSON envelope on stdout so
+# a real `shark run` invocation (as T-E40-F02-005's canary performs) can
+# complete a spawn_agent stage without any live API call or spend.
+#
+# `internal/runner/claude_dispatcher.go` resolves `claude` via
+# `exec.LookPath` and execs whatever is first on PATH -- nothing in the
+# dispatch path requires the real Anthropic CLI (test-plan.md's own
+# precision-gap finding). This stub never advances shark's workflow status
+# itself; it only returns the envelope shark's own dispatcher parses.
+#
+# Configuration:
+#   STUB_CLAUDE_LOG    optional path to a JSONL log of {"argv":[...]} lines
+#   STUB_CLAUDE_EXIT    exit code to return (default 0)
+set -euo pipefail
+
+if [[ -n "${STUB_CLAUDE_LOG:-}" ]]; then
+	python3 - "$STUB_CLAUDE_LOG" "$@" <<'PYEOF'
+import json
+import sys
+
+log_path = sys.argv[1]
+argv = sys.argv[2:]
+with open(log_path, "a") as f:
+    f.write(json.dumps({"argv": argv}) + "\n")
+PYEOF
+fi
+
+# Provisional field names per test-plan.md's "Sequencing constraint:
+# REQ-F-021/Q003": modelUsage/num_turns/duration_api_ms, pending
+# T-E40-F02-006's real-transcript capture. Not consumed by any
+# T-E40-F02-003 test.
+cat <<'JSON'
+{
+  "result": "stub claude: no-op dispatch, zero code changes",
+  "modelUsage": {
+    "claude-stub-model": {
+      "inputTokens": 100,
+      "outputTokens": 50,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "costUSD": 0.0
+    }
+  },
+  "num_turns": 1,
+  "duration_api_ms": 1,
+  "model": "claude-stub-model"
+}
+JSON
+
+exit "${STUB_CLAUDE_EXIT:-0}"

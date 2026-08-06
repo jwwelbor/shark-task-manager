@@ -18,6 +18,7 @@ tests=(
 	"$SCRIPT_DIR/tc010_test_diff_transitions_test.sh"
 	"$SCRIPT_DIR/tc011_toolchain_guard_test.sh"
 	"$SCRIPT_DIR/tc013_admit_offline_test.sh"
+	"$SCRIPT_DIR/tc014_run_one_smoke_test.sh"
 	"$SCRIPT_DIR/tc015_collect_run_record_test.sh"
 )
 
