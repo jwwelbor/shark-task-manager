@@ -2,6 +2,7 @@
 package contracts
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -1341,11 +1342,18 @@ func runSharkTC308(t *testing.T, projectRoot, dbPath string, args ...string) str
 	}
 	command := exec.Command(binaryPath, append([]string{"--db", dbPath}, args...)...)
 	command.Dir = projectRoot
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("TC-308 shark %s failed: %v\n%s", strings.Join(args, " "), err, output)
+	// stdout/stderr are captured separately, not combined: `shark run` now
+	// writes its liveness stream to stderr unconditionally in both --json and
+	// plain mode (E40-F04 D2/D6), so a combined stream would corrupt the pure
+	// JSON this helper's callers decode from stdout. Both streams are still
+	// surfaced on failure for debugging.
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("TC-308 shark %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
 	}
-	return string(output)
+	return stdout.String()
 }
 
 // TC-312 protects F03's deliberately narrow producer boundary. The source
@@ -1946,9 +1954,16 @@ func runSharkTC013(t *testing.T, dbPath string, args ...string) string {
 	commandArgs := append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)
 	command := exec.Command("go", commandArgs...)
 	command.Dir = projectRoot
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("shark %s failed: %v\n%s", strings.Join(args, " "), err, output)
+	// stdout/stderr are captured separately, not combined: `shark run` now
+	// writes its liveness stream to stderr unconditionally in both --json and
+	// plain mode (E40-F04 D2/D6), so a combined stream would corrupt the pure
+	// JSON this helper's callers decode from stdout. Both streams are still
+	// surfaced on failure for debugging.
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("shark %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
 	}
-	return string(output)
+	return stdout.String()
 }

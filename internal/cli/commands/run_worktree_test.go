@@ -5,6 +5,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"go/ast"
 	"strings"
 	"testing"
 
@@ -129,5 +130,85 @@ func TestSetupWorktree_PathContainsTimestamp(t *testing.T) {
 	if len(path) < minExpectedLen {
 		t.Errorf("worktree path %q appears to be missing timestamp suffix (len=%d, want>%d)",
 			path, len(path), minExpectedLen)
+	}
+}
+
+// TestRunWorktreeCleanupWarningTargetsStderr is TC-013 (test-plan.md): the
+// --worktree cleanup defer's warning call in runRun must be
+// fmt.Fprintf(os.Stderr, ...), never a bare fmt.Printf (which would leak onto
+// stdout, corrupting `shark run --json`'s output — research Finding 3 /
+// Decision 3, AC-03/REQ-F-003). Source-guard (go/parser), not a runtime
+// test: runRun has no mock seam (test-plan.md "Considered and rejected"),
+// and T-E40-F04-006's TC-002 proves the whole-file invariant; this test
+// additionally proves the *specific* writer target at this one call site —
+// TC-002's whole-file guard alone would already catch a reversion to a bare
+// fmt.Printf, but not confirm which writer a corrected Fprintf targets.
+// parseRunGoSource is defined in run_test.go (same package).
+func TestRunWorktreeCleanupWarningTargetsStderr(t *testing.T) {
+	_, runRunDecl := parseRunGoSource(t)
+
+	// Locate `if removeErr := creator.RemoveWorktree(...); removeErr != nil { ... }`.
+	var cleanupIf *ast.IfStmt
+	ast.Inspect(runRunDecl, func(n ast.Node) bool {
+		ifStmt, ok := n.(*ast.IfStmt)
+		if !ok || ifStmt.Init == nil {
+			return true
+		}
+		assign, ok := ifStmt.Init.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 {
+			return true
+		}
+		call, ok := assign.Rhs[0].(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && sel.Sel.Name == "RemoveWorktree" {
+			cleanupIf = ifStmt
+		}
+		return true
+	})
+	if cleanupIf == nil {
+		t.Fatal("could not find `if removeErr := ...RemoveWorktree(...); removeErr != nil { ... }` inside runRun")
+	}
+
+	// Within that if-block, find the fmt.Printf/Fprintf warning call.
+	var warnCall *ast.CallExpr
+	var warnSel *ast.SelectorExpr
+	ast.Inspect(cleanupIf.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "fmt" {
+			return true
+		}
+		if sel.Sel.Name == "Printf" || sel.Sel.Name == "Fprintf" {
+			warnCall, warnSel = call, sel
+		}
+		return true
+	})
+	if warnCall == nil {
+		t.Fatal("worktree cleanup defer's if-block contains no fmt.Printf/Fprintf call")
+	}
+
+	if warnSel.Sel.Name != "Fprintf" {
+		t.Fatalf("worktree cleanup warning call is fmt.%s(...), want fmt.Fprintf(os.Stderr, ...)", warnSel.Sel.Name)
+	}
+	if len(warnCall.Args) == 0 {
+		t.Fatal("fmt.Fprintf call has no arguments")
+	}
+	firstArg, ok := warnCall.Args[0].(*ast.SelectorExpr)
+	if !ok {
+		t.Fatalf("fmt.Fprintf's first argument is %T, want os.Stderr", warnCall.Args[0])
+	}
+	pkgIdent, ok := firstArg.X.(*ast.Ident)
+	if !ok || pkgIdent.Name != "os" || firstArg.Sel.Name != "Stderr" {
+		t.Fatal("fmt.Fprintf's first argument is not os.Stderr")
 	}
 }
