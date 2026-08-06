@@ -8,7 +8,7 @@
 // stderr in jsonMode=false and unconditionally in run.log) and the D4
 // per-event durable file sink.
 //
-// Scope of THIS file as of T-E40-F04-003:
+// Scope of THIS file as of T-E40-F04-004:
 //   - NewLivenessRecorder / Observe, implementing D1's phase table for the
 //     "iteration" and "action" phases (other phases are ignored).
 //   - The jsonMode=true NDJSON stderr renderer (D3's 11-field schema).
@@ -26,14 +26,19 @@
 //     table). Start() also announces LogPath() on stderr exactly once,
 //     before any event line (REQ-F-008/AC-10 — this task's resolved
 //     D6-edit-2 deviation; see the task spec's "Deviation" note).
+//   - Finish() and the file-only run_end summary line (D1's "run end" row,
+//     D3): closes any open stage, then appends run_end sourced from a
+//     *RunResult when one is available, including the zero-Observe fallback
+//     (AC-08 row 8b) the task spec resolves explicitly.
 //
-// Deliberately NOT yet implemented here — added by later F04 tasks, tracked
-// so an absence here is never mistaken for a design decision:
-//   - Finish() and the run_end summary line (T-E40-F04-004).
+// This file is now feature-complete for LivenessRecorder itself; wiring it
+// into run.go is T-E40-F04-005/006.
 //
 // REQ-N-004: this file and its test never touch controller.go or
 // transcript.go — the only seam used is RunOptions.Progress's existing
-// callback signature (RunProgress, defined in controller.go).
+// callback signature (RunProgress, defined in controller.go), plus reading
+// RunResult's already-defined fields in Finish (no new field, no shape
+// change).
 package runner
 
 import (
@@ -116,6 +121,14 @@ type LivenessRecorder struct {
 
 	open *stageSlot
 
+	// observed records whether Observe has ever been called, regardless of
+	// phase or whether it ever opened a stage. Finish (T-E40-F04-004) uses
+	// this to distinguish AC-08 row 8b (Finish(nil), zero Observe calls ever
+	// made — nothing else will satisfy AC-06's non-empty-file invariant) from
+	// AC-T2 (Finish(nil) after at least one observed stage, whether or not it
+	// is still open — the closing stage_start/stage_end already satisfy it).
+	observed bool
+
 	// stopCh/stopOnce/wg implement Start()/Stop()'s ticker-goroutine
 	// lifecycle (T-E40-F04-003). stopCh is always initialized by the
 	// constructor, so Stop() is safe even when Start() was never called;
@@ -188,6 +201,7 @@ func (r *LivenessRecorder) Observe(p RunProgress) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.observed = true
 	now := time.Now()
 
 	switch p.Phase {
@@ -226,6 +240,68 @@ func (r *LivenessRecorder) closeOpenStage() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closeOpenLocked(time.Now())
+}
+
+// Finish implements D1's "run end" row: close any open stage (lazy
+// stage_start + stage_end, via the same closeOpenStage logic T-E40-F04-001
+// already exercises ahead of this method), then append the file-only
+// run_end summary line (D3) — never written to stderr in either mode.
+// Production calls this exactly once per run via run.go's
+// `defer func() { rec.Stop(); rec.Finish(runResult) }()` (D6 edit 2); this
+// method does not itself guard against a second call.
+//
+// D3 ties the run_end line to RunResult availability:
+//
+//   - result != nil (AC-T3/AC-T4, AC-08 rows 5/6/8a): render
+//     outcome/final_status/stages/total from the result's real fields. The
+//     zero-stage row-8a shape (already_terminal/paused before the first
+//     iteration) renders exactly like the primary multi-stage shape — both
+//     are real RunResults, so both render real fields, never the fallback
+//     text below.
+//   - result == nil and at least one Observe call was ever made (AC-T2): no
+//     run_end line at all. The closing stage_start/stage_end already
+//     satisfy AC-06's non-empty-file invariant, and fabricating an
+//     "unknown" summary here would misrepresent a run whose stage we did in
+//     fact observe.
+//   - result == nil and ZERO Observe calls were ever made (AC-T1 — the task
+//     spec's resolved AC-08 row 8b decision: controller.Run returned a bare
+//     Go error before its first iteration, so run.go's liveness-teardown
+//     defer never received a RunResult): closeOpenStage is a no-op — nothing
+//     was ever opened — so nothing else would satisfy AC-06. Finish writes
+//     exactly one synthetic run_end line sourced from topLevelKey with
+//     outcome/final_status "unknown" and stages 0. No stage_start/stage_end
+//     pair is fabricated to "make the file look normal."
+func (r *LivenessRecorder) Finish(result *RunResult) {
+	r.mu.Lock()
+	observed := r.observed
+	r.mu.Unlock()
+
+	r.closeOpenStage()
+
+	now := time.Now()
+	switch {
+	case result != nil:
+		r.writeLogLine(renderRunEndLine(now, result.EntityKey, result.Outcome, result.FinalStatus, result.StagesCompleted, result.TotalDuration))
+	case !observed:
+		r.writeLogLine(renderRunEndLine(now, r.topLevelKey, "unknown", "unknown", 0, now.Sub(r.start)))
+	}
+}
+
+// renderRunEndLine renders D3's file-only run_end summary line:
+//
+//	<ts>  run_end  <entity_key>  outcome=<outcome> final_status=<final_status> stages=<n> total=<elapsed>
+//
+// This is deliberately NOT an ndjsonLine render (D3: "not an event-struct
+// render") — it carries a fixed, different key set (outcome/final_status/
+// stages/total, never status/action/agent/provider/stage), and none of its
+// four keys is ever omitted, even when the value is the literal placeholder
+// "unknown" (Finish's row-8b fallback) or zero. It reuses renderPlainLine's
+// column-spacing convention (two spaces between each fixed column, two
+// spaces before the key=value block, single space between pairs) purely for
+// visual consistency with the stage-event lines already in run.log.
+func renderRunEndLine(ts time.Time, entityKey, outcome, finalStatus string, stages int, total time.Duration) string {
+	return fmt.Sprintf("%s  run_end  %s  outcome=%s final_status=%s stages=%d total=%s",
+		ts.UTC().Format(time.RFC3339Nano), entityKey, outcome, finalStatus, stages, formatElapsed(total))
 }
 
 // closeOpenLocked closes r.open, if set: emitting a lazy stage_start first

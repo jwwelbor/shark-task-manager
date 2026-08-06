@@ -1264,3 +1264,231 @@ func TestLiveness_StopIsIdempotent(t *testing.T) {
 	rec.Stop()
 	rec.Stop()
 }
+
+// ---------------------------------------------------------------------------
+// TC-016: Finish(nil) still leaves a non-empty run.log (two sub-cases)
+// ---------------------------------------------------------------------------
+
+// runEndLinePattern matches D3's file-only run_end summary line:
+//
+//	<ts>  run_end  <entity_key>  outcome=<o> final_status=<f> stages=<n> total=<elapsed>
+var runEndLinePattern = regexp.MustCompile(`^\S+  run_end  \S+  outcome=\S+ final_status=\S+ stages=\d+ total=\S+$`)
+
+// readLogLines reads rec.LogPath() and splits it into non-empty lines.
+func readLogLines(t *testing.T, rec *LivenessRecorder) []string {
+	t.Helper()
+	content, err := os.ReadFile(rec.LogPath())
+	if err != nil {
+		t.Fatalf("run.log not readable: %v", err)
+	}
+	raw := strings.TrimRight(string(content), "\n")
+	if raw == "" {
+		return nil
+	}
+	return strings.Split(raw, "\n")
+}
+
+// TestLiveness_TC016_FinishNil_OpenUnclosedStage covers TC-016 sub-case a:
+// a stage was opened (but never reached the action phase, i.e. paused before
+// dispatch) and never closed by a subsequent iteration — the SIGKILL-style
+// abrupt-cutoff shape. Finish(nil) must still close it (lazy stage_start,
+// then stage_end), leaving run.log non-empty. Per AC-T2, no run_end line is
+// written: D3 ties that line to RunResult availability, and a stage WAS
+// observed here, so fabricating an "unknown" summary would misrepresent a
+// run whose stage we did in fact see.
+func TestLiveness_TC016_FinishNil_OpenUnclosedStage(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc016a", "T-E40-F04-004", true, time.Now())
+
+	stderrLines := captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "T-E40-F04-004", Status: "in_development"})
+		// No "action" phase: paused before dispatch, matching sub-case a's
+		// preconditions.
+		rec.Stop()
+		rec.Finish(nil)
+	})
+
+	logLines := readLogLines(t, rec)
+	if len(logLines) != 2 {
+		t.Fatalf("expected exactly [lazy stage_start, stage_end], got %d lines: %v", len(logLines), logLines)
+	}
+	if !strings.Contains(logLines[0], eventStageStart) {
+		t.Errorf("run.log line 0 missing stage_start: %q", logLines[0])
+	}
+	if !strings.Contains(logLines[1], eventStageEnd) {
+		t.Errorf("run.log line 1 missing stage_end: %q", logLines[1])
+	}
+	for i, l := range logLines {
+		if strings.Contains(l, "run_end") {
+			t.Errorf("run.log line %d unexpectedly contains a run_end line (Finish(nil) with an observed stage must not fabricate one): %q", i, l)
+		}
+	}
+
+	// D3: run_end never reaches stderr in any mode; this Finish(nil) case
+	// writes no run_end line at all, and the two stage events on stderr must
+	// not be confused with one either.
+	for i, l := range stderrLines {
+		if strings.Contains(l, "run_end") {
+			t.Errorf("stderr line %d unexpectedly contains run_end (file-only per D3): %q", i, l)
+		}
+	}
+}
+
+// TestLiveness_TC016_FinishNil_ZeroObserve covers TC-016 sub-case b (AC-08
+// decision-table row 8b, the task spec's resolved implementation decision):
+// controller.Run returns a bare Go error before its first iteration, so
+// run.go's liveness-teardown defer calls Finish(nil) with ZERO prior Observe
+// calls ever made. No stage was ever opened, so closeOpenStage is a no-op —
+// without a fallback, run.log would stay empty, violating AC-06. Finish must
+// instead write exactly one synthetic run_end line sourced from topLevelKey,
+// with outcome/final_status "unknown" and stages 0, and must not fabricate a
+// stage_start/stage_end pair "to make the file look normal."
+func TestLiveness_TC016_FinishNil_ZeroObserve(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc016b", "T-E40-F04-004", true, time.Now())
+
+	captureStderrLines(t, func() {
+		rec.Stop()
+		rec.Finish(nil) // zero prior Observe calls
+	})
+
+	logLines := readLogLines(t, rec)
+	if len(logLines) != 1 {
+		t.Fatalf("expected exactly 1 synthetic run_end line, got %d: %v", len(logLines), logLines)
+	}
+	line := logLines[0]
+	if !runEndLinePattern.MatchString(line) {
+		t.Fatalf("run.log line does not match D3 run_end format: %q", line)
+	}
+	if !strings.Contains(line, "  run_end  T-E40-F04-004  ") {
+		t.Errorf("run_end line missing topLevelKey as entity_key: %q", line)
+	}
+	if !strings.Contains(line, "outcome=unknown") {
+		t.Errorf("run_end line missing outcome=unknown: %q", line)
+	}
+	if !strings.Contains(line, "final_status=unknown") {
+		t.Errorf("run_end line missing final_status=unknown: %q", line)
+	}
+	if !strings.Contains(line, "stages=0") {
+		t.Errorf("run_end line missing stages=0: %q", line)
+	}
+	if strings.Contains(line, eventStageStart) || strings.Contains(line, eventStageEnd) {
+		t.Errorf("run_end fallback line must not fabricate a stage_start/stage_end pair: %q", line)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-017: Finish(result) appends the run_end file-only summary line
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC017_FinishResult_PrimaryCase drives at least one full stage
+// through Observe, then calls Finish with a real, populated RunResult. The
+// closing stage_end must fire first, then run_end must be appended sourced
+// from the result's real fields (AC-T4) — and run_end must never appear on
+// stderr in either mode (AC-T5).
+func TestLiveness_TC017_FinishResult_PrimaryCase(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc017-primary", "T-E40-F04-004", true, time.Now())
+
+	result := &RunResult{
+		EntityKey:       "T-E40-F04-004",
+		FinalStatus:     "completed",
+		StagesCompleted: 4,
+		Outcome:         "completed",
+		TotalDuration:   3*time.Minute + 52*time.Second,
+	}
+
+	stderrLines := captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "T-E40-F04-004", Status: "in_development"})
+		rec.Observe(RunProgress{
+			Phase: "action", Iteration: 1, EntityKey: "T-E40-F04-004", Status: "in_development",
+			Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+		})
+		rec.Stop()
+		rec.Finish(result)
+	})
+
+	logLines := readLogLines(t, rec)
+	if len(logLines) != 3 {
+		t.Fatalf("expected [stage_start, stage_end, run_end], got %d lines: %v", len(logLines), logLines)
+	}
+	if !strings.Contains(logLines[0], eventStageStart) {
+		t.Errorf("run.log line 0 missing stage_start: %q", logLines[0])
+	}
+	if !strings.Contains(logLines[1], eventStageEnd) {
+		t.Errorf("run.log line 1 missing stage_end: %q", logLines[1])
+	}
+	last := logLines[len(logLines)-1]
+	if !runEndLinePattern.MatchString(last) {
+		t.Fatalf("final run.log line does not match D3 run_end format: %q", last)
+	}
+	if !strings.Contains(last, "  run_end  T-E40-F04-004  ") {
+		t.Errorf("run_end line missing entity key: %q", last)
+	}
+	if !strings.Contains(last, "outcome=completed") {
+		t.Errorf("run_end line missing real outcome=completed: %q", last)
+	}
+	if !strings.Contains(last, "final_status=completed") {
+		t.Errorf("run_end line missing real final_status=completed: %q", last)
+	}
+	if !strings.Contains(last, "stages=4") {
+		t.Errorf("run_end line missing real stages=4: %q", last)
+	}
+	if !strings.Contains(last, "total=3m52s") {
+		t.Errorf("run_end line missing total sourced from RunResult.TotalDuration: %q", last)
+	}
+
+	for i, l := range stderrLines {
+		if strings.Contains(l, "run_end") {
+			t.Errorf("stderr line %d unexpectedly contains run_end (file-only per D3): %q", i, l)
+		}
+	}
+}
+
+// TestLiveness_TC017_FinishResult_ZeroStageRow8a covers AC-08 decision-table
+// row 8a: the entity was already terminal, or a Question block paused it,
+// before the loop's first iteration — a real, non-nil RunResult exists, but
+// zero Observe calls were ever made. run.log's ONLY content must be the
+// run_end line, sourced from the result's real fields (distinguishing this
+// from TC-016 sub-case b's nil-result "unknown" fallback), with no fabricated
+// stage_start/stage_end pair.
+func TestLiveness_TC017_FinishResult_ZeroStageRow8a(t *testing.T) {
+	rec := NewLivenessRecorder(t.TempDir(), "run-tc017-row8a", "T-E40-F04-004", true, time.Now())
+
+	result := &RunResult{
+		EntityKey:       "T-E40-F04-004",
+		FinalStatus:     "completed",
+		StagesCompleted: 0,
+		Outcome:         "already_terminal",
+		Stages:          nil,
+	}
+
+	stderrLines := captureStderrLines(t, func() {
+		rec.Stop()
+		rec.Finish(result) // zero prior Observe calls
+	})
+
+	logLines := readLogLines(t, rec)
+	if len(logLines) != 1 {
+		t.Fatalf("expected exactly 1 run_end line (no fabricated stage lines), got %d: %v", len(logLines), logLines)
+	}
+	line := logLines[0]
+	if !runEndLinePattern.MatchString(line) {
+		t.Fatalf("run.log line does not match D3 run_end format: %q", line)
+	}
+	if !strings.Contains(line, "outcome=already_terminal") {
+		t.Errorf("run_end line missing real outcome=already_terminal (must not use the nil-result fallback): %q", line)
+	}
+	if !strings.Contains(line, "final_status=completed") {
+		t.Errorf("run_end line missing real final_status=completed: %q", line)
+	}
+	if !strings.Contains(line, "stages=0") {
+		t.Errorf("run_end line missing stages=0: %q", line)
+	}
+	if strings.Contains(line, eventStageStart) || strings.Contains(line, eventStageEnd) {
+		t.Errorf("row 8a must not fabricate a stage_start/stage_end pair: %q", line)
+	}
+
+	for i, l := range stderrLines {
+		if strings.Contains(l, "run_end") {
+			t.Errorf("stderr line %d unexpectedly contains run_end (file-only per D3): %q", i, l)
+		}
+	}
+}
