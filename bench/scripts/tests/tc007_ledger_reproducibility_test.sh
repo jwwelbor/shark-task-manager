@@ -309,30 +309,39 @@ grep -qi "independent" "$runtime_dir/build.log" || fail "failure diagnostic does
 
 echo "TC-007: runtime-failure regression correctly rejected (exit $runtime_exit, no ledger written)"
 
-# --- Regression: masked runtime failure behind the excluded probe (UAT-006) -
-# UAT-006 (T-E40-F01-008 rejection round 3): round 2's fix explained a
-# package-level "fail" by checking whether ANY per-test "fail" was also
-# recorded for that package -- but pkg/inventory's own intentional
-# TestStock_PermanentlyFailingRegressionProbe always supplies exactly
-# such a per-test fail, so it masked an independent runtime failure
-# riding on the same package's process exit. This is the UAT report's own
-# reproduction: TestMain(m *testing.M) { m.Run(); os.Exit(1) } added to
-# pkg/inventory, the package that already contains the excluded probe.
-# The pre-round-3 builder wrote both ledgers anyway (the probe's real
-# failure provided cover); this must now be refused, naming pkg/inventory,
-# even though a genuine per-test failure (the probe) is also present.
-echo "TC-007: regression - masked runtime failure behind the excluded probe (UAT-006)"
+# --- Round-3 masked-behind-probe scenario: now DELIBERATELY ACCEPTED ------
+# UAT-006 (round 3) rejected TestMain(m *testing.M) { m.Run(); os.Exit(1) }
+# added to pkg/inventory (which already has the excluded probe) via a
+# validation re-run that trusted a re-invocation's own exit code -- itself
+# a forgeable signal, per code review round 5's finding #3. Round 5
+# replaces that mechanism with testenum-based completeness checking,
+# which does NOT consult any process exit code at all: with m.Run()
+# actually called here, every one of pkg/inventory's 6 real tests
+# produces a genuine, honest per-test terminal event (including the
+# probe's real fail) -- testenum's enumeration is therefore fully
+# covered, evidence is complete, and the ledger is written, containing
+# exactly that honest data. This is a deliberate, reasoned change, not a
+# reopened regression: build-ledgers.sh's job is to record reality
+# completely and honestly, and per-test JSON events are reliable in
+# themselves (verified empirically, emitted before TestMain can call
+# os.Exit) -- the process's own exit code was never load-bearing for
+# whether the RECORDED DATA is trustworthy, only for whether admission
+# should proceed (admit.sh's concern, not this script's). Round 2's
+# actual protection -- a package that produces FEWER events than
+# expected -- is what must still be caught, and is exercised by the
+# bare-os.Exit regressions above and finding #3 below.
+echo "TC-007: masked-behind-probe scenario (m.Run() called, non-zero exit forged) -- now correctly ACCEPTED"
 
-masked_dir="$WORKDIR/maskedfail"
-masked_checkout="$masked_dir/checkout"
-masked_output="$masked_dir/ledgers"
-"$CHECKOUT_SCRIPT" "$BASE_SHA" "$masked_checkout" >/dev/null
+accepted_masked_dir="$WORKDIR/acceptedmasked"
+accepted_masked_checkout="$accepted_masked_dir/checkout"
+accepted_masked_output="$accepted_masked_dir/ledgers"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$accepted_masked_checkout" >/dev/null
 
-masked_inventory_test_go="$masked_checkout/pkg/inventory/inventory_test.go"
-[[ -f "$masked_inventory_test_go" ]] || fail "masked-failure regression: pkg/inventory/inventory_test.go not found in checkout"
-grep -qF 'import "testing"' "$masked_inventory_test_go" || fail "masked-failure regression: pkg/inventory/inventory_test.go import line did not match the expected shape -- mutation target moved"
-grep -qF 'TestStock_PermanentlyFailingRegressionProbe' "$masked_inventory_test_go" || fail "masked-failure regression: pkg/inventory/inventory_test.go does not contain the intentional probe -- fixture setup invalid"
-python3 - "$masked_inventory_test_go" <<'PYEOF'
+accepted_masked_inventory_test_go="$accepted_masked_checkout/pkg/inventory/inventory_test.go"
+[[ -f "$accepted_masked_inventory_test_go" ]] || fail "masked-accept regression: pkg/inventory/inventory_test.go not found in checkout"
+grep -qF 'import "testing"' "$accepted_masked_inventory_test_go" || fail "masked-accept regression: pkg/inventory/inventory_test.go import line did not match the expected shape -- mutation target moved"
+grep -qF 'TestStock_PermanentlyFailingRegressionProbe' "$accepted_masked_inventory_test_go" || fail "masked-accept regression: pkg/inventory/inventory_test.go does not contain the intentional probe -- fixture setup invalid"
+python3 - "$accepted_masked_inventory_test_go" <<'PYEOF'
 import sys
 
 path = sys.argv[1]
@@ -344,20 +353,121 @@ with open(path, "w") as f:
     f.write(content)
 PYEOF
 
+"$BUILD_LEDGERS_SCRIPT" "$accepted_masked_checkout" "$accepted_masked_output" >"$accepted_masked_dir/build.log" 2>&1
+accepted_masked_exit=$?
+[[ "$accepted_masked_exit" -eq 0 ]] || fail "build-ledgers.sh exited $accepted_masked_exit against a package whose evidence is honest and complete (m.Run() was called): $(cat "$accepted_masked_dir/build.log")"
+
+python3 - "$accepted_masked_output/tests.json" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+
+inventory_entries = {
+    e["identity"].rsplit("::", 1)[-1]: e["action"]
+    for e in data["entries"]
+    if "/pkg/inventory::" in e["identity"]
+}
+expected = {
+    "TestStock_ReserveDecrementsAvailability": "pass",
+    "TestStock_ReserveRejectsInsufficientStock": "pass",
+    "TestStock_ReleaseRestoresAvailability": "pass",
+    "TestStock_AdjustAppliesPositiveDelta": "pass",
+    "TestStock_BackorderReservation": "skip",
+    "TestStock_PermanentlyFailingRegressionProbe": "fail",
+}
+if inventory_entries != expected:
+    sys.exit(
+        "TC-007 FAIL: masked-accept regression: pkg/inventory entries do not match "
+        f"the honest, complete recording expected: got {inventory_entries}, want {expected}"
+    )
+print(f"TC-007: masked-behind-probe scenario correctly accepted -- all 6 pkg/inventory "
+      f"tests honestly recorded, including the probe's real failure: {inventory_entries}")
+PYEOF
+
+# --- Regression: bare os.Exit(0) makes package-level Action self-report ---
+# "pass" (code review round 5, finding #3 -- the lead finding, a
+# regression of UAT round 2's UAT-003 closed at 1007db59). A TestMain
+# that never calls m.Run() at all produces ZERO per-test events, but `go
+# test -json`'s package-level summary Action mirrors the process exit
+# code, not "were any tests actually run" -- os.Exit(0) makes that
+# summary report "pass". Round 3's validation-rerun trigger
+# (`if action != "fail": continue`) never fired for this exact shape,
+# because the trigger itself keyed off that same forgeable self-report.
+# testenum's completeness check does not consult Action at all, so this
+# closes cleanly: pkg/cart's 4 real tests are enumerated independently,
+# zero are observed, and the ledger build is refused.
+echo "TC-007: regression - bare os.Exit(0) TestMain, package-level Action self-reports 'pass' (finding #3)"
+
+exit0_dir="$WORKDIR/bareexit0"
+exit0_checkout="$exit0_dir/checkout"
+exit0_output="$exit0_dir/ledgers"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$exit0_checkout" >/dev/null
+
+exit0_cart_test_go="$exit0_checkout/pkg/cart/cart_test.go"
+[[ -f "$exit0_cart_test_go" ]] || fail "finding #3 regression: pkg/cart/cart_test.go not found in checkout"
+grep -qF 'import "testing"' "$exit0_cart_test_go" || fail "finding #3 regression: pkg/cart/cart_test.go import line did not match the expected shape -- mutation target moved"
+python3 - "$exit0_cart_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tos.Exit(0)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+# Sanity: confirm the real go test process genuinely reports the package
+# as Action:"pass" with zero per-test events, proving this is exactly the
+# self-reported-signal shape finding #3 describes, not a hypothetical.
+(cd "$exit0_checkout" && go test -json ./pkg/cart/...) >"$exit0_dir/sanity.jsonl" 2>&1
+python3 - "$exit0_dir/sanity.jsonl" <<'PYEOF'
+import json
+import sys
+
+path = sys.argv[1]
+package_action = None
+test_events = 0
+with open(path) as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("Test"):
+            test_events += 1
+        elif ev.get("Package", "").endswith("/pkg/cart") and ev.get("Action") in ("pass", "fail", "skip"):
+            package_action = ev["Action"]
+
+if package_action != "pass":
+    sys.exit(f"TC-007 FAIL: finding #3 regression: sanity check failed -- expected pkg/cart's "
+              f"package-level Action to self-report 'pass', got {package_action!r}")
+if test_events != 0:
+    sys.exit(f"TC-007 FAIL: finding #3 regression: sanity check failed -- expected zero per-test "
+              f"events for pkg/cart (TestMain must never call m.Run()), got {test_events}")
+print("TC-007: finding #3 sanity check confirmed -- pkg/cart Action='pass', zero per-test events")
+PYEOF
+
 set +e
-"$BUILD_LEDGERS_SCRIPT" "$masked_checkout" "$masked_output" >"$masked_dir/build.log" 2>&1
-masked_exit=$?
+"$BUILD_LEDGERS_SCRIPT" "$exit0_checkout" "$exit0_output" >"$exit0_dir/build.log" 2>&1
+exit0_exit=$?
 set -e
 
-[[ "$masked_exit" -ne 0 ]] || fail "build-ledgers.sh exited 0 against a package with an independent failure masked behind the excluded probe -- must fail loudly instead of accepting the probe's own failure as sufficient explanation"
+[[ "$exit0_exit" -ne 0 ]] || fail "build-ledgers.sh exited 0 against a bare os.Exit(0) TestMain -- must fail loudly instead of silently omitting pkg/cart's tests"
 
-if [[ -e "$masked_output/tests.json" || -e "$masked_output/lint.json" ]]; then
-	fail "build-ledgers.sh wrote a ledger despite a masked, unrepresented failure: $(ls "$masked_output" 2>&1)"
+if [[ -e "$exit0_output/tests.json" || -e "$exit0_output/lint.json" ]]; then
+	fail "build-ledgers.sh wrote a ledger despite pkg/cart producing zero per-test events: $(ls "$exit0_output" 2>&1)"
 fi
 
-grep -qi "pkg/inventory" "$masked_dir/build.log" || fail "failure diagnostic does not name pkg/inventory: $(cat "$masked_dir/build.log")"
-grep -qi "independent" "$masked_dir/build.log" || fail "failure diagnostic does not describe an independent, unrepresented failure: $(cat "$masked_dir/build.log")"
+grep -qi "pkg/cart" "$exit0_dir/build.log" || fail "failure diagnostic does not name pkg/cart: $(cat "$exit0_dir/build.log")"
+grep -qi "TestCart_SubtotalSumsPriceTimesQuantity" "$exit0_dir/build.log" || fail "failure diagnostic does not name the missing tests: $(cat "$exit0_dir/build.log")"
 
-echo "TC-007: masked-failure regression correctly rejected (exit $masked_exit, no ledger written) despite the probe's own genuine failure"
+echo "TC-007: finding #3 regression correctly rejected (exit $exit0_exit, no ledger written) despite Action self-reporting 'pass'"
 
 echo "TC-007: PASS"

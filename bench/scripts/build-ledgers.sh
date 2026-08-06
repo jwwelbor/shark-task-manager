@@ -63,28 +63,49 @@
 #     anything -- see "no test entries observed" and the lint-report check
 #     below.
 #
-# Evidence-isolation validation (UAT round 3, superseding round 2's
-# "explained by any per-test fail" rule for this ledger's test producer):
-# a package-level "fail" is a single bit and cannot, by counting recorded
-# per-test failures, be told apart from "exactly those failures happened"
-# vs. "those failures happened AND something else broke too" -- the
-# intentional TestStock_PermanentlyFailingRegressionProbe always supplies
-# a real per-test fail for its package, which round 2's rule accepted as
-# sufficient explanation even when an unrelated runtime failure (TestMain
-# calling os.Exit after m.Run(), a panic outside a test body, an init()
-# crash) was riding on the same package's process exit. Because REQ-F-008
-# requires this ledger to record the probe's real failure -- unlike
-# admit.sh, this script cannot simply skip known-bad tests out of the run
-# it records -- the fix here is a separate VALIDATION re-run per
-# package-level-failed package: skip exactly the test names already
-# recorded as failed for it in the honest first run, and re-run only that
-# package. If the package is clean once every recorded failure is
-# removed, the original failure is proven fully explained. If it is
-# still not clean, an independent, unrepresented failure demonstrably
-# exists, and the whole ledger build is refused, naming the package --
-# proof, not classification. See the python validation loop below for
-# the mechanics.
+# Evidence-forgeability property (code review round 5 -- FINAL authorized
+# rework of this defect-class lineage, superseding round 3's validation
+# re-run below): round 3 re-ran a package with its recorded per-test
+# failures skipped and trusted THAT re-run's own exit code to prove
+# completeness -- but a package-level Action, like a raw exit code, is
+# self-reported by the exact process whose honesty is in question. Code
+# review round 5 confirmed empirically: a `TestMain` that never calls
+# `m.Run()` at all (`func TestMain(m *testing.M) { os.Exit(0) }`) makes
+# `go test -json` report that package's Action as "pass", not "fail" --
+# so round 3's validation trigger (`if action != "fail": continue`) never
+# fired, and the package's tests vanished from the ledger silently, exit
+# 0, no error. That is UAT round 2's UAT-003 finding, reopened by trading
+# one forgeable signal (per-test fail counting) for another
+# (package-level Action).
+#
+# The property this script now satisfies: no signal used to conclude
+# "the record is complete" may be forgeable by code inside the package
+# under test. Per-test JSON terminal events are NOT forgeable in
+# themselves -- each is written to stdout in real time as its test
+# completes, before TestMain regains control to call os.Exit (verified
+# empirically) -- but nothing is forgeable-proof about trusting their
+# absence as "nothing else exists" unless cross-checked against an
+# INDEPENDENT count of how many tests were supposed to produce one.
+# `go test -list` was evaluated and rejected: it executes TestMain
+# (verified empirically), exactly as forgeable as everything tried so
+# far. bench/scripts/testenum/ is the independent enumerator instead: a
+# separate Go module (invisible to this repository's own `go list ./...`
+# -- same mechanism ADR-F01-01 uses for the fixture submodule) that
+# statically parses a package's `_test.go` source with go/parser. It
+# never compiles or runs a single line of the package under test, so
+# nothing that package's own code does at runtime -- including never
+# calling m.Run() at all -- can alter its output.
+#
+# Completeness (below, after the parsing loop) is now: for every package
+# `go list ./...` resolves (an independent, non-executing enumeration
+# itself), testenum's enumerated test names must ALL have a per-test
+# terminal event already recorded above. A package whose events do not
+# cover its enumeration is a hard, named error, REGARDLESS of what that
+# package's own Action self-reported -- this is what closes finding #3
+# without reopening it by a different signal.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
 	echo "usage: build-ledgers.sh <checkout_dir> <output_dir>" >&2
@@ -125,6 +146,25 @@ checkout_dir="$(cd "$checkout_dir" && pwd)"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
+# testenum: independent, non-executing enumeration of a package's
+# top-level Go test functions (see testenum/main.go's own header and this
+# file's evidence-forgeability comment above). It lives in its own Go
+# module (a separate go.mod under this directory, same mechanism
+# ADR-F01-01 uses for the fixture submodule) so it is never part of this
+# repository's own `go list ./...`.
+TESTENUM_DIR="$SCRIPT_DIR/testenum"
+[[ -f "$TESTENUM_DIR/go.mod" ]] || {
+	echo "build-ledgers: testenum module not found: $TESTENUM_DIR" >&2
+	exit 1
+}
+testenum_build_dir="$(mktemp -d)"
+testenum_bin="$testenum_build_dir/testenum"
+(cd "$TESTENUM_DIR" && go build -o "$testenum_bin" .) || {
+	echo "build-ledgers: failed to build testenum (independent test enumerator)" >&2
+	rm -rf "$testenum_build_dir"
+	exit 1
+}
+
 # --- Toolchain block (recorded, never compared here) ------------------
 go_version="$(go env GOVERSION)"
 goos="$(go env GOOS)"
@@ -141,7 +181,7 @@ golangci_config_sha256="$(sha256sum "$golangci_config" | awk '{print $1}')"
 test_raw="$(mktemp)"
 lint_raw="$(mktemp)"
 lint_err="$(mktemp)"
-trap 'rm -f "$test_raw" "$lint_raw" "$lint_err"' EXIT
+trap 'rm -f "$test_raw" "$lint_raw" "$lint_err"; rm -rf "$testenum_build_dir"' EXIT
 (cd "$checkout_dir" && go test -json ./...) >"$test_raw" 2>&1 || true
 
 # --- Lint ledger: real `golangci-lint run --output.json.path stdout` ---
@@ -153,14 +193,13 @@ trap 'rm -f "$test_raw" "$lint_raw" "$lint_err"' EXIT
 lint_exit=0
 (cd "$checkout_dir" && golangci-lint run --output.json.path stdout) >"$lint_raw" 2>"$lint_err" || lint_exit=$?
 
-python3 - "$test_raw" "$lint_raw" "$lint_err" "$lint_exit" "$output_dir" "$checkout_dir" \
+python3 - "$test_raw" "$lint_raw" "$lint_err" "$lint_exit" "$output_dir" "$checkout_dir" "$testenum_bin" \
 	"$go_version" "$golangci_lint_version" "$goos" "$goarch" "$golangci_config_sha256" <<'PYEOF'
 import json
-import re
 import subprocess
 import sys
 
-test_raw_path, lint_raw_path, lint_err_path, lint_exit, output_dir, checkout_dir, go_version, golangci_lint_version, goos, goarch, golangci_config_sha256 = sys.argv[1:12]
+test_raw_path, lint_raw_path, lint_err_path, lint_exit, output_dir, checkout_dir, testenum_bin, go_version, golangci_lint_version, goos, goarch, golangci_config_sha256 = sys.argv[1:13]
 
 toolchain = {
     "go_version": go_version,
@@ -191,17 +230,19 @@ toolchain = {
 # a test body, TestMain calling os.Exit, an init() crash -- carries
 # neither "Test" nor "FailedBuild": `go test -json` emits only the
 # package-level summary line every package gets (Action:pass/fail/skip,
-# no "Test") with Action:"fail", and none of that package's tests ever
-# produced a terminal event of their own (UAT round 2, UAT-003). That is
-# incomplete evidence, not an empty result, and gets the same hard-error
-# treatment as a build failure below -- proven, not merely counted, by
-# the validation re-run after this parsing loop (UAT round 3, UAT-006):
-# see that section for why "at least one per-test fail exists" is
-# insufficient on its own.
+# no "Test"), and none of that package's tests ever produced a terminal
+# event of their own (UAT round 2, UAT-003; reopened and closed again by
+# a different signal at code review round 5, finding #3 -- see this
+# file's header comment). That is incomplete evidence, not an empty
+# result. The package-level Action itself is NOT used to detect this
+# (code review round 5 confirmed it is forgeable to "pass" by a TestMain
+# that never calls m.Run()); completeness is instead proven below by
+# cross-referencing entries_by_identity against testenum's independent,
+# non-executing enumeration, for every package `go list ./...` resolves
+# -- not conditionally, on any self-reported per-package signal.
 terminal_actions = {"pass", "fail", "skip"}
 entries_by_identity = {}
 build_failed_packages = set()
-package_level_action = {}
 with open(test_raw_path) as f:
     for line in f:
         line = line.strip()
@@ -214,11 +255,8 @@ with open(test_raw_path) as f:
         action = event.get("Action")
         test_name = event.get("Test")
         package = event.get("Package")
-        if not test_name and package and action in terminal_actions:
-            if action == "fail" and event.get("FailedBuild"):
-                build_failed_packages.add(package)
-            else:
-                package_level_action[package] = action
+        if not test_name and package and action == "fail" and event.get("FailedBuild"):
+            build_failed_packages.add(package)
             continue
         if not test_name or action not in terminal_actions:
             continue
@@ -234,58 +272,76 @@ if build_failed_packages:
         "would silently omit that package's tests instead of naming the failure"
     )
 
+
 def bare_test_name(identity):
     """Strips a "<pkg>::" prefix and any "/<subtest>" suffix, returning
-    the bare top-level Go test function name for use in a -skip regexp."""
+    the bare top-level Go test function name."""
     return identity.split("::", 1)[-1].split("/", 1)[0]
 
 
-# Validation re-run (UAT round 3, UAT-006): does NOT affect the ledger
-# data recorded above (entries_by_identity, from the first, honest,
-# nothing-skipped run -- REQ-F-008 requires the ledger to record reality,
-# including the probe's real failure). For every package this run
-# reported as package-level "fail" (and not already a build failure,
-# handled above), re-run ONLY that package with exactly its
-# already-recorded per-test failure names skipped. If that re-run is
-# clean, every failure this package produced is fully and exactly
-# accounted for by what is already in the ledger -- no masking. If it is
-# still not clean, something failed that the recorded per-test entries
-# do not explain (a runtime panic, TestMain os.Exit after m.Run(), an
-# init() crash), and the whole ledger build is refused rather than
-# silently accepted -- this is proof by construction, not a classifier
-# over the same single-bit exit-code evidence round 2's rule relied on.
-unverified_failed_packages = {}
-for package, action in package_level_action.items():
-    if action != "fail":
-        continue
-    failing_names = sorted({
-        bare_test_name(identity)
-        for identity, outcome in entries_by_identity.items()
-        if identity.startswith(f"{package}::") and outcome == "fail"
-    })
-    skip_pattern = None
-    if failing_names:
-        skip_pattern = "^(" + "|".join(re.escape(n) for n in failing_names) + ")$"
-    validation_cmd = ["go", "test", "-json"]
-    if skip_pattern:
-        validation_cmd += ["-skip", skip_pattern]
-    validation_cmd += [package]
-    validation_proc = subprocess.run(
-        validation_cmd, cwd=checkout_dir, capture_output=True, text=True
+def go_list_packages(dir_):
+    """Resolves `./...` to concrete (import_path, absolute_dir) pairs via
+    `go list` -- pure build-graph metadata resolution; verified
+    empirically that `go list` executes no code belonging to any resolved
+    package (unlike `go test -list`, which does run TestMain)."""
+    proc = subprocess.run(
+        ["go", "list", "-buildvcs=false", "-f", "{{.ImportPath}}|{{.Dir}}", "./..."],
+        cwd=dir_, capture_output=True, text=True,
     )
-    if validation_proc.returncode != 0:
-        unverified_failed_packages[package] = failing_names
+    if proc.returncode != 0:
+        sys.exit(f"build-ledgers: 'go list ./...' failed: {proc.stderr.strip()}")
+    result = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        import_path, _, directory = line.partition("|")
+        result.append((import_path, directory))
+    return result
 
-if unverified_failed_packages:
+
+def enumerate_tests(pkg_dir):
+    """Independent, non-executing enumeration of a package directory's
+    top-level Go test function names via testenum (see
+    bench/scripts/testenum/main.go)."""
+    proc = subprocess.run([testenum_bin, pkg_dir], capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"build-ledgers: testenum failed to enumerate {pkg_dir!r}: {proc.stderr.strip()}")
+    return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+
+
+# Completeness check (code review round 5, superseding round 3's
+# validation re-run -- see this file's header comment for the full
+# property and history). A build-failed package (handled above) is
+# excluded here -- it already produced its own, clearer diagnostic and
+# cannot be enumerated against meaningfully by definition.
+incomplete_packages = {}
+for import_path, pkg_dir in go_list_packages(checkout_dir):
+    if import_path in build_failed_packages:
+        continue
+    expected = enumerate_tests(pkg_dir)
+    if not expected:
+        continue  # package has no test files -- nothing to cross-reference
+    observed = {
+        bare_test_name(identity)
+        for identity in entries_by_identity
+        if identity.split("::", 1)[0] == import_path
+    }
+    missing = sorted(expected - observed)
+    if missing:
+        incomplete_packages[import_path] = missing
+
+if incomplete_packages:
     detail = ", ".join(
-        f"{pkg} (recorded failures {names or '(none)'} do not explain it)"
-        for pkg, names in sorted(unverified_failed_packages.items())
+        f"{pkg} (missing terminal event for {names})"
+        for pkg, names in sorted(incomplete_packages.items())
     )
     sys.exit(
-        "build-ledgers: package(s) still fail after skipping every per-test "
-        f"failure already recorded for them -- an independent, unrepresented "
-        f"failure exists (a runtime panic, TestMain os.Exit, or init() crash): "
-        f"{detail}. Refusing to write a test ledger for it"
+        "build-ledgers: package(s) produced fewer per-test terminal events than "
+        "testenum's independent enumeration expects -- an independent, "
+        "unrepresented failure exists (e.g. a TestMain that never calls m.Run(), "
+        "a panic outside a test body, or an init() crash) and the recorded "
+        f"ledger would be incomplete: {detail}. Refusing to write a test ledger for it"
     )
 
 if not entries_by_identity:

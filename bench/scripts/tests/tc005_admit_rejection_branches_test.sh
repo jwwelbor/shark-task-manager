@@ -268,7 +268,7 @@ with open(sys.argv[1]) as f:
     verdict = json.loads(f.read().strip())
 
 unexplained = verdict.get("unexplained_failed_packages") or []
-if not any(pkg.endswith("/pkg/inventory") for pkg in unexplained):
+if not any("/pkg/inventory" in pkg for pkg in unexplained):
     sys.exit(
         "TC-005 FAIL: branch (e3): verdict's unexplained_failed_packages does not "
         f"name pkg/inventory (the probe's own package): {unexplained}"
@@ -335,12 +335,149 @@ with open(sys.argv[1]) as f:
     verdict = json.loads(f.read().strip())
 
 unexplained = verdict.get("unexplained_failed_packages") or []
-if not any(pkg.endswith("/pkg/cart") for pkg in unexplained):
+if not any("/pkg/cart" in pkg for pkg in unexplained):
     sys.exit(
         "TC-005 FAIL: branch (e2): verdict's unexplained_failed_packages does not "
         f"name pkg/cart: {unexplained}"
     )
 print(f"TC-005: branch (e2) unexplained_failed_packages names the runtime-dead package: {unexplained}")
+PYEOF
+
+echo "TC-005: part 3e - branch (e) variant: real regression masked by TestMain{ m.Run(); os.Exit(0) } (code review round 5, finding #1)"
+
+# Finding #1: admit.sh's round-3/round-5-first-attempt P2P check trusted
+# the raw process exit code alone. `TestMain{ m.Run(); os.Exit(0) }` calls
+# m.Run() (so per-test JSON events for every real test in the package are
+# genuinely, honestly recorded -- verified reliable per this file's
+# header) but then unconditionally forces the PROCESS exit to 0
+# regardless of what m.Run() actually returned. This plants a real,
+# independently-verified-in-isolation regression in Cart.RemoveItem
+# alongside that TestMain, combined with $MASK_ITEM's own valid
+# reference.patch (an unrelated item). Must still reject with
+# P2P-red-post-patch: the per-test "fail" event for the regression is
+# real evidence admit.sh must not discard just because the process exit
+# code says otherwise.
+finding1_scratch_dir="$WORKDIR/finding1-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$finding1_scratch_dir" >/dev/null
+
+git -C "$finding1_scratch_dir" apply "$mask_patch_abs" || fail "finding #1: could not apply $MASK_ITEM's own reference.patch to a fresh checkout"
+
+cart_go="$finding1_scratch_dir/pkg/cart/cart.go"
+[[ -f "$cart_go" ]] || fail "finding #1: pkg/cart/cart.go not found in scratch checkout"
+python3 - "$cart_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+old = """func (c *Cart) RemoveItem(sku string) bool {
+	removed := false
+	kept := make([]Item, 0, len(c.items))
+	for i, it := range c.items {
+		if !removed && it.SKU == sku && i != len(c.items)-1 {
+			removed = true
+			continue
+		}
+		kept = append(kept, it)
+	}
+	c.items = kept
+	return removed
+}"""
+new = """func (c *Cart) RemoveItem(sku string) bool {
+	return false
+}"""
+if old not in content:
+    sys.exit("finding #1: Cart.RemoveItem body did not match the expected shape -- mutation target moved")
+content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+finding1_cart_test_go="$finding1_scratch_dir/pkg/cart/cart_test.go"
+grep -qF 'import "testing"' "$finding1_cart_test_go" || fail "finding #1: pkg/cart/cart_test.go import line did not match the expected shape -- mutation target moved"
+python3 - "$finding1_cart_test_go" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('import "testing"', 'import (\n\t"os"\n\t"testing"\n)')
+content += '\nfunc TestMain(m *testing.M) {\n\tm.Run()\n\tos.Exit(0)\n}\n'
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+
+finding1_patch="$WORKDIR/finding1-combined.patch"
+git -C "$finding1_scratch_dir" diff >"$finding1_patch"
+[[ -s "$finding1_patch" ]] || fail "finding #1: combined patch is empty"
+
+out_finding1="$(run_item "finding #1: real Cart.RemoveItem regression masked by TestMain os.Exit(0)" "$MASK_ITEM" --patch "$finding1_patch")"
+assert_rejected "finding #1" "$out_finding1" "P2P-red-post-patch"
+
+python3 - "$out_finding1" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+unexplained = verdict.get("unexplained_failed_packages") or []
+if not any("TestCart_RemoveItemRemovesMatchNotAtEnd" in pkg for pkg in unexplained):
+    sys.exit(
+        "TC-005 FAIL: finding #1: verdict's unexplained_failed_packages does not "
+        f"name the real regressed test: {unexplained}"
+    )
+print(f"TC-005: finding #1 real regression correctly caught despite forged exit code 0: {unexplained}")
+PYEOF
+
+echo "TC-005: part 3f - branch (e) variant: cross-package test-name collision with the excluded probe (code review round 5, finding #2)"
+
+# Finding #2: the round-5-first-attempt -skip pattern matched test names
+# GLOBALLY across the whole invocation, not per (package, name). A new,
+# genuinely failing test planted in pkg/cart and named identically to
+# the excluded pkg/inventory probe (TestStock_PermanentlyFailingRegression
+# Probe) was silently skipped everywhere, including in pkg/cart, where it
+# was never meant to be excused. Must still reject with
+# P2P-red-post-patch, naming pkg/cart.
+finding2_scratch_dir="$WORKDIR/finding2-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$finding2_scratch_dir" >/dev/null
+
+git -C "$finding2_scratch_dir" apply "$mask_patch_abs" || fail "finding #2: could not apply $MASK_ITEM's own reference.patch to a fresh checkout"
+
+finding2_cart_test_go="$finding2_scratch_dir/pkg/cart/cart_test.go"
+[[ -f "$finding2_cart_test_go" ]] || fail "finding #2: pkg/cart/cart_test.go not found in scratch checkout"
+cat >>"$finding2_cart_test_go" <<'GOEOF'
+
+func TestStock_PermanentlyFailingRegressionProbe(t *testing.T) {
+	c := New()
+	c.AddItem(Item{SKU: "sku-1", Name: "Widget", Price: 500, Quantity: 2})
+	if got, want := c.ItemCount(), 999; got != want {
+		t.Fatalf("ItemCount() = %d, want %d (planted failing assertion)", got, want)
+	}
+}
+GOEOF
+
+finding2_patch="$WORKDIR/finding2-combined.patch"
+git -C "$finding2_scratch_dir" diff >"$finding2_patch"
+[[ -s "$finding2_patch" ]] || fail "finding #2: combined patch is empty"
+
+out_finding2="$(run_item "finding #2: pkg/cart test named identically to the excluded pkg/inventory probe" "$MASK_ITEM" --patch "$finding2_patch")"
+assert_rejected "finding #2" "$out_finding2" "P2P-red-post-patch"
+
+python3 - "$out_finding2" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+unexplained = verdict.get("unexplained_failed_packages") or []
+if not any("/pkg/cart" in pkg and "TestStock_PermanentlyFailingRegressionProbe" in pkg for pkg in unexplained):
+    sys.exit(
+        "TC-005 FAIL: finding #2: verdict's unexplained_failed_packages does not "
+        f"name pkg/cart's own planted failure: {unexplained}"
+    )
+print(f"TC-005: finding #2 cross-package name collision did not mask the planted pkg/cart failure: {unexplained}")
 PYEOF
 
 echo "TC-005: part 4 (AC-T3) - no committed negative appears in a full admit.sh run"

@@ -47,31 +47,58 @@
 # same base SHA produce byte-identical output (test-plan.md Determinism
 # boundary; tests/tc006_admit_reproducibility_test.sh).
 #
-# Evidence-isolation guard (UAT round 3, T-E40-F01-006 rejection,
-# superseding the round-2 fix below): `go test`'s package-level exit code
-# is a single bit. Round 2 tried to explain a package-level "fail" by
-# checking whether ANY per-test "fail" was also recorded for that
-# package -- but the intentional TestStock_PermanentlyFailingRegression
-# Probe (excluded from the default p2p_set) supplies exactly such a
-# per-test fail on every run, so it can mask an unrelated, independent
-# runtime failure (TestMain calling os.Exit after m.Run(), a panic
-# outside a test body, an init() crash) riding on the SAME package's
-# process exit: the probe's real failure and the injected one share one
-# evidence channel, and no amount of "does a fail exist" counting can
-# tell them apart from a single boolean exit code.
+# Evidence-forgeability property (code review round 5, T-E40-F01-006
+# rejection -- FINAL authorized rework of this defect-class lineage):
+# every prior round trusted a signal self-reported by the exact process
+# whose honesty was in question, and Go's `os.Exit()` lets any test or
+# TestMain in the package under test forge every one of them:
+#   - round 2 trusted "does at least one per-test fail exist for this
+#     package" -- the intentional TestStock_PermanentlyFailingRegression
+#     Probe supplies one on every run, masking an unrelated failure;
+#   - round 3/round 5's first attempt trusted the raw process exit code
+#     alone for the P2P check -- `TestMain{ m.Run(); os.Exit(0) }` forces
+#     it to 0 regardless of what m.Run() actually returned, masking a
+#     real regression (code review round 5, finding #1);
+#   - that same attempt's `-skip` pattern matched test names globally
+#     across the whole invocation rather than per (package, name), so a
+#     patch-added test sharing an excluded test's bare name was silently
+#     skipped in every package, not just the one it was meant to exempt
+#     (finding #2).
 #
-# The fix is structural, not a smarter classifier: evaluate() below never
-# runs a `go test` invocation in which an excluded/expected test is
-# present to hide behind. The P2P check's `go test` call always passes
-# `-skip` for this item's exclude_tests plus its own F2P test names, so
-# those tests do not execute at all in that invocation -- nothing in it
-# is expected to fail, so its raw exit code alone is sufficient (no
-# reconciliation needed, because there is nothing left to explain away).
-# The F2P check's `go test` call scopes `-run` to only this item's F2P
-# test name(s); since a rogue TestMain still executes for the whole
-# package regardless of -run/-skip, an F2P "pass" claim is additionally
-# required to come from an invocation whose own exit code was 0. See
-# evaluate()'s docstring for the full reasoning.
+# The property this script now satisfies: no signal used to conclude "no
+# failures occurred" may be forgeable by code inside the package under
+# test. Exit codes, package-level Actions, and self-reported summaries
+# are ALL forgeable. Per-test JSON terminal events are NOT forgeable in
+# themselves -- each is written to stdout in real time as its test
+# completes, before TestMain regains control to call os.Exit (verified
+# empirically) -- but reading them is only trustworthy when cross-checked
+# against an INDEPENDENT count of how many tests were supposed to
+# produce one. `go test -list` was evaluated and rejected for that count:
+# it executes TestMain (verified empirically), making it exactly as
+# forgeable as everything else tried so far. bench/scripts/testenum/ is
+# the independent enumerator instead: a separate Go module (so it is
+# invisible to this repository's own `go list ./...`, same mechanism
+# ADR-F01-01 already uses for the fixture submodule) that statically
+# parses a package's `_test.go` source with go/parser -- it never
+# compiles or runs a single line of the package under test, so nothing
+# that package's own code does at runtime can alter its output.
+#
+# check_p2p_green() below is per package (fixing finding #2's global
+# -skip scope: exclusions apply strictly per (package, name), built and
+# applied one package at a time) and per package requires ALL of: every
+# testenum-enumerated test not deliberately excluded has a per-test
+# terminal event (no missing evidence -- catches a TestMain that never
+# calls m.Run() at all, exactly UAT round 2's UAT-003 shape); every one
+# of those events is pass or skip, never fail (a real per-test fail is
+# trustworthy signal in itself, so this alone catches finding #1's
+# masked regression even though the process's own exit code was forged
+# to 0); and the invocation's own exit code is still 0 as a corroborating
+# check (catches a TestMain that forges a *nonzero* exit despite fully
+# clean, complete per-test evidence -- UAT round 3's masked-behind-the-
+# probe scenario). No single one of these three is sufficient alone; all
+# three together leave no forgeable-signal gap. F2P already modeled part
+# of this discipline before this round (explicit per-test "pass" AND an
+# isolated exit code of 0) and is unchanged here.
 #
 # Offline hardening (T-E40-F01-007, REQ-NF-005): before evaluating any
 # candidate (--item or full-set), this script verifies the pinned
@@ -155,7 +182,27 @@ if [[ -n "$patch_override" ]]; then
 	patch_override="$(cd "$(dirname "$patch_override")" && pwd)/$(basename "$patch_override")"
 fi
 
-exec python3 - "$corpus_yaml_abs" "$CHECKOUT_SCRIPT" "$item_id" "$patch_override" <<'PYEOF'
+# testenum: independent, non-executing enumeration of a package's
+# top-level Go test functions (see testenum/main.go's own header for the
+# full trust-model rationale). It lives in its own Go module (a separate
+# go.mod under this directory, same mechanism ADR-F01-01 uses for the
+# fixture submodule) so it is never part of this repository's own `go
+# list ./...`. Built once here and reused for every package/item this
+# run evaluates.
+TESTENUM_DIR="$SCRIPT_DIR/testenum"
+[[ -f "$TESTENUM_DIR/go.mod" ]] || {
+	echo "admit: testenum module not found: $TESTENUM_DIR" >&2
+	exit 1
+}
+testenum_build_dir="$(mktemp -d)"
+trap 'rm -rf "$testenum_build_dir"' EXIT
+testenum_bin="$testenum_build_dir/testenum"
+(cd "$TESTENUM_DIR" && go build -o "$testenum_bin" .) || {
+	echo "admit: failed to build testenum (independent test enumerator)" >&2
+	exit 1
+}
+
+python3 - "$corpus_yaml_abs" "$CHECKOUT_SCRIPT" "$item_id" "$patch_override" "$testenum_bin" <<'PYEOF'
 import json
 import os
 import re
@@ -166,7 +213,7 @@ import tempfile
 
 import yaml
 
-corpus_yaml_path, checkout_script, item_id, patch_override = sys.argv[1:5]
+corpus_yaml_path, checkout_script, item_id, patch_override, testenum_bin = sys.argv[1:6]
 item_id = item_id or None
 patch_override = patch_override or None
 
@@ -286,6 +333,112 @@ def run_go_tests(checkout_dir, packages, run_pattern=None, skip_pattern=None):
     return results, problem_pkgs, proc.returncode
 
 
+def go_list_packages(checkout_dir, packages):
+    """Resolves package glob(s)/patterns (e.g. ["./..."]) to concrete
+    (import_path, absolute_dir) pairs via `go list`. Pure build-graph
+    metadata resolution -- verified empirically that `go list` executes
+    no code belonging to any resolved package (unlike `go test -list`,
+    which does run TestMain -- see this file's header). Raises if `go
+    list` itself fails (e.g. the checkout does not build at all)."""
+    cmd = ["go", "list", "-buildvcs=false", "-f", "{{.ImportPath}}|{{.Dir}}"] + list(packages)
+    proc = subprocess.run(cmd, cwd=checkout_dir, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"'go list' failed for packages {packages!r}: {proc.stderr.strip()}")
+    result = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        import_path, _, directory = line.partition("|")
+        result.append((import_path, directory))
+    return result
+
+
+def enumerate_tests(pkg_dir):
+    """Independent, non-executing enumeration of a package directory's
+    top-level Go test function names via testenum (see
+    bench/scripts/testenum/main.go) -- never forgeable by code in the
+    target package, because that package is never built or run to
+    produce this list; only its *_test.go source text is parsed."""
+    proc = subprocess.run([testenum_bin, pkg_dir], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"testenum failed to enumerate {pkg_dir!r}: {proc.stderr.strip()}"
+        )
+    return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+
+
+def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
+    """Evaluates P2P-green per the evidence-forgeability property stated
+    at the top of this file. Runs `go test` ONE PACKAGE AT A TIME (never
+    a shared "./..." invocation) so each package's -skip pattern is built
+    from ONLY the exclude_from_p2p names whose own "<pkg>::" prefix
+    matches that exact package -- fixing finding #2 (a global -skip
+    pattern exempted a same-named test in every package, not just the
+    one it was meant to excuse).
+
+    For each package, "clean" requires ALL three of:
+      1. every testenum-enumerated test not in this package's own skip
+         set has a per-test terminal event (no missing evidence -- this
+         alone catches a TestMain that never calls m.Run(), so nothing
+         it "does" can hide a package that produced zero results);
+      2. none of those events is "fail" (a real per-test fail is
+         trustworthy in itself -- this alone catches finding #1's masked
+         regression, since m.Run() genuinely recorded the failing test
+         before TestMain forged the process exit to 0);
+      3. the invocation's own raw exit code is 0 (a corroborating check
+         -- this alone catches a TestMain that forges a *non-zero* exit
+         despite fully clean, complete per-test evidence, i.e. UAT round
+         3's probe-masked scenario).
+    No single one of the three is sufficient; together they leave no
+    forgeable-signal gap. A package with zero enumerated tests still
+    must exit 0 (it must still build), even though there is nothing to
+    cross-reference.
+
+    Returns (all_clean: bool, problem_packages: list[str]) where each
+    problem_packages entry names the package and exactly which
+    condition(s) failed, for verdict diagnostics."""
+    all_clean = True
+    problem_packages = []
+
+    for import_path, pkg_dir in go_list_packages(checkout_dir, packages):
+        pkg_skip_names = {
+            bare_test_name(name)
+            for name in exclude_from_p2p
+            if name.split("::", 1)[0] == import_path
+        }
+        skip_pattern = anchored_alternation(pkg_skip_names) if pkg_skip_names else None
+
+        results, _problem_pkgs, returncode = run_go_tests(
+            checkout_dir, [import_path], run_pattern=run_selector, skip_pattern=skip_pattern
+        )
+        expected = enumerate_tests(pkg_dir) - pkg_skip_names
+        observed = {
+            bare_test_name(identity)
+            for identity in results
+            if identity.split("::", 1)[0] == import_path
+        }
+        missing = sorted(expected - observed)
+        failed = sorted(
+            name for name in expected
+            if results.get(f"{import_path}::{name}") == "fail"
+        )
+        package_clean = not missing and not failed and returncode == 0
+
+        if not package_clean:
+            all_clean = False
+            detail = []
+            if missing:
+                detail.append(f"missing terminal event for {missing}")
+            if failed:
+                detail.append(f"failing {failed}")
+            if returncode != 0 and not missing and not failed:
+                detail.append(f"exit code {returncode} despite clean, complete per-test evidence")
+            problem_packages.append(f"{import_path} ({'; '.join(detail)})")
+
+    return all_clean, problem_packages
+
+
 def copy_f2p_files(item, checkout_dir):
     module_path = read_module_path(checkout_dir)
     prefix = module_path + "/"
@@ -310,43 +463,13 @@ def copy_f2p_files(item, checkout_dir):
 
 
 def evaluate(item, patch_path):
-    """UAT round 3 (UAT-005): the round-2 "explained by any per-test fail"
-    reconciliation is itself the defect class -- an expected/excluded
-    failure (the intentional TestStock_PermanentlyFailingRegressionProbe)
-    shares its package's evidence channel with an unexpected one, so a
-    single genuinely-failing test can mask an independent runtime failure
-    (a panic outside a test body, TestMain calling os.Exit, an init()
-    crash) riding on the same package's process exit. Counting failures
-    cannot close this: `go test`'s package-level exit code is a single
-    bit, and no amount of "does at least one recorded fail exist" logic
-    can tell "exactly the known failures happened" apart from "the known
-    failures happened AND something else broke too".
-
-    The structural fix is to never let an admission run's evidence
-    channel contain an expected failure in the first place:
-
-    - The P2P-isolated run below always adds `-skip` for exactly this
-      item's exclude_tests union its own F2P test names (both are
-      supposed to be absent from the P2P universe already, per
-      REQ-F-003). With every test this item is allowed to see fail
-      actually skipped -- not merely subtracted from a results dict
-      after the fact -- NOTHING in that specific invocation is expected
-      to fail. Its raw process exit code is therefore sufficient by
-      itself: p2p_green == (that invocation's returncode == 0), full
-      stop, no per-test reconciliation needed, because there is no
-      excluded test left in the run to hide behind.
-    - The F2P-isolated run below scopes `-run` to exactly this item's own
-      F2P test name(s) and nothing else. A rogue TestMain still executes
-      unconditionally for the package and can still force a non-zero
-      process exit regardless of the isolated test's own outcome, so
-      f2p_green additionally requires that invocation's returncode == 0
-      -- a "pass" claim is trusted only when nothing else in the process
-      misbehaved either. A "fail" claim never needs this extra scrutiny:
-      it is real evidence either way.
-
-    This closes the masking channel by construction (the excluded/F2P
-    test physically does not execute in the run being judged), not by a
-    smarter classifier over the same shared-channel evidence."""
+    """See this file's header for the full evidence-forgeability property
+    and its history across rounds 2, 3, and this round's fix. In short:
+    P2P-green is decided by check_p2p_green() (per-package, testenum-
+    cross-referenced, exit-code-corroborated); F2P-green is decided by an
+    explicit per-test "pass" match AND an isolated invocation exit code
+    of 0 (unchanged from round 3, already sound per code review round
+    5's own confirmation)."""
     item_id_ = item["id"]
     item_type = item.get("type")
     p2p_set_name = item["p2p_set"]
@@ -361,7 +484,6 @@ def evaluate(item, patch_path):
         raise RuntimeError(f"item {item_id_}: f2p.test_names is empty")
     exclude_from_p2p = exclude_tests | set(f2p_ids)
 
-    p2p_skip_pattern = anchored_alternation(exclude_from_p2p)
     f2p_run_pattern = anchored_alternation(f2p_ids)
     # The F2P run is scoped to exactly the F2P test(s)' own package(s) --
     # NOT p2p_set.packages ("./..." for every defined set). `go test
@@ -415,18 +537,13 @@ def evaluate(item, patch_path):
             failing_check = FAIL_F2P_GREEN_AT_BASE
 
         if failing_check is None:
-            # P2P-isolated run: -skip removes exactly the tests this item
-            # is allowed to see fail (exclude_tests + its own F2P names).
-            # Nothing left running is expected to fail, so the raw exit
-            # code alone is authoritative -- see evaluate()'s docstring.
-            _base_p2p_results, base_p2p_problem_pkgs, base_p2p_rc = run_go_tests(
-                checkout_dir, packages, run_pattern=run_selector, skip_pattern=p2p_skip_pattern
+            p2p_green_at_base, base_p2p_problems = check_p2p_green(
+                checkout_dir, packages, run_selector, exclude_from_p2p
             )
-            p2p_green_at_base = base_p2p_rc == 0
             checks["p2p_green_at_base"] = p2p_green_at_base
             if not p2p_green_at_base:
                 failing_check = FAIL_P2P_RED_AT_BASE
-                unexplained_failed_packages = sorted(base_p2p_problem_pkgs)
+                unexplained_failed_packages = base_p2p_problems
 
         if failing_check is None:
             apply_proc = subprocess.run(
@@ -459,14 +576,13 @@ def evaluate(item, patch_path):
                 failing_check = FAIL_F2P_STILL_RED
 
             if failing_check is None:
-                _post_p2p_results, post_p2p_problem_pkgs, post_p2p_rc = run_go_tests(
-                    checkout_dir, packages, run_pattern=run_selector, skip_pattern=p2p_skip_pattern
+                p2p_green_post_patch, post_p2p_problems = check_p2p_green(
+                    checkout_dir, packages, run_selector, exclude_from_p2p
                 )
-                p2p_green_post_patch = post_p2p_rc == 0
                 checks["p2p_green_post_patch"] = p2p_green_post_patch
                 if not p2p_green_post_patch:
                     failing_check = FAIL_P2P_RED_POST_PATCH
-                    unexplained_failed_packages = sorted(post_p2p_problem_pkgs)
+                    unexplained_failed_packages = post_p2p_problems
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 
