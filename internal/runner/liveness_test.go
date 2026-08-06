@@ -7,18 +7,28 @@
 //
 // Covers (see docs/plan/E40-shark-bench-workflow-benchmarking-harness/
 // E40-F04-shark-run-live-progress-and-per-run-log/test-plan.md):
-//   - TC-011 (stderr-capture half only — the run.log half lands in
-//     T-E40-F04-002)
+//   - TC-011 (stderr NDJSON half from T-E40-F04-001, plus the run.log
+//     file-content half completed by T-E40-F04-002 below)
+//   - TC-014 (plain-mode rendering, T-E40-F04-002)
 //   - TC-015 (parent -> child -> parent cascade labeling)
+//   - TC-019 (read-before-close durability — T-E40-F04-002's stage_start
+//     half; the heartbeat half is added by T-E40-F04-003's ticker)
 //   - TC-020 (stage pairing, decision-table rows 1/2/5/6)
 //   - TC-021 (stage pairing under a non-unique (entity_key, iteration)
 //     re-dispatch, decision-table row 7)
+//   - TC-022 (empty projectRoot disables the file sink only)
+//   - TC-023 (EACCES-class file sink failure — fail-soft, slog.Debug)
+//   - TC-028 (run.log / parent-dir permission bits)
 //   - TC-029 (closed JSON field set)
 package runner
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -523,5 +533,486 @@ func TestLiveness_TC029_ClosedFieldSet(t *testing.T) {
 				t.Errorf("line %d: unexpected key %q outside D3's closed field set (raw=%s)", i, key, lines[i])
 			}
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Plain-line parsing helper (shared by TC-011's file-content half, TC-014,
+// TC-019, TC-022, TC-023)
+// ---------------------------------------------------------------------------
+
+// plainLineRe matches D3's fixed-column plain-text format:
+//
+//	<ts>  <event>  <entity_key>  key=value key=value ...
+//
+// Group 4 captures whatever follows entity_key VERBATIM (no whitespace
+// consumed by the regex) so parsePlainLine below can itself assert the
+// two-space separator D3's worked example requires between entity_key and
+// the key=value block — rather than silently tolerating one space via a
+// TrimSpace that would make a missing-space regression invisible to callers.
+var plainLineRe = regexp.MustCompile(`^(\S+)  (\S+)  (\S+)(.*)$`)
+
+// parsedPlainLine is a plain-text line broken into its fixed columns and its
+// key=value tail.
+type parsedPlainLine struct {
+	ts        string
+	event     string
+	entityKey string
+	kv        map[string]string
+}
+
+// parsePlainLine parses one plain-text line produced by renderPlainLine,
+// failing the test if it does not match D3's fixed-column shape, does not use
+// exactly two spaces between entity_key and the key=value block, or contains
+// a malformed/double-spaced key=value token.
+func parsePlainLine(t *testing.T, raw string) parsedPlainLine {
+	t.Helper()
+	m := plainLineRe.FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatalf("line does not match D3's plain-text format <ts>  <event>  <entity_key>  k=v...: %q", raw)
+	}
+	kv := map[string]string{}
+	rest := m[4]
+	if rest != "" {
+		if !strings.HasPrefix(rest, "  ") {
+			t.Fatalf("expected exactly two spaces between entity_key and the key=value block, got %q in line %q", rest, raw)
+		}
+		tail := strings.TrimPrefix(rest, "  ")
+		if tail == "" {
+			t.Fatalf("key=value block separator present but no tokens follow: %q", raw)
+		}
+		for _, pair := range strings.Split(tail, " ") {
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) != 2 {
+				t.Fatalf("malformed key=value token %q in line %q", pair, raw)
+			}
+			kv[parts[0]] = parts[1]
+		}
+	}
+	return parsedPlainLine{ts: m[1], event: m[2], entityKey: m[3], kv: kv}
+}
+
+// ---------------------------------------------------------------------------
+// TC-011 file-content half (deferred from T-E40-F04-001)
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC011_FileContentHalf completes TC-011's file-content half:
+// even in jsonMode=true, run.log's lines are D3's plain-text format, never
+// NDJSON — "run.log in both modes" per D3's renderer table.
+func TestLiveness_TC011_FileContentHalf(t *testing.T) {
+	root := t.TempDir()
+	rec := NewLivenessRecorder(root, "run-tc011c", "T-E40-F04-003", true, time.Now())
+
+	// stderr output isn't asserted here (covered by TC-011's stderr half in
+	// T-E40-F04-001); suppress it so it doesn't pollute test output.
+	captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "T-E40-F04-003", Status: "in_development"})
+		rec.Observe(RunProgress{
+			Phase: "action", Iteration: 1, EntityKey: "T-E40-F04-003", Status: "in_development",
+			Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+		})
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 2, EntityKey: "T-E40-F04-003", Status: "code_review"})
+	})
+
+	content, err := os.ReadFile(rec.LogPath())
+	if err != nil {
+		t.Fatalf("read run.log: %v", err)
+	}
+	rawLines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+	if len(rawLines) != 2 {
+		t.Fatalf("expected 2 run.log lines, got %d: %v", len(rawLines), rawLines)
+	}
+	for i, raw := range rawLines {
+		if strings.HasPrefix(strings.TrimSpace(raw), "{") {
+			t.Errorf("run.log line %d looks like JSON, want D3 plain text: %q", i, raw)
+		}
+	}
+	start := parsePlainLine(t, rawLines[0])
+	if start.event != eventStageStart || start.entityKey != "T-E40-F04-003" {
+		t.Errorf("run.log line 0 = %+v, want stage_start/T-E40-F04-003", start)
+	}
+	end := parsePlainLine(t, rawLines[1])
+	if end.event != eventStageEnd || end.entityKey != "T-E40-F04-003" {
+		t.Errorf("run.log line 1 = %+v, want stage_end/T-E40-F04-003", end)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-014: plain-mode line rendering — required fields, omitted-when-empty
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC014_PlainModeRendering drives jsonMode=false and asserts
+// AC-04/AC-T1: each stderr line matches D3's fixed-column format, carries
+// entity key/status/action/agent/provider/stage/total when non-empty, and
+// omits any empty-valued key entirely (never key= with no value).
+func TestLiveness_TC014_PlainModeRendering(t *testing.T) {
+	t.Run("full_stage_all_fields_present", func(t *testing.T) {
+		rec := NewLivenessRecorder(t.TempDir(), "run-tc014a", "T-E40-F04-002", false, time.Now())
+
+		lines := captureStderrLines(t, func() {
+			rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "T-E40-F04-002", Status: "in_development"})
+			rec.Observe(RunProgress{
+				Phase: "action", Iteration: 1, EntityKey: "T-E40-F04-002", Status: "in_development",
+				Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+			})
+			rec.Observe(RunProgress{Phase: "iteration", Iteration: 2, EntityKey: "T-E40-F04-002", Status: "code_review"})
+		})
+		if len(lines) != 2 {
+			t.Fatalf("expected 2 emitted lines (stage_start, stage_end), got %d: %v", len(lines), lines)
+		}
+
+		start := parsePlainLine(t, lines[0])
+		if start.event != eventStageStart || start.entityKey != "T-E40-F04-002" {
+			t.Fatalf("line 0 = %+v, want stage_start/T-E40-F04-002", start)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, start.ts); err != nil {
+			t.Errorf("line 0 ts %q does not parse as RFC3339Nano: %v", start.ts, err)
+		}
+		for _, key := range []string{"status", "action", "agent", "provider", "stage", "total"} {
+			if _, ok := start.kv[key]; !ok {
+				t.Errorf("line 0: missing key %q (raw=%s)", key, lines[0])
+			}
+		}
+		if start.kv["status"] != "in_development" {
+			t.Errorf("status = %q, want in_development", start.kv["status"])
+		}
+		if start.kv["action"] != "spawn_agent" {
+			t.Errorf("action = %q, want spawn_agent", start.kv["action"])
+		}
+		if start.kv["agent"] != "developer" {
+			t.Errorf("agent = %q, want developer", start.kv["agent"])
+		}
+		if start.kv["provider"] != "anthropic" {
+			t.Errorf("provider = %q, want anthropic", start.kv["provider"])
+		}
+		if _, ok := start.kv["iteration"]; ok {
+			t.Errorf("plain-mode line unexpectedly carries an iteration= key (not part of D3's plain field list): %s", lines[0])
+		}
+
+		end := parsePlainLine(t, lines[1])
+		if end.event != eventStageEnd || end.entityKey != "T-E40-F04-002" {
+			t.Fatalf("line 1 = %+v, want stage_end/T-E40-F04-002", end)
+		}
+
+		// AC-T1's "stderr and run.log, same renderer" parenthetical: run.log
+		// must carry the EXACT same lines just captured on stderr, not a
+		// second independently-formatted rendering.
+		fileContent, err := os.ReadFile(rec.LogPath())
+		if err != nil {
+			t.Fatalf("read run.log: %v", err)
+		}
+		fileLines := strings.Split(strings.TrimRight(string(fileContent), "\n"), "\n")
+		if len(fileLines) != len(lines) {
+			t.Fatalf("run.log has %d lines, want %d (matching stderr): %v", len(fileLines), len(lines), fileLines)
+		}
+		for i := range lines {
+			if fileLines[i] != lines[i] {
+				t.Errorf("run.log line %d = %q, want exact match with stderr line %q", i, fileLines[i], lines[i])
+			}
+		}
+	})
+
+	t.Run("no_action_phase_empty_keys_omitted", func(t *testing.T) {
+		rec := NewLivenessRecorder(t.TempDir(), "run-tc014b", "PARENT", false, time.Now())
+
+		lines := captureStderrLines(t, func() {
+			rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "E1", Status: "s0"})
+			// Closes E1's stage before it ever reached the action phase.
+			rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "E2", Status: "s1"})
+		})
+		if len(lines) != 2 {
+			t.Fatalf("expected 2 emitted lines (lazy stage_start, stage_end), got %d: %v", len(lines), lines)
+		}
+
+		for i, raw := range lines {
+			p := parsePlainLine(t, raw)
+			if _, ok := p.kv["action"]; ok {
+				t.Errorf("line %d: action= present though stage never reached action phase (raw=%s)", i, raw)
+			}
+			if _, ok := p.kv["agent"]; ok {
+				t.Errorf("line %d: agent= present though never set (raw=%s)", i, raw)
+			}
+			if _, ok := p.kv["provider"]; ok {
+				t.Errorf("line %d: provider= present though never set (raw=%s)", i, raw)
+			}
+			if _, ok := p.kv["stage"]; !ok {
+				t.Errorf("line %d: stage= missing (always present, even for a lazy-start stage)", i)
+			}
+			if _, ok := p.kv["total"]; !ok {
+				t.Errorf("line %d: total= missing (always present)", i)
+			}
+		}
+	})
+}
+
+// TestFormatElapsed drives the plain-mode duration formatter directly
+// (white-box, same package), including spec.md D3's own worked example
+// values (74213ms -> "1m14s", 181940ms -> "3m01s").
+func TestFormatElapsed(t *testing.T) {
+	tests := []struct {
+		name string
+		ms   int64
+		want string
+	}{
+		{"zero", 0, "0s"},
+		{"seconds_only", 14_000, "14s"},
+		{"d3_example_stage_elapsed", 74213, "1m14s"},
+		{"d3_example_total_elapsed", 181940, "3m01s"},
+		{"exact_minute_zero_pads_seconds", 60_000, "1m00s"},
+		{"hour_boundary", 3_661_000, "1h01m01s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatElapsed(time.Duration(tt.ms) * time.Millisecond)
+			if got != tt.want {
+				t.Errorf("formatElapsed(%dms) = %q, want %q", tt.ms, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-019 (partial): read-before-close per-event durability
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC019_ReadBeforeCloseDurability drives one stage through the
+// action phase (which emits stage_start) and reads run.log directly from
+// disk BEFORE calling closeOpenStage/Finish/Stop — proving REQ-F-010's
+// per-event durability (D4's open-append-write-close) rather than a
+// flush-at-end property. The heartbeat leg of TC-019 is added once the
+// ticker exists (T-E40-F04-003); this task covers the stage_start half.
+func TestLiveness_TC019_ReadBeforeCloseDurability(t *testing.T) {
+	root := t.TempDir()
+	rec := NewLivenessRecorder(root, "run-tc019", "T-E40-F04-002", true, time.Now())
+
+	// stderr output isn't asserted here (covered by TC-011); suppress it so
+	// it doesn't pollute test output.
+	captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "T-E40-F04-002", Status: "in_development"})
+		rec.Observe(RunProgress{
+			Phase: "action", Iteration: 1, EntityKey: "T-E40-F04-002", Status: "in_development",
+			Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+		})
+	})
+	// Deliberately no Finish()/Stop()/closeOpenStage() call: the stage is
+	// still open when we read the file below.
+
+	content, err := os.ReadFile(rec.LogPath())
+	if err != nil {
+		t.Fatalf("run.log not readable before any close/flush call: %v", err)
+	}
+	got := string(content)
+	if !strings.Contains(got, eventStageStart) {
+		t.Errorf("run.log missing stage_start before close: %q", got)
+	}
+	if !strings.Contains(got, "T-E40-F04-002") {
+		t.Errorf("run.log missing entity key: %q", got)
+	}
+	if !strings.Contains(got, "status=in_development") {
+		t.Errorf("run.log missing status: %q", got)
+	}
+	if !strings.Contains(got, "agent=developer") {
+		t.Errorf("run.log missing agent: %q", got)
+	}
+	if !strings.Contains(got, "provider=anthropic") {
+		t.Errorf("run.log missing provider: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LogPath(): real getter, resolved absolute path
+// ---------------------------------------------------------------------------
+
+// TestLiveness_LogPath_ResolvesAbsolutePath asserts AC-T3's "real getter, not
+// a stub" requirement: LogPath() returns the exact absolute path the file
+// sink writes to.
+func TestLiveness_LogPath_ResolvesAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	rec := NewLivenessRecorder(root, "run-logpath", "TOP", true, time.Now())
+
+	want := filepath.Join(root, ".shark", "runs", "run-logpath", "run.log")
+	if got := rec.LogPath(); got != want {
+		t.Errorf("LogPath() = %q, want %q", got, want)
+	}
+	if !filepath.IsAbs(rec.LogPath()) {
+		t.Errorf("LogPath() = %q, want an absolute path", rec.LogPath())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-022: empty projectRoot — file sink disabled, no error, stderr unaffected
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC022_EmptyProjectRootDisablesFileSinkOnly asserts AC-09's
+// empty-projectRoot boundary: LogPath() resolves empty, no panic/error from
+// any recorder method, and stderr events still fire for every Observe call —
+// mirroring NewFileJSONLExporter("")'s silent-skip semantics.
+func TestLiveness_TC022_EmptyProjectRootDisablesFileSinkOnly(t *testing.T) {
+	rec := NewLivenessRecorder("", "run-tc022", "TOP", true, time.Now())
+
+	if got := rec.LogPath(); got != "" {
+		t.Fatalf("LogPath() = %q, want empty for empty projectRoot", got)
+	}
+
+	lines := captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "E1", Status: "s0"})
+		rec.Observe(RunProgress{
+			Phase: "action", Iteration: 1, EntityKey: "E1", Status: "s0",
+			Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+		})
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 2, EntityKey: "E1", Status: "s1"})
+	})
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 stderr lines despite disabled file sink, got %d: %v", len(lines), lines)
+	}
+	got := parseWireLines(t, lines)
+	if got[0].Event != eventStageStart || got[1].Event != eventStageEnd {
+		t.Fatalf("unexpected event sequence: %+v", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TC-023: file sink EACCES-class failure — fail-soft, slog.Debug evidence
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC023_EACCESFailSoft pre-creates .shark/runs/ and chmods it
+// 0o555 (blocks creating the <run_id> subdirectory beneath it, matching
+// transcript_test.go's/edit_service_test.go's fault-injection convention).
+// Asserts REQ-F-011/REQ-N-002: every stderr event still fires, no error
+// reaches the caller (Observe has no error return to begin with — the
+// assertion is "no panic"), no run.log is ever created, and at least one
+// slog.Debug record documents the write failure.
+func TestLiveness_TC023_EACCESFailSoft(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-bit fault injection is not meaningful on windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission checks are not enforced")
+	}
+
+	drive := func(t *testing.T, root string) (stderrLines []string, slogBuf *bytes.Buffer) {
+		t.Helper()
+		buf := captureSlog(t)
+		rec := NewLivenessRecorder(root, "run-tc023", "TOP", true, time.Now())
+		lines := captureStderrLines(t, func() {
+			rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "E1", Status: "s0"})
+			rec.Observe(RunProgress{
+				Phase: "action", Iteration: 1, EntityKey: "E1", Status: "s0",
+				Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+			})
+			rec.Observe(RunProgress{Phase: "iteration", Iteration: 2, EntityKey: "E1", Status: "s1"})
+		})
+		return lines, buf
+	}
+
+	assertFailSoft := func(t *testing.T, lines []string, buf *bytes.Buffer, runLogPath string) {
+		t.Helper()
+		if len(lines) != 2 {
+			t.Fatalf("expected 2 stderr lines despite an unwritable run.log dir, got %d: %v", len(lines), lines)
+		}
+		if _, err := os.Stat(runLogPath); !os.IsNotExist(err) {
+			t.Errorf("expected run.log NOT to be created under an unwritable dir, stat err = %v", err)
+		}
+		found := false
+		for _, ev := range parseEvents(t, buf) {
+			if msg, _ := ev["msg"].(string); strings.Contains(msg, "liveness") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected at least one slog.Debug record describing the run.log write failure")
+		}
+	}
+
+	// mkdir_blocked: .shark/runs itself is unwritable, so the recorder's own
+	// os.MkdirAll(".shark/runs/<run_id>") fails and os.OpenFile is never
+	// reached.
+	t.Run("mkdir_blocked", func(t *testing.T) {
+		root := t.TempDir()
+		runsDir := filepath.Join(root, ".shark", "runs")
+		if err := os.MkdirAll(runsDir, 0o755); err != nil {
+			t.Fatalf("setup: mkdir runs dir: %v", err)
+		}
+		if err := os.Chmod(runsDir, 0o555); err != nil {
+			t.Fatalf("setup: chmod runs dir: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := os.Chmod(runsDir, 0o755); err != nil {
+				t.Errorf("cleanup: restore runs dir perms: %v", err)
+			}
+		})
+
+		lines, buf := drive(t, root)
+		assertFailSoft(t, lines, buf, filepath.Join(runsDir, "run-tc023", "run.log"))
+	})
+
+	// openfile_blocked: the <run_id> directory already exists (so MkdirAll
+	// succeeds — it is a no-op on an existing directory regardless of its
+	// mode), but the directory itself is unwritable, so os.OpenFile(run.log,
+	// O_CREATE, ...) is what fails. Exercises the sibling fail-soft branch
+	// mkdir_blocked never reaches.
+	t.Run("openfile_blocked", func(t *testing.T) {
+		root := t.TempDir()
+		runDir := filepath.Join(root, ".shark", "runs", "run-tc023")
+		if err := os.MkdirAll(runDir, 0o755); err != nil {
+			t.Fatalf("setup: mkdir run dir: %v", err)
+		}
+		if err := os.Chmod(runDir, 0o555); err != nil {
+			t.Fatalf("setup: chmod run dir: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := os.Chmod(runDir, 0o755); err != nil {
+				t.Errorf("cleanup: restore run dir perms: %v", err)
+			}
+		})
+
+		lines, buf := drive(t, root)
+		assertFailSoft(t, lines, buf, filepath.Join(runDir, "run.log"))
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TC-028: run.log / parent-dir permission bits match the transcript
+// convention
+// ---------------------------------------------------------------------------
+
+// TestLiveness_TC028_PermissionBits asserts REQ-N-005: run.log is written
+// with file mode 0o644 and its parent directory with 0o755, matching
+// internal/runner/transcript.go exactly (not the umask-dependent defaults of
+// os.Create).
+func TestLiveness_TC028_PermissionBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits are not meaningful on windows")
+	}
+
+	root := t.TempDir()
+	rec := NewLivenessRecorder(root, "run-tc028", "TOP", true, time.Now())
+
+	// stderr output isn't asserted here (covered by TC-011); suppress it so
+	// it doesn't pollute test output.
+	captureStderrLines(t, func() {
+		rec.Observe(RunProgress{Phase: "iteration", Iteration: 1, EntityKey: "E1", Status: "s0"})
+		rec.Observe(RunProgress{
+			Phase: "action", Iteration: 1, EntityKey: "E1", Status: "s0",
+			Action: "spawn_agent", AgentType: "developer", Provider: "anthropic",
+		})
+	})
+
+	path := rec.LogPath()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat run.log: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Errorf("run.log perm = %o, want 0644", got)
+	}
+
+	parent, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat run.log parent dir: %v", err)
+	}
+	if got := parent.Mode().Perm(); got != 0o755 {
+		t.Errorf("run.log parent dir perm = %o, want 0755", got)
 	}
 }
