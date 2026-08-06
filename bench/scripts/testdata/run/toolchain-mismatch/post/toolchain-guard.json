@@ -1,0 +1,6 @@
+{
+  "status": "fail",
+  "mismatches": [
+    "go_version: recorded=go1.22.0 observed=go1.24.3"
+  ]
+}

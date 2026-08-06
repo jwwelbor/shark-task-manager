@@ -1,0 +1,5 @@
+{
+  "fmt": {"status": "pass"},
+  "vet": {"status": "fail"},
+  "tests": {"status": null, "reason": "go test binary timed out mid-suite"}
+}

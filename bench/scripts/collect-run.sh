@@ -49,6 +49,57 @@
 # run/exit_status contract (JSON object); this task reads only `timed_out`:
 #   {"exit_code": <int|null>, "signaled": <bool>, "timed_out": <bool>}
 #
+# post/ contract (T-E40-F02-002's slice; ALL of post/ is optional -- a run
+# directory with no post/ at all, or no post/toolchain-guard.json, simply
+# gets no oracle/quality/loc blocks on its record, never a fabricated one).
+# This is this task's own pinned extension of spec.md's Interface contracts
+# post/ layout, since neither spec.md nor test-plan.md pins the exact
+# machine-readable shape of the post-run check outputs (only the raw-output
+# filenames fmt.txt/vet.txt/test.txt/numstat.txt are named there) -- the
+# driver side that WRITES these files is T-E40-F02-003/004's scope, so this
+# is the read contract they must produce against:
+#
+#   post/toolchain-guard.json   {"status": "pass"} |
+#                                {"status": "fail", "mismatches": [<str>, ...]}
+#                                REQ-F-015 step 1: absent entirely means no
+#                                post-run phase ran at all (e.g. a timed-out
+#                                run) -- oracle/quality/loc all stay absent.
+#                                "fail" means the guard aborted the WHOLE
+#                                post-run phase (REQ-F-015): quality gets
+#                                only `toolchain_guard`, oracle and loc are
+#                                both absent, and errors[] gets one
+#                                postrun_check_aborted entry naming the
+#                                mismatched axis/axes (ADR-F02-06: this
+#                                script copies diff-ledgers.sh's own
+#                                mismatch text, never re-derives it).
+#   post/test-diff.json         diff-ledgers.sh --kind=test stdout, verbatim
+#                                (regressions/regressions_count/removed/
+#                                removed_count) -> oracle.p2p_regressions*/
+#                                .removed* (AC-09: copied, not recomputed).
+#   post/lint-diff.json         diff-ledgers.sh --kind=lint stdout, verbatim
+#                                (new_issues/new_issues_count) ->
+#                                quality.lint_new_issues* (AC-09).
+#   post/quality.json           {"fmt": {"status": "pass"|"fail"|null,
+#                                         "reason": <str, present iff null>},
+#                                 "vet": {...same shape...},
+#                                 "tests": {...same shape...}}
+#                                -> quality.fmt_clean/.vet_ok/.tests_pass
+#                                (REQ-F-016: null means the gate could not
+#                                be executed, never silently a pass).
+#   post/f2p.json                {"f2p_resolved": <bool|null>,
+#                                 "repro_confirmed": <bool|null>}  (the
+#                                latter present only for bug items, per
+#                                spec.md's data model) -> oracle.f2p_resolved/
+#                                .repro_confirmed.
+#   post/numstat.txt            `git diff --numstat` text, tab-separated
+#                                "<added>\t<deleted>\t<path>" per line, `-`
+#                                for both counts on a binary file -> loc.*
+#                                (REQ-F-017): a `_test.go` path's counts go
+#                                to test_added/test_deleted, every other
+#                                path's counts go to prod_added/prod_deleted;
+#                                files_touched counts every line including
+#                                binary ones.
+#
 # Scope of THIS file as of T-E40-F02-001 (mirrors internal/runner/liveness.go's
 # "Scope of THIS file as of T-..." convention for staged construction):
 #   - outcome resolution: the five RunResult values, plus harness-assigned
@@ -70,9 +121,36 @@
 #   - timing.harness_wall_ns, copied from meta.json.
 #   - the deterministic, sorted-key, single-line JSON encoding (REQ-N-004).
 #
-# NOT in this file's scope yet (added by later, sequenced tasks -- their
+# Scope of THIS file as of T-E40-F02-002 (added on top of the above):
+#   - rejections.by_gate/.rework_loops: inferred purely from RunResult's
+#     stages[] -- a stage whose `status` re-enters a status already seen at
+#     an earlier stage is one rejection, attributed to the immediately
+#     preceding stage's status (the "gate" whose outcome sent work back)
+#     (REQ-F-014).
+#   - rejections.crosscheck: only attempted when meta.json supplies
+#     scratch_db_path + entity_key + item_type (older/unrelated synthetic
+#     fixtures that predate this task's DB fixture convention keep working
+#     with no crosscheck sub-object at all, never a fabricated one).
+#     Resolves entity_key -> entity_id against the scratch DB's tasks/bugs
+#     table first (ADR-F02-09); a resolution failure is its own named error
+#     (crosscheck_resolution_error -- a documented extension of spec.md's
+#     six-value errors[].kind set this task's AC-19 negative case requires,
+#     since crosscheck_disagreement itself only covers a resolved
+#     disagreement, not an unresolvable key). A resolved id's backward-
+#     transition count (same "re-entry into an already-seen value" measure,
+#     applied to entity_history.to_status in changed_at order) disagreeing
+#     with the RunResult-inferred rework_loops is crosscheck_disagreement,
+#     never silently resolved either way (REQ-F-014, AC-19).
+#     work_session_outcomes is a supplementary count (work_sessions rows
+#     with outcome='blocked' -- the only SessionOutcome value adjacent to a
+#     mid-session rejection) and does not itself participate in the
+#     agree/disagree comparison.
+#   - oracle.*/quality.*/loc.*: copied from post/*, per the post/ contract
+#     above -- never recomputed (ADR-F02-06, AC-09), never fabricated when
+#     the source file is absent (REQ-N-005).
+#
+# NOT in this file's scope yet (added by a later, sequenced task -- these
 # fields are OMITTED here, never null-filled placeholders, per REQ-N-005):
-#   - rejections.*, oracle.*, quality.*, loc.*                (T-E40-F02-002)
 #   - stages[].usage (tokens/cost/model IDs), manifest.model_ids/
 #     model_id_source, envelope_parse_error                   (T-E40-F02-007)
 #
@@ -234,6 +312,7 @@ if meta.get("harness_wall_ns") is not None:
     record["timing"] = {"harness_wall_ns": meta["harness_wall_ns"]}
 
 errors = []
+sources = {}
 
 
 def add_error(kind, detail, stage_index=None, path=None):
@@ -393,6 +472,248 @@ def resolve_timeout_detail():
     return detail, "scratch_db"
 
 
+def infer_rejections_from_stages(stages):
+    """REQ-F-014, RunResult-only half: walking `stages[]` in array order, a
+    stage whose `status` re-enters a status already seen at an EARLIER stage
+    is one rejection, attributed to the status of the stage immediately
+    preceding the re-entry (the "gate" -- whatever that stage evaluated is
+    what sent work back to an already-visited status). Returns (by_gate,
+    rework_loops).
+    """
+    seen = set()
+    by_gate = {}
+    for idx, stage in enumerate(stages):
+        status = stage.get("status", "")
+        if idx > 0 and status in seen:
+            gate = stages[idx - 1].get("status", "")
+            by_gate[gate] = by_gate.get(gate, 0) + 1
+        seen.add(status)
+    rework_loops = sum(by_gate.values())
+    return by_gate, rework_loops
+
+
+def resolve_entity_id(conn, item_type, entity_key):
+    table = "tasks" if item_type == "task" else "bugs"
+    row = conn.execute(
+        "SELECT id FROM %s WHERE key = ?" % table, (entity_key,)
+    ).fetchone()
+    return row[0] if row else None
+
+
+def count_backward_transitions(conn, item_type, entity_id):
+    """ADR-F02-09's DB-derived half of REQ-F-014: entity_history rows for
+    this entity, ordered by changed_at, applying the SAME "re-entry into an
+    already-seen value" measure as infer_rejections_from_stages above, but
+    over `to_status` instead of stage `status` -- the same thing, measured
+    by a different means, which is the entire point of a crosscheck.
+    """
+    rows = conn.execute(
+        "SELECT to_status FROM entity_history "
+        "WHERE entity_type = ? AND entity_id = ? "
+        "ORDER BY changed_at ASC, id ASC",
+        (item_type, entity_id),
+    ).fetchall()
+    seen = set()
+    backward = 0
+    for (to_status,) in rows:
+        if to_status in seen:
+            backward += 1
+        else:
+            seen.add(to_status)
+    return backward
+
+
+def count_blocked_work_sessions(conn, item_type, entity_key):
+    row = conn.execute(
+        "SELECT COUNT(*) FROM work_sessions "
+        "WHERE entity_type = ? AND entity_key = ? AND outcome = 'blocked'",
+        (item_type, entity_key),
+    ).fetchone()
+    return row[0] if row else 0
+
+
+def compute_rejections(run_result):
+    """REQ-F-014/ADR-F02-09/AC-19. The RunResult-only half (by_gate/
+    rework_loops) always runs when a RunResult was delivered. The DB
+    crosscheck half only runs when meta.json supplies scratch_db_path +
+    entity_key + item_type -- synthetic fixtures that predate this task's DB
+    fixture convention keep passing with no crosscheck sub-object, never a
+    fabricated one (REQ-N-005).
+    """
+    by_gate, rework_loops = infer_rejections_from_stages(run_result.get("stages") or [])
+    rejections = {"by_gate": by_gate, "rework_loops": rework_loops}
+
+    scratch_db_path = meta.get("scratch_db_path")
+    entity_key = meta.get("entity_key")
+    item_type = meta.get("item_type")
+    if scratch_db_path and entity_key and item_type:
+        conn = sqlite3.connect(resolve(scratch_db_path))
+        try:
+            entity_id = resolve_entity_id(conn, item_type, entity_key)
+            if entity_id is None:
+                add_error(
+                    "crosscheck_resolution_error",
+                    "entity_key %r did not resolve to any %s.id in the scratch DB"
+                    % (entity_key, "tasks" if item_type == "task" else "bugs"),
+                )
+            else:
+                entity_history_derived = count_backward_transitions(conn, item_type, entity_id)
+                work_session_outcomes = count_blocked_work_sessions(conn, item_type, entity_key)
+                agrees = entity_history_derived == rework_loops
+                rejections["crosscheck"] = {
+                    "entity_history_backward_transitions": entity_history_derived,
+                    "work_session_outcomes": work_session_outcomes,
+                    "agrees": agrees,
+                }
+                if not agrees:
+                    add_error(
+                        "crosscheck_disagreement",
+                        "runresult_inferred=%d entity_history_derived=%d"
+                        % (rework_loops, entity_history_derived),
+                    )
+        finally:
+            conn.close()
+
+    return rejections
+
+
+QUALITY_GATE_STATUS = {"pass": True, "fail": False, None: None}
+
+
+def parse_numstat(path):
+    """REQ-F-017: `git diff --numstat` text, tab-separated. A `_test.go`
+    path's counts go to test_added/test_deleted, every other path's counts
+    go to prod_added/prod_deleted. A binary file (`-`/`-` counts) never
+    contributes to either line-count total but still counts toward
+    files_touched.
+    """
+    prod_added = prod_deleted = test_added = test_deleted = 0
+    files_touched = 0
+    with open(path) as f:
+        for raw in f:
+            line = raw.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3:
+                fail("post/numstat.txt: malformed line (want 3 tab-separated fields): %r" % line)
+            added_s, deleted_s, path_field = parts
+            files_touched += 1
+            if added_s == "-" or deleted_s == "-":
+                continue
+            try:
+                added = int(added_s)
+                deleted = int(deleted_s)
+            except ValueError:
+                fail("post/numstat.txt: non-integer line counts: %r" % line)
+            if path_field.endswith("_test.go"):
+                test_added += added
+                test_deleted += deleted
+            else:
+                prod_added += added
+                prod_deleted += deleted
+    return {
+        "prod_added": prod_added,
+        "prod_deleted": prod_deleted,
+        "test_added": test_added,
+        "test_deleted": test_deleted,
+        "files_touched": files_touched,
+    }
+
+
+def read_post_json(*parts):
+    path = rd("post", *parts)
+    if not os.path.isfile(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def compute_postrun():
+    """REQ-F-015 pinned order/ADR-F02-06/ADR-F02-11: oracle.*/quality.*/
+    loc.* are copied from post/*, never recomputed. Absence of
+    post/toolchain-guard.json means no post-run phase ran at all for this
+    run (e.g. a timed-out run) -- every family stays absent, not fabricated.
+    A failed guard aborts the WHOLE post-run phase (REQ-F-015): quality
+    carries only `toolchain_guard`, oracle and loc stay entirely absent.
+    """
+    guard = read_post_json("toolchain-guard.json")
+    if guard is None:
+        return
+
+    if guard.get("status") == "fail":
+        mismatches = guard.get("mismatches") or []
+        detail = "; ".join(mismatches) if mismatches else "toolchain mismatch (no axis detail recorded)"
+        add_error("postrun_check_aborted", detail)
+        record["quality"] = {"toolchain_guard": detail}
+        sources["quality"] = "postrun"
+        return
+
+    quality = {"toolchain_guard": "pass"}
+    oracle = {}
+
+    lint_diff = read_post_json("lint-diff.json")
+    if lint_diff is not None:
+        if "new_issues" not in lint_diff or "new_issues_count" not in lint_diff:
+            fail("post/lint-diff.json missing expected diff-ledgers.sh field(s)")
+        quality["lint_new_issues"] = lint_diff["new_issues"]
+        quality["lint_new_issues_count"] = lint_diff["new_issues_count"]
+
+    test_diff = read_post_json("test-diff.json")
+    if test_diff is not None:
+        for field in ("regressions", "regressions_count", "removed", "removed_count"):
+            if field not in test_diff:
+                fail("post/test-diff.json missing expected diff-ledgers.sh field: %s" % field)
+        oracle["p2p_regressions"] = test_diff["regressions"]
+        oracle["p2p_regressions_count"] = test_diff["regressions_count"]
+        oracle["removed"] = test_diff["removed"]
+        oracle["removed_count"] = test_diff["removed_count"]
+
+    quality_gates = read_post_json("quality.json")
+    if quality_gates is not None:
+        for gate_key, record_key in (("fmt", "fmt_clean"), ("vet", "vet_ok"), ("tests", "tests_pass")):
+            gate = quality_gates.get(gate_key)
+            if gate is None:
+                continue
+            gate_status = gate.get("status")
+            if gate_status not in QUALITY_GATE_STATUS:
+                fail("post/quality.json: unrecognized %s status %r" % (gate_key, gate_status))
+            quality[record_key] = QUALITY_GATE_STATUS[gate_status]
+    else:
+        # A raw gate-output file with no post/quality.json sidecar is a
+        # producer-contract violation, not "gate not run": the driver wrote
+        # evidence of having executed the gate but no pass/fail/null verdict
+        # to read it back as (REQ-N-005 -- refuse rather than silently drop
+        # the family, the same posture the diff-ledgers.sh field checks
+        # above take on a malformed producer file).
+        for raw_name in ("fmt.txt", "vet.txt", "test.txt"):
+            if os.path.isfile(rd("post", raw_name)):
+                fail(
+                    "post/%s is present but post/quality.json (the gate "
+                    "status sidecar) is absent -- cannot determine pass/"
+                    "fail/null without fabricating one" % raw_name
+                )
+
+    f2p = read_post_json("f2p.json")
+    if f2p is not None:
+        if "f2p_resolved" in f2p:
+            oracle["f2p_resolved"] = f2p["f2p_resolved"]
+        if "repro_confirmed" in f2p:
+            oracle["repro_confirmed"] = f2p["repro_confirmed"]
+
+    if oracle:
+        record["oracle"] = oracle
+        sources["oracle"] = "postrun"
+    if quality:
+        record["quality"] = quality
+        sources["quality"] = "postrun"
+
+    numstat_path = rd("post", "numstat.txt")
+    if os.path.isfile(numstat_path):
+        record["loc"] = parse_numstat(numstat_path)
+        sources["loc"] = "postrun"
+
+
 # --- outcome resolution (REQ-F-009/010) ---
 stdout_path = rd("run", "stdout.json")
 run_result = None
@@ -420,17 +741,23 @@ if run_result is not None:
     record["runresult"] = runresult_block
 
     record["stages"] = reconcile_transcripts(run_result.get("stages") or [])
+    record["rejections"] = compute_rejections(run_result)
 elif isinstance(exit_status, dict) and exit_status.get("timed_out") is True:
     record["outcome"] = "timeout"
     detail, source = resolve_timeout_detail()
     record["timeout_detail"] = detail
-    record["sources"] = {"stalled_stage": source}
+    sources["stalled_stage"] = source
 else:
     fail(
         "run/stdout.json missing/unparseable and exit_status does not "
         "indicate a timeout -- cannot determine outcome (REQ-N-005: refusing "
         "to fabricate one)"
     )
+
+compute_postrun()
+
+if sources:
+    record["sources"] = sources
 
 errors.sort(key=lambda e: (e["kind"], e.get("stage_index", -1), e.get("path", "")))
 record["errors"] = errors

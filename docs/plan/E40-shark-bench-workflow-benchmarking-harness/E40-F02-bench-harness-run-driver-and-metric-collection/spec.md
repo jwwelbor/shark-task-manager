@@ -233,7 +233,7 @@ The data model this feature introduces is the **I-02 JSONL record**. One record 
 | `quality.lint_new_issues[]`, `.lint_new_issues_count` | — | `diff-ledgers.sh --kind=lint` | Copied from the script's stdout. |
 | `quality.toolchain_guard` | string | `diff-ledgers.sh --toolchain-guard` | `pass`, or the named mismatched axes. |
 | `loc.prod_added/.prod_deleted/.test_added/.test_deleted/.files_touched` | integer | `git diff --numstat` | |
-| `errors[]` | array | collector | Named, visible failures: `envelope_parse_error`, `stage_join_error`, `transcript_missing`, `crosscheck_disagreement`, `postrun_check_aborted`, `usage_unavailable`. Each carries `kind`, `detail`, and where applicable `stage_index` and `path`. Empty array on a clean run. |
+| `errors[]` | array | collector | Named, visible failures: `envelope_parse_error`, `stage_join_error`, `transcript_missing`, `crosscheck_disagreement`, `crosscheck_resolution_error`, `postrun_check_aborted`, `usage_unavailable`. Each carries `kind`, `detail`, and where applicable `stage_index` and `path`. Empty array on a clean run. |
 | `sources` | object | collector | Per metric family, which of `runresult` / `transcript` / `scratch_db` / `postrun` / `liveness` produced it (REQ-N-007). `sources.stalled_stage` (or equivalent key naming which family `timeout_detail` came from) is `"liveness"` when resolved from the stream, `"scratch_db"` when resolved from the DB status fallback. |
 
 ### Interface contracts

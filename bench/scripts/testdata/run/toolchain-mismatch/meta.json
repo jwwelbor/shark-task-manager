@@ -1,0 +1,8 @@
+{
+  "item_id": "toolchain-guard-demo",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 900,
+  "harness_wall_ns": 1600000000
+}

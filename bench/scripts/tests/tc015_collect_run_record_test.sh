@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # TC-015 (test-plan.md AC test matrix; T-E40-F02-001 task spec Test Cases).
 #
-# This task's slice: sub-cases a (minus `usage`), b, d, e, f, j, m. The
-# remaining sub-cases (c, g, h, i, l) are added by T-E40-F02-002/007, which
-# extend this same file per their own task specs' Scope.
+# T-E40-F02-001's slice: sub-cases a (minus `usage`), b, d, e, f, j, m.
+# T-E40-F02-002 (this extension) adds g, h, i, l -- the rejections crosscheck
+# and the oracle/quality/loc post-run blocks. Sub-case c (envelope parse
+# error) remains T-E40-F02-007's scope (Q003/REQ-F-021 sequencing
+# constraint, test-plan.md).
 #
 # Caller-Path Contract (test-plan.md TC-015): real subprocess invocation of
 # `bench/scripts/collect-run.sh --run-dir <dir>` against committed synthetic
 # run directories under testdata/run/ -- nothing in the collector is stubbed;
-# only a real sqlite database (materialized at test time from a committed
-# .sql fixture) backs the TC-015b DB-status-fallback sub-case.
+# real sqlite databases (materialized at test time from committed .sql
+# fixtures) back the TC-015b DB-status-fallback sub-case and TC-015g's
+# rejection crosscheck; TC-015h's post/test-diff.json and post/lint-diff.json
+# fixtures were produced by a real `bench/scripts/diff-ledgers.sh` invocation
+# over hand-authored base/post ledgers (see test_h's comment below for the
+# exact ledgers and command), not hand-typed to match the collector's own
+# arithmetic.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -426,12 +433,297 @@ print("TC-015m: PASS (transcript_missing, not stage_join_error)")
 PYEOF
 }
 
+# ---------------------------------------------------------------------------
+# TC-015g (AC-19, ADR-F02-09): rejection crosscheck. Sub-case 1 (committed
+# fixture): RunResult implies rework_loops=1 (one status re-entry after the
+# "in_qa" gate); the committed .sql fixture seeds entity_history with 2
+# backward transitions for the resolved entity -- a deliberate disagreement.
+# Sub-case 2 (dynamic): both sources agree at zero rejections (the boundary
+# AC-19 calls out: zero must not be special-cased as "skip the check").
+# Sub-case 3 (dynamic, negative): an entity_key that fails to resolve to any
+# row in the fixture DB must produce a distinct, separately named error, not
+# a fabricated "0 backward transitions" agreement.
+# ---------------------------------------------------------------------------
+test_g() {
+	local db_dir="$WORKDIR/db-crosscheck-disagree"
+	cp -r "$FIXTURES_DIR/db-crosscheck-disagree" "$db_dir"
+	sqlite3 "$db_dir/scratch/shark-tasks.db" <"$db_dir/scratch/scratch_db.sql"
+
+	local out="$WORKDIR/g1.out"
+	run_collect "$db_dir" "$out"
+	python3 - "$out" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+rejections = record.get("rejections")
+if rejections != {
+    "by_gate": {"in_qa": 1},
+    "rework_loops": 1,
+    "crosscheck": {
+        "entity_history_backward_transitions": 2,
+        "work_session_outcomes": 1,
+        "agrees": False,
+    },
+}:
+    sys.exit("TC-015g FAIL: disagree sub-case: rejections=%r" % rejections)
+
+errors = record.get("errors", [])
+if len(errors) != 1 or errors[0]["kind"] != "crosscheck_disagreement":
+    sys.exit("TC-015g FAIL: disagree sub-case: errors=%r, want exactly one crosscheck_disagreement" % errors)
+detail = errors[0]["detail"]
+if "runresult_inferred=1" not in detail or "entity_history_derived=2" not in detail:
+    sys.exit("TC-015g FAIL: disagree sub-case: detail=%r does not name both counts" % detail)
+print("TC-015g: disagree sub-case PASS")
+PYEOF
+
+	# Sub-case 2: both sources agree at zero rejections (dynamic -- a fresh
+	# 2-stage RunResult with no re-entry, and a fresh DB with 0 backward
+	# transitions, built in a temp copy so the committed disagree fixture
+	# stays a clean, single-purpose fixture).
+	local zero_dir="$WORKDIR/db-crosscheck-zero-agree"
+	cp -r "$FIXTURES_DIR/db-crosscheck-disagree" "$zero_dir"
+	rm -f "$zero_dir/run/transcripts/3-in_development-anthropic.log"
+	python3 - "$zero_dir/run/stdout.json" <<'PYEOF'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    data = json.load(f)
+data["stages"] = data["stages"][:2]
+data["stages_completed"] = 2
+data["total_duration_ns"] = sum(s["duration_ns"] for s in data["stages"])
+with open(path, "w") as f:
+    json.dump(data, f)
+PYEOF
+	sqlite3 "$zero_dir/scratch/shark-tasks.db" <<'SQL'
+CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE);
+CREATE TABLE entity_history (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, from_status TEXT, to_status TEXT NOT NULL, changed_at DATETIME NOT NULL);
+CREATE TABLE work_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL, entity_key TEXT, outcome TEXT, started_at TIMESTAMP NOT NULL, ended_at TIMESTAMP);
+INSERT INTO tasks (id, key) VALUES (42, 'T-BENCH-DEMO-020');
+INSERT INTO entity_history (entity_type, entity_id, from_status, to_status, changed_at) VALUES
+    ('task', 42, NULL, 'in_development', '2026-08-06T11:00:00Z'),
+    ('task', 42, 'in_development', 'in_qa', '2026-08-06T11:01:30Z');
+SQL
+
+	local out_zero="$WORKDIR/g2.out"
+	run_collect "$zero_dir" "$out_zero"
+	python3 - "$out_zero" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+crosscheck = record.get("rejections", {}).get("crosscheck")
+if crosscheck != {"entity_history_backward_transitions": 0, "work_session_outcomes": 0, "agrees": True}:
+    sys.exit("TC-015g FAIL: zero-agreement sub-case: crosscheck=%r" % crosscheck)
+if any(e["kind"] == "crosscheck_disagreement" for e in record.get("errors", [])):
+    sys.exit("TC-015g FAIL: zero-agreement sub-case: unexpected crosscheck_disagreement (zero must not be special-cased)")
+print("TC-015g: zero-agreement boundary sub-case PASS")
+PYEOF
+
+	# Sub-case 3 (negative): entity_key does not resolve to any row.
+	local unresolved_dir="$WORKDIR/db-crosscheck-unresolved"
+	cp -r "$FIXTURES_DIR/db-crosscheck-disagree" "$unresolved_dir"
+	sqlite3 "$unresolved_dir/scratch/shark-tasks.db" <"$unresolved_dir/scratch/scratch_db.sql"
+	python3 - "$unresolved_dir/meta.json" <<'PYEOF'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    meta = json.load(f)
+meta["entity_key"] = "T-BENCH-DEMO-999"
+with open(path, "w") as f:
+    json.dump(meta, f)
+PYEOF
+
+	local out_unresolved="$WORKDIR/g3.out"
+	run_collect "$unresolved_dir" "$out_unresolved"
+	python3 - "$out_unresolved" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+errors = record.get("errors", [])
+resolution_errors = [e for e in errors if e["kind"] == "crosscheck_resolution_error"]
+if len(resolution_errors) != 1:
+    sys.exit("TC-015g FAIL: unresolved-key sub-case: errors=%r, want exactly one crosscheck_resolution_error" % errors)
+if "T-BENCH-DEMO-999" not in resolution_errors[0]["detail"]:
+    sys.exit("TC-015g FAIL: unresolved-key sub-case: detail=%r does not name the entity_key" % resolution_errors[0]["detail"])
+if any(e["kind"] == "crosscheck_disagreement" for e in errors):
+    sys.exit("TC-015g FAIL: unresolved-key sub-case: must never also fabricate a crosscheck_disagreement")
+if "crosscheck" in record.get("rejections", {}):
+    sys.exit("TC-015g FAIL: unresolved-key sub-case: rejections.crosscheck must be absent, not a fabricated '0 backward transitions' agreement")
+print("TC-015g: unresolved-entity_key negative PASS")
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# TC-015h (AC-02, AC-09): oracle.*/quality.* copied verbatim from post/*.
+# The clean-completed fixture's post/test-diff.json and post/lint-diff.json
+# were produced by a REAL `bench/scripts/diff-ledgers.sh` invocation (not
+# hand-typed) over these hand-authored ledgers:
+#
+#   base-test.json entries: TestDiscountRounding/pass, TestDiscountFloor/pass,
+#     TestDiscountLegacyFlag/pass
+#   post-test.json entries: TestDiscountRounding/pass, TestDiscountFloor/fail
+#   -> `diff-ledgers.sh --kind=test --base=base-test.json --post=post-test.json`
+#      produced test-diff.json (1 regression: TestDiscountFloor pass->fail;
+#      1 removed: TestDiscountLegacyFlag absent at post)
+#
+#   base-lint.json entries: staticcheck/pkg/pricing/pricing.go/SA4006
+#   post-lint.json entries: the same staticcheck entry, plus
+#     ineffassign/pkg/pricing/discount.go/"ineffectual assignment to err"
+#   -> `diff-ledgers.sh --kind=lint --base=base-lint.json --post=post-lint.json`
+#      produced lint-diff.json (1 new issue: the ineffassign entry)
+#
+# post/quality.json and post/f2p.json are hand-authored directly (there is
+# no producing script for them to invoke yet -- T-E40-F02-003/004's scope);
+# quality.json deliberately exercises all three of true/false/null across
+# fmt/vet/tests so REQ-F-016's "null means could not execute, never a pass"
+# posture has a test case, not just the true/false cases.
+# ---------------------------------------------------------------------------
+test_h() {
+	local out="$WORKDIR/h.out"
+	run_collect "$FIXTURES_DIR/clean-completed" "$out"
+	python3 - "$out" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+oracle = record.get("oracle")
+want_oracle = {
+    "f2p_resolved": True,
+    "p2p_regressions": [{"identity": "pkg/pricing::TestDiscountFloor"}],
+    "p2p_regressions_count": 1,
+    "removed": [{"identity": "pkg/pricing::TestDiscountLegacyFlag"}],
+    "removed_count": 1,
+}
+if oracle != want_oracle:
+    sys.exit("TC-015h FAIL: oracle=%r, want %r" % (oracle, want_oracle))
+
+quality = record.get("quality")
+want_quality = {
+    "toolchain_guard": "pass",
+    "fmt_clean": True,
+    "vet_ok": False,
+    "tests_pass": None,
+    "lint_new_issues": [
+        {"from_linter": "ineffassign", "path": "pkg/pricing/discount.go", "text": "ineffectual assignment to err"}
+    ],
+    "lint_new_issues_count": 1,
+}
+if quality != want_quality:
+    sys.exit("TC-015h FAIL: quality=%r, want %r" % (quality, want_quality))
+
+sources = record.get("sources", {})
+if sources.get("oracle") != "postrun":
+    sys.exit("TC-015h FAIL: sources.oracle=%r, want 'postrun' (never a value implying independent recomputation)" % sources.get("oracle"))
+if sources.get("quality") != "postrun":
+    sys.exit("TC-015h FAIL: sources.quality=%r, want 'postrun'" % sources.get("quality"))
+print("TC-015h: oracle/quality byte-identical-copy PASS")
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# TC-015i (AC-10): toolchain-guard abort. Sub-case 1 (committed fixture): the
+# guard failed, aborting the whole post-run phase before any diff would run
+# -- errors[] names the axis, oracle/loc stay entirely absent. Sub-case 2
+# (negative, reusing clean-completed's already-passing-guard fixture): a
+# passing guard never produces postrun_check_aborted, even though the diff
+# it gates later reports non-zero findings (clean-completed's own h fixture
+# above already proves "non-zero" doesn't trip it; this asserts the absence
+# directly).
+# ---------------------------------------------------------------------------
+test_i() {
+	local out="$WORKDIR/i1.out"
+	run_collect "$FIXTURES_DIR/toolchain-mismatch" "$out"
+	python3 - "$out" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+errors = record.get("errors", [])
+aborted = [e for e in errors if e["kind"] == "postrun_check_aborted"]
+if len(aborted) != 1:
+    sys.exit("TC-015i FAIL: abort sub-case: errors=%r, want exactly one postrun_check_aborted" % errors)
+if "go_version" not in aborted[0]["detail"]:
+    sys.exit("TC-015i FAIL: abort sub-case: detail=%r does not name the mismatched axis" % aborted[0]["detail"])
+if "oracle" in record:
+    sys.exit("TC-015i FAIL: abort sub-case: record.oracle must be absent, never a diff computed under the wrong toolchain")
+if "loc" in record:
+    sys.exit("TC-015i FAIL: abort sub-case: record.loc must be absent -- REQ-F-015's pinned order means LOC never ran either")
+quality = record.get("quality")
+if quality != {"toolchain_guard": aborted[0]["detail"]}:
+    sys.exit("TC-015i FAIL: abort sub-case: quality=%r, want only the toolchain_guard detail" % quality)
+print("TC-015i: toolchain-guard abort sub-case PASS")
+PYEOF
+
+	local out_negative="$WORKDIR/i2.out"
+	run_collect "$FIXTURES_DIR/clean-completed" "$out_negative"
+	python3 - "$out_negative" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+if any(e["kind"] == "postrun_check_aborted" for e in record.get("errors", [])):
+    sys.exit("TC-015i FAIL: negative: a passing toolchain guard must never produce postrun_check_aborted, even with non-zero diff findings")
+print("TC-015i: negative PASS (passing guard never aborts, regardless of diff findings)")
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# TC-015l (AC-02, AC-18 arithmetic half): loc.* prod/test-split arithmetic
+# over a synthetic post/numstat.txt with concrete, non-zero, mixed values --
+# two production files, two _test.go files, and one binary file (`-`/`-`
+# counts, contributing to files_touched only). Asserting the exact split
+# values is itself the negative case this TC's description calls for: a
+# `_test.go` file's lines miscounted into prod_added would fail this
+# assertion by construction.
+# ---------------------------------------------------------------------------
+test_l() {
+	local out="$WORKDIR/l.out"
+	run_collect "$FIXTURES_DIR/loc-numstat-mixed" "$out"
+	python3 - "$out" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+loc = record.get("loc")
+want = {"prod_added": 17, "prod_deleted": 4, "test_added": 42, "test_deleted": 2, "files_touched": 5}
+if loc != want:
+    sys.exit("TC-015l FAIL: loc=%r, want %r" % (loc, want))
+if record.get("sources", {}).get("loc") != "postrun":
+    sys.exit("TC-015l FAIL: sources.loc=%r, want 'postrun'" % record.get("sources", {}).get("loc"))
+print("TC-015l: PASS (prod/test-split arithmetic over mixed numstat lines)")
+PYEOF
+}
+
 test_a
 test_b
 test_d
 test_e
 test_f
+test_g
+test_h
+test_i
 test_j
+test_l
 test_m
 
 echo "TC-015: PASS"
