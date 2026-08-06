@@ -218,6 +218,7 @@ The data model this feature introduces is the **I-02 JSONL record**. One record 
 | `manifest.seeded_keys` | object | create `--json` | Assigned keys for the epic, feature, and benched entity. Never harness-chosen. |
 | `manifest.run_id`, `manifest.run_id_source` | string | I-03 stream / fallback | |
 | `outcome` | string | derived | One of the five `RunResult` values plus `timeout`. |
+| `timeout_detail` | object | liveness stream / scratch DB | Present **only** when `outcome == "timeout"`, otherwise absent (never a zero-valued object). `{stage_index, status, action, agent_type, provider, source}`, where `source` is `"liveness_stream"` or `"scratch_db_status_fallback"` (REQ-F-019, AC-03; schema gap closed on the test-plan.md-pinned decision, 2026-08-06). |
 | `runresult.final_status`, `.stages_completed`, `.total_duration_ns`, `.error` | — | `RunResult` | Copied verbatim. |
 | `runresult.question_block` | object \| null | `RunResult` | Surfaced verbatim when present. |
 | `stages[]` | array | `RunResult.Stages` + transcripts | Per stage: `index`, `status`, `action`, `agent_type`, `provider`, `duration_ns`, `exit_code`, and for agent stages a `usage` sub-object (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_cost_usd`, `duration_api_ms`, `num_turns`, `model_ids[]`) plus `transcript_path`. |
@@ -233,7 +234,7 @@ The data model this feature introduces is the **I-02 JSONL record**. One record 
 | `quality.toolchain_guard` | string | `diff-ledgers.sh --toolchain-guard` | `pass`, or the named mismatched axes. |
 | `loc.prod_added/.prod_deleted/.test_added/.test_deleted/.files_touched` | integer | `git diff --numstat` | |
 | `errors[]` | array | collector | Named, visible failures: `envelope_parse_error`, `stage_join_error`, `transcript_missing`, `crosscheck_disagreement`, `postrun_check_aborted`, `usage_unavailable`. Each carries `kind`, `detail`, and where applicable `stage_index` and `path`. Empty array on a clean run. |
-| `sources` | object | collector | Per metric family, which of `runresult` / `transcript` / `scratch_db` / `postrun` produced it (REQ-N-007). |
+| `sources` | object | collector | Per metric family, which of `runresult` / `transcript` / `scratch_db` / `postrun` / `liveness` produced it (REQ-N-007). `sources.stalled_stage` (or equivalent key naming which family `timeout_detail` came from) is `"liveness"` when resolved from the stream, `"scratch_db"` when resolved from the DB status fallback. |
 
 ### Interface contracts
 
