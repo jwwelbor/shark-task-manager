@@ -480,6 +480,204 @@ if not any("/pkg/cart" in pkg and "TestStock_PermanentlyFailingRegressionProbe" 
 print(f"TC-005: finding #2 cross-package name collision did not mask the planted pkg/cart failure: {unexplained}")
 PYEOF
 
+echo "TC-005: part 3g - code review round 6 findings 6a+6b: aliased-import test recognition + observed-not-enumerated fail"
+
+# Code review round 6 found a compound gap surviving 6421046d:
+#   6a: testenum's isTestFunc only recognized a parameter spelled
+#       literally *testing.T -- a dot import (import . "testing") or a
+#       renamed import (import gotest "testing") is real, compiles, and
+#       is genuinely run and can genuinely fail under go test, yet
+#       produced ZERO output from testenum, so such a test was invisible
+#       to admit.sh's completeness check.
+#   6b: even given a perfect enumerator, check_p2p_green()'s fail-check
+#       iterated over testenum's *enumerated* set and looked up each name
+#       in the observed go test -json results -- so a real fail event
+#       whose name was not in the enumerated set, for ANY reason, was
+#       silently discarded rather than counted.
+# testenum now resolves parameter types via go/types (identity, not
+# spelling), and check_p2p_green() now scans every OBSERVED terminal
+# event, not the enumerated set. This section verifies the reviewer's
+# own end-to-end reproduction (dot import) plus a renamed-import variant
+# are both closed together in one patch, combined with $MASK_ITEM's real
+# reference.patch and TestMain(m *M) { m.Run(); os.Exit(0) } to force the
+# process exit to 0 regardless of the real per-test outcome.
+sixab_scratch_dir="$WORKDIR/sixab-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$sixab_scratch_dir" >/dev/null
+
+git -C "$sixab_scratch_dir" apply "$mask_patch_abs" || fail "6a+6b: could not apply $MASK_ITEM's own reference.patch to a fresh checkout"
+
+cat >"$sixab_scratch_dir/pkg/cart/cart_dot_test.go" <<'GOEOF'
+package cart
+
+import (
+	"os"
+	. "testing"
+)
+
+func TestDotImportMaskedRegression(t *T) {
+	c := New()
+	c.AddItem(Item{SKU: "sku-1", Name: "Widget", Price: 500, Quantity: 2})
+	if got, want := c.ItemCount(), 999; got != want {
+		t.Fatalf("ItemCount() = %d, want %d (planted failing assertion via dot-imported T)", got, want)
+	}
+}
+
+func TestMain(m *M) {
+	m.Run()
+	os.Exit(0)
+}
+GOEOF
+
+cat >"$sixab_scratch_dir/pkg/cart/cart_renamed_test.go" <<'GOEOF'
+package cart
+
+import gotest "testing"
+
+func TestRenamedImportMaskedRegression(t *gotest.T) {
+	c := New()
+	c.AddItem(Item{SKU: "sku-1", Name: "Widget", Price: 500, Quantity: 2})
+	if got, want := c.ItemCount(), 999; got != want {
+		t.Fatalf("ItemCount() = %d, want %d (planted failing assertion via renamed-imported T)", got, want)
+	}
+}
+GOEOF
+
+# Sanity: confirm testenum itself now enumerates both new names from this
+# exact directory, independent of admit.sh -- proves 6a is closed, not
+# just that the end-to-end verdict happens to come out right.
+testenum_sanity_bin="$WORKDIR/testenum-sanity"
+(cd "$SCRIPTS_DIR/testenum" && go build -o "$testenum_sanity_bin" .) || fail "6a+6b: failed to build testenum for the sanity check"
+sixab_enumerated="$("$testenum_sanity_bin" "$sixab_scratch_dir/pkg/cart")"
+echo "$sixab_enumerated" | grep -qF "TestDotImportMaskedRegression" || fail "6a regression: testenum did not enumerate the dot-imported test -- 6a is not closed"
+echo "$sixab_enumerated" | grep -qF "TestRenamedImportMaskedRegression" || fail "6a regression: testenum did not enumerate the renamed-import test -- 6a is not closed"
+echo "TC-005: 6a sanity confirmed -- testenum enumerates both dot-import and renamed-import test names"
+
+# New files (not modifications to already-tracked files) require staging
+# before `git diff` includes them -- `git diff` alone only shows tracked
+# file changes.
+git -C "$sixab_scratch_dir" add -A
+sixab_patch="$WORKDIR/sixab-combined.patch"
+git -C "$sixab_scratch_dir" diff --cached >"$sixab_patch"
+[[ -s "$sixab_patch" ]] || fail "6a+6b: combined patch is empty"
+grep -qF "cart_dot_test.go" "$sixab_patch" || fail "6a+6b: combined patch does not include the new dot-import test file"
+grep -qF "cart_renamed_test.go" "$sixab_patch" || fail "6a+6b: combined patch does not include the new renamed-import test file"
+
+out_sixab="$(run_item "6a+6b: dot-import + renamed-import masked regressions, TestMain os.Exit(0)" "$MASK_ITEM" --patch "$sixab_patch")"
+assert_rejected "6a+6b" "$out_sixab" "P2P-red-post-patch"
+
+python3 - "$out_sixab" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+unexplained = verdict.get("unexplained_failed_packages") or []
+missing_names = [
+    name for name in ("TestDotImportMaskedRegression", "TestRenamedImportMaskedRegression")
+    if not any(name in pkg for pkg in unexplained)
+]
+if missing_names:
+    sys.exit(
+        "TC-005 FAIL: 6a+6b: verdict's unexplained_failed_packages does not name "
+        f"{missing_names}: {unexplained}"
+    )
+print(f"TC-005: 6a+6b compound reproduction correctly rejected, naming both masked regressions: {unexplained}")
+PYEOF
+
+echo "TC-005: part 3h - 6b-only: real fail whose name testenum cannot enumerate for a reason unrelated to import spelling"
+
+# Distinct from 6a: testenum's import resolution is intentionally scoped
+# to the standard library (see testenum/main.go's header) -- it cannot
+# resolve a SAME-MODULE local import at all (no go/packages-style module
+# resolution), unlike the real `go` toolchain, which resolves same-module
+# imports fully. A local package that re-EXPORTS testing.T via a genuine
+# Go type alias (`type T = testing.T`, not a new named type) compiles
+# and runs identically to *testing.T under real go test, but testenum
+# cannot see through the unresolved import at all and enumerates nothing
+# for it. This proves check_p2p_green()'s fail-check (6b) does not
+# depend on testenum's completeness (6a) to catch a real, observed
+# failure: even with testenum missing this name entirely -- not due to
+# any import-spelling gap, but a documented, orthogonal resolution
+# limit -- the observed go test -json fail event is still real,
+# non-forgeable evidence, and 6b's fix scans it regardless of enumeration.
+sixb_scratch_dir="$WORKDIR/sixb-scratch"
+"$CHECKOUT_SCRIPT" "$BASE_SHA" "$sixb_scratch_dir" >/dev/null
+
+git -C "$sixb_scratch_dir" apply "$mask_patch_abs" || fail "6b-only: could not apply $MASK_ITEM's own reference.patch to a fresh checkout"
+
+mkdir -p "$sixb_scratch_dir/internal/localtestalias"
+cat >"$sixb_scratch_dir/internal/localtestalias/localtestalias.go" <<'GOEOF'
+// Package localtestalias re-exports testing.T via a genuine Go type
+// alias (not a new named type) purely to construct a TC-005 regression:
+// real go test treats *T here as identical to *testing.T, but testenum's
+// import resolution is scoped to the standard library only (see
+// testenum/main.go) and cannot resolve this same-module import at all.
+package localtestalias
+
+import "testing"
+
+type T = testing.T
+GOEOF
+
+cat >"$sixb_scratch_dir/pkg/cart/cart_alias_test.go" <<'GOEOF'
+package cart
+
+import (
+	"os"
+	mt "github.com/jwwelbor/shark-bench-fixture/internal/localtestalias"
+	"testing"
+)
+
+func TestViaLocalAliasMaskedRegression(t *mt.T) {
+	c := New()
+	c.AddItem(Item{SKU: "sku-1", Name: "Widget", Price: 500, Quantity: 2})
+	if got, want := c.ItemCount(), 999; got != want {
+		t.Fatalf("ItemCount() = %d, want %d (planted failing assertion via unresolvable local alias)", got, want)
+	}
+}
+
+func TestMain(m *testing.M) {
+	m.Run()
+	os.Exit(0)
+}
+GOEOF
+
+# Sanity: confirm testenum genuinely does NOT enumerate this name from
+# this exact directory -- the point of this case is that 6b's fix does
+# not need it to.
+sixb_enumerated="$("$testenum_sanity_bin" "$sixb_scratch_dir/pkg/cart")"
+if echo "$sixb_enumerated" | grep -qF "TestViaLocalAliasMaskedRegression"; then
+	fail "6b-only regression setup invalid: testenum unexpectedly enumerated TestViaLocalAliasMaskedRegression -- this case is supposed to demonstrate an enumeration gap testenum has by design, not one it has closed"
+fi
+echo "TC-005: 6b-only sanity confirmed -- testenum does NOT enumerate TestViaLocalAliasMaskedRegression (expected, documented limitation)"
+
+git -C "$sixb_scratch_dir" add -A
+sixb_patch="$WORKDIR/sixb-combined.patch"
+git -C "$sixb_scratch_dir" diff --cached >"$sixb_patch"
+[[ -s "$sixb_patch" ]] || fail "6b-only: combined patch is empty"
+grep -qF "cart_alias_test.go" "$sixb_patch" || fail "6b-only: combined patch does not include the new test file"
+grep -qF "localtestalias.go" "$sixb_patch" || fail "6b-only: combined patch does not include the new local alias package"
+
+out_sixb="$(run_item "6b-only: real fail via unresolvable local type alias, TestMain os.Exit(0)" "$MASK_ITEM" --patch "$sixb_patch")"
+assert_rejected "6b-only" "$out_sixb" "P2P-red-post-patch"
+
+python3 - "$out_sixb" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    verdict = json.loads(f.read().strip())
+
+unexplained = verdict.get("unexplained_failed_packages") or []
+if not any("TestViaLocalAliasMaskedRegression" in pkg for pkg in unexplained):
+    sys.exit(
+        "TC-005 FAIL: 6b-only: verdict's unexplained_failed_packages does not name "
+        f"the real failure testenum could not enumerate: {unexplained}"
+    )
+print(f"TC-005: 6b-only case correctly rejected -- a real fail testenum never enumerated was still caught: {unexplained}")
+PYEOF
+
 echo "TC-005: part 4 (AC-T3) - no committed negative appears in a full admit.sh run"
 
 full_out="$WORKDIR/full-run.jsonl"

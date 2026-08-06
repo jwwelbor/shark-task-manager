@@ -88,17 +88,44 @@
 # applied one package at a time) and per package requires ALL of: every
 # testenum-enumerated test not deliberately excluded has a per-test
 # terminal event (no missing evidence -- catches a TestMain that never
-# calls m.Run() at all, exactly UAT round 2's UAT-003 shape); every one
-# of those events is pass or skip, never fail (a real per-test fail is
-# trustworthy signal in itself, so this alone catches finding #1's
-# masked regression even though the process's own exit code was forged
-# to 0); and the invocation's own exit code is still 0 as a corroborating
-# check (catches a TestMain that forges a *nonzero* exit despite fully
-# clean, complete per-test evidence -- UAT round 3's masked-behind-the-
-# probe scenario). No single one of these three is sufficient alone; all
-# three together leave no forgeable-signal gap. F2P already modeled part
-# of this discipline before this round (explicit per-test "pass" AND an
-# isolated exit code of 0) and is unchanged here.
+# calls m.Run() at all, exactly UAT round 2's UAT-003 shape); every
+# OBSERVED per-test terminal event for that package is pass or skip,
+# never fail (a real per-test fail is trustworthy signal in itself, so
+# this alone catches finding #1's masked regression even though the
+# process's own exit code was forged to 0); and the invocation's own
+# exit code is still 0 as a corroborating check (catches a TestMain that
+# forges a *nonzero* exit despite fully clean, complete per-test evidence
+# -- UAT round 3's masked-behind-the-probe scenario). No single one of
+# these three is sufficient alone; all three together leave no
+# forgeable-signal gap. F2P already modeled part of this discipline
+# before this round (explicit per-test "pass" AND an isolated exit code
+# of 0) and is unchanged here.
+#
+# Code review round 6 (this round, the human-authorized bounded follow-up
+# to round 5's escalation) found the fail-check above still had a gap of
+# its own, plus a gap in the enumerator it depends on:
+#   - 6a: testenum's enumerator matched a test's parameter type by AST
+#     shape (`*testing.T` spelled literally) rather than by resolved
+#     identity, so a dot import (`import . "testing"`) or a renamed
+#     import (`import gotest "testing"`) -- both of which `go test`
+#     genuinely compiles and runs -- produced ZERO output from testenum,
+#     making that real, running, failing test invisible to `expected`.
+#   - 6b (the more direct defect, independent of 6a): the fail-check
+#     itself iterated over `expected` (testenum's enumerated set) and
+#     looked up each enumerated name in `results` -- so ANY real fail
+#     event whose name was not in `expected`, for ANY reason, was
+#     silently discarded, even though `results` already held it as real,
+#     non-forgeable evidence. A perfect enumerator would not have saved
+#     this: the fail-check was scanning the wrong set.
+# Both are fixed together: testenum now resolves each parameter's type
+# via go/types (identity: which package actually declares it, not which
+# identifier spells it -- see testenum/main.go's header for the full
+# resolution and negative-case reasoning), and the fail-check below now
+# scans every entry `results` holds for a package, never `expected`, so
+# a residual gap in enumeration (testenum's import resolution is
+# intentionally scoped to the standard library; see its header) can at
+# most weaken condition 1 (missing-evidence completeness), never again
+# suppress a real, already-observed failure.
 #
 # Offline hardening (T-E40-F01-007, REQ-NF-005): before evaluating any
 # candidate (--item or full-set), this script verifies the pinned
@@ -382,17 +409,26 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
          set has a per-test terminal event (no missing evidence -- this
          alone catches a TestMain that never calls m.Run(), so nothing
          it "does" can hide a package that produced zero results);
-      2. none of those events is "fail" (a real per-test fail is
-         trustworthy in itself -- this alone catches finding #1's masked
-         regression, since m.Run() genuinely recorded the failing test
-         before TestMain forged the process exit to 0);
+      2. none of the OBSERVED per-test terminal events for this package
+         is "fail" (code review round 6, finding 6b: this scans every
+         entry `results` actually holds for this package, not just
+         entries whose name also appears in the enumerated set -- a real
+         per-test fail is trustworthy in itself regardless of whether
+         testenum's enumeration happens to know its name, which closes
+         finding #1's masked regression two ways at once: m.Run()
+         genuinely recorded the failing test before TestMain forged the
+         process exit to 0, AND the test's name never has to match
+         anything testenum enumerated for its failure to count);
       3. the invocation's own raw exit code is 0 (a corroborating check
          -- this alone catches a TestMain that forges a *non-zero* exit
          despite fully clean, complete per-test evidence, i.e. UAT round
          3's probe-masked scenario).
     No single one of the three is sufficient; together they leave no
-    forgeable-signal gap. A package with zero enumerated tests still
-    must exit 0 (it must still build), even though there is nothing to
+    forgeable-signal gap -- and critically, (2) no longer depends on (1)
+    at all, so a gap in testenum's own recognition can at most weaken
+    completeness checking (1), never suppress a real, already-observed
+    failure (2). A package with zero enumerated tests still must exit 0
+    (it must still build), even though there is nothing to
     cross-reference.
 
     Returns (all_clean: bool, problem_packages: list[str]) where each
@@ -419,10 +455,25 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
             if identity.split("::", 1)[0] == import_path
         }
         missing = sorted(expected - observed)
-        failed = sorted(
-            name for name in expected
-            if results.get(f"{import_path}::{name}") == "fail"
-        )
+        # Iterate over every OBSERVED terminal event for this package,
+        # not over `expected` (code review round 6, finding 6b). The
+        # earlier form looked up each *enumerated* name in `results`, so
+        # any real per-test "fail" event whose name was not in
+        # `expected` -- for ANY reason, including a genuine gap in
+        # testenum's own recognition (6a) -- was silently discarded even
+        # though `results` already held it as real, non-forgeable
+        # evidence (`go test -json`'s own per-test terminal events,
+        # which this file's header establishes are trustworthy in
+        # themselves). A name this package's own skip pattern actually
+        # excluded cannot appear in `results` at all -- it never ran --
+        # so no separate exclusion is needed here; every entry in
+        # `results` for this package is real, observed, in-scope
+        # evidence.
+        failed = sorted({
+            bare_test_name(identity)
+            for identity, outcome in results.items()
+            if identity.split("::", 1)[0] == import_path and outcome == "fail"
+        })
         package_clean = not missing and not failed and returncode == 0
 
         if not package_clean:
