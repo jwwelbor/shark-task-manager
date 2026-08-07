@@ -9,13 +9,16 @@
 # to collect-run.sh (T-E40-F02-001/002) to produce record.jsonl. Never
 # prompts; a single invocation drives exactly one (item, variant, rep).
 #
-# THIS TASK'S SLICE (T-E40-F02-003): provisioning, seeding, timeout
-# invocation, and the collector hand-off. The pinned post-run pipeline
-# (toolchain guard, LOC, quality gates, F2P injection -- REQ-F-015/016/017,
-# ADR-F02-11) is T-E40-F02-004's extension; until that lands, no post/ files
-# are written, so a record's oracle/quality/loc blocks stay absent (never
-# fabricated) -- collect-run.sh's own contract already treats all of post/
-# as optional for exactly this reason.
+# T-E40-F02-003 built provisioning, seeding, and the timeout invocation.
+# T-E40-F02-004 adds the pinned post-run pipeline (ADR-F02-11, REQ-F-015/
+# 016/017): toolchain guard, THEN LOC, THEN quality gates + ledger diff,
+# THEN F2P injection + the oracle, LAST -- never reordered. The pipeline
+# runs whenever the invocation did NOT time out (completed/failed/paused/
+# already_terminal/no_action all get a real, settled checkout worth
+# measuring); a timed-out run skips it entirely, matching the existing
+# timeout fixtures (bench/scripts/testdata/run/timeout-*), which carry no
+# post/ directory at all -- collect-run.sh already treats a run directory
+# with no post/toolchain-guard.json as "no post-run phase ran".
 #
 # Phase markers (REQ-N-006 observability; asserted by TC-014a): exactly one
 # "run-one: phase=<name>" line to stderr, in order, per phase --
@@ -145,6 +148,14 @@ command -v "$SHARK_BIN" >/dev/null 2>&1 || {
 	echo "run-one: shark binary not found on PATH (resolved as '$SHARK_BIN'); build/install it or set SHARK_BIN" >&2
 	exit 1
 }
+command -v go >/dev/null 2>&1 || {
+	echo "run-one: go toolchain not found on PATH (required by the post-run pipeline, T-E40-F02-004)" >&2
+	exit 1
+}
+command -v golangci-lint >/dev/null 2>&1 || {
+	echo "run-one: golangci-lint not found on PATH (required by the post-run pipeline, T-E40-F02-004)" >&2
+	exit 1
+}
 [[ -f "$corpus_yaml" ]] || {
 	echo "run-one: corpus yaml not found: $corpus_yaml" >&2
 	exit 1
@@ -170,6 +181,7 @@ fi
 # --- corpus + seed lookup (I-01: reads corpus.yaml directly, per the shape
 # bench/README.md documents; never re-derives the schema) -------------------
 readarray -d '' -t item_fields < <(python3 - "$corpus_yaml" "$item_id" <<'PYEOF'
+import json
 import os
 import sys
 
@@ -190,18 +202,23 @@ if item is None:
 
 corpus_dir = os.path.dirname(os.path.abspath(corpus_path))
 seed_path = os.path.join(corpus_dir, item["seed_path"])
-for field in (item["type"], item["fixture_base_sha"], seed_path):
+# f2p is carried as one JSON-encoded field (its paths[]/test_names[] are
+# variable-length lists) -- T-E40-F02-004's post-run F2P injection step
+# reads it back without a second corpus.yaml parse.
+f2p_json = json.dumps(item["f2p"], sort_keys=True)
+for field in (item["type"], item["fixture_base_sha"], seed_path, f2p_json):
     sys.stdout.write(field)
     sys.stdout.write("\0")
 PYEOF
 )
-[[ "${#item_fields[@]}" -eq 3 ]] || {
+[[ "${#item_fields[@]}" -eq 4 ]] || {
 	echo "run-one: failed to resolve corpus item $item_id from $corpus_yaml" >&2
 	exit 1
 }
 item_type="${item_fields[0]}"
 fixture_base_sha="${item_fields[1]}"
 seed_path="${item_fields[2]}"
+item_f2p_json="${item_fields[3]}"
 
 readarray -d '' -t seed_fields < <(python3 - "$seed_path" <<'PYEOF'
 import sys
@@ -391,9 +408,8 @@ else
 	exit_code="$wait_status"
 fi
 
-# --- phase=postrun: artifact copy, meta.json, collector hand-off -----------
-# (T-E40-F02-004 extends this phase with the pinned toolchain-guard/LOC/
-# quality-gate/F2P-injection pipeline, ADR-F02-11; none of that runs yet.)
+# --- phase=postrun: artifact copy, meta.json, pinned post-run pipeline,
+# collector hand-off ----------------------------------------------------
 echo "run-one: phase=postrun" >&2
 
 resolve_run_id() {
@@ -477,6 +493,206 @@ meta = {
 with open(meta_path, "w") as f:
     json.dump(meta, f, indent=2, sort_keys=True)
 PYEOF
+
+# --- pinned post-run pipeline (T-E40-F02-004, ADR-F02-11/REQ-F-015/016/017)
+# Order is exactly: (1) toolchain guard, (2) LOC, (3) quality gates + ledger
+# diff, (4) F2P injection + oracle -- never reordered, never parallelized.
+# Runs entirely BEFORE the scratch-cleanup EXIT trap fires (it is inline in
+# this same top-level script body, not a subshell or a trap handler), since
+# $checkout_dir lives inside $scratch_dir. Skipped entirely on a timeout:
+# see this file's header note.
+if [[ "$timed_out" != "true" ]]; then
+	mkdir -p "$run_dir/post"
+
+	# Either base ledger carries the same recorded toolchain block
+	# (build-ledgers.sh writes it into both); tests.json is picked
+	# arbitrarily and consistently as the toolchain-guard's --base.
+	base_tests_ledger="$BENCH_DIR/corpus/ledgers/$fixture_base_sha/tests.json"
+	base_lint_ledger="$BENCH_DIR/corpus/ledgers/$fixture_base_sha/lint.json"
+
+	# --- step 1: toolchain guard (REQ-F-015 point 1) --------------------
+	set +e
+	guard_output="$("$SCRIPT_DIR/diff-ledgers.sh" --toolchain-guard --base="$base_tests_ledger" 2>&1)"
+	guard_rc=$?
+	set -e
+
+	if [[ "$guard_rc" -ne 0 ]]; then
+		# REQ-F-015: the guard aborts the WHOLE post-run phase, before any
+		# diff (or LOC, or F2P injection) would run -- steps 2-4 below are
+		# skipped entirely. The record is still written (AC-10): this
+		# branch falls through to meta.json (already written above) and
+		# collect-run.sh below, never an early `exit 1`.
+		python3 - "$run_dir/post/toolchain-guard.json" "$guard_output" <<'PYEOF'
+import json
+import sys
+
+path, guard_output = sys.argv[1], sys.argv[2]
+prefix = "diff-ledgers: toolchain mismatch: "
+mismatches = [line[len(prefix):] for line in guard_output.splitlines() if line.startswith(prefix)]
+if not mismatches:
+    mismatches = [guard_output.strip() or "toolchain guard failed with no diagnostic output"]
+with open(path, "w") as f:
+    json.dump({"status": "fail", "mismatches": mismatches}, f, indent=2, sort_keys=True)
+PYEOF
+		echo "run-one: toolchain guard failed; skipping LOC/quality/F2P-oracle for this run (REQ-F-015)" >&2
+	else
+		echo '{"status": "pass"}' >"$run_dir/post/toolchain-guard.json"
+
+		# --- step 2: LOC, BEFORE F2P injection (REQ-F-017) --------------
+		# Untracked files staged as intent-to-add (contents not actually
+		# staged) so a brand-new agent-authored file's lines show up as
+		# "added" in the numstat below, without ever committing anything.
+		(cd "$checkout_dir" && git add -A -N) >/dev/null 2>&1
+		(cd "$checkout_dir" && git diff --numstat "$fixture_base_sha") >"$run_dir/post/numstat.txt"
+
+		# --- step 3: quality gates + post-run ledger diff, BEFORE F2P
+		# injection (REQ-F-016, REQ-F-015 point 3) ------------------------
+		set +e
+		fmt_output="$(cd "$checkout_dir" && gofmt -l . 2>&1)"
+		fmt_rc=$?
+		set -e
+		printf '%s\n' "$fmt_output" >"$run_dir/post/fmt.txt"
+		fmt_status="pass"
+		[[ "$fmt_rc" -eq 0 && -z "$fmt_output" ]] || fmt_status="fail"
+
+		set +e
+		vet_output="$(cd "$checkout_dir" && go vet ./... 2>&1)"
+		vet_rc=$?
+		set -e
+		printf '%s\n' "$vet_output" >"$run_dir/post/vet.txt"
+		vet_status="pass"
+		[[ "$vet_rc" -eq 0 ]] || vet_status="fail"
+
+		set +e
+		test_output="$(cd "$checkout_dir" && go test ./... 2>&1)"
+		test_rc=$?
+		set -e
+		printf '%s\n' "$test_output" >"$run_dir/post/test.txt"
+		tests_status="pass"
+		[[ "$test_rc" -eq 0 ]] || tests_status="fail"
+
+		python3 - "$run_dir/post/quality.json" "$fmt_status" "$vet_status" "$tests_status" <<'PYEOF'
+import json
+import sys
+
+path, fmt_status, vet_status, tests_status = sys.argv[1:5]
+doc = {
+    "fmt": {"status": fmt_status},
+    "vet": {"status": vet_status},
+    "tests": {"status": tests_status},
+}
+with open(path, "w") as f:
+    json.dump(doc, f, indent=2, sort_keys=True)
+PYEOF
+
+		"$SCRIPT_DIR/build-ledgers.sh" "$checkout_dir" "$run_dir/post" || {
+			echo "run-one: build-ledgers.sh failed for $checkout_dir" >&2
+			exit 1
+		}
+		"$SCRIPT_DIR/diff-ledgers.sh" --kind=test --base="$base_tests_ledger" --post="$run_dir/post/tests.json" >"$run_dir/post/test-diff.json" || {
+			echo "run-one: diff-ledgers.sh --kind=test failed" >&2
+			exit 1
+		}
+		"$SCRIPT_DIR/diff-ledgers.sh" --kind=lint --base="$base_lint_ledger" --post="$run_dir/post/lint.json" >"$run_dir/post/lint-diff.json" || {
+			echo "run-one: diff-ledgers.sh --kind=lint failed" >&2
+			exit 1
+		}
+
+		# --- step 4: F2P injection + oracle, LAST (REQ-F-015 point 4,
+		# ADR-F02-11). Reuses admit.sh:493 copy_f2p_files's own mechanism
+		# (module-path-relative package-dir resolution) rather than
+		# re-deriving it -- admit.sh exposes no standalone CLI seam to
+		# invoke that function alone (it is a private helper inside
+		# admit.sh's own embedded admission-gate flow, which does far more
+		# than a bare copy: throwaway checkout, reference-patch apply,
+		# P2P re-evaluation), so this reimplements the identical algorithm
+		# rather than shelling out to admit.sh's own entrypoint. The oracle
+		# run below mirrors admit.sh's own f2p_green_post_patch posture:
+		# process exit code 0 AND every named F2P test individually
+		# reporting "pass" (REQ-N-005 -- a subprocess exit code alone is
+		# never trusted as the sole evidence).
+		python3 - "$corpus_yaml" "$checkout_dir" "$item_f2p_json" "$item_type" "$run_dir/post/f2p.json" <<'PYEOF'
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+corpus_yaml_path, checkout_dir, f2p_json, item_type, out_path = sys.argv[1:6]
+corpus_dir = os.path.dirname(os.path.abspath(corpus_yaml_path))
+f2p = json.loads(f2p_json)
+paths = f2p["paths"]
+test_names = f2p["test_names"]
+if len(paths) != len(test_names):
+    sys.exit("run-one: f2p.paths and f2p.test_names length mismatch")
+
+with open(os.path.join(checkout_dir, "go.mod")) as f:
+    first_line = f.readline().strip()
+if not first_line.startswith("module "):
+    sys.exit("run-one: unexpected go.mod first line: %r" % first_line)
+module_path = first_line[len("module "):].strip()
+prefix = module_path + "/"
+
+for path, test_name in zip(paths, test_names):
+    pkg_import = test_name.split("::", 1)[0]
+    if not pkg_import.startswith(prefix):
+        sys.exit(
+            "run-one: f2p test %r package %r is not under module %r"
+            % (test_name, pkg_import, module_path)
+        )
+    rel_pkg_dir = pkg_import[len(prefix):]
+    src = os.path.join(corpus_dir, path)
+    dst_dir = os.path.join(checkout_dir, rel_pkg_dir)
+    os.makedirs(dst_dir, exist_ok=True)
+    shutil.copy2(src, os.path.join(dst_dir, os.path.basename(path)))
+
+
+def bare_test_name(name):
+    # Strips a "<pkg>::" prefix (if present) and any "/<subtest>" suffix --
+    # mirrors admit.sh's own bare_test_name exactly.
+    name = name.split("::", 1)[-1]
+    return name.split("/", 1)[0]
+
+
+bare_names = sorted({bare_test_name(n) for n in test_names})
+run_pattern = "^(" + "|".join(re.escape(n) for n in bare_names) + ")$"
+packages = sorted({t.split("::", 1)[0] for t in test_names})
+
+proc = subprocess.run(
+    ["go", "test", "-json", "-run", run_pattern] + packages,
+    cwd=checkout_dir,
+    capture_output=True,
+    text=True,
+)
+
+results = {}
+for line in proc.stdout.splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        continue
+    test = ev.get("Test")
+    pkg = ev.get("Package")
+    action = ev.get("Action")
+    if not test or not pkg or "/" in test or action not in ("pass", "fail", "skip"):
+        continue
+    results["%s::%s" % (pkg, test)] = action
+
+f2p_resolved = proc.returncode == 0 and all(results.get(name) == "pass" for name in test_names)
+
+record = {"f2p_resolved": f2p_resolved}
+if item_type == "bug":
+    record["repro_confirmed"] = f2p_resolved
+
+with open(out_path, "w") as f:
+    json.dump(record, f, sort_keys=True)
+PYEOF
+	fi
+fi
 
 "$SCRIPT_DIR/collect-run.sh" --run-dir "$run_dir" >"$record_path.tmp" || {
 	echo "run-one: collect-run.sh failed for $run_dir" >&2

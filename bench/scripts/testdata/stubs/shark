@@ -42,6 +42,16 @@
 #                                 STUB_SHARK_RUN_FORK_GRANDCHILD=1)
 #   STUB_SHARK_RUN_ID             run id used in the announce line / NDJSON
 #                                 events (default "stub-run-0001")
+#   STUB_SHARK_RUN_F2P_MARKER_FILE  when set, `run` writes "present" or
+#                                 "absent" to this path -- whichever it
+#                                 observes for STUB_SHARK_RUN_F2P_CHECK_PATH
+#                                 (a path relative to the invocation's own
+#                                 --workdir) AT THE MOMENT `run` is invoked,
+#                                 before any post-run F2P injection could
+#                                 have happened (T-E40-F02-004's TC-014d,
+#                                 AC-12's dispatch-time leak surface).
+#   STUB_SHARK_RUN_F2P_CHECK_PATH  the workdir-relative path to check;
+#                                 required together with the marker file.
 set -euo pipefail
 
 log_invocation() {
@@ -86,6 +96,26 @@ esac
 
 if [[ "${1:-}" == "run" ]]; then
 	entity_key="${2:-}"
+
+	# AC-12/TC-014d: inspect --workdir at dispatch time, before any post-run
+	# injection could have happened -- the marker (not the checkout's final
+	# state) is what would catch a pre-dispatch leak.
+	if [[ -n "${STUB_SHARK_RUN_F2P_MARKER_FILE:-}" ]]; then
+		workdir=""
+		prev=""
+		for a in "$@"; do
+			if [[ "$prev" == "--workdir" ]]; then
+				workdir="$a"
+			fi
+			prev="$a"
+		done
+		state="absent"
+		if [[ -n "${STUB_SHARK_RUN_F2P_CHECK_PATH:-}" && -n "$workdir" && -f "$workdir/${STUB_SHARK_RUN_F2P_CHECK_PATH}" ]]; then
+			state="present"
+		fi
+		printf '%s' "$state" >"$STUB_SHARK_RUN_F2P_MARKER_FILE"
+	fi
+
 	run_id="${STUB_SHARK_RUN_ID:-stub-run-0001}"
 	run_log_path="$PWD/.shark/runs/$run_id/run.log"
 	ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
