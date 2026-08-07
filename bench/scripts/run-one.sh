@@ -148,6 +148,10 @@ command -v "$SHARK_BIN" >/dev/null 2>&1 || {
 	echo "run-one: shark binary not found on PATH (resolved as '$SHARK_BIN'); build/install it or set SHARK_BIN" >&2
 	exit 1
 }
+command -v sha256sum >/dev/null 2>&1 || {
+	echo "run-one: sha256sum not found on PATH (required for the G7 manifest identity fields)" >&2
+	exit 1
+}
 command -v go >/dev/null 2>&1 || {
 	echo "run-one: go toolchain not found on PATH (required by the post-run pipeline, T-E40-F02-004)" >&2
 	exit 1
@@ -168,6 +172,23 @@ command -v golangci-lint >/dev/null 2>&1 || {
 	echo "run-one: collect-run.sh missing or not executable" >&2
 	exit 1
 }
+
+# --- G7 reproducibility (architecture.md#metric-collection-and-artifact-schema,
+# spec.md's manifest.shark_version/manifest.shark_binary_sha256, ADR-002 "no
+# state outside the artifact directory"): identity of the shark binary that
+# actually resolves and runs every SHARK_BIN invocation below. The file hash
+# is captured here (no shark subprocess involved -- filesystem-only, so it
+# has no cwd to police under AC-11). The `--version` string itself is a real
+# SHARK_BIN invocation, deferred until after provisioning (below) so it runs
+# with cwd inside the scratch project like every other invocation, never the
+# live repo (REQ-N-002/AC-11) -- $shark_version is set there.
+# Under the harness's own PATH-stub test seam, this pairing is inexact: the
+# hash covers the resolved stub script while a stubbed `--version` forwards
+# to the real binary, so the two fields describe the same binary only for
+# real (non-stubbed) runs -- the pairing this field exists to pin.
+shark_bin_resolved="$(command -v "$SHARK_BIN")"
+shark_binary_sha256="$(sha256sum "$shark_bin_resolved" | awk '{print $1}')"
+shark_version=""
 
 # --- REQ-F-018: deterministic, self-identifying output path -----------------
 run_dir="$out_root/$item_id/$variant_id/rep-$rep"
@@ -206,12 +227,16 @@ seed_path = os.path.join(corpus_dir, item["seed_path"])
 # variable-length lists) -- T-E40-F02-004's post-run F2P injection step
 # reads it back without a second corpus.yaml parse.
 f2p_json = json.dumps(item["f2p"], sort_keys=True)
-for field in (item["type"], item["fixture_base_sha"], seed_path, f2p_json):
+# corpus_schema_version (top-level) and p2p_set (item-level) are G7
+# manifest fields (architecture.md#metric-collection-and-artifact-schema,
+# spec.md's manifest.corpus_schema_version/manifest.p2p_set) -- read here
+# alongside the rest of this same corpus.yaml parse rather than a second one.
+for field in (item["type"], item["fixture_base_sha"], seed_path, f2p_json, data["schema_version"], item["p2p_set"]):
     sys.stdout.write(field)
     sys.stdout.write("\0")
 PYEOF
 )
-[[ "${#item_fields[@]}" -eq 4 ]] || {
+[[ "${#item_fields[@]}" -eq 6 ]] || {
 	echo "run-one: failed to resolve corpus item $item_id from $corpus_yaml" >&2
 	exit 1
 }
@@ -219,6 +244,8 @@ item_type="${item_fields[0]}"
 fixture_base_sha="${item_fields[1]}"
 seed_path="${item_fields[2]}"
 item_f2p_json="${item_fields[3]}"
+corpus_schema_version="${item_fields[4]}"
+item_p2p_set="${item_fields[5]}"
 
 readarray -d '' -t seed_fields < <(python3 - "$seed_path" <<'PYEOF'
 import sys
@@ -280,6 +307,15 @@ shark_in_scratch() {
 	(cd "$scratch_dir" && "$SHARK_BIN" "$@" </dev/null)
 }
 
+# G7 reproducibility: the `--version` half of the shark binary identity
+# (shark_binary_sha256 was already captured above, file-only, no cwd). Run
+# through shark_in_scratch like every other invocation after this point, so
+# its cwd is inside the scratch project, never the live repo (REQ-N-002/AC-11).
+shark_version="$(shark_in_scratch --version 2>&1)" || {
+	echo "run-one: '$SHARK_BIN --version' failed" >&2
+	exit 1
+}
+
 # REQ-F-003: admin init defaults to the embedded bundle (workflow_config
 # unset) and transcripts off -- neither is acceptable, neither is assumed.
 # install-shark-data materializes shark-data/workflow/ and writes
@@ -289,6 +325,40 @@ shark_in_scratch() {
 # bundle authoring.
 shark_in_scratch admin install-shark-data --json >/dev/null || {
 	echo "run-one: 'shark admin install-shark-data' failed in the scratch project" >&2
+	exit 1
+}
+
+# G7 reproducibility (spec.md's manifest.variant_bundle_sha256): a content
+# hash over the just-installed workflow bundle, sorted by path, so a later
+# replay can confirm which bundle content (not merely which file layout)
+# produced this run without needing shark-data/ itself to survive (ADR-002:
+# "no state outside the artifact directory" -- the hash is what's pinned in
+# the artifact, not the bundle tree).
+variant_bundle_sha256="$(python3 - "$scratch_dir/shark-data/workflow" <<'PYEOF'
+import hashlib
+import os
+import sys
+
+bundle_dir = sys.argv[1]
+if not os.path.isdir(bundle_dir):
+    sys.exit("run-one: installed workflow bundle directory not found: %s" % bundle_dir)
+
+h = hashlib.sha256()
+for root, dirs, files in os.walk(bundle_dir):
+    dirs.sort()
+    for name in sorted(files):
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, bundle_dir)
+        with open(path, "rb") as f:
+            content = f.read()
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(content)
+        h.update(b"\0")
+print(h.hexdigest())
+PYEOF
+)" || {
+	echo "run-one: failed to hash the installed workflow bundle" >&2
 	exit 1
 }
 
@@ -467,13 +537,17 @@ PYEOF
 
 python3 - "$run_dir/meta.json" "$item_id" "$item_type" "$variant_id" "$rep" "$timeout_s" \
 	"$harness_wall_ns" "$seeded_entity_key" "$scratch_dir" "$scratch_dir/shark-tasks.db" \
-	"$seeded_keys_json" "$skip_canary" "$t0_ns" "$t1_ns" <<'PYEOF'
+	"$seeded_keys_json" "$skip_canary" "$t0_ns" "$t1_ns" \
+	"$fixture_base_sha" "$corpus_schema_version" "$item_p2p_set" "$variant_bundle_sha256" \
+	"$shark_version" "$shark_binary_sha256" <<'PYEOF'
 import json
 import sys
 
 (meta_path, item_id, item_type, variant_id, rep, timeout_s,
  harness_wall_ns, entity_key, scratch_root, scratch_db_path,
- seeded_keys_json, skip_canary, t0_ns, t1_ns) = sys.argv[1:15]
+ seeded_keys_json, skip_canary, t0_ns, t1_ns,
+ fixture_base_sha, corpus_schema_version, p2p_set, variant_bundle_sha256,
+ shark_version, shark_binary_sha256) = sys.argv[1:21]
 
 meta = {
     "item_id": item_id,
@@ -489,6 +563,15 @@ meta = {
     "skip_canary": skip_canary == "true",
     "t0_ns": int(t0_ns),
     "t1_ns": int(t1_ns),
+    # G7 reproducibility (architecture.md#metric-collection-and-artifact-schema,
+    # E40-interaction-map.md I-02 row, uat-plan.md UAT-07, ADR-002) -- pinned
+    # here so a later replay needs no state outside this artifact directory.
+    "fixture_base_sha": fixture_base_sha,
+    "corpus_schema_version": corpus_schema_version,
+    "p2p_set": p2p_set,
+    "variant_bundle_sha256": variant_bundle_sha256,
+    "shark_version": shark_version,
+    "shark_binary_sha256": shark_binary_sha256,
 }
 with open(meta_path, "w") as f:
     json.dump(meta, f, indent=2, sort_keys=True)

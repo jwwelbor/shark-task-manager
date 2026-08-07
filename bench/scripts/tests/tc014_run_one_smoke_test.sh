@@ -98,6 +98,43 @@ if record.get("outcome") != "completed":
     sys.exit("TC-014a FAIL: outcome=%r, want completed" % record.get("outcome"))
 ' "$record" || fail "a: record outcome check failed"
 
+	# G7 reproducibility (architecture.md#metric-collection-and-artifact-schema,
+	# E40-interaction-map.md's I-02 row, uat-plan.md UAT-07): meta.json must
+	# carry fixture_base_sha/corpus_schema_version/p2p_set/
+	# variant_bundle_sha256/shark_version/shark_binary_sha256 -- pinning
+	# which fixture SHA, corpus schema, P2P set, workflow bundle content, and
+	# shark binary produced this run, so a later replay needs no state
+	# outside the artifact directory (ADR-002). Asserted against meta.json
+	# directly, not record.jsonl: collect-run.sh's own manifest pass-through
+	# is T-E40-F02-001's separate kickback, sequenced after this one.
+	local meta="$out_dir/cart-remove-item-last-match/default/rep-1/meta.json"
+	[[ -f "$meta" ]] || fail "a: meta.json not found at $meta"
+	python3 -c '
+import json, re, sys
+with open(sys.argv[1]) as f:
+    meta = json.load(f)
+
+want_base_sha = "4c24986844b09122e2d516f9bc1ec470b155b441"
+if meta.get("fixture_base_sha") != want_base_sha:
+    sys.exit("TC-014a FAIL: meta.fixture_base_sha=%r, want %r (corpus.yaml fixture.base_sha)" % (meta.get("fixture_base_sha"), want_base_sha))
+if meta.get("corpus_schema_version") != "1.0":
+    sys.exit("TC-014a FAIL: meta.corpus_schema_version=%r, want \"1.0\" (corpus.yaml top-level schema_version)" % meta.get("corpus_schema_version"))
+if meta.get("p2p_set") != "default":
+    sys.exit("TC-014a FAIL: meta.p2p_set=%r, want \"default\" (this items corpus.yaml p2p_set)" % meta.get("p2p_set"))
+
+sha256_re = re.compile(r"^[0-9a-f]{64}$")
+bundle_sha = meta.get("variant_bundle_sha256")
+if not bundle_sha or not sha256_re.match(bundle_sha):
+    sys.exit("TC-014a FAIL: meta.variant_bundle_sha256=%r, want a 64-hex-char sha256 (content hash over the installed workflow bundle, sorted by path)" % bundle_sha)
+
+if not (meta.get("shark_version") or "").strip():
+    sys.exit("TC-014a FAIL: meta.shark_version is empty or missing")
+
+bin_sha = meta.get("shark_binary_sha256")
+if not bin_sha or not sha256_re.match(bin_sha):
+    sys.exit("TC-014a FAIL: meta.shark_binary_sha256=%r, want a 64-hex-char sha256 (sha256sum of the resolved SHARK_BIN)" % bin_sha)
+' "$meta" || fail "a: G7 manifest fields check failed"
+
 	# Negative (REQ-F-018): the same --out a second time refuses rather than
 	# silently overwriting.
 	if PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" \
