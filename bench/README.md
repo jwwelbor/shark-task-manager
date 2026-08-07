@@ -412,3 +412,216 @@ batch on drift, not a CI gate. Known flake (T-E40-F02-005): do not run
 `bench/scripts/tests/run-all.sh` concurrently with `make test` (`tc014`'s
 sub-case (g) has resource contention with a concurrently-running Go test
 binary) — run them sequentially.
+
+## Baseline aggregation, noise band, and replay
+
+`bench/scripts/aggregate-runs.sh --root <artifact_root> [--variant <id>]`
+(T-E40-F03-003/004) is a pure function of an artifact root: it reads only
+the `record.jsonl` files matched by the pinned glob
+`"$root"/*/*/rep-*/record.jsonl` (never `find` — a bare `*` never matches
+the dot-prefixed `.incomplete/` quarantine root `run-batch.sh` writes) and
+prints one `aggregate.json` document to stdout. No batch log, scratch
+project, database, or network access (REQ-F-007, ADR-002).
+
+### Record classification
+
+| Classification | Rule |
+|---|---|
+| `complete` | Every one of `oracle`/`quality`/`loc` — the three post-run "observational" families — is present. |
+| `explained_absence` | One or more of `oracle`/`quality`/`loc` is absent AND the record itself explains it: `outcome == "timeout"`; or `quality.toolchain_guard != "pass"`; or `errors[]` carries a `postrun_check_aborted` entry. |
+| `anomaly` | One or more of `oracle`/`quality`/`loc` is absent with NO explanation on the record (the F-4 case, TD-079). Any `anomaly` makes the aggregator exit non-zero. |
+
+Family presence — for classification, for `inventory[].families_present`,
+and for every metric below — is read from the family block itself, **never**
+from `sources`; a `sources.<family>` entry can be absent while the family
+block it describes is present, and vice versa (REQ-F-007 2nd sentence,
+TD-076's consumer-side consequence).
+
+### Metric registry and exclusion reasons
+
+Every aggregated metric is declared once with an id, a class (A/B/C, see
+below), the I-02 field(s) it reads, and which `manifest.item_type` values
+it applies to (`oracle_repro_confirmed` is bug-only; every other metric
+applies to both `task` and `bug`). For each `(item_id, metric)` pair over
+its contributing reps, every OTHER rep that did **not** contribute is
+still named in that metric's `excluded[]` with one of these closed
+reasons:
+
+| Reason | Meaning |
+|---|---|
+| `outcome_timeout` | `outcome == "timeout"`: excluded from EVERY registry metric applicable to the item's type, whether or not the record could structurally have carried that metric's value (a timeout's `timing.harness_wall_ns` is the cap, not a measurement). |
+| `toolchain_guard_abort` | The record is `explained_absence` via `quality.toolchain_guard != "pass"`, and this metric's own source field is individually absent — true even for a metric that lives inside the still-present `quality` family (e.g. `quality.fmt_clean`), since the guard aborts every other `quality` sub-field too. |
+| `postrun_aborted` | Same as above, explained via an `errors[].kind == "postrun_check_aborted"` entry instead of the guard. |
+| `unexplained_absence` | The record is classified `anomaly`: EVERY `oracle`/`quality`/`loc` metric is excluded with this reason, regardless of whether this particular metric's field happens to be present on the record. |
+| `gate_not_executed` | This metric's source field EXISTS on the record but holds JSON `null` — `quality.fmt_clean`/`.vet_ok`/`.tests_pass` are documented above as `bool \| null`, "null means the gate could not be executed". A `null` is excluded, never coerced into a boolean/numeric measurement. |
+| `partial_usage` | A Class C sum over `stages[].usage.*` (or a `step.<status>.tokens_input`/`.tokens_output`/`.cost_usd` metric) where at least one contributing `spawn_agent` stage exists but is missing `usage` or the specific sub-field — never summed over a subset. |
+| `step_not_reached` | A `step.<status>.*` metric where this run's `stages[]` contains no entry at all with that status — distinct from a true zero (a step reached only via a non-agent, e.g. `advance_status`, stage genuinely cost nothing). |
+| `family_absent` | Catch-all: the metric's source field, or its whole containing family/block (e.g. a wholly-absent `rejections` block), is simply missing, and none of the above more specific reasons applies. |
+
+`rejections.by_gate`'s own zero-vs-excluded rule is distinct from the
+table above and is **not** an exclusion: an omitted gate key within a
+**present** `by_gate` object counts as `0` for that gate (still counted in
+`n`) — only a wholly **absent** `rejections` block excludes the record
+from every `rejections_*` metric (reason `family_absent`, unless
+`outcome_timeout` already applies). The gate key universe, and the
+`step.<status>.*` status universe, are each the union of keys/statuses
+observed across the item's own contributing records.
+
+### Band and acceptance interval
+
+For each `(item_id, variant_id, metric)` over its contributing reps:
+
+| Class | Observed statistics | Acceptance interval |
+|---|---|---|
+| A (binary) | `n`, `true_count`, `rate` | `accept_set`: the set of boolean values observed across reps. |
+| B (integer count) | `n`, `min`, `median`, `max`, `mean`, `spread_abs`, `spread_rel` | `[max(0, min − 1), max + 1]`, unconditionally — every registered Class B metric is a non-negative count. |
+| C (continuous) | `n`, `min`, `median`, `max`, `mean`, `spread_abs`, `spread_rel` | `r = max − min`; `r_eff = r` when `r > 0`, else `0.10 × abs(median)` when `median != 0`, else exactly `0`; interval `[min − r_eff, max + r_eff]`, lower-clamped at `0`. |
+
+`spread_rel = spread_abs / median`, or `null` when `median == 0` (the
+report then states the absolute spread only). A metric identically zero
+across every rep has `r_eff = 0` and an exact `[0, 0]` interval — the
+documented rule, not a coincidence of the `0.10 × median` formula.
+`median` uses Python's `statistics.median`, which averages the two middle
+values at even `n` — an integer-valued metric (e.g. `wall_clock_ns` at
+`n == 2`, after a timeout exclusion) can therefore publish a non-integer
+`median`; this is expected, not a formatting defect, and the report and
+replay comparisons both read it as a float.
+
+A metric with fewer than two contributing reps (`n < 2`) publishes no
+interval/`accept_set` and is flagged `insufficient_reps` instead
+(REQ-F-016). A metric whose `spread_abs` **strictly** exceeds its `mean`
+is flagged `unusable` (REQ-F-018 — `>`, not `>=`). A task whose
+`oracle.f2p_resolved` is identical across every one of at least two
+contributing reps (all `true` or all `false`) is flagged
+`non_discriminative`, listed in `flags.non_discriminative_tasks[]` — a
+single contributing rep is never enough to call a result non-discriminative.
+
+The regression signal is `oracle.p2p_regressions_count` and nothing else
+(ADR-F03-06) — the `p2p_regressions_count` metric's own statistics are the
+only aggregate field that may be read as a regression indicator.
+`quality.tests_pass` feeds only its own `quality_tests_pass` Class A
+metric; no other aggregate field is derived from it, because the fixture
+carries a deliberately permanently-failing regression probe (T-004) that
+would otherwise read as a constant "finding".
+
+### Aggregate document (`aggregate.json`)
+
+Sorted keys, fixed list order, no timestamp (REQ-N-004).
+
+| Block | Content |
+|---|---|
+| `schema_version` | Pinned; the aggregate's own version, distinct from I-02's. |
+| `input_digest` | sha256 over the sorted `"<sha256>  <relpath>"` lines of every contributing `record.jsonl` (REQ-F-019) — **computed**, not echoed. Each line's sha256 is over the record file's raw bytes; `relpath` is relative to `--root` (never the absolute path), so the same artifact set aggregated from two different locations digests identically. Publishes even when provenance is non-uniform — it identifies the exact (possibly-invalid) input set. |
+| `provenance` | `model_ids[]`, `fixture_base_sha`, `variant_bundle_sha256`, `corpus_schema_version`, `shark_version`, `reps`, `uniform` (bool), and `divergences[]` when not. |
+| `inventory` | Per `run_key`: `classification`, `outcome`, and the families present. |
+| `outcomes` | Counts per outcome value, `timeout_rate`, `anomaly_count`. |
+| `anomalies[]` | `run_key` + missing families, for the F-4 bucket. |
+| `tasks[]` | Present only when `provenance.uniform` is `true`. Per item: `item_id`, `item_type`, `metrics{}` (statistics + interval/`accept_set` + `excluded[]` + `insufficient_reps`/`unusable` flags), `non_discriminative`. |
+| `corpus` | Present only when `provenance.uniform` is `true`. Per metric: the `min`/`median`/`max` of the per-task `spread_rel` (nulls skipped); for `oracle_f2p_resolved`, additionally a corpus pass rate and a rep-slice band (the min/median/max of the per-rep-index corpus pass rates — a descriptive, non-paired rollup; the operative band for any comparison is the per-task one). |
+| `flags` | Present only when `provenance.uniform` is `true`. `unusable_metrics[]` and `insufficient_reps[]` are `{item_id, metric}` lists; `non_discriminative_tasks[]` is a list of item ids. |
+| `baseline_id` | Present only when `provenance.uniform` is `true` and both a single `variant_id` and `provenance.fixture_base_sha` are available: `<variant_id>-<fixture_base_sha[:12]>-r<reps>` — 12 hex chars of the SHA, literal `r` + the integer rep count. |
+
+**Non-uniform provenance (REQ-F-011).** `tasks[]`, `corpus`, `flags`, and
+`baseline_id` are omitted entirely — never published "as if the batch
+were valid" (AC-11) — while `schema_version`/`input_digest`/`provenance`/
+`inventory`/`outcomes`/`anomalies` still print, since those are
+independent of provenance validity and a non-uniform batch report still
+needs to name its own (invalid) input set precisely. A root whose records
+span more than one `manifest.variant_id` with no `--variant` filter to
+disambiguate is a separate, harder failure: nothing is printed at all
+(same class as a structurally invalid record) — silently blending two
+variants' runs under one `item_id` would be a fabricated result
+(REQ-N-005), and `manifest.variant_id` is not one of REQ-F-011's five
+uniformity fields (a batch is expected to be single-variant per REQ-F-001).
+
+### Replay (`bench/scripts/replay-manifest.sh`)
+
+`bench/scripts/replay-manifest.sh --record <path/to/record.jsonl> --band
+<aggregate.json> --out <replay_artifact_root> [--corpus <corpus.yaml>]
+[--skip-canary]` (T-E40-F03-006/007) re-runs one stored run against the
+published band, to check whether the result still reproduces (epic G7).
+
+**REQ-N-007's two preconditions**, documented here and (where cheaply
+assertable) enforced before any replay dispatch:
+
+1. **Ledger retention.** `bench/corpus/ledgers/<sha>/` is never deleted
+   for any SHA a published manifest references. Replay reads the base-SHA
+   ledger indirectly through `run-one.sh`, and can only assert the
+   directory's existence, not its content — deleting it silently breaks
+   every future replay of a run against that SHA.
+2. **Corpus item immutability.** A corpus item's seed file and held-back
+   F2P test files are treated as immutable for any SHA a published
+   manifest references (Q005). An ordinary curator edit to a seed or F2P
+   file — without a fixture-repo SHA bump — would silently change what a
+   "reproduction" of an old run actually re-executes.
+
+**Dispatch order, before any API spend (REQ-F-027):** replay checks three
+preconditions, collecting and reporting every failing one (never stopping
+at the first):
+
+- `bench/corpus/ledgers/<manifest.fixture_base_sha>/` exists.
+- The stored record's `manifest.item_id` resolves in `--corpus`'s
+  `items:` list.
+- The `--band` aggregate has an entry for `(item_id, variant_id)`: a
+  `tasks[]` entry with a matching `item_id`, and the aggregate's own
+  `baseline_id` — the only place `aggregate.json` exposes its variant —
+  reconstructs to `<variant_id>-<fixture_base_sha[:12]>-r<reps>` from the
+  **band's own** `provenance.fixture_base_sha`/`reps` (never the
+  manifest's, so a drifted `fixture_base_sha` never also manufactures a
+  false band-lookup failure).
+
+Any failure here makes zero `run-one.sh` invocations.
+
+**Synthetic replay corpus (ADR-F03-02).** Once every precondition holds,
+replay builds a synthetic single-item `corpus.yaml` in a temp directory —
+`bench/corpus/corpus.yaml` itself is never edited. It carries the source
+corpus's `fixture:`/`p2p_sets:` blocks verbatim (`fixture.base_sha`
+overwritten from the manifest — corpus.yaml's own INVARIANT requires it
+match the item's own `fixture_base_sha` byte-for-byte), one `items:` entry
+(the resolved source item, with `fixture_base_sha`/`p2p_set` overwritten
+from the manifest and `seed_path`/`f2p.paths` absolutized against the
+*source* corpus's own directory), and no `negative_items:` key at all.
+This is dispatched via `run-one.sh`'s existing `--corpus` flag — `run-one.
+sh` itself is never modified (ADR-F02-06's "invoke, never re-derive").
+
+**`corpus_drift` (REQ-F-028).** Any divergence between the *live* corpus
+item's `fixture_base_sha`/`p2p_set` or the live corpus's top-level
+`schema_version`, and the manifest's pinned values, is recorded as a
+`corpus_drift` entry in `verification.json`'s `reasons[]` — one entry per
+diverging field, naming both the expected (manifest) and actual (live)
+value. The dispatched synthetic corpus always carries the **manifest's**
+values regardless of any detected drift; drift is recorded, not a
+precondition failure.
+
+Replay passes the manifest's own stored `--rep` value (and `--timeout`,
+when `manifest.timeout_cap_s` is present) to `run-one.sh` against a
+distinct `--out` root, so the fresh record's `manifest.run_key` is
+byte-identical to the stored one and is the join key for the comparison
+(REQ-F-025).
+
+**Post-dispatch comparison and the three-valued verdict (REQ-F-029/030,
+ADR-F03-05).** After a successful dispatch, the fresh record's
+`manifest.variant_bundle_sha256` and `manifest.model_ids` are compared
+against the stored record's. Either mismatch is recorded as its own
+`reasons[]` entry — `variant_bundle_drift` or `model_version_drift`,
+naming both the expected (stored) and actual (fresh) value in full — and
+the verdict is `invalid`, **never** `fail`: the inputs were not
+reproduced, so a metric comparison would be meaningless. When both fields
+drift simultaneously, both reasons are present, each with its own
+expected/actual pair — one never subsumes the other. `corpus_drift`
+(above) shares this same `reasons[]` list and vocabulary, so any
+combination of drift — corpus, bundle, model, or all three — still yields
+one `invalid` verdict naming every contributing reason.
+
+Only when every identity field matches does the per-metric comparison
+run: the freshly dispatched single record is aggregated on its own (by
+invoking `aggregate-runs.sh`, never re-derived) to compute its own
+per-metric values, and each metric published in the `--band`'s matching
+`tasks[]` entry is compared against it. The verdict is `pass` when every
+comparable metric falls inside its published interval (or `accept_set`,
+for a Class A metric), or `fail` when at least one does not — `fail` is
+metric-scoped in `verification.json`'s `metrics[]` table (every
+comparable metric is listed with its own `replayed_value` and interval/
+`accept_set` and its own `pass`/`fail`), never a single bare bit. A metric
+the band published no interval for, or the fresh record has no value for,
+is left out of `metrics[]` rather than fabricated (REQ-N-005).

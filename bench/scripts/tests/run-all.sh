@@ -23,6 +23,8 @@ tests=(
 	"$SCRIPT_DIR/tc016_canary_runsurface_test.sh"
 	"$SCRIPT_DIR/tc017_run_batch_test.sh"
 	"$SCRIPT_DIR/tc018_aggregate_report_test.sh"
+	"$SCRIPT_DIR/tc019_replay_manifest_test.sh"
+	"$SCRIPT_DIR/tc020_zero_go_change_test.sh"
 )
 
 status=0
