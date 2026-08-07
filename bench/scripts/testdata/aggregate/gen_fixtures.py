@@ -35,6 +35,10 @@ Rewrite/preserve contract (test-plan.md "Fixture derivation" #2/#3, verbatim):
                                      TC-018b/TC-018u)
                 the caller-named metric field(s) under test (--set/--unset,
                      generic dotted-path primitives -- see below)
+                stages[]'s LENGTH only (--duplicate-stage, T-E40-F03-004's
+                     addition for TC-018k's rework-loop fixture -- appends
+                     a deep copy of an EXISTING stage, never invents one;
+                     see _apply_duplicate_stage's docstring)
   MUST preserve, unedited: every other key name/type, the `sources` block's
                 shape and closed value set, the family-presence pattern
                 implied by `outcome` (a completed-outcome fixture never
@@ -66,6 +70,9 @@ Usage:
   gen_fixtures.py --golden completed --item-id f03-fixture-z \\
       --unset oracle --unset loc --unset sources.oracle --unset sources.loc
   gen_fixtures.py --golden completed --item-id f03-fixture-w --schema-version 99.0
+  gen_fixtures.py --golden completed --item-id f03-fixture-v --duplicate-stage 0 \\
+      --set 'stages[-1].usage.input_tokens=999' --set 'stages[-1].usage.output_tokens=888' \\
+      --set 'stages[-1].usage.total_cost_usd=0.5' --set 'stages[-1].duration_ns=1000000000'
   gen_fixtures.py --self-check
 
 Golden source override (testability seam, mirrors this codebase's
@@ -78,6 +85,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -148,24 +156,69 @@ def _check_not_reserved(path_str, flag):
         )
 
 
+# A path segment is either a plain object key ("usage") or an object key
+# followed by a list index ("stages[1]", "stages[-1]") -- the ONLY list-
+# indexing form this generator supports, added for TC-018k (T-E40-F03-004),
+# which needs to target the second of two `stages[]` entries produced by
+# --duplicate-stage. Every other path segment in this file remains
+# dict-only, unchanged from T-E40-F03-002.
+_SEGMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(\[(-?\d+)\])?$")
+
+
+def _split_segment(part, path_str):
+    m = _SEGMENT_RE.match(part)
+    if not m:
+        sys.exit("gen_fixtures: invalid path segment '%s' in '%s'" % (part, path_str))
+    name, _bracket, idx = m.groups()
+    return name, (int(idx) if idx is not None else None)
+
+
+def _step_into(node, part, path_str):
+    """Resolves one non-final path segment, indexing into a list when the
+    segment carries a bracketed index."""
+    name, idx = _split_segment(part, path_str)
+    if not isinstance(node, dict) or name not in node:
+        sys.exit("gen_fixtures: path '%s' does not exist in the base record" % path_str)
+    node = node[name]
+    if idx is None:
+        return node
+    if not isinstance(node, list):
+        sys.exit("gen_fixtures: path '%s': '%s' is not a list" % (path_str, name))
+    try:
+        return node[idx]
+    except IndexError:
+        sys.exit("gen_fixtures: path '%s': index %d out of range for '%s'" % (path_str, idx, name))
+
+
 def _walk_to_container(record, path_str):
+    """Returns (container, leaf_key) for the final path segment -- leaf_key
+    is a dict string key, or a list integer index when the final segment
+    carries a bracketed index (e.g. "stages[-1]")."""
     parts = path_str.split(".")
     node = record
     for part in parts[:-1]:
-        if not isinstance(node, dict) or part not in node:
-            sys.exit(
-                "gen_fixtures: path '%s' does not exist in the base record" % path_str
-            )
-        node = node[part]
-    if not isinstance(node, dict):
-        sys.exit("gen_fixtures: path '%s' does not resolve to an object" % path_str)
-    return node, parts[-1]
+        node = _step_into(node, part, path_str)
+
+    name, idx = _split_segment(parts[-1], path_str)
+    if not isinstance(node, dict) or name not in node:
+        sys.exit("gen_fixtures: path '%s' does not exist in the base record" % path_str)
+    if idx is None:
+        if not isinstance(node, dict):
+            sys.exit("gen_fixtures: path '%s' does not resolve to an object" % path_str)
+        return node, name
+    target = node[name]
+    if not isinstance(target, list):
+        sys.exit("gen_fixtures: path '%s': '%s' is not a list" % (path_str, name))
+    if not (-len(target) <= idx < len(target)):
+        sys.exit("gen_fixtures: path '%s': index %d out of range for '%s'" % (path_str, idx, name))
+    return target, idx
 
 
 def _apply_set(record, path_str, raw_value):
     _check_not_reserved(path_str, "--set")
     container, leaf = _walk_to_container(record, path_str)
-    if leaf not in container:
+    has_leaf = leaf in container if isinstance(container, dict) else True  # list index already range-checked
+    if not has_leaf:
         sys.exit(
             "gen_fixtures: --set %s: field does not exist in the base record -- "
             "--set only overwrites an EXISTING field, it never invents a new one "
@@ -177,20 +230,52 @@ def _apply_set(record, path_str, raw_value):
 def _apply_unset(record, path_str):
     _check_not_reserved(path_str, "--unset")
     container, leaf = _walk_to_container(record, path_str)
-    if leaf not in container:
-        sys.exit(
-            "gen_fixtures: --unset %s: field does not exist in the base record "
-            "(nothing to remove)" % path_str
-        )
+    if isinstance(container, dict):
+        if leaf not in container:
+            sys.exit(
+                "gen_fixtures: --unset %s: field does not exist in the base record "
+                "(nothing to remove)" % path_str
+            )
     del container[leaf]
 
 
-def generate(golden_kind, item_id, item_type=None, rep=None, schema_version=None, sets=(), unsets=()):
+def _apply_duplicate_stage(record, source_index):
+    """Appends a deep copy of stages[source_index] to record['stages']
+    (TC-018k, T-E40-F03-004: a rework loop re-entering the same status).
+    `index` on the copy is recomputed to stay monotonically after every
+    existing stage; every other field is copied verbatim -- a subsequent
+    --set 'stages[-1].usage.<field>=<value>' is what makes the two
+    occurrences distinct, keeping this generator's derivation guarantee
+    (ADR-F03-08): the duplicate is whatever the golden actually shipped,
+    never a hand-authored stage."""
+    stages = record.get("stages")
+    if not isinstance(stages, list):
+        sys.exit(
+            "gen_fixtures: --duplicate-stage %d: record has no stages[] list "
+            "(a timeout-outcome fixture never carries one)" % source_index
+        )
+    try:
+        source = stages[source_index]
+    except IndexError:
+        sys.exit(
+            "gen_fixtures: --duplicate-stage %d: index out of range (stages has %d entries)"
+            % (source_index, len(stages))
+        )
+    new_stage = copy.deepcopy(source)
+    existing_indices = [s.get("index") for s in stages if isinstance(s.get("index"), int)]
+    if existing_indices:
+        new_stage["index"] = max(existing_indices) + 1
+    stages.append(new_stage)
+
+
+def generate(golden_kind, item_id, item_type=None, rep=None, schema_version=None, sets=(), unsets=(), duplicate_stages=()):
     """Builds one derived fixture record from the selected golden.
 
     `sets` is an iterable of (dotted_path, raw_string_value) pairs;
-    `unsets` is an iterable of dotted paths to remove. Both are applied in
-    the given order, after the four dedicated-flag rewrites.
+    `unsets` is an iterable of dotted paths to remove. `duplicate_stages`
+    is an iterable of 0-based source indices into `stages[]`, applied (in
+    order) before `sets`/`unsets` so a --set can target the newly
+    appended copy via `stages[-1]...`.
     """
     golden = load_golden(golden_kind)
     record = copy.deepcopy(golden)
@@ -219,6 +304,9 @@ def generate(golden_kind, item_id, item_type=None, rep=None, schema_version=None
 
     if schema_version is not None:
         record["schema_version"] = schema_version
+
+    for source_index in duplicate_stages:
+        _apply_duplicate_stage(record, source_index)
 
     for path_str, raw_value in sets:
         _apply_set(record, path_str, raw_value)
@@ -343,6 +431,55 @@ def _run_self_check():
     )
     check("--unset touches no other field", ok, mismatch)
 
+    # (b2) --duplicate-stage appends a deep copy of an EXISTING stage
+    # (never invents one), recomputes only its `index`, and a subsequent
+    # list-indexed --set targets exclusively the new copy -- T-E40-F03-004's
+    # addition, exercised by TC-018k (rework-loop fixture).
+    golden_completed = load_golden("completed")
+    derived_dup = generate("completed", item_id="x", duplicate_stages=[0])
+    check(
+        "--duplicate-stage appends one entry",
+        len(derived_dup["stages"]) == len(golden_completed["stages"]) + 1,
+    )
+    check(
+        "--duplicate-stage's copy matches its source except for a recomputed index",
+        derived_dup["stages"][-1]["status"] == golden_completed["stages"][0]["status"]
+        and derived_dup["stages"][-1]["usage"] == golden_completed["stages"][0]["usage"]
+        and derived_dup["stages"][-1]["index"] == max(s["index"] for s in golden_completed["stages"]) + 1,
+    )
+    check(
+        "--duplicate-stage leaves the original stages[] entries untouched",
+        derived_dup["stages"][: len(golden_completed["stages"])] == golden_completed["stages"],
+    )
+
+    derived_dup_set = generate(
+        "completed",
+        item_id="x",
+        duplicate_stages=[0],
+        sets=[("stages[-1].usage.input_tokens", "999")],
+    )
+    check(
+        "list-indexed --set targets only the duplicated stage",
+        derived_dup_set["stages"][-1]["usage"]["input_tokens"] == 999
+        and derived_dup_set["stages"][0]["usage"]["input_tokens"] == golden_completed["stages"][0]["usage"]["input_tokens"],
+    )
+
+    dup_out_of_range_rejected = True
+    try:
+        generate("completed", item_id="x", duplicate_stages=[999])
+        dup_out_of_range_rejected = False
+    except SystemExit:
+        pass
+    check("--duplicate-stage with an out-of-range index is rejected", dup_out_of_range_rejected)
+
+    dup_on_timeout_rejected = True
+    try:
+        generate("timeout", item_id="x", duplicate_stages=[0])
+        dup_on_timeout_rejected = False
+    except SystemExit:
+        pass
+    check("--duplicate-stage on a stages-less (timeout) golden is rejected", dup_on_timeout_rejected)
+
     # (c) The five reserved paths reject --set/--unset (must use the
     # dedicated flag instead).
     for reserved_path in RESERVED_PATHS:
@@ -445,6 +582,15 @@ def build_arg_parser():
         metavar="PATH",
         help="remove an EXISTING dotted-path field",
     )
+    parser.add_argument(
+        "--duplicate-stage",
+        dest="duplicate_stages",
+        action="append",
+        default=[],
+        type=int,
+        metavar="SOURCE_INDEX",
+        help="append a deep copy of stages[SOURCE_INDEX] (0-based); target it afterwards via --set 'stages[-1].usage.<field>=<value>'",
+    )
     return parser
 
 
@@ -477,6 +623,7 @@ def main(argv):
         schema_version=args.schema_version,
         sets=sets,
         unsets=args.unsets,
+        duplicate_stages=args.duplicate_stages,
     )
     print(json.dumps(record, sort_keys=True))
     return 0
