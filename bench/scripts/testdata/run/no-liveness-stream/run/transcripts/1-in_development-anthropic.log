@@ -2,5 +2,5 @@ COMMAND: claude --output-format json
 EXIT: 0
 DURATION: 1800ms
 ---STDOUT---
-{"placeholder":"envelope parsing is T-E40-F02-007 scope"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1800,"duration_api_ms":1550,"num_turns":3,"result":"synthetic developer stage result","session_id":"synthetic-session-noliveness-001","total_cost_usd":0.0160,"usage":{"input_tokens":88,"cache_creation_input_tokens":23,"cache_read_input_tokens":430,"output_tokens":104},"modelUsage":{"claude-sonnet-5":{"inputTokens":88,"outputTokens":104,"cacheReadInputTokens":430,"cacheCreationInputTokens":23,"webSearchRequests":0,"costUSD":0.0160,"contextWindow":1000000,"maxOutputTokens":64000,"canonicalModel":"claude-sonnet-5","provider":"firstParty"}},"permission_denials":[],"uuid":"00000000-0000-0000-0000-000000000000"}
 ---STDERR---

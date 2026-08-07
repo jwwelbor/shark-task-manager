@@ -2,10 +2,11 @@
 # TC-015 (test-plan.md AC test matrix; T-E40-F02-001 task spec Test Cases).
 #
 # T-E40-F02-001's slice: sub-cases a (minus `usage`), b, d, e, f, j, m.
-# T-E40-F02-002 (this extension) adds g, h, i, l -- the rejections crosscheck
-# and the oracle/quality/loc post-run blocks. Sub-case c (envelope parse
-# error) remains T-E40-F02-007's scope (Q003/REQ-F-021 sequencing
-# constraint, test-plan.md).
+# T-E40-F02-002 extends with g, h, i, l -- the rejections crosscheck and the
+# oracle/quality/loc post-run blocks. T-E40-F02-007 (this extension) adds
+# sub-case c (envelope parse error) and completes a's `usage`/
+# `model_id_source` assertions, once Q003/REQ-F-021's real-transcript
+# capture (T-E40-F02-006) confirmed the field names to test against.
 #
 # Caller-Path Contract (test-plan.md TC-015): real subprocess invocation of
 # `bench/scripts/collect-run.sh --run-dir <dir>` against committed synthetic
@@ -104,6 +105,49 @@ if fixture == "clean-failed":
     if not record["runresult"].get("error"):
         sys.exit("TC-015a FAIL: clean-failed: runresult.error is empty, want a populated message")
 
+if fixture == "clean-completed":
+    # T-E40-F02-007: stages[].usage extraction, scoped to spawn_agent stages,
+    # using the field names T-E40-F02-006 confirmed from a real capture
+    # (num_turns, duration_api_ms, modelUsage -- camelCase, keyed by model
+    # ID -- plus the pre-existing flat usage.* sub-object and total_cost_usd).
+    want_usage_1 = {
+        "num_turns": 3,
+        "duration_api_ms": 1200,
+        "total_cost_usd": 0.0142,
+        "input_tokens": 80,
+        "output_tokens": 95,
+        "cache_read_input_tokens": 400,
+        "cache_creation_input_tokens": 20,
+        "model_ids": ["claude-sonnet-5"],
+    }
+    stage1 = record["stages"][0]
+    if stage1.get("usage") != want_usage_1:
+        sys.exit("TC-015a FAIL: clean-completed: stages[0].usage=%r, want %r" % (stage1.get("usage"), want_usage_1))
+
+    want_usage_3 = {
+        "num_turns": 5,
+        "duration_api_ms": 1800,
+        "total_cost_usd": 0.0231,
+        "input_tokens": 150,
+        "output_tokens": 210,
+        "cache_read_input_tokens": 900,
+        "cache_creation_input_tokens": 40,
+        "model_ids": ["claude-sonnet-5"],
+    }
+    stage3 = record["stages"][2]
+    if stage3.get("usage") != want_usage_3:
+        sys.exit("TC-015a FAIL: clean-completed: stages[2].usage=%r, want %r" % (stage3.get("usage"), want_usage_3))
+
+    # The advance_status stage (index 2) is not a spawn_agent stage and must
+    # never gain a usage sub-object (AC-06's scoping, applied to usage too).
+    if "usage" in record["stages"][1]:
+        sys.exit("TC-015a FAIL: clean-completed: the advance_status stage must never gain a usage sub-object")
+
+    if record["manifest"].get("model_ids") != ["claude-sonnet-5"]:
+        sys.exit("TC-015a FAIL: clean-completed: manifest.model_ids=%r, want ['claude-sonnet-5']" % record["manifest"].get("model_ids"))
+    if record["manifest"].get("model_id_source") != "modelUsage":
+        sys.exit("TC-015a FAIL: clean-completed: manifest.model_id_source=%r, want 'modelUsage'" % record["manifest"].get("model_id_source"))
+
 print("TC-015a: %s -> outcome=%s PASS" % (fixture, expected))
 PYEOF
 	done
@@ -182,6 +226,94 @@ if record["manifest"].get("run_id_source") != "fallback_newest_dir":
     sys.exit("TC-015b FAIL: DB-fallback sub-case: manifest.run_id_source=%r, want 'fallback_newest_dir'"
               % record["manifest"].get("run_id_source"))
 print("TC-015b: scratch-DB status fallback sub-case PASS")
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# TC-015c (AC-05, REQ-F-012, REQ-F-021): envelope parse error, one axis at a
+# time. Each missing-envelope-field/<axis>/ fixture (T-E40-F02-006's
+# per-axis fixtures) omits exactly one of modelUsage/num_turns/
+# duration_api_ms from an otherwise complete, confirmed-shape envelope.
+# Negative: the fully-populated clean-completed fixture (test_a/test_h)
+# already proves zero envelope_parse_error entries on an all-fields-present
+# transcript -- reasserted here directly against this TC's own axis list.
+# ---------------------------------------------------------------------------
+test_c() {
+	local axis
+	for axis in modelUsage num_turns duration_api_ms; do
+		local out="$WORKDIR/c-$axis.out"
+		run_collect "$FIXTURES_DIR/missing-envelope-field/$axis" "$out"
+		python3 - "$out" "$axis" <<'PYEOF'
+import json
+import sys
+
+path, axis = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    record = json.load(f)
+
+errors = record.get("errors", [])
+matches = [e for e in errors if e["kind"] == "envelope_parse_error" and axis in e["detail"]]
+if len(matches) != 1:
+    sys.exit("TC-015c FAIL: %s: errors=%r, want exactly one envelope_parse_error naming %r" % (axis, errors, axis))
+entry = matches[0]
+if entry.get("stage_index") != 1:
+    sys.exit("TC-015c FAIL: %s: stage_index=%r, want 1" % (axis, entry.get("stage_index")))
+if not (entry.get("path") or "").endswith("1-in_development-anthropic.log"):
+    sys.exit("TC-015c FAIL: %s: path=%r does not name the transcript" % (axis, entry.get("path")))
+
+stage = record["stages"][0]
+usage = stage.get("usage", {})
+missing_key = {"modelUsage": "model_ids", "num_turns": "num_turns", "duration_api_ms": "duration_api_ms"}[axis]
+if missing_key in usage:
+    sys.exit("TC-015c FAIL: %s: usage.%s present, want absent (never a zero/empty masquerading as a measurement)"
+              % (axis, missing_key))
+
+# Every OTHER expected field must still be present -- proving the check is
+# per-field, not "drop the whole usage block on any single miss" (AC-05's
+# "the corresponding metric is absent, not zero" -- only that one metric).
+all_fields = {
+    "model_ids", "num_turns", "duration_api_ms", "total_cost_usd",
+    "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+}
+present_others = sorted(all_fields - {missing_key})
+missing_others = [k for k in present_others if k not in usage]
+if missing_others:
+    sys.exit("TC-015c FAIL: %s: usage missing unrelated fields %r (only %r should be absent): usage=%r"
+              % (axis, missing_others, missing_key, usage))
+
+if axis == "modelUsage":
+    # The sharpest form of "never a silent reach for a nonexistent field"
+    # (REQ-F-021's amendment, T-E40-F02-006's decision note): when the only
+    # spawn_agent stage's envelope never resolves a model ID, manifest.
+    # model_ids/model_id_source must be genuinely ABSENT -- never "" and
+    # never a fabricated "model" fallback value, since no observed envelope
+    # has ever carried a top-level `model` field to fall back to.
+    if "model_ids" in record["manifest"]:
+        sys.exit("TC-015c FAIL: modelUsage: manifest.model_ids=%r, want absent (no model resolved)"
+                  % record["manifest"].get("model_ids"))
+    if "model_id_source" in record["manifest"]:
+        sys.exit("TC-015c FAIL: modelUsage: manifest.model_id_source=%r, want absent, never a 'model' fallback"
+                  % record["manifest"].get("model_id_source"))
+
+print("TC-015c: %s axis PASS (named error, metric absent, other fields intact)" % axis)
+PYEOF
+	done
+
+	# Negative: an all-fields-present transcript produces zero
+	# envelope_parse_error entries -- proves the check isn't unconditionally
+	# firing (AC-05 negative).
+	local out_negative="$WORKDIR/c-negative.out"
+	run_collect "$FIXTURES_DIR/clean-completed" "$out_negative"
+	python3 - "$out_negative" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    record = json.load(f)
+
+if any(e["kind"] == "envelope_parse_error" for e in record.get("errors", [])):
+    sys.exit("TC-015c FAIL: negative: clean-completed produced an envelope_parse_error, want none")
+print("TC-015c: negative PASS (all-fields-present transcript produces zero envelope_parse_error entries)")
 PYEOF
 }
 
@@ -716,6 +848,7 @@ PYEOF
 
 test_a
 test_b
+test_c
 test_d
 test_e
 test_f

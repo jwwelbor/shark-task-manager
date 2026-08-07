@@ -149,10 +149,24 @@
 #     above -- never recomputed (ADR-F02-06, AC-09), never fabricated when
 #     the source file is absent (REQ-N-005).
 #
-# NOT in this file's scope yet (added by a later, sequenced task -- these
-# fields are OMITTED here, never null-filled placeholders, per REQ-N-005):
-#   - stages[].usage (tokens/cost/model IDs), manifest.model_ids/
-#     model_id_source, envelope_parse_error                   (T-E40-F02-007)
+# Scope of THIS file as of T-E40-F02-007 (added on top of the above): parses
+# each spawn_agent stage's transcript envelope (the Envelope extraction rule
+# in spec.md's Interface contracts: split on the FIRST "\n---STDOUT---\n"
+# and the LAST "\n---STDERR---\n"; the text between is the agent's raw
+# stdout, one JSON object) and extracts stages[].usage using the field
+# names T-E40-F02-006 confirmed from a real capture (task note,
+# 2026-08-07): modelUsage (camelCase, object keyed by canonical model ID),
+# num_turns and duration_api_ms (top-level, snake_case), plus the
+# pre-existing flat usage sub-object and total_cost_usd. Every expected
+# field is checked independently -- a missing/renamed field is its own
+# named envelope_parse_error and is simply absent from stages[].usage,
+# never a zero (REQ-F-012/AC-05). manifest.model_ids/model_id_source are
+# derived from modelUsage's own object keys, deduplicated and sorted across
+# every stage that resolved one; NO fallback to a top-level `model` field is
+# implemented -- T-E40-F02-006's real capture found no such field in any
+# observed envelope, so a modelUsage-absent envelope is its own fail-loud
+# error, never a reach for an unconfirmed field (spec.md REQ-F-021,
+# amended; E40-F02 decision note, 2026-08-07). This closes Q003.
 #
 # REQ-N-006: bash entry point, embedded python3 for JSON/sqlite work,
 # machine-readable JSON to stdout, diagnostics to stderr.
@@ -333,6 +347,116 @@ def add_error(kind, detail, stage_index=None, path=None):
 
 TRANSCRIPT_NAME_RE = re.compile(r"^(\d+)-(.+)-([^-]+)\.log$")
 
+STDOUT_MARKER = "\n---STDOUT---\n"
+STDERR_MARKER = "\n---STDERR---\n"
+
+# T-E40-F02-006's confirmed field names (task note, 2026-08-07): top-level
+# scalars, snake_case, read verbatim off the envelope.
+ENVELOPE_SCALAR_FIELDS = (
+    ("num_turns", "num_turns"),
+    ("duration_api_ms", "duration_api_ms"),
+    ("total_cost_usd", "total_cost_usd"),
+)
+# The pre-existing flat `usage` sub-object's own sub-fields (snake_case,
+# distinct from modelUsage's camelCase per-model fields).
+ENVELOPE_USAGE_SUBFIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+# Deduplicated model IDs across every spawn_agent stage that resolved one
+# (manifest.model_ids, REQ-F-021) -- accumulated as reconcile_transcripts
+# parses each stage's envelope below.
+ALL_MODEL_IDS = set()
+
+
+def extract_envelope(path):
+    """spec.md "Envelope extraction rule": split the transcript on the
+    FIRST "\n---STDOUT---\n" and the LAST "\n---STDERR---\n"; the text
+    between is the agent's raw stdout, parsed as one JSON object. A
+    transcript that does not match this shape is a named parse error, never
+    a skipped stage. Returns (envelope_dict_or_None, error_detail_or_None).
+    """
+    with open(path) as f:
+        content = f.read()
+    stderr_idx = content.rfind(STDERR_MARKER)
+    if stderr_idx == -1:
+        return None, "transcript has no '---STDERR---' marker"
+    head = content[:stderr_idx]
+    stdout_idx = head.find(STDOUT_MARKER)
+    if stdout_idx == -1:
+        return None, "transcript has no '---STDOUT---' marker"
+    raw = head[stdout_idx + len(STDOUT_MARKER):]
+    try:
+        envelope = json.loads(raw)
+    except ValueError as exc:
+        return None, "transcript ---STDOUT--- block is not valid JSON: %s" % exc
+    if not isinstance(envelope, dict):
+        return None, "transcript ---STDOUT--- block did not decode to a JSON object"
+    return envelope, None
+
+
+def extract_stage_usage(envelope, stage_index, rel_path):
+    """REQ-F-011/012/REQ-F-021: extracts a spawn_agent stage's `usage`
+    sub-object from its parsed envelope. Every expected field is checked
+    independently -- a missing field produces its own named
+    envelope_parse_error and is simply absent from the returned dict, never
+    a zero, empty string, or fabricated value (REQ-N-005). No fallback to a
+    top-level `model` field is implemented: T-E40-F02-006's real capture
+    found no such field in any observed envelope (decision note,
+    2026-08-07), so spec.md's REQ-F-021 fallback sentence is amended to
+    match -- a modelUsage-absent envelope is its own fail-loud error, never
+    a reach for an unobserved field.
+    """
+    usage = {}
+    for src_key, out_key in ENVELOPE_SCALAR_FIELDS:
+        if src_key in envelope:
+            usage[out_key] = envelope[src_key]
+        else:
+            add_error(
+                "envelope_parse_error",
+                "transcript envelope missing expected field %r" % src_key,
+                stage_index=stage_index,
+                path=rel_path,
+            )
+
+    usage_obj = envelope.get("usage")
+    if not isinstance(usage_obj, dict):
+        add_error(
+            "envelope_parse_error",
+            "transcript envelope missing expected field 'usage'",
+            stage_index=stage_index,
+            path=rel_path,
+        )
+    else:
+        for sub_key in ENVELOPE_USAGE_SUBFIELDS:
+            if sub_key in usage_obj:
+                usage[sub_key] = usage_obj[sub_key]
+            else:
+                add_error(
+                    "envelope_parse_error",
+                    "transcript envelope missing expected field 'usage.%s'" % sub_key,
+                    stage_index=stage_index,
+                    path=rel_path,
+                )
+
+    model_usage = envelope.get("modelUsage")
+    if not isinstance(model_usage, dict):
+        add_error(
+            "envelope_parse_error",
+            "transcript envelope missing expected field 'modelUsage'",
+            stage_index=stage_index,
+            path=rel_path,
+        )
+    else:
+        model_ids = sorted(model_usage.keys())
+        usage["model_ids"] = model_ids
+        ALL_MODEL_IDS.update(model_ids)
+
+    return usage
+
 
 def reconcile_transcripts(stages_in):
     """REQ-F-013: reconciles spawn_agent stages against run/transcripts/.
@@ -411,8 +535,15 @@ def reconcile_transcripts(stages_in):
                 stage_index=idx,
                 path=rel_path,
             )
+            continue
+        stages_out[idx - 1]["transcript_path"] = rel_path
+        envelope, err = extract_envelope(path)
+        if err is not None:
+            add_error("envelope_parse_error", err, stage_index=idx, path=rel_path)
         else:
-            stages_out[idx - 1]["transcript_path"] = rel_path
+            usage = extract_stage_usage(envelope, idx, rel_path)
+            if usage:
+                stages_out[idx - 1]["usage"] = usage
 
     return stages_out
 
@@ -748,6 +879,9 @@ if run_result is not None:
     record["runresult"] = runresult_block
 
     record["stages"] = reconcile_transcripts(run_result.get("stages") or [])
+    if ALL_MODEL_IDS:
+        manifest["model_ids"] = sorted(ALL_MODEL_IDS)
+        manifest["model_id_source"] = "modelUsage"
     record["rejections"] = compute_rejections(run_result)
 elif isinstance(exit_status, dict) and exit_status.get("timed_out") is True:
     record["outcome"] = "timeout"
@@ -766,6 +900,11 @@ compute_postrun()
 if sources:
     record["sources"] = sources
 
+# Stable sort: entries sharing a (kind, stage_index, path) key -- e.g.
+# multiple envelope_parse_error entries for one stage -- retain their
+# original insertion order, which is the fixed field-check order
+# ENVELOPE_SCALAR_FIELDS -> ENVELOPE_USAGE_SUBFIELDS -> modelUsage. That is
+# the determinism guarantee for a multi-error stage (REQ-N-004).
 errors.sort(key=lambda e: (e["kind"], e.get("stage_index", -1), e.get("path", "")))
 record["errors"] = errors
 
