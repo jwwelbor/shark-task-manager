@@ -2,16 +2,29 @@
 // test, shared between E40-F02 (producer, this task) and E40-F03 (consumer,
 // not yet dispatched). Shape source: architecture.md#metric-collection-and-
 // artifact-schema, field reference: bench/README.md "I-02 record schema
-// field reference" (T-E40-F02-007's authoritative enumeration — confirmed
+// field reference" (T-E40-F02-007's authoritative enumeration, kept current
+// through T-E40-F02-001/003's code-review-round-1 rework — confirmed
 // against real bench/scripts/collect-run.sh output over the committed
-// bench/scripts/testdata/run/* fixtures, not against spec.md's earlier and
-// now-partly-superseded "Data model changes" table: the six manifest fields
-// spec.md names — fixture_base_sha, corpus_schema_version, p2p_set,
-// variant_bundle_sha256, shark_version, shark_binary_sha256 — are not
-// emitted by the shipped collector (bench/scripts/collect-run.sh's manifest
-// copy loop lists only item_id/item_type/variant_id/rep/timeout_cap_s/
-// seeded_keys) and are deliberately absent from the schema this file
-// validates and from both golden records).
+// bench/scripts/testdata/run/* fixtures).
+//
+// G7 manifest identity (code review round 1, Finding B-1, BLOCKER,
+// adjudicated spec/architecture wins): manifest.fixture_base_sha/
+// .corpus_schema_version/.p2p_set/.variant_bundle_sha256/.shark_version/
+// .shark_binary_sha256 are required unconditionally, on both non-timeout
+// AND timeout records — architecture.md#metric-collection-and-artifact-
+// schema and uat-plan.md UAT-07 both pin these as reproducibility identity
+// that must survive from the artifact directory alone (ADR-002: "no state
+// outside the artifact directory"), and run-one.sh computes/writes all six
+// during the provisioning phase, before the invocation/timeout branch —
+// confirmed by reading run-one.sh's control flow (meta.json is written once,
+// unconditionally, ahead of the `if [[ "$timed_out" != "true" ]]` branch
+// that gates only the post-run pipeline) and by a direct collect-run.sh run
+// against a synthetic timeout fixture augmented with the six fields: the
+// resulting record's manifest carried all six while runresult stayed
+// genuinely absent, exactly as architecture.md requires. A killed run was
+// still provisioned against a known fixture SHA and shark binary before the
+// agent ever started, so its manifest identity is knowable regardless of
+// outcome.
 //
 // Naming/placement/technique follow e40_i01_corpus_contract_test.go
 // (package contracts, TestTC00N_... naming, repo-root-relative os.ReadFile,
@@ -25,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -72,6 +86,34 @@ var e40I02SourceValues = map[string]bool{
 	"liveness":   true,
 }
 
+// e40I02RunIDSourceValues is bench/README.md's closed two-value set for
+// `manifest.run_id_source` (REQ-F-008, ADR-F02-02).
+var e40I02RunIDSourceValues = map[string]bool{
+	"liveness_stream":     true,
+	"fallback_newest_dir": true,
+}
+
+// e40I02TimeoutDetailSourceValues is bench/README.md's closed two-value set
+// for `timeout_detail.source` -- distinct from (but same-shaped as)
+// `sources.stalled_stage`'s five-value set: this one names which mechanism
+// resolved the stalled stage, not which metric family it belongs to.
+var e40I02TimeoutDetailSourceValues = map[string]bool{
+	"liveness_stream":            true,
+	"scratch_db_status_fallback": true,
+}
+
+// e40I02GitSHAPattern matches a git SHA-1 (40 lowercase hex chars), the
+// shape `manifest.fixture_base_sha` carries (corpus.yaml's `fixture.base_sha`
+// is a real fixture-repo commit hash, confirmed against the committed
+// bench/corpus/corpus.yaml -- NOT a sha256, despite that being the hash
+// algorithm the other two G7 identity fields use).
+var e40I02GitSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// e40I02Sha256Pattern matches a sha256 hex digest (64 lowercase hex chars),
+// the shape `manifest.variant_bundle_sha256` and `manifest.shark_binary_sha256`
+// carry (both computed via `sha256sum` in run-one.sh).
+var e40I02Sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 // e40I02KnownTopLevelFields is the full I-02 record's top-level field
 // inventory (bench/README.md's field reference table). test-plan.md's
 // AC-14 decision table pins this as part of TC-001's own schema check
@@ -102,13 +144,20 @@ var e40I02KnownTopLevelFields = map[string]bool{
 // path as the golden records.
 // ---------------------------------------------------------------------------
 
-const e40I02MissingSchemaVersionJSON = `{"manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default"},"outcome":"timeout","sources":{"stalled_stage":"liveness"},"timeout_detail":{"action":"spawn_agent","agent_type":"developer","provider":"anthropic","source":"liveness_stream","stage_index":1,"status":"in_development"},"timing":{"harness_wall_ns":1000}}`
+// e40I02G7ManifestJSON is the six G7-identity manifest fields (real values
+// captured from bench/scripts/testdata/run/clean-completed/meta.json, same
+// as the golden records), spliced into each malformed-fixture constant
+// below so each fixture stays malformed in exactly ONE way rather than also
+// tripping the (unrelated) G7-required-field checks.
+const e40I02G7ManifestJSON = `"corpus_schema_version":"1.0","fixture_base_sha":"4c24986844b09122e2d516f9bc1ec470b155b441","p2p_set":"default","shark_binary_sha256":"929d3cf370db03acac7e97c214cd85afb79d951363343f69a078afc413b9890d","shark_version":"shark version dev (7f188a20) built 2026-08-07","variant_bundle_sha256":"04fca7add5d7569e81c1beb1677f224c3fe6f149f8e231eb2b19219b25ef26bd"`
 
-const e40I02UnsupportedSchemaVersionJSON = `{"schema_version":"9.9","manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default"},"outcome":"timeout","sources":{"stalled_stage":"liveness"},"timeout_detail":{"action":"spawn_agent","agent_type":"developer","provider":"anthropic","source":"liveness_stream","stage_index":1,"status":"in_development"},"timing":{"harness_wall_ns":1000}}`
+const e40I02MissingSchemaVersionJSON = `{"manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default",` + e40I02G7ManifestJSON + `},"outcome":"timeout","sources":{"stalled_stage":"liveness"},"timeout_detail":{"action":"spawn_agent","agent_type":"developer","provider":"anthropic","source":"liveness_stream","stage_index":1,"status":"in_development"},"timing":{"harness_wall_ns":1000}}`
 
-const e40I02InvalidOutcomeJSON = `{"schema_version":"1.0","manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default"},"outcome":"bogus_outcome","runresult":{"final_status":"bogus_outcome","stages_completed":1,"total_duration_ns":1000},"timing":{"harness_wall_ns":1000}}`
+const e40I02UnsupportedSchemaVersionJSON = `{"schema_version":"9.9","manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default",` + e40I02G7ManifestJSON + `},"outcome":"timeout","sources":{"stalled_stage":"liveness"},"timeout_detail":{"action":"spawn_agent","agent_type":"developer","provider":"anthropic","source":"liveness_stream","stage_index":1,"status":"in_development"},"timing":{"harness_wall_ns":1000}}`
 
-const e40I02ErrorMissingDetailJSON = `{"schema_version":"1.0","manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default"},"outcome":"completed","runresult":{"final_status":"completed","stages_completed":1,"total_duration_ns":1000},"errors":[{"kind":"usage_unavailable"}],"timing":{"harness_wall_ns":1000}}`
+const e40I02InvalidOutcomeJSON = `{"schema_version":"1.0","manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default",` + e40I02G7ManifestJSON + `},"outcome":"bogus_outcome","runresult":{"final_status":"bogus_outcome","stages_completed":1,"total_duration_ns":1000},"timing":{"harness_wall_ns":1000}}`
+
+const e40I02ErrorMissingDetailJSON = `{"schema_version":"1.0","manifest":{"item_id":"x","item_type":"task","rep":1,"run_key":"x::default::rep1","timeout_cap_s":60,"variant_id":"default",` + e40I02G7ManifestJSON + `},"outcome":"completed","runresult":{"final_status":"completed","stages_completed":1,"total_duration_ns":1000},"errors":[{"kind":"usage_unavailable"}],"timing":{"harness_wall_ns":1000}}`
 
 // TestTC001_I02ArtifactContract is I-02's shared-contract evidence
 // (spec.md AC-15, test-plan.md TC-001). It reads the two committed golden
@@ -415,6 +464,11 @@ func e40I02ValidateOutcomeConditional(rec map[string]interface{}, outcome string
 			if sv, ok := tdObj["source"]; ok {
 				if s, ok := sv.(string); !ok || strings.TrimSpace(s) == "" {
 					errs = append(errs, "timeout_detail.source: must be a non-empty string")
+				} else if !e40I02TimeoutDetailSourceValues[s] {
+					// Full-sweep addition (code review round 2): this closed
+					// two-value set was previously under-checked (only
+					// non-empty-string was asserted).
+					errs = append(errs, fmt.Sprintf("timeout_detail.source: value %q not in closed set {liveness_stream, scratch_db_status_fallback}", s))
 				}
 			}
 		}
@@ -469,7 +523,18 @@ func e40I02ValidateManifest(rec map[string]interface{}) []string {
 		return append(errs, "manifest: not an object")
 	}
 
-	for _, key := range []string{"item_id", "item_type", "variant_id", "run_key"} {
+	// corpus_schema_version/p2p_set/shark_version join the original four
+	// (item_id/item_type/variant_id/run_key) as unconditionally-required
+	// plain strings. Code-review round 1 kickback (Finding B-1, BLOCKER,
+	// adjudicated spec/architecture wins): architecture.md#metric-
+	// collection-and-artifact-schema and uat-plan.md UAT-07 pin these as
+	// G7 reproducibility identity that must be recoverable from the
+	// artifact directory alone (ADR-002), and run-one.sh now writes them
+	// during provisioning -- before the timeout/non-timeout branch -- so
+	// they are required on EVERY record, not only non-timeout ones (a
+	// killed run was still provisioned against a known fixture and shark
+	// binary before the agent started).
+	for _, key := range []string{"item_id", "item_type", "variant_id", "run_key", "corpus_schema_version", "p2p_set", "shark_version"} {
 		v, ok := obj[key]
 		if !ok {
 			errs = append(errs, fmt.Sprintf("manifest.%s: missing", key))
@@ -481,6 +546,44 @@ func e40I02ValidateManifest(rec map[string]interface{}) []string {
 	}
 	if it, ok := obj["item_type"].(string); ok && it != "task" && it != "bug" {
 		errs = append(errs, fmt.Sprintf(`manifest.item_type: value %q, want "task" or "bug"`, it))
+	}
+
+	// The three G7 identity fields that are hex-content-hash-shaped: git
+	// SHA-1 (40 hex chars) for fixture_base_sha, sha256 (64 hex chars) for
+	// the two content hashes. Also unconditionally required, same rationale
+	// as above.
+	for _, spec := range []struct {
+		key     string
+		pattern *regexp.Regexp
+		want    string
+	}{
+		{"fixture_base_sha", e40I02GitSHAPattern, "a 40-character lowercase-hex git SHA-1"},
+		{"variant_bundle_sha256", e40I02Sha256Pattern, "a 64-character lowercase-hex sha256"},
+		{"shark_binary_sha256", e40I02Sha256Pattern, "a 64-character lowercase-hex sha256"},
+	} {
+		v, ok := obj[spec.key]
+		if !ok {
+			errs = append(errs, fmt.Sprintf("manifest.%s: missing", spec.key))
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || !spec.pattern.MatchString(s) {
+			errs = append(errs, fmt.Sprintf("manifest.%s: value %v, want %s", spec.key, v, spec.want))
+		}
+	}
+
+	// Full-sweep additions (code review round 2's "re-read the full
+	// manifest field list" instruction): two more documented-but-
+	// previously-under-checked manifest fields.
+	if v, ok := obj["run_id_source"]; ok {
+		if s, ok := v.(string); !ok || !e40I02RunIDSourceValues[s] {
+			errs = append(errs, fmt.Sprintf("manifest.run_id_source: value %v not in closed set {liveness_stream, fallback_newest_dir}", v))
+		}
+	}
+	if v, ok := obj["seeded_keys"]; ok {
+		if m, ok := v.(map[string]interface{}); !ok || len(m) == 0 {
+			errs = append(errs, "manifest.seeded_keys: present but not a non-empty object")
+		}
 	}
 
 	for _, key := range []string{"rep", "timeout_cap_s"} {
