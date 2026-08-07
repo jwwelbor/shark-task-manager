@@ -96,7 +96,7 @@ Explicitly **not** reused: `internal/reporting` (`ScanReport`) — a fixed docs/
 - **REQ-N-004** — Record content is deterministic for a fixed input: object keys are emitted sorted, and list-valued fields are emitted in a fixed order, so two runs' records differ only where the measurements differ. This is what makes G7 replay checkable.
 - **REQ-N-005** — Fail loud everywhere a measurement could be fabricated: a subprocess's exit code alone is never accepted as evidence that "zero results" occurred, and an unparseable producer output is refused rather than written as a zero. (This is the same defect-class guard `build-ledgers.sh` already carries in its own header.)
 - **REQ-N-006** — Scripts match the existing `bench/scripts` conventions: `bash` entry point with `set -euo pipefail`, embedded `python3` (PyYAML available) for YAML/JSON work, machine-readable JSON to stdout, diagnostics to stderr, and a self-test under `bench/scripts/tests/tcNNN_*_test.sh` registered in `bench/scripts/tests/run-all.sh`.
-- **REQ-N-007** — Every measurement in a record names its source, so a consumer can tell a `RunResult`-derived number from a transcript-derived one from a DB-derived one without re-deriving the provenance.
+- **REQ-N-007** — Every measurement **whose provenance is variable** names its source, so a consumer can tell a `RunResult`-derived number from a transcript-derived one from a DB-derived one without re-deriving the provenance. "Variable provenance" means a metric family with more than one real producer, where the recorded value disambiguates which one fired. A family with exactly one possible producer carries no `sources` entry — its provenance is fixed and documented per field in `bench/README.md`, and a constant literal would add no information beyond the family block's own presence. *(Narrowed from "every measurement" by the E40-F03 TD-076 adjudication, 2026-08-07 — **sanctioned amendment**, the third use of the same mechanism as the `timeout_detail` and five-value-`sources` amendments. Rationale and evidence: [E40-F03 spec.md, "TD-076 adjudication"](../E40-F03-baseline-report-and-noise-band/spec.md).)*
 
 ### Acceptance criteria
 
@@ -157,7 +157,7 @@ Every requirement maps to at least one acceptance criterion and to the epic crit
 | REQ-N-004 deterministic record content | AC-14 | G7 |
 | REQ-N-005 fail loud, never fabricate | AC-05, AC-07, AC-10, AC-19 | G4 |
 | REQ-N-006 bench script conventions | AC-15 (CI-safe) + the three `tcNNN` self-tests | — |
-| REQ-N-007 every metric names its source | AC-15 | G4 |
+| REQ-N-007 variable-provenance metrics name their source | AC-15 | G4 |
 
 ### Out of scope for this feature
 
@@ -234,7 +234,7 @@ The data model this feature introduces is the **I-02 JSONL record**. One record 
 | `quality.toolchain_guard` | string | `diff-ledgers.sh --toolchain-guard` | `pass`, or the named mismatched axes. |
 | `loc.prod_added/.prod_deleted/.test_added/.test_deleted/.files_touched` | integer | `git diff --numstat` | |
 | `errors[]` | array | collector | Named, visible failures: `envelope_parse_error`, `stage_join_error`, `transcript_missing`, `crosscheck_disagreement`, `crosscheck_resolution_error`, `postrun_check_aborted`, `usage_unavailable`. Each carries `kind`, `detail`, and where applicable `stage_index` and `path`. Empty array on a clean run. |
-| `sources` | object | collector | Per metric family, which of `runresult` / `transcript` / `scratch_db` / `postrun` / `liveness` produced it (REQ-N-007). `sources.stalled_stage` (or equivalent key naming which family `timeout_detail` came from) is `"liveness"` when resolved from the stream, `"scratch_db"` when resolved from the DB status fallback. |
+| `sources` | object | collector | For each metric family **with more than one real producer**, which of `runresult` / `transcript` / `scratch_db` / `postrun` / `liveness` produced it (REQ-N-007 as narrowed by the E40-F03 TD-076 adjudication, 2026-08-07 — **sanctioned amendment**). Shipped emitting set, exhaustively: `oracle` / `quality` / `loc` = `"postrun"` when the post-run phase ran, and `stalled_stage` = `"liveness"` when `timeout_detail` was resolved from the stream, `"scratch_db"` when resolved from the DB status fallback. Single-producer families (`timing`, driver-measured from `meta.json`) and internally mixed-provenance families (`stages`, whose `usage.*` is transcript-derived while the rest is `RunResult`-derived; `rejections`, whose `crosscheck.*` is scratch-DB-derived while the rest is `RunResult`-derived) carry **no** entry: their provenance is fixed per sub-field and documented in `bench/README.md`'s field reference. |
 
 ### Interface contracts
 
@@ -346,7 +346,7 @@ Note for the interaction map's "Sequencing note on I-03": the note frames I-03 a
 | Style | File artifact |
 | Gate mode | `live`, as assigned by [the interaction map](../E40-interaction-map.md) |
 
-TC-001 validates the committed golden record `tests/contracts/testdata/e40_i02_golden_record.jsonl` against the schema above: required blocks present, `schema_version` supported, `outcome` within the closed six-value set, `errors[]` entries carrying `kind` and `detail`, and every metric family declaring a source. It reads in-repo artifacts only — no submodule, no scratch project, no network, no API spend — matching F01's ADR-F01-05 CI-safety property.
+TC-001 validates the committed golden record `tests/contracts/testdata/e40_i02_golden_record.jsonl` against the schema above: required blocks present, `schema_version` supported, `outcome` within the closed six-value set, `errors[]` entries carrying `kind` and `detail`, and every `sources` entry naming a value within the closed five-value set. *(The last clause read "and every metric family declaring a source" until the E40-F03 TD-076 adjudication, 2026-08-07 — **sanctioned amendment** narrowing REQ-N-007 to variable-provenance families only; the validator's existing value-membership check is the correct enforcement of the narrowed requirement, so no test change follows from this amendment.)* It reads in-repo artifacts only — no submodule, no scratch project, no network, no API spend — matching F01's ADR-F01-05 CI-safety property.
 
 **Consumer-side mirror obligation.** E40-F03 has not entered `task_generation`, so no F03 task exists today to declare `I-02: consumes`. This mirrors the map's "Sequencing note on I-01" precedent: build-order sequencing, not an open gap. The obligation is recorded as a decision note on E40-F03 — F03's `task_generation` must create at least one task declaring `I-02: consumes` that copies the shape source `architecture.md#metric-collection-and-artifact-schema` and the contract test `tests/contracts/e40_i02_artifact_contract_test.go#TC-001` **verbatim**, and owns the real caller path that aggregates records. The uat-plan's I-02 scenario also binds F03: a record missing a metric family must fail aggregation loudly rather than be silently averaged away.
 
