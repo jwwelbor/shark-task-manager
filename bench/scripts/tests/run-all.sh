@@ -22,6 +22,7 @@ tests=(
 	"$SCRIPT_DIR/tc015_collect_run_record_test.sh"
 	"$SCRIPT_DIR/tc016_canary_runsurface_test.sh"
 	"$SCRIPT_DIR/tc017_run_batch_test.sh"
+	"$SCRIPT_DIR/tc018_aggregate_report_test.sh"
 )
 
 status=0
