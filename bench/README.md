@@ -211,3 +211,70 @@ A curator re-runs this sequence whenever `bench/corpus/corpus.yaml` or
 `bench/fixture-repo`'s pinned commit changes, to confirm REQ-F-012 (a clean
 checkout at an unchanged base SHA and toolchain reproduces byte-identical
 verdicts and identity sets) still holds.
+
+## Run driver and artifact schema
+
+> The run directory layout and the full I-02 `record.jsonl` field reference
+> are T-E40-F02-007's scope (the envelope parser task) and land in this
+> section when that task completes. What follows is only the Q003 closure
+> (REQ-F-021, AC-17): the confirmed `claude --output-format json` envelope
+> field names the parser depends on.
+
+### Confirmed claude CLI JSON envelope field names (Q003 closure, REQ-F-021)
+
+Before this capture, the exact spelling and presence of `modelUsage`,
+`num_turns`, and `duration_api_ms` in a real `claude --output-format json`
+result envelope were unconfirmed in-repo (`spec.md` "Durable unresolved
+decisions" Q003) — the only prior in-repo artifact
+(`E27-F15-cross-session-usage-tracking`'s `testdata/claude-usage-result.json`)
+is a 7-field hand-authored unit-test fixture that corroborates none of the
+three.
+
+**Capture provenance**: one real `bench/scripts/run-one.sh` invocation
+against corpus item `validate-sku-max-length` (a small, real,
+single-file task dispatched to a real `claude` CLI, not a stub), captured
+2026-08-06, `claude` CLI version `2.1.223`, run id
+`2aed0d9d-7db0-40b3-b756-e3a2404b42af`, transcript
+`.shark/runs/2aed0d9d-7db0-40b3-b756-e3a2404b42af/2-development-anthropic.log`
+(scratch project, not committed — never the raw captured file, per
+test-plan.md's fixture-authoring rule).
+
+| Field | Confirmed? | Shape observed |
+|---|---|---|
+| `modelUsage` | **Present**, exact spelling `modelUsage` (camelCase) | Object keyed by the canonical model ID string (e.g. `"claude-sonnet-5"`), not a flat field. Each value is a per-model usage object: `inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`, `webSearchRequests`, `costUSD`, `contextWindow`, `maxOutputTokens`, `canonicalModel`, `provider` (all camelCase, distinct from the flat `usage.*` sub-object's snake_case field names). |
+| `num_turns` | **Present**, exact spelling `num_turns` (snake_case) | Top-level integer. |
+| `duration_api_ms` | **Present**, exact spelling `duration_api_ms` (snake_case) | Top-level integer, milliseconds. |
+| `usage` | Present (already partially corroborated by the E27-F15 fixture) | Top-level object, snake_case keys (`input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens`, plus nested `server_tool_use`/`service_tier`/`cache_creation`/`inference_geo`/`iterations`/`speed`). |
+| `total_cost_usd` | Present | Top-level float. |
+
+**Model-ID source used**: `modelUsage` was present in the captured envelope,
+so `manifest.model_id_source == "modelUsage"` for this capture — the exact
+model ID is read from `modelUsage`'s own object key(s) (e.g.
+`"claude-sonnet-5"`), not from a separate value field.
+
+**Structural surprise worth flagging for T-E40-F02-007**: the captured
+envelope has **no top-level `model` field at all** — not null, not empty,
+absent. REQ-F-021's named fallback ("if `modelUsage` is absent, exact model
+IDs come from the envelope's top-level `model` field") assumes that field
+exists whenever `modelUsage` doesn't; this capture cannot confirm that,
+because `modelUsage` was present here. The envelope parser must treat "both
+`modelUsage` and `model` absent" as its own named parse error
+(`errors[].kind: "envelope_parse_error"`, REQ-F-012/AC-05) rather than
+assuming the fallback field is always reachable.
+
+Every fixture under `bench/scripts/testdata/run/` that asserts envelope
+shape (`clean-completed/run/transcripts/*.log`, and the three
+`missing-envelope-field/{modelUsage,num_turns,duration_api_ms}/` variants)
+uses these confirmed names with hand-authored synthetic values — never the
+raw captured transcript, which may carry real API content.
+
+**Coverage gap, inherited by T-E40-F02-007**: no fixture here exercises the
+`model`-fallback branch (including `missing-envelope-field/modelUsage/`,
+which omits `modelUsage` but does **not** add a top-level `model` field,
+matching what was actually observed). This is deliberate, not an oversight
+— no captured envelope has ever carried a top-level `model` field, so
+fabricating one to drive that branch would mean testing against an
+unobserved shape, exactly what Q003's capture-before-fixture rule exists to
+prevent. If T-E40-F02-007 implements the fallback branch, its own fixture
+is necessarily authored on an unobserved shape and must say so in its own
+comment/commit.
