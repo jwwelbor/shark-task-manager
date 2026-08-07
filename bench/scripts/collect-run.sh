@@ -251,8 +251,34 @@ record = {"schema_version": SCHEMA_VERSION}
 # without inventing a value; a meta.json without the key (older/synthetic
 # fixtures) simply omits it here too, per the same optional-field guard the
 # rest of this loop already uses.
+#
+# Code-review round 1 kickback (Finding B-1, BLOCKER): fixture_base_sha/
+# corpus_schema_version/p2p_set/variant_bundle_sha256/shark_version/
+# shark_binary_sha256 are the G7-reproducibility manifest fields
+# architecture.md#metric-collection-and-artifact-schema ("fixture and
+# bundle SHAs ... exact model IDs, timeout cap"), E40-interaction-map.md's
+# I-02 row, and Phase-1-exit-gating uat-plan.md UAT-07 ("pinned fixture
+# SHA ... same variant bundle ... The report regenerates from the artifact
+# directory alone, with no state outside it" -- ADR-002) all name. T-E40-
+# F02-003's rework (2026-08-06) writes all six to meta.json; this pass-
+# through is what puts them on the record, via the exact same optional-
+# field guard, so an older/synthetic fixture predating that rework keeps
+# working with the fields simply absent, never a fabricated placeholder.
 manifest = {}
-for key in ("item_id", "item_type", "variant_id", "rep", "timeout_cap_s", "seeded_keys"):
+for key in (
+    "item_id",
+    "item_type",
+    "variant_id",
+    "rep",
+    "timeout_cap_s",
+    "seeded_keys",
+    "fixture_base_sha",
+    "corpus_schema_version",
+    "p2p_set",
+    "variant_bundle_sha256",
+    "shark_version",
+    "shark_binary_sha256",
+):
     if meta.get(key) is not None:
         manifest[key] = meta[key]
 if all(k in manifest for k in ("item_id", "variant_id", "rep")):

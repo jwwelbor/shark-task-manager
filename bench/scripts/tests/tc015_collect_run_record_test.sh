@@ -148,6 +148,26 @@ if fixture == "clean-completed":
     if record["manifest"].get("model_id_source") != "modelUsage":
         sys.exit("TC-015a FAIL: clean-completed: manifest.model_id_source=%r, want 'modelUsage'" % record["manifest"].get("model_id_source"))
 
+    # Code-review round 1 kickback (Finding B-1, BLOCKER): the six
+    # G7-reproducibility manifest fields architecture.md#metric-collection-
+    # and-artifact-schema/E40-interaction-map.md/uat-plan.md UAT-07 all name
+    # (fixture and bundle SHAs, exact shark binary identity) must round-trip
+    # from meta.json (T-E40-F02-003's rework) onto the record verbatim, via
+    # the same optional-field copy pattern as item_id/variant_id/etc.
+    want_g7 = {
+        "fixture_base_sha": "4c24986844b09122e2d516f9bc1ec470b155b441",
+        "corpus_schema_version": "1.0",
+        "p2p_set": "default",
+        "variant_bundle_sha256": "04fca7add5d7569e81c1beb1677f224c3fe6f149f8e231eb2b19219b25ef26bd",
+        "shark_version": "shark version dev (7f188a20) built 2026-08-07",
+        "shark_binary_sha256": "929d3cf370db03acac7e97c214cd85afb79d951363343f69a078afc413b9890d",
+    }
+    for key, want_value in want_g7.items():
+        got = record["manifest"].get(key)
+        if got != want_value:
+            sys.exit("TC-015a FAIL: clean-completed: manifest.%s=%r, want %r (G7 reproducibility field silently dropped)"
+                      % (key, got, want_value))
+
 print("TC-015a: %s -> outcome=%s PASS" % (fixture, expected))
 PYEOF
 	done

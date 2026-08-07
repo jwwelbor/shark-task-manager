@@ -264,6 +264,12 @@ placeholder (REQ-N-005) — the "Notes" column below states the condition.
 | `schema_version` | string | Pinned (`"1.0"`). |
 | `manifest.item_id` / `.item_type` / `.variant_id` / `.rep` / `.timeout_cap_s` / `.seeded_keys` | — | Copied from `meta.json` (driver args + corpus.yaml + `shark create ... --json` responses, AC-16). |
 | `manifest.run_key` | string | `<item_id>::<variant_id>::rep<rep>` (REQ-F-018). |
+| `manifest.fixture_base_sha` | string | The fixture-repo commit this run's checkout was built from (`corpus.yaml`'s `fixture.base_sha`, resolved by `run-one.sh` during provisioning). G7 reproducibility (architecture.md#metric-collection-and-artifact-schema, uat-plan.md UAT-07: "pinned fixture SHA ... The report regenerates from the artifact directory alone, with no state outside it"). |
+| `manifest.corpus_schema_version` | string | `corpus.yaml`'s own top-level `schema_version` at the time this item was read. |
+| `manifest.p2p_set` | string | The item's own `p2p_set` name (`corpus.yaml`), resolved alongside `fixture_base_sha` in the same read. |
+| `manifest.variant_bundle_sha256` | string | Content hash (sha256, sorted-by-path) over the workflow bundle `run-one.sh` installed for this run — pins which variant content produced the run without requiring `shark-data/` itself to survive as external state (ADR-002). |
+| `manifest.shark_version` | string | The resolved `$SHARK_BIN --version` output, captured inside the scratch project (never the live repo, REQ-N-002/AC-11). |
+| `manifest.shark_binary_sha256` | string | sha256 of the resolved `$SHARK_BIN` file itself, captured before provisioning (filesystem-only, no subprocess cwd to police). Under the harness's own PATH-stub test seam this pairs with a stub `shark_version`, not the real binary's — the pairing only describes the same binary on a real (non-stubbed) run. |
 | `manifest.run_id` / `.run_id_source` | string / string | `"liveness_stream"` or `"fallback_newest_dir"` (REQ-F-008, ADR-F02-02). |
 | `manifest.model_ids` | array of string | Deduplicated, sorted, canonical model IDs across every `spawn_agent` stage whose envelope resolved `modelUsage`. **Absent** when no stage resolved one (e.g. every `spawn_agent` stage's envelope was missing `modelUsage`). |
 | `manifest.model_id_source` | string | `"modelUsage"` whenever `manifest.model_ids` is present — the shipped parser never falls back to a top-level `model` field (see "Confirmed envelope field names" below). Absent alongside `manifest.model_ids` when absent. |
