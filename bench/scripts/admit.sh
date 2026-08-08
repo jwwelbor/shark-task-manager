@@ -513,6 +513,46 @@ def copy_f2p_files(item, checkout_dir):
         shutil.copy2(src, os.path.join(dst_dir, os.path.basename(path)))
 
 
+def prepare_checkout(item, parent):
+    """Provisions a fresh checkout-fixture.sh checkout under `parent` (an
+    already-created temp directory owned by the caller) and stages this
+    item's F2P harness file(s) into it. Returns the checkout_dir path.
+    Isolated from evaluate()'s try/finally so the temp-directory lifecycle
+    (one mkdtemp per evaluate() call, one finally rmtree) stays owned by
+    the caller, as required by the evidence-forgeability property."""
+    checkout_dir = os.path.join(parent, "checkout")
+    try:
+        subprocess.run(
+            [checkout_script, base_sha, checkout_dir],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"item {item['id']}: checkout-fixture.sh failed: {exc.stderr}"
+        ) from exc
+    copy_f2p_files(item, checkout_dir)
+    return checkout_dir
+
+
+def run_check(checks, check_name, callback, failure_code):
+    """Runs one admission check via the zero-arg `callback`, records its
+    result in `checks[check_name]`, and returns (failing_check, extra):
+    `failing_check` is `failure_code` if the check failed, else None;
+    `extra` is diagnostic detail (e.g. a problem-packages list) when
+    `callback` returns a (passed, extra) tuple, else None. Exists to
+    collapse the five near-identical check blocks in evaluate() -- each
+    call a subprocess-orchestration helper, record a bool, and
+    conditionally set failing_check -- to a uniform call each, without
+    changing the early-exit-on-first-failure control flow (each call site
+    still gates on `if failing_check is None` itself)."""
+    result = callback()
+    passed, extra = result if isinstance(result, tuple) else (result, None)
+    checks[check_name] = passed
+    return (None if passed else failure_code), extra
+
+
 def evaluate(item, patch_path):
     """See this file's header for the full evidence-forgeability property
     and its history across rounds 2, 3, and this round's fix. In short:
@@ -561,79 +601,66 @@ def evaluate(item, patch_path):
 
     parent = tempfile.mkdtemp(prefix="admit-")
     try:
-        checkout_dir = os.path.join(parent, "checkout")
-        try:
-            subprocess.run(
-                [checkout_script, base_sha, checkout_dir],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"item {item_id_}: checkout-fixture.sh failed: {exc.stderr}"
-            ) from exc
-
-        copy_f2p_files(item, checkout_dir)
+        checkout_dir = prepare_checkout(item, parent)
 
         # F2P-isolated run: -run scopes execution to exactly this item's
         # own F2P test name(s), so nothing this item does not name can
         # produce a per-test result here.
-        base_f2p_results, _base_f2p_problem_pkgs, _base_f2p_rc = run_go_tests(
-            checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
-        )
-        f2p_red_at_base = all(base_f2p_results.get(t) == "fail" for t in f2p_ids)
-        checks["f2p_red_at_base"] = f2p_red_at_base
-        if not f2p_red_at_base:
-            failing_check = FAIL_F2P_GREEN_AT_BASE
-
-        if failing_check is None:
-            p2p_green_at_base, base_p2p_problems = check_p2p_green(
-                checkout_dir, packages, run_selector, exclude_from_p2p
-            )
-            checks["p2p_green_at_base"] = p2p_green_at_base
-            if not p2p_green_at_base:
-                failing_check = FAIL_P2P_RED_AT_BASE
-                unexplained_failed_packages = base_p2p_problems
-
-        if failing_check is None:
-            apply_proc = subprocess.run(
-                ["git", "apply", patch_path],
-                cwd=checkout_dir,
-                capture_output=True,
-                text=True,
-            )
-            patch_applies = apply_proc.returncode == 0
-            checks["patch_applies"] = patch_applies
-            if not patch_applies:
-                failing_check = FAIL_PATCH_APPLY
-
-        if failing_check is None:
-            post_f2p_results, _post_f2p_problem_pkgs, post_f2p_rc = run_go_tests(
+        def f2p_red_at_base():
+            results, _problem_pkgs, _rc = run_go_tests(
                 checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
             )
+            return all(results.get(t) == "fail" for t in f2p_ids)
 
+        failing_check, _extra = run_check(
+            checks, "f2p_red_at_base", f2p_red_at_base, FAIL_F2P_GREEN_AT_BASE
+        )
+
+        if failing_check is None:
+            failing_check, unexplained_failed_packages = run_check(
+                checks,
+                "p2p_green_at_base",
+                lambda: check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p),
+                FAIL_P2P_RED_AT_BASE,
+            )
+
+        if failing_check is None:
+            def patch_applies():
+                apply_proc = subprocess.run(
+                    ["git", "apply", patch_path],
+                    cwd=checkout_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                return apply_proc.returncode == 0
+
+            failing_check, _extra = run_check(
+                checks, "patch_applies", patch_applies, FAIL_PATCH_APPLY
+            )
+
+        if failing_check is None:
             # A "pass" claim is trusted only when the isolated F2P run's
             # own process exit also agrees nothing else misbehaved --
             # otherwise a rogue TestMain forcing a non-zero exit
             # regardless of this test's real outcome would read as a
             # false "green" (see evaluate()'s docstring).
-            f2p_green_post_patch = (
-                post_f2p_rc == 0
-                and all(post_f2p_results.get(t) == "pass" for t in f2p_ids)
+            def f2p_green_post_patch():
+                results, _problem_pkgs, rc = run_go_tests(
+                    checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
+                )
+                return rc == 0 and all(results.get(t) == "pass" for t in f2p_ids)
+
+            failing_check, _extra = run_check(
+                checks, "f2p_green_post_patch", f2p_green_post_patch, FAIL_F2P_STILL_RED
             )
-            checks["f2p_green_post_patch"] = f2p_green_post_patch
-            if not f2p_green_post_patch:
-                failing_check = FAIL_F2P_STILL_RED
 
             if failing_check is None:
-                p2p_green_post_patch, post_p2p_problems = check_p2p_green(
-                    checkout_dir, packages, run_selector, exclude_from_p2p
+                failing_check, unexplained_failed_packages = run_check(
+                    checks,
+                    "p2p_green_post_patch",
+                    lambda: check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p),
+                    FAIL_P2P_RED_POST_PATCH,
                 )
-                checks["p2p_green_post_patch"] = p2p_green_post_patch
-                if not p2p_green_post_patch:
-                    failing_check = FAIL_P2P_RED_POST_PATCH
-                    unexplained_failed_packages = post_p2p_problems
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 
