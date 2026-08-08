@@ -536,18 +536,13 @@ def prepare_checkout(item, parent):
     return checkout_dir
 
 
-def run_check(checks, check_name, callback, failure_code):
-    """Runs one admission check via the zero-arg `callback`, records its
-    result in `checks[check_name]`, and returns (failing_check, extra):
-    `failing_check` is `failure_code` if the check failed, else None;
-    `extra` is diagnostic detail (e.g. a problem-packages list) when
-    `callback` returns a (passed, extra) tuple, else None. Exists to
-    collapse the five near-identical check blocks in evaluate() -- each
-    call a subprocess-orchestration helper, record a bool, and
-    conditionally set failing_check -- to a uniform call each, without
-    changing the early-exit-on-first-failure control flow (each call site
-    still gates on `if failing_check is None` itself)."""
-    result = callback()
+def run_check(checks, check_name, result, failure_code):
+    """Records an already-run check's `result` in `checks[check_name]` and
+    returns (failing_check, extra): `failing_check` is `failure_code` if
+    the check failed, else None; `extra` is diagnostic detail (e.g. a
+    problem-packages list) when `result` is a (passed, extra) tuple, else
+    None. Callers gate each call on `if failing_check is None`, so the
+    check itself has already run by the time this is called."""
     passed, extra = result if isinstance(result, tuple) else (result, None)
     checks[check_name] = passed
     return (None if passed else failure_code), extra
@@ -636,7 +631,7 @@ def evaluate(item, patch_path):
         failing_check, _extra = run_check(
             checks,
             "f2p_red_at_base",
-            lambda: f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, "fail"),
+            f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, "fail"),
             FAIL_F2P_GREEN_AT_BASE,
         )
 
@@ -644,7 +639,7 @@ def evaluate(item, patch_path):
             failing_check, unexplained_failed_packages = run_check(
                 checks,
                 "p2p_green_at_base",
-                lambda: check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p),
+                check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p),
                 FAIL_P2P_RED_AT_BASE,
             )
 
@@ -652,7 +647,7 @@ def evaluate(item, patch_path):
             failing_check, _extra = run_check(
                 checks,
                 "patch_applies",
-                lambda: patch_applies(checkout_dir, patch_path),
+                patch_applies(checkout_dir, patch_path),
                 FAIL_PATCH_APPLY,
             )
 
@@ -660,7 +655,7 @@ def evaluate(item, patch_path):
             failing_check, _extra = run_check(
                 checks,
                 "f2p_green_post_patch",
-                lambda: f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, "pass"),
+                f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, "pass"),
                 FAIL_F2P_STILL_RED,
             )
 
@@ -668,7 +663,7 @@ def evaluate(item, patch_path):
                 failing_check, unexplained_failed_packages = run_check(
                     checks,
                     "p2p_green_post_patch",
-                    lambda: check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p),
+                    check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p),
                     FAIL_P2P_RED_POST_PATCH,
                 )
     finally:
