@@ -553,6 +553,36 @@ def run_check(checks, check_name, callback, failure_code):
     return (None if passed else failure_code), extra
 
 
+def f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, expect):
+    """F2P-isolated run shared by the f2p_red_at_base and
+    f2p_green_post_patch checks: -run scopes execution to exactly this
+    item's own F2P test name(s), so nothing this item does not name can
+    produce a per-test result here. `expect` is "fail" (base check) or
+    "pass" (post-patch check). For "pass", a claim is trusted only when
+    the isolated run's own process exit also agrees nothing else
+    misbehaved -- otherwise a rogue TestMain forcing a non-zero exit
+    regardless of this test's real outcome would read as a false "green"
+    (see evaluate()'s docstring)."""
+    results, _problem_pkgs, rc = run_go_tests(
+        checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
+    )
+    if expect == "pass" and rc != 0:
+        return False
+    return all(results.get(t) == expect for t in f2p_ids)
+
+
+def patch_applies(checkout_dir, patch_path):
+    """Applies the item's reference patch to the checkout in-place via
+    `git apply` and reports whether it applied cleanly."""
+    apply_proc = subprocess.run(
+        ["git", "apply", patch_path],
+        cwd=checkout_dir,
+        capture_output=True,
+        text=True,
+    )
+    return apply_proc.returncode == 0
+
+
 def evaluate(item, patch_path):
     """See this file's header for the full evidence-forgeability property
     and its history across rounds 2, 3, and this round's fix. In short:
@@ -603,17 +633,11 @@ def evaluate(item, patch_path):
     try:
         checkout_dir = prepare_checkout(item, parent)
 
-        # F2P-isolated run: -run scopes execution to exactly this item's
-        # own F2P test name(s), so nothing this item does not name can
-        # produce a per-test result here.
-        def f2p_red_at_base():
-            results, _problem_pkgs, _rc = run_go_tests(
-                checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
-            )
-            return all(results.get(t) == "fail" for t in f2p_ids)
-
         failing_check, _extra = run_check(
-            checks, "f2p_red_at_base", f2p_red_at_base, FAIL_F2P_GREEN_AT_BASE
+            checks,
+            "f2p_red_at_base",
+            lambda: f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, "fail"),
+            FAIL_F2P_GREEN_AT_BASE,
         )
 
         if failing_check is None:
@@ -625,33 +649,19 @@ def evaluate(item, patch_path):
             )
 
         if failing_check is None:
-            def patch_applies():
-                apply_proc = subprocess.run(
-                    ["git", "apply", patch_path],
-                    cwd=checkout_dir,
-                    capture_output=True,
-                    text=True,
-                )
-                return apply_proc.returncode == 0
-
             failing_check, _extra = run_check(
-                checks, "patch_applies", patch_applies, FAIL_PATCH_APPLY
+                checks,
+                "patch_applies",
+                lambda: patch_applies(checkout_dir, patch_path),
+                FAIL_PATCH_APPLY,
             )
 
         if failing_check is None:
-            # A "pass" claim is trusted only when the isolated F2P run's
-            # own process exit also agrees nothing else misbehaved --
-            # otherwise a rogue TestMain forcing a non-zero exit
-            # regardless of this test's real outcome would read as a
-            # false "green" (see evaluate()'s docstring).
-            def f2p_green_post_patch():
-                results, _problem_pkgs, rc = run_go_tests(
-                    checkout_dir, f2p_packages, run_pattern=f2p_run_pattern
-                )
-                return rc == 0 and all(results.get(t) == "pass" for t in f2p_ids)
-
             failing_check, _extra = run_check(
-                checks, "f2p_green_post_patch", f2p_green_post_patch, FAIL_F2P_STILL_RED
+                checks,
+                "f2p_green_post_patch",
+                lambda: f2p_red_or_green(checkout_dir, f2p_packages, f2p_run_pattern, f2p_ids, "pass"),
+                FAIL_F2P_STILL_RED,
             )
 
             if failing_check is None:
