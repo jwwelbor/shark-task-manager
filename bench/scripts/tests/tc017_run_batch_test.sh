@@ -384,6 +384,11 @@ test_f() {
 	chmod +x "$sibling_dir/run-batch.sh"
 	cp "$STUB_RUN_ONE" "$sibling_dir/run-one.sh"
 	chmod +x "$sibling_dir/run-one.sh"
+	# run-batch.sh sources lib/path-safety.sh relative to its own
+	# $SCRIPT_DIR (NEW-1's shared-lib fix) -- the copied sibling deployment
+	# needs that lib/ directory alongside it too.
+	mkdir -p "$sibling_dir/lib"
+	cp "$SCRIPTS_DIR/lib/path-safety.sh" "$sibling_dir/lib/path-safety.sh"
 
 	# PATH decoy: a DIFFERENT directory (never the sibling dir, per the
 	# Caller-Path Contract's own forbidden-mock rule) prepended to PATH,
@@ -439,11 +444,489 @@ YAML
 	echo "TC-017f PASS"
 }
 
+# ---------------------------------------------------------------------------
+# TC-017g (F-2, UAT uat-20260808-E40-F03.md): a corpus.yaml whose second
+# items: entry lacks an id key makes the embedded enumeration Python raise
+# mid-stream. The batch must fail loud and name the enumeration error, never
+# silently truncate the matrix to whatever partial output was captured
+# before the raise (the pre-fix defect: 1-of-2 items enumerated, exit 0).
+# ---------------------------------------------------------------------------
+test_g() {
+	local out_dir="$WORKDIR/g-out" log="$WORKDIR/g-run-one.log"
+	local out="$WORKDIR/g.out" err="$WORKDIR/g.err"
+	local corpus="$WORKDIR/g-corpus.yaml"
+
+	cat >"$corpus" <<'YAML'
+schema_version: "1.0"
+items:
+  - id: alpha
+  - not_an_id: beta
+negative_items: []
+YAML
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$corpus" --reps 1 \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "g: run-batch.sh exited 0 over a malformed corpus.yaml (missing id key), want non-zero: $(cat "$out")"
+
+	grep -qi "enumerat" "$err" || fail "g: stderr does not name the enumeration failure: $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "0" ]] || fail "g: run-one.sh was invoked $calls time(s) over a corpus that failed to enumerate, want exactly 0 (no partial dispatch over a truncated matrix)"
+
+	[[ ! -s "$out" ]] || fail "g: a JSON summary was printed despite the enumeration failure, want none: $(cat "$out")"
+
+	echo "TC-017g PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017h (F-5, UAT uat-20260808-E40-F03.md): --items resolving to zero
+# admitted ids (a typo, or a negative_items id) must fail loud and name the
+# unresolved id(s) on stderr, not report a clean success over an empty
+# batch. Negative: a --items list mixing one valid and one invalid id still
+# runs the valid one AND warns about the invalid one on stderr.
+# ---------------------------------------------------------------------------
+test_h() {
+	local out_dir="$WORKDIR/h-out" log="$WORKDIR/h-run-one.log"
+	local out="$WORKDIR/h.out" err="$WORKDIR/h.err"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "does-not-exist" \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "h: run-batch.sh exited 0 with --items resolving to zero admitted items, want non-zero: $(cat "$out")"
+
+	grep -q "does-not-exist" "$err" || fail "h: stderr does not name the unresolved id 'does-not-exist': $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "0" ]] || fail "h: run-one.sh was invoked $calls time(s) over an empty --items match, want exactly 0"
+
+	echo "TC-017h PASS"
+
+	# --- Negative: a mix of one valid and one invalid id still runs the
+	# valid one and warns per-id about the invalid one. ---
+	local mix_out_dir="$WORKDIR/h-mix-out" mix_log="$WORKDIR/h-mix-run-one.log"
+	local mix_out="$WORKDIR/h-mix.out" mix_err="$WORKDIR/h-mix.err"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$mix_log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$mix_out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length,also-does-not-exist" \
+		</dev/null >"$mix_out" 2>"$mix_err"
+	local mix_code=$?
+	set -e
+	[[ "$mix_code" -eq 0 ]] || fail "h(mix): run-batch.sh exited $mix_code, want 0 (one id resolved and its pair succeeded): $(cat "$mix_err")"
+
+	grep -q "also-does-not-exist" "$mix_err" || fail "h(mix): stderr does not name the unresolved id 'also-does-not-exist' even though another id resolved: $(cat "$mix_err")"
+
+	local mix_calls
+	mix_calls="$(invocation_count "$mix_log")"
+	[[ "$mix_calls" == "1" ]] || fail "h(mix): stub invocation count=$mix_calls, want exactly 1 (only the resolved id)"
+
+	echo "TC-017h(mix) PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017i (F-2 fix-guidance's independent count guard, UAT
+# uat-20260808-E40-F03.md): the enumeration Python can exit 0 while still
+# printing a line count that does not match corpus.yaml's declared items:
+# length -- an id containing an embedded newline prints as two lines for one
+# declared item. The independent "enumerated count == declared count" guard
+# (not just the python3-exit-status guard TC-017g exercises) must catch this
+# and fail loud rather than silently readarray-ing the extra line as if it
+# were a second item id.
+# ---------------------------------------------------------------------------
+test_i() {
+	local out_dir="$WORKDIR/i-out" log="$WORKDIR/i-run-one.log"
+	local out="$WORKDIR/i.out" err="$WORKDIR/i.err"
+	local corpus="$WORKDIR/i-corpus.yaml"
+
+	cat >"$corpus" <<'YAML'
+schema_version: "1.0"
+items:
+  - id: "a\nb"
+negative_items: []
+YAML
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$corpus" --reps 1 \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "i: run-batch.sh exited 0 over a corpus.yaml whose enumerated line count (2) does not match its declared items: length (1), want non-zero: $(cat "$out")"
+
+	grep -qi "declares" "$err" || fail "i: stderr does not name the enumerated-vs-declared count mismatch: $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "0" ]] || fail "i: run-one.sh was invoked $calls time(s) over a count-mismatched enumeration, want exactly 0"
+
+	echo "TC-017i PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017j (R2-F-8, UAT uat-20260808-231500-E40-F03.md): classify_pair's
+# unreadable-directory guard must be a per-pair classification_error, never
+# a script-fatal abort. One unreadable rep dir among several dispatchable
+# pairs must not stop the batch: every other pair is still attempted and a
+# parseable JSON summary is still printed, naming the unreadable pair as
+# classification_error, exit non-zero.
+# ---------------------------------------------------------------------------
+test_j() {
+	local out_dir="$WORKDIR/j-out" log="$WORKDIR/j-run-one.log"
+	local out="$WORKDIR/j.out" err="$WORKDIR/j.err"
+	local corpus="$WORKDIR/j-corpus.yaml"
+	local unreadable_item="alpha" unreadable_rep=1
+	local unreadable_dir="$out_dir/$unreadable_item/default/rep-$unreadable_rep"
+
+	cat >"$corpus" <<'YAML'
+schema_version: "1.0"
+items:
+  - id: alpha
+  - id: beta
+  - id: gamma
+negative_items: []
+YAML
+
+	mkdir -p "$unreadable_dir"
+	chmod 000 "$unreadable_dir"
+	restore_perms() { chmod 755 "$unreadable_dir" 2>/dev/null || true; }
+	trap 'restore_perms; cleanup' EXIT
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$corpus" --reps 1 \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	restore_perms
+	trap cleanup EXIT
+
+	[[ "$code" -ne 0 ]] || fail "j: run-batch.sh exited 0 with an unreadable pair directory, want non-zero: $(cat "$out")"
+
+	[[ -s "$out" ]] || fail "j: no JSON summary was printed despite an unreadable pair directory (script aborted mid-loop instead of recording a per-pair error): $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "2" ]] || fail "j: stub invocation count=$calls, want 2 (beta and gamma both still attempted despite alpha's unreadable directory): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+by_item = {p["item_id"]: p["classification"] for p in d["pairs"]}
+assert by_item.get("alpha") == "classification_error", "alpha classification=%r, want classification_error" % by_item.get("alpha")
+assert by_item.get("beta") == "pending_run", "beta classification=%r, want pending_run" % by_item.get("beta")
+assert by_item.get("gamma") == "pending_run", "gamma classification=%r, want pending_run" % by_item.get("gamma")
+' "$out" || fail "j: summary classification check failed: $(cat "$out")"
+
+	echo "TC-017j PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017k (R2-F-5, UAT uat-20260808-231500-E40-F03.md): the machine-readable
+# summary object itself (not just stderr) must record requested_items,
+# unresolved_items, and selected_items when --items names an id that does
+# not resolve -- including under --dry-run, which never touches stderr's
+# audience differently but must still populate the same fields.
+# ---------------------------------------------------------------------------
+test_k() {
+	local out_dir="$WORKDIR/k-out" log="$WORKDIR/k-run-one.log"
+	local out="$WORKDIR/k.out" err="$WORKDIR/k.err"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length,also-does-not-exist" \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -eq 0 ]] || fail "k: run-batch.sh exited $code, want 0 (one id resolved): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+assert sorted(d.get("requested_items", [])) == sorted(["validate-sku-max-length", "also-does-not-exist"]), "requested_items=%r" % d.get("requested_items")
+assert d.get("unresolved_items") == ["also-does-not-exist"], "unresolved_items=%r, want [\"also-does-not-exist\"]" % d.get("unresolved_items")
+assert d.get("selected_items") == ["validate-sku-max-length"], "selected_items=%r, want [\"validate-sku-max-length\"]" % d.get("selected_items")
+' "$out" || fail "k: summary did not record requested/unresolved/selected items: $(cat "$out")"
+
+	echo "TC-017k PASS"
+
+	# --- Same check under --dry-run, which invokes nothing but must still
+	# populate the same fields. ---
+	local dry_out_dir="$WORKDIR/k-dry-out"
+	local dry_out="$WORKDIR/k-dry.out" dry_err="$WORKDIR/k-dry.err"
+
+	set +e
+	"$RUN_BATCH" --out "$dry_out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length,also-does-not-exist" --dry-run \
+		</dev/null >"$dry_out" 2>"$dry_err"
+	local dry_code=$?
+	set -e
+	[[ "$dry_code" -eq 0 ]] || fail "k(dry-run): run-batch.sh exited $dry_code, want 0: $(cat "$dry_err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+assert d.get("unresolved_items") == ["also-does-not-exist"], "unresolved_items=%r under --dry-run" % d.get("unresolved_items")
+assert d.get("selected_items") == ["validate-sku-max-length"], "selected_items=%r under --dry-run" % d.get("selected_items")
+' "$dry_out" || fail "k(dry-run): summary did not record unresolved/selected items under --dry-run: $(cat "$dry_out")"
+
+	echo "TC-017k(dry-run) PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017l (R2-F-8 sweep, UAT uat-20260808-231500-E40-F03.md fix guidance #2):
+# quarantine_pair's mv is called as a plain statement inside the dispatch
+# loop, not inside a command substitution -- but a failing mv (e.g. the
+# quarantine root cannot be created because --out is unwritable) has the
+# identical set -e abort exposure as classify_pair's bare command
+# substitution. It must not abort the batch either: the failure is recorded
+# as a classification_error and every other pending pair still runs.
+# ---------------------------------------------------------------------------
+test_l() {
+	local out_dir="$WORKDIR/l-out" log="$WORKDIR/l-run-one.log"
+	local out="$WORKDIR/l.out" err="$WORKDIR/l.err"
+	local corpus="$WORKDIR/l-corpus.yaml"
+	local stale_item="alpha" stale_rep=1
+	local stale_dir="$out_dir/$stale_item/default/rep-$stale_rep"
+
+	cat >"$corpus" <<'YAML'
+schema_version: "1.0"
+items:
+  - id: alpha
+  - id: beta
+negative_items: []
+YAML
+
+	mkdir -p "$stale_dir/run" "$out_dir/.incomplete"
+	echo "stale" >"$stale_dir/run/stdout.json"
+	# Block quarantine_pair's `mkdir -p "$out_root/.incomplete/$item_id/..."`
+	# (and therefore its subsequent mv) by making the pre-existing
+	# .incomplete/ root unwritable -- $out_root itself stays writable so
+	# beta's own dispatch is unaffected, isolating the quarantine failure
+	# from a broader out_root-unwritable scenario.
+	chmod 000 "$out_dir/.incomplete"
+	restore_perms() { chmod 755 "$out_dir/.incomplete" 2>/dev/null || true; }
+	trap 'restore_perms; cleanup' EXIT
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$corpus" --reps 1 --reclaim-incomplete \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	restore_perms
+	trap cleanup EXIT
+
+	[[ "$code" -ne 0 ]] || fail "l: run-batch.sh exited 0 despite a failed quarantine mv, want non-zero: $(cat "$out")"
+
+	[[ -s "$out" ]] || fail "l: no JSON summary was printed despite a failed quarantine mv (script aborted mid-loop instead of recording a per-pair error): $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "1" ]] || fail "l: stub invocation count=$calls, want 1 (beta still attempted despite alpha's failed quarantine): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+by_item = {p["item_id"]: p["classification"] for p in d["pairs"]}
+assert by_item.get("alpha") == "classification_error", "alpha classification=%r, want classification_error" % by_item.get("alpha")
+assert by_item.get("beta") == "pending_run", "beta classification=%r, want pending_run" % by_item.get("beta")
+' "$out" || fail "l: summary classification check failed: $(cat "$out")"
+
+	echo "TC-017l PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017m (R2-F-13, code-review-20260808-235300-E40-F03.md /
+# uat-20260808-231500-E40-F03.md): item_id/variant_id must be validated
+# against a safe-slug grammar before either reaches path construction --
+# neither an operator-supplied traversing --variant nor a traversing
+# corpus.yaml item id may move or write anything outside --out.
+# ---------------------------------------------------------------------------
+test_m() {
+	# --- (a) traversing --variant: must be rejected before any dispatch,
+	# and the directory it would have escaped to (--out's grandparent)
+	# must never come into existence. ---
+	local out_dir="$WORKDIR/m-variant-out" log="$WORKDIR/m-variant-run-one.log"
+	local out="$WORKDIR/m-variant.out" err="$WORKDIR/m-variant.err"
+	local victim_marker="$WORKDIR/m-variant-victim-marker"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length" --variant "../../m-variant-victim-marker" \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "m(variant): run-batch.sh exited 0 with a traversing --variant, want non-zero: $(cat "$out")"
+
+	grep -qi "safe path identifier" "$err" || fail "m(variant): stderr does not name the unsafe --variant identifier: $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "0" ]] || fail "m(variant): run-one.sh was invoked $calls time(s) with a traversing --variant, want exactly 0"
+
+	[[ ! -e "$victim_marker" ]] || fail "m(variant): a path escaped --out and touched $victim_marker"
+	[[ ! -d "$out_dir" ]] || fail "m(variant): --out was created despite the traversing --variant being rejected before any filesystem operation"
+
+	echo "TC-017m(variant) PASS"
+
+	# --- (b) traversing corpus.yaml item id: must be rejected at
+	# enumeration time, before any --items intersection or dispatch. ---
+	local corpus="$WORKDIR/m-item-corpus.yaml"
+	cat >"$corpus" <<'YAML'
+schema_version: "1.0"
+items:
+  - id: alpha
+  - id: "../../m-item-victim"
+negative_items: []
+YAML
+
+	local item_out_dir="$WORKDIR/m-item-out" item_log="$WORKDIR/m-item-run-one.log"
+	local item_out="$WORKDIR/m-item.out" item_err="$WORKDIR/m-item.err"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$item_log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$item_out_dir" --corpus "$corpus" --reps 1 \
+		</dev/null >"$item_out" 2>"$item_err"
+	local item_code=$?
+	set -e
+	[[ "$item_code" -ne 0 ]] || fail "m(item): run-batch.sh exited 0 over a corpus.yaml with a traversing item id, want non-zero: $(cat "$item_out")"
+
+	grep -qi "safe path identifier" "$item_err" || fail "m(item): stderr does not name the unsafe corpus item id: $(cat "$item_err")"
+
+	local item_calls
+	item_calls="$(invocation_count "$item_log")"
+	[[ "$item_calls" == "0" ]] || fail "m(item): run-one.sh was invoked $item_calls time(s) over a corpus with a traversing item id, want exactly 0 (rejected before any --items intersection or dispatch)"
+
+	[[ ! -d "$item_out_dir" ]] || fail "m(item): --out was created despite the traversing item id being rejected before any filesystem operation"
+
+	echo "TC-017m(item) PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017n (R2-F-15, code-review-20260808-235300-E40-F03.md /
+# uat-20260808-231500-E40-F03.md): a duplicate id in --items must resolve
+# to exactly ONE selected pair, never two sharing one run_key -- checked
+# under both --dry-run and real dispatch (where a double-dispatch would
+# mean two API-spending invocations for one declared pair).
+# ---------------------------------------------------------------------------
+test_n() {
+	local dry_out_dir="$WORKDIR/n-dry-out"
+	local dry_out="$WORKDIR/n-dry.out" dry_err="$WORKDIR/n-dry.err"
+
+	set +e
+	"$RUN_BATCH" --out "$dry_out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length,validate-sku-max-length" --dry-run \
+		</dev/null >"$dry_out" 2>"$dry_err"
+	local dry_code=$?
+	set -e
+	[[ "$dry_code" -eq 0 ]] || fail "n(dry-run): run-batch.sh exited $dry_code, want 0: $(cat "$dry_err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+assert d["counts"].get("pending_run") == 1, "counts.pending_run=%r, want 1 (duplicate --items id must not double the matrix)" % d["counts"].get("pending_run")
+assert d["selected_items"] == ["validate-sku-max-length"], "selected_items=%r, want a single entry (deduplicated)" % d["selected_items"]
+assert len(d["pairs"]) == 1, "pairs has %d entries, want exactly 1" % len(d["pairs"])
+run_keys = [p["run_key"] for p in d["pairs"]]
+assert len(run_keys) == len(set(run_keys)), "duplicate run_key(s) in pairs: %r" % run_keys
+' "$dry_out" || fail "n(dry-run): summary check failed: $(cat "$dry_out")"
+
+	echo "TC-017n(dry-run) PASS"
+
+	# --- Real dispatch: a duplicate --items id must cost exactly ONE
+	# RUN_ONE_BIN invocation, never two. ---
+	local out_dir="$WORKDIR/n-out" log="$WORKDIR/n-run-one.log"
+	local out="$WORKDIR/n.out" err="$WORKDIR/n.err"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" STUB_RUN_ONE_LOG="$log" STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length,validate-sku-max-length" \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -eq 0 ]] || fail "n: run-batch.sh exited $code, want 0: $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "1" ]] || fail "n: stub invocation count=$calls, want exactly 1 (a duplicate --items id must cost at most one dispatch, not two)"
+
+	echo "TC-017n PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-017o (NEW-1, HIGH, uat-20260809-013000-E40-F03.md; mirrors TC-019o):
+# a SYMLINKED --out root must dispatch normally, never be rejected as
+# "outside --out". run-batch.sh's own assert_within_out_root() already
+# canonicalizes both sides of its containment comparison (R2-F-13), so
+# this pins that correct behavior in place -- the sibling regression this
+# UAT finding actually hit was in replay-manifest.sh's independent
+# reimplementation (TC-019o), not here.
+# ---------------------------------------------------------------------------
+test_o() {
+	local real_dir="$WORKDIR/o-real-out"
+	local out_dir="$WORKDIR/o-symlink-out"
+	mkdir -p "$real_dir"
+	ln -s "$real_dir" "$out_dir"
+
+	local log="$WORKDIR/o-run-one.log"
+	local out="$WORKDIR/o.out" err="$WORKDIR/o.err"
+
+	set +e
+	RUN_ONE_BIN="$STUB_RUN_ONE" \
+		STUB_RUN_ONE_LOG="$log" \
+		STUB_RUN_ONE_RECORD_FILE="$GOLDEN_RECORD" \
+		"$RUN_BATCH" --out "$out_dir" --corpus "$CORPUS_YAML" --reps 1 \
+		--items "validate-sku-max-length" \
+		</dev/null >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -eq 0 ]] || fail "o: run-batch.sh exited $code with a symlinked --out root, want 0 (legitimate, fully-inside path): $(cat "$err")"
+
+	local calls
+	calls="$(invocation_count "$log")"
+	[[ "$calls" == "1" ]] || fail "o: stub invocation count=$calls, want exactly 1"
+
+	echo "TC-017o PASS"
+}
+
 test_a
 test_b
 test_c
 test_d
 test_e
 test_f
+test_g
+test_h
+test_i
+test_j
+test_k
+test_l
+test_m
+test_n
+test_o
 
 echo "TC-017 PASS"

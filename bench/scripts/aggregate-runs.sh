@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# aggregate-runs.sh --root <artifact_root> [--variant <id>]
+# aggregate-runs.sh --root <artifact_root> [--variant <id>] [--reps <n>]
+#                    [--items <id[,id...]>]
 #
 # T-E40-F03-003/004 (spec.md ADR-F03-01, ADR-F03-03, ADR-F03-04, ADR-F03-06;
 # test-plan.md TC-018). A pure function of an artifact root (ADR-F03-01):
@@ -23,7 +24,11 @@
 # (REQ-F-019), `baseline_id`, and the corpus-level rollup -- the `tasks[]`/
 # `corpus`/`flags`/`baseline_id` blocks.
 #
-# Record classification (spec.md "Record classification", verbatim):
+# Record classification (spec.md "Record classification", verbatim).
+# "Present" means the key exists AND holds a non-null value throughout --
+# a family key holding JSON `null` is exactly as absent as a missing key
+# (F-4/family_present() below); the classification table's "present"/
+# "absent" language is never key-existence-only.
 #   complete           -- every one of oracle/quality/loc is present (the
 #                          three post-run "observational" families -- the
 #                          only ones whose presence is genuinely ambiguous;
@@ -115,6 +120,63 @@
 #                             case of a `complete`-classified record whose
 #                             family block is present but one specific
 #                             leaf sub-field is missing anyway.
+#   missing_run               -- (post-UAT round 1, F-3) this (item, rep)
+#                             pair has NO record.jsonl AT ALL under the
+#                             expected matrix (--reps, or -- absent that --
+#                             the union of rep numbers observed anywhere
+#                             in the root): never silently reflected as a
+#                             smaller `n` with an empty excluded[]. Every
+#                             item whose contributing rep count falls
+#                             below the published `provenance.reps` is
+#                             also named in `flags.reduced_reps[]`. (NEW-2,
+#                             uat-20260809-013000-E40-F03.md, round 3) the
+#                             SAME reason and machinery cover a declared
+#                             item (--items) with NO record.jsonl for ANY
+#                             rep -- every expected rep of that item is a
+#                             `missing_run` entry, the item is also named
+#                             in `flags.missing_items[]`, and `baseline_id`
+#                             is withheld entirely (stricter than the
+#                             partial-rep-hole case above, which still
+#                             stamps a baseline_id).
+#   unexpected_rep             -- (post-UAT round 2, R2-F-7) this record's
+#                             `manifest.rep` is OUTSIDE the expected matrix
+#                             (--reps, or -- absent that -- the union of rep
+#                             numbers observed anywhere in the root): never
+#                             silently folded into the band while
+#                             `provenance.reps`/`baseline_id` still name the
+#                             smaller declared count. expected_rep_set is
+#                             authoritative in both directions -- a rep
+#                             below it is `missing_run` (above), a rep above
+#                             it is `unexpected_rep`. Every item with a rep
+#                             outside the matrix is also named in
+#                             `flags.unexpected_reps[]`. (NEW-2) mirrored at
+#                             the item level: an observed item outside the
+#                             declared --items set is named in
+#                             `flags.unexpected_items[]` -- its own records
+#                             still contribute normally (an unexpected item
+#                             is not itself invalid data, only undeclared).
+#   invalid_value_type        -- (post-UAT round 1, F-8) this metric's
+#                             source field is present and non-null, but
+#                             does not hold the type its Class requires
+#                             (a genuine `bool` for Class A; a genuine
+#                             `int`/`float`, not `bool`, for Class B/C) --
+#                             excluded rather than coerced (REQ-N-005), so
+#                             e.g. a JSON string `"false"` can never
+#                             satisfy `oracle.f2p_resolved`.
+#   out_of_domain              -- (round-2 UAT R2-F-12) this metric's
+#                             source field holds the RIGHT Python type but
+#                             an out-of-domain value: a negative Class B/C
+#                             value (every registered Class B/C metric is
+#                             a non-negative count/measurement), or a
+#                             non-finite Class C value (NaN/+-Infinity --
+#                             reachable via the JSON-decode path, since
+#                             Python's `json` module accepts those as bare
+#                             tokens by default). Excluded rather than
+#                             silently clamped into range, which is what
+#                             the Class B band formula `max(0, min - 1)`
+#                             would otherwise do to a negative `min`,
+#                             breaking AC-12's `accept_lo <= min` invariant
+#                             by construction.
 #
 # rejections.by_gate's OWN zero-vs-excluded rule is distinct from the
 # above and is NOT an exclusion at all: an omitted gate key within a
@@ -142,12 +204,25 @@
 #
 # Provenance uniformity (REQ-F-011): the five manifest fields (model_ids,
 # fixture_base_sha, variant_bundle_sha256, corpus_schema_version,
-# shark_version) are compared across every contributing record's PRESENT
-# value only -- a record where the field is legitimately absent (e.g.
-# manifest.model_ids on a record whose timeout fired before any stage
-# resolved modelUsage, bench/README.md "I-02 record schema field
-# reference") never counts as a divergence by itself; two or more DISTINCT
-# present values for the same field does. Non-uniform provenance still
+# shark_version) are compared across every contributing record. A record
+# where the field is LEGITIMATELY absent (today, only manifest.model_ids
+# on a record whose timeout fired before any stage resolved modelUsage,
+# bench/README.md "I-02 record schema field reference") is exempted and
+# never counts as a divergence by itself. The exemption is scoped per
+# field, not blanket (F-7): a field absent on a record whose outcome does
+# NOT explain the absence (e.g. a `complete` record simply missing
+# fixture_base_sha) is treated as an explicit `null` value, so it either
+# diverges from a sibling record that does carry a real value, OR -- if
+# EVERY non-exempt contributing record shares that same unexplained
+# absence -- it is its own divergence too (R2-F-11): shared absence is
+# NEVER treated as verified agreement. Uniformity asks "do contributors
+# agree?"; completeness asks "is the batch pinned?" -- a null consensus
+# fails completeness (nobody actually attests the field) and must
+# therefore fail uniformity too, named explicitly as an `unpinned_field`
+# divergence entry, never silently published as `provenance.<field> =
+# null` as though every contributor had agreed on a real (if empty)
+# value. Two or more DISTINCT non-null values for the same field is an
+# ordinary divergence, named the same way. Non-uniform provenance still
 # prints the full document (provenance.uniform=false, divergences[] naming
 # both differing values, plus classification/inventory/outcomes/anomalies,
 # which are independent of provenance) and exits non-zero -- but `tasks[]`,
@@ -190,13 +265,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
 	cat >&2 <<'EOF'
-usage: aggregate-runs.sh --root <artifact_root> [--variant <id>]
+usage: aggregate-runs.sh --root <artifact_root> [--variant <id>] [--reps <n>] [--items <id[,id...]>]
 EOF
 	exit 2
 }
 
 root=""
 variant_filter=""
+reps_arg=""
+items_arg=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -210,6 +287,16 @@ while [[ $# -gt 0 ]]; do
 		variant_filter="$2"
 		shift 2
 		;;
+	--reps)
+		[[ $# -ge 2 ]] || usage
+		reps_arg="$2"
+		shift 2
+		;;
+	--items)
+		[[ $# -ge 2 ]] || usage
+		items_arg="$2"
+		shift 2
+		;;
 	*)
 		usage
 		;;
@@ -217,6 +304,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$root" ]] || usage
+if [[ -n "$reps_arg" ]] && ! [[ "$reps_arg" =~ ^[1-9][0-9]*$ ]]; then
+	printf 'aggregate-runs: --reps must be a positive integer, got %s\n' "$reps_arg" >&2
+	exit 2
+fi
+if [[ -n "$items_arg" ]] && [[ "$items_arg" =~ (^,|,,|,$) ]]; then
+	printf 'aggregate-runs: --items must be a comma-separated list of non-empty item ids, got %s\n' "$items_arg" >&2
+	exit 2
+fi
 [[ -d "$root" ]] || {
 	echo "aggregate-runs: artifact root not found: $root" >&2
 	exit 1
@@ -231,9 +326,10 @@ shopt -s nullglob
 record_files=("$root"/*/*/rep-*/record.jsonl)
 shopt -u nullglob
 
-python3 - "$root" "$variant_filter" "${record_files[@]}" <<'PYEOF'
+python3 - "$root" "$variant_filter" "$reps_arg" "$items_arg" "${record_files[@]}" <<'PYEOF'
 import hashlib
 import json
+import math
 import os
 import statistics
 import sys
@@ -379,8 +475,52 @@ def explain_kind(rec):
     return None
 
 
+def family_present(rec, name):
+    """A top-level family block is present only when its key EXISTS and
+    holds a non-null value (F-4 sweep, spec.md AC-08) -- mirrors get_leaf's
+    "a JSON null counts as NOT found" discipline (see its docstring) at
+    the family level instead of the leaf level.
+
+    For the three EXPECTED_FAMILIES (oracle/quality/loc -- the ones
+    classify() itself reasons about) presence additionally requires a
+    genuinely USABLE value, not merely a non-null one (R2-F-10: the F-4
+    fix excluded exactly `null` and nothing else, so `[]`/`{}`/a string/a
+    number all still counted as "present"). These three families are
+    documented as JSON objects -- a non-dict value (list/string/number) is
+    a structural violation of I-02 and is a hard REQ-F-010 failure via
+    fail(), the same class as any other malformed record. An empty dict is
+    a structurally valid object but carries no data, so it is treated
+    exactly like an absent/null key -- it is never accepted as "present
+    but empty" (`family_present`'s own prior docstring claimed the
+    opposite; that claim was the bug).
+
+    The other five family keys (rejections/runresult/stages/
+    timeout_detail/timing) are not all dict-shaped (`stages` is a list)
+    and are outside classify()'s own logic, so they keep the original,
+    looser existence+non-null check.
+
+    This is the ONE predicate both classify() and inventory[].
+    families_present's own construction call, so the two can never
+    disagree (R2-F-10's own repro: `families_present` naming `oracle`
+    present while that metric's own `excluded[]` said `family_absent`
+    for the same run_key in the same document)."""
+    if name not in rec or rec[name] is None:
+        return False
+    if name in EXPECTED_FAMILIES:
+        value = rec[name]
+        if not isinstance(value, dict):
+            run_key = rec.get("manifest", {}).get("run_key", "<unknown>")
+            fail(
+                "%s: family %r must be a JSON object, got %s -- structural failure (REQ-F-010)"
+                % (run_key, name, type(value).__name__)
+            )
+        if not value:
+            return False
+    return True
+
+
 def classify(rec):
-    missing = [f for f in EXPECTED_FAMILIES if f not in rec]
+    missing = [f for f in EXPECTED_FAMILIES if not family_present(rec, f)]
     if not missing:
         return "complete", missing
     if explain_kind(rec) is not None:
@@ -450,7 +590,15 @@ def sum_usage_field(rec, subfield):
         usage = s.get("usage")
         if not isinstance(usage, dict) or usage.get(subfield) is None:
             return ("excluded", "partial_usage")
-        total += usage[subfield]
+        value = usage[subfield]
+        if not is_valid_metric_value("C", value):
+            # F-8/R2-F-12 sweep: a sub-field that exists and is non-null
+            # but is not a genuine in-domain number (e.g. a JSON string,
+            # or a negative/non-finite value) must never reach
+            # `total +=` -- that would either crash, silently coerce, or
+            # silently corrupt the sum with an out-of-domain value.
+            return ("excluded", metric_value_exclusion_reason("C", value))
+        total += value
     return ("ok", total)
 
 
@@ -473,7 +621,10 @@ def step_metric(rec, status, step_kind):
         for s in matching:
             if s.get("duration_ns") is None:
                 return ("excluded", "partial_usage")
-            total += s["duration_ns"]
+            value = s["duration_ns"]
+            if not is_valid_metric_value("C", value):
+                return ("excluded", metric_value_exclusion_reason("C", value))
+            total += value
         return ("ok", total)
 
     subfield = STEP_USAGE_SUBFIELD[step_kind]
@@ -485,11 +636,95 @@ def step_metric(rec, status, step_kind):
         usage = s.get("usage")
         if not isinstance(usage, dict) or usage.get(subfield) is None:
             return ("excluded", "partial_usage")
-        total += usage[subfield]
+        value = usage[subfield]
+        if not is_valid_metric_value("C", value):
+            return ("excluded", metric_value_exclusion_reason("C", value))
+        total += value
     return ("ok", total)
 
 
+def is_valid_metric_value(cls, value):
+    """F-8 (uat-20260808-E40-F03.md) + R2-F-12 (uat-20260808-231500 and
+    code-review-20260808-235300): true only when `value` is a genuine
+    value of the type AND DOMAIN its metric CLASS expects, checked once,
+    in one place, before any class-specific arithmetic ever sees it -- no
+    registered metric's value is otherwise validated (F-8's defect:
+    `oracle.f2p_resolved: "false"`, the JSON STRING, was read straight
+    into both `true_count`'s `v is True` check (0) and `accept_set`'s
+    `bool(v)` coercion (`True`) -- two different answers from the SAME
+    malformed value. R2-F-12's defect: a well-TYPED but out-of-domain
+    value -- e.g. `oracle.p2p_regressions_count: -2` -- passed this gate
+    unchanged and reached `compute_stats`, where the Class B band formula
+    `max(0, min - 1)` silently clamped a negative `min` up to 0, breaking
+    AC-12's own `accept_lo <= min` invariant by construction).
+
+    Class A must be a real `bool`, explicitly NOT a `bool` for B/C
+    (Python's `bool` is an `int` subtype -- `isinstance(True, int) is
+    True` -- so skipping the exclusion would let a stray boolean silently
+    enter a numeric sum/min/max/mean). Class B (spec.md "integer count")
+    must additionally be a real `int` -- a `float` is the wrong TYPE for a
+    count, not merely an out-of-domain value. Class C (spec.md
+    "continuous") accepts `int`/`float` but must be finite --
+    `math.isfinite` rejects NaN/+-Infinity, which Python's `json` module
+    accepts as bare tokens by default, so a non-finite value is a real,
+    JSON-decode-reachable input, not a theoretical one. Both B and C must
+    be non-negative: every registered Class B/C metric (spec.md "Data
+    model changes") is a non-negative count/measurement."""
+    if cls == "A":
+        return isinstance(value, bool)
+    if isinstance(value, bool):
+        return False
+    if cls == "B":
+        return isinstance(value, int) and value >= 0
+    if not isinstance(value, (int, float)):
+        return False
+    if not math.isfinite(value):
+        return False
+    return value >= 0
+
+
+def metric_value_exclusion_reason(cls, value):
+    """R2-F-12: `is_valid_metric_value` now folds two different failure
+    modes into one boolean -- a TYPE failure (wrong Python type, F-8's
+    original defect) and a DOMAIN failure (right type, out-of-range
+    value, R2-F-12's defect). Callers need to tell these apart in
+    `excluded[]` (a report reader asking "why is n below the rep count"
+    should be able to distinguish "the producer sent the wrong shape"
+    from "the producer sent an out-of-domain value" without re-deriving
+    it from the raw value). Only called after `is_valid_metric_value` has
+    already returned False for this (cls, value) pair. Mirrors
+    `is_valid_metric_value`'s own per-class type rule: Class B requires a
+    real `int` (a `float` is a type failure, not a domain one); Class C
+    accepts `int`/`float` (wrong-type is a type failure; a non-finite or
+    negative -- but correctly typed -- value is a domain failure, since
+    NaN/+-Infinity are legitimate `float`s, just outside this metric's
+    domain)."""
+    if cls == "A":
+        return "invalid_value_type"
+    if isinstance(value, bool):
+        return "invalid_value_type"
+    if cls == "B":
+        return "invalid_value_type" if not isinstance(value, int) else "out_of_domain"
+    if not isinstance(value, (int, float)):
+        return "invalid_value_type"
+    return "out_of_domain"
+
+
 def evaluate_metric(rec, m, classification):
+    """Wraps `_evaluate_metric_raw` with the F-8 type gate (see
+    `is_valid_metric_value`): an "ok" value whose type doesn't match its
+    metric's class is excluded here, in the one place every metric's
+    result passes through, rather than re-implemented per source
+    (`get_leaf`, `by_gate`, ...) -- `sum_usage_field`/`step_metric` still
+    need their OWN guards above because they do their arithmetic
+    (`total +=`) internally, before ever returning to this wrapper."""
+    status, result = _evaluate_metric_raw(rec, m, classification)
+    if status == "ok" and not is_valid_metric_value(m["cls"], result):
+        return ("excluded", metric_value_exclusion_reason(m["cls"], result))
+    return status, result
+
+
+def _evaluate_metric_raw(rec, m, classification):
     """Returns ("ok", value) or ("excluded", reason) for one (record,
     metric) pair. `classification` is the record's already-computed
     classify() result (reused, never recomputed per metric)."""
@@ -555,13 +790,20 @@ def compute_stats(cls, values):
         if n == 0:
             block["insufficient_reps"] = True
             return block
+        # F-8: ONE truthiness rule for every Class A read -- `values` is
+        # already guaranteed to hold genuine booleans only
+        # (evaluate_metric's is_valid_metric_value gate excludes anything
+        # else before it ever reaches compute_stats), so `is True` and
+        # `bool(v)` are provably equivalent here; `is True` is used in
+        # both places so a future value that slips past the gate fails
+        # closed (excluded from true_count) rather than open.
         true_count = sum(1 for v in values if v is True)
         block["true_count"] = true_count
         block["rate"] = true_count / n
         if n < 2:
             block["insufficient_reps"] = True
         else:
-            block["accept_set"] = sorted({bool(v) for v in values})
+            block["accept_set"] = sorted({v is True for v in values})
         return block
 
     if n == 0:
@@ -605,6 +847,35 @@ def compute_stats(cls, values):
         accept_lo = max(0, mn - r_eff)
         accept_hi = mx + r_eff
 
+    # R2-F-12: AC-12's invariant ("accept_lo <= min and accept_hi >= max
+    # hold for every Class B and Class C metric") is checked HERE, at
+    # runtime, over the actual computed values -- not left as a property
+    # that merely happens to hold whenever every caller filters correctly
+    # upstream (is_valid_metric_value's domain gate). A negative `mn`
+    # slipping past that gate would otherwise silently break this
+    # invariant via the Class B formula's own `max(0, mn - 1)` clamp
+    # (uat-20260808-231500-E40-F03.md R2-F-12: reps 0, 0, -2 produced
+    # accept_lo=0 > min=-2 with excluded=[]) -- fail loud instead.
+    #
+    # NEW-6 (uat-20260809-013000-E40-F03.md, round-3): this was a bare
+    # `assert`, elided entirely under PYTHONOPTIMIZE=1 (Python strips
+    # `assert` statements -- not just their messages -- whenever `-O`/
+    # PYTHONOPTIMIZE is set), silently turning a runtime invariant into a
+    # no-op in that mode. An explicit conditional calling fail() (this
+    # script's own non-elidable sys.exit(1) mechanism, same one every
+    # other hard-failure path in this file already uses) can never be
+    # compiled away.
+    if accept_lo > mn:
+        fail(
+            "AC-12 invariant violated: accept_lo=%r > min=%r (cls=%r, values=%r)"
+            % (accept_lo, mn, cls, values)
+        )
+    if accept_hi < mx:
+        fail(
+            "AC-12 invariant violated: accept_hi=%r < max=%r (cls=%r, values=%r)"
+            % (accept_hi, mx, cls, values)
+        )
+
     block["accept_lo"] = accept_lo
     block["accept_hi"] = accept_hi
 
@@ -614,12 +885,34 @@ def compute_stats(cls, values):
     return block
 
 
-root, variant_filter = sys.argv[1], sys.argv[2]
+root, variant_filter, reps_arg_raw, items_arg_raw = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+reps_arg = int(reps_arg_raw) if reps_arg_raw else None
+
+# NEW-2 (uat-20260809-013000-E40-F03.md, round-3): the EXPECTED item
+# universe, mirroring reps_arg/expected_rep_set exactly -- a pure function
+# of the caller-supplied --items argument, NEVER of batch-log.jsonl or
+# corpus.yaml (REQ-F-007). Authoritative in both directions: a declared
+# item with no record at all is `missing_items`/synthetic missing_run
+# excluded[] entries on every applicable metric; an observed item outside
+# the declared set is `unexpected_items`. Absent --items, item coverage is
+# unconstrained (today's pre-existing behavior -- every observed item_id
+# is in scope, same as expected_rep_set falls back to the observed union
+# absent --reps).
+if items_arg_raw:
+    expected_item_set = set()
+    for tok in items_arg_raw.split(","):
+        tok = tok.strip()
+        if not tok:
+            fail("--items must be a comma-separated list of non-empty item ids, got %r" % items_arg_raw)
+        expected_item_set.add(tok)
+else:
+    expected_item_set = None
+
 # Explicit, locale-independent (Python's default str ordering is codepoint-
 # based, never consults LC_COLLATE) re-sort of whatever order the bash glob
 # handed us -- REQ-N-004/AC-06: output must not depend on the glob's own
 # (potentially locale-influenced) enumeration order.
-record_paths = sorted(sys.argv[3:])
+record_paths = sorted(sys.argv[5:])
 
 if not record_paths:
     fail(
@@ -671,7 +964,7 @@ for path, rec in records:
     inventory[run_key] = {
         "classification": classification,
         "outcome": outcome,
-        "families_present": sorted(f for f in ALL_FAMILY_KEYS if f in rec),
+        "families_present": sorted(f for f in ALL_FAMILY_KEYS if family_present(rec, f)),
     }
 
     outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
@@ -692,18 +985,46 @@ outcomes_block = {
 }
 
 # --- provenance uniformity (REQ-F-011) ---
-# field -> {json_repr_of_value: (value, [run_key, ...])} -- built only from
-# records where the field is PRESENT; a record where it's legitimately
-# absent (e.g. model_ids on a timeout record) never participates, so it
-# can never manufacture a spurious divergence.
+# field -> {json_repr_of_value: (value, [run_key, ...])} -- built from every
+# contributing record. A record where the field is LEGITIMATELY absent
+# (field_absence_explained below -- today, only manifest.model_ids on a
+# timeout record) never participates, so it can never manufacture a
+# spurious divergence. Everything else -- absent on a record whose outcome
+# does NOT explain it -- participates as an explicit `None` value (F-7):
+# a `complete` record missing an identity field is not silently skipped,
+# it is recorded as diverging from any sibling record that DOES carry the
+# field -- and if EVERY contributing record shares the same unexplained
+# absence, that shared `None` is its own divergence too (R2-F-11): shared
+# absence is never published as an agreed value, because nobody actually
+# attested one.
+def field_absence_explained(field, rec):
+    """True when `field`'s absence from `rec["manifest"]` is a documented,
+    legitimate state for this record rather than an unexplained gap (F-7).
+    Scoped per-field, not blanket: only manifest.model_ids has such a
+    state today (bench/README.md "I-02 record schema field reference":
+    absent when no spawn_agent stage ever resolved modelUsage -- always
+    true for a timeout, whose cap fires before any stage completes). The
+    other four uniformity fields are resolved during provisioning, before
+    the run's outcome is known, so no outcome ever explains their
+    absence."""
+    if field == "model_ids":
+        return rec.get("outcome") == "timeout"
+    return False
+
+
 field_values = {f: {} for f in UNIFORMITY_FIELDS}
+explained_absent_counts = {f: 0 for f in UNIFORMITY_FIELDS}
 for _, rec in records:
     manifest = rec["manifest"]
     run_key = manifest["run_key"]
     for field in UNIFORMITY_FIELDS:
         if field not in manifest:
-            continue
-        value = manifest[field]
+            if field_absence_explained(field, rec):
+                explained_absent_counts[field] += 1
+                continue
+            value = None
+        else:
+            value = manifest[field]
         key = json.dumps(value, sort_keys=True)
         if key not in field_values[field]:
             field_values[field][key] = (value, [])
@@ -711,13 +1032,53 @@ for _, rec in records:
 
 provenance = {}
 divergences = []
+# unresolved_fields[] (R2-F-4, uat-20260808-231500-E40-F03.md): a field
+# with zero distinct values below was never given a usable value by any
+# contributing record. It must not simply vanish from provenance{} (F-7's
+# fix already covers the field-present-somewhere case; this is the
+# every-record-absent case one layer deeper). Publish it as an explicit
+# `None` and name why, for report-baseline.sh (T-005) to render:
+#   - "all-exempt": every contributing record's absence was individually
+#     explained by field_absence_explained() (e.g. model_ids on an
+#     all-timeout batch) -- a legitimate, fully-accounted-for absence.
+#   - "never-present": defensive fallback for a field that ended up with
+#     no distinct values through neither of the above (not reachable
+#     today given the current field_absence_explained() rules, since an
+#     unexplained absence always contributes an explicit `None` entry to
+#     field_values -- kept so a future field/rule combination that CAN
+#     produce this shape still gets a named reason instead of a silent
+#     drop).
+unresolved_fields = []
 for field in UNIFORMITY_FIELDS:
     distinct = field_values[field]
     if not distinct:
-        continue  # never observed anywhere -- never fabricated (REQ-N-005)
+        reason = "all-exempt" if explained_absent_counts[field] == total else "never-present"
+        provenance[field] = None
+        unresolved_fields.append({"field": field, "reason": reason})
+        continue
     if len(distinct) == 1:
-        value, _run_keys = next(iter(distinct.values()))
-        provenance[field] = value
+        value, run_keys = next(iter(distinct.values()))
+        if value is None:
+            # R2-F-11: every NON-exempt contributing record agreeing on an
+            # unattested field is shared absence, not verified agreement --
+            # nobody actually attests a value, so this can never be
+            # published as `provenance[field] = null` the way a genuinely
+            # agreed real value would be. Named as its own divergence
+            # (`unpinned_field`) rather than folded into the
+            # zero-distinct-values `unresolved_fields[]` path above: that
+            # path is for fields no record could even contribute a `None`
+            # entry for (every contributor was individually exempted);
+            # this is the case where every contributor DID contribute an
+            # explicit, unexplained `None` and they all happen to match.
+            divergences.append(
+                {
+                    "field": field,
+                    "reason": "unpinned_field",
+                    "values": [{"value": None, "run_keys": sorted(run_keys)}],
+                }
+            )
+        else:
+            provenance[field] = value
     else:
         divergences.append(
             {
@@ -733,9 +1094,24 @@ uniform = not divergences
 provenance["uniform"] = uniform
 if divergences:
     provenance["divergences"] = divergences
+if unresolved_fields:
+    provenance["unresolved_fields"] = unresolved_fields
 
 distinct_reps = sorted({rec["manifest"]["rep"] for _, rec in records if "rep" in rec["manifest"]})
-provenance["reps"] = len(distinct_reps)
+
+# F-3 (uat-20260808-E40-F03.md, REQ-N-005/REQ-F-012/REQ-F-016): the
+# EXPECTED rep matrix, never inferred purely from which artifacts happen
+# to survive -- an item that lost every rep of a hole would otherwise
+# never surface it. `--reps` names the declared matrix size explicitly;
+# absent that, the union of rep numbers observed anywhere in the root is
+# the best available stand-in (still catches the common case: a hole
+# visible for one item because a SIBLING item ran the missing rep).
+if reps_arg is not None:
+    expected_rep_set = set(range(1, reps_arg + 1))
+    provenance["reps"] = reps_arg
+else:
+    expected_rep_set = set(distinct_reps)
+    provenance["reps"] = len(distinct_reps)
 
 # --- input_digest (REQ-F-019): sha256 over sorted "<sha256>  <relpath>"
 # lines of EVERY contributing record.jsonl -- the whole read/validated
@@ -766,16 +1142,44 @@ aggregate = {
 # STATISTICAL blocks only -- computed, and published, when provenance is
 # uniform (AC-11: "never published as a result" over an unpinned batch).
 if uniform:
-    item_ids = sorted({rec["manifest"]["item_id"] for _, rec in records})
+    observed_item_ids = {rec["manifest"]["item_id"] for _, rec in records}
+
+    # NEW-2: --items is authoritative in both directions, mirroring
+    # expected_rep_set exactly. A declared item with zero records at all
+    # still gets a tasks[] entry below (via the empty item_records path --
+    # same machinery that already synthesizes missing_run entries for a
+    # partial rep hole, one axis further out) so its full missing_run
+    # excluded[] gets published rather than the item silently vanishing.
+    # An observed item outside the declared set stays in tasks[] (its data
+    # is real and not itself in question) but is named in
+    # flags.unexpected_items[] instead of being dropped.
+    if expected_item_set is not None:
+        missing_items = sorted(expected_item_set - observed_item_ids)
+        unexpected_items = sorted(observed_item_ids - expected_item_set)
+        item_ids = sorted(expected_item_set | observed_item_ids)
+    else:
+        missing_items = []
+        unexpected_items = []
+        item_ids = sorted(observed_item_ids)
+
     item_type_by_item = {}
     for _, rec in records:
         iid = rec["manifest"]["item_id"]
         item_type_by_item.setdefault(iid, rec["manifest"].get("item_type", "task"))
+    # A wholly missing item has no record to read item_type from at all --
+    # REQ-F-007 forbids consulting corpus.yaml for the real answer, so
+    # "task" (the more permissive metric set, applicable to every
+    # STATIC_METRICS entry that isn't bug-only) is the documented default,
+    # never a guess silently smuggled in from outside the artifact root.
+    for iid in missing_items:
+        item_type_by_item.setdefault(iid, "task")
 
     tasks_out = []
     flags_unusable = []
     flags_insufficient = []
     flags_non_discriminative = []
+    flags_reduced_reps = []
+    flags_unexpected_reps = []
     spread_rel_by_metric = {}
     f2p_total_true = 0
     f2p_total_n = 0
@@ -815,13 +1219,64 @@ if uniform:
                     }
                 )
 
+        # F-3: the reps in the EXPECTED matrix this item has no record for
+        # at all -- never inferred from surviving artifacts alone (see
+        # expected_rep_set above). Each gets a synthetic `missing_run`
+        # excluded[] entry on EVERY metric below, same discipline as a
+        # timeout's outcome_timeout entry (spec.md "Exclusion rules": "An
+        # excluded[] entry is emitted for every metric in the registry
+        # applicable to the record's item_type ... whether or not the
+        # record could have carried a value"). The synthetic run_key
+        # matches gen_fixtures'/the real producer's own
+        # "<item_id>::<variant_id>::rep<rep>" format so it reads
+        # identically to a real excluded rep.
+        item_reps = {rec["manifest"]["rep"] for _, rec in item_records if "rep" in rec["manifest"]}
+        missing_reps = sorted(expected_rep_set - item_reps)
+        if missing_reps:
+            flags_reduced_reps.append(
+                {
+                    "item_id": item_id,
+                    "contributing_reps": len(item_reps),
+                    "published_reps": len(expected_rep_set),
+                }
+            )
+        missing_run_entries = [
+            {"run_key": "%s::%s::rep%s" % (item_id, variant_id, rep), "reason": "missing_run"} for rep in missing_reps
+        ]
+
+        # R2-F-7 (uat-20260808-231500-E40-F03.md): expected_rep_set must be
+        # authoritative in BOTH directions, not just as a floor. A rep OUTSIDE
+        # the declared matrix (e.g. --reps 2 against a root that actually
+        # holds reps 1,2,3) must never silently contribute to the band while
+        # provenance.reps/baseline_id still say 2. Fix choice: exclude +
+        # flag, not a hard failure -- this mirrors how the missing-rep case
+        # above (flags.reduced_reps) already handles a declared/observed
+        # mismatch: publish the record, name the offending item_id/run_key
+        # in a flag, and keep exit 0. A hard failure would be inconsistent
+        # with that established precedent for the same class of mismatch.
+        unexpected_reps = sorted(item_reps - expected_rep_set)
+        if unexpected_reps:
+            flags_unexpected_reps.append(
+                {
+                    "item_id": item_id,
+                    "unexpected_reps": unexpected_reps,
+                    "published_reps": len(expected_rep_set),
+                }
+            )
+
         metrics_block = {}
         for m in metric_defs:
             values = []
             per_rep_ok = []
-            excluded_entries = []
+            excluded_entries = list(missing_run_entries)
             for path, rec in item_records:
                 run_key = rec["manifest"]["run_key"]
+                rep = rec["manifest"].get("rep")
+                if rep is not None and rep not in expected_rep_set:
+                    # A rep outside the declared matrix never enters the
+                    # band, whether or not it would otherwise evaluate ok.
+                    excluded_entries.append({"run_key": run_key, "reason": "unexpected_rep"})
+                    continue
                 classification = classification_by_run_key[run_key]
                 status, result = evaluate_metric(rec, m, classification)
                 if status == "ok":
@@ -895,11 +1350,25 @@ if uniform:
         "unusable_metrics": sorted(flags_unusable, key=lambda e: (e["item_id"], e["metric"])),
         "insufficient_reps": sorted(flags_insufficient, key=lambda e: (e["item_id"], e["metric"])),
         "non_discriminative_tasks": sorted(flags_non_discriminative),
+        "reduced_reps": sorted(flags_reduced_reps, key=lambda e: e["item_id"]),
+        "unexpected_reps": sorted(flags_unexpected_reps, key=lambda e: e["item_id"]),
+        # NEW-2: sorted item_id strings, present (possibly empty) whether
+        # or not --items was supplied, same "always-present" shape as the
+        # other flags[] lists above -- report-baseline.sh (T-005) can key
+        # off these two directly without checking for the field's absence.
+        "missing_items": missing_items,
+        "unexpected_items": unexpected_items,
     }
 
     reps = provenance.get("reps", 0)
     fixture_base_sha = provenance.get("fixture_base_sha")
-    if variant_id and fixture_base_sha:
+    # NEW-2: baseline_id is withheld whenever the declared item set isn't
+    # fully covered -- a whole missing item is a bigger hole than a
+    # reduced rep count within an otherwise-present item (which still
+    # stamps a baseline_id, see flags.reduced_reps/TC-018y), so this is a
+    # stricter, item-level gate on top of the pre-existing
+    # variant_id/fixture_base_sha gate, not a replacement for it.
+    if variant_id and fixture_base_sha and not missing_items:
         aggregate["baseline_id"] = "%s-%s-r%d" % (variant_id, fixture_base_sha[:12], reps)
 
 # The one and only stdout write (REQ-N-004: sorted keys, fixed list order,

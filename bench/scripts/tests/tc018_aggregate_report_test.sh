@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TC-018 (test-plan.md AC test matrix; T-E40-F03-003 task spec Test Cases),
-# sub-cases a, b, c, d, e, f, q, s, t.
+# sub-cases a, b, c, d, e, f, q, s, t, w, x.
 #
 # T-E40-F03-003's slice: `aggregate-runs.sh`'s core only -- pinned-glob
 # enumeration, per-record structural validation (AC-07), classification
@@ -8,6 +8,12 @@
 # and never from `sources` (TC-018q, TD-076's consumer-side consequence),
 # five-field provenance uniformity (AC-11/TC-018f), the pinned-glob-vs-find
 # quarantine exclusion (TC-018s), and `batch-log.jsonl` non-read (TC-018t).
+# TC-018w/TC-018x (post-UAT, uat-20260808-E40-F03.md F-4/F-7) close the
+# "presence read as key-existence, not usable value" gap the first UAT
+# round found in this same slice: a null (not just missing) family key at
+# classify()/families_present (TC-018w), and a uniformity field's absence
+# exemption scoped to the outcomes that actually explain it rather than a
+# blanket skip (TC-018x).
 #
 # T-E40-F03-004's extension adds sub-cases g, h, i, j, k, l, m, r -- the
 # metric registry, Class A/B/C statistics, ADR-F03-04's acceptance
@@ -1466,27 +1472,53 @@ def interval_from_report(text):
     return float(m.group(1)), float(m.group(2))
 
 
+def derivation_line(text):
+    m = re.search(r"- Derivation:.*", text)
+    assert m, "no Derivation line found: %r" % text
+    return m.group(0)
+
+
+def rule_values_from_derivation(text):
+    # The printed derivation sentence must itself end with its own
+    # evaluated "= [lo, hi]." -- extracted independently of
+    # interval_from_report(), which reads the separate "Acceptance
+    # interval:" line, so a test can assert the RULE (not merely the
+    # aggregate own numbers) reproduces the published interval. F-9: the
+    # r>0 sentence used to read "[min - r, max + r]" while the aggregator
+    # actually applies "max(0, min - r)", so the printed rule and the
+    # printed interval could disagree whenever the lower clamp bound.
+    line = derivation_line(text)
+    m = re.search(r"= \[([^,]+), ([^\]]+)\]\.$", line)
+    assert m, "derivation sentence does not end with its own evaluated [lo, hi]: %r" % line
+    return float(m.group(1)), float(m.group(2))
+
+
 # (i) loc_prod_added: r > 0 branch -- interval independently recomputed
 # from the aggregate own min/max, never copied from the implementation.
 block = metrics["loc_prod_added"]
 text = metric_block_text("loc_prod_added")
 mn, mx = block["min"], block["max"]
 r = mx - mn
-expected_lo, expected_hi = mn - r, mx + r
+expected_lo, expected_hi = max(0, mn - r), mx + r
 lo, hi = interval_from_report(text)
 assert abs(lo - expected_lo) < 1e-6 and abs(hi - expected_hi) < 1e-6, (lo, hi, expected_lo, expected_hi)
 assert str(mn) in text and str(mx) in text and str(block["median"]) in text, text
-assert "r = max - min" in text or "max - min" in text, "no derivation rule sentence for the r>0 branch: %r" % text
+assert "max(0" in text, "derivation sentence omits the lower-clamp branch the aggregator applies (F-9): %r" % text
+rule_lo, rule_hi = rule_values_from_derivation(text)
+assert rule_lo == lo and rule_hi == hi, (rule_lo, rule_hi, lo, hi)
 
 # (ii) wall_clock_ns: r == 0, median != 0 branch.
 block = metrics["wall_clock_ns"]
 text = metric_block_text("wall_clock_ns")
 assert block["spread_abs"] == 0 and block["median"] != 0, block
 r_eff = 0.10 * abs(block["median"])
-expected_lo, expected_hi = block["min"] - r_eff, block["max"] + r_eff
+expected_lo, expected_hi = max(0, block["min"] - r_eff), block["max"] + r_eff
 lo, hi = interval_from_report(text)
 assert abs(lo - expected_lo) < 1e-3 and abs(hi - expected_hi) < 1e-3, (lo, hi, expected_lo, expected_hi)
 assert "10%" in text, "no 10%%-of-median derivation sentence for the zero-spread/nonzero-median branch: %r" % text
+assert "max(0" in text, "derivation sentence omits the lower-clamp branch the aggregator applies (F-9): %r" % text
+rule_lo, rule_hi = rule_values_from_derivation(text)
+assert abs(rule_lo - lo) < 1e-3 and abs(rule_hi - hi) < 1e-3, (rule_lo, rule_hi, lo, hi)
 
 # (iii) loc_test_deleted: identically-zero branch -- exact [0, 0].
 block = metrics["loc_test_deleted"]
@@ -1507,6 +1539,88 @@ assert "TD-081" in report_text, "TD-081 caveat missing"
 assert "T-004" in report_text, "T-004 caveat missing"
 assert "timeout" in report_text.lower() and "band" in report_text.lower(), "timeout-exclusion caveat missing"
 ' "$aggregate_path" "$out" "f03-fixture-tc018o" || fail "o: assertion failed: $(cat "$out")"
+
+	# F-9 regression (uat-20260808-E40-F03.md): a Class C metric whose
+	# lower clamp at 0 actually BINDS -- the reported repro was
+	# min=0, max=10, r=10, where the aggregator's accept_lo =
+	# max(0, min - r) = 0 but the old unclamped derivation sentence read
+	# "interval = [min - r, max + r]" = [-10, 20], disagreeing with the
+	# published [0, 20]. build_ac12_aggregate's own loc_prod_added fixture
+	# (10, 12, 15) never binds the clamp, so this needs its own fixture.
+	local clamp_root="$WORKDIR/o-clamp-root"
+	local clamp_aggregate="$WORKDIR/o-clamp-aggregate.json"
+	local clamp_item="f03-fixture-tc018o-clamp"
+	local rep prod_added
+	for rep in 1 2 3; do
+		case "$rep" in
+		1) prod_added=0 ;;
+		2) prod_added=5 ;;
+		3) prod_added=10 ;;
+		esac
+		place_record "$clamp_root" "$clamp_item" "$rep" --set "loc.prod_added=$prod_added"
+	done
+
+	local cout cerr ccode
+	{
+		read -r cout
+		read -r cerr
+		read -r ccode
+	} < <(run_aggregate "$clamp_root")
+	[[ "$ccode" -eq 0 ]] || fail "o(clamp): aggregate-runs.sh exited $ccode, want 0: $(cat "$cerr")"
+	cp "$cout" "$clamp_aggregate"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$clamp_aggregate")
+	[[ "$rcode" -eq 0 ]] || fail "o(clamp): report-baseline.sh exited $rcode, want 0: $(cat "$rerr")"
+
+	python3 -c '
+import json
+import re
+import sys
+
+aggregate_path, report_path, item = sys.argv[1], sys.argv[2], sys.argv[3]
+agg = json.load(open(aggregate_path))
+report_text = open(report_path).read()
+
+task = next(t for t in agg["tasks"] if t["item_id"] == item)
+block = task["metrics"]["loc_prod_added"]
+mn, mx = block["min"], block["max"]
+assert mn == 0 and mx == 10, "fixture drifted, want min=0 max=10: %r" % block
+
+marker = "#### `loc_prod_added`"
+start = report_text.index(marker)
+text = report_text[start:]
+nxt = re.search(r"\n#### ", text[1:])
+if nxt:
+    text = text[: nxt.start() + 1]
+
+m = re.search(r"Acceptance interval: \[([^,]+), ([^\]]+)\]", text)
+assert m, "no Acceptance interval line: %r" % text
+printed_lo, printed_hi = float(m.group(1)), float(m.group(2))
+assert printed_lo == 0.0, "aggregate accept_lo not clamped as expected (fixture no longer reproduces F-9): %r" % block
+
+dm = re.search(r"- Derivation:.*", text)
+assert dm, "no Derivation line: %r" % text
+derivation_line = dm.group(0)
+assert "max(0" in derivation_line, (
+    "derivation sentence omits the lower-clamp branch the aggregator "
+    "applied -- F-9 regression: %r" % derivation_line
+)
+
+fm = re.search(r"= \[([^,]+), ([^\]]+)\]\.$", derivation_line)
+assert fm, "derivation sentence does not end with its own evaluated [lo, hi]: %r" % derivation_line
+rule_lo, rule_hi = float(fm.group(1)), float(fm.group(2))
+assert rule_lo == printed_lo and rule_hi == printed_hi, (
+    "printed derivation rule does not reproduce the printed Acceptance "
+    "interval: %r" % ((rule_lo, rule_hi, printed_lo, printed_hi),)
+)
+r = mx - mn
+assert rule_lo == max(0, mn - r) and rule_hi == mx + r, (rule_lo, rule_hi, mn, mx, r)
+' "$clamp_aggregate" "$rout" "$clamp_item" || fail "o(clamp): assertion failed: $(cat "$rout")"
 
 	echo "TC-018o PASS"
 }
@@ -1646,6 +1760,1673 @@ test_v() {
 	echo "TC-018v PASS"
 }
 
+# ---------------------------------------------------------------------------
+# TC-018w (UAT F-4, AC-08/REQ-F-008/REQ-F-009): a family key that EXISTS but
+# holds JSON `null` must not be classified `complete` -- classify() must
+# treat null exactly like a missing key (get_leaf already does this at the
+# leaf level; this closes the same gap at the family level). Sub-case (a):
+# an unexplained null family reaches the anomaly bucket and a non-zero
+# exit, same as test_c's missing-key case. Sub-case (b), negative: the same
+# null family alongside an explanation (toolchain_guard abort) still
+# classifies explained_absence, not anomaly -- null-handling must not
+# override the explanation check. Both sub-cases also close the sibling
+# F-4 instance in `inventory[].families_present` (line ~685): a null
+# family must never be listed as present there either.
+# ---------------------------------------------------------------------------
+test_w() {
+	# --- (a) unexplained null family -> anomaly, non-zero exit. ---
+	local root_a="$WORKDIR/w-root-a"
+	place_record "$root_a" f03-fixture-tc018w-null 1 --set oracle=null
+
+	local out_a err_a code_a
+	{
+		read -r out_a
+		read -r err_a
+		read -r code_a
+	} < <(run_aggregate "$root_a")
+	[[ "$code_a" -ne 0 ]] || fail "w(a): exited 0, want non-zero (null oracle family is an unexplained absence)"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+run_key = "f03-fixture-tc018w-null::default::rep1"
+inv = d["inventory"][run_key]
+assert inv["classification"] == "anomaly", inv
+assert "oracle" not in inv["families_present"], "null oracle must not be listed as present: %r" % inv
+assert "quality" in inv["families_present"], inv
+assert "loc" in inv["families_present"], inv
+matches = [a for a in d["anomalies"] if a["run_key"] == run_key]
+assert len(matches) == 1, matches
+assert matches[0]["missing_families"] == ["oracle"], matches[0]
+assert d["outcomes"]["anomaly_count"] == 1, d["outcomes"]
+' "$out_a" || fail "w(a): assertion failed: $(cat "$out_a")"
+	echo "TC-018w(a, null family classifies anomaly, not complete) PASS"
+
+	# --- (b) negative: null family WITH an explanation -> explained_absence. ---
+	local root_b="$WORKDIR/w-root-b"
+	place_record "$root_b" f03-fixture-tc018w-null-explained 1 \
+		--set 'quality.toolchain_guard=go_version_mismatch' \
+		--unset quality.fmt_clean --unset quality.vet_ok --unset quality.tests_pass \
+		--unset quality.lint_new_issues --unset quality.lint_new_issues_count \
+		--set oracle=null --unset loc \
+		--unset sources.oracle --unset sources.loc \
+		--set 'errors=[{"kind":"postrun_check_aborted","detail":"go version mismatch (toolchain guard abort)"}]'
+
+	local out_b err_b code_b
+	{
+		read -r out_b
+		read -r err_b
+		read -r code_b
+	} < <(run_aggregate "$root_b")
+	[[ "$code_b" -eq 0 ]] || fail "w(b): exited $code_b, want 0 (null oracle is explained by toolchain_guard abort): $(cat "$err_b")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+run_key = "f03-fixture-tc018w-null-explained::default::rep1"
+inv = d["inventory"][run_key]
+assert inv["classification"] == "explained_absence", inv
+assert "oracle" not in inv["families_present"], "null oracle must not be listed as present: %r" % inv
+assert "quality" in inv["families_present"], inv
+assert d["outcomes"]["anomaly_count"] == 0, d["outcomes"]
+' "$out_b" || fail "w(b): assertion failed: $(cat "$out_b")"
+	echo "TC-018w(b, null family with explanation is explained_absence, not anomaly) PASS"
+
+	echo "TC-018w PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018x (UAT F-7, REQ-F-011): provenance-uniformity absence scoping.
+# Sub-case (a), positive/negative-control: a uniformity field absent for a
+# reason its record's outcome explains (manifest.model_ids missing on a
+# timeout record, alongside a completed record that carries it) is exempt
+# -- still reported uniform, and the surviving present value publishes.
+# Sub-case (b): the same absence on a `complete` record whose outcome does
+# NOT explain it (manifest.fixture_base_sha simply unset) is NOT exempt --
+# it must make the batch non-uniform, naming a `null` value alongside the
+# sibling record's real value, and must never let a baseline_id be built
+# from the other record's SHA alone. Sub-case (c) (rewritten for R2-F-11,
+# round-2 UAT/round-3 code-review -- the original assertion here encoded
+# the defect as intended behavior and was flagged for rewrite, not
+# extension): the same illegitimate absence shared by EVERY contributing
+# record is NOT verified agreement -- shared absence is not shared
+# knowledge. It must make the batch non-uniform, name an explicit
+# `unpinned_field` divergence, and suppress tasks[]/corpus/flags/
+# baseline_id the same way any other non-uniform batch does.
+# ---------------------------------------------------------------------------
+test_x() {
+	# --- (a) legitimate exemption: model_ids absent on a timeout record. ---
+	local root_a="$WORKDIR/x-root-a"
+	place_record "$root_a" f03-fixture-tc018x-legit-a 1
+	place_record "$root_a" f03-fixture-tc018x-legit-b 1 --golden timeout
+
+	local out_a err_a code_a
+	{
+		read -r out_a
+		read -r err_a
+		read -r code_a
+	} < <(run_aggregate "$root_a")
+	[[ "$code_a" -eq 0 ]] || fail "x(a): exited $code_a, want 0 (model_ids absence explained by timeout outcome): $(cat "$err_a")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+prov = d["provenance"]
+assert prov["uniform"] is True, prov
+assert "divergences" not in prov, prov
+assert prov.get("model_ids") == ["claude-sonnet-5"], prov
+' "$out_a" || fail "x(a): assertion failed: $(cat "$out_a")"
+	echo "TC-018x(a, model_ids absent on a timeout record is exempt) PASS"
+
+	# --- (b) illegitimate absence: fixture_base_sha unset on a complete record. ---
+	local root_b="$WORKDIR/x-root-b"
+	place_record "$root_b" f03-fixture-tc018x-illegit-a 1
+	place_record "$root_b" f03-fixture-tc018x-illegit-b 1 --unset manifest.fixture_base_sha
+
+	local out_b err_b code_b
+	{
+		read -r out_b
+		read -r err_b
+		read -r code_b
+	} < <(run_aggregate "$root_b")
+	[[ "$code_b" -ne 0 ]] || fail "x(b): exited 0, want non-zero (fixture_base_sha absent on a complete record is a divergence)"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+prov = d["provenance"]
+assert prov["uniform"] is False, prov
+divs = prov.get("divergences", [])
+matches = [dv for dv in divs if dv["field"] == "fixture_base_sha"]
+assert len(matches) == 1, "expected exactly one fixture_base_sha divergence, got %r" % divs
+values = {json.dumps(v["value"], sort_keys=True) for v in matches[0]["values"]}
+assert "null" in values, "missing field must surface as an explicit null value: %r" % matches[0]
+assert len(matches[0]["values"]) == 2, matches[0]
+assert "fixture_base_sha" not in prov, "divergent field must not also appear as a single agreed value: %r" % prov
+assert "baseline_id" not in d, "non-uniform provenance must never publish baseline_id: %r" % d.get("baseline_id")
+' "$out_b" || fail "x(b): assertion failed: $(cat "$out_b")"
+	echo "TC-018x(b, fixture_base_sha absent on a complete record is a divergence, not silently skipped) PASS"
+
+	# --- (c) illegitimate absence shared by every contributing record: NOT
+	# verified agreement -- shared absence, not shared knowledge (R2-F-11).
+	local root_c="$WORKDIR/x-root-c"
+	place_record "$root_c" f03-fixture-tc018x-allmissing-a 1 --unset manifest.fixture_base_sha
+	place_record "$root_c" f03-fixture-tc018x-allmissing-b 1 --unset manifest.fixture_base_sha
+
+	local out_c err_c code_c
+	{
+		read -r out_c
+		read -r err_c
+		read -r code_c
+	} < <(run_aggregate "$root_c")
+	[[ "$code_c" -ne 0 ]] || fail "x(c): exited 0, want non-zero (every record sharing an unexplained absence is NOT verified pinning)"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+prov = d["provenance"]
+assert prov["uniform"] is False, prov
+assert "fixture_base_sha" not in prov, "an unpinned field must not also appear as a single agreed value: %r" % prov
+divs = prov.get("divergences", [])
+matches = [dv for dv in divs if dv["field"] == "fixture_base_sha"]
+assert len(matches) == 1, "expected exactly one fixture_base_sha divergence, got %r" % divs
+assert matches[0].get("reason") == "unpinned_field", matches[0]
+values = {json.dumps(v["value"], sort_keys=True) for v in matches[0]["values"]}
+assert values == {"null"}, "shared absence must name the null value every record shares, not fabricate a pair: %r" % matches[0]
+assert "tasks" not in d, "non-uniform provenance must never publish tasks[]: %r" % d.get("tasks")
+assert "corpus" not in d, "non-uniform provenance must never publish corpus: %r" % d.get("corpus")
+assert "flags" not in d, "non-uniform provenance must never publish flags: %r" % d.get("flags")
+assert "baseline_id" not in d, "non-uniform provenance must never publish baseline_id: %r" % d.get("baseline_id")
+' "$out_c" || fail "x(c): assertion failed: $(cat "$out_c")"
+	echo "TC-018x(c, absence shared by every record is unpinned, not agreed -- non-uniform) PASS"
+
+	echo "TC-018x PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018y (post-UAT round 1, uat-20260808-E40-F03.md F-3: REQ-N-005/
+# REQ-F-012/REQ-F-016 -- "a band is never published over a silently
+# reduced rep set"): a matrix hole. item-a has all 3 reps; item-b has
+# only reps 1-2 (rep 3 never ran -- no record.jsonl at all, not an
+# excluded/timeout/anomaly record; the r3 count is entirely driven by
+# item-a). The header must still publish reps=3 (the declared/observed
+# matrix size), but item-b's own bands must carry an explicit
+# `missing_run` excluded[] entry for the hole and item-b must be named
+# in a reduced-item flag -- never an empty excluded[] alongside a
+# silently smaller n.
+# ---------------------------------------------------------------------------
+test_y() {
+	local root="$WORKDIR/y-root"
+	local item_a="f03-fixture-tc018y-a" item_b="f03-fixture-tc018y-b"
+	local rep
+	for rep in 1 2 3; do
+		place_record "$root" "$item_a" "$rep"
+	done
+	for rep in 1 2; do
+		place_record "$root" "$item_b" "$rep"
+	done
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "y: exited $code, want 0 (a matrix hole is not itself an anomalous record): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item_a, item_b = sys.argv[2], sys.argv[3]
+
+prov = d["provenance"]
+assert prov["reps"] == 3, prov
+assert d["baseline_id"].endswith("-r3"), d["baseline_id"]
+
+task_a = next(t for t in d["tasks"] if t["item_id"] == item_a)
+task_b = next(t for t in d["tasks"] if t["item_id"] == item_b)
+
+missing_key = item_b + "::default::rep3"
+
+# item-a is unaffected: full n=3, no missing_run anywhere. (quality_tests_pass
+# is excluded on every rep for an unrelated, pre-existing reason -- the
+# golden own quality.tests_pass is null, gate_not_executed -- same carve-out
+# TC-018h uses.)
+for metric_id, block in task_a["metrics"].items():
+    assert not any(e["reason"] == "missing_run" for e in block["excluded"]), block["excluded"]
+    if metric_id == "quality_tests_pass":
+        continue
+    assert block["n"] == 3, "%s: n=%r, want 3 (item-a has no hole)" % (metric_id, block["n"])
+
+# item-b: every metric must carry n=2 (never a silently inflated n) AND
+# a missing_run excluded[] entry naming the absent rep -- the exact
+# defect: "the header says r3, the band says n=2, and nothing connects
+# them" must no longer be true.
+saw_missing_run = 0
+for metric_id, block in task_b["metrics"].items():
+    reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+    assert reasons.get(missing_key) == "missing_run", "%s: excluded[] missing a missing_run entry for %s: %r" % (metric_id, missing_key, block["excluded"])
+    saw_missing_run += 1
+    if metric_id == "quality_tests_pass":
+        continue  # n=0 for an unrelated, pre-existing reason (see item-a note above)
+    assert block["n"] == 2, "%s: n=%r, want 2" % (metric_id, block["n"])
+assert saw_missing_run > 5, "too few metrics carried the missing_run entry to be a meaningful check: %d" % saw_missing_run
+
+# The reduced item must be named in a flag connecting r3 (published) to
+# n=2 (contributed) -- REQ-N-005s own "nothing connects them" gap.
+reduced = {r["item_id"]: r for r in d["flags"]["reduced_reps"]}
+assert item_b in reduced, d["flags"]["reduced_reps"]
+assert reduced[item_b]["contributing_reps"] == 2, reduced[item_b]
+assert reduced[item_b]["published_reps"] == 3, reduced[item_b]
+assert item_a not in reduced, d["flags"]["reduced_reps"]
+' "$out" "$item_a" "$item_b" || fail "y: assertion failed: $(cat "$out")"
+	echo "TC-018y(a: implicit matrix derivation from observed reps) PASS"
+
+	# --- (b) explicit --reps: a hole even the OBSERVED matrix can't reveal
+	# -- every item only ran 2 reps, but the declared matrix is 3 (rep 3
+	# never ran for ANYONE). Without an explicit --reps argument there is
+	# no way to know the matrix was supposed to be bigger than what
+	# survived -- this is exactly why the fix note requires deriving the
+	# expected count from the declared matrix/--reps, not purely from
+	# surviving artifacts. ---
+	local root_b="$WORKDIR/y-root-b"
+	local item_c="f03-fixture-tc018y-c"
+	for rep in 1 2; do
+		place_record "$root_b" "$item_c" "$rep"
+	done
+
+	local out2 err2 code2
+	{
+		read -r out2
+		read -r err2
+		read -r code2
+	} < <(run_aggregate "$root_b" --reps 3)
+	[[ "$code2" -eq 0 ]] || fail "y(b): exited $code2, want 0: $(cat "$err2")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item_c = sys.argv[2]
+prov = d["provenance"]
+assert prov["reps"] == 3, prov
+
+task_c = next(t for t in d["tasks"] if t["item_id"] == item_c)
+missing_key = item_c + "::default::rep3"
+for metric_id, block in task_c["metrics"].items():
+    reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+    assert reasons.get(missing_key) == "missing_run", "%s: excluded[] missing a missing_run entry for %s: %r" % (metric_id, missing_key, block["excluded"])
+    if metric_id == "quality_tests_pass":
+        continue
+    assert block["n"] == 2, "%s: n=%r, want 2" % (metric_id, block["n"])
+
+reduced = {r["item_id"]: r for r in d["flags"]["reduced_reps"]}
+assert item_c in reduced, d["flags"]["reduced_reps"]
+assert reduced[item_c]["contributing_reps"] == 2, reduced[item_c]
+assert reduced[item_c]["published_reps"] == 3, reduced[item_c]
+' "$out2" "$item_c" || fail "y(b): assertion failed: $(cat "$out2")"
+	echo "TC-018y(b: explicit --reps reveals a hole no surviving artifact could) PASS"
+
+	echo "TC-018y PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018z (post-UAT round 1, uat-20260808-E40-F03.md F-8: REQ-F-010/
+# REQ-N-005/AC-12 internal consistency -- Class A counting and interval
+# derivation must use ONE truthiness rule, and no metric's value type may
+# reach class-specific arithmetic unvalidated). Two reps of
+# `oracle.f2p_resolved` set to the JSON STRING "false" (not the JSON
+# boolean) -- `v is True` (old true_count rule) says 0/2, `bool(v)` (old
+# accept_set rule) says every rep truthy: exactly the F-8 contradiction.
+# Fixed behavior: a non-boolean Class A leaf is excluded (never coerced),
+# so a malformed record contributes nothing rather than a fabricated
+# measurement.
+# ---------------------------------------------------------------------------
+test_z() {
+	local root="$WORKDIR/z-root"
+	local item="f03-fixture-tc018z"
+	place_record "$root" "$item" 1 --set 'oracle.f2p_resolved="false"'
+	place_record "$root" "$item" 2 --set 'oracle.f2p_resolved="false"'
+	place_record "$root" "$item" 3 --set 'oracle.f2p_resolved=true'
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "z: exited $code, want 0: $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item = sys.argv[2]
+task = next(t for t in d["tasks"] if t["item_id"] == item)
+block = task["metrics"]["oracle_f2p_resolved"]
+
+# Only rep3 (the real boolean) contributes -- n=1, insufficient_reps, no
+# accept_set (n<2), and definitely no rate/accept_set contradiction.
+assert block["n"] == 1, block
+assert block.get("insufficient_reps") is True, block
+assert "accept_set" not in block, block
+assert block.get("true_count") == 1, block
+assert block.get("rate") == 1.0, block
+
+reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+assert reasons.get(item + "::default::rep1") == "invalid_value_type", reasons
+assert reasons.get(item + "::default::rep2") == "invalid_value_type", reasons
+
+# The item must NOT be flagged non_discriminative -- n<2 real
+# contributions is vacuous, not evidence of an identical-across-reps
+# result (mirrors the existing >=2-reps rule for genuine booleans).
+assert item not in d["flags"]["non_discriminative_tasks"], d["flags"]["non_discriminative_tasks"]
+assert task["non_discriminative"] is False, task
+' "$out" "$item" || fail "z: assertion failed: $(cat "$out")"
+
+	# --- Negative: two GENUINE booleans, both false -- must still exclude
+	# nothing and still flag non_discriminative, proving the fix does not
+	# over-exclude real boolean values. ---
+	local root2="$WORKDIR/z-root2"
+	place_record "$root2" "$item" 1 --set 'oracle.f2p_resolved=false'
+	place_record "$root2" "$item" 2 --set 'oracle.f2p_resolved=false'
+
+	local out2 err2 code2
+	{
+		read -r out2
+		read -r err2
+		read -r code2
+	} < <(run_aggregate "$root2")
+	[[ "$code2" -eq 0 ]] || fail "z(negative): exited $code2, want 0: $(cat "$err2")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item = sys.argv[2]
+task = next(t for t in d["tasks"] if t["item_id"] == item)
+block = task["metrics"]["oracle_f2p_resolved"]
+assert block["n"] == 2, block
+assert block["excluded"] == [], block["excluded"]
+assert block["true_count"] == 0, block
+assert block["rate"] == 0.0, block
+assert block["accept_set"] == [False], block
+assert item in d["flags"]["non_discriminative_tasks"], d["flags"]["non_discriminative_tasks"]
+' "$out2" "$item" || fail "z(negative): assertion failed: $(cat "$out2")"
+
+	echo "TC-018z PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018aa (F-8 sweep site #1): a Class C `sum_usage` metric whose
+# contributing stage's usage sub-field is a JSON string, not a number
+# (`stages[0].usage.input_tokens` set to `"1000"`). Same defect class as
+# F-8 -- a value read from the record reaches `total +=` arithmetic
+# without a type check. Must exclude with `invalid_value_type`, never
+# crash and never silently coerce/concatenate.
+# ---------------------------------------------------------------------------
+test_aa() {
+	local root="$WORKDIR/aa-root"
+	local item="f03-fixture-tc018aa"
+	place_record "$root" "$item" 1 --set 'stages[0].usage.input_tokens="1000"'
+	place_record "$root" "$item" 2
+	place_record "$root" "$item" 3
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "aa: exited $code, want 0 (a malformed metric value excludes, never crashes the whole aggregation): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item = sys.argv[2]
+task = next(t for t in d["tasks"] if t["item_id"] == item)
+block = task["metrics"]["tokens_input_total"]
+assert block["n"] == 2, block
+reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+assert reasons.get(item + "::default::rep1") == "invalid_value_type", reasons
+' "$out" "$item" || fail "aa: assertion failed: $(cat "$out")"
+
+	echo "TC-018aa PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018bb (F-8 sweep site #2): `rejections.by_gate.<gate>` holding a JSON
+# string instead of an integer. Same defect class -- `bg.get(gate, 0)` is
+# handed straight to `min`/`max`/`mean` with no type check. Must exclude
+# with `invalid_value_type`.
+# ---------------------------------------------------------------------------
+test_bb() {
+	local root="$WORKDIR/bb-root"
+	local item="f03-fixture-tc018bb"
+	place_record "$root" "$item" 1 --set 'rejections.by_gate={"in_qa": "2"}'
+	place_record "$root" "$item" 2
+	place_record "$root" "$item" 3
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "bb: exited $code, want 0: $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item = sys.argv[2]
+task = next(t for t in d["tasks"] if t["item_id"] == item)
+block = task["metrics"]["rejections_by_gate.in_qa"]
+reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+assert reasons.get(item + "::default::rep1") == "invalid_value_type", reasons
+assert block["n"] == 2, block
+' "$out" "$item" || fail "bb: assertion failed: $(cat "$out")"
+
+	echo "TC-018bb PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018cc (UAT round 2, R2-F-4, aggregate side: aggregate-runs.sh:841-842
+# "if not distinct: continue # never observed anywhere"): a uniformity
+# field legitimately absent on EVERY contributing record (model_ids on an
+# all-timeout batch -- field_absence_explained() exempts every record, so
+# field_values["model_ids"] never gets a single entry) must NOT vanish
+# from provenance{} without a trace. It must publish as an explicit
+# `provenance["model_ids"] = None` plus a `provenance["unresolved_fields"]`
+# entry naming the reason ("all-exempt": every contributing record's
+# absence was individually explained), distinct from F-7/x(c)'s
+# "illegitimate absence shared by every record" case (which already
+# publishes `null` via the normal single-distinct-value path and needs no
+# unresolved_fields entry).
+# ---------------------------------------------------------------------------
+test_cc() {
+	local root="$WORKDIR/cc-root"
+	local item_a="f03-fixture-tc018cc-a" item_b="f03-fixture-tc018cc-b"
+	place_record "$root" "$item_a" 1 --golden timeout
+	place_record "$root" "$item_b" 1 --golden timeout
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "cc: exited $code, want 0 (model_ids absence explained on every record): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+prov = d["provenance"]
+assert prov["uniform"] is True, prov
+assert "divergences" not in prov, prov
+assert "model_ids" in prov and prov["model_ids"] is None, "an all-exempt field must publish as an explicit null, not be dropped: %r" % prov
+unresolved = prov.get("unresolved_fields", [])
+matches = [u for u in unresolved if u["field"] == "model_ids"]
+assert len(matches) == 1, "expected exactly one model_ids unresolved_fields entry, got %r" % unresolved
+assert matches[0]["reason"] == "all-exempt", matches[0]
+' "$out" || fail "cc: assertion failed: $(cat "$out")"
+
+	echo "TC-018cc PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018dd (post-UAT round 2, uat-20260808-231500-E40-F03.md R2-F-7:
+# REQ-N-005/REQ-F-012/REQ-F-016 -- "expected_rep_set must be authoritative
+# in BOTH directions"): item-d has 3 real reps on disk, but the caller
+# declares --reps 2. Rep 3 must never silently contribute to item-d's band
+# while provenance.reps/baseline_id still say 2 (TC-018y only ever covers a
+# matrix hole -- a rep count SMALLER than declared -- never a rep count
+# LARGER than declared).
+# ---------------------------------------------------------------------------
+test_dd() {
+	local root="$WORKDIR/dd-root"
+	local item_d="f03-fixture-tc018dd-d"
+	local rep
+	for rep in 1 2 3; do
+		place_record "$root" "$item_d" "$rep"
+	done
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root" --reps 2)
+	[[ "$code" -eq 0 ]] || fail "dd: exited $code, want 0 (an extra rep is flagged, not fatal): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item_d = sys.argv[2]
+
+prov = d["provenance"]
+assert prov["reps"] == 2, prov
+assert d["baseline_id"].endswith("-r2"), d["baseline_id"]
+
+task_d = next(t for t in d["tasks"] if t["item_id"] == item_d)
+unexpected_key = item_d + "::default::rep3"
+
+# Every metric must carry an unexpected_rep excluded[] entry for rep 3 AND
+# n must never exceed 2 -- the exact defect: rep 3 silently inflating the
+# band while the header says r2.
+saw_unexpected = 0
+for metric_id, block in task_d["metrics"].items():
+    reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+    assert reasons.get(unexpected_key) == "unexpected_rep", "%s: excluded[] missing an unexpected_rep entry for %s: %r" % (metric_id, unexpected_key, block["excluded"])
+    saw_unexpected += 1
+    if metric_id == "quality_tests_pass":
+        continue  # n=0 for an unrelated, pre-existing reason (see TC-018y note)
+    assert block["n"] == 2, "%s: n=%r, want 2 (rep 3 must never contribute)" % (metric_id, block["n"])
+assert saw_unexpected > 5, "too few metrics carried the unexpected_rep entry to be a meaningful check: %d" % saw_unexpected
+
+# The item must be named in a flag connecting r2 (published) to the extra
+# rep actually observed -- same discipline as flags.reduced_reps, mirrored
+# for the opposite-direction mismatch.
+unexpected = {r["item_id"]: r for r in d["flags"]["unexpected_reps"]}
+assert item_d in unexpected, d["flags"]["unexpected_reps"]
+assert unexpected[item_d]["unexpected_reps"] == [3], unexpected[item_d]
+assert unexpected[item_d]["published_reps"] == 2, unexpected[item_d]
+
+# item-d must NOT also appear in reduced_reps -- it has every declared rep
+# (1, 2) plus an extra one; it is not missing anything.
+reduced = {r["item_id"]: r for r in d["flags"]["reduced_reps"]}
+assert item_d not in reduced, d["flags"]["reduced_reps"]
+' "$out" "$item_d" || fail "dd: assertion failed: $(cat "$out")"
+
+	echo "TC-018dd PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018ee (UAT round 2, R2-F-2, report-baseline.sh side: REQ-F-011/
+# REQ-F-022/AC-11/AC-21/REQ-N-005): a non-uniform aggregate (model_ids
+# diverges across two contributing records, the AC-11 fixture shape) must
+# render an unmissable "INVALID AS A BASELINE" banner, a divergences table
+# naming the field/both values/run_keys, the diverging field's own
+# Provenance row rendered as "_absent from the aggregate_" rather than
+# silently dropped (fix guidance #2 -- the same `if key not in provenance:
+# continue` mechanism R2-F-4/TC-018hh closes for the unresolved case), and
+# the report itself must exit non-zero -- never a clean-looking "Shark Bench
+# Baseline Report" over a batch the aggregator declared invalid.
+# ---------------------------------------------------------------------------
+test_ee() {
+	local root="$WORKDIR/ee-root"
+	local item="f03-fixture-tc018ee"
+	place_record "$root" "$item" 1
+	place_record "$root" "$item" 2 --set 'manifest.model_ids=["claude-evil-9"]'
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -ne 0 ]] || fail "ee: aggregate-runs.sh exited 0, want non-zero (non-uniform provenance)"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -ne 0 ]] || fail "ee: report-baseline.sh exited 0, want non-zero (a non-uniform batch must never be published as a clean baseline)"
+	[[ -s "$rout" ]] || fail "ee: report-baseline.sh wrote nothing to stdout -- the invalid-baseline document must still print (naming the divergence), not disappear silently"
+
+	local report_text
+	report_text="$(cat "$rout")"
+	grep -qi "INVALID AS A BASELINE" <<<"$report_text" || fail "ee: no INVALID AS A BASELINE banner in report: $report_text"
+	grep -qi "model_ids\|Model IDs" <<<"$report_text" || fail "ee: divergent field 'model_ids' not named in report: $report_text"
+	grep -q "claude-evil-9" <<<"$report_text" || fail "ee: diverging value not shown in report: $report_text"
+	grep -q "${item}::default::rep1" <<<"$report_text" || fail "ee: divergence table does not name run_key rep1: $report_text"
+	grep -q "${item}::default::rep2" <<<"$report_text" || fail "ee: divergence table does not name run_key rep2: $report_text"
+	grep -qi "_absent from the aggregate_" <<<"$report_text" || fail "ee: diverging field's own Provenance row is not rendered as absent (R2-F-2 fix guidance #2): $report_text"
+
+	echo "TC-018ee PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018ff (UAT round 2, R2-F-3(a), report-baseline.sh side: REQ-N-005/
+# REQ-F-012/REQ-F-021): the round-1 F-3 fixture verbatim (item-a reps 1-3,
+# item-b reps 1-2, TC-018y's own fixture) rendered through report-
+# baseline.sh must name item-b's rep reduction in a new "Data quality"
+# section (contributing-vs-published rep counts), never leave the header's
+# "Reps: 3" and the band's "n=2" unconnected -- round 1's own complaint,
+# reproduced one layer downstream in the human-facing publication. A
+# reduced rep set alone (no anomaly) is not itself invalid, so the report
+# still exits 0.
+# ---------------------------------------------------------------------------
+test_ff() {
+	local root="$WORKDIR/ff-root"
+	local item_a="f03-fixture-tc018ff-a" item_b="f03-fixture-tc018ff-b"
+	local rep
+	for rep in 1 2 3; do
+		place_record "$root" "$item_a" "$rep"
+	done
+	for rep in 1 2; do
+		place_record "$root" "$item_b" "$rep"
+	done
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "ff: aggregate-runs.sh exited $code, want 0: $(cat "$err")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -eq 0 ]] || fail "ff: report-baseline.sh exited $rcode, want 0 (a reduced rep set alone is not an anomaly): $(cat "$rerr")"
+
+	python3 -c '
+import json
+import sys
+
+aggregate_path, report_path, item_a, item_b = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+agg = json.load(open(aggregate_path))
+report_text = open(report_path).read()
+
+reduced = {r["item_id"]: r for r in agg["flags"]["reduced_reps"]}
+assert item_b in reduced, agg["flags"]["reduced_reps"]
+entry = reduced[item_b]
+
+start = report_text.index("## Data quality")
+end = report_text.index("## Noise band per task")
+section = report_text[start:end]
+
+assert item_b in section, "reduced item %s not named in Data quality section: %r" % (item_b, section)
+assert str(entry["contributing_reps"]) in section, "contributing_reps (%d) not named in Data quality section: %r" % (entry["contributing_reps"], section)
+assert str(entry["published_reps"]) in section, "published_reps (%d) not named in Data quality section: %r" % (entry["published_reps"], section)
+
+# Scoped to the Reduced rep sets sub-list specifically -- item_a is
+# expected elsewhere in this section (its own quality_tests_pass carries
+# an unrelated, pre-existing insufficient_reps entry, same carve-out
+# TC-018y/TC-018h use), just never as a REDUCED item.
+reduced_start = section.index("Reduced rep sets")
+reduced_end = section.index("\n- ", reduced_start + len("Reduced rep sets"))
+reduced_section = section[reduced_start:reduced_end]
+assert item_a not in reduced_section, "unreduced item %s incorrectly named in the Reduced rep sets list: %r" % (item_a, reduced_section)
+' "$out" "$rout" "$item_a" "$item_b" || fail "ff: assertion failed: $(cat "$rout")"
+
+	echo "TC-018ff PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018gg (UAT round 2, R2-F-3(b), report-baseline.sh side, same fixture
+# class as TC-018c: REQ-F-008/REQ-F-009/REQ-N-005): an aggregate with one
+# genuinely anomalous record (aggregator exits 1) rendered through report-
+# baseline.sh must name the anomalous run_key and outcomes.anomaly_count in
+# the Data quality section, and the report itself must exit non-zero --
+# matching aggregate-runs.sh's own contract so a pipeline reading only the
+# report's exit code cannot publish an anomalous baseline as clean.
+# ---------------------------------------------------------------------------
+test_gg() {
+	local root="$WORKDIR/gg-root"
+	local item="f03-fixture-tc018gg"
+	place_record "$root" "$item" 1
+	place_record "$root" "$item" 2
+	place_record "$root" "$item" 3 \
+		--unset oracle --unset quality --unset loc \
+		--unset sources.oracle --unset sources.quality --unset sources.loc
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -ne 0 ]] || fail "gg: aggregate-runs.sh exited 0, want non-zero (anomaly present)"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -ne 0 ]] || fail "gg: report-baseline.sh exited 0, want non-zero (anomalies[] non-empty must fail the report too)"
+
+	local run_key="${item}::default::rep3"
+	local report_text
+	report_text="$(cat "$rout")"
+	grep -qi "Data quality" <<<"$report_text" || fail "gg: no Data quality section: $report_text"
+	grep -q "$run_key" <<<"$report_text" || fail "gg: anomalous run_key $run_key not named in report: $report_text"
+	grep -q "anomaly_count" <<<"$report_text" || fail "gg: outcomes.anomaly_count not surfaced in report: $report_text"
+
+	echo "TC-018gg PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018hh (UAT round 2, R2-F-4, report-baseline.sh side, TC-018cc's own
+# fixture: REQ-F-022/AC-21/REQ-N-005): a provenance field legitimately
+# absent on EVERY contributing record (model_ids on an all-timeout batch)
+# publishes in the aggregate as an explicit `null` plus an
+# `unresolved_fields` entry (TC-018cc, T-E40-F03-003's fix). The report must
+# still print a "Model IDs" row -- never omit it -- rendered as
+# "_not resolvable from the contributing records_" rather than the bare
+# Python `None` or a silent drop.
+# ---------------------------------------------------------------------------
+test_hh() {
+	local root="$WORKDIR/hh-root"
+	local item_a="f03-fixture-tc018hh-a" item_b="f03-fixture-tc018hh-b"
+	place_record "$root" "$item_a" 1 --golden timeout
+	place_record "$root" "$item_b" 1 --golden timeout
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "hh: aggregate-runs.sh exited $code, want 0 (model_ids absence explained on every record): $(cat "$err")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -eq 0 ]] || fail "hh: report-baseline.sh exited $rcode, want 0: $(cat "$rerr")"
+
+	local report_text
+	report_text="$(cat "$rout")"
+	grep -qi "Model IDs" <<<"$report_text" || fail "hh: no Model IDs row at all -- field silently omitted from the Provenance list: $report_text"
+	grep -qi "_not resolvable from the contributing records_" <<<"$report_text" || fail "hh: unresolved provenance field not rendered as explicitly unresolvable: $report_text"
+	grep -qi "^- Model IDs: None$" <<<"$report_text" && fail "hh: Model IDs rendered as the bare Python None: $report_text"
+
+	echo "TC-018hh PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018ii (UAT round 2, R2-F-9, report-baseline.sh side: REQ-F-020/
+# REQ-F-021/AC-20): a Class C `cost_usd_total` band whose real min/median/
+# max/spread_abs/accept_lo/accept_hi are all sub-1e-6 (min=4e-7, median=
+# 5e-7, max=6e-7 -- the UAT report's own repro) must render non-zero
+# spread_abs and a non-zero Acceptance interval lower bound under
+# significant-digit rendering, rather than the old fixed-6-decimal `fmt()`
+# rounding every one of them to a self-contradictory "0". The Class C
+# derivation sentence's own trailing "= [lo, hi]." must reproduce the
+# printed Acceptance interval exactly, and must not assert a rendered
+# "0 (> 0)".
+# ---------------------------------------------------------------------------
+test_ii() {
+	local root="$WORKDIR/ii-root"
+	local item="f03-fixture-tc018ii"
+	place_record "$root" "$item" 1 --set 'stages[0].usage.total_cost_usd=0' --set 'stages[2].usage.total_cost_usd=4e-07'
+	place_record "$root" "$item" 2 --set 'stages[0].usage.total_cost_usd=0' --set 'stages[2].usage.total_cost_usd=5e-07'
+	place_record "$root" "$item" 3 --set 'stages[0].usage.total_cost_usd=0' --set 'stages[2].usage.total_cost_usd=6e-07'
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "ii: aggregate-runs.sh exited $code, want 0: $(cat "$err")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -eq 0 ]] || fail "ii: report-baseline.sh exited $rcode, want 0: $(cat "$rerr")"
+
+	python3 -c '
+import json
+import re
+import sys
+
+aggregate_path, report_path, item = sys.argv[1], sys.argv[2], sys.argv[3]
+agg = json.load(open(aggregate_path))
+report_text = open(report_path).read()
+
+task = next(t for t in agg["tasks"] if t["item_id"] == item)
+block = task["metrics"]["cost_usd_total"]
+assert 0 < block["spread_abs"] < 1e-6, block
+
+marker = "#### `cost_usd_total`"
+start = report_text.index(marker)
+text = report_text[start:]
+nxt = re.search(r"\n#### ", text[1:])
+if nxt:
+    text = text[: nxt.start() + 1]
+
+m = re.search(r"spread_abs=([^,\n]+)", text)
+assert m, "no spread_abs on the observed-stats line: %r" % text
+printed_spread = m.group(1).strip()
+assert printed_spread != "0", "spread_abs rendered as literal 0 though the real value is %r (F-9 regression)" % block["spread_abs"]
+assert float(printed_spread) > 0, (printed_spread, block)
+
+im = re.search(r"Acceptance interval: \[([^,]+), ([^\]]+)\]", text)
+assert im, "no Acceptance interval line: %r" % text
+printed_lo, printed_hi = float(im.group(1)), float(im.group(2))
+assert printed_lo > 0, "printed Acceptance interval lower bound rounded to 0 though the published accept_lo is %r" % block["accept_lo"]
+assert abs(printed_lo - block["accept_lo"]) < 1e-9, (printed_lo, block["accept_lo"])
+assert abs(printed_hi - block["accept_hi"]) < 1e-9, (printed_hi, block["accept_hi"])
+
+dm = re.search(r"- Derivation:.*", text)
+assert dm, "no Derivation line: %r" % text
+derivation_line = dm.group(0)
+
+rm = re.search(r"r = max - min = (\S+) \(> 0\)", derivation_line)
+assert rm, "derivation sentence does not print its own r = ... (> 0) clause: %r" % derivation_line
+assert rm.group(1) != "0", "derivation sentence prints r=0 while asserting (> 0) -- self-contradictory: %r" % derivation_line
+
+fm = re.search(r"= \[([^,]+), ([^\]]+)\]\.$", derivation_line)
+assert fm, "derivation sentence does not end with its own evaluated [lo, hi]: %r" % derivation_line
+rule_lo, rule_hi = float(fm.group(1)), float(fm.group(2))
+assert rule_lo == printed_lo and rule_hi == printed_hi, (
+    "derivation sentence interval disagrees with the printed Acceptance interval: %r"
+    % ((rule_lo, rule_hi, printed_lo, printed_hi),)
+)
+' "$out" "$rout" "$item" || fail "ii: assertion failed: $(cat "$rout")"
+
+	echo "TC-018ii PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 R2-F-10 (round-2 UAT/round-3 code-review finding, never closed by
+# the round-2 rework): family_present() tested a family block against
+# exactly one unusable value (`null`, TC-018w) and nothing else. `classify()`
+# and `inventory[].families_present` must never disagree with the metric
+# layer's own `excluded[]` about whether oracle/quality/loc actually
+# contributed usable data. Sub-case (a): a non-dict family value (a JSON
+# array here) is a structural violation of I-02 -- REQ-F-010, a hard
+# fail() like any other malformed record, nothing printed to stdout.
+# Sub-case (b): an empty dict is a structurally valid object but carries
+# no data -- exactly as absent as a missing/null key -- so an unexplained
+# empty oracle reaches the anomaly bucket, is excluded from
+# `families_present`, and its own `oracle_f2p_resolved.excluded[]` reason
+# agrees (`unexplained_absence`, the anomaly-bucket reason, not
+# `family_absent`) -- the R2-F-10 repro's own internal-contradiction
+# scenario, closed.
+# ---------------------------------------------------------------------------
+test_r2f10() {
+	# --- (a) non-dict family value ([]) is a hard structural failure. ---
+	local root_a="$WORKDIR/r2f10-root-a"
+	place_record "$root_a" f03-fixture-r2f10-listval 1 --set 'oracle=[]'
+
+	local out_a err_a code_a
+	{
+		read -r out_a
+		read -r err_a
+		read -r code_a
+	} < <(run_aggregate "$root_a")
+	[[ "$code_a" -ne 0 ]] || fail "r2f10(a): exited 0, want non-zero (oracle: [] is a structural failure, not usable data)"
+	[[ ! -s "$out_a" ]] || fail "r2f10(a): stdout not empty on a structural failure: $(cat "$out_a")"
+	grep -q "oracle" "$err_a" || fail "r2f10(a): stderr does not name the offending family: $(cat "$err_a")"
+	echo "TC-018 R2-F-10(a, non-dict family value is a hard structural failure, nothing printed) PASS"
+
+	# --- (b) empty dict: usable shape, no data -> anomaly, never complete,
+	# families_present and excluded[] agree. ---
+	local root_b="$WORKDIR/r2f10-root-b"
+	place_record "$root_b" f03-fixture-r2f10-emptydict 1 --set 'oracle={}'
+
+	local out_b err_b code_b
+	{
+		read -r out_b
+		read -r err_b
+		read -r code_b
+	} < <(run_aggregate "$root_b")
+	[[ "$code_b" -ne 0 ]] || fail "r2f10(b): exited 0, want non-zero (empty oracle dict is an unexplained absence -> anomaly)"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+run_key = "f03-fixture-r2f10-emptydict::default::rep1"
+inv = d["inventory"][run_key]
+assert inv["classification"] == "anomaly", inv
+assert "oracle" not in inv["families_present"], "empty-dict oracle must not be listed as present: %r" % inv
+assert "quality" in inv["families_present"], inv
+assert "loc" in inv["families_present"], inv
+matches = [a for a in d["anomalies"] if a["run_key"] == run_key]
+assert len(matches) == 1 and matches[0]["missing_families"] == ["oracle"], matches
+assert d["outcomes"]["anomaly_count"] == 1, d["outcomes"]
+
+task = next(t for t in d["tasks"] if t["item_id"] == "f03-fixture-r2f10-emptydict")
+metric = task["metrics"]["oracle_f2p_resolved"]
+assert metric["n"] == 0, metric
+reasons = {e["reason"] for e in metric["excluded"] if e["run_key"] == run_key}
+assert reasons == {"unexplained_absence"}, (
+    "families_present/classify() disagree with the metric layer about this record: %r" % metric
+)
+' "$out_b" || fail "r2f10(b): assertion failed: $(cat "$out_b")"
+	echo "TC-018 R2-F-10(b, empty-dict family is anomaly, families_present agrees with excluded[]) PASS"
+
+	echo "TC-018 R2-F-10 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 R2-F-12 (round-2 UAT R2-F-12, code-review round-3 confirmation:
+# `is_valid_metric_value()`/`compute_stats()` never closed the round-2
+# finding -- a TYPE check where AC-12's invariant requires a DOMAIN check.
+# `is_valid_metric_value` accepted any non-bool int/float for Class B/C,
+# so a structurally well-typed but out-of-domain value (a negative count,
+# a non-finite float) reached `compute_stats` uncaught, and the Class B
+# band formula `max(0, min - 1)` silently clamped a negative `min` up to
+# 0 -- producing `accept_lo=0 > min=-2` while `excluded == []`, an
+# unfalsifiable-looking but actually-violated AC-12 invariant. Sub-case
+# (a): the live repro from the finding (reps 0, 0, -2 on a Class B
+# metric). Sub-case (b): a non-finite Class C value (NaN), reachable via
+# the real JSON-decode path (Python's `json` module accepts bare `NaN`/
+# `Infinity`/`-Infinity` tokens by default, so a producer emitting one is
+# a real, not hypothetical, input). Sub-case (c): the fix guidance's
+# "unfalsifiable rather than fixture-checked" instruction taken literally
+# -- `compute_stats()`'s own runtime assertion is invoked DIRECTLY (the
+# is_valid_metric_value domain gate bypassed on purpose, simulating a
+# future bug that reintroduces an out-of-domain value) and must raise,
+# proving the invariant is enforced in compute_stats itself, not merely
+# an emergent property of every caller currently filtering correctly.
+# ---------------------------------------------------------------------------
+extract_compute_stats_module() {
+	# The embedded python heredoc's import/constant/function-definition
+	# prologue -- everything between the `<<'PYEOF'` marker and the
+	# `root, variant_filter, reps_arg_raw = sys.argv[...]` line that starts
+	# actually consuming argv -- located by pattern, not a hardcoded line
+	# range, so this stays correct as the surrounding script grows. It is
+	# side-effect-free at module scope (defs and constants only), so it
+	# can be sourced standalone to unit-test `compute_stats` directly,
+	# bypassing every caller-side guard on purpose (sub-case c).
+	awk '
+		/^python3 .*<<.PYEOF./ { capture = 1; next }
+		/^root, variant_filter, reps_arg_raw, items_arg_raw = sys\.argv/ { capture = 0 }
+		capture { print }
+	' "$AGGREGATE" >"$1"
+}
+
+test_r2f12() {
+	# --- (a) Class B: reps 0, 0, -2 -- the finding's own live repro. ---
+	local root_a="$WORKDIR/r2f12-root-a"
+	local item_a="f03-fixture-r2f12a"
+	place_record "$root_a" "$item_a" 1 --set 'oracle.p2p_regressions_count=0'
+	place_record "$root_a" "$item_a" 2 --set 'oracle.p2p_regressions_count=0'
+	place_record "$root_a" "$item_a" 3 --set 'oracle.p2p_regressions_count=-2'
+
+	local out_a err_a code_a
+	{
+		read -r out_a
+		read -r err_a
+		read -r code_a
+	} < <(run_aggregate "$root_a")
+	[[ "$code_a" -eq 0 ]] || fail "r2f12(a): exited $code_a, want 0 (an out-of-domain value excludes, never crashes or aborts the whole aggregation): $(cat "$err_a")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item = sys.argv[2]
+task = next(t for t in d["tasks"] if t["item_id"] == item)
+block = task["metrics"]["p2p_regressions_count"]
+
+# The negative rep must be excluded with a DOMAIN reason, distinct from
+# invalid_value_type (it IS a genuine int -- just out of domain).
+reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+assert reasons.get(item + "::default::rep3") == "out_of_domain", reasons
+
+# Only the two in-domain reps (0, 0) contribute.
+assert block["n"] == 2, block
+assert block["min"] == 0, block
+assert block["max"] == 0, block
+
+# AC-12s invariant, over the CONTRIBUTING values only -- the defect this
+# case reproduces is exactly accept_lo(0) > min(-2) when the -2 was never
+# excluded; with the fix, min is 0 (the -2 never contributes) and the
+# invariant holds trivially, but this assertion is what would have
+# caught the original defect had it still been present.
+assert block["accept_lo"] <= block["min"], block
+assert block["accept_hi"] >= block["max"], block
+' "$out_a" "$item_a" || fail "r2f12(a): assertion failed: $(cat "$out_a")"
+	echo "TC-018 R2-F-12(a, Class B negative value excluded with out_of_domain, AC-12 invariant holds) PASS"
+
+	# --- (b) Class C: a non-finite value (NaN), reachable via the real
+	# JSON-decode path. ---
+	local root_b="$WORKDIR/r2f12-root-b"
+	local item_b="f03-fixture-r2f12b"
+	place_record "$root_b" "$item_b" 1 --set 'loc.prod_added=10'
+	place_record "$root_b" "$item_b" 2 --set 'loc.prod_added=12'
+	place_record "$root_b" "$item_b" 3 --set 'loc.prod_added=NaN'
+
+	local out_b err_b code_b
+	{
+		read -r out_b
+		read -r err_b
+		read -r code_b
+	} < <(run_aggregate "$root_b")
+	[[ "$code_b" -eq 0 ]] || fail "r2f12(b): exited $code_b, want 0: $(cat "$err_b")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item = sys.argv[2]
+task = next(t for t in d["tasks"] if t["item_id"] == item)
+block = task["metrics"]["loc_prod_added"]
+
+reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+assert reasons.get(item + "::default::rep3") == "out_of_domain", reasons
+assert block["n"] == 2, block
+assert block["min"] == 10, block
+assert block["max"] == 12, block
+assert block["accept_lo"] <= block["min"], block
+assert block["accept_hi"] >= block["max"], block
+' "$out_b" "$item_b" || fail "r2f12(b): assertion failed: $(cat "$out_b")"
+	echo "TC-018 R2-F-12(b, Class C non-finite value excluded with out_of_domain, JSON-decode-reachable) PASS"
+
+	# --- (c)/(d) compute_stats' own runtime invariant check fires when
+	# handed an out-of-domain value directly, bypassing every caller-side
+	# guard on purpose -- the invariant is enforced IN compute_stats, not
+	# merely an emergent property of its callers currently filtering
+	# correctly. (NEW-6, uat-20260809-013000-E40-F03.md, round 3): this
+	# used to be a bare `assert`, which CPython strips from the compiled
+	# bytecode entirely under PYTHONOPTIMIZE=1 (or `-O`/`-OO`) -- silently
+	# turning the invariant into a no-op in that mode. It is now an
+	# explicit conditional calling this script's own non-elidable
+	# fail()/sys.exit(1) mechanism, so (c) (normal interpreter) and (d)
+	# (PYTHONOPTIMIZE=1) must both observe the identical failure mode:
+	# SystemExit with code 1, never a silent pass.
+	local module_py="$WORKDIR/r2f12-compute-stats-module.py"
+	extract_compute_stats_module "$module_py"
+	[[ -s "$module_py" ]] || fail "r2f12(c): failed to extract compute_stats module from $AGGREGATE"
+
+	local probe='
+import sys
+sys.path.insert(0, sys.argv[1])
+import importlib.util
+spec = importlib.util.spec_from_file_location("aggregate_module", sys.argv[2])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+try:
+    # The exact live repro (0, 0, -2), handed to compute_stats() directly
+    # -- as if is_valid_metric_value() had NOT excluded the -2 (simulating
+    # a future regression). Must call fail()/exit non-zero, never
+    # silently publish a band that violates accept_lo <= min -- in EITHER
+    # optimization mode.
+    mod.compute_stats("B", [0, 0, -2])
+except SystemExit as e:
+    print("FAIL_RAISED code=%r" % (e.code,))
+    sys.exit(0 if e.code == 1 else 1)
+else:
+    print("NO_FAIL_RAISED -- invariant did not fire")
+    sys.exit(1)
+'
+
+	local normal_out normal_code
+	set +e
+	normal_out="$(python3 -c "$probe" "$WORKDIR" "$module_py" 2>&1)"
+	normal_code=$?
+	set -e
+	[[ "$normal_code" -eq 0 ]] || fail "r2f12(c): compute_stats(\"B\", [0, 0, -2]) did not call fail()/sys.exit(1) -- the invariant is not enforced in compute_stats itself: $normal_out"
+	[[ "$normal_out" == *FAIL_RAISED* ]] || fail "r2f12(c): unexpected output: $normal_out"
+	echo "TC-018 R2-F-12(c, compute_stats' own runtime invariant check fires on a direct out-of-domain call) PASS"
+
+	local optimize_out optimize_code
+	set +e
+	optimize_out="$(PYTHONOPTIMIZE=1 python3 -c "$probe" "$WORKDIR" "$module_py" 2>&1)"
+	optimize_code=$?
+	set -e
+	[[ "$optimize_code" -eq 0 ]] || fail "r2f12(d): under PYTHONOPTIMIZE=1, compute_stats(\"B\", [0, 0, -2]) did not call fail()/sys.exit(1) -- a bare 'assert' would be silently elided here: $optimize_out"
+	[[ "$optimize_out" == *FAIL_RAISED* ]] || fail "r2f12(d): unexpected output: $optimize_out"
+	[[ "$normal_code" -eq "$optimize_code" ]] || fail "r2f12(d): normal-mode and PYTHONOPTIMIZE=1 exit codes diverge: $normal_code vs $optimize_code"
+	echo "TC-018 R2-F-12(d, invariant check is NOT elided under PYTHONOPTIMIZE=1 -- same failure mode as normal mode) PASS"
+
+	# --- (e) full-pipeline "identical output/exit status" check over a
+	# real fixture root under PYTHONOPTIMIZE=1 -- the fix guidance's own
+	# literal ask: PYTHONOPTIMIZE=1 must never change aggregate-runs.sh
+	# behavior for any real invocation, not just the direct compute_stats
+	# probe above. ---
+	local root_e="$WORKDIR/r2f12-root-e"
+	local item_e="f03-fixture-r2f12e"
+	place_record "$root_e" "$item_e" 1
+	place_record "$root_e" "$item_e" 2
+	place_record "$root_e" "$item_e" 3
+
+	local out_normal err_normal code_normal
+	{
+		read -r out_normal
+		read -r err_normal
+		read -r code_normal
+	} < <(run_aggregate "$root_e")
+	[[ "$code_normal" -eq 0 ]] || fail "r2f12(e): normal-mode run exited $code_normal, want 0: $(cat "$err_normal")"
+
+	local out_pyopt err_pyopt code_pyopt
+	out_pyopt="$(mktemp -p "$WORKDIR")"
+	err_pyopt="$(mktemp -p "$WORKDIR")"
+	set +e
+	PYTHONOPTIMIZE=1 "$AGGREGATE" --root "$root_e" >"$out_pyopt" 2>"$err_pyopt"
+	code_pyopt=$?
+	set -e
+	[[ "$code_pyopt" -eq 0 ]] || fail "r2f12(e): PYTHONOPTIMIZE=1 run exited $code_pyopt, want 0: $(cat "$err_pyopt")"
+	[[ "$code_normal" -eq "$code_pyopt" ]] || fail "r2f12(e): exit status diverges -- normal=$code_normal PYTHONOPTIMIZE=1=$code_pyopt"
+	diff -u "$out_normal" "$out_pyopt" >/dev/null || fail "r2f12(e): PYTHONOPTIMIZE=1 output differs from normal-mode output: $(diff -u "$out_normal" "$out_pyopt")"
+	echo "TC-018 R2-F-12(e, full-pipeline output/exit status identical under PYTHONOPTIMIZE=1) PASS"
+
+	echo "TC-018 R2-F-12 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 NEW-2 (uat-20260809-013000-E40-F03.md, round 3: "a declared-matrix
+# bound is enforced on one axis of a two-axis matrix, so a reduction along
+# the unbounded axis publishes as complete"). TC-018y bounds reps (one
+# axis); this closes the other: `--items` bounds the ITEM axis, mirroring
+# `--reps`/expected_rep_set exactly and authoritative in both directions.
+# Sub-case (a): a declared 2-item matrix where one item has NO record.jsonl
+# at all -- must publish missing_run excluded[] entries for it on every
+# applicable metric, name it in flags.missing_items[], and withhold
+# baseline_id entirely (stricter than TC-018y's own reduced-rep case, which
+# still stamps one). Sub-case (b): an item present on disk but NOT in the
+# declared set -- must be named in flags.unexpected_items[], its own real
+# data left alone (still contributes normally, still lets baseline_id
+# publish -- only a MISSING declared item withholds it). Sub-case (c): CLI
+# validation of a malformed --items value (an empty token from a stray
+# comma) is a usage error (exit 2), same class as --reps's own format
+# check.
+# ---------------------------------------------------------------------------
+test_new2() {
+	# --- (a) declared 2-item matrix, one item entirely absent. ---
+	local root_a="$WORKDIR/new2-root-a"
+	local item_present="f03-fixture-new2-present" item_missing="f03-fixture-new2-missing"
+	place_record "$root_a" "$item_present" 1
+	place_record "$root_a" "$item_present" 2
+
+	local out_a err_a code_a
+	{
+		read -r out_a
+		read -r err_a
+		read -r code_a
+	} < <(run_aggregate "$root_a" --reps 2 --items "$item_present,$item_missing")
+	[[ "$code_a" -eq 0 ]] || fail "new2(a): exited $code_a, want 0 (a wholly missing declared item is not itself an anomalous record): $(cat "$err_a")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item_present, item_missing = sys.argv[2], sys.argv[3]
+
+assert "baseline_id" not in d, "a declared item with zero records must withhold baseline_id entirely: %r" % d.get("baseline_id")
+
+missing = d["flags"]["missing_items"]
+assert missing == [item_missing], missing
+assert item_present not in missing, missing
+
+unexpected = d["flags"]["unexpected_items"]
+assert unexpected == [], unexpected
+
+task_missing = next(t for t in d["tasks"] if t["item_id"] == item_missing)
+missing_key_1 = item_missing + "::default::rep1"
+missing_key_2 = item_missing + "::default::rep2"
+saw = 0
+for metric_id, block in task_missing["metrics"].items():
+    reasons = {e["run_key"]: e["reason"] for e in block["excluded"]}
+    assert reasons.get(missing_key_1) == "missing_run", "%s: no missing_run entry for rep1: %r" % (metric_id, block["excluded"])
+    assert reasons.get(missing_key_2) == "missing_run", "%s: no missing_run entry for rep2: %r" % (metric_id, block["excluded"])
+    assert block["n"] == 0, "%s: n=%r, want 0 (zero real records)" % (metric_id, block["n"])
+    saw += 1
+assert saw > 5, "too few metrics carried the missing_run entries to be a meaningful check: %d" % saw
+
+task_present = next(t for t in d["tasks"] if t["item_id"] == item_present)
+for metric_id, block in task_present["metrics"].items():
+    assert not any(e["reason"] == "missing_run" for e in block["excluded"]), "%s: unexpected missing_run entry: %r" % (metric_id, block["excluded"])
+' "$out_a" "$item_present" "$item_missing" || fail "new2(a): assertion failed: $(cat "$out_a")"
+	echo "TC-018 NEW-2(a, declared item with zero records: missing_run everywhere, flags.missing_items, baseline_id withheld) PASS"
+
+	# --- (b) an item present on disk but not in the declared --items set. ---
+	local root_b="$WORKDIR/new2-root-b"
+	local item_declared="f03-fixture-new2-declared" item_extra="f03-fixture-new2-unexpected"
+	place_record "$root_b" "$item_declared" 1
+	place_record "$root_b" "$item_declared" 2
+	place_record "$root_b" "$item_extra" 1
+	place_record "$root_b" "$item_extra" 2
+
+	local out_b err_b code_b
+	{
+		read -r out_b
+		read -r err_b
+		read -r code_b
+	} < <(run_aggregate "$root_b" --items "$item_declared")
+	[[ "$code_b" -eq 0 ]] || fail "new2(b): exited $code_b, want 0: $(cat "$err_b")"
+
+	python3 -c '
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+item_declared, item_extra = sys.argv[2], sys.argv[3]
+
+assert d["flags"]["missing_items"] == [], d["flags"]["missing_items"]
+assert d["flags"]["unexpected_items"] == [item_extra], d["flags"]["unexpected_items"]
+
+# An unexpected item is undeclared, not invalid -- its own data still
+# contributes normally, and (unlike a missing declared item) does not
+# withhold baseline_id.
+assert "baseline_id" in d, "an unexpected (not missing) item must not withhold baseline_id: %r" % d
+task_extra = next(t for t in d["tasks"] if t["item_id"] == item_extra)
+for metric_id, block in task_extra["metrics"].items():
+    assert not any(e["reason"] == "missing_run" for e in block["excluded"]), "%s: unexpected missing_run entry on a real, just-undeclared item: %r" % (metric_id, block["excluded"])
+' "$out_b" "$item_declared" "$item_extra" || fail "new2(b): assertion failed: $(cat "$out_b")"
+	echo "TC-018 NEW-2(b, observed item outside the declared set: flags.unexpected_items, baseline_id still publishes) PASS"
+
+	# --- (c) malformed --items (a stray comma) is a usage error. ---
+	local out_c err_c code_c
+	out_c="$(mktemp -p "$WORKDIR")"
+	err_c="$(mktemp -p "$WORKDIR")"
+	set +e
+	"$AGGREGATE" --root "$root_b" --items "a,,b" >"$out_c" 2>"$err_c"
+	code_c=$?
+	set -e
+	[[ "$code_c" -eq 2 ]] || fail "new2(c): --items \"a,,b\" exited $code_c, want 2 (usage error): $(cat "$err_c")"
+	[[ -s "$out_c" ]] && fail "new2(c): stdout must be empty on a usage error: $(cat "$out_c")"
+	echo "TC-018 NEW-2(c, malformed --items is a usage error) PASS"
+
+	echo "TC-018 NEW-2 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 NEW-3 (uat-20260809-013000-E40-F03.md, round 3: "enforcement is
+# changed and the operator contract that enumerates it is updated on one
+# surface only, so a set the document declares closed is open in the
+# shipped code"). bench/README.md's "Metric registry and exclusion
+# reasons" table (### heading) claims to be the CLOSED set of every
+# `excluded[].reason` value aggregate-runs.sh can emit. Rather than
+# re-asserting the fix guidance's three literally-named gaps by hand (which
+# would silently go stale again the next time a reason is added or
+# renamed), this mechanically diffs the table's documented codes against
+# the reason string literals aggregate-runs.sh's embedded python actually
+# returns as an `excluded[]` reason -- so a FUTURE new reason, or a
+# rename/removal of an existing one, fails this test on either side of the
+# diff without anyone having to remember to update it by hand.
+#
+# Extraction is intentionally narrow rather than a general python parse:
+#   - `("excluded", "<reason>")` two-tuple literals (the direct return
+#     shape most call sites use);
+#   - every bare `return "<reason>"` inside `explain_kind()` (its three
+#     literals reach excluded[] via `("excluded", ek)` at :773, so `ek`
+#     itself is not visible to the tuple-literal regex above); and
+#   - every bare `return "<reason>"` inside `metric_value_exclusion_reason()`
+#     (its two literals reach excluded[] via
+#     `("excluded", metric_value_exclusion_reason(...))` in evaluate_metric,
+#     same indirection).
+# `unpinned_field` is deliberately excluded from this set: it is a
+# `provenance.divergences[]` reason (R2-F-11), not an `excluded[].reason`
+# -- a different vocabulary the exclusion-reason table never claims to
+# enumerate. It, `unresolved_fields[]`'s own `all-exempt`/`never-present`
+# reasons, and replay-manifest.sh's `aggregator_anomaly` are checked
+# separately below by simple presence (not a table diff, since README
+# documents them in prose, not a closed table).
+# ---------------------------------------------------------------------------
+test_new3() {
+	local diff_out
+	diff_out="$(python3 - "$AGGREGATE" "$README_PATH" <<'PYEOF'
+import re
+import sys
+
+script_path, readme_path = sys.argv[1], sys.argv[2]
+script_text = open(script_path).read()
+readme_text = open(readme_path).read()
+
+
+def func_body(name):
+    m = re.search(r"^def %s\(.*?\n(.*?)\n\n\n" % re.escape(name), script_text, re.S | re.M)
+    if not m:
+        raise SystemExit("test_new3: could not locate function %r in %s -- extraction regex is stale" % (name, script_path))
+    return m.group(1)
+
+
+tuple_reasons = set(re.findall(r'\("excluded",\s*"([a-z_]+)"\)', script_text))
+explain_kind_reasons = set(re.findall(r'return "([a-z_]+)"', func_body("explain_kind")))
+metric_exclusion_reasons = set(re.findall(r'return "([a-z_]+)"', func_body("metric_value_exclusion_reason")))
+dict_reasons = set(re.findall(r'"reason":\s*"([a-z_]+)"', script_text)) - {"unpinned_field", "all-exempt", "never-present"}
+
+script_reasons = tuple_reasons | explain_kind_reasons | metric_exclusion_reasons | dict_reasons
+if not script_reasons:
+    raise SystemExit("test_new3: extracted zero reasons from %s -- extraction regexes are stale" % script_path)
+
+start = readme_text.index("### Metric registry and exclusion reasons")
+end = readme_text.index("\n###", start + 10)
+section = readme_text[start:end]
+readme_reasons = set(re.findall(r"^\| `([a-z_]+)` \|", section, re.M))
+if not readme_reasons:
+    raise SystemExit("test_new3: extracted zero reasons from README table -- extraction regex or heading text is stale")
+
+missing_from_readme = sorted(script_reasons - readme_reasons)
+extra_in_readme = sorted(readme_reasons - script_reasons)
+
+if missing_from_readme or extra_in_readme:
+    print("MISMATCH")
+    print("emitted-but-undocumented: %s" % missing_from_readme)
+    print("documented-but-unemitted: %s" % extra_in_readme)
+else:
+    print("MATCH")
+PYEOF
+	)"
+
+	grep -q "^MATCH$" <<<"$diff_out" || fail "new3: README's exclusion-reason table diverges from aggregate-runs.sh's emitted reasons: $diff_out"
+
+	# Prose-documented (not table-enumerated) vocabulary the round-4 sweep
+	# also found undocumented: R2-F-4's unresolved_fields[]/its two reason
+	# values, R2-F-11's unpinned_field divergence, and replay-manifest.sh's
+	# aggregator_anomaly. Simple presence checks, not a mechanical diff --
+	# these are prose call-outs, not a closed table.
+	grep -q "unresolved_fields\[\]" "$README_PATH" || fail "new3: README does not document provenance.unresolved_fields[]"
+	grep -q "all-exempt" "$README_PATH" || fail "new3: README does not document unresolved_fields[]'s all-exempt reason"
+	grep -q "never-present" "$README_PATH" || fail "new3: README does not document unresolved_fields[]'s never-present reason"
+	grep -q "unpinned_field" "$README_PATH" || fail "new3: README does not document the unpinned_field divergence reason"
+	grep -q "aggregator_anomaly" "$README_PATH" || fail "new3: README does not document replay-manifest.sh's aggregator_anomaly reason"
+
+	echo "TC-018 NEW-3 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 NEW-4 (uat-20260809-013000-E40-F03.md, round 3: "a renderer
+# prints a positive absence claim ('none.') for a data-quality section
+# whose input was never computed at all"). aggregate-runs.sh omits
+# `flags{}` ENTIRELY when provenance is non-uniform (see the `if uniform:`
+# guard around `aggregate["flags"] = {...}`) -- "not computed" and
+# "computed, empty" must never render identically. Reuses TC-018ee's own
+# non-uniform fixture shape (a model_ids divergence is enough to make the
+# batch non-uniform and omit flags{}); every Data-quality category must
+# read "_not computed (provenance is not uniform...)_", never "none.", and
+# the per-task noise-band section's "No per-task noise band published"
+# sentence must likewise say WHY (suppressed, not "zero tasks").
+# ---------------------------------------------------------------------------
+test_new4() {
+	local root="$WORKDIR/new4-root"
+	local item="f03-fixture-tc018new4"
+	place_record "$root" "$item" 1
+	place_record "$root" "$item" 2 --set 'manifest.model_ids=["claude-evil-9"]'
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -ne 0 ]] || fail "new4: aggregate-runs.sh exited 0, want non-zero (non-uniform provenance)"
+
+	python3 -c '
+import json
+import sys
+d = json.load(open(sys.argv[1]))
+assert "flags" not in d, "fixture must exercise the flags-entirely-absent shape: %r" % d.get("flags")
+' "$out" || fail "new4: fixture setup assertion failed (flags present when it should be absent): $(cat "$out")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -ne 0 ]] || fail "new4: report-baseline.sh exited 0, want non-zero (non-uniform batch)"
+
+	local report_text
+	report_text="$(cat "$rout")"
+
+	local dq_section
+	dq_section="$(python3 -c '
+import sys
+text = sys.argv[1]
+start = text.index("## Data quality")
+end = text.index("## Noise band per task")
+print(text[start:end])
+' "$report_text")"
+
+	# "none." may legitimately appear on the Anomalous-records line
+	# (anomalies[] is always computed, see below) -- excluded here so this
+	# check is scoped to the flags-derived categories only.
+	grep -vi "^- Anomalous records:" <<<"$dq_section" | grep -qi "none\.$" && fail "new4: Data-quality section still contains a literal '\''none.'\'' line over a batch whose flags were never computed: $dq_section"
+	grep -qi "not computed" <<<"$dq_section" || fail "new4: Data-quality section does not explain that its categories were not computed: $dq_section"
+	grep -qi "provenance is not uniform" <<<"$dq_section" || fail "new4: Data-quality 'not computed' line does not name the reason (non-uniform provenance): $dq_section"
+
+	# Anomalous records draws on `anomalies[]`, a top-level field set
+	# unconditionally regardless of `uniform` -- it is genuinely computed
+	# here (this fixture has no anomalous record), so "none." is the
+	# correct, truthful rendering for THIS category; only the four
+	# flags-derived categories below are actually not-computed.
+	grep -q "^- Anomalous records: none\.\$" <<<"$dq_section" || fail "new4: Anomalous records should still read 'none.' -- anomalies[] is genuinely computed even when flags{} is not: $dq_section"
+
+	for label in "Reduced rep sets" "Unexpected reps" "Insufficient reps" "Unusable metrics"; do
+		grep -q "^- ${label}: _not computed" <<<"$dq_section" || fail "new4: '${label}' does not render the not-computed line: $dq_section"
+	done
+
+	grep -qi "No per-task noise band published" <<<"$report_text" || fail "new4: missing the no-tasks sentence: $report_text"
+	grep -qi "suppressed" <<<"$report_text" || fail "new4: the no-per-task-noise-band sentence does not distinguish suppression (non-uniform) from a genuinely empty uniform batch: $report_text"
+
+	echo "TC-018 NEW-4 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 NEW-5 (uat-20260809-013000-E40-F03.md, round 3: "the Divergences
+# table renders raw Python reprs into published markdown, disagreeing with
+# the PROVENANCE_FIELDS loop 3 lines below which renders the same values
+# correctly"). Builds a single non-uniform aggregate carrying BOTH failure
+# shapes the finding names: a list-valued divergence (model_ids differs
+# per record, reproducing `['claude-evil-9']`) and a None-valued
+# divergence (fixture_base_sha unset on every contributing record --
+# R2-F-11's "unpinned_field" shape, TC-018x(c)'s own fixture, reproducing
+# the bare `None`). After the fix, neither raw repr may appear anywhere in
+# the report, and the Divergences table's rendering must match the
+# PROVENANCE_FIELDS loop's own wording for the same value shapes (shared
+# render_value() helper).
+# ---------------------------------------------------------------------------
+test_new5() {
+	local root="$WORKDIR/new5-root"
+	local item="f03-fixture-tc018new5"
+	place_record "$root" "$item" 1 --unset manifest.fixture_base_sha
+	place_record "$root" "$item" 2 --unset manifest.fixture_base_sha --set 'manifest.model_ids=["claude-evil-9"]'
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -ne 0 ]] || fail "new5: aggregate-runs.sh exited 0, want non-zero (non-uniform provenance)"
+
+	python3 -c '
+import json
+import sys
+d = json.load(open(sys.argv[1]))
+prov = d["provenance"]
+divs = prov.get("divergences", [])
+fields = {dv["field"]: dv for dv in divs}
+assert "fixture_base_sha" in fields, "fixture setup: expected an unpinned_field (None-valued) divergence: %r" % divs
+assert fields["fixture_base_sha"]["values"][0]["value"] is None, fields["fixture_base_sha"]
+assert "model_ids" in fields, "fixture setup: expected a list-valued divergence: %r" % divs
+assert any(isinstance(v["value"], list) for v in fields["model_ids"]["values"]), fields["model_ids"]
+' "$out" || fail "new5: fixture setup assertion failed: $(cat "$out")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -ne 0 ]] || fail "new5: report-baseline.sh exited 0, want non-zero (non-uniform batch)"
+
+	local report_text
+	report_text="$(cat "$rout")"
+
+	grep -qF "['" <<<"$report_text" && fail "new5: report still contains a raw Python list repr (\"['\"): $report_text"
+	grep -qE '(^|[^a-zA-Z_])None([^a-zA-Z_]|$)' <<<"$report_text" && fail "new5: report still contains a bare Python None: $report_text"
+
+	grep -q "claude-evil-9" <<<"$report_text" || fail "new5: diverging list value not rendered at all: $report_text"
+
+	# The Divergences table and the PROVENANCE_FIELDS loop must render the
+	# same None-shaped absence identically (shared render_value()) -- both
+	# sections must use the SAME wording for fixture_base_sha's None,
+	# never the table saying one thing and the Provenance list another.
+	local divergences_section
+	divergences_section="$(python3 -c '
+import sys
+text = sys.argv[1]
+start = text.index("### Divergences")
+table_start = text.index("\n\n", start) + 2
+end = text.index("\n\n", table_start)
+print(text[start:end])
+' "$report_text")"
+	grep -qi "not resolvable\|absent" <<<"$divergences_section" || fail "new5: Divergences table does not render the None value with an absence phrase: $divergences_section"
+
+	echo "TC-018 NEW-5 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 CR5-1 (code review round 5): over a non-uniform aggregate (flags{}
+# absent), the "## Corpus feedback to E40-F01" section unconditionally
+# printed "No tasks in this baseline were flagged non-discriminative." --
+# an affirmative false-empty claim about an analysis that never ran, the
+# same defect class NEW-4 was filed against (see emit_flags_category()
+# above), but in a section structurally outside test_new4's ## Data
+# quality / ## Noise band per task slice, which is why it escaped there.
+# ---------------------------------------------------------------------------
+test_cr5_1() {
+	local root="$WORKDIR/cr5-1-root"
+	local item="f03-fixture-tc018cr51"
+	place_record "$root" "$item" 1
+	place_record "$root" "$item" 2 --set 'manifest.model_ids=["claude-evil-9"]'
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root")
+	[[ "$code" -ne 0 ]] || fail "cr5-1: aggregate-runs.sh exited 0, want non-zero (non-uniform provenance)"
+
+	python3 -c '
+import json
+import sys
+d = json.load(open(sys.argv[1]))
+assert "flags" not in d, "fixture must exercise the flags-entirely-absent shape: %r" % d.get("flags")
+' "$out" || fail "cr5-1: fixture setup assertion failed (flags present when it should be absent): $(cat "$out")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -ne 0 ]] || fail "cr5-1: report-baseline.sh exited 0, want non-zero (non-uniform batch)"
+
+	local report_text
+	report_text="$(cat "$rout")"
+
+	local corpus_section
+	corpus_section="$(python3 -c '
+import sys
+text = sys.argv[1]
+start = text.index("## Corpus feedback to E40-F01")
+end = text.index("## Measurement caveats")
+print(text[start:end])
+' "$report_text")"
+
+	grep -qi "No tasks in this baseline were flagged non-discriminative" <<<"$corpus_section" && fail "cr5-1: Corpus-feedback section still affirmatively claims no non-discriminative tasks over a batch whose flags were never computed: $corpus_section"
+	grep -qi "not computed" <<<"$corpus_section" || fail "cr5-1: Corpus-feedback section does not explain that non-discriminative-task detection was not computed: $corpus_section"
+	grep -qi "provenance is not uniform" <<<"$corpus_section" || fail "cr5-1: Corpus-feedback 'not computed' line does not name the reason (non-uniform provenance): $corpus_section"
+
+	echo "TC-018 CR5-1 PASS"
+}
+
+# ---------------------------------------------------------------------------
+# TC-018 CR6-1 (code review round 6): report-baseline.sh's Provenance
+# section silently omitted the "Input digest"/"Baseline id" rows entirely
+# when input_digest/baseline_id are absent from the aggregate, instead of
+# naming the absence the way the PROVENANCE_FIELDS loop three lines above
+# already does ("_absent from the aggregate_", the R2-F-2/R2-F-4 fix) --
+# the third instance of the "affirmative claim (or silence) built on a
+# possibly-absent aggregate key" defect class in this file, after NEW-4
+# and CR5-1. Reuses TC-018 NEW-2(a)'s own fixture shape (a declared item
+# with zero records, --items-bounded), which NEW-2(a) already proves
+# withholds baseline_id on a genuinely uniform, exit-0 aggregate -- this
+# is exactly the "looks like a normal, complete report" case the finding
+# says a reader has no way to see through. NEW-2(a) itself only asserts on
+# the aggregate JSON's own baseline_id key; this sub-case is the first to
+# render report-baseline.sh over that shape and inspect the Provenance
+# section text.
+# ---------------------------------------------------------------------------
+test_cr6_1() {
+	local root="$WORKDIR/cr6-1-root"
+	local item_present="f03-fixture-cr61-present" item_missing="f03-fixture-cr61-missing"
+	place_record "$root" "$item_present" 1
+	place_record "$root" "$item_present" 2
+
+	local out err code
+	{
+		read -r out
+		read -r err
+		read -r code
+	} < <(run_aggregate "$root" --items "$item_present,$item_missing")
+	[[ "$code" -eq 0 ]] || fail "cr6-1: aggregate-runs.sh exited $code, want 0 (a wholly missing declared item is not itself an anomalous record): $(cat "$err")"
+
+	python3 -c '
+import json
+import sys
+d = json.load(open(sys.argv[1]))
+assert "baseline_id" not in d, "fixture setup: expected baseline_id withheld (NEW-2(a) shape -- declared item with zero records): %r" % d.get("baseline_id")
+assert "input_digest" in d, "fixture setup: expected input_digest present (computed unconditionally): %r" % d
+' "$out" || fail "cr6-1: fixture setup assertion failed: $(cat "$out")"
+
+	local rout rerr rcode
+	{
+		read -r rout
+		read -r rerr
+		read -r rcode
+	} < <(run_report "$out")
+	[[ "$rcode" -eq 0 ]] || fail "cr6-1: report-baseline.sh exited $rcode, want 0 (uniform batch): $(cat "$rerr")"
+
+	local report_text
+	report_text="$(cat "$rout")"
+
+	local prov_section
+	prov_section="$(python3 -c '
+import sys
+text = sys.argv[1]
+start = text.index("## Provenance")
+end = text.index("## Data quality")
+print(text[start:end])
+' "$report_text")"
+
+	grep -qE '^- Baseline id: _absent from the aggregate_$' <<<"$prov_section" || fail "cr6-1: Provenance section does not explicitly name baseline_id's absence (must mirror the PROVENANCE_FIELDS loop's own wording): $prov_section"
+	grep -qE '^- Input digest: `' <<<"$prov_section" || fail "cr6-1: Provenance section does not render input_digest's present value: $prov_section"
+
+	echo "TC-018 CR6-1 PASS"
+}
+
+test_new3
 test_a
 test_b
 test_c
@@ -1668,5 +3449,25 @@ test_o
 test_p
 test_u
 test_v
+test_w
+test_x
+test_y
+test_z
+test_aa
+test_bb
+test_cc
+test_dd
+test_ee
+test_ff
+test_gg
+test_hh
+test_ii
+test_r2f10
+test_r2f12
+test_new2
+test_new4
+test_new5
+test_cr5_1
+test_cr6_1
 
 echo "TC-018 PASS"

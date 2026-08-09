@@ -35,12 +35,15 @@
 # REQ-F-027's three preconditions (checked in order, ALL collected before
 # reporting -- a caller debugging a replay needs every failing check in
 # one pass, not one-at-a-time):
-#   (i)   bench/corpus/ledgers/<manifest.fixture_base_sha>/ exists --
-#         resolved from THIS SCRIPT's own location ($BENCH_DIR/corpus/
-#         ledgers/<sha>/), never from --corpus's directory (spec.md: the
-#         base-SHA ledger paths run-one.sh reads are derived from its own
-#         location, not the corpus file's -- a synthetic corpus in a temp
-#         dir still resolves the real ledgers).
+#   (i)   bench/corpus/ledgers/<manifest.fixture_base_sha>/{tests,lint}.json
+#         both EXIST as files -- resolved from THIS SCRIPT's own location
+#         ($BENCH_DIR/corpus/ledgers/<sha>/), never from --corpus's
+#         directory (spec.md: the base-SHA ledger paths run-one.sh reads
+#         are derived from its own location, not the corpus file's -- a
+#         synthetic corpus in a temp dir still resolves the real
+#         ledgers). The directory's mere existence is not the check
+#         (UAT F-10): a partially-pruned ledger dir missing either file
+#         fails loudly, naming which file is missing.
 #   (ii)  the stored record's manifest.item_id resolves in --corpus's
 #         items: list.
 #   (iii) the --band aggregate has an entry for (item_id, variant_id): a
@@ -186,6 +189,7 @@ readarray -d '' -t precheck_fields < <(python3 - "$record_path" "$corpus_yaml" "
 import copy
 import json
 import os
+import re
 import sys
 
 import yaml
@@ -246,12 +250,40 @@ if failures:
         sys.stderr.write("replay-manifest: precondition failed: %s\n" % msg)
     sys.exit(1)
 
-# --- (i) ledger directory (REQ-F-027) ---
+# --- R2-F-13 fix (code-review-20260808-235300-E40-F03.md /
+# uat-20260808-231500-E40-F03.md): item_id/variant_id here come from the
+# STORED RECORD -- never the operator -- and this script's bash half
+# later interpolates both, unvalidated, into fresh_record_path
+# (out_root_abs/item_id/variant_id/rep-N/record.jsonl). A forged or
+# corrupted record must not be able to steer that path outside --out.
+# Checked here, at parse time, and batched into the SAME failures[] list
+# as (i)/(ii)/(iii) below -- consistent with REQ-F-027's "every failing
+# check reported in one pass" convention -- before any of those checks
+# construct or touch a path derived from either value. The grammar
+# structurally forbids '/' (no traversal component) and a leading '.' (so
+# neither '.' nor '..' can ever match). ---
+SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
+for field_name, field_value in (("manifest.item_id", item_id), ("manifest.variant_id", variant_id)):
+    if not isinstance(field_value, str) or not SAFE_SLUG_RE.match(field_value):
+        failures.append(
+            "%s = %r is not a safe path identifier (must match %s -- no '/', no leading '.') -- REQ-F-006"
+            % (field_name, field_value, SAFE_SLUG_RE.pattern)
+        )
+
+# --- (i) ledger directory's retained artifacts (REQ-F-027, UAT F-10):
+# the directory's mere existence is not the requirement -- REQ-F-027 (i)
+# names bench/corpus/ledgers/<sha>/{tests,lint}.json specifically, so a
+# partially-pruned ledger dir (container present, one or both artifacts
+# missing) must fail loudly and name which file is missing, not pass on
+# an os.path.isdir check alone. ---
 ledger_dir = os.path.join(ledgers_root, fixture_base_sha)
-if not os.path.isdir(ledger_dir):
-    failures.append(
-        "bench/corpus/ledgers/%s/ not found (path: %s) -- REQ-F-027 (i)" % (fixture_base_sha, ledger_dir)
-    )
+for ledger_file in ("tests.json", "lint.json"):
+    ledger_path = os.path.join(ledger_dir, ledger_file)
+    if not os.path.isfile(ledger_path):
+        failures.append(
+            "bench/corpus/ledgers/%s/%s not found (path: %s) -- REQ-F-027 (i)"
+            % (fixture_base_sha, ledger_file, ledger_path)
+        )
 
 # --- (ii) item id resolves in --corpus (REQ-F-027) ---
 try:
@@ -383,14 +415,42 @@ stored_record_abspath="${precheck_fields[4]}"
 run_key="${item_id}::${variant_id}::rep${rep}"
 
 mkdir -p "$out_root"
-out_root_abs="$(cd "$out_root" && pwd)"
+# NEW-1 (UAT round 3, uat-20260809-013000-E40-F03.md): out_root_abs MUST be
+# canonicalized the same way run-batch.sh's own out_root_canon is (realpath
+# -m, symlinks resolved) -- the prior `cd "$out_root" && pwd` form is
+# LOGICAL (bash pwd's default -L, symlinks preserved), which disagreed with
+# the fully-canonicalized comparison assert_within_out_root() performs
+# below and wrongly rejected every legitimate --out that resolves through
+# a symlink.
+out_root_abs="$(realpath -m -- "$out_root")"
 fresh_record_path="$out_root_abs/$item_id/$variant_id/rep-$rep/record.jsonl"
+
+# R2-F-13 belt-and-braces containment check (in addition to the safe-slug
+# grammar check on item_id/variant_id above): item_id/variant_id are
+# already grammar-validated, so this should never fire in practice, but
+# the constructed path is still canonicalized with `realpath -m` and
+# asserted beneath out_root_abs before any mkdir/cp/dispatch below uses
+# it. assert_within_out_root() is lifted into lib/path-safety.sh, shared
+# with run-batch.sh's own R2-F-13 fix, so the two implementations cannot
+# drift apart again.
+out_root_canon="$out_root_abs"
+# shellcheck source=lib/path-safety.sh
+source "$SCRIPT_DIR/lib/path-safety.sh"
+assert_within_out_root "$fresh_record_path" || exit 1
 
 # Cheap zero-spend guard for REQ-F-025's "distinct --out root": a caller
 # passing an --out that resolves the fresh record onto the stored one
 # would otherwise let run-one.sh's own overwrite-refusal guard (or worse,
 # a silent clobber) discover this mid-flight, after dispatch.
-if [[ "$fresh_record_path" == "$stored_record_abspath" ]]; then
+#
+# Sweep (NEW-1's fix guidance): stored_record_abspath comes from Python's
+# os.path.abspath(), which normalizes but never resolves symlinks --
+# comparing it directly against the now-canonicalized fresh_record_path
+# would reintroduce the same two-namespaces defect class this task exists
+# to fix. Canonicalize both sides with the same realpath -m form before
+# comparing.
+stored_record_canon="$(realpath -m -- "$stored_record_abspath")"
+if [[ "$(realpath -m -- "$fresh_record_path")" == "$stored_record_canon" ]]; then
 	echo "replay-manifest: --out resolves the fresh record path to the same file as --record ($fresh_record_path); pass a distinct --out root (REQ-F-025)" >&2
 	exit 1
 fi
@@ -453,23 +513,39 @@ fi
 # `pass` (every comparable metric inside its published interval) or
 # `fail` (at least one outside, named with its replayed value and
 # interval; every other metric still individually scored in metrics[]). ---
-python3 - "$stored_record_abspath" "$fresh_record_path" "$band_path" "$DRIFT_STATE" "$fresh_aggregate_path" "$item_id" <<'PYEOF'
+python3 - "$stored_record_abspath" "$fresh_record_path" "$band_path" "$DRIFT_STATE" "$fresh_aggregate_path" "$item_id" "$agg_rc" <<'PYEOF'
 import json
 import sys
 
-stored_path, replayed_path, band_path, drift_path, fresh_aggregate_path, item_id = sys.argv[1:7]
+stored_path, replayed_path, band_path, drift_path, fresh_aggregate_path, item_id, agg_rc_str = sys.argv[1:8]
+agg_rc = int(agg_rc_str)
 
-IDENTITY_FIELDS = ("fixture_base_sha", "corpus_schema_version", "p2p_set", "variant_bundle_sha256", "model_ids")
-
-# REQ-F-029: these two fields are compared post-dispatch, on top of
-# REQ-F-028's corpus_drift (already recorded to drift_path by the dispatch
-# half). Named here, not folded into IDENTITY_FIELDS above, because each
-# gets its own reasons[] entry/vocabulary word (variant_bundle_drift,
-# model_version_drift) rather than a generic "differs" bit.
-POST_DISPATCH_DRIFT_FIELDS = (
-    ("variant_bundle_sha256", "variant_bundle_drift"),
-    ("model_ids", "model_version_drift"),
+IDENTITY_FIELDS = (
+    "run_key",
+    "fixture_base_sha",
+    "corpus_schema_version",
+    "p2p_set",
+    "variant_bundle_sha256",
+    "model_ids",
+    "shark_version",
 )
+
+# UAT R2-F-6 (docs/review/.../uat-20260808-231500-E40-F03.md): round-1's F-6
+# fix hand-picked only variant_bundle_sha256/model_ids (POST_DISPATCH_DRIFT_
+# FIELDS) plus a specially-cased run_key, leaving fixture_base_sha,
+# corpus_schema_version, and p2p_set displayed (via identity() below) but
+# NEVER compared -- a fresh record could carry a completely different
+# fixture_base_sha and still verdict pass. IDENTITY_FIELDS above is now the
+# SINGLE set that drives both comparison and display: every field is
+# compared here, and identity() below can only display what this loop
+# already compared. variant_bundle_sha256/model_ids/run_key keep their own
+# named reason (REQ-F-029, REQ-F-025); every other field gets a generic
+# identity_mismatch reason naming the field.
+IDENTITY_REASON_OVERRIDES = {
+    "run_key": "run_key_mismatch",
+    "variant_bundle_sha256": "variant_bundle_drift",
+    "model_ids": "model_version_drift",
+}
 
 
 def load_manifest(path):
@@ -481,7 +557,7 @@ def load_manifest(path):
 
 
 def identity(path, manifest):
-    d = {"run_key": manifest.get("run_key"), "path": path}
+    d = {"path": path}
     for field in IDENTITY_FIELDS:
         if field in manifest:
             d[field] = manifest[field]
@@ -496,11 +572,36 @@ with open(drift_path) as f:
 stored_manifest = load_manifest(stored_path)
 replayed_manifest = load_manifest(replayed_path)
 
-for field, reason_name in POST_DISPATCH_DRIFT_FIELDS:
+# UAT F-6 / R2-F-6: loop over the FULL IDENTITY_FIELDS set (not two
+# hand-picked fields plus a special-cased run_key) so every displayed
+# identity field is also enforced. A mismatch on any of them -- a
+# producer-side rep-renumbering bug (run_key), a diverged fixture
+# (fixture_base_sha), a stale corpus schema, a different p2p_set, a bundle
+# hash drift, a model-ID drift, or a shark binary version skew -- yields
+# `invalid`, never a reproducibility pass with the differing values merely
+# printed side by side.
+for field in IDENTITY_FIELDS:
     expected = stored_manifest.get(field)
     actual = replayed_manifest.get(field)
     if expected != actual:
+        reason_name = IDENTITY_REASON_OVERRIDES.get(field, "identity_mismatch")
         reasons.append({"reason": reason_name, "field": field, "expected": expected, "actual": actual})
+
+# UAT F-1 (CRITICAL): a non-zero aggregate-runs.sh exit for the freshly
+# replayed record means the aggregator itself refused to treat it as a
+# comparable datum (its own `anomaly` classification, REQ-F-009) -- the
+# `:452` empty-output guard above catches only a structurally invalid/
+# non-uniform input, never this. Checked here, not skipped, so this
+# reason lands in the SAME reasons[]/invalid path as every other identity
+# mismatch above (never a metric comparison over data the aggregator
+# itself would not certify).
+if agg_rc != 0:
+    reasons.append(
+        {
+            "reason": "aggregator_anomaly",
+            "detail": "aggregate-runs.sh exited %d for the replayed run -- it could not be certified as a comparable datum" % agg_rc,
+        }
+    )
 
 doc = {
     "baseline_id": band.get("baseline_id"),
@@ -529,13 +630,33 @@ else:
     fresh_task = next((t for t in fresh_agg.get("tasks") or [] if t.get("item_id") == item_id), None)
     fresh_metrics = (fresh_task or {}).get("metrics") or {}
 
+    # UAT F-1, fix guidance #2: a band-published metric the fresh side
+    # cannot supply (dropped family, gate never executed, invalid value
+    # type, ...) is NEVER silently skipped -- it gets an explicit
+    # `not_comparable` entry naming the fresh block's own n/excluded[]
+    # reasons, so metrics_out accounts for every metric the band
+    # published. "Case (b) is the trap": an explained_absence record can
+    # pass agg_rc == 0 while still dropping comparable band metrics this
+    # way, so this check is independent of (and in addition to) the
+    # agg_rc check above.
     metrics_out = []
+    not_comparable_ids = []
+    band_no_interval_ids = []
     for metric_id in sorted(band_metrics):
         band_block = band_metrics[metric_id]
         fresh_block = fresh_metrics.get(metric_id) or {}
 
         if "accept_set" in band_block:
             if "true_count" not in fresh_block:
+                not_comparable_ids.append(metric_id)
+                metrics_out.append(
+                    {
+                        "metric": metric_id,
+                        "verdict": "not_comparable",
+                        "n": fresh_block.get("n"),
+                        "excluded": fresh_block.get("excluded") or [],
+                    }
+                )
                 continue
             replayed_value = bool(fresh_block["true_count"])
             accept_set = band_block["accept_set"]
@@ -550,6 +671,15 @@ else:
             )
         elif "accept_lo" in band_block:
             if "mean" not in fresh_block:
+                not_comparable_ids.append(metric_id)
+                metrics_out.append(
+                    {
+                        "metric": metric_id,
+                        "verdict": "not_comparable",
+                        "n": fresh_block.get("n"),
+                        "excluded": fresh_block.get("excluded") or [],
+                    }
+                )
                 continue
             replayed_value = fresh_block["mean"]
             accept_lo, accept_hi = band_block["accept_lo"], band_block["accept_hi"]
@@ -563,11 +693,78 @@ else:
                     "verdict": verdict,
                 }
             )
-        # else: band published no interval for this metric (insufficient_reps
-        # on the band side) -- nothing to compare against, skipped.
+        else:
+            # UAT R2-F-1 (HIGH, same loop as round-1's CRITICAL F-1 fix --
+            # that fix handled the fresh side unable to supply a metric;
+            # this is the band-side equivalent, left unhandled): the band
+            # published NO interval/accept_set for this metric at all (e.g.
+            # insufficient_reps on the band side) -- previously silently
+            # dropped from metrics_out with no trace. Never skipped: an
+            # explicit not_comparable entry naming the BAND block's own
+            # n/excluded[] (there is no fresh-side value to blame -- the
+            # band itself had nothing to compare against).
+            #
+            # Kept in its OWN list (band_no_interval_ids), not
+            # not_comparable_ids: unlike the two branches above -- where the
+            # band published a claim (an interval) the fresh side failed to
+            # answer, REQ-N-005's "an absent metric is never read as zero"
+            # territory -- here the band never made a claim about this
+            # metric at all (AC-13/REQ-F-016's own insufficient_reps case,
+            # already surfaced at publish time by report-baseline.sh's
+            # flags.insufficient_reps). There is nothing for a replay to
+            # have violated, so this must not by itself force `invalid`
+            # (AC-27's `pass` must stay reachable for a band with ANY
+            # insufficient_reps metric) -- it is still traced in
+            # reasons[]/metrics[], never silently dropped.
+            band_no_interval_ids.append(metric_id)
+            metrics_out.append(
+                {
+                    "metric": metric_id,
+                    "verdict": "not_comparable",
+                    "reason": "band_no_interval",
+                    "n": band_block.get("n"),
+                    "excluded": band_block.get("excluded") or [],
+                }
+            )
+
+    # Structural invariant (UAT R2-F-1 fix guidance): metrics_out must
+    # account for every band-published metric -- no branch above may skip
+    # appending, so this can never trip once the else: above is in place.
+    #
+    # NEW-6 (uat-20260809-013000-E40-F03.md, round-3): this was a bare
+    # `assert`, elided entirely under PYTHONOPTIMIZE=1 (Python strips
+    # `assert` statements -- not just their messages -- whenever `-O`/
+    # PYTHONOPTIMIZE is set), silently turning a runtime invariant into a
+    # no-op in that mode. An explicit conditional writing to stderr and
+    # calling sys.exit(1) -- this file's own non-elidable hard-failure
+    # mechanism, the same one every load_one_line_json/precondition/--band
+    # failure above already uses -- can never be compiled away.
+    if len(metrics_out) != len(band_metrics):
+        sys.stderr.write(
+            "replay-manifest: metrics_out=%d entries, band_metrics=%d keys -- a band-published metric was dropped silently\n"
+            % (len(metrics_out), len(band_metrics))
+        )
+        sys.exit(1)
 
     doc["metrics"] = metrics_out
-    doc["verdict"] = "fail" if any(m["verdict"] == "fail" for m in metrics_out) else "pass"
+    if band_no_interval_ids:
+        doc.setdefault("reasons", []).append({"reason": "band_no_interval", "metrics": band_no_interval_ids})
+
+    scored_metrics = [m for m in metrics_out if m["verdict"] in ("pass", "fail")]
+
+    if not_comparable_ids:
+        doc.setdefault("reasons", []).append({"reason": "metric_not_comparable", "metrics": not_comparable_ids})
+        doc["verdict"] = "invalid"
+    elif not scored_metrics:
+        # No metric this item published actually got a pass/fail score --
+        # either metrics_out is empty (band published nothing for this
+        # item) or every entry is band_no_interval (the band published
+        # metrics, but none carried an interval). Either way, never read
+        # as a vacuous pass (REQ-N-005).
+        doc.setdefault("reasons", []).append({"reason": "no_comparable_metrics"})
+        doc["verdict"] = "invalid"
+    else:
+        doc["verdict"] = "fail" if any(m["verdict"] == "fail" for m in metrics_out) else "pass"
 
 print(json.dumps(doc, indent=2, sort_keys=True))
 # spec.md Interface contracts: verdict `pass` -> exit 0; `fail`/`invalid` -> non-zero.

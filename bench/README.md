@@ -415,8 +415,8 @@ binary) — run them sequentially.
 
 ## Baseline aggregation, noise band, and replay
 
-`bench/scripts/aggregate-runs.sh --root <artifact_root> [--variant <id>]`
-(T-E40-F03-003/004) is a pure function of an artifact root: it reads only
+`bench/scripts/aggregate-runs.sh --root <artifact_root> [--variant <id>]
+[--reps <n>] [--items <id[,id...]>]` (T-E40-F03-003/004) is a pure function of an artifact root: it reads only
 the `record.jsonl` files matched by the pinned glob
 `"$root"/*/*/rep-*/record.jsonl` (never `find` — a bare `*` never matches
 the dot-prefixed `.incomplete/` quarantine root `run-batch.sh` writes) and
@@ -457,6 +457,10 @@ reasons:
 | `partial_usage` | A Class C sum over `stages[].usage.*` (or a `step.<status>.tokens_input`/`.tokens_output`/`.cost_usd` metric) where at least one contributing `spawn_agent` stage exists but is missing `usage` or the specific sub-field — never summed over a subset. |
 | `step_not_reached` | A `step.<status>.*` metric where this run's `stages[]` contains no entry at all with that status — distinct from a true zero (a step reached only via a non-agent, e.g. `advance_status`, stage genuinely cost nothing). |
 | `family_absent` | Catch-all: the metric's source field, or its whole containing family/block (e.g. a wholly-absent `rejections` block), is simply missing, and none of the above more specific reasons applies. |
+| `missing_run` | This `(item, rep)` pair has no `record.jsonl` at all under the expected rep matrix (`--reps`, or — absent that — the union of rep numbers observed anywhere in the root). Never silently reflected as a smaller `n` with an empty `excluded[]`; the item is also named in `flags.reduced_reps[]`. A declared item (`--items <id[,id...]>`) with NO record for ANY rep gets a `missing_run` entry for every expected rep on every applicable metric the same way, is named in `flags.missing_items[]` instead of `flags.reduced_reps[]`, and — unlike a partial rep hole — withholds `baseline_id` entirely (the declared item universe isn't fully covered). An observed item outside the declared `--items` set is left alone (still contributes normally) but is named in `flags.unexpected_items[]`. `--items` is authoritative in both directions the same way `--reps`/`expected_rep_set` is, and, like `--reps`, is never resolved from `batch-log.jsonl` or `corpus.yaml` (REQ-F-007) — purely the caller-supplied argument. |
+| `unexpected_rep` | This record's `manifest.rep` is OUTSIDE the expected rep matrix (`--reps`, or — absent that — the union of rep numbers observed anywhere in the root) — e.g. `--reps 2` against a root that actually holds reps 1, 2, and 3. Never silently folded into the band while `provenance.reps`/`baseline_id` still name the smaller declared count; the item is also named in `flags.unexpected_reps[]`. `expected_rep_set` is authoritative in both directions — a rep below it is `missing_run`, a rep above it is `unexpected_rep`. |
+| `invalid_value_type` | This metric's source field is present and non-null but is not the type its class requires (a genuine `bool` for Class A; a genuine `int`/`float`, not `bool`, for Class B/C) — excluded rather than coerced (REQ-N-005), e.g. a JSON string `"false"` never satisfies `oracle.f2p_resolved`. |
+| `out_of_domain` | This metric's source field holds the RIGHT type but an out-of-domain value: a negative Class B/C value (every registered Class B/C metric is a non-negative count/measurement), or a non-finite Class C value (`NaN`/`Infinity`/`-Infinity` — reachable via the JSON-decode path, since Python's `json` module accepts those as bare tokens by default). Excluded rather than silently clamped into range, which is what the Class B band formula `max(0, min − 1)` would otherwise do to a negative `min`, breaking AC-12's `accept_lo <= min` invariant by construction. Distinct from `invalid_value_type`: that reason fires when the field's Python type itself is wrong; `out_of_domain` fires when the type is correct but the value falls outside the metric's declared domain. |
 
 `rejections.by_gate`'s own zero-vs-excluded rule is distinct from the
 table above and is **not** an exclusion: an omitted gate key within a
@@ -512,21 +516,31 @@ Sorted keys, fixed list order, no timestamp (REQ-N-004).
 |---|---|
 | `schema_version` | Pinned; the aggregate's own version, distinct from I-02's. |
 | `input_digest` | sha256 over the sorted `"<sha256>  <relpath>"` lines of every contributing `record.jsonl` (REQ-F-019) — **computed**, not echoed. Each line's sha256 is over the record file's raw bytes; `relpath` is relative to `--root` (never the absolute path), so the same artifact set aggregated from two different locations digests identically. Publishes even when provenance is non-uniform — it identifies the exact (possibly-invalid) input set. |
-| `provenance` | `model_ids[]`, `fixture_base_sha`, `variant_bundle_sha256`, `corpus_schema_version`, `shark_version`, `reps`, `uniform` (bool), and `divergences[]` when not. |
+| `provenance` | `model_ids[]`, `fixture_base_sha`, `variant_bundle_sha256`, `corpus_schema_version`, `shark_version`, `reps`, `uniform` (bool), `divergences[]` when not, and `unresolved_fields[]` (R2-F-4) when any of the five uniformity fields above was never given a usable value by ANY contributing record — each entry is `{field, reason}` with `reason` one of `all-exempt` (every contributing record's absence was individually explained, e.g. `model_ids` absent on an all-`timeout` batch) or `never-present` (defensive fallback for a shape not reachable under today's rules, kept so a future field/rule combination still gets a named reason instead of a silent drop). |
 | `inventory` | Per `run_key`: `classification`, `outcome`, and the families present. |
 | `outcomes` | Counts per outcome value, `timeout_rate`, `anomaly_count`. |
 | `anomalies[]` | `run_key` + missing families, for the F-4 bucket. |
 | `tasks[]` | Present only when `provenance.uniform` is `true`. Per item: `item_id`, `item_type`, `metrics{}` (statistics + interval/`accept_set` + `excluded[]` + `insufficient_reps`/`unusable` flags), `non_discriminative`. |
 | `corpus` | Present only when `provenance.uniform` is `true`. Per metric: the `min`/`median`/`max` of the per-task `spread_rel` (nulls skipped); for `oracle_f2p_resolved`, additionally a corpus pass rate and a rep-slice band (the min/median/max of the per-rep-index corpus pass rates — a descriptive, non-paired rollup; the operative band for any comparison is the per-task one). |
-| `flags` | Present only when `provenance.uniform` is `true`. `unusable_metrics[]` and `insufficient_reps[]` are `{item_id, metric}` lists; `non_discriminative_tasks[]` is a list of item ids. |
-| `baseline_id` | Present only when `provenance.uniform` is `true` and both a single `variant_id` and `provenance.fixture_base_sha` are available: `<variant_id>-<fixture_base_sha[:12]>-r<reps>` — 12 hex chars of the SHA, literal `r` + the integer rep count. |
+| `flags` | Present only when `provenance.uniform` is `true`. `unusable_metrics[]` and `insufficient_reps[]` are `{item_id, metric}` lists; `non_discriminative_tasks[]` is a list of item ids; `reduced_reps[]` is a list of `{item_id, contributing_reps, published_reps}` naming every item whose contributing rep count fell below the published `provenance.reps` (REQ-N-005 — a band is never published over a silently reduced rep set); `unexpected_reps[]` is a list of `{item_id, unexpected_reps, published_reps}` naming every item that contributed a rep OUTSIDE the published `provenance.reps` matrix (R2-F-7 — the mirror-image mismatch: a rep count larger, not smaller, than declared). `missing_items[]` (NEW-2, present — possibly empty — whether or not `--items` was supplied) is a sorted list of item id **strings**: every declared item with zero records at all. `unexpected_items[]` (same shape, same always-present rule) is a sorted list of item id strings: every observed item outside the declared `--items` set. |
+| `baseline_id` | Present only when `provenance.uniform` is `true`, both a single `variant_id` and `provenance.fixture_base_sha` are available, AND `flags.missing_items[]` is empty (NEW-2 — a declared item with zero records means the corpus isn't fully covered, so no confident baseline is stamped): `<variant_id>-<fixture_base_sha[:12]>-r<reps>` — 12 hex chars of the SHA, literal `r` + the integer rep count. |
 
 **Non-uniform provenance (REQ-F-011).** `tasks[]`, `corpus`, `flags`, and
 `baseline_id` are omitted entirely — never published "as if the batch
 were valid" (AC-11) — while `schema_version`/`input_digest`/`provenance`/
 `inventory`/`outcomes`/`anomalies` still print, since those are
 independent of provenance validity and a non-uniform batch report still
-needs to name its own (invalid) input set precisely. A root whose records
+needs to name its own (invalid) input set precisely. One `divergences[]`
+shape carries its own named reason, `unpinned_field` (R2-F-11): every
+NON-exempt contributing record agreeing on an absent value for one of the
+five uniformity fields (all of them contribute an explicit JSON `null`,
+never a real value) is unpinned agreement, not verified agreement, and is
+recorded as `{field, reason: "unpinned_field", values: [{value: null,
+run_keys: [...]}]}` rather than silently folded into `provenance[field]
+= null` the way a genuinely single agreed-on value would be. Its
+consequence is identical to any other divergence: `provenance.uniform` is
+`false`, and `tasks[]`/`corpus`/`flags`/`baseline_id` are all suppressed
+for the batch. A root whose records
 span more than one `manifest.variant_id` with no `--variant` filter to
 disambiguate is a separate, harder failure: nothing is printed at all
 (same class as a structurally invalid record) — silently blending two
@@ -546,9 +560,12 @@ assertable) enforced before any replay dispatch:
 
 1. **Ledger retention.** `bench/corpus/ledgers/<sha>/` is never deleted
    for any SHA a published manifest references. Replay reads the base-SHA
-   ledger indirectly through `run-one.sh`, and can only assert the
-   directory's existence, not its content — deleting it silently breaks
-   every future replay of a run against that SHA.
+   ledger indirectly through `run-one.sh`, but its own precondition check
+   asserts file-level content, not just directory existence: it requires
+   `bench/corpus/ledgers/<sha>/tests.json` and `.../lint.json` to each
+   exist as files, naming whichever is missing — deleting either file (or
+   pruning the directory) is caught before dispatch, rather than silently
+   breaking a future replay of a run against that SHA.
 2. **Corpus item immutability.** A corpus item's seed file and held-back
    F2P test files are treated as immutable for any SHA a published
    manifest references (Q005). An ordinary curator edit to a seed or F2P
@@ -600,28 +617,50 @@ byte-identical to the stored one and is the join key for the comparison
 (REQ-F-025).
 
 **Post-dispatch comparison and the three-valued verdict (REQ-F-029/030,
-ADR-F03-05).** After a successful dispatch, the fresh record's
-`manifest.variant_bundle_sha256` and `manifest.model_ids` are compared
-against the stored record's. Either mismatch is recorded as its own
-`reasons[]` entry — `variant_bundle_drift` or `model_version_drift`,
-naming both the expected (stored) and actual (fresh) value in full — and
-the verdict is `invalid`, **never** `fail`: the inputs were not
-reproduced, so a metric comparison would be meaningless. When both fields
-drift simultaneously, both reasons are present, each with its own
-expected/actual pair — one never subsumes the other. `corpus_drift`
+ADR-F03-05).** After a successful dispatch, the fresh record's identity
+fields — `manifest.run_key`, `.fixture_base_sha`, `.corpus_schema_version`,
+`.p2p_set`, `.variant_bundle_sha256`, `.model_ids`, and `.shark_version` —
+are ALL compared against the stored record's (the same set that drives the
+`verification.json` `stored`/`replayed` display blocks — a field is never
+displayed without also being enforced). A mismatch on
+`variant_bundle_sha256`/`model_ids`/`run_key` is recorded with its own
+named `reasons[]` entry (`variant_bundle_drift`, `model_version_drift`,
+`run_key_mismatch` respectively); every other identity field gets a
+generic `identity_mismatch` entry naming the field. Any of these — naming
+both the expected (stored) and actual (fresh) value in full — yields the
+verdict `invalid`, **never** `fail`: the inputs were not reproduced, so a
+metric comparison would be meaningless. When multiple fields drift
+simultaneously, every one is present as its own reasons[] entry, each with
+its own expected/actual pair — none ever subsumes another. `corpus_drift`
 (above) shares this same `reasons[]` list and vocabulary, so any
-combination of drift — corpus, bundle, model, or all three — still yields
-one `invalid` verdict naming every contributing reason.
+combination of drift — corpus, identity, or both — still yields one
+`invalid` verdict naming every contributing reason. A freshly dispatched
+replay whose own `aggregate-runs.sh` invocation exits non-zero (an
+`anomaly` classification, REQ-F-009 — the aggregator itself refused to
+certify the replayed record as a comparable datum) is likewise recorded
+as its own `reasons[]` entry (`aggregator_anomaly`, carrying a `detail`
+string instead of an expected/actual pair) and forces the same `invalid`
+verdict, never a metric comparison run over data the aggregator would not
+certify.
 
 Only when every identity field matches does the per-metric comparison
 run: the freshly dispatched single record is aggregated on its own (by
 invoking `aggregate-runs.sh`, never re-derived) to compute its own
 per-metric values, and each metric published in the `--band`'s matching
-`tasks[]` entry is compared against it. The verdict is `pass` when every
-comparable metric falls inside its published interval (or `accept_set`,
-for a Class A metric), or `fail` when at least one does not — `fail` is
-metric-scoped in `verification.json`'s `metrics[]` table (every
-comparable metric is listed with its own `replayed_value` and interval/
-`accept_set` and its own `pass`/`fail`), never a single bare bit. A metric
-the band published no interval for, or the fresh record has no value for,
-is left out of `metrics[]` rather than fabricated (REQ-N-005).
+`tasks[]` entry is compared against it — every metric the band publishes
+is accounted for in `metrics[]`, never silently dropped (REQ-N-005): a
+metric is `pass`/`fail` when both sides can supply a value, `not_comparable`
+(reason `metric_not_comparable`, forcing verdict `invalid`) when the band
+published an interval the fresh record has no value for, and
+`not_comparable` (reason `band_no_interval`, traced but **not** by itself
+forcing `invalid`) when the band itself published no interval for that
+metric at all (e.g. `insufficient_reps`, AC-13) — the band made no claim,
+so a replay cannot have violated one. The verdict is `pass` when every
+metric that DID get a `pass`/`fail` score falls inside its published
+interval (or `accept_set`, for a Class A metric), or `fail` when at least
+one does not — `fail` is metric-scoped in `verification.json`'s
+`metrics[]` table (every comparable metric is listed with its own
+`replayed_value` and interval/`accept_set` and its own `pass`/`fail`),
+never a single bare bit. If NO metric ends up with a `pass`/`fail` score
+(an empty `metrics[]`, or every entry `band_no_interval`), the verdict is
+`invalid` (reason `no_comparable_metrics`) — never a vacuous pass.
