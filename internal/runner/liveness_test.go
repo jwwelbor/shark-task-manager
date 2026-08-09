@@ -80,20 +80,31 @@ func captureStderrLines(t *testing.T, fn func()) []string {
 	os.Stderr = w
 	defer func() { os.Stderr = old }()
 
+	// Drain the pipe concurrently with fn() rather than after it returns:
+	// fn() may write more than the OS pipe buffer (64KB on Linux) while
+	// holding LivenessRecorder's mutex, which would otherwise deadlock a
+	// writer against a reader that never starts.
+	var sb strings.Builder
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := r.Read(buf)
+			sb.Write(buf[:n])
+			if readErr != nil {
+				return
+			}
+		}
+	}()
+
 	fn()
 
 	if err := w.Close(); err != nil {
 		t.Fatalf("close pipe writer: %v", err)
 	}
-	var sb strings.Builder
-	buf := make([]byte, 4096)
-	for {
-		n, readErr := r.Read(buf)
-		sb.Write(buf[:n])
-		if readErr != nil {
-			break
-		}
-	}
+	<-done
+
 	raw := strings.TrimRight(sb.String(), "\n")
 	if raw == "" {
 		return nil

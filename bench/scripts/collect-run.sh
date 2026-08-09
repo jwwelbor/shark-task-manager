@@ -317,6 +317,8 @@ def parse_liveness_stream(path):
                 obj = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(obj, dict):
+                continue
             if found_run_id is None and obj.get("run_id"):
                 found_run_id = obj["run_id"]
             events.append(obj)

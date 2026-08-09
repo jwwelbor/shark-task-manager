@@ -382,7 +382,9 @@ func (r *LivenessRecorder) emitLine(line ndjsonLine) {
 // second ticker goroutine and is not guarded against, matching Start()'s
 // single-call contract.
 func (r *LivenessRecorder) Start() {
-	fmt.Fprintf(os.Stderr, "run.log: %s\n", r.logPath)
+	if r.logPath != "" {
+		fmt.Fprintf(os.Stderr, "run.log: %s\n", r.logPath)
+	}
 
 	r.wg.Add(1)
 	go func() {

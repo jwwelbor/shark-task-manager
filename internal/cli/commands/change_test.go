@@ -157,10 +157,22 @@ func captureOutput(t *testing.T, fn func()) []byte {
 	origStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+
+	// Drain the pipe concurrently with fn(): if fn() writes more than the OS
+	// pipe buffer (64KB on Linux) before returning, a write inside fn() would
+	// otherwise block forever waiting for a reader that only starts after
+	// fn() returns.
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.Copy(&buf, r)
+	}()
+
 	fn()
 	_ = w.Close()
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
+	<-done
+
 	os.Stdout = origStdout
 	return buf.Bytes()
 }
