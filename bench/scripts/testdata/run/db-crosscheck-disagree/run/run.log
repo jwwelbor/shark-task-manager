@@ -1,0 +1,9 @@
+2026-08-06T11:00:00.000000000Z  stage_start  T-BENCH-DEMO-020  status=in_development action=spawn_agent agent=developer provider=anthropic stage=0s total=0s
+2026-08-06T11:00:01.500000000Z  stage_end  T-BENCH-DEMO-020  status=in_development action=spawn_agent agent=developer provider=anthropic stage=1s total=1s
+2026-08-06T11:00:01.510000000Z  stage_start  T-BENCH-DEMO-020  status=in_qa action=spawn_agent agent=qa provider=anthropic stage=0s total=1s
+2026-08-06T11:00:03.510000000Z  stage_end  T-BENCH-DEMO-020  status=in_qa action=spawn_agent agent=qa provider=anthropic stage=2s total=3s
+2026-08-06T11:00:03.520000000Z  stage_start  T-BENCH-DEMO-020  status=in_development action=spawn_agent agent=developer provider=anthropic stage=0s total=3s
+2026-08-06T11:00:04.720000000Z  stage_end  T-BENCH-DEMO-020  status=in_development action=spawn_agent agent=developer provider=anthropic stage=1s total=4s
+2026-08-06T11:00:04.730000000Z  stage_start  T-BENCH-DEMO-020  status=ready_for_approval action=advance_status stage=0s total=4s
+2026-08-06T11:00:04.780000000Z  stage_end  T-BENCH-DEMO-020  status=ready_for_approval action=advance_status stage=0s total=4s
+2026-08-06T11:00:04.785000000Z  run_end  T-BENCH-DEMO-020  outcome=completed final_status=completed stages=4 total=4s

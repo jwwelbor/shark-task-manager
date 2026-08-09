@@ -1,0 +1,19 @@
+diff --git a/pkg/pricing/pricing.go b/pkg/pricing/pricing.go
+index ef983b4..460f016 100644
+--- a/pkg/pricing/pricing.go
++++ b/pkg/pricing/pricing.go
+@@ -46,8 +46,14 @@ func RoundedUnitPrice(totalCents int, quantity int) int {
+ 	return totalCents / quantity
+ }
+ 
++// ErrNegativeFee is returned when a flat fee is negative.
++var ErrNegativeFee = errors.New("fee must not be negative")
++
+ // ApplyFlatFee adds a flat, non-negative feeCents to subtotalCents and
+ // returns the new total.
+ func ApplyFlatFee(subtotalCents int, feeCents int) (int, error) {
++	if feeCents < 0 {
++		return 0, ErrNegativeFee
++	}
+ 	return subtotalCents + feeCents, nil
+ }

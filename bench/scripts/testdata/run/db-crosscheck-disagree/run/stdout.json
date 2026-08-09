@@ -1,0 +1,13 @@
+{
+  "entity_key": "T-BENCH-DEMO-020",
+  "final_status": "completed",
+  "stages_completed": 4,
+  "stages": [
+    {"status": "in_development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1500000000, "exit_code": 0},
+    {"status": "in_qa", "action": "spawn_agent", "agent_type": "qa", "provider": "anthropic", "duration_ns": 2000000000, "exit_code": 0},
+    {"status": "in_development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1200000000, "exit_code": 0},
+    {"status": "ready_for_approval", "action": "advance_status", "duration_ns": 50000000, "exit_code": 0}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 4750000000
+}

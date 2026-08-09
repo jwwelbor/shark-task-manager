@@ -1,0 +1,6 @@
+COMMAND: claude --output-format json
+EXIT: 0
+DURATION: 1300ms
+---STDOUT---
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1300,"duration_api_ms":1100,"num_turns":4,"result":"synthetic result - modelUsage intentionally omitted","session_id":"synthetic-session-missing-modelusage","total_cost_usd":0.018,"usage":{"input_tokens":90,"cache_creation_input_tokens":15,"cache_read_input_tokens":500,"output_tokens":120},"permission_denials":[],"uuid":"00000000-0000-0000-0000-000000000050"}
+---STDERR---

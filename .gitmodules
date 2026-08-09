@@ -1,0 +1,3 @@
+[submodule "bench/fixture-repo"]
+	path = bench/fixture-repo
+	url = https://github.com/jwwelbor/shark-bench-fixture.git

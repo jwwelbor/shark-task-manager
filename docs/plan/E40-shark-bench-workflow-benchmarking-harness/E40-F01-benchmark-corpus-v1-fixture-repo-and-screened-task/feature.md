@@ -2,7 +2,7 @@
 feature_key: E40-F01-benchmark-corpus-v1-fixture-repo-and-screened-task
 epic_key: E40
 title: Benchmark corpus v1: fixture repo and screened tasks
-description: Purpose-built Go fixture repo with a real test suite, plus a corpus manifest of ~10 screened tasks and bugs: issue-style prompt, entity seed spec, held-back FAIL_TO_PASS tests, PASS_TO_PASS set. Admission gate: base commit shows F2P red + P2P green; reference patch turns both green. Base-SHA test and lint ledgers captured at corpus build.
+description: Purpose-built Go fixture repo with a real test suite, plus a corpus manifest of ~10 screened tasks and bugs: issue-style prompt, entity seed spec, held-back FAIL_TO_PASS tests, PASS_TO_PASS set. Admission gate: base commit shows F2P red + P2P green; reference patch turns both green. Base-SHA test and lint ledgers captured at corpus build. Produces: I-01.
 ---
 
 # Benchmark corpus v1: fixture repo and screened tasks

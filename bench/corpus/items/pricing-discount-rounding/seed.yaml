@@ -1,0 +1,8 @@
+type: bug
+title: "ApplyDiscount rounds the discount to the nearest cent instead of down"
+description: |
+  ApplyDiscount is documented to round the discount amount down (floor), but
+  currently rounds to the nearest cent, overstating the discount by a cent
+  for inputs where the exact discount has a fractional-cent remainder of
+  0.5 or more. Restore floor-rounding semantics.
+severity: low

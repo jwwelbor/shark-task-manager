@@ -1,0 +1,14 @@
+diff --git a/pkg/validate/validate.go b/pkg/validate/validate.go
+index c866838..372e812 100644
+--- a/pkg/validate/validate.go
++++ b/pkg/validate/validate.go
+@@ -23,6 +23,9 @@ func SKU(value string) error {
+ 	if err := NonEmpty(value); err != nil {
+ 		return err
+ 	}
++	if len(value) < 2 {
++		return errors.New("sku must be at least 2 characters")
++	}
+ 	if strings.ContainsAny(value, " \t\n") {
+ 		return errors.New("sku must not contain whitespace")
+ 	}

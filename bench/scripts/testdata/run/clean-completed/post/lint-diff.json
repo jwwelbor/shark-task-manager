@@ -1,0 +1,11 @@
+{
+  "kind": "lint",
+  "new_issues": [
+    {
+      "from_linter": "ineffassign",
+      "path": "pkg/pricing/discount.go",
+      "text": "ineffectual assignment to err"
+    }
+  ],
+  "new_issues_count": 1
+}

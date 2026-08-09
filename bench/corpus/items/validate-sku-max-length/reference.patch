@@ -1,0 +1,26 @@
+diff --git a/pkg/validate/validate.go b/pkg/validate/validate.go
+index c866838..e787890 100644
+--- a/pkg/validate/validate.go
++++ b/pkg/validate/validate.go
+@@ -10,6 +10,12 @@ import (
+ // ErrEmpty is returned when a value is empty or whitespace-only.
+ var ErrEmpty = errors.New("value must not be empty")
+ 
++// maxSKULength is the maximum number of characters a SKU may contain.
++const maxSKULength = 40
++
++// ErrSKUTooLong is returned when a SKU exceeds maxSKULength characters.
++var ErrSKUTooLong = errors.New("sku must not exceed 40 characters")
++
+ // NonEmpty returns ErrEmpty if value is empty or whitespace-only.
+ func NonEmpty(value string) error {
+ 	if strings.TrimSpace(value) == "" {
+@@ -26,5 +32,8 @@ func SKU(value string) error {
+ 	if strings.ContainsAny(value, " \t\n") {
+ 		return errors.New("sku must not contain whitespace")
+ 	}
++	if len(value) > maxSKULength {
++		return ErrSKUTooLong
++	}
+ 	return nil
+ }

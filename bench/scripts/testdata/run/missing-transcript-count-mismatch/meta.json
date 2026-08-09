@@ -1,0 +1,8 @@
+{
+  "item_id": "pricing-apply-flat-fee-rejects-negative-fee",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 900,
+  "harness_wall_ns": 3600000000
+}

@@ -1,0 +1,13 @@
+diff --git a/pkg/pricing/pricing.go b/pkg/pricing/pricing.go
+index ef983b4..a3f9c4d 100644
+--- a/pkg/pricing/pricing.go
++++ b/pkg/pricing/pricing.go
+@@ -43,7 +43,7 @@ func Probe() int {
+ // price, rounding up to the nearest cent when the division has a
+ // remainder, so quantity*RoundedUnitPrice(...) never undercharges the total.
+ func RoundedUnitPrice(totalCents int, quantity int) int {
+-	return totalCents / quantity
++	return (totalCents + quantity - 1) / quantity
+ }
+ 
+ // ApplyFlatFee adds a flat, non-negative feeCents to subtotalCents and

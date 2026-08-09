@@ -1,0 +1,14 @@
+diff --git a/pkg/validate/validate.go b/pkg/validate/validate.go
+index c866838..e68a7f4 100644
+--- a/pkg/validate/validate.go
++++ b/pkg/validate/validate.go
+@@ -18,6 +18,9 @@ func NonEmpty(value string) error {
+ 	return nil
+ }
+ 
++// TODO: SKU should also reject any value containing lowercase letters, per
++// the "require uppercase-only SKUs" request. Not yet implemented below.
++
+ // SKU validates that value is non-empty and contains no whitespace.
+ func SKU(value string) error {
+ 	if err := NonEmpty(value); err != nil {

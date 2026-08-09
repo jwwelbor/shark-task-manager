@@ -1,0 +1,14 @@
+{
+  "item_id": "cart-remove-item-last-match",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 900,
+  "harness_wall_ns": 5123000000,
+  "fixture_base_sha": "4c24986844b09122e2d516f9bc1ec470b155b441",
+  "corpus_schema_version": "1.0",
+  "p2p_set": "default",
+  "variant_bundle_sha256": "04fca7add5d7569e81c1beb1677f224c3fe6f149f8e231eb2b19219b25ef26bd",
+  "shark_version": "shark version dev (7f188a20) built 2026-08-07",
+  "shark_binary_sha256": "929d3cf370db03acac7e97c214cd85afb79d951363343f69a078afc413b9890d"
+}

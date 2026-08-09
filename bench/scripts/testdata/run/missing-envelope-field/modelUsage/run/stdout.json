@@ -1,0 +1,10 @@
+{
+  "entity_key": "T-BENCH-DEMO-050",
+  "final_status": "completed",
+  "stages_completed": 1,
+  "stages": [
+    {"status": "in_development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1300000000, "exit_code": 0}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 1300000000
+}

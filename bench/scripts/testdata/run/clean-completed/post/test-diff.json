@@ -1,0 +1,15 @@
+{
+  "kind": "test",
+  "regressions": [
+    {
+      "identity": "pkg/pricing::TestDiscountFloor"
+    }
+  ],
+  "regressions_count": 1,
+  "removed": [
+    {
+      "identity": "pkg/pricing::TestDiscountLegacyFlag"
+    }
+  ],
+  "removed_count": 1
+}

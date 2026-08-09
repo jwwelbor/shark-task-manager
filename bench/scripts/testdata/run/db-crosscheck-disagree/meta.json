@@ -1,0 +1,10 @@
+{
+  "item_id": "rejection-crosscheck-demo",
+  "item_type": "task",
+  "variant_id": "default",
+  "rep": 1,
+  "timeout_cap_s": 900,
+  "harness_wall_ns": 5000000000,
+  "entity_key": "T-BENCH-DEMO-020",
+  "scratch_db_path": "scratch/shark-tasks.db"
+}

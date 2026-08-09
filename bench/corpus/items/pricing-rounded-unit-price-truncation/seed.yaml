@@ -1,0 +1,9 @@
+type: bug
+title: "RoundedUnitPrice truncates the per-unit price instead of rounding up"
+description: |
+  RoundedUnitPrice is documented to round the per-unit price up to the
+  nearest cent when totalCents does not divide quantity evenly, so the
+  total never falls short of the original amount. Currently it truncates
+  (floors) instead, undercharging by up to quantity-1 cents in aggregate.
+  Restore ceiling-rounding semantics; an even division is unaffected.
+severity: low

@@ -1,0 +1,6 @@
+type: task
+title: "Add a maximum length limit to SKU validation"
+description: |
+  validate.SKU currently accepts a SKU of any length. Add a maximum length
+  of 40 characters, returning a clear, descriptive error for longer values
+  while preserving the existing non-empty and no-whitespace checks.

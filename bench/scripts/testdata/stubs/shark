@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# PATH-stub `shark` (test-plan.md TC-014 Caller-Path Contract): a real,
+# executable stub placed first on PATH for the duration of a test, mirroring
+# TC-011's go/golangci-lint stub technique. Forwards every subcommand to the
+# REAL shark binary (STUB_SHARK_REAL) EXCEPT the two axes T-E40-F02-003's
+# driver tests fake: `create epic|feature|task|bug` (canned assigned keys,
+# never re-deriving the real create logic) and `run` (canned RunResult /
+# hang-and-ignore-SIGTERM, never a live agent dispatch). This is why
+# run-one.sh's own `admin install-shark-data` call still works under the
+# stub: it isn't one of the faked subcommands, so it forwards straight
+# through to the real binary and materializes a real shark-data/ tree.
+#
+# Configuration (all via env var; every one is optional with a sane default
+# except STUB_SHARK_REAL, which is required for any forwarded subcommand):
+#   STUB_SHARK_REAL              path to the real shark binary to forward to
+#   STUB_SHARK_LOG               path to a JSONL log; one line per
+#                                 invocation: {"argv": [...], "cwd": "..."}
+#                                 (TC-014b/c read this to assert cwd
+#                                 containment and the absence of explicit
+#                                 --key/--id flags)
+#   STUB_SHARK_EPIC_KEY          canned key for `create epic`    (E01)
+#   STUB_SHARK_FEATURE_KEY       canned key for `create feature` (E01-F01)
+#   STUB_SHARK_TASK_KEY          canned key for `create task`    (E01-F01-001)
+#   STUB_SHARK_BUG_KEY           canned key for `create bug`     (B001)
+#   STUB_SHARK_RUN_RESULT_FILE   path to a JSON file to print verbatim as
+#                                 the `run` subcommand's stdout (RunResult).
+#                                 Defaults to one advance_status-only stage,
+#                                 outcome "completed" (no spawn_agent stage,
+#                                 so no transcript fixture is needed).
+#   STUB_SHARK_RUN_EXIT           exit code for `run` (default 0)
+#   STUB_SHARK_RUN_HANG           "1": ignore SIGTERM and sleep long,
+#                                 emitting only the liveness announce line +
+#                                 an open stage_start (never a RunResult) --
+#                                 TC-014e's timeout path.
+#   STUB_SHARK_RUN_FORK_GRANDCHILD "1": also fork a grandchild that ignores
+#                                 SIGTERM and touches STUB_SHARK_HEARTBEAT_FILE
+#                                 every second, recording its own process
+#                                 group id once to
+#                                 "$STUB_SHARK_HEARTBEAT_FILE.pgid" -- AC-04's
+#                                 orphan-process defensive property.
+#   STUB_SHARK_HEARTBEAT_FILE     heartbeat marker path (required when
+#                                 STUB_SHARK_RUN_FORK_GRANDCHILD=1)
+#   STUB_SHARK_RUN_ID             run id used in the announce line / NDJSON
+#                                 events (default "stub-run-0001")
+#   STUB_SHARK_RUN_F2P_MARKER_FILE  when set, `run` writes "present" or
+#                                 "absent" to this path -- whichever it
+#                                 observes for STUB_SHARK_RUN_F2P_CHECK_PATH
+#                                 (a path relative to the invocation's own
+#                                 --workdir) AT THE MOMENT `run` is invoked,
+#                                 before any post-run F2P injection could
+#                                 have happened (T-E40-F02-004's TC-014d,
+#                                 AC-12's dispatch-time leak surface).
+#   STUB_SHARK_RUN_F2P_CHECK_PATH  the workdir-relative path to check;
+#                                 required together with the marker file.
+set -euo pipefail
+
+log_invocation() {
+	if [[ -n "${STUB_SHARK_LOG:-}" ]]; then
+		python3 - "$STUB_SHARK_LOG" "$PWD" "$@" <<'PYEOF'
+import json
+import sys
+
+log_path, cwd = sys.argv[1], sys.argv[2]
+argv = sys.argv[3:]
+with open(log_path, "a") as f:
+    f.write(json.dumps({"argv": argv, "cwd": cwd}) + "\n")
+PYEOF
+	fi
+}
+
+log_invocation "$@"
+
+canned_key_response() {
+	# $1 = entity_type, $2 = key
+	printf '{"status":"created","entity_type":"%s","key":"%s"}\n' "$1" "$2"
+}
+
+case "${1:-} ${2:-}" in
+"create epic")
+	canned_key_response "epic" "${STUB_SHARK_EPIC_KEY:-E01}"
+	exit 0
+	;;
+"create feature")
+	canned_key_response "feature" "${STUB_SHARK_FEATURE_KEY:-E01-F01}"
+	exit 0
+	;;
+"create task")
+	canned_key_response "task" "${STUB_SHARK_TASK_KEY:-E01-F01-001}"
+	exit 0
+	;;
+"create bug")
+	canned_key_response "bug" "${STUB_SHARK_BUG_KEY:-B001}"
+	exit 0
+	;;
+esac
+
+if [[ "${1:-}" == "run" ]]; then
+	entity_key="${2:-}"
+
+	# AC-12/TC-014d: inspect --workdir at dispatch time, before any post-run
+	# injection could have happened -- the marker (not the checkout's final
+	# state) is what would catch a pre-dispatch leak.
+	if [[ -n "${STUB_SHARK_RUN_F2P_MARKER_FILE:-}" ]]; then
+		workdir=""
+		prev=""
+		for a in "$@"; do
+			if [[ "$prev" == "--workdir" ]]; then
+				workdir="$a"
+			fi
+			prev="$a"
+		done
+		state="absent"
+		if [[ -n "${STUB_SHARK_RUN_F2P_CHECK_PATH:-}" && -n "$workdir" && -f "$workdir/${STUB_SHARK_RUN_F2P_CHECK_PATH}" ]]; then
+			state="present"
+		fi
+		printf '%s' "$state" >"$STUB_SHARK_RUN_F2P_MARKER_FILE"
+	fi
+
+	run_id="${STUB_SHARK_RUN_ID:-stub-run-0001}"
+	run_log_path="$PWD/.shark/runs/$run_id/run.log"
+	ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+	# LivenessRecorder.Start() announces run.log on stderr once, before any
+	# event line -- the exact contract collect-run.sh's run_id resolution
+	# (and run-one.sh's own artifact-copy resolution) depends on.
+	echo "run.log: $run_log_path" >&2
+	printf '{"ts":"%s","run_id":"%s","event":"stage_start","entity_key":"%s","iteration":1,"status":"in_development","action":"spawn_agent","agent_type":"developer","provider":"anthropic","stage_elapsed_ms":0,"total_elapsed_ms":0}\n' \
+		"$ts" "$run_id" "$entity_key" >&2
+
+	if [[ "${STUB_SHARK_RUN_HANG:-0}" == "1" ]]; then
+		# TC-014e/AC-03/AC-04: never emits stage_end or a RunResult. Ignores
+		# SIGTERM (uncatchable SIGKILL is what must actually end this) so
+		# run-one.sh's own process-group teardown is the only thing that can
+		# stop it -- proving the kill is real, not a cooperative shutdown.
+		trap '' TERM
+		if [[ "${STUB_SHARK_RUN_FORK_GRANDCHILD:-0}" == "1" ]]; then
+			heartbeat="${STUB_SHARK_HEARTBEAT_FILE:?STUB_SHARK_HEARTBEAT_FILE required when STUB_SHARK_RUN_FORK_GRANDCHILD=1}"
+			(
+				trap '' TERM
+				# $$ inside a () subshell is bash-documented to stay the
+				# INVOKING shell's pid, not this subshell's own -- use
+				# $BASHPID for the actual grandchild pid. Its pgid is the
+				# same value as every other member of this setsid'd group
+				# (the stub, and run-one.sh's target), which is the whole
+				# point: any member's pgid names the group to kill.
+				ps -o pgid= -p "$BASHPID" | tr -d ' ' >"$heartbeat.pgid"
+				while :; do
+					touch "$heartbeat"
+					sleep 1
+				done
+			) &
+		fi
+		sleep 3600
+		exit 0
+	fi
+
+	ts_end="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	printf '{"ts":"%s","run_id":"%s","event":"stage_end","entity_key":"%s","iteration":1,"status":"in_development","action":"spawn_agent","agent_type":"developer","provider":"anthropic","stage_elapsed_ms":1,"total_elapsed_ms":1}\n' \
+		"$ts_end" "$run_id" "$entity_key" >&2
+
+	if [[ -n "${STUB_SHARK_RUN_RESULT_FILE:-}" ]]; then
+		cat "$STUB_SHARK_RUN_RESULT_FILE"
+	else
+		printf '{"entity_key":"%s","final_status":"completed","stages_completed":1,"stages":[{"status":"completed","action":"advance_status","duration_ns":1000000,"exit_code":0}],"outcome":"completed","total_duration_ns":1000000}\n' \
+			"$entity_key"
+	fi
+	exit "${STUB_SHARK_RUN_EXIT:-0}"
+fi
+
+# Forward everything else (admin install-shark-data, get, etc.) to the real
+# binary, exactly as TC-011's go/golangci-lint stub forwards every call
+# except the one axis under test.
+if [[ -z "${STUB_SHARK_REAL:-}" ]]; then
+	echo "stub shark: STUB_SHARK_REAL not set, cannot forward: $*" >&2
+	exit 127
+fi
+exec "$STUB_SHARK_REAL" "$@"

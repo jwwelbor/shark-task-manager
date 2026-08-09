@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# testdata/stubs/run-one -- env-var-configurable stand-in for run-one.sh
+# (test-plan.md TC-017/TC-019 Caller-Path Contracts; T-E40-F03-001's Scope).
+# A real, executable script substituted via RUN_ONE_BIN (never PATH --
+# run-batch.sh/replay-manifest.sh resolve run-one.sh by variable, mirroring
+# run-one.sh's own SHARK_BIN/CANARY_BIN pattern), so run-batch.sh's/
+# replay-manifest.sh's own enumeration, classification, quarantine, and
+# precondition logic all run for real against this stub's observable
+# behavior -- only the external run-one.sh invocation itself is faked (zero
+# API spend, ADR-F02-01/ADR-F03-02's "invoke, never re-derive").
+#
+# Accepts run-one.sh's real CLI surface: --item, --variant, --rep,
+# --timeout, --out, --corpus, --skip-canary (accepted, ignored -- this stub
+# never runs a canary preflight or provisions anything).
+#
+# Configuration (env vars; every one optional). The first four are pinned
+# by test-plan.md's "New test infrastructure" section and MUST keep these
+# exact names -- T-E40-F03-006/007's tc019 suite reuses this same stub:
+#   STUB_RUN_ONE_RECORD_FILE   path to a record.jsonl to copy VERBATIM to
+#                               the computed output path
+#                               (<out>/<item>/<variant>/rep-<rep>/record.jsonl)
+#                               on a successful (exit-0) call. Defaults to a
+#                               minimal synthetic record computed from this
+#                               invocation's own --item/--variant/--rep.
+#   STUB_RUN_ONE_EXIT          exit status for every call (default 0) --
+#                               see STUB_RUN_ONE_FAIL_RUN_KEY below for the
+#                               single-pair variant fault-tolerance tests
+#                               need.
+#   STUB_RUN_ONE_LOG           path to a JSONL invocation log; one line per
+#                               call: {"argv": [...], "cwd": "..."} -- same
+#                               shape as testdata/stubs/shark's own
+#                               STUB_SHARK_LOG (AC-02's/AC-22's own text:
+#                               "asserted by a stubbed driver that records
+#                               its call count").
+#   STUB_RUN_ONE_ECHO_CORPUS_TO
+#                               when set, copies the received --corpus
+#                               file's contents verbatim to this path
+#                               (TC-019b/c's synthetic-corpus inspection;
+#                               unused by tc017).
+#
+# Fault-injection addition (this task's own extension, not one of the four
+# pinned names above -- needed by TC-017e's "one pair fails, the rest
+# succeed" case, which a single global STUB_RUN_ONE_EXIT cannot express on
+# its own):
+#   STUB_RUN_ONE_FAIL_RUN_KEY  when set, ONLY the call whose computed
+#                               "<item>::<variant>::rep<rep>" equals this
+#                               value exits with ${STUB_RUN_ONE_EXIT:-1};
+#                               every other call exits 0 regardless of
+#                               STUB_RUN_ONE_EXIT. Unset (the default):
+#                               STUB_RUN_ONE_EXIT applies to every call, as
+#                               documented above.
+#
+# No record.jsonl is written when a call exits non-zero -- mirrors
+# run-one.sh's own behavior of never producing a record for a failed run
+# (collect-run.sh is never reached on that path).
+set -euo pipefail
+
+# Preserve the ORIGINAL argv for the invocation log before the parsing loop
+# below shifts it away.
+orig_argv=("$@")
+orig_cwd="$PWD"
+
+if [[ -n "${STUB_RUN_ONE_LOG:-}" ]]; then
+	python3 - "$STUB_RUN_ONE_LOG" "$orig_cwd" "${orig_argv[@]}" <<'PYEOF'
+import json
+import sys
+
+log_path, cwd = sys.argv[1], sys.argv[2]
+argv = sys.argv[3:]
+with open(log_path, "a") as f:
+    f.write(json.dumps({"argv": argv, "cwd": cwd}) + "\n")
+PYEOF
+fi
+
+item_id=""
+variant_id=""
+rep=""
+timeout_s=""
+out_root=""
+corpus_yaml=""
+skip_canary="false"
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--item)
+		[[ $# -ge 2 ]] || {
+			echo "stub run-one: --item requires a value" >&2
+			exit 2
+		}
+		item_id="$2"
+		shift 2
+		;;
+	--variant)
+		[[ $# -ge 2 ]] || {
+			echo "stub run-one: --variant requires a value" >&2
+			exit 2
+		}
+		variant_id="$2"
+		shift 2
+		;;
+	--rep)
+		[[ $# -ge 2 ]] || {
+			echo "stub run-one: --rep requires a value" >&2
+			exit 2
+		}
+		rep="$2"
+		shift 2
+		;;
+	--timeout)
+		[[ $# -ge 2 ]] || {
+			echo "stub run-one: --timeout requires a value" >&2
+			exit 2
+		}
+		timeout_s="$2"
+		shift 2
+		;;
+	--out)
+		[[ $# -ge 2 ]] || {
+			echo "stub run-one: --out requires a value" >&2
+			exit 2
+		}
+		out_root="$2"
+		shift 2
+		;;
+	--corpus)
+		[[ $# -ge 2 ]] || {
+			echo "stub run-one: --corpus requires a value" >&2
+			exit 2
+		}
+		corpus_yaml="$2"
+		shift 2
+		;;
+	--skip-canary)
+		skip_canary="true"
+		shift
+		;;
+	*)
+		echo "stub run-one: unrecognized argument: $1" >&2
+		exit 2
+		;;
+	esac
+done
+
+[[ -n "$item_id" && -n "$variant_id" && -n "$rep" && -n "$out_root" ]] || {
+	echo "stub run-one: --item/--variant/--rep/--out are required" >&2
+	exit 2
+}
+
+run_key="${item_id}::${variant_id}::rep${rep}"
+
+if [[ -n "${STUB_RUN_ONE_ECHO_CORPUS_TO:-}" && -n "$corpus_yaml" ]]; then
+	cp "$corpus_yaml" "$STUB_RUN_ONE_ECHO_CORPUS_TO"
+fi
+
+exit_code="${STUB_RUN_ONE_EXIT:-0}"
+if [[ -n "${STUB_RUN_ONE_FAIL_RUN_KEY:-}" ]]; then
+	if [[ "$run_key" == "$STUB_RUN_ONE_FAIL_RUN_KEY" ]]; then
+		exit_code="${STUB_RUN_ONE_EXIT:-1}"
+	else
+		exit_code="0"
+	fi
+fi
+
+if [[ "$exit_code" != "0" ]]; then
+	echo "stub run-one: simulated failure for $run_key (exit $exit_code)" >&2
+	exit "$exit_code"
+fi
+
+run_dir="$out_root/$item_id/$variant_id/rep-$rep"
+record_path="$run_dir/record.jsonl"
+
+# Mirrors run-one.sh's own REQ-F-018 overwrite-refusal guard -- a safety
+# net that should never trigger against a correct caller, since run-batch.sh
+# never dispatches into a pair already classified skipped_complete.
+if [[ -f "$record_path" ]]; then
+	echo "stub run-one: record already exists at $record_path; refusing to overwrite" >&2
+	exit 1
+fi
+
+mkdir -p "$run_dir"
+
+if [[ -n "${STUB_RUN_ONE_RECORD_FILE:-}" ]]; then
+	cp "$STUB_RUN_ONE_RECORD_FILE" "$record_path.tmp"
+else
+	python3 -c '
+import json
+import sys
+
+item_id, variant_id, rep, run_key = sys.argv[1:5]
+record = {
+    "schema_version": "1.0",
+    "manifest": {
+        "item_id": item_id,
+        "variant_id": variant_id,
+        "rep": int(rep),
+        "run_key": run_key,
+    },
+    "outcome": "completed",
+}
+print(json.dumps(record, sort_keys=True))
+' "$item_id" "$variant_id" "$rep" "$run_key" >"$record_path.tmp"
+fi
+mv "$record_path.tmp" "$record_path"
+
+echo "stub run-one: record written to $record_path" >&2
+exit 0

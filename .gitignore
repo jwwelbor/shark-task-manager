@@ -70,3 +70,7 @@ docs/review/
 test-results/
 
 cache/
+
+# Python bytecode cache (bench/scripts helper scripts)
+__pycache__/
+*.pyc

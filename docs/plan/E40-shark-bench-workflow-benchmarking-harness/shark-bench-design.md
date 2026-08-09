@@ -2,6 +2,14 @@
 
 **Epic**: E40 · **Status**: agreed approach (architect consultation, 2026-08-05)
 
+> **Isolation corrected to match ADR-001, Q001 (resolved):** the original
+> design below prescribed `shark run --worktree`; the per-run steps in §1 now
+> read `--workdir` against a harness-owned fixture-repo checkout instead,
+> because `--worktree` force-removes the tree before the harness regains
+> control, which post-run checks need alive. [architecture.md](architecture.md#run-lifecycle-and-isolation-contract)
+> and E40-F02's feature.md remain the authoritative sources; this document is
+> otherwise retained as the historical record of the original design.
+
 Benchmark harness that measures the effectiveness of a shark workflow configuration and detects the effect of config changes (model, effort, prompt, per-step assignments). Modeled on the transferable mechanics of SWE-bench / Aider polyglot / terminal-bench: execution-based test oracles, fresh isolation per attempt, per-step cost/latency capture, repetition with variance reporting, and paired per-task A/B comparison.
 
 ---
@@ -12,17 +20,17 @@ Benchmark harness that measures the effectiveness of a shark workflow configurat
 
 - drives every entity type (task, feature, epic, bug, change-card) through its workflow, cascading feature→tasks and epic→features via nested run controllers, each child holding its own claim + work_session;
 - dispatches agents headlessly (`claude ... --output-format json`, `internal/runner/claude_dispatcher.go`);
-- supports `--worktree` (isolated git worktree per top-level run) and `--json` (RunResult with per-stage `StageLog{status, action, agent_type, provider, duration_ns, exit_code}`), with run_id correlation;
+- supports `--worktree` (isolated git worktree per top-level run, force-removed on return — rejected for bench post-run checks by ADR-001), `--workdir` (agent-process cwd override — the path bench actually uses), and `--json` (RunResult with per-stage `StageLog{status, action, agent_type, provider, duration_ns, exit_code}`), with run_id correlation;
 - blocks workers from self-advancing status via `--disallowedTools` — measurement integrity for free.
 
 **A "config variant" is a workflow YAML bundle** (per-step `provider`/`model`/`effort`/`skills`/`prompt` already exist in the schema). No Go changes are needed to *express* variants.
 
 ### Per run (task × variant × rep)
 
-1. Provision a fresh scratch shark project (`scripts/shark-scratch-env.sh`) + fresh clone/worktree of the fixture repo at a pinned commit. Install the variant workflow bundle (scratch init uses the embedded bundle by default — bench must point `workflow_config` at the variant).
+1. Provision a fresh scratch shark project (`scripts/shark-scratch-env.sh`) + a harness-owned fixture-repo checkout at a pinned commit (not a `shark run --worktree`). Install the variant workflow bundle (scratch init uses the embedded bundle by default — bench must point `workflow_config` at the variant).
 2. Seed the corpus task's entities via shark CLI (capture assigned keys from create responses — never specify keys).
-3. `timeout <cap> shark run <key> --worktree --json` with `CaptureAgentTranscripts: true`.
-4. Collect: RunResult stdout, per-stage transcripts (`.shark/runs/<run_id>/<n>-<status>-<provider>.log`), `work_sessions`/`entity_history` from the scratch DB, and post-run checks in the worktree (oracle tests, quality gates, LOC).
+3. `timeout <cap> shark run <key> --json --workdir <fixture-checkout>` with `CaptureAgentTranscripts: true` (ADR-001: harness-owned isolation via `--workdir`, not `--worktree` — see [architecture.md](architecture.md#run-lifecycle-and-isolation-contract)).
+4. Collect: RunResult stdout, per-stage transcripts (`.shark/runs/<run_id>/<n>-<status>-<provider>.log`), `work_sessions`/`entity_history` from the scratch DB, and post-run checks in the `--workdir` fixture checkout (oracle tests, quality gates, LOC).
 5. Emit one JSONL artifact per run (manifest: task id, variant id, rep, commit SHAs, exact model IDs from `modelUsage`; records: per-stage + rollup). Artifacts are the source of truth; a small aggregator produces paired-comparison reports. No new shark DB tables.
 
 ### Instrumentation gaps in core (Phase 2; Phase 1 needs zero Go changes)
@@ -35,7 +43,7 @@ Phase 1 works untouched because the claude JSON envelope (with `usage`, `total_c
 - **G4 (deferred, P3)** — codex usage parity; `codex exec` is dispatched as plain text with no usage envelope.
 - **Verify before P2 rollups**: whether cascade children's StageLogs surface in the parent's `--json` RunResult or need run_id-correlated collection.
 
-**Known blocker**: `shark run TD-###` stalls at `in_progress` — `check_or_resume` is grouped with pause in the run controller but dispatched by `shark next` (**B051**). Tech-debt benching waits on its resolution.
+**Resolved blocker (2026-08-05)**: `shark run TD-###` stalled at `in_progress` — `check_or_resume` was grouped with pause in the run controller but dispatched by `shark next` (**B051**, now completed). Tech-debt benching is unblocked; it remains Phase 2 by phasing, not by blocker.
 
 ---
 
@@ -55,7 +63,7 @@ Phase 1 works untouched because the claude JSON envelope (with `usage`, `total_c
 | **Task** | held-back F2P + P2P suite | all metrics per stage | rolls up → feature |
 | **Bug** | author-written repro test as F2P + P2P | task metrics + `repro_confirmed` | |
 | **Change-card** | machine-checkable acceptance predicate (required at admission; CCs without one are excluded) | task metrics; LOC reported, not judged | |
-| **Tech-debt** | P2P only (behavior preservation) + structural predicate ("debt is gone": lint-rule count drop, dependency removed, complexity threshold) | time/tokens; LOC expected net-negative | blocked on B051 |
+| **Tech-debt** | P2P only (behavior preservation) + structural predicate ("debt is gone": lint-rule count drop, dependency removed, complexity threshold) | time/tokens; LOC expected net-negative | Phase 2 (B051 fixed) |
 | **Feature** | union of child oracles + feature-level integration set | planning-step tokens/time; gate rejections (task_review, code_review, qa, approval); tasks_generated | child metrics summed; planning quality proxied by artifacts + downstream rejection rate (no LOC for planning steps) |
 | **Epic** | feature rollup + epic acceptance set | refinement/design/decomposition tokens/time; feature_review rejections | Phase 3 (cost) |
 
@@ -91,7 +99,7 @@ All post-run checks execute in the run's worktree; results land in the run's JSO
 ## 6. Phasing
 
 - **Phase 1 — baseline (M total; harness itself needs zero Go changes)**: fixture repo + ~10 screened tasks/bugs with oracles (E40-F01, M); harness — provision, seed, invoke, parse RunResult + transcripts + worktree checks → JSONL (E40-F02, M); baseline report with noise band (E40-F03, S); `shark run` liveness — stderr progress events in `--json` mode, stage-scoped heartbeats, per-run log at `.shark/runs/<run_id>/run.log` (E40-F04, S — the one Phase 1 item touching Go; today `--json` runs are silent until completion, which unattended bench batches can't tolerate).
-- **Phase 2 — config matrix (M)**: G1 (via E27-F15 branch) + G2 + G3 (S each); variant bundles + matrix runner with per-run budget caps (S); paired comparison report (M); feature Mode A then B; tech-debt after B051; optional `entity_history` `outcome`+`session_id` columns (S, severable).
+- **Phase 2 — config matrix (M)**: G1 (via E27-F15 branch) + G2 + G3 (S each); variant bundles + matrix runner with per-run budget caps (S); paired comparison report (M); feature Mode A then B; tech-debt (B051 fixed); optional `entity_history` `outcome`+`session_id` columns (S, severable).
 - **Phase 3 (L — break down before starting)**: epics; SWE-bench Verified slice; rubric reviewer calibrated against the deterministic gate; codex parity (G4); post-hoc defect window; corpus rotation policy.
 
 ---

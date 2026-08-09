@@ -1,0 +1,14 @@
+diff --git a/pkg/cart/cart.go b/pkg/cart/cart.go
+index aa930af..61fa078 100644
+--- a/pkg/cart/cart.go
++++ b/pkg/cart/cart.go
+@@ -16,7 +16,8 @@ type Cart struct {
+ 	items []Item
+ }
+ 
+-// New returns an empty Cart.
++// New returns an empty Cart. A Cart returned by New always starts with a
++// zero Subtotal and a zero ItemCount until items are added.
+ func New() *Cart {
+ 	return &Cart{}
+ }

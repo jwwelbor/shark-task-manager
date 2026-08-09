@@ -89,6 +89,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	runID := generateRunID()
 
+	// Non-fatal project-root lookup for the liveness recorder (D6 edit 1): an
+	// empty root disables the recorder's file sink only (D5), mirroring
+	// NewFileJSONLExporter("")'s silent-skip convention. Separate from the
+	// hard-error lookup below (used for opts.ProjectRoot) — moving or
+	// softening that call would change which error a malformed key produces.
+	recorderProjectRoot, _ := cli.FindProjectRoot()
+
 	// Step 1: Detect entity type from key format.
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
@@ -137,6 +144,19 @@ func runRun(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: failed to release run claim for %s: %v\n", normalizedKey, err)
 		}
 	}()
+
+	// Construct and start the liveness recorder (D6 edit 2): after
+	// emitRunStart (topLevelKey/runID are now known) and before preflight, so
+	// a run that pauses at a Question block still leaves a log. Start()
+	// announces LogPath() on stderr and launches the fixed 10s heartbeat
+	// ticker (T-E40-F04-003). Teardown is a closure, never
+	// `defer rec.Finish(runResult)` — a direct method-value defer evaluates
+	// its argument at registration time and would capture nil forever (the
+	// emitRunEnd defer above documents this exact trap). Stop() precedes
+	// Finish() so the ticker cannot race a final stage_end.
+	rec := runner.NewLivenessRecorder(recorderProjectRoot, runID, normalizedKey, cli.GlobalConfig.JSON, runStart)
+	rec.Start()
+	defer func() { rec.Stop(); rec.Finish(runResult) }()
 
 	// Step 2: Build entity-type adapters.
 	transitioner, err := buildTransitioner(ctx, entityType)
@@ -272,7 +292,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 		defer func() {
 			if removeErr := creator.RemoveWorktree(context.Background(), worktreePath); removeErr != nil {
-				fmt.Printf("warning: failed to remove worktree %s: %v\n", worktreePath, removeErr)
+				fmt.Fprintf(os.Stderr, "warning: failed to remove worktree %s: %v\n", worktreePath, removeErr)
 			}
 		}()
 	}
@@ -317,38 +337,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Observability: obs,
 	}
 
-	if !cli.GlobalConfig.JSON {
-		progressTick := time.NewTicker(10 * time.Second)
-		progressDone := make(chan struct{})
-		go func() {
-			defer progressTick.Stop()
-			for {
-				select {
-				case <-progressTick.C:
-					fmt.Printf("  [processing] %s still running (%s elapsed)\n", normalizedKey, time.Since(runStart).Round(time.Second))
-				case <-progressDone:
-					return
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-
-		opts.Progress = func(update runner.RunProgress) {
-			if update.Phase != "action" {
-				return
-			}
-			agentDetails := ""
-			if update.AgentType != "" {
-				agentDetails = fmt.Sprintf(" agent=%s", update.AgentType)
-			}
-			if update.Provider != "" {
-				agentDetails = fmt.Sprintf("%s provider=%s", agentDetails, update.Provider)
-			}
-			fmt.Printf("Processing %s: step %d status=%s action=%s%s\n", normalizedKey, update.Iteration, update.Status, update.Action, agentDetails)
-		}
-		defer close(progressDone)
-	}
+	// D6 edit 3: the liveness recorder replaces the inline JSON-gated ticker
+	// and progress printer. This single line resolves all three original
+	// defects at once: the JSON gate disappears (REQ-F-001/002), the inline
+	// ticker is replaced by the recorder's own fixed 10s ticker (REQ-F-006),
+	// and normalizedKey is no longer read here (REQ-F-005 — the recorder
+	// derives entity_key from RunProgress.EntityKey / update.EntityKey).
+	opts.Progress = rec.Observe
 
 	result, err := controller.Run(ctx, normalizedKey, opts)
 	if err != nil {

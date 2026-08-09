@@ -8,8 +8,12 @@ package commands
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -612,4 +616,174 @@ func TestGetActionService_ResetAndReinit(t *testing.T) {
 	// The two instances may or may not be equal by pointer — what matters
 	// is that both are valid non-nil services.
 	_ = svc1
+}
+
+// ─── AST source-guard test infrastructure (TC-013, TC-018, TC-025) ──────────
+//
+// runRun has no mock seam: test-plan.md's "Considered and rejected" section
+// evaluated extending runClaimSvcOverride-style injection to buildTransitioner
+// / cli.Get*Service and rejected it as disproportionate for a STANDARD-scored
+// feature (six-plus call sites would need refactoring into injectable seams).
+// D7 sanctions go/parser source-invariant checks for exactly this class of
+// property (wiring order, writer target) — syntactic properties, not
+// behavioral ones, following the codebase's existing source-invariant
+// validator convention (e.g. internal/services/portfolio_advice_service_test.go).
+//
+// parseRunGoSource is shared by run_test.go and run_worktree_test.go (same
+// package).
+
+// parseRunGoSource parses run.go — this package's production source file,
+// not the test file — and returns its FileSet plus the runRun FuncDecl.
+func parseRunGoSource(t *testing.T) (*token.FileSet, *ast.FuncDecl) {
+	t.Helper()
+
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() could not locate run_test.go")
+	}
+	runGoPath := filepath.Join(filepath.Dir(testFile), "run.go")
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, runGoPath, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", runGoPath, err)
+	}
+
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "runRun" {
+			return fset, fn
+		}
+	}
+	t.Fatalf("%s does not declare a runRun function", runGoPath)
+	return nil, nil
+}
+
+// findMethodCallPos returns the position of the earliest call `<recv>.<method>(...)`
+// found anywhere within root, or token.NoPos if no such call exists.
+func findMethodCallPos(root ast.Node, recv, method string) token.Pos {
+	pos := token.NoPos
+	ast.Inspect(root, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != method {
+			return true
+		}
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok || ident.Name != recv {
+			return true
+		}
+		if pos == token.NoPos || call.Pos() < pos {
+			pos = call.Pos()
+		}
+		return true
+	})
+	return pos
+}
+
+// findFuncCallPos returns the position of the earliest call to the bare
+// (non-method) function named name, found anywhere within root, or
+// token.NoPos if no such call exists.
+func findFuncCallPos(root ast.Node, name string) token.Pos {
+	pos := token.NoPos
+	ast.Inspect(root, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok || ident.Name != name {
+			return true
+		}
+		if pos == token.NoPos || call.Pos() < pos {
+			pos = call.Pos()
+		}
+		return true
+	})
+	return pos
+}
+
+// TestRunRunLivenessTeardownIsClosure is TC-018 (test-plan.md): runRun's
+// liveness-recorder teardown defer must be
+// `defer func() { rec.Stop(); rec.Finish(runResult) }()` — a closure —
+// never a direct `defer rec.Finish(runResult)`. A direct method-value defer
+// evaluates its arguments at registration time and would capture nil
+// forever, silently losing the run-end outcome even though it would pass
+// every liveness_test.go unit test in isolation (D6 edit 2; the emitRunEnd
+// defer already above in runRun documents this exact trap). AC-06.
+func TestRunRunLivenessTeardownIsClosure(t *testing.T) {
+	_, runRunDecl := parseRunGoSource(t)
+
+	var closureFound, directCaptureFound bool
+	ast.Inspect(runRunDecl, func(n ast.Node) bool {
+		def, ok := n.(*ast.DeferStmt)
+		if !ok {
+			return true
+		}
+		switch fun := def.Call.Fun.(type) {
+		case *ast.SelectorExpr:
+			if recv, ok := fun.X.(*ast.Ident); ok && recv.Name == "rec" && fun.Sel.Name == "Finish" {
+				directCaptureFound = true
+			}
+		case *ast.FuncLit:
+			ast.Inspect(fun.Body, func(inner ast.Node) bool {
+				call, ok := inner.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				recv, ok := sel.X.(*ast.Ident)
+				if ok && recv.Name == "rec" && sel.Sel.Name == "Finish" {
+					closureFound = true
+				}
+				return true
+			})
+		}
+		return true
+	})
+
+	if directCaptureFound {
+		t.Fatal("runRun defers rec.Finish directly (defer rec.Finish(runResult)) — this evaluates the argument at registration time and captures nil forever; must be defer func() { rec.Stop(); rec.Finish(runResult) }()")
+	}
+	if !closureFound {
+		t.Fatal("runRun has no `defer func() { ...; rec.Finish(...) }()` teardown closure for the liveness recorder")
+	}
+}
+
+// TestRunRunLivenessStartPrecedesPreflight is TC-025 (test-plan.md): the
+// liveness recorder's Start() call must occur, in source order, before both
+// preflight/lease-acquisition calls (preflightCascadeQuestionBlock,
+// acquireRunLeaseForRunnableAction) in runRun — so a run that pauses at a
+// Question block still leaves a log (D6 edit 2's stated reason for the
+// ordering). An implementation that constructs the recorder correctly but
+// starts it after either preflight call would pass every liveness_test.go
+// test while silently breaking liveness for every Question-paused run. AC-10.
+func TestRunRunLivenessStartPrecedesPreflight(t *testing.T) {
+	fset, runRunDecl := parseRunGoSource(t)
+
+	recStartPos := findMethodCallPos(runRunDecl, "rec", "Start")
+	preflightPos := findFuncCallPos(runRunDecl, "preflightCascadeQuestionBlock")
+	leasePos := findFuncCallPos(runRunDecl, "acquireRunLeaseForRunnableAction")
+
+	if recStartPos == token.NoPos {
+		t.Fatal("runRun does not call rec.Start()")
+	}
+	if preflightPos == token.NoPos {
+		t.Fatal("runRun does not call preflightCascadeQuestionBlock")
+	}
+	if leasePos == token.NoPos {
+		t.Fatal("runRun does not call acquireRunLeaseForRunnableAction")
+	}
+
+	if recStartPos >= preflightPos {
+		t.Errorf("rec.Start() at %s must precede preflightCascadeQuestionBlock at %s", fset.Position(recStartPos), fset.Position(preflightPos))
+	}
+	if recStartPos >= leasePos {
+		t.Errorf("rec.Start() at %s must precede acquireRunLeaseForRunnableAction at %s", fset.Position(recStartPos), fset.Position(leasePos))
+	}
 }

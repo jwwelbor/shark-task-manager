@@ -1,0 +1,6 @@
+# Task: Add a minimum length requirement to SKU validation
+
+`validate.SKU` currently accepts a SKU of any non-empty, whitespace-free
+length, including a single character. Add a minimum length of 2 characters,
+returning a clear, descriptive error for shorter values while preserving
+the existing non-empty and no-whitespace checks.
