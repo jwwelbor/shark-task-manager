@@ -211,21 +211,11 @@ func renderFeatureTasksSection(tasks []*models.Task) {
 // and a `!` / `!!` suffix is appended for non-color signal so colorblind
 // users still see the warning without relying on hue. A legend is printed
 // below the table when any non-healthy row is shown.
-func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context) {
+func renderFeatureListTable(features []FeatureWithTaskCount, statusBreakdownBatch map[int64]map[models.TaskStatus]int) {
 	// E07-F42: Size column added to feature list table (REQ-F-006).
 	headers := []string{"Key", "Title", "Progress", "Status", "Size"}
 	const titleColIdx = 1
 
-	// Batch fetch status breakdowns for all features to avoid N+1 query
-	featureSvc := cli.GetFeatureService()
-	featureIDs := make([]int64, len(features))
-	for i, feature := range features {
-		featureIDs[i] = feature.ID
-	}
-	statusBreakdownBatch, err := featureSvc.GetStatusBreakdownBatch(ctx, featureIDs)
-	if err != nil && cli.GlobalConfig.Verbose {
-		slog.Warn("Failed to batch fetch status breakdowns", "error", err)
-	}
 	if statusBreakdownBatch == nil {
 		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
 	}
@@ -676,7 +666,7 @@ func renderFeatureActionItems(actionItems *status.ActionItems) {
 }
 
 // outputFeatureListJSON renders the feature list as enhanced JSON with health and progress info.
-func outputFeatureListJSON(ctx context.Context, featuresWithTaskCount []FeatureWithTaskCount) error {
+func outputFeatureListJSON(featuresWithTaskCount []FeatureWithTaskCount, statusBreakdownBatch map[int64]map[models.TaskStatus]int) error {
 	// Load workflow config
 	configPath, _ := cli.GetConfigPath()
 	var cfg *config.WorkflowConfig
@@ -684,13 +674,6 @@ func outputFeatureListJSON(ctx context.Context, featuresWithTaskCount []FeatureW
 		cfg, _ = config.LoadWorkflowConfig(configPath)
 	}
 
-	// Batch fetch status breakdowns for all features to avoid N+1 query
-	featureSvc := cli.GetFeatureService()
-	featureIDs := make([]int64, len(featuresWithTaskCount))
-	for i, f := range featuresWithTaskCount {
-		featureIDs[i] = f.ID
-	}
-	statusBreakdownBatch, _ := featureSvc.GetStatusBreakdownBatch(ctx, featureIDs)
 	if statusBreakdownBatch == nil {
 		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
 	}
@@ -822,7 +805,12 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 
 // fetchFeaturesWithTaskCount fetches features with progress and task count enrichment.
 // tagFilter is nil when no --tag flags were supplied; non-nil applies AND-intersection filtering.
-func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter string, showAll bool, tagFilter []string) ([]FeatureWithTaskCount, error) {
+//
+// The returned status-breakdown batch is fetched once here and reused by callers
+// (renderFeatureListTable, outputFeatureListJSON) that would otherwise re-issue the
+// same batch query — each remote round trip has fixed latency, so folding the
+// task-count derivation into this single breakdown fetch avoids an extra one.
+func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter string, showAll bool, tagFilter []string) ([]FeatureWithTaskCount, map[int64]map[models.TaskStatus]int, error) {
 	featureSvc := cli.GetFeatureService()
 
 	var features []*models.Feature
@@ -838,21 +826,27 @@ func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter st
 		features, err = featureSvc.ListFeatures(ctx, services.FeatureFilters{Status: statusFilter, Tags: tagFilter})
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(features) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	// Batch-fetch task counts for all features in one query (avoids N+1).
+	// Batch-fetch task status breakdowns for all features in one query (avoids N+1).
+	// Task counts are derived locally by summing per-status counts, so this single
+	// query replaces what used to be two separate round trips (GetTaskCounts +
+	// GetStatusBreakdownBatch, the latter previously re-fetched by the renderer).
 	featureIDs := make([]int64, len(features))
 	for i, f := range features {
 		featureIDs[i] = f.ID
 	}
-	taskCounts, err := featureSvc.GetTaskCounts(ctx, featureIDs)
+	statusBreakdownBatch, err := featureSvc.GetStatusBreakdownBatch(ctx, featureIDs)
 	if err != nil && cli.GlobalConfig.Verbose {
-		slog.Warn("Failed to get task counts", "error", err)
+		slog.Warn("Failed to get status breakdown batch", "error", err)
+	}
+	if statusBreakdownBatch == nil {
+		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
 	}
 
 	// Build result using stored progress_pct — no per-feature recalculation needed.
@@ -863,14 +857,18 @@ func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter st
 		if feature.StatusOverride {
 			statusSource = "manual"
 		}
+		taskCount := 0
+		for _, count := range statusBreakdownBatch[feature.ID] {
+			taskCount += count
+		}
 		result = append(result, FeatureWithTaskCount{
 			Feature:      feature,
-			TaskCount:    taskCounts[feature.ID],
+			TaskCount:    taskCount,
 			StatusSource: statusSource,
 		})
 	}
 
-	return filterFeaturesByCompletedStatus(result, showAll, statusFilter), nil
+	return filterFeaturesByCompletedStatus(result, showAll, statusFilter), statusBreakdownBatch, nil
 }
 
 // parseCreateFeatureInput parses command args and flags into a CreateFeatureInput plus returns title and projectRoot.

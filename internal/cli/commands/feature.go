@@ -230,7 +230,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll, tagFilter)
+	featuresWithTaskCount, statusBreakdownBatch, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll, tagFilter)
 	if err != nil {
 		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeFeature, "")
 	}
@@ -252,9 +252,9 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	sortFeatures(featuresWithTaskCount, sortBy)
 
 	if cli.GlobalConfig.JSON {
-		return outputFeatureListJSON(ctx, featuresWithTaskCount)
+		return outputFeatureListJSON(featuresWithTaskCount, statusBreakdownBatch)
 	}
-	renderFeatureListTable(featuresWithTaskCount, epicFilter, ctx)
+	renderFeatureListTable(featuresWithTaskCount, statusBreakdownBatch)
 	return nil
 }
 
