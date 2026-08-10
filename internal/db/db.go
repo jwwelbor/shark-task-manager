@@ -515,82 +515,83 @@ func ApplySchemaIfNeeded(db *sql.DB) (bool, error) {
 	return true, nil
 }
 
+// schemaHealthQuery evaluates every structural repair check
+// ApplySchemaIfNeeded needs in a single round trip: presence of
+// task_history/rejection_reason, the three display views, the search FTS
+// table, legacy relationship tables, and advance_guard_consumptions. These
+// used to be 5 sequential queries (needsTaskHistoryRejectionReasonRepair,
+// needsDisplayViewRepair x3, needsSearchFTSRepair,
+// needsLegacyRelationshipCleanup, needsAdvanceGuardConsumptionRepair) — on a
+// remote backend (Turso) each round trip costs real latency, so this
+// collapses them into one query and derives every boolean locally from the
+// returned rows.
+//
+// Kept separate from the schema_version read: a failure here (transient
+// query/network error) must be surfaced to the caller as-is, not conflated
+// with "schema_version table doesn't exist yet" (which legitimately means
+// "apply everything" for a fresh database).
+const schemaHealthQuery = `
+	SELECT 'task_history_exists' AS k, name FROM sqlite_master WHERE type='table' AND name='task_history'
+	UNION ALL
+	SELECT 'rejection_reason_exists', name FROM pragma_table_info('task_history') WHERE name='rejection_reason'
+	UNION ALL
+	SELECT 'view_exists', name FROM sqlite_master WHERE type='view' AND name IN ('epic_display_data', 'feature_display_data', 'task_display_data')
+	UNION ALL
+	SELECT 'fts_exists', name FROM sqlite_master WHERE type='table' AND name='entity_search_fts'
+	UNION ALL
+	SELECT 'legacy_rel_exists', name FROM sqlite_master WHERE type='table' AND name IN ('task_relationships', 'feature_relationships', 'epic_relationships')
+	UNION ALL
+	SELECT 'advance_guard_exists', name FROM sqlite_master WHERE type='table' AND name='advance_guard_consumptions'
+`
+
+// needsSchemaRepair evaluates all structural drift checks in a single query
+// (see schemaHealthQuery). Any error is returned as-is so the caller doesn't
+// mistake a transient failure for "schema needs repair".
 func needsSchemaRepair(db *sql.DB) (bool, error) {
-	checks := []func(*sql.DB) (bool, error){
-		needsTaskHistoryRejectionReasonRepair,
-		needsDisplayViewRepair,
-		needsSearchFTSRepair,
-		needsLegacyRelationshipCleanup,
-		needsAdvanceGuardConsumptionRepair,
+	rows, err := db.Query(schemaHealthQuery)
+	if err != nil {
+		return false, fmt.Errorf("failed to read schema health: %w", err)
 	}
+	defer rows.Close()
 
-	for _, check := range checks {
-		needsRepair, err := check(db)
-		if err != nil {
-			return false, err
+	var (
+		taskHistoryExists     bool
+		rejectionReasonExists bool
+		viewCount             int
+		ftsExists             bool
+		legacyRelExists       bool
+		advanceGuardExists    bool
+	)
+
+	for rows.Next() {
+		var k, name string
+		if err := rows.Scan(&k, &name); err != nil {
+			return false, fmt.Errorf("failed to scan schema health row: %w", err)
 		}
-		if needsRepair {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-func needsTaskHistoryRejectionReasonRepair(db *sql.DB) (bool, error) {
-	var taskHistoryExists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&taskHistoryExists); err != nil {
-		return false, fmt.Errorf("check task_history existence: %w", err)
-	}
-	if taskHistoryExists == 0 {
-		return false, nil
-	}
-
-	var rejectionReasonExists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task_history') WHERE name='rejection_reason'`).Scan(&rejectionReasonExists); err != nil {
-		return false, fmt.Errorf("check task_history.rejection_reason: %w", err)
-	}
-	return rejectionReasonExists == 0, nil
-}
-
-func needsDisplayViewRepair(db *sql.DB) (bool, error) {
-	for _, viewName := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?`, viewName).Scan(&count); err != nil {
-			return false, fmt.Errorf("check %s existence: %w", viewName, err)
-		}
-		if count == 0 {
-			return true, nil
+		switch k {
+		case "task_history_exists":
+			taskHistoryExists = true
+		case "rejection_reason_exists":
+			rejectionReasonExists = true
+		case "view_exists":
+			viewCount++
+		case "fts_exists":
+			ftsExists = true
+		case "legacy_rel_exists":
+			legacyRelExists = true
+		case "advance_guard_exists":
+			advanceGuardExists = true
 		}
 	}
-	return false, nil
-}
-
-func needsSearchFTSRepair(db *sql.DB) (bool, error) {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_search_fts'`).Scan(&count); err != nil {
-		return false, fmt.Errorf("check entity_search_fts existence: %w", err)
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("error iterating schema health rows: %w", err)
 	}
-	return count == 0, nil
-}
 
-func needsLegacyRelationshipCleanup(db *sql.DB) (bool, error) {
-	var count int
-	if err := db.QueryRow(`
-		SELECT COUNT(*) FROM sqlite_master
-		WHERE type='table' AND name IN ('task_relationships', 'feature_relationships', 'epic_relationships')
-	`).Scan(&count); err != nil {
-		return false, fmt.Errorf("check legacy relationship tables: %w", err)
-	}
-	return count > 0, nil
-}
-
-func needsAdvanceGuardConsumptionRepair(db *sql.DB) (bool, error) {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='advance_guard_consumptions'`).Scan(&count); err != nil {
-		return false, fmt.Errorf("check advance_guard_consumptions existence: %w", err)
-	}
-	return count == 0, nil
+	return (taskHistoryExists && !rejectionReasonExists) ||
+		viewCount < 3 ||
+		!ftsExists ||
+		legacyRelExists || // inverted: presence of legacy tables means cleanup is needed
+		!advanceGuardExists, nil
 }
 
 // getSchemaVersion reads the current schema version from the database.
