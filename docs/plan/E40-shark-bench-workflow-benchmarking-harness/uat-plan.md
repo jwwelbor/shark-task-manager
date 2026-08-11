@@ -1,37 +1,82 @@
 ---
 epic: E40
 title: Shark Bench UAT plan
-date: 2026-08-05
+date: 2026-08-11
 ---
 
-# E40 UAT Plan
+# E40 UAT plan
 
-Scenarios verify observable behavior, not implementation. Phase 1 exit is gated on UAT-01, UAT-02, UAT-05, UAT-06, and UAT-07 only.
+Use observable retained evidence, not implementation claims. UAT-01, UAT-02,
+UAT-05, UAT-06, and UAT-07 preserve the completed Phase 1 contract. UAT-08
+through UAT-15 gate lifecycle v2. UAT-03 and UAT-04 remain the configuration
+comparison scenarios and now have owners in E40-F09 and E40-F10.
 
-| ID | Scenario | Verify | Epic criterion |
+## Phase 1 regression scenarios
+
+| ID | Scenario | Verify | Owner and criteria |
 |---|---|---|---|
-| UAT-01 | Unattended baseline batch produces a report with a noise band | An operator starts the 10 x 3 batch and leaves. The batch completes with no intervention, every run yields a JSONL artifact, and the report states per headline metric both the baseline value and the observed run-to-run spread. Re-running the batch skips already-completed pairs instead of duplicating them. | G2, G4, G5 |
-| UAT-02 | A broken corpus item is rejected at admission | A candidate whose reference patch leaves F2P red, or whose P2P set is already red at the base commit, is rejected with the failing check named, and appears in no benchmark run. Re-running the gate on a clean checkout gives the identical verdict. | G1 |
-| UAT-05 | A stuck run is bounded, recorded, and does not hang the batch | A run whose stage exceeds the timeout cap terminates; its artifact records `outcome=timeout` **and names the stage it stalled in**; the batch proceeds to the next run. No stdout `RunResult` is available in this case, so the stage attribution comes from F04's liveness record, or failing that from the entity's status in the scratch DB. | G2, G4 |
-| UAT-06 | An in-flight run is observable | Watching stderr or tailing `.shark/runs/<run_id>/run.log` during a `--json` run shows per-stage progress with the entity key, stage status, agent and provider, and stage plus total elapsed — while stdout still parses as exactly one `RunResult` document. During a cascade the child key is shown, not the parent's. A hung agent is distinguishable from a slow one: heartbeats continue with growing stage-elapsed and unchanged stage. | G3 |
-| UAT-07 | Results reproduce from a stored manifest | Re-running a stored manifest — pinned fixture SHA, pinned model IDs, same variant bundle — reproduces the reported metrics within the published noise band. The report regenerates from the artifact directory alone, with no state outside it. | G7 |
+| UAT-01 | Unattended baseline batch produces a report with a noise band | Start the 10 x 3 v1 batch and leave it. Every run yields a record, already-completed pairs are not duplicated, and the report shows a value and observed spread for each headline metric. | E40-F02/E40-F03; G2, G4, G5 |
+| UAT-02 | A broken corpus item is rejected at admission | Reject a candidate when the reference patch leaves F2P red or the base P2P set is red. Name the failing check and reproduce the verdict on a clean checkout. | E40-F01; G1 |
+| UAT-05 | A stuck run is bounded and recorded | Kill a v1 stage at its cap, record `outcome=timeout` and the stalled stage, and continue the batch. | E40-F02/E40-F04; G2, G4 |
+| UAT-06 | An in-flight `shark run` is observable | stderr or `run.log` shows child-correct stage progress and heartbeats while stdout remains exactly one JSON `RunResult`. | E40-F04; G3 |
+| UAT-07 | A stored manifest reproduces its result | Replay the pinned fixture, models, and bundle from artifacts alone and reproduce metrics within the stored noise band. | E40-F03; G7 |
 
-## Deferred to Phase 2
+## Configuration comparison scenarios
 
-UAT-03 (a delta inside the noise band is reported as "no detectable effect") and UAT-04 (a delta outside the band is reported as a measured change) both require variant bundles and the paired per-task comparison report. PRD section 3 defers those to Phase 2 and E40-F03 excludes them explicitly, so **G6, UAT-03, and UAT-04 are Phase 2 criteria** — see Q002. Phase 1 delivers the noise band those scenarios later measure against; asserting them at Phase 1 exit would assert behavior no Phase 1 feature builds.
+| ID | Scenario | Verify | Owner and criteria |
+|---|---|---|---|
+| UAT-03 | A config delta inside the band is reported as no effect | Compare uniform paired runs whose deltas remain inside the matching band. Report `no detectable effect`; do not call the variant better or worse. | E40-F09/E40-F10; G6, G14 |
+| UAT-04 | A config delta outside the band is reported as a measured change | Compare uniform paired runs whose delta clears the band. Name the metric, direction, magnitude, per-scenario pairs, exact identities, and reproducibility result. | E40-F09/E40-F10; G6, G14 |
 
-## Cross-feature and cross-epic scenarios
+E40-F03 remains complete and does not acquire UAT-03 or UAT-04. Lifecycle v2
+implements the comparison and publication behavior from new I-07/I-08 records.
 
-- **I-01 (F01 → F02)**: the harness seeds and scores a run from the manifest with no manual step, and counts regressions and *new* lint issues against the base-SHA ledgers rather than absolute counts.
-- **I-02 (F02 → F03)**: F03 aggregates from artifacts alone. A record missing a metric family fails aggregation loudly instead of being silently averaged away.
-- **I-03 (F04 → F02)**: covered by UAT-05 and UAT-06 together — F04's liveness record is the primary way a timed-out run names its stalled stage, with the scratch-DB status as the fallback.
-- **X-07 (E22 → E40-F02)**: the canary check fails loud when the `RunResult`, `StageLog`, or transcript byte format changes upstream, rather than yielding silently wrong metrics.
-- **X-08 (E40-F04 → E22)**: existing `shark run --json` consumers — skills, agents, the runner's own callers — still parse stdout unchanged after F04 ships.
+## Lifecycle v2 scenarios
+
+| ID | Scenario | Verify | Owner and criteria |
+|---|---|---|---|
+| UAT-08 | All four lifecycle families are admitted correctly | Load one versioned feature, bug, change-card, and tech-debt package on the controlled Python fixture. Verify stable identity, adapter selection, final predicate, and the exact applicable/non-applicable stage matrix. Reject a malformed or non-runnable package with the failing field named. | E40-F05; G8; I-04 |
+| UAT-09 | Evaluator truth is isolated and stage evidence replays | Inspect both agent-visible roots immediately before every dispatch and prove that references, answer keys, patches, and hidden tests are absent. After the stage or run, grant recorded evaluator access and replay the snapshot without rerunning the worker. | E40-F06; G9; I-05; X-09 |
+| UAT-10 | Product design replays without live input | Run a feature scenario through the existing Rider D01-D05 action using only its versioned response bundle. Record each consumed response and artifact lineage. Disable live research and human input; a missing response stops as `unresolved_gate`. Verify other families record D01-D05 as non-applicable. | E40-F07; G10; I-06; X-10 |
+| UAT-11 | The canonical keyed lifecycle executes every eligible entity | Exercise a hierarchy fork and agent-generated child tasks. Preserve each dispatch response, record the scheduling choice, claim and heartbeat the concrete entity, pass its prompt unchanged, persist the semantic outcome, apply the configured transition, release on every path, and execute every eligible task. | E40-F08; G11; I-07; X-11 |
+| UAT-12 | Questions, failures, and safety stops remain truthful | Exercise Question routing, missing replay input, lease loss, worker failure, missing outcome, cancellation, pause, archive, error, and each resource ceiling. Verify the named stop outcome, retained partial evidence, released lease where owned, and baseline ineligibility. | E40-F08; G12; I-07; X-13 |
+| UAT-13 | Structural, judge, and execution truth stay separate | Supply artifacts with a structural defect, a calibrated-judge disagreement, and an implementation that reaches terminal workflow status but fails the held-back oracle. Verify all three results remain distinct and each blocks publication as configured. | E40-F09; G13; I-08 |
+| UAT-14 | Comparison identity fails closed | Omit each required identity field and mix one field at a time across otherwise valid runs. Reject every aggregate, retain the invalid inventory and divergence reason, and accept only a fully uniform set. | E40-F09; G14; I-08; X-12 |
+| UAT-15 | Operator commands prevent accidental spend and gate publication | Run preview and report operations with provider access monitored and verify zero calls. Verify pilot and baseline operations refuse missing acknowledgement or non-positive limits. Retain and inspect one real pilot per family, including raw artifacts and oracle evidence, before publishing a repeated baseline. | E40-F10; G15; I-07, I-08 |
+
+## Interaction coverage
+
+- **I-01-I-03:** preserve the completed v1 corpus, record, and liveness shapes
+  through UAT-01, UAT-02, UAT-05, UAT-06, and UAT-07.
+- **I-04:** UAT-08 validates the lifecycle scenario package before E40-F06,
+  E40-F07, or E40-F08 consumes it.
+- **I-05:** UAT-09 validates the stage snapshot and three-root isolation before
+  E40-F09 or E40-F10 trusts it.
+- **I-06:** UAT-10 validates product-design replay before E40-F08 starts the
+  feature entity lifecycle.
+- **I-07:** UAT-11 and UAT-12 validate complete and partial lifecycle run
+  records before evaluation or reporting.
+- **I-08:** UAT-13 and UAT-14 validate the evaluation and identity verdict before
+  UAT-15 publishes it.
+- **X-07-X-09:** preserve and extend runner/usage compatibility through the
+  named Phase 1 and v2 scenarios.
+- **X-10-X-13:** UAT-10, UAT-11, UAT-12, and UAT-14 cover product design, Rider
+  execution, Shark-data identity, and Questions respectively.
 
 ## Non-functional evidence
 
-**Integrity.** Every run provisions through `scripts/shark-scratch-env.sh`; the live repo, its `.sharkconfig.json`, and the live database are untouched, and the config guardrail hook stays satisfied. Held-back tests never exist in the checkout the agent sees — verified by inspecting the working tree at dispatch time, not only by intent. Workers cannot self-advance status, so a recorded outcome is the workflow's, not the worker's.
+**Integrity:** Retain scenario packages, stage snapshots, run records,
+evaluation records, transcripts, claims, transitions, and oracle results under
+an explicit output root. Never use terminal status or worker self-report as the
+implementation oracle.
 
-**Cost and safety.** Every run terminates under the timeout cap, so a batch has a bounded worst case. Exact model IDs are recorded per run; a comparison spanning unpinned model versions is reported as invalid rather than as a result.
+**Isolation:** Keep the scratch Shark project, agent-visible fixture checkout,
+and evaluator-only root separate. Inspect actual dispatch-time visibility, not
+only the intended directory layout.
 
-**Performance.** Not a product concern here — the harness is offline tooling. The one latency claim that matters is F04's: heartbeats appear at least every 10 seconds while a stage runs.
+**Cost and safety:** Require explicit provider-spend acknowledgement and
+positive cost, wall-time, and generated-task ceilings. Preserve partial evidence
+when a ceiling stops a scenario and exclude that scenario from publication.
+
+**Reproducibility:** Pin the complete identity listed in I-08. Reject rather
+than normalize missing or mixed identities.

@@ -1,16 +1,33 @@
 ---
 epic: E40
 title: Shark Bench — workflow benchmarking harness architecture
-date: 2026-08-05
+date: 2026-08-11
 ---
 
 # E40 Architecture: Shark Bench
 
 ## Scope and component design
 
-E40 adds a benchmark harness *around* `shark run`. Phase 1 changes no Go code except E40-F04. `shark run` remains the sole execution engine: it already cascades every entity type with per-child claim and `work_session`, dispatches agents headlessly, emits a `--json` `RunResult` carrying `StageLog[]`, persists per-stage transcripts under `.shark/runs/<run_id>/`, and blocks workers from self-advancing status through `DefaultDisallowedTools` — measurement integrity without harness effort. A config variant needs no schema work either: `OrchestratorAction` already carries `provider`, `model`, `effort`, `skills`, and the prompt template, so a variant is only an alternate workflow YAML tree selected by `workflow_config`.
+E40 is a benchmark harness around Shark. Phase 1 uses `shark run` as its sole
+execution engine and changes no Go code except E40-F04. Lifecycle v2 adds a
+host-side benchmark controller because it must record each keyed dispatch,
+inject versioned stakeholder and research responses, schedule every eligible
+descendant, and freeze evidence after each applicable stage. The controller
+uses Shark's public keyed dispatch, claim, heartbeat, outcome-transition,
+release, and Question contracts. It never reconstructs workflow routing or the
+rendered prompt.
 
-Nothing in E40 adds a shark database table, a migration, or a service. JSONL artifacts are the store; reports are derived. `internal/reporting` is a fixed docs/plan scan schema and is deliberately not reused.
+The completed Phase 1 path remains valid: `shark run` cascades entities with
+per-child claims and work sessions, dispatches agents headlessly, emits a JSON
+`RunResult` with `StageLog[]`, persists transcripts, and blocks workers from
+self-advancing status. A config variant still needs no schema work because
+`OrchestratorAction` already carries `provider`, `model`, `effort`, `skills`,
+and the prompt template.
+
+E40 adds no Shark database table or second workflow engine. Benchmark artifacts
+remain file-backed and reports remain derived. Any generic Shark or Rider change
+discovered during implementation is separate work under its owning epic.
+`internal/reporting` remains a fixed docs/plan scan schema and is not reused.
 
 | Component | Change | Contract |
 |---|---|---|
@@ -18,6 +35,12 @@ Nothing in E40 adds a shark database table, a migration, or a service. JSONL art
 | Run driver (F02) | New harness scripts | Provision, seed, invoke, collect, emit one JSONL record per run |
 | Aggregator and report (F03) | New harness scripts | Read artifacts only; publish baseline and per-metric noise band; replay a stored manifest and verify reproducibility within the band (G7/UAT-07) |
 | `shark run` liveness (F04) | Extend `internal/cli/commands/run.go` | stderr progress in `--json` mode, stage-scoped heartbeat, correct child labeling, unconditional per-run log |
+| Lifecycle scenarios and adapters (F05) | Extend the bench corpus | Versioned four-family scenario package, controlled Python fixture, language-neutral adapter boundary (I-04) |
+| Stage evidence and isolation (F06) | New bench contract and guards | Three-root access policy plus immutable per-stage snapshot (I-05) |
+| Product-design replay (F07) | New host-side adapter around the existing Rider action | Versioned stakeholder/research replay and D01-D05 lineage (I-06) |
+| Keyed lifecycle controller (F08) | New host-side benchmark controller | Canonical dispatch/lease/outcome loop over public Shark APIs; complete lifecycle run record (I-07) |
+| Evaluation and identity (F09) | New post-stage/post-run evaluator | Structural results, calibrated judge evidence, execution oracle, comparison identity and eligibility verdict (I-08) |
+| Operator lifecycle baseline (F10) | Extend bench commands and reports | No-spend preview, explicit spend gates, retained pilots, lifecycle and diagnostic reports, publication gate |
 
 ```mermaid
 flowchart LR
@@ -37,6 +60,30 @@ flowchart LR
   J --> A[Aggregator] --> B[Baseline + noise band]
 ```
 
+## Lifecycle v2 controller boundary
+
+Lifecycle v2 has two host-side layers:
+
+1. E40-F07 runs the existing Shark Rider product-design action for feature
+   scenarios and supplies only responses authorized by the scenario replay
+   bundle.
+2. E40-F08 starts from the created Shark entity, requests each keyed dispatch
+   from Shark, and owns the mechanical lease and transition loop around the
+   returned concrete entity.
+
+For every dispatch, E40-F08 preserves the response, resolves a hierarchy fork
+through a recorded policy, claims the concrete entity, passes the rendered
+prompt unchanged, heartbeats the lease, records the worker's semantic outcome,
+applies the configured transition, and releases the claim on every exit path.
+Shark remains authoritative for routing, prompt assembly, workflow state,
+claims, and Questions. The benchmark controller is authoritative only for
+scenario scheduling, replay input, evidence capture, and resource ceilings.
+
+This boundary differs deliberately from Phase 1. A single `shark run` call is
+ideal for low-cost task and bug baselines, but it does not expose the
+stage-by-stage host control needed to replay D01-D05 interactions, freeze each
+artifact boundary, or execute and explain every generated descendant.
+
 ## Run lifecycle and isolation contract
 
 One run is one (corpus item x variant x rep). The harness provisions a scratch shark project through `scripts/shark-scratch-env.sh`, repoints `workflow_config` at the variant bundle (scratch `admin init` defaults to the embedded bundle and will not do this on its own), and enables `CaptureAgentTranscripts`. It seeds the corpus entities through the shark CLI and captures the assigned keys from the create responses; it never specifies keys. It then invokes `shark run <key> --json` under an external `timeout` cap, records its own monotonic start and end, and treats a killed process as `outcome=timeout`.
@@ -55,6 +102,83 @@ Admission is execution-based and reproducible: at the base commit F2P must be re
 
 The fixture repo's location (separate repo versus vendored directory) stays an F01 implementation choice; it is non-material to this architecture because every consumer reaches it through the manifest's pinned SHA.
 
+## Lifecycle scenario package contract
+
+I-04 extends the Phase 1 corpus principles without making the Go manifest the
+global benchmark shape. Each package contains:
+
+- scenario ID and version, entity family, and stage-applicability matrix;
+- fixture SHA, execution-adapter name and version, and toolchain identity;
+- agent-visible initial input and references to replay inputs;
+- evaluator-only reference-artifact and execution-oracle references;
+- resource policy and the machine-checkable final predicate; and
+- admission status with reproducible base and reference outcomes.
+
+E40-F05 writes I-04. E40-F06, E40-F07, and E40-F08 treat it as read-only. The
+adapter owns language-specific commands; no generic workflow or evaluator may
+branch on Python, Go, or a package manager.
+
+## Stage evidence and isolation contract
+
+I-05 defines three roots:
+
+| Root | Contents | Worker access |
+|---|---|---|
+| Agent-visible fixture checkout | Source, visible tests, and the planning context required by the current prompt | Read/write during its dispatch |
+| Scratch Shark project | Shark database, generated planning documents, run logs, transcripts, claims, and history | Only through authorized Shark and harness surfaces |
+| Evaluator-only root | Approved artifacts, judge answer keys, reference patches, and hidden execution tests | Never during worker dispatch; evaluator access only after the applicable stage or run |
+
+Each applicable stage snapshot records scenario, entity, stage, prompt digest,
+input and replay lineage, output paths and digests, tokens, cost, elapsed time,
+errors, rework, and access events. Admission and every dispatch boundary prove
+that evaluator-only files are absent from both agent-visible roots. A named stop
+outcome still writes partial evidence but marks it ineligible for publication.
+
+## Product-design replay contract
+
+I-06 is a versioned sequence of authorized stakeholder answers, interview or
+proxy-research evidence, and frozen research-tool responses plus the D01-D05
+artifact lineage created from them. The replay adapter supplies a response only
+when the current action and request match an unused authorized entry. It records
+the entry digest and consuming stage. Missing input yields `unresolved_gate`;
+scored runs never fall back to live research or interactive input.
+
+E40-F07 wraps the existing E36-F02 product-design route through X-10. It does
+not copy the methodology or make D01-D05 a Shark workflow status. Bug,
+change-card, and tech-debt scenarios bypass this prelude and record those stages
+as non-applicable.
+
+## Lifecycle run record contract
+
+I-07 contains the scenario identity and entity graph; every preserved keyed
+dispatch response; fork decision; claim, heartbeat, and release; prompt and
+worker-result reference; semantic outcome and resulting status; Question and
+replay decision; stage-evidence reference; usage, cost, and elapsed time; and
+resource ceilings plus observed consumption. It ends with one named scenario
+outcome and an aggregate-eligibility flag.
+
+E40-F08 writes a reason for every skipped or ineligible generated task. It runs
+all other eligible tasks. `resource_limit`, lease loss, missing outcome,
+`unresolved_gate`, pause, archive, error, cancellation, and worker failure stop
+the scenario, retain partial evidence, and prevent baseline publication.
+
+## Lifecycle evaluation record contract
+
+I-08 keeps three truths separate:
+
+1. deterministic structural checks over artifacts, ownership, links,
+   dependencies, transitions, traceability, and executable-task eligibility;
+2. a versioned LLM-judge result for applicable planning and decomposition
+   artifacts, calibrated against human-scored examples; and
+3. the held-back execution-oracle result for implementation correctness.
+
+The record also pins scenario and replay identity, fixture and adapter, Shark
+binary, installed Shark-data content, every rendered prompt, stage provider,
+model and effort, judge configuration, rubric, references, and resource policy.
+Missing or disagreeing identity makes the run ineligible for aggregation and
+records every divergence reason. Workflow completion and worker self-report are
+never substitutes for these results.
+
 ## Metric collection and artifact schema
 
 Collection has four sources, each answering what the others cannot.
@@ -68,7 +192,12 @@ Collection has four sources, each answering what the others cannot.
 
 One JSONL record per run carries a manifest block (corpus item, variant, rep, fixture and bundle SHAs, exact model IDs, timeout cap), per-stage records, post-run check results, and a rollup. This record is the stable shape F03 reads; F03 reads nothing else. A run that times out still emits a record — its stage attribution comes from the liveness stream, not from stdout.
 
-The envelope field names the parser depends on are **not yet verified** against a live envelope (Q003). The design doc names `usage.*`, `total_cost_usd`, `duration_api_ms`, `num_turns`, and `modelUsage`; the only parsing code in the repo decodes a narrower set for its own purposes and corroborates none of the last three. F02 confirms the real names against one captured transcript before writing the parser. Exact model IDs are required manifest data, so if `modelUsage` is absent a fallback source must be named rather than the field dropped.
+Phase 1 historically parsed the retained provider envelope. Lifecycle v2 must
+not copy that parser by assumption: E40-F06 verifies the current E27-F15 field
+mapping through X-09, E40-F08 writes the observed runtime values into I-05 and
+I-07, and E40-F09 rejects a record whose required usage or model identity is
+absent. A named, tested fallback source is acceptable; silently dropping the
+field is not.
 
 ## Run liveness contract
 
@@ -84,9 +213,23 @@ A fallback does exist, so this is a strong preference rather than a hard block. 
 
 - **ADR-001 — Harness-owned `--workdir`, not `shark run --worktree`.** `--worktree` defers `git worktree remove --force` on every return path, so the tree is destroyed before the harness regains control, uncommitted agent work is force-deleted, and the timestamped path is never exposed on `RunResult`. Post-run checks need a live tree, so `--worktree` is insufficient rather than merely inconvenient. Committed work would survive on the `shark-run-<key>-<ts>` branch, but oracle and lint checks need files. This deviates from PRD section 3 and design section 1 step 4; recorded as Q001. Rejected alternative: a Go change to preserve or emit the worktree path — it would spend the epic's single Phase 1 Go change on isolation instead of liveness.
 - **ADR-002 — JSONL artifacts are the only store.** No shark table, migration, or reuse of `internal/reporting`. Reports are derived and reproducible from the artifact directory alone, which is what makes G7 checkable.
-- **ADR-003 — A config variant is a workflow YAML bundle.** `OrchestratorAction` already carries every knob, so variants need no schema change and Phase 2 inherits the mechanism unchanged.
+- **ADR-003 — A config variant is a workflow YAML bundle.** `OrchestratorAction` already carries every knob, so variants need no schema change and lifecycle v2 inherits the mechanism unchanged.
 - **ADR-004 — Pin the parsed `shark run` surface with a canary.** E22 is active, not frozen. Asserting the `RunResult`, `StageLog`, and transcript byte format against a real invocation converts a silent metric corruption into a loud failure.
-- **ADR-005 — Phase 1 benches tasks and bugs only, so cascade attribution is deferred.** Cascade children's stages flatten into the parent with no entity key, and sibling children inherit the parent run id while restarting their own stage counter, so their transcripts collide on filename and the later write truncates the earlier. This answers the design doc's open "verify before P2 rollups" item and is a `shark run` correctness issue in its own right, worth filing separately from E40. It constrains Phase 2 feature benching, not Phase 1; recorded as Q004.
+- **ADR-005 — Phase 1 benches tasks and bugs only, so its cascade attribution is deferred.** Cascade children's stages flatten into the parent with no entity key, and sibling children inherit the parent run id while restarting their own stage counter, so their transcripts collide on filename and the later write truncates the earlier. This answered the former "verify before P2 rollups" item and remains a `shark run` correctness issue in its own right. Lifecycle v2 avoids treating that flattened record as truth by writing per-dispatch I-05/I-07 evidence through E40-F08; recorded as Q004.
+- **ADR-006 — Keep both execution paths and name their phases.** Phase 1 keeps
+  `shark run` for its completed low-cost baseline. Lifecycle v2 uses a
+  Rider-equivalent host loop over public Shark APIs because replay and
+  per-dispatch evidence require host control. The loop may schedule and record;
+  it may not reimplement routing, prompts, workflow state, claims, or Questions.
+- **ADR-007 — Isolate evaluator truth in a third root.** The Phase 1 split
+  between scratch Shark state and fixture code remains. Lifecycle v2 adds an
+  evaluator-only root that is unavailable to workers and admitted at every
+  dispatch boundary. Post-stage and post-run evaluators receive narrow,
+  recorded access only when authorized.
+- **ADR-008 — Fail closed on evidence and comparison identity.** Missing stage
+  evidence, oracle results, judge calibration, or any required identity field
+  invalidates publication. The system retains partial and invalid records for
+  diagnosis instead of discarding or silently averaging them.
 
 ## Delivery boundaries and traceability
 
@@ -96,7 +239,23 @@ A fallback does exist, so this is a strong preference rather than a hard block. 
 | F02 Run driver | Operator runs one (item, variant, rep) unattended | UAT-5 bounded timeout with the stalled stage recorded; complete metric families per run | F01 manifest, F04 liveness; JSONL record (I-02) |
 | F03 Baseline and noise band | Operator starts the 10 x 3 batch and walks away; or replays a stored manifest | UAT-1 batch completes and the report states per-metric spread; UAT-7 replay reproduces the manifest's metrics within the published band | F02 artifacts; published noise band; replay verification result (G7) |
 | F04 `shark run` liveness | Any `shark run` invocation, bench or human | UAT-6 in-flight observability; stdout still one document | None; stderr NDJSON + `run.log` (I-03) |
+| F05 Lifecycle scenarios | Curator admits a versioned scenario package | UAT-08 loads all four families and rejects malformed or non-runnable cases | Phase 1 corpus principles (I-01); lifecycle scenario package (I-04) |
+| F06 Stage evidence and isolation | Harness admits and dispatches an applicable stage | UAT-09 proves hidden truth absent at dispatch and replays the captured stage later | I-04 and X-09; stage evidence bundle (I-05) |
+| F07 Product-design replay | Operator starts an admitted feature scenario | UAT-10 completes D01-D05 from frozen responses or stops at `unresolved_gate` | I-04 and X-10; product-design replay result (I-06) |
+| F08 Keyed lifecycle runner | Product-design prelude completes or a non-feature root is admitted | UAT-11 and UAT-12 cover every lease/transition path, Question, descendant, and safety stop | I-04, I-05, I-06, X-11, X-13; lifecycle run record (I-07) |
+| F09 Evaluation and identity | A stage snapshot or scenario run becomes evaluable | UAT-13 and UAT-14 separate structural, judge, and oracle truth and reject incompatible aggregates | I-05, I-07, X-12; lifecycle evaluation record (I-08) |
+| F10 Operator baseline | Operator previews, pilots, runs, or reports a lifecycle batch | UAT-15 prevents accidental spend and gates publication on inspected pilots and complete evidence | I-07 and I-08; retained baseline and diagnostic reports |
 
-Phase 1 exit owns G1–G5 and G7. G7/UAT-7 (stored-manifest replay) is owned by F03, which re-invokes F02's single-run command against the manifest's pinned inputs and verifies the result against the published band — no new I-## is needed since replay reuses the I-01/I-02 shapes already produced by F01 and F02. **G6, UAT-3, and UAT-4 are Phase 2 criteria**, not Phase 1: they require variant bundles and the paired comparison report, which PRD section 3 defers and F03 explicitly excludes. No Phase 1 feature owns them, so leaving them stated as Phase 1 exit criteria would leave the epic with an orphaned requirement. This restatement is recorded as Q002 and reflected in [uat-plan.md](uat-plan.md).
+Phase 1 exit owns G1-G5 and G7. G7/UAT-7 remains owned by F03 and reuses
+I-01/I-02. Lifecycle v2 owns G8-G15 and UAT-08 through UAT-15 through
+E40-F05-E40-F10. G6 and UAT-03/UAT-04 now have a durable home in E40-F09 and
+E40-F10, but their detailed configuration-matrix design remains subject to
+those feature workflows rather than being retrofitted into completed F03.
 
-Q001 (isolation mechanism) and Q002 (G6 phase placement) are **resolved**: both proposed answers are applied throughout this document, epic.md, E40-F02's feature.md, and E40-F03's feature.md, and `shark question resolve` records `architecture_decision` against those files. Open decisions remaining: Q003 (envelope field names — F02 must confirm before writing the parser) and Q004 (Phase 2 cascade attribution — constrains Phase 2 feature benching only, not Phase 1). Risks and their mitigations — variance swamping config effects, weak oracles, repetition cost, scaffold-compliance confound, model-version drift — are stated in [shark-bench-design.md](shark-bench-design.md) section 7 and are not restated here.
+Q001 and Q002 remain resolved for Phase 1. Q003 becomes an E40-F06/X-09
+research obligation: reuse the audited provider-usage mapping when available
+and fail closed on missing identity. Q004's Phase 1 `shark run` attribution
+constraint is superseded for lifecycle v2 by E40-F08's per-dispatch I-07
+record, but the underlying `shark run` defect remains relevant to its own
+surface and must not be marked fixed by this architecture. Risks and
+mitigations remain in [shark-bench-design.md](shark-bench-design.md).

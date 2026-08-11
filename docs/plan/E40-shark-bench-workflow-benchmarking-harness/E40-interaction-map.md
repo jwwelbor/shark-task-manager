@@ -1,50 +1,55 @@
 ---
 type: interaction-map
 epic: E40
-last_updated: 2026-08-05
+last_updated: 2026-08-11
 ---
 
-# E40 Cross-Feature Interaction Map
+# E40 cross-feature interaction map
 
-Four features, each with a real trigger, a production path, an observable UAT result, current prerequisites, and outputs for later consumers — tabulated in [architecture](architecture.md#delivery-boundaries-and-traceability). No Phase 1 acceptance criterion depends on later unbuilt behavior; the criteria that did (G6, UAT-03, UAT-04) are restated as Phase 2, not reassigned to a Phase 1 feature.
+E40 has two delivery phases under one epic. E40-F01 through E40-F04 preserve
+the completed v1 corpus, collector, report, and `shark run` liveness contracts.
+E40-F05 through E40-F10 define the active lifecycle v2 tranche. Every
+interaction below has a named producer, named consumer, authoritative shape,
+and observable downstream use.
 
 | ID | Producer feature | Consumer feature(s) | Shape | Payload | Style |
 |---|---|---|---|---|---|
-| I-01 | E40-F01 Benchmark corpus v1 | E40-F02 Bench harness | [Corpus and oracle contract](architecture.md#corpus-and-oracle-contract) | Machine-readable manifest (issue prompt, entity seed spec, P2P set id, reference patch), held-back F2P test files, pinned fixture base SHA, base-SHA test and lint ledgers | File artifact |
-| I-02 | E40-F02 Bench harness | E40-F03 Baseline report and noise band | [Metric collection and artifact schema](architecture.md#metric-collection-and-artifact-schema) | One JSONL record per run: manifest block (item, variant, rep, SHAs, exact model IDs, timeout cap), per-stage records, post-run check results, rollup | File artifact |
-| I-03 | E40-F04 shark run live progress and per-run log | E40-F02 Bench harness | [Run liveness contract](architecture.md#run-liveness-contract) | stderr NDJSON progress events (run id, entity key, stage status, action, agent/provider, event, stage elapsed, total elapsed) and `.shark/runs/<run_id>/run.log` | Process stream and file artifact |
+| I-01 | E40-F01 Benchmark corpus v1 | E40-F02 Bench harness; E40-F05 Lifecycle scenario corpus | [Corpus and oracle contract](architecture.md#corpus-and-oracle-contract) | V1 manifest, entity seed, held-back F2P tests, P2P set, reference patch, fixture SHA, and base ledgers. F05 consumes the admission and oracle principles without making the Go manifest the global schema. | File artifact |
+| I-02 | E40-F02 Bench harness | E40-F03 Baseline report and noise band | [Metric collection and artifact schema](architecture.md#metric-collection-and-artifact-schema) | One JSONL record per v1 run with manifest, per-stage, post-run, and rollup data | File artifact |
+| I-03 | E40-F04 `shark run` live progress and per-run log | E40-F02 Bench harness | [Run liveness contract](architecture.md#run-liveness-contract) | stderr NDJSON progress and `.shark/runs/<run_id>/run.log` used to diagnose and attribute a killed v1 run | Process stream and file artifact |
+| I-04 | E40-F05 Lifecycle scenario corpus and adapter contract | E40-F06 Stage evidence and evaluator isolation; E40-F07 Replayable product-design prelude; E40-F08 Canonical multi-entity lifecycle runner | [Lifecycle scenario package contract](architecture.md#lifecycle-scenario-package-contract) | Versioned scenario identity, family, stage matrix, fixture and adapter, visible input, replay and evaluator references, resource policy, final predicate, and admission result | File artifact |
+| I-05 | E40-F06 Stage evidence and evaluator isolation | E40-F08 Canonical multi-entity lifecycle runner; E40-F09 Calibrated evaluation and comparison identity; E40-F10 Operator workflow and retained lifecycle baseline | [Stage evidence and isolation contract](architecture.md#stage-evidence-and-isolation-contract) | Three-root access policy and immutable stage snapshot with prompt, input, replay, output, usage, cost, elapsed, error, rework, digest, and evaluator-access lineage | File artifact and access policy |
+| I-06 | E40-F07 Replayable product-design prelude | E40-F08 Canonical multi-entity lifecycle runner | [Product-design replay contract](architecture.md#product-design-replay-contract) | Authorized replay response sequence, D01-D05 artifact references and digests, consumption lineage, and terminal prelude outcome | File artifact |
+| I-07 | E40-F08 Canonical multi-entity lifecycle runner | E40-F09 Calibrated evaluation and comparison identity; E40-F10 Operator workflow and retained lifecycle baseline | [Lifecycle run record contract](architecture.md#lifecycle-run-record-contract) | Entity graph; dispatches; scheduling decisions; claims, heartbeats, transitions, releases; evidence references; Questions; usage; limits; stop outcome; aggregate eligibility | File artifact |
+| I-08 | E40-F09 Calibrated evaluation and comparison identity | E40-F10 Operator workflow and retained lifecycle baseline | [Lifecycle evaluation record contract](architecture.md#lifecycle-evaluation-record-contract) | Structural results, calibrated judge evidence, held-back execution-oracle result, complete comparison identity, eligibility verdict, and invalidity reasons | File artifact |
 
-All three rows use the default `live` gate mode. No `contract-only` row is declared, and none is available at this phase — that declaration belongs to feature specification.
+All rows use the default `live` gate mode. A feature workflow may refine a shape
+only if it updates the architecture source, this row, every named consumer, and
+the matching UAT scenario before passing feature review.
 
-## Sequencing note on I-01
+## Execution order
 
-E40-F01's task decomposition (11 tasks, `T-E40-F01-001` through `T-E40-F01-011`)
-mirrors I-01 as `produces`/`validates` in every producer-side task — the
-manifest, items, ledgers, `checkout-fixture.sh`, `diff-ledgers.sh`, and
-`bench/README.md`. E40-F02, the named consumer, is still `execution_order` 3
-and draft; it has not entered its own `task_generation` yet, so no F02 task
-exists to declare `I-01: consumes`.
+| Order | Feature(s) | Reason |
+|---:|---|---|
+| 1-4 | E40-F01 through E40-F04 | Completed v1 delivery; preserved as historical foundation |
+| 5 | E40-F05 | Establish I-04 before any v2 consumer specifies its implementation |
+| 6 | E40-F06 | Defines stage evidence and evaluator isolation after I-04 |
+| 7 | E40-F07 | Defines product-design replay after I-04; F06 and F07 are dependency-independent, but Shark records a unique portfolio order |
+| 8 | E40-F08 | Requires I-04, I-05, and I-06 plus the external Rider and Question contracts |
+| 9 | E40-F09 | Requires captured stage evidence and a complete lifecycle run |
+| 10 | E40-F10 | Requires the lifecycle and evaluation record shapes before operator publication behavior is specified |
 
-**This is build-order sequencing, not an open gap.** The consumer-side
-mirror obligation is recorded as a decision note on E40-F02 (added
-2026-08-05): F02's own `task_generation` must create at least one task that
-declares `I-01: consumes`, copies the shape source
-`architecture.md#corpus-and-oracle-contract` and the contract test
-`tests/contracts/e40_i01_corpus_contract_test.go#TC-001` verbatim, and owns
-the real caller path for the manifest, `checkout-fixture.sh`, and
-`diff-ledgers.sh` (both modes). It cannot be satisfied earlier without
-inventing F02 tasks ahead of F02's own spec and test plan.
+## Boundary rules
 
-This does not change I-01's gate mode: the row stays `live`, as declared
-above — the edge is not staged or `contract-only` pending F02's
-decomposition.
+- Completed v1 features do not acquire new acceptance criteria. New behavior
+  belongs to E40-F05 through E40-F10.
+- E40-F08 drives public Shark contracts but does not own generic dispatch,
+  claims, Questions, or prompt assembly. Those seams are X-11 and X-13.
+- E40-F09 owns aggregate eligibility. E40-F10 may format or publish the verdict,
+  but it may not weaken or recompute it.
+- E40-F10 retains both the lifecycle headline and stage diagnostic view from the
+  same I-07/I-08 inputs. A stage view is never a separate product baseline.
 
-## Sequencing note on I-03
-
-I-03 is consumed in code, not only by an operator. When the timeout cap kills a run, stdout never delivers a `RunResult`, and UAT-05 still requires F02's artifact to name the stalled stage. F04's liveness record is the primary source for that: it carries stage elapsed, agent, and provider, and needs no database access.
-
-It is not a hard dependency. The controller advances status and writes the stage transcript only after the dispatch returns, so a killed run leaves the entity at the executing stage's status in the scratch DB, with the highest-numbered transcript bounding the last completed stage. F02 can meet UAT-05 from that fallback alone.
-
-**Recommendation applied, not a blocker:** decomposition sequenced E40-F04 at `execution_order` 2, ahead of E40-F02 at `execution_order` 3, so F02 builds against F04's liveness record as its primary source instead of the fallback path first. This was weighed against F04's independent value to every `shark run` user (X-08), which does not depend on bench at all — F04 stands on its own merit regardless of ordering.
-
-Decomposition must create feature boundaries matching these rows or update this map before advancing. Feature specs, task specs, feature review, task review, and QA reuse these stable IDs verbatim. Cross-epic seams use X-07 through X-09 in [E40-cross-epic-map.md](E40-cross-epic-map.md); the two ID spaces stay separate.
+Cross-epic seams use X-07 through X-13 in
+[E40-cross-epic-map.md](E40-cross-epic-map.md). Keep the I and X namespaces
+separate in feature specs, task specs, reviews, QA, and UAT.

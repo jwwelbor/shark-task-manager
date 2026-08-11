@@ -1,17 +1,30 @@
 ---
 epic_key: E40
 title: Shark Bench: workflow benchmarking harness
-description: Benchmark harness around shark (not inside it) that measures the effectiveness of a workflow configuration end-to-end and detects the effect of config changes (model, effort, prompt, per-step assignments). Uses shark run as the execution engine; captures per-stage wall-clock, tokens in/out, cost, LOC, rejections, defects, and code quality into JSONL artifacts; compares config variants paired per-task against a measured noise band.
+description: Benchmark program around Shark that measures workflow quality, cost, and lifecycle behavior from reproducible scenario inputs through planning, execution, review, and held-back evaluation. Phase 1 uses shark run for task and bug baselines; lifecycle v2 adds replayable product-design inputs, a canonical keyed Rider loop, stage evidence, calibrated evaluation, strict comparison identity, and retained multi-entity baselines.
 ---
 
 # Shark Bench: workflow benchmarking harness
 
-**Epic Key**: E40 · **Last Updated**: 2026-08-05
+**Epic Key**: E40 · **Last updated**: 2026-08-11
 
 This document is the single source of business context for E40. Features reference
 it; they must not restate it. Technical mechanics (architecture, per-metric
 collection, entity matrix, phasing detail) live in
-[shark-bench-design.md](./shark-bench-design.md) — agreed approach, 2026-08-05.
+[shark-bench-design.md](./shark-bench-design.md) — phased design, updated for
+lifecycle v2 on 2026-08-11.
+
+### Delivery history and current tranche
+
+- **Phase 1 is complete.** E40-F01 through E40-F04 remain the delivered Go
+  fixture corpus, single-run collector, baseline/noise-band report, and
+  `shark run` liveness foundation.
+- **Lifecycle v2 is active.** E40-F05 through E40-F10 extend the same benchmark
+  program to realistic feature, bug, change-card, and tech-debt lifecycles on a
+  controlled Python fixture.
+- Creating E40-F05 reopened E40 through Shark's normal parent-maintenance
+  behavior. This does not revise the completion history of E40-F01 through
+  E40-F04.
 
 ---
 
@@ -53,8 +66,9 @@ is now fixed — the pattern generalizes.
 
 ## 2. Goals and Success Criteria
 
-Each criterion below is measurable and verifiable at Phase 1 exit, **except G6**
-(see the phase note below the table).
+G1-G7 preserve the Phase 1 contract. G8-G15 define the lifecycle v2 exit
+contract. A later feature workflow may refine implementation detail, but it may
+not orphan or silently weaken these epic-level outcomes.
 
 | # | Goal | Phase | Success criterion (testable) |
 |---|---|---|---|
@@ -63,16 +77,22 @@ Each criterion below is measurable and verifiable at Phase 1 exit, **except G6**
 | G3 | Runs are observable while in flight | 1 | For every run, per-stage progress is visible during execution (stderr events in `--json` mode) and a per-run log exists at `.shark/runs/<run_id>/run.log` |
 | G4 | Every run emits complete metrics | 1 | 100% of completed runs produce a JSONL artifact carrying: per-stage wall-clock, tokens in/out, cost, exact model IDs, rejection count per gate, oracle result (F2P/P2P), quality-gate results (fmt/vet/lint-delta/test), and LOC added/deleted split prod vs test |
 | G5 | Run-to-run variance is quantified | 1 | A published **noise band** per headline metric (pass rate, rejections per gate, tokens per step, wall-clock, LOC), computed from the 3-rep baseline |
-| G6 | Config changes are evaluable | **2** | A deliberate config change (e.g. model swap on the dev step) produces a **paired per-task** delta report against the baseline; deltas that do not clear the G5 noise band are reported as **"no detectable effect"** rather than as an improvement |
+| G6 | Config changes are evaluable | v2 | A deliberate config change (e.g. model swap on the dev step) produces a **paired per-task** delta report against the baseline; deltas that do not clear the G5 noise band are reported as **"no detectable effect"** rather than as an improvement |
 | G7 | Results are reproducible | 1 | Re-running a stored manifest (pinned fixture-repo SHA, pinned model IDs, variant bundle) reproduces the reported metrics within the published noise band |
+| G8 | Real lifecycle scenarios are admitted | v2 | At least one versioned feature, bug, change-card, and tech-debt scenario passes fixture, stage-matrix, adapter, and oracle admission against a controlled Python task-manager fixture |
+| G9 | Stage evidence is complete and isolated | v2 | Every applicable stage emits an immutable, replayable snapshot; evaluator-only references, patches, answer keys, and tests are absent at every worker dispatch boundary |
+| G10 | Product-design input is replayable | v2 | Feature scenarios execute D01-D05 through the existing Shark Rider product-design action using only versioned stakeholder and research responses; missing authorized input stops as `unresolved_gate` |
+| G11 | The real keyed lifecycle executes | v2 | The lifecycle runner preserves every keyed dispatch response, claim, heartbeat, unchanged prompt handoff, semantic outcome, transition, release, Question decision, and named stop outcome for the scenario root and all eligible descendants |
+| G12 | Safety ceilings preserve truth | v2 | Positive provider-cost, wall-time, and generated-task ceilings are required; reaching one stops and invalidates the entire scenario as `resource_limit` while retaining partial evidence |
+| G13 | Artifact and implementation quality are independently evaluated | v2 | Applicable artifacts pass deterministic structural checks and a calibrated versioned judge; implementation correctness comes from a held-back execution oracle, never terminal workflow status or worker self-report |
+| G14 | Comparisons have complete identity | v2 | Scenario, fixture, adapter, Shark binary, installed content, prompt, provider/model/effort, judge, reference, and resource-policy identity are present and uniform; mixed or incomplete runs are rejected from aggregates with reasons retained |
+| G15 | Provider-backed baselines are deliberate and inspectable | v2 | Dry-run and report operations make no provider calls; provider-backed runs require explicit spend and safety limits; one retained, inspected pilot per scenario family precedes repeated baseline publication |
 
-**Phase 1 exit owns G1–G5 and G7.** G6 requires variant bundles and the paired
-per-task comparison report, both of which are Phase 2 scope (§3) — no Phase 1
-feature owns G6, and F03 explicitly excludes comparison. Stating G6 as a Phase 1
-exit criterion would leave it orphaned; this phase placement is decision Q002
-(see [architecture.md](architecture.md#delivery-boundaries-and-traceability) and
-[uat-plan.md](uat-plan.md)). G7, by contrast, needs no comparison — only a
-replay of a stored manifest, which is Phase 1 scope owned by E40-F03.
+**Phase 1 exit owns G1-G5 and G7.** G6 remains the paired configuration-change
+criterion and is now owned by the v2 evaluation and operator-reporting tranche,
+primarily E40-F09 and E40-F10. G8-G15 are jointly gated by UAT-08 through UAT-15.
+See [architecture.md](architecture.md#delivery-boundaries-and-traceability) and
+[uat-plan.md](uat-plan.md) for feature ownership and observable scenarios.
 
 **Explicit non-goal on sensitivity.** A 10×3 matrix detects coarse effects
 (roughly ≥20pp pass-rate shifts, large token/cost shifts). Detecting subtle prompt
@@ -83,7 +103,7 @@ claims being made from this data.
 
 ## 3. Scope
 
-### In scope (Phase 1)
+### Delivered scope (Phase 1)
 
 - **Fixture corpus and oracles** — a purpose-built Go fixture repo with a real
   test suite, plus a corpus manifest of ~10 screened tasks and bugs (issue-style
@@ -102,6 +122,24 @@ claims being made from this data.
   file. (E40-F04)
 - Entity types benched in Phase 1: **tasks and bugs**.
 
+### Active scope (lifecycle v2)
+
+- **E40-F05 — Lifecycle scenario corpus and adapter contract.** Add versioned
+  feature, bug, change-card, and tech-debt scenarios, a controlled Python
+  fixture, and a language-neutral adapter boundary. Produces I-04.
+- **E40-F06 — Stage evidence and evaluator isolation.** Define the three-root
+  isolation model and immutable stage evidence. Produces I-05.
+- **E40-F07 — Replayable product-design prelude.** Run feature scenarios through
+  D01-D05 using versioned stakeholder and research responses. Produces I-06.
+- **E40-F08 — Canonical multi-entity lifecycle runner.** Drive the real keyed
+  Shark lifecycle for the root and every eligible descendant. Produces I-07.
+- **E40-F09 — Calibrated evaluation and comparison identity.** Combine
+  structural checks, a calibrated artifact judge, held-back execution truth,
+  and fail-closed identity validation. Produces I-08.
+- **E40-F10 — Operator workflow and retained lifecycle baseline.** Add safe
+  preview, pilot, run, inspection, reporting, noise-band, and publication
+  operations that consume I-07 and I-08.
+
 ### Out of scope
 
 Out of scope for E40 entirely:
@@ -113,17 +151,15 @@ Out of scope for E40 entirely:
 - Benchmarking non-shark agent harnesses, or cross-harness comparison.
 - Any claim of statistical significance beyond the published noise band.
 
-Deferred to later phases of this epic (planned, not in Phase 1):
+Still deferred after lifecycle v2:
 
-- **Phase 2**: core instrumentation G1 (decode the agent usage envelope into
-  StageLog), G2 (per-stage outcome + `outcome_source`), G3 (`--stage-timeout`);
-  variant bundles and the matrix runner with per-run budget caps; the paired
-  comparison report (**G6**, with UAT-3 and UAT-4); feature-level benching (Mode A
-  pre-seeded children, then Mode B agent-generated); change-card and tech-debt
-  entity coverage.
-- **Phase 3**: epics as benched entities; a SWE-bench Verified slice; a
-  rubric/LLM-judge reviewer; codex usage parity (G4 in the design doc); post-hoc
-  adversarial defect window; corpus rotation policy.
+- Epics as primary scenario roots and the full D06-D14 product-design arc.
+- A SWE-bench Verified slice, corpus rotation policy, and post-hoc adversarial
+  defect window.
+- A hosted dashboard, scheduled service, or CI-triggered provider spend.
+- Generic Shark, Rider, Question, usage-decoder, or Shark-data changes that the
+  benchmark may expose. Triage those under their owning epics and link them to
+  E40; do not absorb them into the benchmark wrapper.
 
 ---
 
@@ -131,11 +167,16 @@ Deferred to later phases of this epic (planned, not in Phase 1):
 
 **Constraints**
 
-- **`shark run` is the execution engine.** Bench is a harness *around* shark, not
-  a feature inside it. It may not fork, reimplement, or bypass the run controller.
-- **One Go-side change in Phase 1.** F01–F03 require no changes to shark itself;
+- **Use the phase-appropriate public execution contract.** Phase 1 uses
+  `shark run` unchanged. Lifecycle v2 uses a host-side controller over the
+  canonical keyed dispatch, claim, heartbeat, semantic-outcome, transition, and
+  release APIs so it can record each stage and route replayed decisions. It may
+  not reconstruct prompts, routing, workflow state, claims, or Questions outside
+  Shark.
+- **One Go-side change in Phase 1.** F01-F03 required no changes to Shark itself;
   **F04 does** — `--json` runs are silent until completion today, which unattended
-  batches cannot tolerate. Any further core change is Phase 2 by definition.
+  batches cannot tolerate. This is a historical Phase 1 constraint, not a claim
+  that lifecycle v2 can never expose a core defect.
 - **Never run against the live repo or database.** All provisioning goes through
   `scripts/shark-scratch-env.sh`; the shark-config guardrail hook blocks the
   alternative.
@@ -145,24 +186,24 @@ Deferred to later phases of this epic (planned, not in Phase 1):
   lives in a shark database.
 - **Comparison is paired per-task only.** Cross-task aggregation of a variant
   against a baseline is not a permitted method.
-- **Held-back tests never enter the repo the agent sees**; they are injected only
-  at terminal status during post-run checks.
-- The epic design phase must produce `E40-interaction-map.md` (four features with
-  F01→F02→F03 producer/consumer handoffs). Stable `I-##` IDs are assigned there
-  only, once each shape source resolves to a section in `architecture.md` — this
-  PRD deliberately invents none.
+- **Evaluator-only material never enters an agent-visible root**; references,
+  answer keys, patches, and hidden tests become readable only by their authorized
+  post-stage or post-run evaluator.
+- `E40-interaction-map.md` is the stable cross-feature contract registry for all
+  ten features. I-01 through I-03 preserve Phase 1; I-04 through I-08 define
+  lifecycle v2. Every row names a producer, consumer, and architecture shape.
 
 **Assumptions**
 
-- Agent dispatch persists the provider's JSON envelope (usage, cost, model IDs)
-  per stage when transcripts are captured, so Phase 1 can parse it harness-side
-  without core changes. If this proves false, G1 moves into Phase 1 scope.
+- Phase 1 artifacts preserve the provider JSON envelope they historically
+  parsed harness-side. Lifecycle v2 verifies the audited field mapping through
+  F06/X-09 and fails closed when required usage or model identity is absent.
 - A curated fixture repo produces oracle signal representative enough for
   *relative* config comparison, even though absolute pass rates will not transfer
   to real-world repos.
-- API spend for a full baseline batch (≈30 multi-stage runs) is acceptable and
-  bounded by the per-run timeout cap; matrix runs in Phase 2 will additionally need
-  per-run budget caps.
+- Provider spend is never implicit. Every provider-backed pilot or baseline run
+  requires explicit acknowledgement plus positive cost, wall-time, and
+  generated-task ceilings.
 - Corpus items sit in a discriminative band — items every config aces or every
   config fails are dropped rather than kept as filler.
 
@@ -177,17 +218,17 @@ Deferred to later phases of this epic (planned, not in Phase 1):
 | **Runner / core maintainers** | Bench exercises `shark run` end-to-end and unattended, surfacing runner defects that manual use misses (B051 precedent). F04 also improves day-to-day `shark run` observability for every user, not just bench. |
 | **Cost owner** | Accepts recurring API spend for baseline and matrix runs, in exchange for the ability to justify or reduce per-step model spend with measurements. |
 | **Feature/task authors (corpus curators)** | Take on ongoing work: writing reference patches and held-back tests, and keeping the corpus in its discriminative band as models improve. |
+| **Product and research participants** | Supply versioned replay inputs for feature scenarios once; scored runs consume those frozen responses rather than interrupting people or reaching mutable external sources. |
+| **Benchmark operators and reviewers** | Gain retained stage evidence, invalid-run reasons, calibrated artifact judgments, and execution-oracle truth, but must inspect one real pilot per scenario family before publishing a repeated baseline. |
 
 ---
 
 ## 6. High-Level Acceptance Criteria (UAT Scenarios)
 
-**Phase 1 exit is gated on UAT-1, UAT-2, UAT-5, UAT-6, and UAT-7.** UAT-3 and
-UAT-4 are stated here for completeness but are **Phase 2 criteria** — they
-require the variant bundles and paired comparison report deferred with G6 (§3,
-§2 phase note; decision Q002). Full detail and coverage pointers for every
-scenario, including the Phase 2 deferral rationale, live in
-[uat-plan.md](uat-plan.md).
+**Phase 1 exit was gated on UAT-1, UAT-2, UAT-5, UAT-6, and UAT-7.** Lifecycle
+v2 retains those regression contracts, assigns UAT-3 and UAT-4 to E40-F09 and
+E40-F10, and adds UAT-8 through UAT-15. Full detail and coverage pointers live
+in [uat-plan.md](uat-plan.md).
 
 **UAT-1 — Unattended baseline batch produces a report with a noise band**
 *Given* an admitted corpus of ≥10 items and the default workflow bundle,
@@ -202,21 +243,20 @@ FAIL_TO_PASS tests green (or whose PASS_TO_PASS set is already red at the base
 commit), *when* the admission gate runs, *then* the item is rejected with the
 failing check named, and it does not appear in any benchmark run.
 
-**UAT-3 — (Phase 2) A config delta inside the noise band is reported as no effect**
+**UAT-3 — A config delta inside the noise band is reported as no effect**
 *Given* a published baseline and its noise band, *when* an operator runs a variant
 bundle over the same corpus and the paired per-task delta on every headline metric
 falls inside the band, *then* the comparison report states **"no detectable
 effect"** and does not present the variant as an improvement or a regression.
-Deferred to Phase 2 with G6 — no Phase 1 feature builds the variant-bundle
-comparison this requires.
+E40-F09 validates comparison identity and E40-F10 owns the operator report.
 
-**UAT-4 — (Phase 2) A config delta outside the noise band is reported as a measured change**
+**UAT-4 — A config delta outside the noise band is reported as a measured change**
 *Given* the same baseline, *when* an operator swaps the model on the dev step and
 the paired per-task delta on at least one headline metric exceeds the band,
 *then* the report names the metric, the direction and size of the delta, the
 per-task pairs behind it, and the exact model IDs on both sides — and re-running
-the stored manifest reproduces the finding within the band. Deferred to Phase 2
-with G6, for the same reason as UAT-3.
+the stored manifest reproduces the finding within the band. E40-F09 validates
+the paired evidence and E40-F10 owns publication.
 
 **UAT-5 — A stuck run is bounded, recorded, and does not hang the batch**
 *Given* a run whose stage exceeds the configured timeout cap, *when* the cap is
@@ -237,3 +277,26 @@ command against it, *then* E40-F02's single-run command re-executes with those
 exact pinned inputs, and the resulting metrics fall within the noise band
 originally published for that manifest — verified from the manifest and artifact
 directory alone, with no other state.
+
+### Lifecycle v2 acceptance summary
+
+- **UAT-08:** all four admitted scenario families load with correct applicable
+  and non-applicable stages.
+- **UAT-09:** evaluator-only material is absent at every dispatch boundary and
+  becomes readable only by the authorized evaluator.
+- **UAT-10:** feature scenarios reproduce D01-D05 from the versioned replay
+  bundle; missing input stops as `unresolved_gate`.
+- **UAT-11:** the keyed lifecycle records fork selection, claim, heartbeat,
+  unchanged prompt handoff, semantic outcome, transition, and release for every
+  eligible entity.
+- **UAT-12:** Questions, lease loss, worker failure, missing outcomes, and safety
+  ceilings stop with the correct named outcome and retain partial evidence.
+- **UAT-13:** structural checks, calibrated judge evidence, and the held-back
+  execution oracle remain distinct and all gate publication.
+- **UAT-14:** aggregates reject missing or mixed comparison identity and retain
+  the invalid inventory.
+- **UAT-15:** dry-run and report paths spend nothing; retained pilots for all four
+  families are inspected before a repeated lifecycle baseline is published.
+
+The full Given/When/Then scenarios and feature ownership live in
+[uat-plan.md](uat-plan.md).

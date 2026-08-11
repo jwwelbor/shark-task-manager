@@ -14,6 +14,37 @@ related_work: true
 
 # E40 research report: Shark Bench — workflow benchmarking harness
 
+## Lifecycle v2 addendum (2026-08-11)
+
+This report records the Phase 1 brownfield investigation. It remains the source
+for E40-F01 through E40-F04, but its branch states and its claim that `shark run`
+is the only execution path are historical snapshots. Verify those states again
+inside each new feature workflow.
+
+Lifecycle v2 adds E40-F05 through E40-F10 and reuses these current product
+contracts:
+
+| Contract | Current owner | E40 consumer | Research obligation |
+|---|---|---|---|
+| Provider usage and session metadata | E27-F15 | E40-F06/E40-F08 through X-09 | Verify the current decoder and real provider envelopes; fail closed on missing identity |
+| Product-design action and derived progress | E36-F02 | E40-F07 through X-10 | Invoke the existing action and methodology; research only the benchmark replay seam |
+| Keyed Rider execution, prompt provenance, and resume | E38-F07/E38-F09 | E40-F08 through X-11 | Verify the live `next`/claim/heartbeat/outcome/release procedure and preserve the rendered prompt unchanged |
+| Canonical installed Shark-data content | E32-F04 | E40-F09 through X-12 | Determine a deterministic digest over installed workflows, prompts, skills, and agents |
+| Durable Question lifecycle | E39-F04 | E40-F08 through X-13 | Verify replay-authorized response and unresolved-gate behavior without transcript-only decisions |
+
+New feature research must also validate the controlled Python fixture, the
+three-root evaluator-isolation model, stage snapshot schema, LLM-judge
+calibration method, comparison-identity fields, and operator spend gates. The
+accepted boundaries and stable shapes are I-04 through I-08 in
+[architecture.md](architecture.md) and
+[E40-interaction-map.md](E40-interaction-map.md).
+
+The execution-path decision is phase-specific: Phase 1 keeps `shark run` for
+the shipped task/bug baseline, while lifecycle v2 uses a host-side controller
+over public Shark and Rider contracts so it can replay D01-D05 inputs and freeze
+every stage. This controller must not create another workflow engine, claim
+store, prompt assembler, or Question store.
+
 ## Scope
 
 E40 builds a harness *around* `shark run`, not a feature inside it, to measure
@@ -27,7 +58,7 @@ collects per-run metrics into JSONL, a
 baseline report whose deliverable is a published **noise band**, and the one
 Phase-1 Go change — `shark run` liveness in `--json` mode.
 
-This is **COMPLEX** research: it spans four features with declared
+The Phase 1 work was **COMPLEX** research: it spans four features with declared
 producer/consumer handoffs (F01 corpus → F02 harness → F03 aggregation, plus
 F04 as an orthogonal core-runner fix), it makes one Go-side change to a
 still-actively-developed parent capability (`shark run`, owned by epic E22,
