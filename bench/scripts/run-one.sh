@@ -66,7 +66,7 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$BENCH_DIR/.." && pwd)"
 
 SHARK_BIN="${SHARK_BIN:-shark}"
-CANARY_BIN="${CANARY_BIN:-canary-runsurface.sh}"
+CANARY_BIN="${CANARY_BIN:-$SCRIPT_DIR/canary-runsurface.sh}"
 KILL_GRACE_S="${RUN_ONE_KILL_GRACE_S:-10}"
 
 usage() {
@@ -275,7 +275,7 @@ fi
 # --- REQ-F-020/AC-21: X-07 canary preflight, before any provisioning -------
 if [[ "$skip_canary" != "true" ]]; then
 	command -v "$CANARY_BIN" >/dev/null 2>&1 || {
-		echo "run-one: X-07 canary preflight binary not found on PATH: $CANARY_BIN (pass --skip-canary to bypass, or set CANARY_BIN)" >&2
+		echo "run-one: X-07 canary preflight binary not found: $CANARY_BIN (pass --skip-canary to bypass, or set CANARY_BIN)" >&2
 		exit 1
 	}
 	canary_args=("$CANARY_BIN" --corpus "$corpus_yaml")
@@ -412,6 +412,14 @@ else
 	seeded_entity_key="$(run_create_key bug "$seed_title" --description="$seed_description" --severity="$seed_severity")"
 	seeded_keys_json="$(python3 -c 'import json,sys; print(json.dumps({"bug": sys.argv[1]}))' "$seeded_entity_key")"
 fi
+
+# The generated Shark task documents live under the scratch project, but the
+# agent runs in the fixture checkout passed through --workdir. Mirror only the
+# planning tree before dispatch so relative entity file_path references work.
+# This is harness context, not fixture code or oracle input; F2P files remain
+# absent until the existing post-run injection step.
+mkdir -p "$checkout_dir/docs"
+cp -a "$scratch_dir/docs/plan" "$checkout_dir/docs/"
 
 # --- phase=invoke: process-group-capped `shark run` -------------------------
 echo "run-one: phase=invoke" >&2
@@ -626,7 +634,10 @@ PYEOF
 		# staged) so a brand-new agent-authored file's lines show up as
 		# "added" in the numstat below, without ever committing anything.
 		(cd "$checkout_dir" && git add -A -N) >/dev/null 2>&1
-		(cd "$checkout_dir" && git diff --numstat "$fixture_base_sha") >"$run_dir/post/numstat.txt"
+		# The pre-dispatch docs/plan mirror is harness context, not an
+		# agent-authored fixture change. Exclude it so the established LOC
+		# measurement remains scoped to fixture code and tests.
+		(cd "$checkout_dir" && git diff --numstat "$fixture_base_sha" -- . ':(exclude)docs/plan/**') >"$run_dir/post/numstat.txt"
 
 		# --- step 3: quality gates + post-run ledger diff, BEFORE F2P
 		# injection (REQ-F-016, REQ-F-015 point 3) ------------------------

@@ -366,6 +366,7 @@ PYEOF
 	# advance_status stage's own index (1) must be ignored, not misattributed.
 	local stray_dir="$WORKDIR/advance-status-only-stray"
 	cp -r "$FIXTURES_DIR/advance-status-only" "$stray_dir"
+	mkdir -p "$stray_dir/run/transcripts"
 	printf 'COMMAND: some-unrelated-command\nEXIT: 0\nDURATION: 10ms\n---STDOUT---\n{}\n---STDERR---\n' \
 		>"$stray_dir/run/transcripts/1-ready_for_qa-anthropic.log"
 
