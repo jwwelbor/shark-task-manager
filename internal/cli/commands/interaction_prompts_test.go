@@ -436,6 +436,67 @@ func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 	}
 }
 
+func TestPortfolioBreakdownRiderProcedure(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	paths := map[string]string{
+		"rider router": filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
+		"static help":  filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+		"procedure":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "breakdown.md"),
+	}
+
+	contents := make(map[string]string, len(paths))
+	for name, path := range paths {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err, "%s should be shipped", name)
+		contents[name] = string(body)
+	}
+
+	for name, want := range map[string][]string{
+		"rider router": {
+			"/shark-rider breakdown <docs-path> [--output=<docs-path>]",
+			"`breakdown`",
+			"`verbs/breakdown.md`",
+		},
+		"static help": {
+			"breakdown <docs-path>",
+			"`breakdown`",
+			"proposal mode does not create entities",
+		},
+		"procedure": {
+			"/shark-rider breakdown <docs-path> [--output=<docs-path>]",
+			"/shark-rider breakdown <approved-breakdown-path> --create",
+			"The default mode writes a proposal only",
+			"beneath the project `docs/`",
+			"shark list --all --json",
+			"shark sprint velocity --json",
+			"Scrum does not supply a standard epic size",
+			"tasks, bugs, change-cards, and tech-debt",
+			"Epics and features are",
+			"not sprint assignments",
+			"Target feature sizes `1`, `2`, `3`, or `5`",
+			"estimated at `5` or larger before sprint planning",
+			"Delivery waves describe why-now sequence and safe parallelism",
+			"Shark `depends_on` represents a hard completion barrier",
+			"`docs/product/cross-epic-integration-map.md` records product-level X-##",
+			"use candidate IDs such as `C-01`",
+			"Current-state reconciliation",
+			"Sprint-fit assessment",
+			"Cross-epic map delta",
+			"proposal mode made no Shark entity",
+			"require explicit owner confirmation before the first write",
+			"shark create epic \"<title>\" --description=\"<one-sentence outcome>\" --json",
+			"shark admin validate",
+			"Do not run the new epics",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				require.Contains(t, contents[name], expected)
+			}
+		})
+	}
+}
+
 func TestCrossEpicIntegrationLifecyclePrompts(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)

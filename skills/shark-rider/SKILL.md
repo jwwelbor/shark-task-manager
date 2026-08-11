@@ -150,6 +150,7 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Capability | Recipe |
 |-----------|--------|
 | Idea → epic → workflow | `/shark-rider vision "idea"` → follow `shark skill get specification-writing workflows/write-epic.md`; fallback `shark create epic`; then offer `/shark-rider run <epic>` → `verbs/vision.md` |
+| Source document → epic portfolio | `/shark-rider breakdown <docs-path> [--output=<docs-path>]` → analyze outcome boundaries, interactions, delivery waves, sprint fit, and cross-epic map effects; proposal-only unless explicitly re-run with `--create` → `verbs/breakdown.md` |
 | Progress-driven project setup | `/shark-rider project bootstrap` → prepare Shark, seed progress, coordinate discovery, and integrate architecture → `verbs/project.md` |
 | Product design | `/shark-rider project product-design` → owning action retrieves the `product-design` bundle and checkpoints each artifact → `verbs/product-design.md` |
 | Brownfield analysis | `/shark-rider project brownfield-analysis` → owning action runs the selected analysis depth and checkpoints outputs → `verbs/brownfield-analysis.md` |
@@ -214,7 +215,7 @@ command. It may auto-advance cascade-complete parents or agentless
 3. Otherwise (a bare entity key, a CLI subcommand like `status`/`list`/`get`, or
    NL prose) → `Read verbs/query.md` with the **full** argument string.
 
-Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `run`, `plan`, `triage`, `demo`, `walkthrough`,
+Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `breakdown`, `run`, `plan`, `triage`, `demo`, `walkthrough`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
 `viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-agent-team`, `run-sprint-team`,
 `retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,
