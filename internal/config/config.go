@@ -296,7 +296,16 @@ func (o ObservabilityConfig) GetLogTruncateBytes() int {
 // WebConfig holds configuration for the shark web dashboard server.
 // Port 0 means "use the default" (currently 7777, falling back to 7778–7790).
 type WebConfig struct {
-	Port int `json:"port,omitempty"` // TCP port for shark web; 0 means use default
+	Port             int               `json:"port,omitempty"`              // TCP port for shark web; 0 means use default
+	BrowsableFolders []BrowsableFolder `json:"browsable_folders,omitempty"` // Additional project-root-relative folders for the web sidebar
+}
+
+// BrowsableFolder is one user-configured, project-root-relative folder made
+// available in the web dashboard navigation. Path safety is deliberately
+// enforced by ViewerService, where the project root is available.
+type BrowsableFolder struct {
+	Label string `json:"label,omitempty"`
+	Path  string `json:"path"`
 }
 
 // TagRequiredFor returns the configured list of entity types that require at
@@ -337,6 +346,17 @@ func (c *Config) GetWebPort() int {
 		return 0
 	}
 	return c.Web.Port
+}
+
+// GetBrowsableFolders returns a defensive copy of folders configured for the
+// web dashboard. Nil and absent configuration are a safe no-op.
+func (c *Config) GetBrowsableFolders() []BrowsableFolder {
+	if c == nil || c.Web == nil || len(c.Web.BrowsableFolders) == 0 {
+		return nil
+	}
+	folders := make([]BrowsableFolder, len(c.Web.BrowsableFolders))
+	copy(folders, c.Web.BrowsableFolders)
+	return folders
 }
 
 // RecentConfig holds configuration for the `shark recent` command.

@@ -312,6 +312,63 @@ These are not strict pass/fail gates — they are the "nothing is obviously brok
 **when** the viewer is open,
 **then** no text is clipped, no panels overlap, and the sidebar, main panel, and top nav are all usable without horizontal scrolling.
 
+### Area K — Grouped Nav & Browsable Folders (E27-F16)
+
+#### K1. Fixed group order and styling
+**Given** the dashboard is loaded with zero and then two configured browsable folders,
+**when** the sidebar renders,
+**then** Plan, Architecture, and Product are the first three groups in that order,
+**and** configured groups follow them with the distinct group header styling.
+
+#### K2. Group collapse preserves nested state
+**Given** Plan is expanded and a nested section has its own collapse state,
+**when** Plan is collapsed and re-expanded,
+**then** the other groups are unaffected and the nested section retains its state.
+
+#### K3. Plan contents remain complete
+**Given** a project with every tracked entity family and an active sprint,
+**when** sprint mode is entered,
+**then** the sprint tree and all six tracked-entity sections are inside Plan,
+**and** an empty entity section remains omitted.
+
+#### K4. Built-in folder browsing
+**Given** Architecture exists and Product is absent in a fixture,
+**when** each built-in folder entry is opened,
+**then** the existing folder view lists Architecture and renders Product's empty result without an error toast.
+
+#### K5. Group persistence and toggle-all
+**Given** one group, one nested section, and one configured folder group are collapsed,
+**when** the page reloads and then the sidebar toggle-all control is used,
+**then** persisted state is restored and toggle-all expands and collapses every group and section,
+**and** the same interactions remain usable when localStorage throws.
+
+#### K6. Configured folder rendering
+**Given** configured folders with an omitted label, a missing path, and duplicate basenames on distinct paths,
+**when** the sidebar renders,
+**then** labels default from the basename, missing folders are marked unavailable but remain browseable, and distinct paths have distinct groups.
+
+#### K7. Nav-folder endpoint degradation
+**Given** the nav-folders endpoint returns 500 before one load and succeeds before the next,
+**when** the dashboard loads,
+**then** the failed load still shows exactly the built-in Architecture and Product groups without an error toast,
+**and** the successful load does not duplicate them.
+
+#### K8. Standalone Docs entry retained (provisional)
+**Given** an existing stored collapse preference for Docs,
+**when** the grouped sidebar loads,
+**then** Docs remains outside every group with its `folder:docs` entry and honors that stored preference.
+
+#### K9. Existing sidebar controls remain unchanged
+**Given** the grouped sidebar,
+**when** the user toggles show-all items, show-all files, the tree-only collapse-all control, and a tag chip,
+**then** each behavior remains as specified by E27-F10 and E28-F06,
+**and** tree-only collapse-all does not change group or section state.
+
+#### K10. Navigation metadata is non-blocking
+**Given** browser network tools are open during dashboard startup,
+**when** the dashboard loads,
+**then** nav-folders runs outside the hierarchy critical path and does not affect the Area C5 hierarchy performance measurement.
+
 ---
 
 ## 3. Performance Considerations

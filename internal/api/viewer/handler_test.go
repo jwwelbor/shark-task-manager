@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ type MockViewerServicer struct {
 	FeatureTasksFunc   func(ctx context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error)
 	RecentActivityFunc func(ctx context.Context, opts services.RecentActivityOptions) (*services.RecentActivityResponse, error)
 	WorkflowMetaFunc   func(ctx context.Context) (*services.WorkflowMetaResponse, error)
+	NavFoldersFunc     func(ctx context.Context) (*services.NavFoldersResponse, error)
 	NotesFunc          func(ctx context.Context, key string) (*services.NotesResponse, error)
 	RelatedDocsFunc    func(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
 	TagsFunc           func(ctx context.Context) (*services.TagsResponse, error) // NEW F06
@@ -110,6 +112,13 @@ func (m *MockViewerServicer) WorkflowMeta(ctx context.Context) (*services.Workfl
 		return m.WorkflowMetaFunc(ctx)
 	}
 	return nil, errors.New("WorkflowMetaFunc not set in mock")
+}
+
+func (m *MockViewerServicer) NavFolders(ctx context.Context) (*services.NavFoldersResponse, error) {
+	if m.NavFoldersFunc != nil {
+		return m.NavFoldersFunc(ctx)
+	}
+	return nil, errors.New("NavFoldersFunc not set in mock")
 }
 
 func (m *MockViewerServicer) Notes(ctx context.Context, key string) (*services.NotesResponse, error) {
@@ -1557,6 +1566,64 @@ func TestHandler_WorkflowMeta(t *testing.T) {
 		assertJSON(t, rec, &errResp)
 		if errResp["error"] == "" {
 			t.Error("TC-H-062: expected non-empty error field in response")
+		}
+	})
+}
+
+// ----- TC-031 and TC-033: GET /nav-folders -----
+
+func TestHandler_NavFolders(t *testing.T) {
+	t.Run("TC-031_route_returns_ordered_navigation_folders", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			NavFoldersFunc: func(_ context.Context) (*services.NavFoldersResponse, error) {
+				return &services.NavFoldersResponse{Folders: []services.NavFolder{
+					{ID: "architecture", Label: "Architecture", Path: "docs/architecture", Source: "builtin", Exists: true},
+					{ID: "product", Label: "Product", Path: "docs/product", Source: "builtin", Exists: true},
+					{ID: "docs/runbooks", Label: "Runbooks", Path: "docs/runbooks", Source: "config", Exists: false},
+				}}, nil
+			},
+		}
+
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/nav-folders", newTestMux(mock))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-031: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		var body services.NavFoldersResponse
+		assertJSON(t, rec, &body)
+		if got, want := body.Folders, []services.NavFolder{
+			{ID: "architecture", Label: "Architecture", Path: "docs/architecture", Source: "builtin", Exists: true},
+			{ID: "product", Label: "Product", Path: "docs/product", Source: "builtin", Exists: true},
+			{ID: "docs/runbooks", Label: "Runbooks", Path: "docs/runbooks", Source: "config", Exists: false},
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("TC-031: folders = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("TC-033_service_error_returns_existing_error_shape", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			NavFoldersFunc: func(_ context.Context) (*services.NavFoldersResponse, error) {
+				return nil, errors.New("load failure")
+			},
+		}
+
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/nav-folders", newTestMux(mock))
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("TC-033: expected 500, got %d: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		var body struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		assertJSON(t, rec, &body)
+		if got, want := body.Error, http.StatusText(http.StatusInternalServerError); got != want {
+			t.Errorf("TC-033: error = %q, want %q", got, want)
+		}
+		if got, want := body.Message, "failed to load nav folders"; got != want {
+			t.Errorf("TC-033: message = %q, want %q", got, want)
 		}
 	})
 }

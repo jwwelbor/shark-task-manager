@@ -43,6 +43,7 @@ func NewViewerHandler(svc ViewerServicer) *ViewerHandler {
 //	GET /api/v1/viewer/features/{key}/tasks
 //	GET /api/v1/viewer/recent-activity
 //	GET /api/v1/viewer/workflow-meta
+//	GET /api/v1/viewer/nav-folders
 //	GET /api/v1/viewer/folder-files/{path...}
 //	GET /api/v1/viewer/notes/{key}
 //	GET /api/v1/viewer/related-docs/{key}
@@ -63,6 +64,7 @@ func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.Handle("GET "+prefix+"/features/{key}/tasks", wrap(http.HandlerFunc(h.FeatureTasks)))
 	mux.Handle("GET "+prefix+"/recent-activity", wrap(http.HandlerFunc(h.RecentActivity)))
 	mux.Handle("GET "+prefix+"/workflow-meta", wrap(http.HandlerFunc(h.WorkflowMeta)))
+	mux.Handle("GET "+prefix+"/nav-folders", wrap(http.HandlerFunc(h.NavFolders)))
 	mux.Handle("GET "+prefix+"/folder-files/{path...}", wrap(http.HandlerFunc(h.FolderFiles)))
 
 	mux.Handle("GET "+prefix+"/notes/{key}", wrap(http.HandlerFunc(h.Notes)))
@@ -398,6 +400,18 @@ func (h *ViewerHandler) WorkflowMeta(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("viewer workflow meta failed", "endpoint", "workflow_meta", "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to load workflow metadata")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// NavFolders returns the configured folder metadata for dashboard navigation.
+// GET /api/v1/viewer/nav-folders
+func (h *ViewerHandler) NavFolders(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.NavFolders(r.Context())
+	if err != nil {
+		slog.Error("viewer nav folders failed", "endpoint", "nav_folders", "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load nav folders")
 		return
 	}
 	respondJSON(w, http.StatusOK, result)

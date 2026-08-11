@@ -107,6 +107,19 @@ func (m *Manager) Load() (*Config, error) {
 		config.SequentialDispatch = sequentialDispatch
 	}
 
+	// Parse web configuration if present. Validation of browsable folder paths
+	// belongs to ViewerService because it alone has the project root needed for
+	// canonical containment checks.
+	if webRaw, ok := rawData["web"]; ok {
+		webData, err := json.Marshal(webRaw)
+		if err == nil {
+			var web WebConfig
+			if err := json.Unmarshal(webData, &web); err == nil {
+				config.Web = &web
+			}
+		}
+	}
+
 	// Parse console_width if present (CC-036). JSON numbers decode as float64.
 	// A zero or negative value means "auto-detect" (handled in GetConsoleWidth).
 	if consoleWidth, ok := rawData["console_width"].(float64); ok {
