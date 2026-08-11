@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
@@ -375,6 +377,21 @@ type FolderFilesResponse struct {
 	Entries []*FolderFileEntry `json:"entries"`
 }
 
+// NavFolder is one folder rendered as a top-level dashboard navigation group.
+type NavFolder struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Path   string `json:"path"`
+	Source string `json:"source"`
+	Exists bool   `json:"exists"`
+}
+
+// NavFoldersResponse is the ordered navigation-folder contract for the viewer.
+// Folders is always non-nil so JSON responses use [] rather than null.
+type NavFoldersResponse struct {
+	Folders []NavFolder `json:"folders"`
+}
+
 // FeatureTaskOptions carries filters and pagination for ViewerService.FeatureTasks.
 type FeatureTaskOptions struct {
 	Status  string // empty = no filter
@@ -554,6 +571,7 @@ type ViewerService struct {
 	workflowSvc        *workflow.Service
 	statusCalc         *status.CalculationService // optional; reserved for future use
 	projectRoot        string
+	browsableFolders   []config.BrowsableFolder
 }
 
 // NewViewerService constructs a ViewerService.
@@ -666,6 +684,14 @@ func (s *ViewerService) WithSprintService(r ViewerSprintService) *ViewerService 
 // Call after NewViewerService; safe to skip if Sprint mode is not exposed.
 func (s *ViewerService) WithSprintAnalyticsService(r ViewerSprintAnalyticsService) *ViewerService {
 	s.sprintAnalyticsSvc = r
+	return s
+}
+
+// WithBrowsableFolders wires optional configured sidebar folders. Path
+// validation remains deferred to NavFolders, where it is checked against the
+// current project root immediately before exposure.
+func (s *ViewerService) WithBrowsableFolders(folders []config.BrowsableFolder) *ViewerService {
+	s.browsableFolders = append([]config.BrowsableFolder(nil), folders...)
 	return s
 }
 
@@ -2569,6 +2595,221 @@ func projectNameFromRoot(projectRoot string) string {
 	return name
 }
 
+// canonicalProjectRoot holds the absolute and EvalSymlinks-resolved forms of
+// the project root used by viewer folder operations.
+type canonicalProjectRoot struct {
+	absPath   string
+	canonical string
+}
+
+// resolvedProjectPath is a project-relative path after canonical resolution.
+// Exists is false when the requested target is unavailable, including through
+// a dangling symlink.
+type resolvedProjectPath struct {
+	canonical string
+	exists    bool
+}
+
+// canonicalProjectRoot resolves the service project root once for a folder
+// operation. Callers must use isContained before exposing or reading a target.
+func (s *ViewerService) canonicalProjectRoot(operation string) (canonicalProjectRoot, error) {
+	absPath, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return canonicalProjectRoot{}, fmt.Errorf("%s: failed to resolve project root: %w", operation, err)
+	}
+	canonical, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return canonicalProjectRoot{}, fmt.Errorf("%s: failed to canonicalize project root: %w", operation, err)
+	}
+	return canonicalProjectRoot{absPath: absPath, canonical: canonical}, nil
+}
+
+// resolveRelativePath resolves a project-relative target. Missing targets are
+// resolved through their deepest existing ancestor so callers can still apply
+// containment checks before treating them as unavailable.
+func (r canonicalProjectRoot) resolveRelativePath(relativePath string) (resolvedProjectPath, error) {
+	absPath := filepath.Join(r.absPath, filepath.Clean(relativePath))
+	canonical, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		return resolvedProjectPath{canonical: canonical, exists: true}, nil
+	}
+	if !os.IsNotExist(err) {
+		return resolvedProjectPath{}, fmt.Errorf("canonicalize target: %w", err)
+	}
+	return r.resolveMissingPath(absPath)
+}
+
+// resolveMissingPath rebuilds a missing target under its canonical existing
+// ancestor. This preserves symlink resolution for missing descendants.
+func (r canonicalProjectRoot) resolveMissingPath(absPath string) (resolvedProjectPath, error) {
+	ancestor, err := deepestExistingAncestor(absPath)
+	if err != nil {
+		return resolvedProjectPath{}, err
+	}
+	ancestorCanonical, err := filepath.EvalSymlinks(ancestor)
+	if os.IsNotExist(err) {
+		// Lstat identifies a dangling symlink as an existing ancestor, while
+		// EvalSymlinks correctly reports that its target is unavailable. Treat
+		// both the link and any descendant as unavailable so folder browsing
+		// retains its stable empty-result contract. A resolvable symlink still
+		// reaches the containment check below its caller and therefore cannot
+		// escape the project root. Rebase the unavailable placeholder under the
+		// canonical root so it shares the namespace used by containment checks
+		// when the configured project root is itself a symlink.
+		relative, relErr := filepath.Rel(r.absPath, absPath)
+		if relErr != nil {
+			return resolvedProjectPath{}, fmt.Errorf("resolve unavailable target relative to project root: %w", relErr)
+		}
+		return resolvedProjectPath{canonical: filepath.Join(r.canonical, relative)}, nil
+	}
+	if err != nil {
+		return resolvedProjectPath{}, fmt.Errorf("canonicalize existing ancestor: %w", err)
+	}
+	remainder, err := filepath.Rel(ancestor, absPath)
+	if err != nil {
+		return resolvedProjectPath{}, fmt.Errorf("resolve missing target: %w", err)
+	}
+	return resolvedProjectPath{canonical: filepath.Join(ancestorCanonical, remainder)}, nil
+}
+
+// deepestExistingAncestor returns the nearest existing path at or above path.
+func deepestExistingAncestor(path string) (string, error) {
+	for {
+		_, err := os.Lstat(path)
+		if err == nil {
+			return path, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("inspect path %q: %w", path, err)
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", fmt.Errorf("could not find existing ancestor for %q", path)
+		}
+		path = parent
+	}
+}
+
+// navFolder describes one candidate response item before path validation.
+type navFolder struct {
+	id, label, path, source string
+}
+
+// buildNavFolder validates a folder candidate and returns an empty rejection
+// reason when it is safe to expose. Containment remains single-sourced in
+// isContained.
+func buildNavFolder(root canonicalProjectRoot, candidate navFolder) (NavFolder, string, error) {
+	path := strings.TrimSpace(candidate.path)
+	if path == "" {
+		return NavFolder{}, "path is empty", nil
+	}
+	if filepath.IsAbs(path) {
+		return NavFolder{}, "path is absolute", nil
+	}
+	cleanPath := filepath.Clean(path)
+	resolved, err := root.resolveRelativePath(cleanPath)
+	if err != nil {
+		return NavFolder{}, "", err
+	}
+	if !isContained(root.canonical, resolved.canonical) {
+		return NavFolder{}, "path escapes project root", nil
+	}
+	if resolved.exists {
+		info, err := os.Stat(resolved.canonical)
+		if err != nil {
+			return NavFolder{}, "", fmt.Errorf("inspect folder target: %w", err)
+		}
+		if !info.IsDir() {
+			return NavFolder{}, "path is not a directory", nil
+		}
+	}
+	cleanPath = filepath.ToSlash(cleanPath)
+	label := candidate.label
+	if label == "" {
+		base := filepath.Base(cleanPath)
+		label = strings.ToUpper(base[:1]) + base[1:]
+	}
+	return NavFolder{ID: candidate.id, Label: label, Path: cleanPath, Source: candidate.source, Exists: resolved.exists}, "", nil
+}
+
+// NavFolders returns the fixed documentation folders followed by valid
+// user-configured folders. It validates every candidate against the canonical
+// project root immediately before exposing it to the viewer.
+func (s *ViewerService) NavFolders(ctx context.Context) (*NavFoldersResponse, error) {
+	_ = ctx
+
+	root, err := s.canonicalProjectRoot("nav folders")
+	if err != nil {
+		return nil, err
+	}
+
+	response := &NavFoldersResponse{Folders: make([]NavFolder, 0, 2+len(s.browsableFolders))}
+	for _, candidate := range []navFolder{
+		{id: "architecture", label: "Architecture", path: "docs/architecture", source: "builtin"},
+		{id: "product", label: "Product", path: "docs/product", source: "builtin"},
+	} {
+		folder, rejected, err := buildNavFolder(root, candidate)
+		if err != nil {
+			return nil, fmt.Errorf("nav folders: validate built-in %q: %w", candidate.path, err)
+		}
+		if rejected != "" {
+			return nil, fmt.Errorf("nav folders: built-in %q rejected: %s", candidate.path, rejected)
+		}
+		response.Folders = append(response.Folders, folder)
+	}
+	for _, folder := range s.browsableFolders {
+		candidate := navFolder{id: filepath.ToSlash(filepath.Clean(strings.TrimSpace(folder.Path))), label: folder.Label, path: folder.Path, source: "config"}
+		responseFolder, rejected, err := buildNavFolder(root, candidate)
+		if err != nil {
+			slog.Warn("viewer nav folder rejected", "path", folder.Path, "reason", err.Error())
+			continue
+		}
+		if rejected != "" {
+			slog.Warn("viewer nav folder rejected", "path", folder.Path, "reason", rejected)
+			continue
+		}
+		response.Folders = append(response.Folders, responseFolder)
+	}
+	return response, nil
+}
+
+// readFolderEntries reads a canonical directory. A directory that disappears
+// after path resolution is reported as unavailable rather than an error.
+func readFolderEntries(canonicalPath string) ([]os.DirEntry, bool, error) {
+	entries, err := os.ReadDir(canonicalPath)
+	if err == nil {
+		return entries, true, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	return nil, false, fmt.Errorf("read directory %q: %w", canonicalPath, err)
+}
+
+// folderFileEntries converts directory entries into the viewer response DTOs.
+func folderFileEntries(relDir string, entries []os.DirEntry) []*FolderFileEntry {
+	result := make([]*FolderFileEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		var size int64
+		if err == nil && !entry.IsDir() {
+			size = info.Size()
+		}
+		result = append(result, &FolderFileEntry{
+			Name:  entry.Name(),
+			Path:  filepath.ToSlash(filepath.Join(relDir, entry.Name())),
+			IsDir: entry.IsDir(),
+			Size:  size,
+		})
+	}
+	return result
+}
+
+// emptyFolderFiles returns the stable empty-directory response contract.
+func emptyFolderFiles(relPath string) *FolderFilesResponse {
+	return &FolderFilesResponse{DirPath: relPath, Entries: []*FolderFileEntry{}}
+}
+
 // FolderFiles lists the immediate children of the directory at relPath within the project root.
 // It performs the same path-containment security check as FileByPath.
 // Hidden files (starting with ".") and common noise entries are included.
@@ -2578,61 +2819,33 @@ func (s *ViewerService) FolderFiles(ctx context.Context, relPath string) (*Folde
 		return nil, &SecurityError{Path: relPath}
 	}
 
-	absRoot, err := filepath.Abs(s.projectRoot)
+	root, err := s.canonicalProjectRoot("folder files")
 	if err != nil {
-		return nil, fmt.Errorf("folder files: failed to resolve project root: %w", err)
+		return nil, err
 	}
-
-	absPath := filepath.Join(absRoot, relPath)
-
-	rootCanon, err := filepath.EvalSymlinks(absRoot)
+	resolved, err := root.resolveRelativePath(relPath)
 	if err != nil {
-		return nil, fmt.Errorf("folder files: failed to canonicalize project root: %w", err)
+		return nil, fmt.Errorf("folder files: resolve directory path: %w", err)
+	}
+	if !isContained(root.canonical, resolved.canonical) {
+		return nil, &SecurityError{Path: resolved.canonical}
+	}
+	if !resolved.exists {
+		return emptyFolderFiles(relPath), nil
 	}
 
-	targetCanon, err := filepath.EvalSymlinks(absPath)
+	entries, exists, err := readFolderEntries(resolved.canonical)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &FolderFilesResponse{DirPath: relPath, Entries: []*FolderFileEntry{}}, nil
-		}
-		return nil, fmt.Errorf("folder files: failed to canonicalize dir path: %w", err)
+		return nil, fmt.Errorf("folder files: %w", err)
+	}
+	if !exists {
+		return emptyFolderFiles(relPath), nil
 	}
 
-	if !isContained(rootCanon, targetCanon) {
-		return nil, &SecurityError{Path: targetCanon}
-	}
-
-	entries, err := os.ReadDir(targetCanon)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &FolderFilesResponse{DirPath: relPath, Entries: []*FolderFileEntry{}}, nil
-		}
-		return nil, fmt.Errorf("folder files: failed to read directory %q: %w", targetCanon, err)
-	}
-
-	relDir, err := filepath.Rel(rootCanon, targetCanon)
+	relDir, err := filepath.Rel(root.canonical, resolved.canonical)
 	if err != nil {
 		relDir = relPath
 	}
 
-	result := &FolderFilesResponse{
-		DirPath: relDir,
-		Entries: make([]*FolderFileEntry, 0, len(entries)),
-	}
-	for _, entry := range entries {
-		info, err := entry.Info()
-		var size int64
-		if err == nil && !entry.IsDir() {
-			size = info.Size()
-		}
-		entryRelPath := filepath.Join(relDir, entry.Name())
-		result.Entries = append(result.Entries, &FolderFileEntry{
-			Name:  entry.Name(),
-			Path:  filepath.ToSlash(entryRelPath),
-			IsDir: entry.IsDir(),
-			Size:  size,
-		})
-	}
-
-	return result, nil
+	return &FolderFilesResponse{DirPath: relDir, Entries: folderFileEntries(relDir, entries)}, nil
 }

@@ -336,6 +336,7 @@ The `web` key configures the `shark web` dashboard server.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `web.port` | int | `0` (use 7777) | TCP port for `shark web`; `0` means auto-select from 7777–7790 |
+| `web.browsable_folders` | array of objects | absent | Optional additional project-root-relative folders in the dashboard sidebar. Each object has required `path` and optional `label`. |
 
 **Port selection priority** (highest to lowest):
 1. `--port` CLI flag — exact port, fails if busy
@@ -357,6 +358,26 @@ You can still override it on the command line:
 ```bash
 shark web --port 8888   # uses 8888 regardless of web.port in config
 ```
+
+To add a dashboard navigation group for a project folder, configure
+`web.browsable_folders`:
+
+```json
+{
+  "web": {
+    "browsable_folders": [
+      { "label": "Runbooks", "path": "docs/runbooks" },
+      { "path": "docs/guides" }
+    ]
+  }
+}
+```
+
+`path` must be project-root-relative. Absolute paths, paths that escape the
+project root (including through symlinks), and blank paths are omitted from the
+dashboard and logged by the viewer server. Configuration loading preserves the
+raw value; path-security validation occurs only when the viewer exposes folders.
+When `label` is omitted, the dashboard derives it from the folder basename.
 
 ### Default Values
 

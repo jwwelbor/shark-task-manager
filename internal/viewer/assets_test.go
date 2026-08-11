@@ -191,6 +191,89 @@ func TestViewerHTMLContainsRequiredClasses(t *testing.T) {
 	}
 }
 
+// TC-001..017, TC-021, TC-024..025, TC-031..034, TC-036: the grouped
+// navigation is content-only behavior, so these assertions guard the rendered
+// SPA contracts that are exercised in the browser UAT plan.
+func TestViewerHTMLGroupedArtifactNavigation_TCE27F16(t *testing.T) {
+	content := viewerHTMLContent()
+
+	for _, marker := range []string{
+		"sidebar-group-header",
+		"function renderSidebarGroup",
+		"group:plan",
+		"group:architecture",
+		"group:product",
+		"function buildNavigationFolderBodyHtml",
+		"data-folder-path=\"${escapeHtml(folder.path)}\"",
+		"data-select-key=\"${escapeHtml(folderKey)}\"",
+		"is-unavailable",
+		"function apiGetNavFolders",
+		"function loadNavigationFolders",
+		"/api/v1/viewer/nav-folders",
+		"void loadNavigationFolders();",
+	} {
+		if !strings.Contains(content, marker) {
+			t.Errorf("grouped navigation missing marker: %q", marker)
+		}
+	}
+
+	renderSidebar := extractJSFunction(t, content, "function renderSidebar()")
+	for _, marker := range []string{
+		"renderSidebarGroup('group:plan', 'Plan'",
+		"renderSidebarGroup('group:architecture', 'Architecture'",
+		"renderSidebarGroup('group:product', 'Product'",
+		"renderSidebarSection('docs', 'Docs'",
+	} {
+		if !strings.Contains(renderSidebar, marker) {
+			t.Errorf("renderSidebar grouped-navigation contract missing marker: %q", marker)
+		}
+	}
+
+	if strings.Index(renderSidebar, "renderSidebarGroup('group:plan', 'Plan'") > strings.Index(renderSidebar, "renderSidebarSection('docs', 'Docs'") {
+		t.Error("Plan group must render before the standalone Docs section")
+	}
+	loadProjectData := extractJSFunction(t, content, "async function loadProjectData()")
+	if strings.Index(loadProjectData, "void loadNavigationFolders();") > strings.Index(loadProjectData, "apiGetHierarchy") {
+		t.Error("navigation folders must start loading before the hierarchy request")
+	}
+	loadNavigationFolders := extractJSFunction(t, content, "async function loadNavigationFolders()")
+	if !strings.Contains(loadNavigationFolders, "navigationFolders = folders || BUILTIN_NAVIGATION_FOLDERS.slice();") {
+		t.Error("navigation-folder fallback must retain built-in groups when the API is unavailable")
+	}
+	areAll := extractJSFunction(t, content, "function areAllSidebarSectionsExpanded")
+	setAll := extractJSFunction(t, content, "function setAllSidebarSectionsExpanded")
+	if !strings.Contains(areAll, "sidebarSectionIDs()") || !strings.Contains(setAll, "sidebarSectionIDs()") || !strings.Contains(content, "function navigationFolderSectionIDs()") {
+		t.Error("toggle-all must include dynamic navigation-folder groups")
+	}
+}
+
+// UAT-E27-F16-003: every rendered persistent section must participate in the
+// toggle-all state set, and configured-folder group ids must not share the
+// built-in group namespace. These assertions protect the complete state-key
+// surface rather than only the two UAT examples.
+func TestViewerHTMLGroupedNavigationStateKeys_TCE27F16(t *testing.T) {
+	content := viewerHTMLContent()
+	for _, sectionID := range []string{
+		"tags", "epics", "bugs", "change_cards", "tech_debt", "ideas", "questions", "docs",
+		"group:plan", "group:architecture", "group:product",
+	} {
+		if !strings.Contains(content, sectionID+": true") && !strings.Contains(content, "'"+sectionID+"': true") {
+			t.Errorf("toggle-all state defaults omit rendered section %q", sectionID)
+		}
+	}
+
+	groupID := extractJSFunction(t, content, "function navigationFolderGroupID")
+	if !strings.Contains(groupID, "group:folder:") {
+		t.Error("configured-folder groups must use a namespace distinct from built-in groups")
+	}
+	for _, functionName := range []string{"function navigationFolderSectionIDs", "function renderSidebar()"} {
+		body := extractJSFunction(t, content, functionName)
+		if !strings.Contains(body, "navigationFolderGroupID(folder)") {
+			t.Errorf("%s must use the configured-folder group-id helper", functionName)
+		}
+	}
+}
+
 // TestViewerHTMLMutationControls verifies that the embedded viewer renders the
 // entity mutation disclosure and references the viewer-only mutation routes.
 // TC-F01-007.

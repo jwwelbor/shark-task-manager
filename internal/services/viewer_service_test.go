@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
 	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
@@ -2719,6 +2723,271 @@ func TestViewerService_FolderFiles_DocsAndNestedDirectories(t *testing.T) {
 	}
 	if entry := nestedByName["deep"]; entry == nil || !entry.IsDir {
 		t.Fatalf("expected deep to be listed as a directory, got %+v", entry)
+	}
+}
+
+func TestViewerService_NavFolders_ReturnsBuiltinsAndValidConfiguredFolders(t *testing.T) {
+	dir := t.TempDir()
+	for _, path := range []string{"docs/architecture", "docs/product", "docs/runbooks", "a/notes", "b/notes"} {
+		if err := os.MkdirAll(filepath.Join(dir, path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+	svc.projectRoot = dir
+	svc.WithBrowsableFolders([]config.BrowsableFolder{
+		{Label: "Runbooks", Path: "docs/runbooks"},
+		{Path: "docs/missing-folder"},
+		{Path: "a/notes"},
+		{Path: "b/notes"},
+	})
+
+	resp, err := svc.NavFolders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []NavFolder{
+		{ID: "architecture", Label: "Architecture", Path: "docs/architecture", Source: "builtin", Exists: true},
+		{ID: "product", Label: "Product", Path: "docs/product", Source: "builtin", Exists: true},
+		{ID: "docs/runbooks", Label: "Runbooks", Path: "docs/runbooks", Source: "config", Exists: true},
+		{ID: "docs/missing-folder", Label: "Missing-folder", Path: "docs/missing-folder", Source: "config", Exists: false},
+		{ID: "a/notes", Label: "Notes", Path: "a/notes", Source: "config", Exists: true},
+		{ID: "b/notes", Label: "Notes", Path: "b/notes", Source: "config", Exists: true},
+	}
+	if len(resp.Folders) != len(want) {
+		t.Fatalf("got %d folders, want %d: %#v", len(resp.Folders), len(want), resp.Folders)
+	}
+	for i := range want {
+		if resp.Folders[i] != want[i] {
+			t.Errorf("folder %d = %#v, want %#v", i, resp.Folders[i], want[i])
+		}
+	}
+}
+
+func TestViewerService_NavFolders_OmitsInvalidConfiguredPathsAndWarnsOncePerEntry(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs", "runbooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "not-a-folder.md"), []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "docs", "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+	svc.projectRoot = root
+	svc.WithBrowsableFolders([]config.BrowsableFolder{
+		{Path: "docs/runbooks"},
+		{Path: "   "},
+		{Path: "../escape"},
+		{Path: outside},
+		{Path: "docs/escape"},
+		// A missing descendant of a symlink must be rejected too. Otherwise a
+		// missing configured folder can disguise a future path outside root.
+		{Path: "docs/escape/future"},
+		{Path: "docs/not-a-folder.md"},
+	})
+
+	resp, err := svc.NavFolders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Folders) != 3 {
+		t.Fatalf("got %d folders, want 3: %#v", len(resp.Folders), resp.Folders)
+	}
+	if got := resp.Folders[2].Path; got != "docs/runbooks" {
+		t.Errorf("configured folder path = %q, want docs/runbooks", got)
+	}
+	if got := strings.Count(logs.String(), `msg="viewer nav folder rejected"`); got != 6 {
+		t.Errorf("expected 6 rejection warnings, got %d: %s", got, logs.String())
+	}
+	for _, rejection := range []struct {
+		path, reason string
+	}{
+		{"   ", "path is empty"},
+		{"../escape", "path escapes project root"},
+		{outside, "path is absolute"},
+		{"docs/escape", "path escapes project root"},
+		{"docs/escape/future", "path escapes project root"},
+		{"docs/not-a-folder.md", "path is not a directory"},
+	} {
+		if !strings.Contains(logs.String(), rejection.path) || !strings.Contains(logs.String(), rejection.reason) {
+			t.Errorf("warning does not include path %q and reason %q: %s", rejection.path, rejection.reason, logs.String())
+		}
+	}
+}
+
+func TestViewerService_FolderFiles_RejectsMissingDescendantOfEscapingSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "docs", "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+	svc.projectRoot = root
+
+	_, err := svc.FolderFiles(context.Background(), "docs/escape/future")
+	var securityErr *SecurityError
+	if !errors.As(err, &securityErr) {
+		t.Fatalf("expected SecurityError for missing descendant of escaping symlink, got %v", err)
+	}
+}
+
+func TestViewerService_DanglingSymlinksAreUnavailable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing-target", filepath.Join(root, "docs", "dangling")); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+	svc.projectRoot = root
+	svc.WithBrowsableFolders([]config.BrowsableFolder{
+		{Path: "docs/dangling"},
+		{Path: "docs/dangling/child"},
+	})
+
+	navFolders, err := svc.NavFolders(context.Background())
+	if err != nil {
+		t.Fatalf("NavFolders() error = %v, want dangling links to remain unavailable", err)
+	}
+	if len(navFolders.Folders) != 4 {
+		t.Fatalf("NavFolders() returned %d folders, want 4: %#v", len(navFolders.Folders), navFolders.Folders)
+	}
+	if got, want := navFolders.Folders[2:], []NavFolder{
+		{ID: "docs/dangling", Label: "Dangling", Path: "docs/dangling", Source: "config", Exists: false},
+		{ID: "docs/dangling/child", Label: "Child", Path: "docs/dangling/child", Source: "config", Exists: false},
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("dangling navigation folders = %#v, want %#v", got, want)
+	}
+
+	for _, relPath := range []string{"docs/dangling", "docs/dangling/child"} {
+		t.Run(relPath, func(t *testing.T) {
+			response, err := svc.FolderFiles(context.Background(), relPath)
+			if err != nil {
+				t.Fatalf("FolderFiles(%q) error = %v, want unavailable folder", relPath, err)
+			}
+			if response.DirPath != relPath || len(response.Entries) != 0 {
+				t.Errorf("FolderFiles(%q) = %#v, want empty unavailable response", relPath, response)
+			}
+		})
+	}
+}
+
+// A service may receive a project root through a symlink (for example, when a
+// launcher resolves a workspace alias). Unavailable paths must still be
+// represented in the canonical root namespace used by the containment check.
+func TestViewerService_DanglingSymlinksAreUnavailableUnderSymlinkedProjectRoot(t *testing.T) {
+	realRoot := t.TempDir()
+	projectRoot := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(filepath.Join(realRoot, "docs", "architecture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(realRoot, "docs", "product"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realRoot, projectRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing-target", filepath.Join(realRoot, "docs", "dangling")); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+	svc.projectRoot = projectRoot
+	svc.WithBrowsableFolders([]config.BrowsableFolder{
+		{Path: "docs/dangling"},
+		{Path: "docs/dangling/child"},
+	})
+
+	navFolders, err := svc.NavFolders(context.Background())
+	if err != nil {
+		t.Fatalf("NavFolders() error = %v, want dangling links to remain unavailable", err)
+	}
+	if got, want := navFolders.Folders[2:], []NavFolder{
+		{ID: "docs/dangling", Label: "Dangling", Path: "docs/dangling", Source: "config", Exists: false},
+		{ID: "docs/dangling/child", Label: "Child", Path: "docs/dangling/child", Source: "config", Exists: false},
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("dangling navigation folders = %#v, want %#v", got, want)
+	}
+
+	for _, relPath := range []string{"docs/dangling", "docs/dangling/child"} {
+		t.Run(relPath, func(t *testing.T) {
+			response, err := svc.FolderFiles(context.Background(), relPath)
+			if err != nil {
+				t.Fatalf("FolderFiles(%q) error = %v, want unavailable folder", relPath, err)
+			}
+			if response.DirPath != relPath || len(response.Entries) != 0 {
+				t.Errorf("FolderFiles(%q) = %#v, want empty unavailable response", relPath, response)
+			}
+		})
+	}
+}
+
+func TestCanonicalProjectRoot_ResolveRelativePathPreservesMissingSymlinkAncestor(t *testing.T) {
+	rootPath := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(rootPath, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(rootPath, "docs", "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+	svc.projectRoot = rootPath
+	root, err := svc.canonicalProjectRoot("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := root.resolveRelativePath("docs/escape/future")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.exists {
+		t.Fatal("expected missing target to be unavailable")
+	}
+	if got, want := resolved.canonical, filepath.Join(outside, "future"); got != want {
+		t.Errorf("canonical target = %q, want %q", got, want)
+	}
+	if isContained(root.canonical, resolved.canonical) {
+		t.Errorf("missing symlink descendant %q must not be contained by %q", resolved.canonical, root.canonical)
+	}
+}
+
+func TestViewerService_NavFolders_WithoutConfiguredFoldersReturnsOnlyBuiltins(t *testing.T) {
+	for _, folders := range [][]config.BrowsableFolder{nil, {}} {
+		t.Run(fmt.Sprintf("folders=%v", folders), func(t *testing.T) {
+			svc := buildViewerService(t, &mockViewerEpicRepo{}, &mockViewerFeatureRepo{}, &mockViewerTaskRepo{}, &mockViewerBugRepo{}, &mockViewerChangeCardRepo{}, &mockViewerHistoryRepo{})
+			if folders != nil {
+				svc.WithBrowsableFolders(folders)
+			}
+
+			resp, err := svc.NavFolders(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.Folders) != 2 {
+				t.Fatalf("got %d folders, want 2: %#v", len(resp.Folders), resp.Folders)
+			}
+			if resp.Folders[0].ID != "architecture" || resp.Folders[1].ID != "product" {
+				t.Errorf("got folders %#v, want architecture then product", resp.Folders)
+			}
+		})
 	}
 }
 

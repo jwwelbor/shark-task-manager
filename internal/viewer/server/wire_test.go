@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -60,6 +62,24 @@ func TestWireServices_QuestionResponseRouteUsesClaimReader_TC109(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("Question response status=%d body=%s", response.Code, response.Body.String())
 	}
+}
+
+// TC-036: viewer configuration is loaded during server wiring and supplied to
+// the non-blocking navigation-folder metadata service, not on each request.
+func TestWireServices_LoadsBrowsableFoldersConfig_TC036(t *testing.T) {
+	projectRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(`{
+  "web": {
+    "browsable_folders": [{"label": "Runbooks", "path": "docs/runbooks"}]
+  }
+}`), 0o600))
+
+	container := WireServices(newTestRepoDB(t), projectRoot)
+	response, err := container.ViewerService.NavFolders(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, response.Folders, services.NavFolder{
+		ID: "docs/runbooks", Label: "Runbooks", Path: "docs/runbooks", Source: "config", Exists: false,
+	})
 }
 
 // TC-302: the viewer composition root must resolve both the new Question

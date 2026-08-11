@@ -102,6 +102,53 @@ func TestDatabaseConfig_DefaultValues(t *testing.T) {
 	}
 }
 
+// TC-023: Browsable folders load through the production config manager while
+// unknown keys remain available in RawData for a lossless config round-trip.
+func TestConfig_BrowsableFoldersLoadAndPreserveUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".sharkconfig.json")
+	input := []byte(`{
+  "future_option": {"enabled": true},
+  "web": {
+    "browsable_folders": [
+      {"label": "Runbooks", "path": "docs/runbooks"},
+      {"path": "docs/guides"}
+    ]
+  }
+}`)
+	require.NoError(t, os.WriteFile(path, input, 0o600))
+
+	mgr := NewManager(path)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+	require.Equal(t, []BrowsableFolder{
+		{Label: "Runbooks", Path: "docs/runbooks"},
+		{Path: "docs/guides"},
+	}, cfg.GetBrowsableFolders())
+
+	require.NoError(t, mgr.SaveRaw(path, cfg.RawData))
+	roundTrip, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var got map[string]interface{}
+	require.NoError(t, json.Unmarshal(roundTrip, &got))
+	assert.Equal(t, map[string]interface{}{"enabled": true}, got["future_option"])
+	assert.Equal(t, []interface{}{
+		map[string]interface{}{"label": "Runbooks", "path": "docs/runbooks"},
+		map[string]interface{}{"path": "docs/guides"},
+	}, got["web"].(map[string]interface{})["browsable_folders"])
+}
+
+func TestConfig_GetBrowsableFoldersIsNilSafeAndDefensive(t *testing.T) {
+	var nilConfig *Config
+	assert.Nil(t, nilConfig.GetBrowsableFolders())
+
+	cfg := &Config{Web: &WebConfig{BrowsableFolders: []BrowsableFolder{{Path: "docs/runbooks"}}}}
+	folders := cfg.GetBrowsableFolders()
+	require.Len(t, folders, 1)
+	folders[0].Path = "changed"
+	assert.Equal(t, "docs/runbooks", cfg.Web.BrowsableFolders[0].Path)
+}
+
 // TestDatabaseConfig_ValidationBackend tests backend validation
 func TestDatabaseConfig_ValidationBackend(t *testing.T) {
 	tests := []struct {

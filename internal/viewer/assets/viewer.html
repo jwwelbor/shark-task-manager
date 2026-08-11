@@ -689,6 +689,15 @@
     .sidebar-section.is-collapsed .sidebar-section-body {
       display: none;
     }
+    .sidebar-group-header {
+      background: var(--bg-3);
+      color: var(--fg);
+      font-size: 11px;
+      padding: 11px 12px 7px;
+    }
+    .sidebar-group-body > .sidebar-section:last-child {
+      border-bottom: 0;
+    }
 
     .tree-node {
       display: flex;
@@ -2638,6 +2647,22 @@ async function apiGetWorkflowMeta() {
 }
 
 /**
+ * Fetches the navigation-folder metadata without making dashboard startup
+ * depend on it. Callers retain the built-in folders when it is unavailable.
+ * @returns {Promise<Array|null>} ordered folder metadata or null on error
+ */
+async function apiGetNavFolders() {
+  try {
+    const resp = await fetch('/api/v1/viewer/nav-folders');
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return Array.isArray(data?.folders) ? data.folders : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetches the full entity hierarchy tree.
  * Critical endpoint — failure should prevent dashboard transition.
  * @param {string[]} [tags] - Optional tag filter (AND semantics, E28-F06 REQ-F-010)
@@ -3248,6 +3273,10 @@ function buildTagFilterControlHtml() {
 async function loadProjectData() {
   showLoading();
 
+  // Navigation folders decorate the sidebar only. Start the request without
+  // awaiting it so hierarchy remains the sole blocking dashboard dependency.
+  void loadNavigationFolders();
+
   // Step 2: workflow-meta (non-blocking)
   try {
     const meta = await apiGetWorkflowMeta();
@@ -3345,6 +3374,14 @@ async function loadProjectData() {
   }
 }
 
+async function loadNavigationFolders() {
+  const folders = await apiGetNavFolders();
+  navigationFolders = folders || BUILTIN_NAVIGATION_FOLDERS.slice();
+  if (appState !== 'pick_folder') {
+    renderSidebar();
+  }
+}
+
 function updateHeaderProjectName() {
   const btn = document.getElementById('header-dashboard-btn');
   if (!btn) return;
@@ -3411,15 +3448,24 @@ let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
 const SIDEBAR_SECTION_STORAGE_KEY = 'shark.viewer.sidebarSections';
 const SIDEBAR_SECTION_DEFAULTS = {
+  'group:plan': true,
+  'group:architecture': true,
+  'group:product': true,
   tags: true,
   epics: true,
   bugs: true,
   change_cards: true,
   tech_debt: true,
   ideas: true,
+  questions: true,
   docs: true,
 };
 let sidebarSectionState = loadSidebarSectionState();
+const BUILTIN_NAVIGATION_FOLDERS = [
+  { id: 'architecture', label: 'Architecture', path: 'docs/architecture', source: 'builtin', exists: true },
+  { id: 'product', label: 'Product', path: 'docs/product', source: 'builtin', exists: true },
+];
+let navigationFolders = BUILTIN_NAVIGATION_FOLDERS.slice();
 const SIDEBAR_WIDTH_STORAGE_KEY = 'shark.viewer.sidebarWidth';
 const SIDEBAR_WIDTH_DEFAULT = 320;
 const SIDEBAR_WIDTH_MIN = 240;
@@ -3463,14 +3509,44 @@ function toggleSidebarSection(sectionId) {
 }
 
 function areAllSidebarSectionsExpanded() {
-  return Object.keys(SIDEBAR_SECTION_DEFAULTS).every(sectionId => isSidebarSectionExpanded(sectionId));
+  return sidebarSectionIDs().every(sectionId => isSidebarSectionExpanded(sectionId));
 }
 
 function setAllSidebarSectionsExpanded(expanded, persist = true) {
-  for (const sectionId of Object.keys(SIDEBAR_SECTION_DEFAULTS)) {
+  for (const sectionId of sidebarSectionIDs()) {
     setSidebarSectionExpanded(sectionId, expanded, false);
   }
   if (persist) persistSidebarSectionState();
+}
+
+function normalizedNavigationFolders() {
+  const folders = Array.isArray(navigationFolders) ? navigationFolders : [];
+  const architecture = folders.find(folder => folder?.id === 'architecture') || BUILTIN_NAVIGATION_FOLDERS[0];
+  const product = folders.find(folder => folder?.id === 'product') || BUILTIN_NAVIGATION_FOLDERS[1];
+  const seenPaths = new Set([architecture.path, product.path]);
+  const configured = folders.filter(folder => {
+    if (!folder || folder.source !== 'config' || !folder.path || seenPaths.has(folder.path)) return false;
+    seenPaths.add(folder.path);
+    return true;
+  });
+  return [architecture, product, ...configured];
+}
+
+function navigationFolderGroupID(folder) {
+  return `group:folder:${folder.id || folder.path}`;
+}
+
+function navigationFolderSectionIDs() {
+  return normalizedNavigationFolders()
+    .filter(folder => folder.source === 'config')
+    .map(folder => navigationFolderGroupID(folder));
+}
+
+function sidebarSectionIDs() {
+  return Array.from(new Set([
+    ...Object.keys(SIDEBAR_SECTION_DEFAULTS),
+    ...navigationFolderSectionIDs(),
+  ]));
 }
 
 // ============================================================
@@ -8254,6 +8330,13 @@ function buildDocsBrowserBodyHtml() {
   return `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="docs"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Browse docs/</span></div>`;
 }
 
+function buildNavigationFolderBodyHtml(folder) {
+  const folderKey = FOLDER_KEY_PREFIX + folder.path;
+  const unavailableClass = folder.exists === false ? ' is-unavailable' : '';
+  const unavailableTitle = folder.exists === false ? ' title="Folder was not found"' : '';
+  return `<div class="tree-node tree-node-flat tree-node-folder${unavailableClass}" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(folder.path)}"${unavailableTitle}><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">${escapeHtml(folder.path)}</span></div>`;
+}
+
 function renderSidebarSection(sectionId, title, bodyHtml, options = {}) {
   if (!bodyHtml && !options.keepEmpty) return '';
   const expanded = isSidebarSectionExpanded(sectionId);
@@ -8261,14 +8344,25 @@ function renderSidebarSection(sectionId, title, bodyHtml, options = {}) {
   const buttonTitle = expanded ? `Collapse ${title}` : `Expand ${title}`;
   const buttonLabel = expanded ? '−' : '+';
   const bodyClass = options.bodyClass ? ` ${options.bodyClass}` : '';
+  const sectionClass = options.sectionClass ? ` ${options.sectionClass}` : '';
+  const headerClass = options.headerClass ? ` ${options.headerClass}` : '';
   return `
-    <div class="sidebar-section${expanded ? '' : ' is-collapsed'}" data-sidebar-section="${escapeHtml(sectionId)}">
-      <div class="sidebar-section-header">
+    <div class="sidebar-section${sectionClass}${expanded ? '' : ' is-collapsed'}" data-sidebar-section="${escapeHtml(sectionId)}">
+      <div class="sidebar-section-header${headerClass}">
         <span class="sidebar-section-title">${label}</span>
         <button class="sidebar-collapse-btn" type="button" data-sidebar-section-toggle="${escapeHtml(sectionId)}" aria-expanded="${expanded ? 'true' : 'false'}" title="${escapeHtml(buttonTitle)}">${buttonLabel}</button>
       </div>
       <div class="sidebar-section-body${bodyClass}">${bodyHtml}</div>
     </div>`;
+}
+
+function renderSidebarGroup(sectionId, title, bodyHtml) {
+  return renderSidebarSection(sectionId, title, bodyHtml, {
+    keepEmpty: true,
+    sectionClass: 'sidebar-group',
+    headerClass: 'sidebar-group-header',
+    bodyClass: 'sidebar-group-body',
+  });
 }
 
 /**
@@ -8305,13 +8399,15 @@ function renderSidebar() {
     </div>
   </div>`;
 
+  // ── Tags stay independent of artifact groups ──
+  html += renderSidebarSection('tags', 'Tags', buildTagFilterControlHtml(), { keepEmpty: true });
+
+  let planHtml = '';
+
   // ── Sprint section (Sprint mode only) ──
   if (appState === 'sprint') {
-    html += renderSprintTree(sprintOverviewData || sprintPlanData || sprintReportData || null);
+    planHtml += renderSprintTree(sprintOverviewData || sprintPlanData || sprintReportData || null);
   }
-
-  // ── Tags section ──
-  html += renderSidebarSection('tags', 'Tags', buildTagFilterControlHtml(), { keepEmpty: true });
 
   // ── Epics section ──
   let epicBodyHtml = '';
@@ -8319,23 +8415,33 @@ function renderSidebar() {
     if (!showCompleted && isHiddenTerminalStatus(epic.status, 'epic')) continue;
     epicBodyHtml += buildEpicNodeHtml(epic);
   }
-  html += renderSidebarSection('epics', 'Epics', epicBodyHtml, { keepEmpty: true });
+  planHtml += renderSidebarSection('epics', 'Epics', epicBodyHtml, { keepEmpty: true });
 
   // ── Flat sections — only render when data is present ──
   const bugs = Array.isArray(hierarchyData?.bugs) ? hierarchyData.bugs : [];
-  html += renderSidebarSection('bugs', 'Bugs', buildFlatSectionBodyHtml(bugs, 'bug'));
+  planHtml += renderSidebarSection('bugs', 'Bugs', buildFlatSectionBodyHtml(bugs, 'bug'));
 
   const changeCards = Array.isArray(hierarchyData?.change_cards) ? hierarchyData.change_cards : [];
-  html += renderSidebarSection('change_cards', 'Change Cards', buildFlatSectionBodyHtml(changeCards, 'change_card'));
+  planHtml += renderSidebarSection('change_cards', 'Change Cards', buildFlatSectionBodyHtml(changeCards, 'change_card'));
 
   const techDebts = Array.isArray(hierarchyData?.tech_debts) ? hierarchyData.tech_debts : [];
-  html += renderSidebarSection('tech_debt', 'Tech Debt', buildFlatSectionBodyHtml(techDebts, 'tech_debt'));
+  planHtml += renderSidebarSection('tech_debt', 'Tech Debt', buildFlatSectionBodyHtml(techDebts, 'tech_debt'));
 
   const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
-  html += renderSidebarSection('ideas', 'Ideas', buildFlatSectionHtml('Ideas', ideas, 'idea'));
+  planHtml += renderSidebarSection('ideas', 'Ideas', buildFlatSectionHtml('Ideas', ideas, 'idea'));
 
   const questions = Array.isArray(hierarchyData?.questions) ? hierarchyData.questions : [];
-  html += renderSidebarSection('questions', 'Questions', buildFlatSectionBodyHtml(questions, 'question'));
+  planHtml += renderSidebarSection('questions', 'Questions', buildFlatSectionBodyHtml(questions, 'question'));
+
+  html += renderSidebarGroup('group:plan', 'Plan', planHtml);
+
+  const [architectureFolder, productFolder, ...configuredFolders] = normalizedNavigationFolders();
+  html += renderSidebarGroup('group:architecture', 'Architecture', buildNavigationFolderBodyHtml(architectureFolder));
+  html += renderSidebarGroup('group:product', 'Product', buildNavigationFolderBodyHtml(productFolder));
+  for (const folder of configuredFolders) {
+    const groupID = navigationFolderGroupID(folder);
+    html += renderSidebarGroup(groupID, folder.label || folder.path, buildNavigationFolderBodyHtml(folder));
+  }
 
   // ── Docs browser ──
   html += renderSidebarSection('docs', 'Docs', buildDocsBrowserBodyHtml(), { keepEmpty: true });

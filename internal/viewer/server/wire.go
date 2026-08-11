@@ -529,6 +529,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
 	viewerService.WithSprintService(sprintSvc)
 	viewerService.WithSprintAnalyticsService(sprintAnalyticsSvc)
+	viewerService.WithBrowsableFolders(loadBrowsableFoldersConfig(projectRoot))
 	// Wire tag service for decoration and filtering (REQ-F-015, T-E28-F06-002).
 	// REQ-F-014: MaintainerGate is NOT passed to ViewerService (defense-in-depth).
 	viewerService.WithTagService(tagSvc)
@@ -577,4 +578,17 @@ func loadAdvanceGuardConfig(projectRoot string) config.AdvanceGuardConfig {
 		return config.AdvanceGuardConfig{}
 	}
 	return cfg.GetAdvanceGuard()
+}
+
+// loadBrowsableFoldersConfig returns dashboard navigation folders configured
+// for this project. Path safety remains the ViewerService's responsibility,
+// where each path is checked against the project root before exposure.
+func loadBrowsableFoldersConfig(projectRoot string) []config.BrowsableFolder {
+	cfgPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	mgr := config.NewManager(cfgPath)
+	cfg, err := mgr.Load()
+	if err != nil || cfg == nil {
+		return nil
+	}
+	return cfg.GetBrowsableFolders()
 }
