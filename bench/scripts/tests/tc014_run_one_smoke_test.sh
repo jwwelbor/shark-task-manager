@@ -420,8 +420,9 @@ loc = record.get("loc")
 required = ("prod_added", "prod_deleted", "test_added", "test_deleted", "files_touched")
 if not loc or not all(k in loc for k in required):
     sys.exit("TC-014f FAIL: record.loc missing or incomplete: %r" % (loc,))
-if loc["test_added"] != 0:
-    sys.exit("TC-014f FAIL: loc.test_added=%r, want 0 (measured before F2P injection)" % loc["test_added"])
+for key in required:
+    if loc[key] != 0:
+        sys.exit("TC-014f FAIL: loc[%s]=%r, want 0 (the context mirror and F2P injection must both be excluded from the pre-injection measurement)" % (key, loc[key]))
 quality = record.get("quality") or {}
 if "lint_new_issues_count" not in quality:
     sys.exit("TC-014f FAIL: record.quality missing lint_new_issues_count entirely")
@@ -504,7 +505,7 @@ print(total)
 test_g() {
 	local canary_stub="$STUBBIN/canary-runsurface.sh"
 
-	# (i) default flags, canary exits 0 -> provisioning proceeds normally.
+	# (i) explicit override, canary exits 0 -> provisioning proceeds normally.
 	cat >"$canary_stub" <<'EOF'
 #!/usr/bin/env bash
 echo "invoked" >>"${STUB_CANARY_INVOCATIONS:?}"
@@ -514,7 +515,7 @@ EOF
 
 	local out1="$WORKDIR/g1-out" inv1="$WORKDIR/g1-invocations"
 	: >"$inv1"
-	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv1" \
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv1" CANARY_BIN="$canary_stub" \
 		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
 		--timeout 60 --out "$out1" --corpus "$CORPUS_YAML" \
 		</dev/null >"$WORKDIR/g1.out" 2>"$WORKDIR/g1.err" ||
@@ -525,7 +526,7 @@ EOF
 	python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("skip_canary") is False, d' "$meta1" ||
 		fail "g(i): meta.json skip_canary is not explicitly false"
 
-	# (ii) default flags, canary exits 1 naming a field -> aborts BEFORE
+	# (ii) explicit override, canary exits 1 naming a field -> aborts BEFORE
 	# provisioning.
 	cat >"$canary_stub" <<'EOF'
 #!/usr/bin/env bash
@@ -537,7 +538,7 @@ EOF
 
 	local out2="$WORKDIR/g2-out" inv2="$WORKDIR/g2-invocations"
 	: >"$inv2"
-	if PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv2" \
+	if PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv2" CANARY_BIN="$canary_stub" \
 		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
 		--timeout 60 --out "$out2" --corpus "$CORPUS_YAML" \
 		</dev/null >"$WORKDIR/g2.out" 2>"$WORKDIR/g2.err"; then
@@ -550,7 +551,7 @@ EOF
 	# (iii) --skip-canary -> canary never invoked, even though it would fail.
 	local out3="$WORKDIR/g3-out" inv3="$WORKDIR/g3-invocations"
 	: >"$inv3"
-	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv3" \
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv3" CANARY_BIN="$canary_stub" \
 		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
 		--timeout 60 --out "$out3" --corpus "$CORPUS_YAML" --skip-canary \
 		</dev/null >"$WORKDIR/g3.out" 2>"$WORKDIR/g3.err" ||
@@ -564,6 +565,55 @@ EOF
 	echo "TC-014g PASS"
 }
 
+# TC-014h: real Shark creates the hierarchy while only `shark run` is
+# stubbed. The stub checks the generated task document in --workdir at the
+# instant of dispatch and also confirms the held-back F2P test is still absent.
+test_h() {
+	local out_dir="$WORKDIR/h-out" spec_marker="$WORKDIR/h-spec-marker" f2p_marker="$WORKDIR/h-f2p-marker"
+	local f2p_rel="pkg/validate/sku_length_test.go"
+	rm -f "$spec_marker" "$f2p_marker"
+
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_SHARK_CREATE_REAL=1 \
+		STUB_SHARK_RUN_TASK_SPEC_MARKER_FILE="$spec_marker" \
+		STUB_SHARK_RUN_TASK_SPEC_TEXT=$'validate.SKU currently accepts a SKU of any length. Add a maximum length\nof 40 characters, returning a clear, descriptive error for longer values\nwhile preserving the existing non-empty and no-whitespace checks.' \
+		STUB_SHARK_RUN_F2P_MARKER_FILE="$f2p_marker" STUB_SHARK_RUN_F2P_CHECK_PATH="$f2p_rel" \
+		"$RUN_ONE" --item validate-sku-max-length --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/h.out" 2>"$WORKDIR/h.err" ||
+		fail "h: run-one.sh exited non-zero: $(cat "$WORKDIR/h.err")"
+
+	[[ "$(cat "$spec_marker")" == "present" ]] ||
+		fail "h: seeded task document was not visible with its full 40-character requirement at dispatch: $(cat "$spec_marker" 2>/dev/null || true)"
+	[[ "$(cat "$f2p_marker")" == "absent" ]] ||
+		fail "h: held-back F2P test was present at dispatch: $(cat "$f2p_marker" 2>/dev/null || true)"
+
+	echo "TC-014h PASS"
+}
+
+# TC-014i: with no CANARY_BIN override and no scripts directory on PATH,
+# run-one reaches its bundled sibling canary. The canary fixture seam avoids a
+# second live dispatch here; TC-016 owns that real canary invocation.
+test_i() {
+	local out_dir="$WORKDIR/i-out" canary_fixture="$WORKDIR/i-canary.json"
+	cat >"$canary_fixture" <<'JSON'
+{"entity_key":"T-E01-F01-001","final_status":"completed","stages_completed":0,"stages":[],"outcome":"completed","total_duration_ns":1}
+JSON
+	case ":$PATH:" in
+	*":$SCRIPTS_DIR:"*) fail "i: inherited PATH contains $SCRIPTS_DIR; cannot prove sibling-canary resolution" ;;
+	esac
+
+	PATH="$STUBBIN:${PATH#*:}" STUB_SHARK_REAL="$REAL_SHARK" \
+		CANARY_RUNSURFACE_RUNRESULT_FIXTURE="$canary_fixture" \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" \
+		</dev/null >"$WORKDIR/i.out" 2>"$WORKDIR/i.err" ||
+		fail "i: run-one.sh did not reach the bundled sibling canary without a CANARY_BIN override: $(cat "$WORKDIR/i.err")"
+	grep -q 'running X-07 canary preflight (' "$WORKDIR/i.err" ||
+		fail "i: default canary preflight marker missing"
+
+	echo "TC-014i PASS"
+}
+
 test_a
 test_b
 test_c
@@ -571,5 +621,7 @@ test_d
 test_e
 test_f
 test_g
+test_h
+test_i
 
 echo "TC-014: all sub-cases PASS"

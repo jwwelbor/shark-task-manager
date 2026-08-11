@@ -223,6 +223,30 @@ and the collector reads, the I-02 record's field reference, and (below) the
 Q003 closure: the confirmed `claude --output-format json` envelope field
 names the collector's `stages[].usage` extraction depends on.
 
+### Two-root run context
+
+Each run uses two separate roots. Shark state, the scratch database,
+transcripts, and generated planning documents belong to the scratch project.
+The agent edits and tests code in the fixture checkout passed to
+`shark run --workdir`.
+
+Before dispatch, `run-one.sh` mirrors the scratch project's generated
+`docs/plan/` tree into the fixture checkout. This lets the workflow prompt's
+relative entity `file_path` resolve where the agent works. The mirrored files
+are harness context, not fixture code or oracle inputs. The driver still
+injects held-back F2P tests only after the run, after LOC and quality
+measurements complete.
+
+The bundled sibling canary is the default. Start a run without setting
+`CANARY_BIN`:
+
+```bash
+bench/scripts/run-one.sh --item validate-sku-max-length --variant default --rep 1 --timeout 900 --out /tmp/shark-bench-runs
+```
+
+Set `CANARY_BIN` only to use a test or operator-specific replacement. Use
+`--skip-canary` only when you intentionally bypass the preflight.
+
 ### Run directory layout
 
 ```

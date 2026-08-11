@@ -22,6 +22,8 @@
 #   STUB_SHARK_FEATURE_KEY       canned key for `create feature` (E01-F01)
 #   STUB_SHARK_TASK_KEY          canned key for `create task`    (E01-F01-001)
 #   STUB_SHARK_BUG_KEY           canned key for `create bug`     (B001)
+#   STUB_SHARK_CREATE_REAL        "1": forward create commands to the real
+#                                 shark binary; only `shark run` stays stubbed.
 #   STUB_SHARK_RUN_RESULT_FILE   path to a JSON file to print verbatim as
 #                                 the `run` subcommand's stdout (RunResult).
 #                                 Defaults to one advance_status-only stage,
@@ -52,6 +54,10 @@
 #                                 AC-12's dispatch-time leak surface).
 #   STUB_SHARK_RUN_F2P_CHECK_PATH  the workdir-relative path to check;
 #                                 required together with the marker file.
+#   STUB_SHARK_RUN_TASK_SPEC_MARKER_FILE when set, `run` verifies that the
+#                                 seeded task document is visible under
+#                                 <workdir>/docs/plan and contains
+#                                 STUB_SHARK_RUN_TASK_SPEC_TEXT.
 set -euo pipefail
 
 log_invocation() {
@@ -75,6 +81,7 @@ canned_key_response() {
 	printf '{"status":"created","entity_type":"%s","key":"%s"}\n' "$1" "$2"
 }
 
+if [[ "${STUB_SHARK_CREATE_REAL:-0}" != "1" ]]; then
 case "${1:-} ${2:-}" in
 "create epic")
 	canned_key_response "epic" "${STUB_SHARK_EPIC_KEY:-E01}"
@@ -93,27 +100,39 @@ case "${1:-} ${2:-}" in
 	exit 0
 	;;
 esac
+fi
 
 if [[ "${1:-}" == "run" ]]; then
 	entity_key="${2:-}"
+	workdir=""
+	prev=""
+	for a in "$@"; do
+		if [[ "$prev" == "--workdir" ]]; then
+			workdir="$a"
+		fi
+		prev="$a"
+	done
 
 	# AC-12/TC-014d: inspect --workdir at dispatch time, before any post-run
 	# injection could have happened -- the marker (not the checkout's final
 	# state) is what would catch a pre-dispatch leak.
 	if [[ -n "${STUB_SHARK_RUN_F2P_MARKER_FILE:-}" ]]; then
-		workdir=""
-		prev=""
-		for a in "$@"; do
-			if [[ "$prev" == "--workdir" ]]; then
-				workdir="$a"
-			fi
-			prev="$a"
-		done
 		state="absent"
 		if [[ -n "${STUB_SHARK_RUN_F2P_CHECK_PATH:-}" && -n "$workdir" && -f "$workdir/${STUB_SHARK_RUN_F2P_CHECK_PATH}" ]]; then
 			state="present"
 		fi
 		printf '%s' "$state" >"$STUB_SHARK_RUN_F2P_MARKER_FILE"
+	fi
+
+	if [[ -n "${STUB_SHARK_RUN_TASK_SPEC_MARKER_FILE:-}" ]]; then
+		task_doc="$(find "$workdir/docs/plan" -type f -name "$entity_key*.md" -print -quit 2>/dev/null || true)"
+		if [[ -z "$task_doc" ]]; then
+			printf 'missing' >"$STUB_SHARK_RUN_TASK_SPEC_MARKER_FILE"
+		elif [[ -n "${STUB_SHARK_RUN_TASK_SPEC_TEXT:-}" ]] && ! grep -qF "$STUB_SHARK_RUN_TASK_SPEC_TEXT" "$task_doc"; then
+			printf 'requirement-missing' >"$STUB_SHARK_RUN_TASK_SPEC_MARKER_FILE"
+		else
+			printf 'present' >"$STUB_SHARK_RUN_TASK_SPEC_MARKER_FILE"
+		fi
 	fi
 
 	run_id="${STUB_SHARK_RUN_ID:-stub-run-0001}"
