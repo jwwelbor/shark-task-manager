@@ -59,14 +59,34 @@ adds no second envelope shape:
 Adapters implement the capability set dev-artifacts'
 `shark-attack-v2-plan/implementation-plan.md`
 (`#3-provider-neutral-adapter-contract`) defines: Spawn, Send/follow-up,
-Progress/final, Wait/poll, Interrupt/list,
-Isolate, Resume, Provenance. `providers/codex.md` and
+Progress/final, Wait/poll, Interrupt/list, Isolate, Resume, Provenance.
+`providers/codex.md` and
 `providers/claude-code.md` record which of these each installed host
 actually supports, with captured evidence — this file states the field
 shapes those capabilities carry, not which host supports which capability.
 Capability detection precedes topology/coordination selection (REQ-F-012);
 a missing capability is data that drives a documented fallback, never
 license to invent an unverified provider command.
+
+## Terminal worker policy
+
+`final`, `blocked_external`, and `failed` are terminal control envelopes.
+Before the parent advances the corresponding Shark step, it needs one
+documented completion guarantee for the native worker:
+
+- An awaited foreground invocation exits after producing the envelope. Its
+  process exit is the terminal acknowledgement.
+- A provider may supply a documented worker-retirement operation and terminal
+  acknowledgement. Use that operation only when the provider reference
+  captures it.
+
+Neither installed provider reference currently documents the second option.
+When an adapter cannot establish it, it must not dispatch the step as a
+background agent. Use parent-owned, synchronous or otherwise awaited execution
+instead. If a previously backgrounded worker produces a terminal envelope
+without a documented completion guarantee, record bounded evidence, release the
+lease, and stop the Rider loop without advancing it. Do not claim that later
+idle notifications have been suppressed.
 
 ## Resume
 
