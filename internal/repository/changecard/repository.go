@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
@@ -319,6 +320,7 @@ func (r *ChangeCardRepository) List(ctx context.Context, filter *ChangeCardRepoF
 		if !filter.IncludeTerminal {
 			terminalStatuses := filter.TerminalStatuses
 			if len(terminalStatuses) == 0 {
+				slog.Warn("change-card repository using legacy terminal-status fallback")
 				terminalStatuses = defaultChangeCardTerminalStatuses
 			}
 			placeholders := make([]string, len(terminalStatuses))

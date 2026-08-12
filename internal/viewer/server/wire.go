@@ -452,7 +452,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	epicService.SetSearchIndexer(searchRepo)
 	epicService.SetAggregateMutationCoordinator(aggregateCoordinator)
 
-	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
+	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo, workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked"))
 	epicService.SetAnalyticsService(analyticsSvc)
 
 	bugService := services.NewBugService(

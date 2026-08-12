@@ -10,6 +10,7 @@ import (
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
@@ -243,9 +244,10 @@ func GetEpicService() *services.EpicService {
 	svc.SetSizeEnforcement(getSizeEnforcement())
 	svc.SetSearchIndexer(repository.NewSearchRepository(db))
 	svc.SetAggregateMutationCoordinator(services.NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), workflowSvc))
+	svc.SetBlockedTaskStatuses(workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked"))
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
-	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
+	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo, workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked"))
 	svc.SetAnalyticsService(analyticsSvc)
 
 	return svc

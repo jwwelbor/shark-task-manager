@@ -30,7 +30,7 @@ type DisplayFeatureRepository interface {
 // DisplayTaskRepository is the interface DisplayService needs for task data access.
 type DisplayTaskRepository interface {
 	GetTaskCountForFeature(ctx context.Context, featureID int64) (int, error)
-	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
+	ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 }
 
@@ -559,7 +559,8 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 
 	// Blocked tasks
 	if blockCount, ok := info.TaskRollup["blocked"]; ok && blockCount > 0 {
-		blockedTasks, err := s.deps.TaskRepo.ListBlockedTasksByEpic(ctx, info.Epic.Key)
+		blockedStatuses := s.workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked")
+		blockedTasks, err := s.deps.TaskRepo.ListBlockedTasksByEpic(ctx, info.Epic.Key, blockedStatuses)
 		if err == nil {
 			info.BlockedTasks = blockedTasks
 		}

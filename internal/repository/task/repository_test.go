@@ -544,6 +544,38 @@ func TestTaskRepository_UpdateNoResequence_FastPath(t *testing.T) {
 	assert.Equal(t, 7, *got.ExecutionOrder)
 }
 
+func TestTaskRepository_UpdateNoResequence_IgnoresPersistedLegacyDependencies(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	taskRepo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E91", Title: "TD-062 epic"}, Status: models.EpicStatusActive, Priority: models.PriorityHigh, BusinessValue: &highPriority}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E91-F01", Title: "TD-062 feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusDraft}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	order := 1
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E91-F01-001", Title: "legacy dependency"}, FeatureID: testFeature.ID, Status: "todo", Priority: 5, ExecutionOrder: &order}
+	require.NoError(t, taskRepo.Create(ctx, task))
+	legacyDeps := `["missing-task"]`
+	_, err := database.ExecContext(ctx, "UPDATE tasks SET depends_on = ? WHERE id = ?", legacyDeps, task.ID)
+	require.NoError(t, err)
+
+	newOrder := 2
+	task.ExecutionOrder = &newOrder
+	task.DependsOn = nil
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task))
+
+	updated, err := taskRepo.GetByKey(ctx, task.Key)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ExecutionOrder)
+	assert.Equal(t, 2, *updated.ExecutionOrder)
+}
+
 // TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason tests rejection reason validation
 func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing.T) {
 	ctx := context.Background()

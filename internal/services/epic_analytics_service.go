@@ -29,7 +29,7 @@ type EpicAnalyticsRepository interface {
 // EpicAnalyticsTaskRepository defines the subset of task repository needed by EpicAnalyticsService.
 // This interface is satisfied by *repository.TaskRepository.
 type EpicAnalyticsTaskRepository interface {
-	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
+	ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error)
 }
 
 // EpicAnalyticsService provides analytics and display-data computation for epics.
@@ -42,8 +42,9 @@ type EpicAnalyticsTaskRepository interface {
 //   - Epic health assessment
 //   - Display data aggregation (single-query view)
 type EpicAnalyticsService struct {
-	repo     EpicAnalyticsRepository
-	taskRepo EpicAnalyticsTaskRepository // optional; degrades gracefully if nil
+	repo            EpicAnalyticsRepository
+	taskRepo        EpicAnalyticsTaskRepository // optional; degrades gracefully if nil
+	blockedStatuses []string
 }
 
 // NewEpicAnalyticsService creates a new EpicAnalyticsService.
@@ -51,11 +52,12 @@ type EpicAnalyticsService struct {
 // Parameters:
 //   - repo: epic repository for analytics queries (required)
 //   - taskRepo: task repository for blocked-task queries (optional; pass nil to degrade gracefully)
-func NewEpicAnalyticsService(repo EpicAnalyticsRepository, taskRepo EpicAnalyticsTaskRepository) *EpicAnalyticsService {
+func NewEpicAnalyticsService(repo EpicAnalyticsRepository, taskRepo EpicAnalyticsTaskRepository, blockedStatuses []string) *EpicAnalyticsService {
 	requireNonNil(repo, "EpicAnalyticsService requires a non-nil EpicAnalyticsRepository")
 	return &EpicAnalyticsService{
-		repo:     repo,
-		taskRepo: taskRepo,
+		repo:            repo,
+		taskRepo:        taskRepo,
+		blockedStatuses: blockedStatuses,
 	}
 }
 
@@ -184,7 +186,7 @@ func (s *EpicAnalyticsService) GetImpediments(ctx context.Context, key string) (
 		return []*Impediment{}, nil
 	}
 
-	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key)
+	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key, s.blockedStatuses)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get impediments for epic %s: %w", key, err)
 	}
@@ -217,7 +219,7 @@ func (s *EpicAnalyticsService) GetBlockedTasks(ctx context.Context, key string) 
 	if s.taskRepo == nil {
 		return []*models.Task{}, nil
 	}
-	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key)
+	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key, s.blockedStatuses)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get blocked tasks for epic %s: %w", key, err)
 	}
