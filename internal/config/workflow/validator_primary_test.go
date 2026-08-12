@@ -1,8 +1,10 @@
 package workflow
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // pfb builds the core pass/fail/blocked outcome map used by the fixtures.
@@ -53,31 +55,27 @@ func designationFixture() *WorkflowConfig {
 }
 
 func TestValidateWorkflow_PrimaryDesignations_ValidFixture(t *testing.T) {
-	if err := ValidateWorkflow(designationFixture()); err != nil {
-		t.Fatalf("fixture with primary tags should validate clean, got: %v", err)
-	}
+	require.NoError(t, ValidateWorkflow(designationFixture()), "fixture with primary tags should validate clean")
 }
 
 func TestValidateWorkflow_AmbiguousAggregation_NoPrimary(t *testing.T) {
 	cfg := designationFixture()
 	cfg.Steps["reopen"].Primary = false
 	err := ValidateWorkflow(cfg)
-	if err == nil || !strings.Contains(err.Error(), "aggregation") || !strings.Contains(err.Error(), "primary") {
-		t.Errorf("expected ambiguous-aggregation error naming the primary fix, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "aggregation")
+	assert.Contains(t, err.Error(), "primary")
 	// The error must name the candidates so the fix is actionable.
-	if err != nil && (!strings.Contains(err.Error(), "reopen") || !strings.Contains(err.Error(), "aaa_wrong_reopen")) {
-		t.Errorf("expected error to name both candidates, got %v", err)
-	}
+	assert.Contains(t, err.Error(), "reopen")
+	assert.Contains(t, err.Error(), "aaa_wrong_reopen")
 }
 
 func TestValidateWorkflow_AmbiguousAggregation_MultiplePrimary(t *testing.T) {
 	cfg := designationFixture()
 	cfg.Steps["aaa_wrong_reopen"].Primary = true
 	err := ValidateWorkflow(cfg)
-	if err == nil || !strings.Contains(err.Error(), "multiple steps tagged primary") {
-		t.Errorf("expected multiple-primary error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple steps tagged primary")
 }
 
 func TestValidateWorkflow_AmbiguousPhase_NoPrimary(t *testing.T) {
@@ -89,9 +87,9 @@ func TestValidateWorkflow_AmbiguousPhase_NoPrimary(t *testing.T) {
 		cfg := designationFixture()
 		cfg.Steps[tc.step].Primary = false
 		err := ValidateWorkflow(cfg)
-		if err == nil || !strings.Contains(err.Error(), tc.phase) || !strings.Contains(err.Error(), "primary") {
-			t.Errorf("phase %s: expected ambiguous-phase error, got %v", tc.phase, err)
-		}
+		require.Error(t, err, "phase %s: expected ambiguous-phase error", tc.phase)
+		assert.Contains(t, err.Error(), tc.phase)
+		assert.Contains(t, err.Error(), "primary")
 	}
 }
 
@@ -99,18 +97,18 @@ func TestValidateWorkflow_AmbiguousCompletedSprintStatus_NoPrimary(t *testing.T)
 	cfg := designationFixture()
 	cfg.Steps["completed"].Primary = false
 	err := ValidateWorkflow(cfg)
-	if err == nil || !strings.Contains(err.Error(), "completed (done-phase, non-terminal)") || !strings.Contains(err.Error(), "primary") {
-		t.Errorf("expected ambiguous completed-sprint-status error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "completed (done-phase, non-terminal)")
+	assert.Contains(t, err.Error(), "primary")
 }
 
 func TestValidateWorkflow_AmbiguousTerminals_NoArchiveNoPrimary(t *testing.T) {
 	cfg := designationFixture()
 	cfg.Steps["archived"].Primary = false
 	err := ValidateWorkflow(cfg)
-	if err == nil || !strings.Contains(err.Error(), "terminal") || !strings.Contains(err.Error(), "primary") {
-		t.Errorf("expected ambiguous-terminal error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+	assert.Contains(t, err.Error(), "primary")
 }
 
 func TestValidateWorkflow_MultipleTerminals_ArchiveActionSuffices(t *testing.T) {
@@ -120,9 +118,7 @@ func TestValidateWorkflow_MultipleTerminals_ArchiveActionSuffices(t *testing.T) 
 	cfg.Steps["archived"].Primary = false
 	cfg.Steps["archived"].Action = "archive"
 	cfg.DeriveLegacy()
-	if err := ValidateWorkflow(cfg); err != nil {
-		t.Errorf("archive-action terminal should satisfy the terminal rule, got %v", err)
-	}
+	assert.NoError(t, ValidateWorkflow(cfg), "archive-action terminal should satisfy the terminal rule")
 }
 
 func TestValidateWorkflow_MultipleArchiveTerminals_RequirePrimary(t *testing.T) {
@@ -137,37 +133,31 @@ func TestValidateWorkflow_MultipleArchiveTerminals_RequirePrimary(t *testing.T) 
 	cfg.DeriveLegacy()
 
 	err := ValidateWorkflow(cfg)
-	if err == nil || !strings.Contains(err.Error(), "archive terminal") {
-		t.Errorf("expected ambiguous archive-terminal error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "archive terminal")
 
 	// Tagging one of the archive terminals satisfies both validator and
 	// runtime selector.
 	cfg.Steps["archived"].Primary = true
-	if err := ValidateWorkflow(cfg); err != nil {
-		t.Errorf("primary-tagged archive terminal should validate clean, got %v", err)
-	}
+	assert.NoError(t, ValidateWorkflow(cfg), "primary-tagged archive terminal should validate clean")
 	got, selErr := cfg.ArchiveTerminalStatus()
-	if selErr != nil || got != "archived" {
-		t.Errorf("expected runtime selector to agree (archived, nil), got (%q, %v)", got, selErr)
-	}
+	assert.NoError(t, selErr)
+	assert.Equal(t, "archived", got, "expected runtime selector to agree")
 }
 
 func TestValidateWorkflow_ParkingStepWithAdvanceStatus(t *testing.T) {
 	cfg := designationFixture()
 	cfg.Steps["hold"].Action = "advance_status"
 	err := ValidateWorkflow(cfg)
-	if err == nil || !strings.Contains(err.Error(), "parking") || !strings.Contains(err.Error(), "advance_status") {
-		t.Errorf("expected parking/advance_status validation error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parking")
+	assert.Contains(t, err.Error(), "advance_status")
 }
 
 func TestValidateWorkflow_SingleCandidates_NoPrimaryNeeded(t *testing.T) {
 	// The plain valid route-based config has at most one candidate per
 	// selection; no primary tags anywhere must stay valid.
-	if err := ValidateWorkflow(validRouteBasedConfig()); err != nil {
-		t.Errorf("single-candidate workflow must not require primary tags, got %v", err)
-	}
+	assert.NoError(t, ValidateWorkflow(validRouteBasedConfig()), "single-candidate workflow must not require primary tags")
 }
 
 // The embedded default workflows are covered by

@@ -1,9 +1,10 @@
 package workflow
 
 import (
-	"errors"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The selector tests lean on designationFixture (validator_primary_test.go):
@@ -14,12 +15,8 @@ import (
 
 func TestPrimaryAggregationStatus_PicksPrimaryNotAlphabetical(t *testing.T) {
 	got, err := designationFixture().PrimaryAggregationStatus()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "reopen" {
-		t.Errorf("expected primary-tagged %q, got %q", "reopen", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "reopen", got, "expected primary-tagged status")
 }
 
 func TestPrimaryAggregationStatus_SingleCandidate(t *testing.T) {
@@ -31,12 +28,8 @@ func TestPrimaryAggregationStatus_SingleCandidate(t *testing.T) {
 	cfg.DeriveLegacy()
 
 	got, err := cfg.PrimaryAggregationStatus()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "aaa_wrong_reopen" {
-		t.Errorf("expected sole candidate %q, got %q", "aaa_wrong_reopen", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "aaa_wrong_reopen", got, "expected sole candidate")
 }
 
 func TestPrimaryAggregationStatus_Ambiguous(t *testing.T) {
@@ -45,15 +38,11 @@ func TestPrimaryAggregationStatus_Ambiguous(t *testing.T) {
 
 	_, err := cfg.PrimaryAggregationStatus()
 	var ambiguous *AmbiguousSelectionError
-	if !errors.As(err, &ambiguous) {
-		t.Fatalf("expected AmbiguousSelectionError, got %v", err)
-	}
+	require.ErrorAs(t, err, &ambiguous)
 	// The error must name the candidates and the fix.
 	msg := err.Error()
 	for _, want := range []string{"aaa_wrong_reopen", "reopen", "primary: true", "shark admin workflow validate"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("error message missing %q: %s", want, msg)
-		}
+		assert.Contains(t, msg, want, "error message must name the candidate and fix")
 	}
 }
 
@@ -66,9 +55,7 @@ func TestPrimaryAggregationStatus_NoCandidate(t *testing.T) {
 
 	_, err := cfg.PrimaryAggregationStatus()
 	var noCandidate *NoCandidateError
-	if !errors.As(err, &noCandidate) {
-		t.Fatalf("expected NoCandidateError, got %v", err)
-	}
+	require.ErrorAs(t, err, &noCandidate)
 }
 
 func TestStatusForPhase_PicksPrimaryNotAlphabetical(t *testing.T) {
@@ -78,12 +65,8 @@ func TestStatusForPhase_PicksPrimaryNotAlphabetical(t *testing.T) {
 		"review":    "closing",
 	} {
 		got, err := cfg.StatusForPhase(phase)
-		if err != nil {
-			t.Fatalf("phase %s: unexpected error: %v", phase, err)
-		}
-		if got != want {
-			t.Errorf("phase %s: expected primary-tagged %q, got %q", phase, want, got)
-		}
+		require.NoErrorf(t, err, "phase %s: unexpected error", phase)
+		assert.Equalf(t, want, got, "phase %s: expected primary-tagged status", phase)
 	}
 }
 
@@ -93,27 +76,19 @@ func TestStatusForPhase_AmbiguousAndNoCandidate(t *testing.T) {
 
 	_, err := cfg.StatusForPhase("execution")
 	var ambiguous *AmbiguousSelectionError
-	if !errors.As(err, &ambiguous) {
-		t.Fatalf("expected AmbiguousSelectionError, got %v", err)
-	}
+	require.ErrorAs(t, err, &ambiguous)
 
 	_, err = cfg.StatusForPhase("no_such_phase")
 	var noCandidate *NoCandidateError
-	if !errors.As(err, &noCandidate) {
-		t.Fatalf("expected NoCandidateError, got %v", err)
-	}
+	require.ErrorAs(t, err, &noCandidate)
 }
 
 func TestCompletedSprintStatus_ExcludesTerminalsAndPicksPrimary(t *testing.T) {
 	// The fixture's done phase holds four steps: two non-terminal candidates
 	// (primary on "completed") and two terminals that must be excluded.
 	got, err := designationFixture().CompletedSprintStatus()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "completed" {
-		t.Errorf("expected primary-tagged %q, got %q", "completed", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "completed", got, "expected primary-tagged status")
 }
 
 func TestCompletedSprintStatus_Ambiguous(t *testing.T) {
@@ -122,19 +97,13 @@ func TestCompletedSprintStatus_Ambiguous(t *testing.T) {
 
 	_, err := cfg.CompletedSprintStatus()
 	var ambiguous *AmbiguousSelectionError
-	if !errors.As(err, &ambiguous) {
-		t.Fatalf("expected AmbiguousSelectionError, got %v", err)
-	}
+	require.ErrorAs(t, err, &ambiguous)
 	// The candidate list must name only the non-terminal done-phase steps —
 	// terminals are a different selection (ArchiveTerminalStatus).
 	want := []string{"aaa_wrong_completed", "completed"}
-	if len(ambiguous.Candidates) != len(want) {
-		t.Fatalf("expected candidates %v, got %v", want, ambiguous.Candidates)
-	}
+	require.Equal(t, want, ambiguous.Candidates, "expected non-terminal done-phase candidates")
 	for i, name := range want {
-		if ambiguous.Candidates[i] != name {
-			t.Errorf("candidate %d: expected %q, got %v", i, name, ambiguous.Candidates)
-		}
+		assert.Equalf(t, name, ambiguous.Candidates[i], "candidate %d", i)
 	}
 }
 
@@ -146,20 +115,14 @@ func TestCompletedSprintStatus_NoCandidate(t *testing.T) {
 
 	_, err := cfg.CompletedSprintStatus()
 	var noCandidate *NoCandidateError
-	if !errors.As(err, &noCandidate) {
-		t.Fatalf("expected NoCandidateError, got %v", err)
-	}
+	require.ErrorAs(t, err, &noCandidate)
 }
 
 func TestArchiveTerminalStatus_PrimaryBreaksTie(t *testing.T) {
 	// No archive-action terminals in the fixture: the primary tag decides.
 	got, err := designationFixture().ArchiveTerminalStatus()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "archived" {
-		t.Errorf("expected primary-tagged %q, got %q", "archived", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "archived", got, "expected primary-tagged archive terminal")
 }
 
 func TestArchiveTerminalStatus_ArchiveActionTakesPrecedence(t *testing.T) {
@@ -171,12 +134,8 @@ func TestArchiveTerminalStatus_ArchiveActionTakesPrecedence(t *testing.T) {
 	cfg.DeriveLegacy()
 
 	got, err := cfg.ArchiveTerminalStatus()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "aaa_wrong_archived" {
-		t.Errorf("expected archive-action terminal %q, got %q", "aaa_wrong_archived", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "aaa_wrong_archived", got, "expected archive-action terminal")
 }
 
 func TestArchiveTerminalStatus_MultipleArchiveActions_PrimaryDecides(t *testing.T) {
@@ -187,29 +146,21 @@ func TestArchiveTerminalStatus_MultipleArchiveActions_PrimaryDecides(t *testing.
 
 	// primary: true on "archived" breaks the tie within the archive subset.
 	got, err := cfg.ArchiveTerminalStatus()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "archived" {
-		t.Errorf("expected primary-tagged archive terminal %q, got %q", "archived", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "archived", got, "expected primary-tagged archive terminal")
 
 	// Without the tag the tie is unbreakable: ambiguous, never alphabetical.
 	cfg.Steps["archived"].Primary = false
 	_, err = cfg.ArchiveTerminalStatus()
 	var ambiguous *AmbiguousSelectionError
-	if !errors.As(err, &ambiguous) {
-		t.Fatalf("expected AmbiguousSelectionError, got %v", err)
-	}
+	require.ErrorAs(t, err, &ambiguous)
 }
 
 func TestArchiveTerminalStatus_NoCandidate(t *testing.T) {
 	cfg := &WorkflowConfig{StatusFlow: map[string][]string{"todo": {}}}
 	_, err := cfg.ArchiveTerminalStatus()
 	var noCandidate *NoCandidateError
-	if !errors.As(err, &noCandidate) {
-		t.Fatalf("expected NoCandidateError, got %v", err)
-	}
+	require.ErrorAs(t, err, &noCandidate)
 }
 
 func TestDesignate_LegacySchemaFallsBackToFirstCandidate(t *testing.T) {
@@ -232,12 +183,8 @@ func TestDesignate_LegacySchemaFallsBackToFirstCandidate(t *testing.T) {
 	}
 
 	got, err := cfg.PrimaryAggregationStatus()
-	if err != nil {
-		t.Fatalf("unexpected error for legacy config: %v", err)
-	}
-	if got != "zz_active" {
-		t.Errorf("expected declaration-order first %q, got %q", "zz_active", got)
-	}
+	require.NoError(t, err, "unexpected error for legacy config")
+	assert.Equal(t, "zz_active", got, "expected declaration-order first status")
 }
 
 // TestGetStatusesByAgentType_Sorted pins the determinism guarantee added with
@@ -255,13 +202,9 @@ func TestGetStatusesByAgentType_Sorted(t *testing.T) {
 	want := []string{"alpha", "mango", "zebra"}
 	for i := 0; i < 20; i++ {
 		got := cfg.GetStatusesByAgentType("qa")
-		if len(got) != len(want) {
-			t.Fatalf("expected %v, got %v", want, got)
-		}
+		require.Len(t, got, len(want))
 		for j := range want {
-			if got[j] != want[j] {
-				t.Fatalf("iteration %d: expected sorted %v, got %v", i, want, got)
-			}
+			assert.Equalf(t, want[j], got[j], "iteration %d: expected sorted statuses", i)
 		}
 	}
 }
