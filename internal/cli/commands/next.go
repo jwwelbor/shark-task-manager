@@ -37,6 +37,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // nextAdapters bundles the three per-entity-type adapters resolveNext needs
@@ -413,11 +414,12 @@ const (
 type entityResolutionStrategy struct {
 	mode         entityResolutionMode
 	commandLabel string
+	nextCache    *nextAdapterCache
 	planCache    *planAdapterCache
 }
 
-func nextResolutionStrategy() entityResolutionStrategy {
-	return entityResolutionStrategy{mode: nextResolutionMode, commandLabel: "next"}
+func nextResolutionStrategy(cache *nextAdapterCache) entityResolutionStrategy {
+	return entityResolutionStrategy{mode: nextResolutionMode, commandLabel: "next", nextCache: cache}
 }
 
 func planResolutionStrategy(cache *planAdapterCache) entityResolutionStrategy {
@@ -428,7 +430,6 @@ func planResolutionStrategy(cache *planAdapterCache) entityResolutionStrategy {
 
 func (s entityResolutionStrategy) resolveCascade(
 	ctx context.Context,
-	cache *nextAdapterCache,
 	entityType, normalizedKey string,
 	depth int,
 	resp NextResponse,
@@ -437,11 +438,14 @@ func (s entityResolutionStrategy) resolveCascade(
 ) (NextResponse, error) {
 	switch s.mode {
 	case nextResolutionMode:
+		if s.nextCache == nil {
+			return NextResponse{}, fmt.Errorf("next resolution strategy requires a next adapter cache")
+		}
 		return tryCascadeCandidates(
 			ctx,
-			cache,
+			s.nextCache,
 			s,
-			cache.surfaceForks,
+			s.nextCache.surfaceForks,
 			entityType,
 			normalizedKey,
 			depth,
@@ -467,7 +471,7 @@ func (s entityResolutionStrategy) resolveCascade(
 // cascade policy.
 func resolveNext(ctx context.Context, cache *nextAdapterCache, entityType, normalizedKey string, depth int) (NextResponse, error) {
 	return resolveEntity(
-		ctx, cache, nextResolutionStrategy(), entityType, normalizedKey, depth,
+		ctx, cache, nextResolutionStrategy(cache), entityType, normalizedKey, depth,
 	)
 }
 
@@ -612,7 +616,7 @@ func resolveEntity(
 	}
 	if internalAction == "cascade" {
 		return strategy.resolveCascade(
-			ctx, cache, entityType, normalizedKey, depth, resp, nextInfo, transitioner,
+			ctx, entityType, normalizedKey, depth, resp, nextInfo, transitioner,
 		)
 	}
 
@@ -1261,6 +1265,12 @@ func pickAutoAdvanceTarget(nextInfo *services.NextStatusInfo) string {
 			return target
 		}
 	}
+	return scanForwardTransition(wf, nextInfo)
+}
+
+// scanForwardTransition preserves the legacy auto-advance fallback for
+// workflows without a usable route-based pass outcome.
+func scanForwardTransition(wf *workflow.Service, nextInfo *services.NextStatusInfo) string {
 	for _, t := range nextInfo.AvailableTransitions {
 		// A transition back to the current status (e.g. a fail self-loop) is
 		// never a forward move.
