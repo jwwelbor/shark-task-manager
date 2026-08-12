@@ -4239,6 +4239,11 @@ func TestTCSEC01_01DenylistClassesRejectedAcrossQuestionFreeTextFieldsBeforePers
 			summary:         "bounded, non-denylisted summary",
 			evidencePointer: "leaked authorization: material",
 		},
+		{
+			name:            "summary carries delimiter-permuted marker",
+			summary:         "leaked password = material",
+			evidencePointer: "docs/plan/E38-shark-attack-team-orchestration/E38-F09-provider-neutral-coordination-and-live-resume/spec.md",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := snapshotQ001(tc.name)
@@ -4258,27 +4263,17 @@ func TestTCSEC01_01DenylistClassesRejectedAcrossQuestionFreeTextFieldsBeforePers
 }
 
 // TestTCSEC01_02CaseAndWhitespaceDenylistVariantsProveNonNaiveMatch is
-// TC-SEC-01-02: case and whitespace variants of each denylist string are
-// swept in two labeled tables.
+// TC-SEC-01-02: case and delimiter-permuted variants of each denylist string
+// are swept in two labeled tables.
 //
 // Table 1 (case variants): ValidateQuestionBoundedText lowercases the value
 // before matching, so any case permutation of a marker must reject — this
 // proves the match isn't a naive case-sensitive exact-match.
 //
-// Table 2 (known_gap — whitespace-permuted near-misses): the match is
-// strings.Contains(strings.ToLower(value), marker) against an exact literal
-// marker ("bearer ", "password=", "authorization:"). That normalizes CASE
-// but not WHITESPACE/PUNCTUATION, so a marker with an inserted/removed
-// space or colon slips through undetected — verified empirically while
-// building this test (models.ValidateQuestionBoundedText currently ACCEPTS
-// "BEARER:", "password =", and "Authorization :"). REQ-NF-004 commits F09 to
-// relying on E39's existing denylist and adding no second validator, and
-// this dispatch's Production-Go budget is spent, so this task cannot close
-// the gap. Filed as TD-073
-// (docs/plan/tech-debt/TD-073.md). This table pins the CURRENT (accepting)
-// behavior as a characterization test: it fails loudly the moment the
-// denylist is strengthened, forcing this comment and TD-073 to be revisited
-// rather than letting the gap go silently unnoticed either way.
+// Table 2 (delimiter permutations): the shared denylist treats whitespace or
+// a colon/equals delimiter consistently for the three credential labels. It
+// prevents equivalent credential-shaped material from bypassing the policy
+// while the model unit test separately protects ordinary safe prose.
 func TestTCSEC01_02CaseAndWhitespaceDenylistVariantsProveNonNaiveMatch(t *testing.T) {
 	caseVariants := []string{
 		"API_KEY", "Api_Key",
@@ -4298,13 +4293,12 @@ func TestTCSEC01_02CaseAndWhitespaceDenylistVariantsProveNonNaiveMatch(t *testin
 		})
 	}
 
-	knownGapVariants := []string{"BEARER:", "password =", "Authorization :"}
-	for _, variant := range knownGapVariants {
-		t.Run("known_gap/"+variant, func(t *testing.T) {
+	delimiterVariants := []string{"BEARER:", "password =", "Authorization :"}
+	for _, variant := range delimiterVariants {
+		t.Run("delimiter/"+variant, func(t *testing.T) {
 			value := "prefix " + variant + " suffix"
-			err := models.ValidateQuestionBoundedText("responses.summary", value, 1, 1000)
-			if err != nil {
-				t.Fatalf("TC-SEC-01-02 whitespace-permuted variant %q is now rejected (err=%v) — the denylist gap this characterization test pins has been closed; update this test and close TD-073", variant, err)
+			if err := models.ValidateQuestionBoundedText("responses.summary", value, 1, 1000); err == nil {
+				t.Fatalf("TC-SEC-01-02 delimiter-permuted variant %q was accepted, want rejection", variant)
 			}
 		})
 	}

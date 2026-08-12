@@ -738,11 +738,13 @@ reliability, security, maintainability.
 **Caller-path contract:**
 
 - **Entrypoint:** `PortfolioAdviceService.Advise(ctx)`.
-- **Lowest allowed mock seam:** Fail exactly one raw reader per subtest.
+- **Lowest allowed mock seam:** Fail `ReadSnapshot` for fatal acquisition cases;
+  use malformed records inside an otherwise complete snapshot for degradation
+  cases.
 - **Forbidden mocks:** Error classifier, warning sanitizer, eligibility, prompt,
   or returned DTO.
-- **Counter-factual:** A broad `err != nil` aborts every failure, or the service
-  retains `eligible` after losing required relationship evidence.
+- **Counter-factual:** The service returns a partial envelope after a failed
+  snapshot acquisition, or silently accepts malformed in-snapshot evidence.
 
 **Preconditions:** Core epics E01 and E02 load. Reader failures use sentinel
 errors containing fake SQL and secret strings to verify sanitization.
@@ -751,19 +753,18 @@ errors containing fake SQL and secret strings to verify sanitization.
 
 | Failure | Envelope/error expectation |
 |---|---|
-| Child-state read | Partial envelope; `evidence_complete=false`; `CHILD_STATE_UNAVAILABLE`; affected eligibility `unknown`; empty descendant blocker/work arrays. |
-| Relationship read | Partial envelope; empty relationships/layers; `RELATIONSHIP_STATE_UNAVAILABLE`; relationship-dependent eligibility `unknown`. |
-| Claim read | Partial envelope; eligibility retained; empty active work; `CLAIM_STATE_UNAVAILABLE`. |
+| Portfolio snapshot read | Wrapped fatal error; no advice envelope. |
+| Active claim with invalid progress | Partial envelope; exclude active work; `evidence_complete=false`; `CLAIM_STATE_UNAVAILABLE`. |
 | Unknown entity status | Entity visible; affected eligibility `unknown`; `UNKNOWN_WORKFLOW_STATUS` with key. |
 | Dangling endpoint | Edge omitted from layers; `DANGLING_RELATIONSHIP`; evidence incomplete. |
-| Epic list read | Wrapped fatal error; no envelope. |
 | Cancelled context | Error preserving `context.Canceled`; no misleading envelope. |
 
-**Observability evidence:** Span has `portfolio.evidence_complete=false` for
-partial cases and records only counts, never sentinel SQL/secret text.
+**Observability evidence:** Fatal snapshot cases return no envelope; degraded
+in-snapshot cases have `portfolio.evidence_complete=false` and record only
+counts, never sentinel SQL/secret text.
 
-**Edge cases:** Two optional failures produce both typed warnings in stable
-order; warning key arrays are allocated and sorted.
+**Edge cases:** Multiple malformed in-snapshot records produce their live typed
+warnings in stable order; warning key arrays are allocated and sorted.
 
 **Negative cases:** No SQL detail, session ID, claim note, product document,
 guess, or false eligible result is returned.

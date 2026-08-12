@@ -46,10 +46,6 @@ const (
 	PortfolioWarningContradictoryOrder PortfolioWarningCode = "CONTRADICTORY_ORDER"
 	// PortfolioWarningMissingOrdering identifies incomparable eligible first-layer epics.
 	PortfolioWarningMissingOrdering PortfolioWarningCode = "MISSING_ORDERING"
-	// PortfolioWarningChildStateUnavailable identifies unavailable descendant evidence.
-	PortfolioWarningChildStateUnavailable PortfolioWarningCode = "CHILD_STATE_UNAVAILABLE"
-	// PortfolioWarningRelationshipStateUnavailable identifies unavailable relationship evidence.
-	PortfolioWarningRelationshipStateUnavailable PortfolioWarningCode = "RELATIONSHIP_STATE_UNAVAILABLE"
 	// PortfolioWarningClaimStateUnavailable identifies unavailable active-work evidence.
 	PortfolioWarningClaimStateUnavailable PortfolioWarningCode = "CLAIM_STATE_UNAVAILABLE"
 	// PortfolioWarningUnknownWorkflowStatus identifies a status absent from its workflow.
