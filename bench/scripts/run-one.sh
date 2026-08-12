@@ -67,6 +67,7 @@ REPO_ROOT="$(cd "$BENCH_DIR/.." && pwd)"
 
 SHARK_BIN="${SHARK_BIN:-shark}"
 CANARY_BIN="${CANARY_BIN:-$SCRIPT_DIR/canary-runsurface.sh}"
+BUILD_LEDGERS_BIN="${BUILD_LEDGERS_BIN:-$SCRIPT_DIR/build-ledgers.sh}"
 KILL_GRACE_S="${RUN_ONE_KILL_GRACE_S:-10}"
 
 usage() {
@@ -194,8 +195,8 @@ shark_version=""
 run_dir="$out_root/$item_id/$variant_id/rep-$rep"
 record_path="$run_dir/record.jsonl"
 
-if [[ -f "$record_path" ]]; then
-	echo "run-one: record already exists at $record_path; refusing to overwrite (REQ-F-018)" >&2
+if [[ -e "$run_dir" ]] && { compgen -G "$run_dir/*" >/dev/null || compgen -G "$run_dir/.[!.]*" >/dev/null; }; then
+	echo "run-one: run directory already contains artifacts at $run_dir (record target $record_path); refusing to mix a rerun with an incomplete prior attempt (REQ-F-018)" >&2
 	exit 1
 fi
 
@@ -665,32 +666,70 @@ PYEOF
 		tests_status="pass"
 		[[ "$test_rc" -eq 0 ]] || tests_status="fail"
 
-		python3 - "$run_dir/post/quality.json" "$fmt_status" "$vet_status" "$tests_status" <<'PYEOF'
+		fmt_reason=""
+		vet_reason=""
+		tests_reason=""
+		if [[ "$fmt_rc" -eq 126 || "$fmt_rc" -eq 127 ]]; then
+			fmt_status="null"
+			fmt_reason="gofmt could not execute (exit code $fmt_rc)"
+		fi
+		if [[ "$vet_rc" -eq 126 || "$vet_rc" -eq 127 ]]; then
+			vet_status="null"
+			vet_reason="go vet could not execute (exit code $vet_rc)"
+		fi
+		if [[ "$test_rc" -eq 126 || "$test_rc" -eq 127 ]]; then
+			tests_status="null"
+			tests_reason="go test could not execute (exit code $test_rc)"
+		fi
+
+		python3 - "$run_dir/post/quality.json" "$fmt_status" "$fmt_reason" "$vet_status" "$vet_reason" "$tests_status" "$tests_reason" <<'PYEOF'
 import json
 import sys
 
-path, fmt_status, vet_status, tests_status = sys.argv[1:5]
+path, fmt_status, fmt_reason, vet_status, vet_reason, tests_status, tests_reason = sys.argv[1:8]
+def gate(status, reason):
+    value = {"status": None if status == "null" else status}
+    if reason:
+        value["reason"] = reason
+    return value
 doc = {
-    "fmt": {"status": fmt_status},
-    "vet": {"status": vet_status},
-    "tests": {"status": tests_status},
+    "fmt": gate(fmt_status, fmt_reason),
+    "vet": gate(vet_status, vet_reason),
+    "tests": gate(tests_status, tests_reason),
 }
 with open(path, "w") as f:
     json.dump(doc, f, indent=2, sort_keys=True)
 PYEOF
 
-		"$SCRIPT_DIR/build-ledgers.sh" "$checkout_dir" "$run_dir/post" || {
-			echo "run-one: build-ledgers.sh failed for $checkout_dir" >&2
-			exit 1
-		}
-		"$SCRIPT_DIR/diff-ledgers.sh" --kind=test --base="$base_tests_ledger" --post="$run_dir/post/tests.json" >"$run_dir/post/test-diff.json" || {
-			echo "run-one: diff-ledgers.sh --kind=test failed" >&2
-			exit 1
-		}
-		"$SCRIPT_DIR/diff-ledgers.sh" --kind=lint --base="$base_lint_ledger" --post="$run_dir/post/lint.json" >"$run_dir/post/lint-diff.json" || {
-			echo "run-one: diff-ledgers.sh --kind=lint failed" >&2
-			exit 1
-		}
+		postrun_abort=""
+		build_output=""
+		test_diff_output=""
+		lint_diff_output=""
+		if ! build_output="$("$BUILD_LEDGERS_BIN" "$checkout_dir" "$run_dir/post" 2>&1)"; then
+			postrun_abort="build_ledgers"
+		elif ! test_diff_output="$("$SCRIPT_DIR/diff-ledgers.sh" --kind=test --base="$base_tests_ledger" --post="$run_dir/post/tests.json" 2>&1)"; then
+			postrun_abort="test_diff"
+		elif ! lint_diff_output="$("$SCRIPT_DIR/diff-ledgers.sh" --kind=lint --base="$base_lint_ledger" --post="$run_dir/post/lint.json" 2>&1)"; then
+			postrun_abort="lint_diff"
+		else
+			printf '%s\n' "$test_diff_output" >"$run_dir/post/test-diff.json"
+			printf '%s\n' "$lint_diff_output" >"$run_dir/post/lint-diff.json"
+		fi
+		if [[ -n "$postrun_abort" ]]; then
+			postrun_abort_detail="${build_output:-${test_diff_output:-$lint_diff_output}}"
+			postrun_abort_detail_path="$run_dir/post/postrun-abort.detail"
+			printf '%s' "$postrun_abort_detail" >"$postrun_abort_detail_path"
+			python3 - "$run_dir/post/postrun-abort.json" "$postrun_abort" "$postrun_abort_detail_path" <<'PYEOF'
+import json
+import sys
+with open(sys.argv[3]) as f:
+    detail = f.read()
+with open(sys.argv[1], "w") as f:
+    json.dump({"step": sys.argv[2], "detail": detail or "post-run command failed without diagnostic output"}, f, indent=2, sort_keys=True)
+PYEOF
+			rm -f "$postrun_abort_detail_path"
+			echo "run-one: post-run $postrun_abort failed; recording abort and continuing to collector" >&2
+		else
 
 		# --- step 4: F2P injection + oracle, LAST (REQ-F-015 point 4,
 		# ADR-F02-11). Reuses admit.sh:493 copy_f2p_files's own mechanism
@@ -785,6 +824,7 @@ if item_type == "bug":
 with open(out_path, "w") as f:
     json.dump(record, f, sort_keys=True)
 PYEOF
+		fi
 	fi
 fi
 

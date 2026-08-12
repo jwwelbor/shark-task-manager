@@ -72,6 +72,12 @@
 #                                mismatched axis/axes (ADR-F02-06: this
 #                                script copies diff-ledgers.sh's own
 #                                mismatch text, never re-derives it).
+#   post/postrun-abort.json     {"step": "build_ledgers"|"test_diff"|
+#                                "lint_diff", "detail": <str>} — a later
+#                                ledger/diff command aborted after the guard
+#                                passed. The collector emits one named
+#                                postrun_check_aborted error and retains only
+#                                quality.toolchain_guard + .postrun_abort.
 #   post/test-diff.json         diff-ledgers.sh --kind=test stdout, verbatim
 #                                (regressions/regressions_count/removed/
 #                                removed_count) -> oracle.p2p_regressions*/
@@ -815,6 +821,21 @@ def compute_postrun():
         sources["quality"] = "postrun"
         return
 
+    abort = read_post_json("postrun-abort.json")
+    if abort is not None:
+        if not isinstance(abort, dict):
+            fail("post/postrun-abort.json must be an object")
+        step = abort.get("step")
+        detail = abort.get("detail")
+        if step not in ("build_ledgers", "test_diff", "lint_diff"):
+            fail("post/postrun-abort.json has unrecognized step %r" % step)
+        if not isinstance(detail, str) or not detail:
+            fail("post/postrun-abort.json requires a non-empty string detail")
+        add_error("postrun_check_aborted", "%s: %s" % (step, detail))
+        record["quality"] = {"toolchain_guard": "pass", "postrun_abort": step}
+        sources["quality"] = "postrun"
+        return
+
     quality = {"toolchain_guard": "pass"}
     oracle = {}
 
@@ -837,6 +858,7 @@ def compute_postrun():
 
     quality_gates = read_post_json("quality.json")
     if quality_gates is not None:
+        gate_reasons = {}
         for gate_key, record_key in (("fmt", "fmt_clean"), ("vet", "vet_ok"), ("tests", "tests_pass")):
             gate = quality_gates.get(gate_key)
             if gate is None:
@@ -844,7 +866,16 @@ def compute_postrun():
             gate_status = gate.get("status")
             if gate_status not in QUALITY_GATE_STATUS:
                 fail("post/quality.json: unrecognized %s status %r" % (gate_key, gate_status))
+            if gate_status is None:
+                reason = gate.get("reason")
+                if not isinstance(reason, str) or not reason:
+                    fail("post/quality.json: %s null status requires a non-empty reason" % gate_key)
+                gate_reasons[record_key] = reason
+            elif "reason" in gate:
+                fail("post/quality.json: %s reason is allowed only for null status" % gate_key)
             quality[record_key] = QUALITY_GATE_STATUS[gate_status]
+        if gate_reasons:
+            quality["gate_reasons"] = gate_reasons
     else:
         # A raw gate-output file with no post/quality.json sidecar is a
         # producer-contract violation, not "gate not run": the driver wrote
@@ -892,7 +923,14 @@ if os.path.isfile(stdout_path) and os.path.getsize(stdout_path) > 0:
     except ValueError:
         run_result = None
 
-if run_result is not None:
+if isinstance(exit_status, dict) and exit_status.get("timed_out") is True:
+    # The watchdog marker wins even when a RunResult arrived during its kill
+    # grace window: the cap fired, so post-run measurements are not valid.
+    record["outcome"] = "timeout"
+    detail, source = resolve_timeout_detail()
+    record["timeout_detail"] = detail
+    sources["stalled_stage"] = source
+elif run_result is not None:
     record["outcome"] = run_result["outcome"]
 
     runresult_block = {
@@ -911,11 +949,6 @@ if run_result is not None:
         manifest["model_ids"] = sorted(ALL_MODEL_IDS)
         manifest["model_id_source"] = "modelUsage"
     record["rejections"] = compute_rejections(run_result)
-elif isinstance(exit_status, dict) and exit_status.get("timed_out") is True:
-    record["outcome"] = "timeout"
-    detail, source = resolve_timeout_detail()
-    record["timeout_detail"] = detail
-    sources["stalled_stage"] = source
 else:
     fail(
         "run/stdout.json missing/unparseable and exit_status does not "
