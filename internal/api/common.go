@@ -68,48 +68,22 @@ func handleServiceError(w http.ResponseWriter, err error, entityLabel string) {
 	respondError(w, http.StatusInternalServerError, "internal server error")
 }
 
-// questionErrorStatus classifies QuestionService's well-known business-rule
-// rejection messages (state-machine preconditions, malformed resolution
-// input) into their HTTP status instead of flattening every non-"not found"
-// Question error to a generic 500 that hides the actionable message the
-// service already built. QuestionService does not use typed errors for
-// these cases; this substring classification mirrors the existing
-// "not found" check above and should be replaced with typed errors if this
-// list grows much further.
+// questionErrorStatus maps typed caller-correctable Question rule rejections
+// to their HTTP status. Unexpected repository and infrastructure errors remain
+// unclassified so handleServiceError returns the generic 500 response.
 func questionErrorStatus(err error) (int, bool) {
-	msg := err.Error()
-	for _, phrase := range []string{
-		"must be draft or open",
-		"is already configured",
-		"must be open or answering",
-		"responder is not current",
-		"active claim does not match responder session",
-		"is not answerable",
-		"must be ready for resolution",
-		"is already terminal",
-		"is not eligible for terminal operation",
-		"resolution owner does not match configured owner",
-	} {
-		if strings.Contains(msg, phrase) {
-			return http.StatusConflict, true
-		}
+	var ruleErr *services.QuestionRuleError
+	if !errors.As(err, &ruleErr) {
+		return 0, false
 	}
-	for _, phrase := range []string{
-		"is required",
-		"are required",
-		"must be trimmed",
-		"must contain",
-		"must be valid UTF-8",
-		"does not exist",
-		"escapes project root",
-		"forbidden credential",
-		"cannot be empty",
-	} {
-		if strings.Contains(msg, phrase) {
-			return http.StatusBadRequest, true
-		}
+	switch ruleErr.Class {
+	case services.QuestionRuleConflict:
+		return http.StatusConflict, true
+	case services.QuestionRuleValidation:
+		return http.StatusBadRequest, true
+	default:
+		return 0, false
 	}
-	return 0, false
 }
 
 // pathParam extracts a named path segment from an HTTP request.

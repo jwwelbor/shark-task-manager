@@ -968,6 +968,17 @@ func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Ta
 	return r.updateInternal(ctx, task, true)
 }
 
+// UpdateClearingDependencies updates task fields and removes task-to-task
+// depends_on relationship rows in the same transaction. It is intentionally
+// separate from Update: only an explicit --clear-depends-on request may erase
+// relationship-backed dependencies that predate the legacy JSON field.
+func (r *TaskRepository) UpdateClearingDependencies(ctx context.Context, task *models.Task, skipResequence bool) error {
+	if err := r.updateInternal(ctx, task, skipResequence, true); err != nil {
+		return err
+	}
+	return nil
+}
+
 // updateInternal performs the task update. When forceSkipCascade is true the
 // execution_order resequence is suppressed regardless of whether the order has
 // actually changed.
@@ -986,7 +997,8 @@ func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Ta
 // dependency reach the column that gates status advancement. The call is a
 // cheap no-op when task.DependsOn is nil/empty (ValidateTaskDependencies
 // returns immediately without a query in that case).
-func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool) error {
+func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool, clearDependencyRelationships ...bool) error {
+	clearRelationships := len(clearDependencyRelationships) > 0 && clearDependencyRelationships[0]
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -998,7 +1010,7 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 
 	// Skip-cascade fast path: single-row UPDATE, no transaction. Used by
 	// UpdateNoResequence (--parallel renumber).
-	if forceSkipCascade {
+	if forceSkipCascade && !clearRelationships {
 		return r.updateRowDirect(ctx, task)
 	}
 
@@ -1024,6 +1036,15 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 
 	if err := r.updateWithTx(ctx, tx, task, needsCascade); err != nil {
 		return err
+	}
+	if clearRelationships {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM entity_relationships
+			WHERE from_entity_type = 'task' AND from_entity_id = ?
+			  AND to_entity_type = 'task' AND relationship_type = 'depends_on'
+		`, task.ID); err != nil {
+			return fmt.Errorf("clear task dependency relationships: %w", err)
+		}
 	}
 
 	// Commit transaction

@@ -88,7 +88,7 @@ func (r *QuestionRepository) Create(ctx context.Context, question *models.Questi
 			candidate.Status, candidate.Summary, candidate.Blocking, candidate.Requester,
 			candidate.ContextData, candidate.FilePath, candidate.Size)
 		if err != nil {
-			if allocated && strings.Contains(strings.ToLower(err.Error()), "unique") {
+			if allocated && repoerr.IsSQLiteUniqueViolation(err) {
 				continue
 			}
 			return fmt.Errorf("create question: %w", err)
@@ -226,7 +226,7 @@ func (r *QuestionRepository) persistTransition(ctx context.Context, id int64, ex
 		return fmt.Errorf("read Question transition rows: %w", err)
 	}
 	if rows != 1 {
-		return errors.New(conflictMsg)
+		return fmt.Errorf("%s: %w", conflictMsg, repoerr.ErrConditionalWriteConflict)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by) VALUES ('question', ?, 'implementation', ?, ?)`, id, note, actor); err != nil {
 		return fmt.Errorf("record Question transition note: %w", err)

@@ -8,11 +8,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 )
 
 // ErrAlreadyClaimed is returned by Claim when the entity already has a claim.
@@ -42,7 +42,7 @@ func (r *Repository) Claim(ctx context.Context, c *models.EntityClaim) (*models.
 	`
 	res, err := r.db.ExecContext(ctx, q, c.EntityType, c.EntityKey, c.ClaimedBy, c.SessionID, c.Progress, nullString(c.Note))
 	if err != nil {
-		if isUniqueViolation(err) {
+		if repoerr.IsSQLiteUniqueViolation(err) {
 			return nil, ErrAlreadyClaimed
 		}
 		return nil, fmt.Errorf("claim %s/%s: %w", c.EntityType, c.EntityKey, err)
@@ -202,23 +202,4 @@ func nullString(s string) interface{} {
 		return nil
 	}
 	return s
-}
-
-// isUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
-//
-// This is the acknowledged portable-fallback exception to the "prefer errors.As
-// over string matching" rule: shark runs against two drivers — modernc/sqlite
-// (local) and libsql/turso (cloud) — which surface constraint failures as
-// different, unexported error types with no shared typed surface to assert on.
-// A message-substring match against the three observed phrasings is the only
-// representation common to both, so we match on the message and accept the
-// coupling deliberately rather than depending on a single driver's internals.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed") ||
-		strings.Contains(msg, "constraint failed: UNIQUE") ||
-		strings.Contains(msg, "SQLITE_CONSTRAINT")
 }

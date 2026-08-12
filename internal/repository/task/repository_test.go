@@ -448,11 +448,26 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 1, *got.ExecutionOrder, "execution_order should be unchanged after a rejected update")
 
-	// Clearing DependsOn on the same fast path must still succeed (nil/empty
-	// deps are a no-op for ValidateTaskDependencies).
+	// TD-066: a link-created relationship is also a dependency gate. An
+	// explicit clear must delete it atomically with the legacy JSON clear,
+	// rather than leaving a hidden entity_relationships blocker behind.
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO entity_relationships (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		VALUES ('task', ?, 'task', ?, 'depends_on')`, task.ID, prerequisite.ID)
+	require.NoError(t, err)
+
+	// Clearing DependsOn must still succeed (nil/empty deps are a no-op for
+	// ValidateTaskDependencies), and it must remove the relationship gate.
 	task.DependsOn = nil
-	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task),
-		"UpdateNoResequence must still succeed when depends_on is nil")
+	require.NoError(t, taskRepo.UpdateClearingDependencies(ctx, task, true),
+		"explicit dependency clear must succeed when depends_on is nil")
+	var relationshipCount int
+	require.NoError(t, database.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM entity_relationships
+		WHERE from_entity_type = 'task' AND from_entity_id = ?
+		  AND to_entity_type = 'task' AND to_entity_id = ? AND relationship_type = 'depends_on'`, task.ID, prerequisite.ID,
+	).Scan(&relationshipCount))
+	assert.Zero(t, relationshipCount, "clear must remove the relationship-backed dependency gate")
 
 	got, err = taskRepo.GetByKey(ctx, "T-E93-F01-001")
 	require.NoError(t, err)

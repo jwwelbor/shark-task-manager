@@ -120,6 +120,13 @@ type TaskRepository interface {
 	GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error)
 }
 
+// taskDependencyClearer is an optional repository capability used only for an
+// explicit ClearDependsOn request. Keeping it narrow avoids changing ordinary
+// update semantics for relationship-backed dependencies.
+type taskDependencyClearer interface {
+	UpdateClearingDependencies(ctx context.Context, task *models.Task, skipResequence bool) error
+}
+
 // taskDeleteWithTx is the optional transaction-aware delete seam used when
 // aggregate maintenance is wired. Keeping it separate preserves lightweight
 // service mocks that do not need database transaction behavior.
@@ -606,7 +613,13 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 	// the no-resequence path so siblings keep their existing execution_order
 	// values instead of being renumbered.
 	var saveErr error
-	if updates.SkipResequence {
+	if updates.ClearDependsOn {
+		clearer, ok := s.repo.(taskDependencyClearer)
+		if !ok {
+			return nil, recordSpanError(span, fmt.Errorf("task repository does not support clearing dependency relationships"))
+		}
+		saveErr = clearer.UpdateClearingDependencies(ctx, task, updates.SkipResequence)
+	} else if updates.SkipResequence {
 		saveErr = s.repo.UpdateNoResequence(ctx, task)
 	} else {
 		saveErr = s.repo.Update(ctx, task)
