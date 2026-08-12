@@ -105,10 +105,19 @@ func parseChecklist(body string) ([]checklistEntry, error) {
 		return nil, fmt.Errorf("missing required section \"Research checklist\"")
 	}
 	var entries []checklistEntry
-	for _, line := range strings.Split(section, "\n") {
-		line = strings.TrimSpace(line)
+	lines := strings.Split(section, "\n")
+	for index := 0; index < len(lines); index++ {
+		line := strings.TrimSpace(lines[index])
 		if !strings.HasPrefix(line, "- [") {
 			continue
+		}
+		for index+1 < len(lines) {
+			continuation := strings.TrimSpace(lines[index+1])
+			if continuation == "" || isMarkdownListItem(continuation) {
+				break
+			}
+			line += " " + continuation
+			index++
 		}
 		if len(line) < 6 || line[4] != ']' {
 			return nil, fmt.Errorf("invalid checklist entry %q", line)
@@ -134,6 +143,20 @@ func parseChecklist(body string) ([]checklistEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+func isMarkdownListItem(line string) bool {
+	if len(line) >= 2 && (line[0] == '-' || line[0] == '*' || line[0] == '+') && line[1] == ' ' {
+		return true
+	}
+	index := 0
+	for index < len(line) && line[index] >= '0' && line[index] <= '9' {
+		index++
+	}
+	if index > 0 && index+1 < len(line) && (line[index] == '.' || line[index] == ')') && line[index+1] == ' ' {
+		return true
+	}
+	return false
 }
 
 func validateSelectedModules(recipe Recipe, entity models.Entity, report artifact, entries []checklistEntry) error {

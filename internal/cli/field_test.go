@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // captureStdout captures stdout output from a function call
@@ -71,6 +74,28 @@ func TestOutputField_SimpleObject(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOutputField_SingleEntityEnvelope(t *testing.T) {
+	data := map[string]interface{}{
+		"display_mode": "compact",
+		"task": map[string]interface{}{
+			"status": "todo",
+		},
+	}
+
+	output := captureStdout(t, func() {
+		require.NoError(t, OutputField(data, "status"))
+	})
+	assert.Equal(t, "todo\n", output)
+}
+
+func TestOutputField_AmbiguousEntityEnvelope(t *testing.T) {
+	data := map[string]interface{}{
+		"task":    map[string]interface{}{"status": "todo"},
+		"feature": map[string]interface{}{"status": "in_progress"},
+	}
+	assert.Error(t, OutputField(data, "status"))
 }
 
 func TestOutputField_IntegerValue(t *testing.T) {

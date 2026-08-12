@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/stretchr/testify/require"
 )
 
 func TestArtifactPaths_AllWorkflowEntityTypes(t *testing.T) {
@@ -34,12 +35,8 @@ func TestValidateEntity_V2(t *testing.T) {
 	root := t.TempDir()
 	entity := taskEntity()
 	paths, err := ArtifactPaths(root, entity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(paths.Report), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Report), 0o755))
 
 	tests := []struct {
 		name    string
@@ -69,6 +66,37 @@ func TestValidateEntity_V2(t *testing.T) {
 			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
 				t.Fatalf("ValidateEntity() error = %v, want %q", err, tt.wantErr)
 			}
+		})
+	}
+}
+
+func TestValidateEntity_V2AcceptsSoftWrappedChecklistEvidence(t *testing.T) {
+	root := t.TempDir()
+	entity := taskEntity()
+	paths, err := ArtifactPaths(root, entity)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Report), 0o755))
+	report := strings.Replace(validV2TaskReport(entity),
+		"- [x] `scope_vocabulary` — Evidence: `tasks/T-E01-F01-001.md`.",
+		"- [x] `scope_vocabulary` — This checklist item uses a readable wrapped line\n  Evidence: `tasks/T-E01-F01-001.md`.", 1)
+	require.NoError(t, os.WriteFile(paths.Report, []byte(report), 0o644))
+	require.NoError(t, ValidateEntity(root, entity))
+}
+
+func TestValidateEntity_V2DoesNotAbsorbOtherMarkdownBullets(t *testing.T) {
+	for _, marker := range []string{"*", "1."} {
+		t.Run(marker, func(t *testing.T) {
+			root := t.TempDir()
+			entity := taskEntity()
+			paths, err := ArtifactPaths(root, entity)
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(paths.Report), 0o755))
+			report := strings.Replace(validV2TaskReport(entity),
+				"- [x] `scope_vocabulary` — Evidence: `tasks/T-E01-F01-001.md`.",
+				"- [x] `scope_vocabulary` — This item has no evidence\n"+marker+" Evidence: `tasks/T-E01-F01-001.md`.", 1)
+			require.NoError(t, os.WriteFile(paths.Report, []byte(report), 0o644))
+			err = ValidateEntity(root, entity)
+			require.ErrorContains(t, err, "missing evidence")
 		})
 	}
 }
