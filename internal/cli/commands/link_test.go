@@ -50,6 +50,11 @@ func TestMapDetectedTypeToEntityType(t *testing.T) {
 			want:     models.EntityTypeQuestion,
 		},
 		{
+			name:     "tech debt",
+			detected: "tech_debt",
+			want:     models.EntityTypeTechDebt,
+		},
+		{
 			name:     "unknown type returns error",
 			detected: "unknown",
 			wantErr:  true,
@@ -84,11 +89,13 @@ func TestMapDetectedTypeToEntityType_AllValidEntityTypes(t *testing.T) {
 	// Ensure all entity types that have registered repositories can be mapped.
 	// This is a smoke test to catch if new entity types are added without updating the mapping.
 	requiredMappings := map[string]models.EntityType{
-		"epic":    models.EntityTypeEpic,
-		"feature": models.EntityTypeFeature,
-		"task":    models.EntityTypeTask,
-		"bug":     models.EntityTypeBug,
-		"change":  models.EntityTypeChange,
+		"epic":      models.EntityTypeEpic,
+		"feature":   models.EntityTypeFeature,
+		"task":      models.EntityTypeTask,
+		"bug":       models.EntityTypeBug,
+		"change":    models.EntityTypeChange,
+		"tech_debt": models.EntityTypeTechDebt,
+		"question":  models.EntityTypeQuestion,
 	}
 
 	for detected, want := range requiredMappings {

@@ -722,6 +722,8 @@ func tryCascadeCandidates(
 	// discarded with the parked child; if none is, the parent pause must retain
 	// the actionable reason that made the cascade unavailable.
 	var allParkedQuestionBlock *services.QuestionBlock
+	nonProgressingCandidates := 0
+	questionBlockedCandidates := 0
 	for len(remaining) > 0 {
 		selected, reason := selectPlanChildTier(remaining)
 		if len(selected) == 0 {
@@ -757,6 +759,10 @@ func tryCascadeCandidates(
 			// A nested selection means the child has dispatchable descendants
 			// of its own, so it counts as live work.
 			if childResp.selection == nil && childResp.Action != "spawn_agent" {
+				nonProgressingCandidates++
+				if childResp.QuestionBlock != nil {
+					questionBlockedCandidates++
+				}
 				continue
 			}
 			if !surfaceForks {
@@ -813,6 +819,9 @@ func tryCascadeCandidates(
 	}
 	// All children either non-dispatchable or absent — pause the parent.
 	resp.Action = "pause"
+	if questionBlockedCandidates != nonProgressingCandidates {
+		allParkedQuestionBlock = nil
+	}
 	resp.QuestionBlock = allParkedQuestionBlock
 	return resp, nil
 }
