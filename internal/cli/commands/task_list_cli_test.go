@@ -2,6 +2,9 @@ package commands
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestTaskListFeatureKeyConstruction tests that the CLI correctly constructs
@@ -111,6 +114,13 @@ func TestTaskListFeatureKeyConstruction(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTaskListSingleCombinedFeatureKeyUsesFeatureFilter(t *testing.T) {
+	epic, feature, err := taskListPositionalFilters([]string{"e38-f09"}, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "E38", epic)
+	assert.Equal(t, "E38-F09", feature)
 }
 
 // TestFeatureFilteringLogic tests the feature filtering logic

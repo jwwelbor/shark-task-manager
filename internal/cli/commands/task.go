@@ -103,11 +103,10 @@ var taskSetStatusCmd = &cobra.Command{
 func runTaskList(cmd *cobra.Command, args []string) error {
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
-	if len(args) >= 1 {
-		epicKey = args[0]
-	}
-	if len(args) >= 2 {
-		featureKey = normalizeFeatureKey(epicKey, args[1])
+	var err error
+	epicKey, featureKey, err = taskListPositionalFilters(args, epicKey, featureKey)
+	if err != nil {
+		return err
 	}
 	status, _ := cmd.Flags().GetString("status")
 	agentType, _ := cmd.Flags().GetString("agent")
@@ -142,6 +141,20 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Agent column dropped and Status abbreviated to free width for Title.
 	cli.OutputTable(taskListHeaders, buildTaskListRows(tasks))
 	return nil
+}
+
+func taskListPositionalFilters(args []string, epicKey, featureKey string) (string, string, error) {
+	parsedEpic, parsedFeature, err := ParseTaskListArgs(args)
+	if err != nil {
+		return "", "", err
+	}
+	if parsedEpic != nil {
+		epicKey = *parsedEpic
+	}
+	if parsedFeature != nil {
+		featureKey = normalizeFeatureKey(epicKey, *parsedFeature)
+	}
+	return epicKey, featureKey, nil
 }
 
 var taskListHeaders = []string{"Key", "Title", "St", "Pri", "Size"}
