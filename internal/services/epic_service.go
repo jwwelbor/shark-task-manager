@@ -48,7 +48,7 @@ type EpicRepository interface {
 // EpicTaskLister defines the task repository interface needed by EpicService
 // for querying blocked tasks across an epic and completing all tasks in an epic.
 type EpicTaskLister interface {
-	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
+	ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 	GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
@@ -89,6 +89,7 @@ type EpicService struct {
 	tracer               trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
 	searchIndexer        SearchIndexer
 	aggregateCoordinator *AggregateMutationCoordinator
+	blockedTaskStatuses  []string
 
 	// tagSvc is optional — nil disables tag integration.
 	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
@@ -183,6 +184,12 @@ func (s *EpicService) SetAnalyticsService(svc *EpicAnalyticsService) {
 	s.analyticsService = svc
 }
 
+// SetBlockedTaskStatuses supplies the task workflow's blocked-status vocabulary
+// to lazy epic analytics queries.
+func (s *EpicService) SetBlockedTaskStatuses(statuses []string) {
+	s.blockedTaskStatuses = statuses
+}
+
 // SetTagService wires the optional TagQuerier dependency. When nil, tag
 // hooks in CreateEpic, UpdateEpic, and ListEpics are skipped silently.
 // TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
@@ -205,7 +212,7 @@ func (s *EpicService) SetSizeEnforcement(cfg SizeEnforcementConfig) {
 // getAnalyticsService returns the analytics sub-service, creating one lazily if nil.
 func (s *EpicService) getAnalyticsService() *EpicAnalyticsService {
 	if s.analyticsService == nil {
-		s.analyticsService = NewEpicAnalyticsService(s.repo, s.taskRepo)
+		s.analyticsService = NewEpicAnalyticsService(s.repo, s.taskRepo, s.blockedTaskStatuses)
 	}
 	return s.analyticsService
 }

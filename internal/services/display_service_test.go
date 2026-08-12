@@ -9,6 +9,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 func TestDetermineDisplayMode_EpicPlanning(t *testing.T) {
@@ -537,7 +538,7 @@ func (m *mockDisplayFeatureRepo) GetTaskStatusBreakdown(ctx context.Context, fea
 
 type mockDisplayTaskRepo struct {
 	getTaskCountForFeatureFunc func(ctx context.Context, featureID int64) (int, error)
-	listBlockedTasksByEpicFunc func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	listBlockedTasksByEpicFunc func(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error)
 	listByFeatureFunc          func(ctx context.Context, featureID int64) ([]*models.Task, error)
 }
 
@@ -548,9 +549,9 @@ func (m *mockDisplayTaskRepo) GetTaskCountForFeature(ctx context.Context, featur
 	return 0, nil
 }
 
-func (m *mockDisplayTaskRepo) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+func (m *mockDisplayTaskRepo) ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error) {
 	if m.listBlockedTasksByEpicFunc != nil {
-		return m.listBlockedTasksByEpicFunc(ctx, epicKey)
+		return m.listBlockedTasksByEpicFunc(ctx, epicKey, blockedStatuses)
 	}
 	return nil, nil
 }
@@ -607,6 +608,7 @@ func TestPopulateEpicPlanningInfo_FetchesRelatedDocs(t *testing.T) {
 	svc := &DisplayService{
 		epicWorkflow:    config.DefaultEpicWorkflow(),
 		featureWorkflow: config.DefaultFeatureWorkflow(),
+		workflowSvc:     workflow.NewService(""),
 		deps: DisplayServiceDeps{
 			FeatureRepo: &mockDisplayFeatureRepo{
 				listByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
@@ -879,6 +881,7 @@ func TestPopulateEpicAggregationInfo_BlockedTasks(t *testing.T) {
 	svc := &DisplayService{
 		epicWorkflow:    config.DefaultEpicWorkflow(),
 		featureWorkflow: config.DefaultFeatureWorkflow(),
+		workflowSvc:     workflow.NewService(""),
 		deps: DisplayServiceDeps{
 			EpicRepo: &mockDisplayEpicRepo{
 				getFeatureProgressDataByEpic: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
@@ -897,7 +900,7 @@ func TestPopulateEpicAggregationInfo_BlockedTasks(t *testing.T) {
 				},
 			},
 			TaskRepo: &mockDisplayTaskRepo{
-				listBlockedTasksByEpicFunc: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+				listBlockedTasksByEpicFunc: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 					return []*models.Task{blockedTask}, nil
 				},
 			},

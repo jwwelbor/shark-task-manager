@@ -652,7 +652,17 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) (_ []*m
 
 // ListBlockedTasksByEpic retrieves all blocked tasks for an epic.
 // This method is more efficient than loading all tasks and filtering client-side.
-func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error) {
+	if len(blockedStatuses) == 0 {
+		return []*models.Task{}, nil
+	}
+	placeholders := make([]string, len(blockedStatuses))
+	args := make([]interface{}, 0, len(blockedStatuses)+1)
+	args = append(args, epicKey)
+	for index, status := range blockedStatuses {
+		placeholders[index] = "?"
+		args = append(args, status)
+	}
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
@@ -662,11 +672,11 @@ func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey str
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
-		WHERE e.key = ? AND t.status = ?
+		WHERE e.key = ? AND t.status IN (` + strings.Join(placeholders, ", ") + `)
 		ORDER BY t.blocked_at DESC NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
 	`
 
-	return r.queryTasks(ctx, query, epicKey, models.TaskStatus("blocked"))
+	return r.queryTasks(ctx, query, args...)
 }
 
 // FilterByStatus retrieves tasks filtered by status
@@ -980,8 +990,10 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
-	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
-		return fmt.Errorf("dependency validation failed: %w", err)
+	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
+		if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+			return fmt.Errorf("dependency validation failed: %w", err)
+		}
 	}
 
 	// Skip-cascade fast path: single-row UPDATE, no transaction. Used by
