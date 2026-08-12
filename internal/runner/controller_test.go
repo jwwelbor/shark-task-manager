@@ -1088,6 +1088,78 @@ func TestRunController_CascadeFallsThroughBlockedChild_TC308(t *testing.T) {
 	}
 }
 
+func TestRunController_CascadeDoesNotAttributeMixedPauseToQuestion(t *testing.T) {
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "active"}, nil
+		}},
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade}, nil
+		}},
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{}},
+		ChildrenSvc: &MockCascadeChildrenService{DescribeDispatchableChildrenFunc: func(context.Context, string, string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{Children: []services.CascadeChild{{Key: "QUESTION", EntityType: models.EntityTypeFeature}, {Key: "OTHER", EntityType: models.EntityTypeFeature}}, TotalChildren: 2, NonTerminalChildren: 2}, nil
+		}},
+		RunChild: func(_ context.Context, _ string, key string, _ RunOptions) (*RunResult, error) {
+			if key == "QUESTION" {
+				return &RunResult{Outcome: "paused", QuestionBlock: &services.QuestionBlock{QuestionKey: "Q001"}}, nil
+			}
+			return &RunResult{Outcome: "paused"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() error = %v", err)
+	}
+
+	got, err := controller.Run(context.Background(), "E39", RunOptions{EntityType: "epic"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got.Outcome != "paused" {
+		t.Errorf("Outcome = %q, want paused", got.Outcome)
+	}
+	if got.QuestionBlock != nil {
+		t.Errorf("QuestionBlock = %#v, want nil for a mixed pause", got.QuestionBlock)
+	}
+}
+
+func TestRunController_CascadeAllQuestionBlockedRetainsFirstQuestionBlock(t *testing.T) {
+	first := &services.QuestionBlock{QuestionKey: "Q001"}
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &MockTransitioner{GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "active"}, nil
+		}},
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc: &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade}, nil
+		}},
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"": &MockDispatcher{}},
+		ChildrenSvc: &MockCascadeChildrenService{DescribeDispatchableChildrenFunc: func(context.Context, string, string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{Children: []services.CascadeChild{{Key: "FIRST", EntityType: models.EntityTypeFeature}, {Key: "SECOND", EntityType: models.EntityTypeFeature}}, TotalChildren: 2, NonTerminalChildren: 2}, nil
+		}},
+		RunChild: func(_ context.Context, _ string, key string, _ RunOptions) (*RunResult, error) {
+			if key == "FIRST" {
+				return &RunResult{Outcome: "paused", QuestionBlock: first}, nil
+			}
+			return &RunResult{Outcome: "paused", QuestionBlock: &services.QuestionBlock{QuestionKey: "Q002"}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController() error = %v", err)
+	}
+
+	got, err := controller.Run(context.Background(), "E39", RunOptions{EntityType: "epic"})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got.Outcome != "paused" || got.QuestionBlock == nil || *got.QuestionBlock != *first {
+		t.Fatalf("Run() = %#v, want first compact Question pause", got)
+	}
+}
+
 func TestRunController_CascadeAction_PropagatesChildFailure(t *testing.T) {
 	transitioner := &MockTransitioner{
 		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {

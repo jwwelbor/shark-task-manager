@@ -35,6 +35,27 @@ func TestInitDB_ConnectionPoolSettings(t *testing.T) {
 		"MaxOpenConnections should be 25 after InitDB configures the pool")
 }
 
+func TestTaskDisplayRelationshipEntitiesMatchesLinkableInventory(t *testing.T) {
+	tables := map[models.EntityType]string{
+		"task": "tasks", "feature": "features", "epic": "epics", "bug": "bugs",
+		"change": "change_cards", "tech_debt": "tech_debts", "question": "questions",
+	}
+	want := make(map[string]string, len(tables))
+	for entityType := range models.ValidEntityTypes {
+		if entityType == models.EntityTypeIdea || entityType == models.EntityTypeSprint {
+			continue
+		}
+		table, ok := tables[entityType]
+		require.Truef(t, ok, "linkable entity type %q needs a task display table mapping", entityType)
+		want[string(entityType)] = table
+	}
+	got := make(map[string]string, len(taskDisplayRelationshipEntities))
+	for _, entity := range taskDisplayRelationshipEntities {
+		got[entity.entityType] = entity.table
+	}
+	assert.Equal(t, want, got, "task display relationship UNION must cover every linkable entity type")
+}
+
 // TestConfigureConnectionPool verifies the pool settings on a bare *sql.DB.
 func TestConfigureConnectionPool(t *testing.T) {
 	// Open an in-memory SQLite database to inspect pool settings.

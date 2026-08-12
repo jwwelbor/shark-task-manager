@@ -597,6 +597,8 @@ func (c *RunController) handleCascade(
 	// A directly blocked child is unavailable work, not a reason to prevent a
 	// later independent sibling from running.
 	var allParkedQuestionBlock *services.QuestionBlock
+	nonProgressingChildren := 0
+	questionBlockedChildren := 0
 	for _, child := range childrenState.Children {
 		childOpts := opts
 		childOpts.EntityType = string(child.EntityType)
@@ -619,6 +621,8 @@ func (c *RunController) handleCascade(
 		// handoff in case every child is parked, but continue to later siblings
 		// so cascade run has the same fall-through semantics as keyed next.
 		if childResult != nil && childResult.QuestionBlock != nil {
+			nonProgressingChildren++
+			questionBlockedChildren++
 			if allParkedQuestionBlock == nil {
 				allParkedQuestionBlock = childResult.QuestionBlock
 			}
@@ -640,6 +644,8 @@ func (c *RunController) handleCascade(
 		}
 		if childResult != nil && childResult.Outcome == "completed" {
 			progressed = true
+		} else {
+			nonProgressingChildren++
 		}
 	}
 
@@ -686,6 +692,9 @@ func (c *RunController) handleCascade(
 	// auto-advance (every child is terminal) depending on child summary.
 	if childrenState.TotalChildren > 0 && childrenState.NonTerminalChildren == 0 {
 		return c.autoAdvanceCascadeParent(ctx, key, currentStatus, nextInfo, opts, result, stageStart, startTime)
+	}
+	if questionBlockedChildren != nonProgressingChildren {
+		allParkedQuestionBlock = nil
 	}
 	return pauseCascade(result, currentStatus, allParkedQuestionBlock, startTime)
 }
