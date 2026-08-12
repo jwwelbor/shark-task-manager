@@ -885,6 +885,83 @@ func TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107(t *testi
 	}
 }
 
+// TestQuestionServiceSupersedeRejectsInvalidTargetsBeforeReadsOrWrites_TC107
+// locks in Supersede's target guards before it can load the Question being
+// closed or reach the shared terminal write.
+func TestQuestionServiceSupersedeRejectsInvalidTargetsBeforeReadsOrWrites_TC107(t *testing.T) {
+	missingTarget := errors.New("superseding Question not found")
+	for _, tc := range []struct {
+		name            string
+		supersededBy    string
+		wantTargetReads int
+		assertErr       func(*testing.T, error)
+	}{
+		{
+			name:            "self",
+			supersededBy:    "Q001",
+			wantTargetReads: 0,
+			assertErr: func(t *testing.T, err error) {
+				t.Helper()
+				if err == nil || !strings.Contains(err.Error(), "must differ from target") {
+					t.Fatalf("Supersede() error = %v, want self-supersede rejection", err)
+				}
+			},
+		},
+		{
+			name:            "malformed",
+			supersededBy:    "Q000",
+			wantTargetReads: 0,
+			assertErr: func(t *testing.T, err error) {
+				t.Helper()
+				if !errors.Is(err, models.ErrInvalidQuestionKey) {
+					t.Fatalf("Supersede() error = %v, want ErrInvalidQuestionKey", err)
+				}
+			},
+		},
+		{
+			name:            "missing",
+			supersededBy:    "Q002",
+			wantTargetReads: 1,
+			assertErr: func(t *testing.T, err error) {
+				t.Helper()
+				if !errors.Is(err, missingTarget) || !strings.Contains(err.Error(), "load superseding Question") {
+					t.Fatalf("Supersede() error = %v, want wrapped target-load error", err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			targetReads := 0
+			writeCalled := false
+			repo := &mockQuestionRepository{
+				getByKeyFn: func(_ context.Context, key string) (*models.Question, error) {
+					targetReads++
+					if key != "Q002" {
+						t.Fatalf("GetByKey(%q), want only the distinct superseding target Q002", key)
+					}
+					return nil, missingTarget
+				},
+				withdrawFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error {
+					writeCalled = true
+					return nil
+				},
+			}
+			svc, err := NewQuestionService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = svc.Supersede(context.Background(), SupersedeQuestionInput{Key: "Q001", Owner: "release-owner", Reason: "replaced", SupersededBy: tc.supersededBy})
+			tc.assertErr(t, err)
+			if targetReads != tc.wantTargetReads {
+				t.Fatalf("GetByKey calls = %d, want %d", targetReads, tc.wantTargetReads)
+			}
+			if writeCalled {
+				t.Fatal("Withdraw called despite rejected superseding target")
+			}
+		})
+	}
+}
+
 // TestValidateTerminalReasonEnforcesByteBoundaries locks in
 // validateTerminalReason's byte-range check, used by Withdraw/Supersede to
 // bound the caller-supplied close reason. Zero tests exercised this helper
