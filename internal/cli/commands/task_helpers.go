@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -271,7 +272,7 @@ func parseCreateTaskInput(cmd *cobra.Command, args []string) services.CreateTask
 }
 
 // parseTaskUpdates builds a TaskUpdates struct from CLI flags for the update command.
-func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
+func parseTaskUpdates(cmd *cobra.Command) (services.TaskUpdates, error) {
 	updates := services.TaskUpdates{}
 	if cmd.Flags().Changed("title") {
 		v, _ := cmd.Flags().GetString("title")
@@ -310,7 +311,41 @@ func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
 		tags, _ := cmd.Flags().GetStringSlice("tag")
 		updates.Tags = tags
 	}
-	return updates
+	dependsOn, clearDependsOn, err := parseDependsOnUpdateFlag(cmd)
+	if err != nil {
+		return services.TaskUpdates{}, err
+	}
+	updates.DependsOn = dependsOn
+	updates.ClearDependsOn = clearDependsOn
+	return updates, nil
+}
+
+// parseDependsOnUpdateFlag implements --depends-on's three-way update
+// contract: absent is a no-op, explicit blank input clears, and a non-empty
+// comma-separated list replaces the legacy JSON dependency value.
+func parseDependsOnUpdateFlag(cmd *cobra.Command) (*string, bool, error) {
+	if !cmd.Flags().Changed("depends-on") {
+		return nil, false, nil
+	}
+	dependsOnStr, err := cmd.Flags().GetString("depends-on")
+	if err != nil {
+		return nil, false, fmt.Errorf("read --depends-on flag: %w", err)
+	}
+	var dependencies []string
+	for _, dependency := range strings.Split(dependsOnStr, ",") {
+		if dependency = strings.TrimSpace(dependency); dependency != "" {
+			dependencies = append(dependencies, dependency)
+		}
+	}
+	if len(dependencies) == 0 {
+		return nil, true, nil
+	}
+	encoded, err := json.Marshal(dependencies)
+	if err != nil {
+		return nil, false, fmt.Errorf("encode --depends-on values: %w", err)
+	}
+	value := string(encoded)
+	return &value, false, nil
 }
 
 // parsePriorityFlag reads the priority flag as either int or string type,

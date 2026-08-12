@@ -53,6 +53,21 @@ func TestUpdateDispatch_ParallelFlagInLongHelp(t *testing.T) {
 	}
 }
 
+// TestUpdateDispatch_DependsOnHelpMatchesTaskAndIdeaSupport keeps the unified
+// flag description aligned with its task and idea dispatch paths.
+func TestUpdateDispatch_DependsOnHelpMatchesTaskAndIdeaSupport(t *testing.T) {
+	flag := updateCmd.Flags().Lookup("depends-on")
+	if flag == nil {
+		t.Fatal("--depends-on flag not registered on updateCmd")
+	}
+	if !containsAll(updateCmd.Long, "--depends-on", "task & idea") {
+		t.Errorf("updateCmd.Long does not document --depends-on for task and idea:\n%s", updateCmd.Long)
+	}
+	if !containsAll(flag.Usage, "task & idea") {
+		t.Errorf("--depends-on usage = %q, want task & idea support", flag.Usage)
+	}
+}
+
 // TestUpdateDispatch_SizeFlagRegistered asserts that --size is registered on
 // the unified `update` dispatch command as a string-typed flag with no default.
 // Mirrors the per-entity check in TestSizeFlag_RegisteredOnAllUpdateCommands.

@@ -3293,6 +3293,147 @@ func TestTaskService_UpdateTask_ClearSizePrecedence(t *testing.T) {
 		"ClearSize=true must take precedence over Size=ptr(8) — spec D5 contract")
 }
 
+// ============================================================================
+// B048: task update --depends-on is a no-op — regression tests
+// ============================================================================
+//
+// Prior to the fix, UpdateTask never applied updates.DependsOn to the task
+// model at all (the field didn't even exist on TaskUpdates), so the repo's
+// Update() was called with the dependency column silently unchanged despite
+// the command reporting success. These tests exercise UpdateTask directly
+// (the production entry point used by `shark task update --depends-on`),
+// not the repository layer, so they would fail against the pre-fix service.
+
+func TestTaskService_UpdateTask_SetsDependsOn(t *testing.T) {
+	var capturedTask *models.Task
+	agentType := "developer"
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task"},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	deps := `["T-E07-F01-002"]`
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{
+		DependsOn: &deps,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	require.NotNil(t, capturedTask.DependsOn, "DependsOn must be persisted to the task passed to the repository")
+	assert.Equal(t, deps, *capturedTask.DependsOn)
+}
+
+func TestTaskService_UpdateTask_ClearDependsOn(t *testing.T) {
+	var capturedTask *models.Task
+	agentType := "developer"
+	existingDeps := `["T-E07-F01-002"]`
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task"},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+				DependsOn:  &existingDeps,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{
+		ClearDependsOn: true,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	assert.Nil(t, capturedTask.DependsOn, "ClearDependsOn=true should set DependsOn to nil")
+}
+
+func TestTaskService_UpdateTask_NoDependsOnChange(t *testing.T) {
+	var capturedTask *models.Task
+	agentType := "developer"
+	existingDeps := `["T-E07-F01-002"]`
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task"},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+				DependsOn:  &existingDeps,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	require.NotNil(t, capturedTask.DependsOn, "depends_on should remain unchanged")
+	assert.Equal(t, existingDeps, *capturedTask.DependsOn)
+}
+
+func TestTaskService_UpdateTask_ClearDependsOnPrecedence(t *testing.T) {
+	var capturedTask *models.Task
+	agentType := "developer"
+	existingDeps := `["T-E07-F01-002"]`
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task"},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+				DependsOn:  &existingDeps,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	newDeps := `["T-E07-F01-003"]`
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{
+		ClearDependsOn: true,
+		DependsOn:      &newDeps,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	assert.Nil(t, capturedTask.DependsOn,
+		"ClearDependsOn=true must take precedence over a simultaneously-set DependsOn value")
+}
+
 // TestTaskEntityRepoAdapter_UpdateStatusIfCurrent_ProductionPathIsGuarded
 // locks in the fix for the advance_guard bypass defect: taskEntityRepoAdapter
 // is constructed with a non-nil opts field on every real TransitionStatus

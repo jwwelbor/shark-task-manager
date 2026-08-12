@@ -61,6 +61,13 @@ type TaskUpdates struct {
 	// Size field value. ClearSize takes precedence over Size.
 	// Corresponds to `--size clear` on the CLI. E07-F42 REQ-F-005.
 	ClearSize bool `json:"clear_size,omitempty"`
+	// DependsOn updates the task's JSON-encoded dependency list when
+	// non-nil. ClearDependsOn takes precedence over DependsOn and nulls the
+	// column out entirely. Corresponds to `--depends-on` on
+	// `shark task update` (B048): an empty value clears dependencies, a
+	// comma-separated list sets them, and an absent flag is a no-op.
+	DependsOn      *string `json:"depends_on,omitempty"`
+	ClearDependsOn bool    `json:"clear_depends_on,omitempty"`
 	// SkipResequence, when true, applies an ExecutionOrder change without
 	// renumbering sibling tasks. Enables intentional duplicate-order groups
 	// (parallel work). Wired from `--parallel` on `shark task update`.
