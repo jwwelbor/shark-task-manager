@@ -61,8 +61,34 @@ func (r *Repository) ReadDirectChildren(
 	case string(models.EntityTypeFeature):
 		return r.readFeatureTasks(ctx, parentKey, claimTTL, evaluatedAt)
 	default:
+		return r.readLeafParent(ctx, parentType, parentKey)
+	}
+}
+
+// readLeafParent preserves the distinction between an existing entity with no
+// hierarchy children and a missing key. Custom workflows may legitimately use
+// action:cascade on a leaf; callers then fall through to pause rather than
+// reporting the existing entity as missing.
+func (r *Repository) readLeafParent(ctx context.Context, parentType, parentKey string) (Snapshot, error) {
+	table, ok := map[string]string{
+		string(models.EntityTypeTask):     "tasks",
+		string(models.EntityTypeBug):      "bugs",
+		string(models.EntityTypeChange):   "change_cards",
+		string(models.EntityTypeTechDebt): "tech_debts",
+	}[parentType]
+	if !ok {
 		return Snapshot{Children: []Child{}}, nil
 	}
+	query := fmt.Sprintf("SELECT 1 FROM %s WHERE key = ?", table)
+	var found int
+	err := r.db.QueryRowContext(ctx, query, parentKey).Scan(&found)
+	if err == sql.ErrNoRows {
+		return Snapshot{Children: []Child{}}, nil
+	}
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("check leaf %s %s: %w", parentType, parentKey, err)
+	}
+	return Snapshot{ParentFound: true, Children: []Child{}}, nil
 }
 
 func (r *Repository) readEpicFeatures(

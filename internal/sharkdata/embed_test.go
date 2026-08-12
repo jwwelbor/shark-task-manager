@@ -941,6 +941,22 @@ func firstN(paths []string, n int) []string {
 	return paths[:n]
 }
 
+// scanEmbeddedMarkdown walks canonical markdown files under prefix once and
+// lets each bundle-purity gate declare only its content-specific check.
+func scanEmbeddedMarkdown(t *testing.T, prefix string, scan func(relPath, content string, violations *[]string), skip func(string) bool) []string {
+	t.Helper()
+	var violations []string
+	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
+		if isDir || !strings.HasPrefix(relPath, prefix) || !strings.HasSuffix(relPath, ".md") || (skip != nil && skip(relPath)) {
+			return nil
+		}
+		scan(relPath, string(data), &violations)
+		return nil
+	})
+	require.NoError(t, err)
+	return violations
+}
+
 // TestEmbedded_SkillsContainNoBareSharkCLIRefs enforces the skill-purity rule
 // (E32-F09 AC): no skill .md body outside _extracted/ sidecars may contain a
 // bare "shark <verb>" CLI invocation.  _extracted/ files are migration
@@ -962,32 +978,13 @@ func TestEmbedded_SkillsContainNoBareSharkCLIRefs(t *testing.T) {
 		"shark notes ", "shark idea ", "shark bug ", "shark td ",
 	}
 
-	var violations []string
-
-	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
-		if isDir {
-			return nil
-		}
-		if !strings.HasPrefix(relPath, skillsPrefix) {
-			return nil
-		}
-		if !strings.HasSuffix(relPath, ".md") {
-			return nil
-		}
-		// Skip _extracted/ sidecars — they are migration scaffolding, not
-		// canonical skill content (E32-F04 AC-10 / E32-F09 scope exclusion).
-		if strings.Contains(relPath, extractedDir) {
-			return nil
-		}
-		content := string(data)
+	violations := scanEmbeddedMarkdown(t, skillsPrefix, func(relPath, content string, violations *[]string) {
 		for _, verb := range cliVerbs {
 			if strings.Contains(content, verb) {
-				violations = append(violations, relPath+": contains \""+verb+"\"")
+				*violations = append(*violations, relPath+": contains \""+verb+"\"")
 			}
 		}
-		return nil
-	})
-	require.NoError(t, err)
+	}, func(relPath string) bool { return strings.Contains(relPath, extractedDir) })
 
 	assert.Empty(t, violations,
 		"skill files must not contain bare shark CLI invocations; found:\n%s",
@@ -1019,27 +1016,19 @@ func TestEmbedded_AgentsDescribeRoleNotWorkflow(t *testing.T) {
 		"docs/chatGPT",              // host-only path, never embedded
 	}
 
-	var violations []string
-
-	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
-		if isDir || !strings.HasPrefix(relPath, agentsPrefix) || !strings.HasSuffix(relPath, ".md") {
-			return nil
-		}
-		content := string(data)
+	violations := scanEmbeddedMarkdown(t, agentsPrefix, func(relPath, content string, violations *[]string) {
 		for _, b := range banned {
 			if strings.Contains(content, b) {
-				violations = append(violations, relPath+`: contains "`+b+`"`)
+				*violations = append(*violations, relPath+`: contains "`+b+`"`)
 			}
 		}
 		// `shark status advance` is a workflow-mechanics instruction that
 		// specialist agents must not carry. product-manager is the coordinator
 		// exception (it may retain coordinator-level shark awareness).
 		if relPath != agentsPrefix+"product-manager.md" && strings.Contains(content, "shark status advance") {
-			violations = append(violations, relPath+`: contains "shark status advance" (only product-manager may)`)
+			*violations = append(*violations, relPath+`: contains "shark status advance" (only product-manager may)`)
 		}
-		return nil
-	})
-	require.NoError(t, err)
+	}, nil)
 
 	assert.Empty(t, violations,
 		"agent personas must describe role identity, not workflow mechanics; found:\n%s",
@@ -1066,16 +1055,10 @@ func TestEmbedded_SkillsHaveNoStaleAgentSlugs(t *testing.T) {
 		"security-architect", "principal-architect", "feature-architect",
 	}
 
-	var violations []string
-
-	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
-		if isDir || !strings.HasPrefix(relPath, skillsPrefix) || !strings.HasSuffix(relPath, ".md") {
-			return nil
-		}
-		content := string(data)
+	violations := scanEmbeddedMarkdown(t, skillsPrefix, func(relPath, content string, violations *[]string) {
 		for _, slug := range staleSlugs {
 			if strings.Contains(content, slug) {
-				violations = append(violations, relPath+`: contains stale agent slug "`+slug+`"`)
+				*violations = append(*violations, relPath+`: contains stale agent slug "`+slug+`"`)
 			}
 		}
 		// `general-purpose` only when used as an agent slug, not in prose.
@@ -1084,12 +1067,10 @@ func TestEmbedded_SkillsHaveNoStaleAgentSlugs(t *testing.T) {
 				continue
 			}
 			if strings.Contains(line, "`general-purpose`") || strings.Contains(line, "assigned_agent") {
-				violations = append(violations, relPath+`: uses "general-purpose" as an agent slug: `+strings.TrimSpace(line))
+				*violations = append(*violations, relPath+`: uses "general-purpose" as an agent slug: `+strings.TrimSpace(line))
 			}
 		}
-		return nil
-	})
-	require.NoError(t, err)
+	}, nil)
 
 	assert.Empty(t, violations,
 		"skill files must reference current embedded agents (developer/devops/architect/qa), not consolidated-away slugs; found:\n%s",
@@ -1105,18 +1086,11 @@ func TestEmbedded_SkillsHaveNoDeadCollaborationLink(t *testing.T) {
 	const skillsPrefix = "skills/"
 	const deadLink = "skills/collaboration/remembering-conversations"
 
-	var violations []string
-
-	err := walkEmbedded(func(relPath string, data []byte, isDir bool) error {
-		if isDir || !strings.HasPrefix(relPath, skillsPrefix) || !strings.HasSuffix(relPath, ".md") {
-			return nil
+	violations := scanEmbeddedMarkdown(t, skillsPrefix, func(relPath, content string, violations *[]string) {
+		if strings.Contains(content, deadLink) {
+			*violations = append(*violations, relPath)
 		}
-		if strings.Contains(string(data), deadLink) {
-			violations = append(violations, relPath)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	}, nil)
 
 	assert.Empty(t, violations,
 		"skill files must not reference the untracked collaboration path %q; found in:\n%s",
