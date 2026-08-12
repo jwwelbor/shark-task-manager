@@ -26,6 +26,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadStringSliceFromFlagNormalizesSupportedDependsOnFlags(t *testing.T) {
@@ -36,6 +38,7 @@ func TestReadStringSliceFromFlagNormalizesSupportedDependsOnFlags(t *testing.T) 
 		want     []string
 	}{
 		{name: "string ordinary", flagType: "string", value: "T-E07-F01-002,T-E07-F01-003", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+		{name: "string short task keys", flagType: "string", value: "E07-F01-002,E07-F01-003", want: []string{"E07-F01-002", "E07-F01-003"}},
 		{name: "string trims whitespace and empty members", flagType: "string", value: " T-E07-F01-002 , , T-E07-F01-003 ", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
 		{name: "string comma only", flagType: "string", value: " , , ", want: []string{}},
 		{name: "string empty", flagType: "string", value: "", want: []string{}},
@@ -83,6 +86,35 @@ func TestTaskUpdate_DependsOnFlag_SetsDependsOn(t *testing.T) {
 	}
 	if capturedUpdates.ClearDependsOn {
 		t.Error("expected ClearDependsOn=false")
+	}
+}
+
+func TestTaskUpdate_DependsOnFlag_NormalizesShortTaskKeys(t *testing.T) {
+	var capturedUpdates services.TaskUpdates
+	cmd := buildTaskUpdateCmdCapture(t, &capturedUpdates)
+	cmd.SetArgs([]string{"E07-F01-001", "--depends-on=E07-F01-002,E07-F01-003"})
+	cmd.SilenceErrors = true
+	require.NoError(t, cmd.Execute())
+	require.NotNil(t, capturedUpdates.DependsOn, "expected DependsOn after short-form --depends-on input")
+	const want = `["T-E07-F01-002","T-E07-F01-003"]`
+	assert.Equal(t, want, *capturedUpdates.DependsOn)
+}
+
+func TestTaskUpdate_DependsOnFlag_PreservesInvalidKeyForValidation(t *testing.T) {
+	var capturedUpdates services.TaskUpdates
+	cmd := buildTaskUpdateCmdCapture(t, &capturedUpdates)
+	cmd.SetArgs([]string{"E07-F01-001", "--depends-on=not-a-task-key"})
+	cmd.SilenceErrors = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+
+	if capturedUpdates.DependsOn == nil {
+		t.Fatal("expected DependsOn after invalid --depends-on input")
+	}
+	const want = `["not-a-task-key"]`
+	if *capturedUpdates.DependsOn != want {
+		t.Errorf("DependsOn = %q, want %q", *capturedUpdates.DependsOn, want)
 	}
 }
 

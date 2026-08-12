@@ -415,6 +415,15 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	}
 	require.NoError(t, taskRepo.Create(ctx, task))
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
+	prerequisite := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E93-F01-002", Title: "Prerequisite"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order1,
+	}
+	require.NoError(t, taskRepo.Create(ctx, prerequisite))
+	t.Cleanup(func() {
+		_, err := database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", prerequisite.ID)
+		require.NoError(t, err)
+	})
 
 	// Inject a depends_on pointing to a well-formed but non-existent task key.
 	bogusDeps := `["T-E93-F01-999"]`
@@ -449,6 +458,20 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 2, *got.ExecutionOrder, "execution_order should update once depends_on is valid (nil)")
+
+	// A valid dependency must be persisted through the same --parallel path.
+	validDeps := `["T-E93-F01-002"]`
+	task.DependsOn = &validDeps
+	newOrder = 3
+	task.ExecutionOrder = &newOrder
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task))
+
+	got, err = taskRepo.GetByKey(ctx, "T-E93-F01-001")
+	require.NoError(t, err)
+	require.NotNil(t, got.DependsOn)
+	assert.Equal(t, validDeps, *got.DependsOn, "--parallel update must persist a valid depends_on value")
+	require.NotNil(t, got.ExecutionOrder)
+	assert.Equal(t, 3, *got.ExecutionOrder)
 }
 
 // TestTaskRepository_UpdateNoResequence_FastPath verifies the TD-008 fast path:
