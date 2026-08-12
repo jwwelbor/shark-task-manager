@@ -368,7 +368,9 @@ type FolderFileEntry struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"` // relative to project root
 	IsDir bool   `json:"is_dir"`
-	Size  int64  `json:"size"`
+	// Size is omitted when metadata is unavailable. A present zero represents a
+	// real zero-byte file.
+	Size *int64 `json:"size,omitempty"`
 }
 
 // FolderFilesResponse is the response type for ViewerService.FolderFiles.
@@ -2790,17 +2792,22 @@ func readFolderEntries(canonicalPath string) ([]os.DirEntry, bool, error) {
 func folderFileEntries(relDir string, entries []os.DirEntry) []*FolderFileEntry {
 	result := make([]*FolderFileEntry, 0, len(entries))
 	for _, entry := range entries {
-		info, err := entry.Info()
-		var size int64
-		if err == nil && !entry.IsDir() {
-			size = info.Size()
-		}
-		result = append(result, &FolderFileEntry{
+		response := &FolderFileEntry{
 			Name:  entry.Name(),
 			Path:  filepath.ToSlash(filepath.Join(relDir, entry.Name())),
 			IsDir: entry.IsDir(),
-			Size:  size,
-		})
+		}
+		if !response.IsDir {
+			if info, err := entry.Info(); err == nil {
+				size := info.Size()
+				response.Size = &size
+			} else {
+				// Keep a browseable entry when a concurrent filesystem change makes
+				// optional metadata unavailable; the JSON contract omits Size.
+				_ = err
+			}
+		}
+		result = append(result, response)
 	}
 	return result
 }

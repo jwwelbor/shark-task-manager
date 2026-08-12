@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -931,25 +934,30 @@ func TestHandler_File(t *testing.T) {
 func TestHandler_FolderFiles(t *testing.T) {
 	t.Run("TC-H-039_docs_root", func(t *testing.T) {
 		var receivedPath string
+		fileSize := int64(10)
 		mock := &MockViewerServicer{
 			FolderFilesFunc: func(_ context.Context, dirPath string) (*services.FolderFilesResponse, error) {
 				receivedPath = dirPath
 				return &services.FolderFilesResponse{
 					DirPath: "docs",
 					Entries: []*services.FolderFileEntry{
-						{Name: "README.md", Path: "docs/README.md", IsDir: false, Size: 10},
-						{Name: "architecture", Path: "docs/architecture", IsDir: true, Size: 0},
+						{Name: "README.md", Path: "docs/README.md", IsDir: false, Size: &fileSize},
+						{Name: "architecture", Path: "docs/architecture", IsDir: true},
 					},
 				}, nil
 			},
 		}
 		rec := makeRequest(http.MethodGet, "/api/v1/viewer/folder-files/docs", newTestMux(mock))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("TC-H-039: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		require.Equalf(t, http.StatusOK, rec.Code, "TC-H-039: body: %s", rec.Body.String())
+		assert.Equal(t, "docs", receivedPath, "TC-H-039: expected dirPath")
+
+		var rawBody struct {
+			Entries []map[string]any `json:"entries"`
 		}
-		if receivedPath != "docs" {
-			t.Errorf("TC-H-039: expected dirPath=docs, got %q", receivedPath)
-		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawBody))
+		require.Len(t, rawBody.Entries, 2)
+		assert.Equal(t, float64(10), rawBody.Entries[0]["size"], "TC-H-039: available file size")
+		assert.NotContains(t, rawBody.Entries[1], "size", "TC-H-039: directory metadata must omit size")
 
 		var body struct {
 			DirPath string                      `json:"dir_path"`
