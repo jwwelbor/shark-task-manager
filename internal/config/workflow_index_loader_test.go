@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	workflowpkg "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // These tests cover the ActionService workflow loader (defaultWorkflowDataLoader)
@@ -37,6 +40,23 @@ steps:
     action: archive
     terminal: true
 `
+
+func workflowWithAction(status, agent string) string {
+	return `version: "1.0"
+start: ` + status + `
+steps:
+  ` + status + `:
+    phase: planning
+    action: spawn_agent
+    agent: ` + agent + `
+    outcomes:
+      pass: done
+  done:
+    phase: done
+    action: archive
+    terminal: true
+`
+}
 
 // writeIndexProject scaffolds a temp project whose workflow_config points at a
 // master index file. entityRel is the path written into .sharkconfig.json for
@@ -170,6 +190,122 @@ func TestDefaultWorkflowDataLoader_MissingLegacyJSONStillRejected(t *testing.T) 
 	if !errors.Is(err, workflowpkg.ErrDeprecatedWorkflowConfigJSON) {
 		t.Errorf("error = %q; want ErrDeprecatedWorkflowConfigJSON", err.Error())
 	}
+}
+
+func TestDefaultWorkflowDataLoader_UsesStrictSharedParser(t *testing.T) {
+	workflowpkg.ClearWorkflowCache()
+	t.Cleanup(workflowpkg.ClearWorkflowCache)
+
+	configPath := filepath.Join(t.TempDir(), ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(`{"task_workflow":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := defaultWorkflowDataLoader(configPath)
+	if err == nil {
+		t.Fatal("expected invalid configuration to be returned by the strict shared parser")
+	}
+}
+
+func TestDefaultWorkflowDataLoader_UsesSharkDataPathAndQuestionWorkflow(t *testing.T) {
+	workflowpkg.ClearWorkflowCache()
+	t.Cleanup(workflowpkg.ClearWorkflowCache)
+
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, "custom-bundle", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workflowDir, "question.yaml"), []byte(workflowWithAction("awaiting_input", "question-specialist")), 0o644))
+	configPath := filepath.Join(root, ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"shark_data_path":"custom-bundle"}`), 0o644))
+
+	out, err := defaultWorkflowDataLoader(configPath)
+	require.NoError(t, err)
+	questionAction := out["question"]["awaiting_input"].OrchestratorAction
+	require.NotNil(t, questionAction)
+	assert.Equal(t, "question-specialist", questionAction.AgentType)
+}
+
+func TestDefaultWorkflowDataLoader_LoadsDefaultDiskWorkflowWithoutConfigFile(t *testing.T) {
+	workflowpkg.ClearWorkflowCache()
+	t.Cleanup(workflowpkg.ClearWorkflowCache)
+
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, "shark-data", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workflowDir, "task.yaml"), []byte(workflowWithAction("disk_default", "disk-agent")), 0o644))
+
+	out, err := defaultWorkflowDataLoader(filepath.Join(root, ".sharkconfig.json"))
+	require.NoError(t, err)
+	action := out["task"]["disk_default"].OrchestratorAction
+	require.NotNil(t, action)
+	assert.Equal(t, "disk-agent", action.AgentType)
+}
+
+func TestDefaultWorkflowDataLoader_ReloadsChangedWorkflowDirectory(t *testing.T) {
+	workflowpkg.ClearWorkflowCache()
+	t.Cleanup(workflowpkg.ClearWorkflowCache)
+
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, "bundle", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+	taskPath := filepath.Join(workflowDir, "task.yaml")
+	require.NoError(t, os.WriteFile(taskPath, []byte(workflowWithAction("queued", "first-agent")), 0o644))
+	configPath := filepath.Join(root, ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"shark_data_path":"bundle"}`), 0o644))
+
+	svc, err := action.NewActionService(configPath, defaultWorkflowDataLoader)
+	require.NoError(t, err)
+	initial, err := svc.GetStatusAction(context.Background(), "queued")
+	require.NoError(t, err)
+	require.NotNil(t, initial)
+	assert.Equal(t, "first-agent", initial.AgentType)
+
+	require.NoError(t, os.WriteFile(taskPath, []byte(workflowWithAction("queued", "second-agent")), 0o644))
+	require.NoError(t, svc.Reload(context.Background()))
+	reloaded, err := svc.GetStatusAction(context.Background(), "queued")
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+	assert.Equal(t, "second-agent", reloaded.AgentType)
+}
+
+func TestWorkflowParserDefaultDirectoryModeDoesNotContaminateDefaultCache(t *testing.T) {
+	workflowpkg.ClearWorkflowCache()
+	t.Cleanup(workflowpkg.ClearWorkflowCache)
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".sharkconfig.json")
+	configBytes := []byte(`{"shark_data_path":"bundle"}`)
+	require.NoError(t, os.WriteFile(configPath, configBytes, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".sharkworkflow.json"), []byte(`{"task_workflow":{"status_flow":{"root":["done"],"done":[]},"status_metadata":{"root":{"orchestrator_action":{"action":"spawn_agent","agent_type":"root-agent"}}}}}`), 0o644))
+	customDir := filepath.Join(root, "bundle", "workflow")
+	require.NoError(t, os.MkdirAll(customDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(customDir, "task.yaml"), []byte(workflowWithAction("custom", "custom-agent")), 0o644))
+
+	assertParserModesIndependent := func() {
+		t.Helper()
+		standard, err := workflowpkg.LoadMultiLevelWorkflowFromBytes(configPath, configBytes)
+		require.NoError(t, err)
+		assert.NotNil(t, standard.Task.StatusMetadata["root"].OrchestratorAction)
+		assert.Nil(t, standard.Task.StatusMetadata["custom"].OrchestratorAction)
+
+		custom, err := workflowpkg.LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath, configBytes, customDir)
+		require.NoError(t, err)
+		assert.NotNil(t, custom.Task.StatusMetadata["custom"].OrchestratorAction)
+		assert.Nil(t, custom.Task.StatusMetadata["root"].OrchestratorAction)
+	}
+
+	// Run both orders: either parser mode may initialize first in production.
+	assertParserModesIndependent()
+	workflowpkg.ClearWorkflowCache()
+	custom, err := workflowpkg.LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath, configBytes, customDir)
+	require.NoError(t, err)
+	assert.NotNil(t, custom.Task.StatusMetadata["custom"].OrchestratorAction)
+	legacy, err := workflowpkg.LoadWorkflowConfig(configPath)
+	require.NoError(t, err)
+	assert.Nil(t, legacy, "the custom default-directory parse must not populate the legacy path-only cache")
+	standard, err := workflowpkg.LoadMultiLevelWorkflowFromBytes(configPath, configBytes)
+	require.NoError(t, err)
+	assert.NotNil(t, standard.Task.StatusMetadata["root"].OrchestratorAction)
 }
 
 func keysOf(m map[string]map[string]action.StatusActionData) []string {
