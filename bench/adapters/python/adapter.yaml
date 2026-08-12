@@ -1,0 +1,6 @@
+# I-04 execution adapter descriptor (REQ-F-006). Registered in
+# bench/scenarios/scenarios.yaml under this `name`; `version` is echoed back
+# verbatim by `adapter.sh identity`'s `version` field so a package's admitted
+# `adapter: {name, version}` block can be diffed against what actually ran.
+name: python
+version: "1.0.0"
