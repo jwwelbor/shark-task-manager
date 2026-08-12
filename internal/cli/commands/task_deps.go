@@ -8,6 +8,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -207,14 +208,15 @@ func printTaskDeps(taskKey, taskTitle string, relWithTasks []services.Relationsh
 		models.RelDependsOn, models.RelBlocks, models.RelRelatedTo, models.RelFollows,
 		models.RelSpawnedFrom, models.RelDuplicates, models.RelReferences,
 	}
-	printRelationshipGroup(outgoingByType, relationshipOrder, "outgoing")
-	printRelationshipGroup(incomingByType, relationshipOrder, "incoming")
-	fmt.Println("Legend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
+	workflowSvc := cli.GetWorkflowService()
+	printRelationshipGroup(workflowSvc, outgoingByType, relationshipOrder, "outgoing")
+	printRelationshipGroup(workflowSvc, incomingByType, relationshipOrder, "incoming")
+	printStatusLegend(workflowSvc)
 	return nil
 }
 
 // printRelationshipGroup prints one direction of relationships (outgoing or incoming).
-func printRelationshipGroup(byType map[string][]services.RelationshipWithTask, order []string, direction string) {
+func printRelationshipGroup(workflowSvc *workflow.Service, byType map[string][]services.RelationshipWithTask, order []string, direction string) {
 	suffix := map[string]string{"outgoing": "(this task → other tasks)", "incoming": "(other tasks → this task)"}
 	for _, relType := range order {
 		rels, ok := byType[relType]
@@ -223,7 +225,7 @@ func printRelationshipGroup(byType map[string][]services.RelationshipWithTask, o
 		}
 		fmt.Printf("%s %s:\n", getRelationshipLabel(relType, direction), suffix[direction])
 		for _, rel := range rels {
-			fmt.Printf("  %s %s: %s\n", getStatusIcon(rel.TaskStatus), rel.TaskKey, rel.TaskTitle)
+			fmt.Printf("  %s %s: %s\n", getStatusIconForWorkflow(workflowSvc, rel.TaskStatus), rel.TaskKey, rel.TaskTitle)
 		}
 		fmt.Println()
 	}
@@ -263,11 +265,13 @@ func printBlockedBy(taskKey, taskTitle string, blockers []services.RelationshipW
 		fmt.Println("No blocking dependencies")
 		return nil
 	}
+	workflowSvc := cli.GetWorkflowService()
 	fmt.Println("Blocked by (must complete first):")
 	for _, blocker := range blockers {
-		fmt.Printf("  %s %s: %s\n", getStatusIcon(blocker.TaskStatus), blocker.TaskKey, blocker.TaskTitle)
+		fmt.Printf("  %s %s: %s\n", getStatusIconForWorkflow(workflowSvc, blocker.TaskStatus), blocker.TaskKey, blocker.TaskTitle)
 	}
-	fmt.Println("\nLegend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
+	fmt.Println()
+	printStatusLegend(workflowSvc)
 	return nil
 }
 
@@ -313,29 +317,50 @@ func printBlocks(taskKey, taskTitle, taskStatus string, blocked []services.Relat
 		if isTerminal {
 			suffix = " (unblocked)"
 		}
-		fmt.Printf("  %s %s: %s%s\n", getStatusIcon(b.TaskStatus), b.TaskKey, b.TaskTitle, suffix)
+		fmt.Printf("  %s %s: %s%s\n", getStatusIconForWorkflow(ws, b.TaskStatus), b.TaskKey, b.TaskTitle, suffix)
 	}
 	if isTerminal {
-		fmt.Println("\nThis task is completed - all downstream tasks are unblocked.")
+		fmt.Println("\nThis task is terminal - all downstream tasks are unblocked.")
 	}
-	fmt.Println("\nLegend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
+	fmt.Println()
+	printStatusLegend(ws)
 	return nil
 }
 
-// getStatusIcon returns a unicode icon for task status
+// getStatusIcon returns a unicode icon based on configured workflow status semantics.
 func getStatusIcon(status string) string {
-	switch status {
-	case "completed":
+	return getStatusIconForWorkflow(cli.GetWorkflowService(), status)
+}
+
+func getStatusIconForWorkflow(workflowSvc *workflow.Service, status string) string {
+	status = workflowSvc.NormalizeStatus(status)
+	if workflowSvc.IsTerminalStatus(status) {
 		return "✓"
-	case "in_progress":
-		return "•"
-	case "blocked":
+	}
+	if workflowSvc.IsBlockedStatus(status) {
 		return "✗"
-	case "ready_for_review":
+	}
+
+	switch workflowSvc.GetStatusMetadata(status).Phase {
+	case "development", "execution":
+		return "•"
+	case "review", "qa", "approval":
 		return "⊙"
 	default:
 		return "○"
 	}
+}
+
+func printStatusLegend(workflowSvc *workflow.Service) {
+	fmt.Println(statusLegend(workflowSvc))
+}
+
+func statusLegend(workflowSvc *workflow.Service) string {
+	entries := make([]string, 0, len(workflowSvc.GetAllStatuses()))
+	for _, status := range workflowSvc.GetAllStatuses() {
+		entries = append(entries, fmt.Sprintf("%s %s", getStatusIconForWorkflow(workflowSvc, status), status))
+	}
+	return fmt.Sprintf("Legend: %s", strings.Join(entries, " | "))
 }
 
 // getRelationshipLabel returns a human-readable label for relationship type
@@ -649,7 +674,7 @@ func printDepsTree(
 		}
 	}
 
-	output.WriteString("Legend: ✓ completed | ⊙ ready_for_review | • in_progress | ○ todo | ✗ blocked\n")
+	output.WriteString(statusLegend(cli.GetWorkflowService()) + "\n")
 	fmt.Print(output.String())
 	return nil
 }
