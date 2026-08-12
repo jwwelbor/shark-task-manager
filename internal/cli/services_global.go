@@ -757,7 +757,9 @@ func GetSprintAnalyticsService() *services.SprintAnalyticsService {
 	}
 	analyticsRepo := &sprintAnalyticsAdapter{repo: sprintrepo.NewSprintAnalyticsRepository(db)}
 	sprintRepo := repository.NewSprintRepository(db)
-	return services.NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	svc := services.NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	svc.SetWorkflow(GetWorkflowService())
+	return svc
 }
 
 // resetEntityService resets only the entity service singleton within the current container.

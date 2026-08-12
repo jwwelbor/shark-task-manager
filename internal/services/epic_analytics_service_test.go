@@ -3,7 +3,9 @@ package services
 import (
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -80,4 +82,22 @@ func TestCalculateEpicProgress(t *testing.T) {
 			assert.InDelta(t, tt.want, calculateEpicProgress(tt.data), 1e-12)
 		})
 	}
+}
+
+func TestCalculateEpicProgressWithWorkflow_UsesConfiguredTerminalAndExclusion(t *testing.T) {
+	featureWorkflow := &config.WorkflowConfig{
+		Steps: map[string]*config.Step{
+			"delivered": {Terminal: true, Phase: "done"},
+			"discarded": {ExcludeFromProgress: true},
+		},
+		StatusMetadata: map[string]config.StatusMetadata{
+			"delivered": {Phase: "done"},
+			"discarded": {ExcludeFromProgress: true},
+			"active":    {Phase: "development"},
+		},
+	}
+	featureWorkflow.DeriveLegacy()
+	svc := workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Feature: featureWorkflow})
+	data := []repository.FeatureProgressData{{Status: "delivered", ProgressPct: 0}, {Status: "discarded", ProgressPct: 100}, {Status: "active", ProgressPct: 40}}
+	assert.Equal(t, 70.0, calculateEpicProgressWithWorkflow(data, svc.ForLevel(workflow.LevelFeature)))
 }

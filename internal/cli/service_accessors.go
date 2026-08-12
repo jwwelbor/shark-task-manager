@@ -248,6 +248,7 @@ func GetEpicService() *services.EpicService {
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo, workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked"))
+	analyticsSvc.SetFeatureWorkflow(workflowSvc.ForLevel(workflow.LevelFeature))
 	svc.SetAnalyticsService(analyticsSvc)
 
 	return svc

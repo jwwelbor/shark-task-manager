@@ -1381,13 +1381,13 @@ func (r *TaskRepository) updateStatusForcedInternalWithTx(ctx context.Context, t
 	args := []interface{}{newStatus}
 
 	// Set appropriate timestamp based on new status
-	if newStatus == models.TaskStatus("in_progress") && !startedAt.Valid {
+	if isExecutionTaskStatus(nil, newStatus) && !startedAt.Valid {
 		query += ", started_at = ?"
 		args = append(args, now)
-	} else if newStatus == models.TaskStatus("completed") && !completedAt.Valid {
+	} else if isTerminalTaskStatus(nil, newStatus) && !completedAt.Valid {
 		query += ", completed_at = ?"
 		args = append(args, now)
-	} else if newStatus == models.TaskStatus("blocked") && !blockedAt.Valid {
+	} else if isBlockedTaskStatus(nil, newStatus) && !blockedAt.Valid {
 		query += ", blocked_at = ?"
 		args = append(args, now)
 	}
@@ -1496,14 +1496,16 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 	query := "UPDATE tasks SET status = ?"
 	args := []interface{}{params.NewStatus}
 
-	// Set appropriate timestamp based on new status
-	if params.NewStatus == models.TaskStatus("in_progress") && !params.StartedAt.Valid {
+	// The service resolves status classifications from the task workflow. The
+	// repository applies that policy while retaining its atomic status/history
+	// write; direct legacy callers get the documented historical fallbacks.
+	if isExecutionTaskStatus(params.ExecutionStatuses, params.NewStatus) && !params.StartedAt.Valid {
 		query += ", started_at = ?"
 		args = append(args, now)
-	} else if params.NewStatus == models.TaskStatus("completed") && !params.CompletedAt.Valid {
+	} else if isTerminalTaskStatus(params.TerminalStatuses, params.NewStatus) && !params.CompletedAt.Valid {
 		query += ", completed_at = ?"
 		args = append(args, now)
-	} else if params.NewStatus == models.TaskStatus("blocked") && !params.BlockedAt.Valid {
+	} else if isBlockedTaskStatus(params.BlockedStatuses, params.NewStatus) && !params.BlockedAt.Valid {
 		query += ", blocked_at = ?"
 		args = append(args, now)
 	}
@@ -1566,7 +1568,7 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 	// layer from the task workflow), not a hardcoded completed/archived pair.
 	var unblockedKeys []string
 	if isTerminalTaskStatus(params.TerminalStatuses, params.NewStatus) {
-		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, params.TaskKey, params.TerminalStatuses)
+		unblockedKeys, err = r.AutoUnblockDependentsWithPolicy(ctx, tx, params.TaskKey, params.TerminalStatuses, params.BlockedStatuses, params.UnblockedStatus)
 		if err != nil {
 			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
 		}

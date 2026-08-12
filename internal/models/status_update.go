@@ -19,6 +19,16 @@ var ErrGuardedUpdateStale = errors.New("task status update: current status no lo
 // importing a concrete repository package.
 var ErrAdvanceGuardAlreadyConsumed = errors.New("guarded advance already consumed")
 
+// TaskDependencyStatusPolicy supplies workflow semantics to repository-owned
+// atomic dependency mutations. It is resolved by the service layer; empty
+// fields preserve the documented legacy defaults for direct callers.
+type TaskDependencyStatusPolicy struct {
+	TerminalStatuses []string
+	BlockedStatuses  []string
+	ReopenStatus     TaskStatus
+	UnblockedStatus  TaskStatus
+}
+
 // StatusUpdateParams contains all parameters for a raw (no-validation) status update.
 // This struct is defined in the models package to avoid circular imports between
 // the services and repository packages.
@@ -72,6 +82,18 @@ type StatusUpdateParams struct {
 	// same contract as BugListFilters.TerminalStatuses and
 	// ChangeCardRepoFilter.TerminalStatuses.
 	TerminalStatuses []string
+
+	// ExecutionStatuses and BlockedStatuses classify workflow phases for the
+	// legacy started_at and blocked_at columns. TaskService resolves these from
+	// the task workflow before handing this raw mutation to the repository.
+	// Empty lists retain the historical behavior for direct repository callers.
+	ExecutionStatuses []string
+	BlockedStatuses   []string
+
+	// UnblockedStatus is the workflow-resolved target used when all dependency
+	// prerequisites are satisfied. An empty value retains the historical todo
+	// fallback for direct repository callers.
+	UnblockedStatus TaskStatus
 
 	// Guarded, when true, makes the UPDATE conditional on the row's current
 	// status still matching OldStatus (case-insensitive), evaluated atomically

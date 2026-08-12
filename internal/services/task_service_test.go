@@ -1821,6 +1821,9 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	assert.Equal(t, "my-agent", *capturedParams.Agent)
 	assert.NotNil(t, capturedParams.RejectionReason)
 	assert.Equal(t, "starting work", *capturedParams.RejectionReason)
+	assert.Contains(t, capturedParams.ExecutionStatuses, "development")
+	assert.Contains(t, capturedParams.BlockedStatuses, "blocked")
+	assert.Equal(t, models.TaskStatus("draft"), capturedParams.UnblockedStatus)
 }
 
 func TestTaskService_TransitionStatus_Forced_UsesStatusUpdateRaw(t *testing.T) {

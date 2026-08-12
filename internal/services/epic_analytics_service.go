@@ -45,6 +45,12 @@ type EpicAnalyticsService struct {
 	repo            EpicAnalyticsRepository
 	taskRepo        EpicAnalyticsTaskRepository // optional; degrades gracefully if nil
 	blockedStatuses []string
+	featureWorkflow *workflow.Service
+}
+
+// SetFeatureWorkflow configures feature-level progress classification.
+func (s *EpicAnalyticsService) SetFeatureWorkflow(workflowSvc *workflow.Service) {
+	s.featureWorkflow = workflowSvc
 }
 
 // NewEpicAnalyticsService creates a new EpicAnalyticsService.
@@ -71,19 +77,28 @@ func (s *EpicAnalyticsService) CalculateProgress(ctx context.Context, epicID int
 	if err != nil {
 		return 0, fmt.Errorf("failed to get feature progress data: %w", err)
 	}
-	return calculateEpicProgress(data), nil
+	return calculateEpicProgressWithWorkflow(data, s.featureWorkflow), nil
 }
 
 func calculateEpicProgress(data []repository.FeatureProgressData) float64 {
+	return calculateEpicProgressWithWorkflow(data, nil)
+}
+
+func calculateEpicProgressWithWorkflow(data []repository.FeatureProgressData, featureWorkflow *workflow.Service) float64 {
 	var totalProgress float64
 	activeFeatures := 0
 	for _, d := range data {
 		// Skip cancelled features — they don't count toward epic progress
-		if d.Status == "cancelled" {
+		if featureWorkflow != nil && featureWorkflow.GetStatusMetadata(d.Status).ExcludeFromProgress {
+			continue
+		}
+		if featureWorkflow == nil && d.Status == "cancelled" {
 			continue
 		}
 		activeFeatures++
-		if d.Status == "completed" || d.Status == "archived" {
+		if featureWorkflow != nil && featureWorkflow.IsTerminalStatus(d.Status) {
+			totalProgress += 100.0
+		} else if featureWorkflow == nil && (d.Status == "completed" || d.Status == "archived") {
 			totalProgress += 100.0
 		} else {
 			totalProgress += d.ProgressPct
