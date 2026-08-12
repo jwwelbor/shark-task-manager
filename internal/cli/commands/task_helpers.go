@@ -327,15 +327,9 @@ func parseDependsOnUpdateFlag(cmd *cobra.Command) (*string, bool, error) {
 	if !cmd.Flags().Changed("depends-on") {
 		return nil, false, nil
 	}
-	dependsOnStr, err := cmd.Flags().GetString("depends-on")
+	dependencies, err := readStringSliceFromFlag(cmd, "depends-on")
 	if err != nil {
 		return nil, false, fmt.Errorf("read --depends-on flag: %w", err)
-	}
-	var dependencies []string
-	for _, dependency := range strings.Split(dependsOnStr, ",") {
-		if dependency = strings.TrimSpace(dependency); dependency != "" {
-			dependencies = append(dependencies, dependency)
-		}
 	}
 	if len(dependencies) == 0 {
 		return nil, true, nil
