@@ -168,7 +168,7 @@ func init() {
 
 	// Task-specific flags
 	updateCmd.Flags().StringP("agent", "a", "", "New agent type (task only)")
-	updateCmd.Flags().String("depends-on", "", "New dependency keys, comma-separated (task only)")
+	updateCmd.Flags().String("depends-on", "", "New dependency keys, comma-separated (task & idea)")
 
 	// Epic-specific flags
 	updateCmd.Flags().String("business-value", "", "New business value: low, medium, high (epic only)")

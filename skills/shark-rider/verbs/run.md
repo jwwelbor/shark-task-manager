@@ -43,8 +43,14 @@ The parent loop owns the lease and every status transition. Per spawned step:
    `simple`, `standard`, or `deep_verify`. Workers signal it with a trailing
    `RECOMMENDED OUTCOME: <key>` line; a worker that instead returns a JSON
    `{ "outcome": ... }` object means the same thing.
-4. Parent applies any directives (kickbacks, notes), then runs
-   `shark status advance {response.entity_key} --outcome <key>`.
+4. After every terminal worker result (`final`, `blocked_external`, or
+   `failed`), parent verifies the worker's documented completion guarantee,
+   then applies any directives (kickbacks, notes) and runs
+   `shark status advance {response.entity_key} --outcome <key>`. Use an
+   awaited foreground worker when the host has no documented retirement
+   operation; never use a background worker whose later idle notifications
+   cannot be prevented. Missing completion evidence blocks advancement but
+   never prevents release.
 5. Parent releases the lease on every success, failure, or exception path.
 
 The child never claims, advances, releases, or heartbeats.
@@ -145,6 +151,11 @@ Spawn the host worker using a host-safe adapter:
   delegation from Shark persona names alone. Only recurse when the workflow
   prompt explicitly invokes a multi-agent skill or recipe (for example the
   sprint-execution skill or UAT's Codex red-team step).
+- Worker lifecycle: choose parent-owned awaited execution by default. A
+  background dispatch is permitted only when the provider reference documents
+  how the parent establishes terminal completion for that worker. Neither
+  installed provider reference currently documents a native retirement
+  operation, so do not use background dispatch for this loop.
 
 Do not set the host `subagent_type` to Shark names such as `business-analyst`,
 `product-manager`, or `tech-director`; those personas are already inside
@@ -193,7 +204,18 @@ the workflow prompts emit, apply them in this order, then advance:
    keys, so pass the worker's key through verbatim rather than coercing it to
    pass/fail/blocked. No outcome at all → treat as `blocked` and record a
    blocker note quoting the tail of the response.
-2. **Persist notes.**
+2. **Establish terminal completion before advancing.** Apply this to every
+   terminal envelope: `final`, `blocked_external`, and `failed`. An awaited
+   foreground worker satisfies the check when its invocation exits after
+   returning the envelope. Use a native retirement operation only if the
+   provider reference documents it and it returns terminal acknowledgement.
+   Otherwise, do not dispatch future steps as background agents; use
+   parent-owned awaited execution. If a prior background worker has no
+   documented completion guarantee, record a blocker note with bounded
+   evidence, release the Shark lease, and stop. Do not advance the workflow
+   or claim that later idle notifications are suppressed. See
+   `context/host-adapter-contract.md` for the provider-neutral boundary.
+3. **Persist notes.**
    - A `COMPLEXITY NOTE: <text>` line (complexity-triage steps) must be
      stored as a decision so later steps can read the tier:
      ```bash
@@ -207,7 +229,7 @@ the workflow prompts emit, apply them in this order, then advance:
      ```bash
      shark create note {response.entity_key} "<note>" --type comment
      ```
-3. **Apply task kickbacks.** Gate steps (code review, QA, UAT) that fail list
+4. **Apply task kickbacks.** Gate steps (code review, QA, UAT) that fail list
    kickback lines in the form
    `<task-id> -> <status> --reason "<why>"`.
    Apply each one BEFORE advancing the parent, so the reopened tasks are
@@ -217,7 +239,7 @@ the workflow prompts emit, apply them in this order, then advance:
    ```
    A `fail` outcome whose response names no kickbacks is suspicious — record a
    blocker note and surface it to the user rather than silently advancing.
-4. **Advance by the resolved outcome**, attributing the transition to the
+5. **Advance by the resolved outcome**, attributing the transition to the
    agent that did the work (this populates `entity_history.changed_by`):
    ```bash
    shark status advance {response.entity_key} --outcome <key> \
@@ -228,11 +250,11 @@ the workflow prompts emit, apply them in this order, then advance:
    or coerce a valid semantic outcome to `pass` or `fail`. Include
    `--session`/`--from-status` when `.sharkconfig.json` enables `advance_guard`
    (see the route-based workflow guide, §2).
-5. **Release the lease, always**, stamping the outcome on the work session:
+6. **Release the lease, always**, stamping the outcome on the work session:
    ```bash
    shark release {response.entity_key} --session "$SID" --outcome <key>
    ```
-6. Return to Step 1 with the original `{KEY}`.
+7. Return to Step 1 with the original `{KEY}`.
 
 If the worker fails or throws, still release the lease, record a blocker note if
 possible, and surface the failure before deciding whether to retry.

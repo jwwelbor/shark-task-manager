@@ -762,7 +762,10 @@ func buildTaskUpdateCmdCapture(t *testing.T, capture *services.TaskUpdates) *cob
 		Use:  "update",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			updates := parseTaskUpdates(cmd)
+			updates, err := parseTaskUpdates(cmd)
+			if err != nil {
+				return err
+			}
 			// Apply size three-way dispatch on top (mirrors runTaskUpdate logic).
 			sizePtr, clearSize, err := parseSizeUpdateFlag(cmd)
 			if err != nil {

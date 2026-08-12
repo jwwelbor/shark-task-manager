@@ -587,6 +587,16 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 	}
 	// else: leave task.Size unchanged (no-op)
 
+	// Three-branch DependsOn update logic (B048): ClearDependsOn takes
+	// precedence and nulls the JSON-encoded dependency column; DependsOn
+	// sets it to the new JSON-encoded list; otherwise leave unchanged.
+	if updates.ClearDependsOn {
+		task.DependsOn = nil
+	} else if updates.DependsOn != nil {
+		task.DependsOn = updates.DependsOn
+	}
+	// else: leave task.DependsOn unchanged (no-op)
+
 	// Validate updated task
 	if err := task.Validate(); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: validation error: %w", key, err))

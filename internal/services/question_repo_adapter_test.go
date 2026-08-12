@@ -14,7 +14,10 @@ import (
 // instead of a dedicated repo delegation -- the path production actually
 // uses via `shark context set Q### ...`.
 type fakeQuestionAdapterRepository struct {
-	question *models.Question
+	question           *models.Question
+	updateCalls        int
+	updatedID          int64
+	updatedContextData *string
 }
 
 func (r *fakeQuestionAdapterRepository) GetByKey(context.Context, string) (*models.Question, error) {
@@ -23,7 +26,17 @@ func (r *fakeQuestionAdapterRepository) GetByKey(context.Context, string) (*mode
 func (r *fakeQuestionAdapterRepository) GetByID(context.Context, int64) (*models.Question, error) {
 	return r.question, nil
 }
-func (r *fakeQuestionAdapterRepository) Update(context.Context, *models.Question) error { return nil }
+func (r *fakeQuestionAdapterRepository) Update(_ context.Context, question *models.Question) error {
+	r.updateCalls++
+	r.updatedID = question.ID
+	if question.ContextData == nil {
+		r.updatedContextData = nil
+		return nil
+	}
+	captured := *question.ContextData
+	r.updatedContextData = &captured
+	return nil
+}
 func (r *fakeQuestionAdapterRepository) UpdateStatus(context.Context, int64, models.QuestionStatus) error {
 	return nil
 }
@@ -50,6 +63,9 @@ func TestQuestionRepositoryAdapterProvidesTypedContextSeam(t *testing.T) {
 	data := `{"progress":{"current_step":"collect"}}`
 	if err := adapter.UpdateContextData(context.Background(), entity.GetID(), &data); err != nil {
 		t.Fatalf("UpdateContextData() error = %v", err)
+	}
+	if repo.updateCalls != 1 || repo.updatedID != 1 || repo.updatedContextData == nil || *repo.updatedContextData != data {
+		t.Fatalf("Update() = calls:%d id:%d context:%v, want one update for ID 1 with %q", repo.updateCalls, repo.updatedID, repo.updatedContextData, data)
 	}
 	got, err := adapter.GetContextData(context.Background(), entity.GetID())
 	if err != nil || got == nil || *got != data {

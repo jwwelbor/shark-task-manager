@@ -134,6 +134,31 @@ func TestQuestion_EntityConformance_TC003(t *testing.T) {
 	}
 }
 
+// TestValidateQuestionBoundedTextDelimiterMarkers_TC107 keeps credential-label
+// matching narrow: delimiter-permuted labels are rejected while ordinary
+// prose that mentions the same words remains usable in Question fields.
+func TestValidateQuestionBoundedTextDelimiterMarkers_TC107(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "bearer colon", value: "BEARER: credential", wantErr: true},
+		{name: "password space equals", value: "password = credential", wantErr: true},
+		{name: "authorization space colon", value: "Authorization : credential", wantErr: true},
+		{name: "password policy prose", value: "The password policy requires twelve characters."},
+		{name: "authorization model prose", value: "The authorization model has two roles."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateQuestionBoundedText("responses.summary", tt.value, 1, questionResponseMaxBytes)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("TC-107 ValidateQuestionBoundedText(%q) error = %v, wantErr %v", tt.value, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TC-102: Question workflow state is a bounded Question-owned value. The
 // current responder is derived from the first pending responder rather than
 // accepted as independently supplied routing input.
