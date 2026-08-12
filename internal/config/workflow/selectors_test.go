@@ -265,31 +265,3 @@ func TestGetStatusesByAgentType_Sorted(t *testing.T) {
 		}
 	}
 }
-
-func TestDefaultTransition_PassFirstContract(t *testing.T) {
-	cfg := validRouteBasedConfig()
-	// todo's outcomes: pass→qa, fail→todo, blocked→blocked. The default
-	// transition is the pass target, not the alphabetical first.
-	got, err := cfg.DefaultTransition("todo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "qa" {
-		t.Errorf("expected pass target %q, got %q", "qa", got)
-	}
-}
-
-func TestDefaultTransition_TerminalAndUnknown(t *testing.T) {
-	cfg := validRouteBasedConfig()
-	var noCandidate *NoCandidateError
-
-	_, err := cfg.DefaultTransition("done")
-	if !errors.As(err, &noCandidate) {
-		t.Fatalf("expected NoCandidateError for terminal status, got %v", err)
-	}
-
-	_, err = cfg.DefaultTransition("ghost")
-	if !errors.As(err, &noCandidate) {
-		t.Fatalf("expected NoCandidateError for unknown status, got %v", err)
-	}
-}

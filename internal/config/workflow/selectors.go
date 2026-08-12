@@ -88,24 +88,6 @@ func (w *WorkflowConfig) designate(selection string, candidates []string) (strin
 	return "", &AmbiguousSelectionError{Selection: selection, Candidates: candidates, Primaries: primaries}
 }
 
-// DefaultTransition returns the default (happy-path) transition out of a
-// status: StatusFlow[from][0]. That position is a guaranteed contract, not an
-// accident — for route-based workflows every StatusFlow slice is produced by
-// uniqueSortedOutcomeTargets, which orders targets semantically (pass, then
-// fail, then blocked, then extras). Returns a *NoCandidateError for a
-// terminal or unknown status.
-func (w *WorkflowConfig) DefaultTransition(from string) (string, error) {
-	for status, targets := range w.StatusFlow {
-		if strings.EqualFold(status, from) {
-			if len(targets) == 0 {
-				return "", &NoCandidateError{Selection: fmt.Sprintf("transition out of terminal status %q", from)}
-			}
-			return targets[0], nil
-		}
-	}
-	return "", &NoCandidateError{Selection: fmt.Sprintf("transition out of unknown status %q", from)}
-}
-
 // PrimaryAggregationStatus returns the workflow's aggregation status — the
 // step a reopened parent entity returns to when a child is added or reopened
 // under a terminal parent.
