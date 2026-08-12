@@ -298,6 +298,8 @@ func TestRenderTreeSimple(t *testing.T) {
 
 // TestGetStatusIconForTree tests status icon rendering
 func TestGetStatusIconForTree(t *testing.T) {
+	setupTestWorkflowConfig(t)
+
 	tests := []struct {
 		status       models.TaskStatus
 		expectedIcon string
