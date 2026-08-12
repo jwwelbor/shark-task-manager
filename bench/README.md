@@ -311,6 +311,8 @@ placeholder (REQ-N-005) — the "Notes" column below states the condition.
 | `rejections.crosscheck.agrees` | bool | `entity_history_backward_transitions == rework_loops`. The whole `rejections.crosscheck` sub-object is present only when `meta.json` supplies `scratch_db_path` + `entity_key` + `item_type`. |
 | `oracle.f2p_resolved` / `.repro_confirmed` / `.p2p_regressions[]` / `.p2p_regressions_count` / `.removed[]` / `.removed_count` | — | Copied from `post/f2p.json` / `post/test-diff.json`, byte-identical to `diff-ledgers.sh`'s own output fields — never recomputed (ADR-F02-06, AC-09). Absent entirely when the toolchain guard aborted or `post/` never ran. |
 | `quality.fmt_clean` / `.vet_ok` / `.tests_pass` | bool \| null | `null` means the gate could not be executed — never a silent pass (REQ-F-016). |
+| `quality.gate_reasons` | object | Present only for null gates; maps a record field such as `fmt_clean` to its non-empty execution-failure reason. |
+| `quality.postrun_abort` | string | Present only with `postrun_check_aborted` after a later post-run command fails; one of `build_ledgers`, `test_diff`, or `lint_diff`. |
 | `quality.lint_new_issues[]` / `.lint_new_issues_count` | — | Copied from `post/lint-diff.json`, byte-identical to `diff-ledgers.sh`'s output. |
 | `quality.toolchain_guard` | string | `"pass"`, or the mismatched-axis detail text when the guard aborted the whole post-run phase. |
 | `loc.prod_added` / `.prod_deleted` / `.test_added` / `.test_deleted` / `.files_touched` | integer | From `post/numstat.txt`; a `_test.go` path's counts go to the `test_*` fields, every other path's to `prod_*`. |
