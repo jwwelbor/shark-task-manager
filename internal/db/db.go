@@ -480,9 +480,11 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	33 — B049   (task_display_data view: generalize blocked_by_json/blocks_json
 //	             beyond task-to-task, add relationships_json for non-blocking
 //	             relationship types)
+//	34 — B055   (task_display_data dependencies_json: only outgoing depends_on
+//	             task relationships are rendered as dependencies)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 33
+const CurrentSchemaVersion = 34
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -2917,17 +2919,15 @@ UNION ALL
   ) sub
   ) AS relationships_json,
 
-  -- Dependencies: all related tasks (both directions, distinct)
+  -- Dependencies: outgoing task-to-task depends_on relationships only.
   (SELECT COALESCE(json_group_array(json_object(
     'key', sub2.key, 'title', sub2.title, 'status', sub2.status
   )), '[]') FROM (
     SELECT DISTINCT t2.key, t2.title, t2.status
     FROM entity_relationships er
-    JOIN tasks t2 ON (
-      (er.from_entity_type = 'task' AND er.from_entity_id = t.id AND er.to_entity_type = 'task' AND er.to_entity_id = t2.id) OR
-      (er.to_entity_type = 'task' AND er.to_entity_id = t.id AND er.from_entity_type = 'task' AND er.from_entity_id = t2.id)
-    )
-    WHERE t2.id != t.id
+    JOIN tasks t2 ON er.to_entity_id = t2.id
+    WHERE er.from_entity_type = 'task' AND er.from_entity_id = t.id
+      AND er.to_entity_type = 'task' AND er.relationship_type = 'depends_on'
   ) sub2
   ) AS dependencies_json,
 
