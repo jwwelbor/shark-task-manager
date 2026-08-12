@@ -270,24 +270,10 @@ func entityTypesForLoader() []string {
 
 // defaultWorkflowDataLoader loads per-entity workflow action data.
 //
-// Resolution order:
-//  1. The `workflow_config` field in `.sharkconfig.json` (default
-//     `shark-data/workflow/`) is read as the workflow *directory* and
-//     per-entity YAMLs are loaded from it. Override files at
-//     `<workflowDir>/../overrides/workflow/<entity>.yaml` (when the workflow
-//     dir lives under a `shark-data/`-shaped tree) fully replace the default
-//     YAML for that entity.
-//  2. Inline workflows in `.sharkconfig.json` (multi-level
-//     `bug_workflow`/`feature_workflow`/etc. blocks, plus the legacy
-//     top-level `status_flow` for the task slot) backstop any entity the
-//     YAML directory did not cover. This is what fresh checkouts and the
-//     legacy test fixtures rely on.
-//  3. Embedded canonical workflow YAML fills any entity slot left empty.
-//     Hardcoded Go defaults are used only if the embedded YAML is unavailable
-//     or invalid.
-//
-// projectRoot is derived from configPath (the directory containing
-// .sharkconfig.json).
+// It delegates all directory, index-file, inline, and embedded-default
+// resolution to LoadMultiLevelWorkflowFromBytes, then projects every entity
+// workflow into the action-service shape. Calling GetWorkflowForLevel fills
+// omitted slots from the same canonical defaults used by workflow.Service.
 //
 // Hard error: when `workflow_config` explicitly points at a deprecated JSON
 // workflow file, this loader fails with a migration hint. The minimal fix is
@@ -298,20 +284,9 @@ func entityTypesForLoader() []string {
 // other entity's workflow on the floor and caused status lookups to misroute
 // (see B020).
 func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.StatusActionData, error) {
-	projectRoot := filepath.Dir(configPath)
-
-	// TD-023: read .sharkconfig.json bytes once and thread them through every
-	// helper that would otherwise re-read the same file. The previous code
-	// hit os.ReadFile 2-3× per call (resolveWorkflowDir, the legacy-error
-	// helper, and LoadMultiLevelWorkflowOrDefault). On the cold-startup path
-	// behind ActionService's sync.Once, that adds gratuitous syscalls.
-	//
-	// configBytes may be nil/empty when .sharkconfig.json is missing — every
-	// downstream helper tolerates that (resolveWorkflowDir defaults the dir,
-	// the parser returns an empty MultiLevelWorkflow). An I/O error other
-	// than os.IsNotExist also collapses to nil bytes; the helpers behave the
-	// same as if the file were absent, which matches the prior best-effort
-	// semantics of the individual readers.
+	// TD-023: read .sharkconfig.json once, then use the bytes-accepting parser
+	// so ActionService and every other workflow consumer share one source
+	// resolution path.
 	configBytes, _ := readConfigFile(configPath)
 
 	configuredWorkflow := readWorkflowConfigField(configBytes)
@@ -319,96 +294,30 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 		return nil, workflow.DeprecatedWorkflowConfigJSONError()
 	}
 
-	workflowDir, overridesDir, isLegacyFile := resolveWorkflowDir(projectRoot, configBytes)
-
-	out := map[string]map[string]action.StatusActionData{}
-
-	entityTypes := entityTypesForLoader()
-
-	// resolveWorkflowDir signals an explicitly-configured regular file with
-	// isLegacyFile=true AND workflowDir=="". Two sub-cases live here:
-	//
-	//   1. Master index file (E35-F04): workflow_config points at a YAML file
-	//      with a top-level `entities:` map. This is a first-class Shark 2.0
-	//      target (see docs/guides/route-based-workflow.md §3) — load every
-	//      referenced entity workflow rooted at the index's bundle directory.
-	//   2. Genuine Shark 1.x JSON workflow file: reject with a migration hint.
-	//
-	// (The alternate isLegacyFile=true case — no workflow_config set, default
-	// dir missing — leaves workflowDir non-empty and falls through to Pass
-	// 1/2/3 so fresh projects and inline-config tests keep working.)
-	if isLegacyFile && workflowDir == "" {
-		indexPath := configuredWorkflow
-		if !filepath.IsAbs(indexPath) {
-			indexPath = filepath.Join(projectRoot, configuredWorkflow)
+	defaultWorkflowDir := ""
+	if configuredWorkflow == "" {
+		projectRoot := filepath.Dir(configPath)
+		sharkDataRoot, rootErr := ResolveSharkDataRoot(projectRoot, configBytes)
+		if rootErr != nil {
+			slog.Warn("invalid shark_data_path; falling back to default bundle root",
+				"error", rootErr, "default", DefaultSharkDataPath)
+			sharkDataRoot = filepath.Join(projectRoot, DefaultSharkDataPath)
 		}
-
-		idxMLW, isIndex, idxErr := workflow.LoadWorkflowIndexFile(indexPath)
-		if idxErr != nil {
-			return nil, idxErr
-		}
-		if !isIndex {
-			return nil, workflow.DeprecatedWorkflowConfigJSONError()
-		}
-
-		// Master index: project each entity slot it populated. Any slot the
-		// index did not cover is filled by Pass 3 (hardcoded defaults) below.
-		for _, entityType := range entityTypes {
-			if wf := idxMLW.GetByType(entityType); wf != nil {
-				out[entityType] = workflowToStatusActionData(wf)
-			}
-		}
+		defaultWorkflowDir = filepath.Join(sharkDataRoot, workflow.YAMLWorkflowDir)
 	}
 
-	// Pass 1: per-entity YAML at the configured workflow_config directory.
-	// A malformed sibling YAML must not discard the entity slots that parsed
-	// successfully (B026): the loader returns every parsed entity regardless of
-	// err, so we gate on mlw != nil and only log the partial-failure detail.
-	if workflowDir != "" {
-		if mlw, err := workflow.LoadMultiLevelWorkflowFromYAMLDir(workflowDir, overridesDir); mlw != nil {
-			if err != nil {
-				slog.Warn("action loader: workflow YAML dir partially loaded; using successfully-parsed entities",
-					"dir", workflowDir, "error", err)
-			}
-			for _, entityType := range entityTypes {
-				if wf := mlw.GetByType(entityType); wf != nil {
-					out[entityType] = workflowToStatusActionData(wf)
-				}
-			}
-		}
+	// Reload is documented to observe on-disk workflow changes. The parser's
+	// cache is correct for normal consumers, but ActionService calls this loader
+	// again on Reload, so clear it at this boundary before parsing.
+	workflow.ClearWorkflowCache()
+	mlw, err := workflow.LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath, configBytes, defaultWorkflowDir)
+	if err != nil {
+		return nil, err
 	}
 
-	// Pass 2: inline multi-level workflows from .sharkconfig.json itself.
-	// Covers legacy inline config blocks, including the top-level
-	// `status_flow` shape still used by many tests. Projects no longer need
-	// an init step for bundled workflows because Pass 3 reads embedded
-	// canonical YAML.
-	// Use the bytes-accepting variant so we don't re-read the file.
-	if mlw := workflow.LoadMultiLevelWorkflowOrDefaultFromBytes(configPath, configBytes); mlw != nil {
-		for _, entityType := range entityTypes {
-			if _, already := out[entityType]; already {
-				continue
-			}
-			if wf := mlw.GetByType(entityType); wf != nil {
-				out[entityType] = workflowToStatusActionData(wf)
-			}
-		}
-	}
-
-	// Pass 3: embedded canonical workflow for any entity still missing.
-	// GetWorkflowForLevel's default fallback now loads the same embedded
-	// route-based YAML (internal/sharkdata/default_data/workflow/<entity>.yaml)
-	// that Pass 3 used to fetch directly, so a zero-config project (no
-	// shark-data/ on disk, no inline config blocks) gets identical route-based
-	// workflows here as it does through workflow.Service.
-	emptyMLW := &workflow.MultiLevelWorkflow{}
-	for _, entityType := range entityTypes {
-		if _, ok := out[entityType]; ok {
-			continue
-		}
-		if wf := emptyMLW.GetWorkflowForLevel(entityType); wf != nil {
-			out[entityType] = workflowToStatusActionData(wf)
-		}
+	out := make(map[string]map[string]action.StatusActionData, len(entityTypesForLoader()))
+	for _, entityType := range entityTypesForLoader() {
+		out[entityType] = workflowToStatusActionData(mlw.GetWorkflowForLevel(entityType))
 	}
 
 	return out, nil

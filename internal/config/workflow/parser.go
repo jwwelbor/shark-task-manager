@@ -226,9 +226,24 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 // If data is empty, behaves the same as LoadMultiLevelWorkflow when the file
 // is missing: returns an empty MultiLevelWorkflow.
 func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLevelWorkflow, error) {
+	return loadMultiLevelWorkflowFromBytes(configPath, data, "")
+}
+
+// LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir is the same strict
+// parser with an optional default YAML directory for configurations that omit
+// workflow_config. An explicit workflow_config always takes precedence.
+//
+// ActionService uses this to derive its default from shark_data_path while all
+// other consumers retain the legacy root .sharkworkflow.json fallback.
+func LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath string, data []byte, defaultWorkflowDir string) (*MultiLevelWorkflow, error) {
+	return loadMultiLevelWorkflowFromBytes(configPath, data, defaultWorkflowDir)
+}
+
+func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWorkflowDir string) (*MultiLevelWorkflow, error) {
+	cacheKey := workflowParserCacheKey(configPath, defaultWorkflowDir)
 	// Check cache first (fast path) — callers may have already populated it.
 	multiLevelCacheLock.RLock()
-	if multiLevelCache != nil && multiLevelCachePath == configPath {
+	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
 		defer multiLevelCacheLock.RUnlock()
 		return multiLevelCache, nil
 	}
@@ -239,25 +254,31 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 	defer multiLevelCacheLock.Unlock()
 
 	// Double-check cache
-	if multiLevelCache != nil && multiLevelCachePath == configPath {
+	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
 		return multiLevelCache, nil
 	}
 
-	// Empty data => no config file present. Cache the empty result.
-	if len(data) == 0 {
+	// Without a configured default directory, empty data means no config file
+	// and preserves the historical empty-workflow result. ActionService passes
+	// a default directory derived from shark_data_path, which must still load
+	// disk YAML when the config file is absent.
+	if len(data) == 0 && defaultWorkflowDir == "" {
 		result := &MultiLevelWorkflow{}
 		multiLevelCache = result
-		multiLevelCachePath = configPath
+		multiLevelCachePath = cacheKey
 		return result, nil
 	}
 
-	// Parse full config as raw JSON
-	var rawConfig map[string]json.RawMessage
-	if err := json.Unmarshal(data, &rawConfig); err != nil {
-		if syntaxErr, ok := err.(*json.SyntaxError); ok {
-			return nil, fmt.Errorf("invalid JSON in %s at byte offset %d: %w", configPath, syntaxErr.Offset, err)
+	// Parse full config as raw JSON. Missing config with a caller-provided
+	// default directory is equivalent to an empty config object.
+	rawConfig := make(map[string]json.RawMessage)
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &rawConfig); err != nil {
+			if syntaxErr, ok := err.(*json.SyntaxError); ok {
+				return nil, fmt.Errorf("invalid JSON in %s at byte offset %d: %w", configPath, syntaxErr.Offset, err)
+			}
+			return nil, fmt.Errorf("failed to parse JSON in %s: %w", configPath, err)
 		}
-		return nil, fmt.Errorf("failed to parse JSON in %s: %w", configPath, err)
 	}
 
 	result := &MultiLevelWorkflow{
@@ -267,7 +288,7 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 	// --- Workflow file loading (E20-F04) ---
 	// Determine workflow file path and attempt to load it.
 	// Workflow file entities take precedence over .sharkconfig.json inline definitions.
-	workflowFilePath, userAbsolute := resolveWorkflowFilePath(configPath, rawConfig)
+	workflowFilePath, userAbsolute := resolveWorkflowFilePath(configPath, rawConfig, defaultWorkflowDir)
 
 	// Validate that relative workflow file paths do not escape the project root
 	// via path traversal. User-configured absolute paths (including ~/... expansion)
@@ -298,7 +319,7 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 			if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
 				return nil, err
 			}
-			cacheMultiLevel(result, configPath)
+			cacheMultiLevel(result, cacheKey)
 			return result, nil
 		}
 	}
@@ -321,33 +342,11 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		// those partial results so a single bad file doesn't silently reset
 		// every entity workflow to its hardcoded default.
 		if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
-			if mlw.Epic != nil {
-				result.Epic = mlw.Epic
-				result.Sources["epic"] = workflowFilePath
-			}
-			if mlw.Feature != nil {
-				result.Feature = mlw.Feature
-				result.Sources["feature"] = workflowFilePath
-			}
-			if mlw.Task != nil {
-				result.Task = mlw.Task
-				result.Sources["task"] = workflowFilePath
-			}
-			if mlw.Bug != nil {
-				result.Bug = mlw.Bug
-				result.Sources["bug"] = workflowFilePath
-			}
-			if mlw.Change != nil {
-				result.Change = mlw.Change
-				result.Sources["change"] = workflowFilePath
-			}
-			if mlw.TechDebt != nil {
-				result.TechDebt = mlw.TechDebt
-				result.Sources["tech_debt"] = workflowFilePath
-			}
-			if mlw.Sprint != nil {
-				result.Sprint = mlw.Sprint
-				result.Sources["sprint"] = workflowFilePath
+			for _, entityType := range EntityTypes() {
+				if wf := mlw.GetByType(entityType); wf != nil {
+					result.setByType(entityType, wf)
+					result.Sources[entityType] = workflowFilePath
+				}
 			}
 		}
 	}
@@ -519,17 +518,21 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 		return nil, err
 	}
 
-	// Also update the legacy single-level cache for backward compatibility
-	workflowCacheLock.Lock()
-	if result.Task != nil {
-		workflowCache = result.Task
+	// Also update the legacy single-level cache for backward compatibility.
+	// The special default-directory mode has a different source contract, so it
+	// must not populate the path-only legacy cache used by LoadWorkflowConfig.
+	if defaultWorkflowDir == "" {
+		workflowCacheLock.Lock()
+		if result.Task != nil {
+			workflowCache = result.Task
+		}
+		workflowCachePath = configPath
+		workflowCacheLock.Unlock()
 	}
-	workflowCachePath = configPath
-	workflowCacheLock.Unlock()
 
 	// Cache the multi-level result
 	multiLevelCache = result
-	multiLevelCachePath = configPath
+	multiLevelCachePath = cacheKey
 
 	return result, nil
 }
@@ -553,6 +556,7 @@ func applyIndexResult(result, idx *MultiLevelWorkflow, sourcePath string) {
 	set(&result.Change, idx.Change, "change")
 	set(&result.TechDebt, idx.TechDebt, "tech_debt")
 	set(&result.Sprint, idx.Sprint, "sprint")
+	set(&result.Question, idx.Question, "question")
 	if idx.TemplateDirectory != nil {
 		result.TemplateDirectory = idx.TemplateDirectory
 	}
@@ -565,7 +569,7 @@ func applyIndexResult(result, idx *MultiLevelWorkflow, sourcePath string) {
 
 // fillDefaultSources marks any entity slot not loaded from a file as "default".
 func fillDefaultSources(result *MultiLevelWorkflow) {
-	for _, level := range []string{"epic", "feature", "task", "bug", "change", "tech_debt"} {
+	for _, level := range EntityTypes() {
 		if _, ok := result.Sources[level]; !ok {
 			result.Sources[level] = "default"
 		}
@@ -574,16 +578,23 @@ func fillDefaultSources(result *MultiLevelWorkflow) {
 
 // cacheMultiLevel updates the legacy single-level cache and the multi-level
 // cache. The caller MUST already hold multiLevelCacheLock (write).
-func cacheMultiLevel(result *MultiLevelWorkflow, configPath string) {
+func cacheMultiLevel(result *MultiLevelWorkflow, cacheKey string) {
 	workflowCacheLock.Lock()
 	if result.Task != nil {
 		workflowCache = result.Task
 	}
-	workflowCachePath = configPath
+	workflowCachePath = cacheKey
 	workflowCacheLock.Unlock()
 
 	multiLevelCache = result
-	multiLevelCachePath = configPath
+	multiLevelCachePath = cacheKey
+}
+
+func workflowParserCacheKey(configPath, defaultWorkflowDir string) string {
+	if defaultWorkflowDir == "" {
+		return configPath
+	}
+	return configPath + "\x00" + defaultWorkflowDir
 }
 
 // LoadMultiLevelWorkflowOrDefault loads configs or returns defaults for missing sections.
@@ -740,7 +751,7 @@ func validateWorkflowFilePath(projectRoot, filePath string) error {
 // The second return value indicates whether the path was explicitly absolute
 // (user-configured absolute path or ~/... expansion), as opposed to a relative
 // path that was resolved to absolute via filepath.Join.
-func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMessage) (string, bool) {
+func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMessage, defaultWorkflowDir string) (string, bool) {
 	configDir := filepath.Dir(configPath)
 
 	// Check for workflow_config key in raw config
@@ -753,6 +764,9 @@ func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMes
 			}
 			return filepath.Join(configDir, wc), false
 		}
+	}
+	if defaultWorkflowDir != "" {
+		return defaultWorkflowDir, filepath.IsAbs(defaultWorkflowDir)
 	}
 
 	// Default: .sharkworkflow.json in the same directory as .sharkconfig.json
