@@ -1267,6 +1267,33 @@ assert d["inventory"][rep2_key]["classification"] == "complete", d["inventory"][
 	echo "TC-018m PASS"
 }
 
+# TC-018m2: dynamic gate metrics are per item. A gate that exists only on an
+# unrelated item must not create a zero-filled metric for this item's bands.
+test_m2() {
+	local root="$WORKDIR/m2-root" item_a="f03-fixture-tc018m2-a" item_b="f03-fixture-tc018m2-b"
+	place_record "$root" "$item_a" 1
+	place_record "$root" "$item_a" 2
+	place_record "$root" "$item_a" 3
+	place_record "$root" "$item_b" 1 --set 'rejections.by_gate={"external_gate": 1}'
+	place_record "$root" "$item_b" 2 --set 'rejections.by_gate={"external_gate": 1}'
+	place_record "$root" "$item_b" 3 --set 'rejections.by_gate={"external_gate": 1}'
+	local out err code
+	{ read -r out; read -r err; read -r code; } < <(run_aggregate "$root")
+	[[ "$code" -eq 0 ]] || fail "m2: aggregate exited $code: $(cat "$err")"
+	python3 - "$out" "$item_a" "$item_b" <<'PYEOF'
+import json
+import sys
+doc = json.load(open(sys.argv[1]))
+items = {task["item_id"]: task for task in doc["tasks"]}
+if "rejections_by_gate.external_gate" in items[sys.argv[2]]["metrics"]:
+    sys.exit("TC-018m2 FAIL: unrelated gate leaked into item A metrics")
+if "rejections_by_gate.external_gate" not in items[sys.argv[3]]["metrics"]:
+    sys.exit("TC-018m2 FAIL: observed item B gate missing")
+print("TC-018m2: per-item gate universe PASS")
+PYEOF
+	echo "TC-018m2 PASS"
+}
+
 # ---------------------------------------------------------------------------
 # TC-018r (REQ-F-019, input_digest is COMPUTED, not echoed): (a) mutation
 # sensitivity -- one byte of one contributing record.jsonl mutated ->
@@ -3440,6 +3467,7 @@ test_j
 test_k
 test_l
 test_m
+test_m2
 test_q
 test_r
 test_s
