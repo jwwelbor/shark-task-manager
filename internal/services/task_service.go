@@ -1563,6 +1563,12 @@ type taskEntityRepoAdapter struct {
 	// auto-unblock gate and dependency-satisfaction check use configured
 	// terminality instead of a hardcoded completed/archived pair.
 	terminalStatuses []string
+	// executionStatuses and blockedStatuses classify phase transitions for the
+	// repository's historical timestamp columns; unblockedStatus is the task
+	// workflow's entry target for dependency recovery.
+	executionStatuses []string
+	blockedStatuses   []string
+	unblockedStatus   models.TaskStatus
 }
 
 func (a *taskEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
@@ -1619,7 +1625,10 @@ func (a *taskEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, stat
 		CompletedAt:     task.CompletedAt,
 		BlockedAt:       task.BlockedAt,
 
-		TerminalStatuses: a.terminalStatuses,
+		TerminalStatuses:  a.terminalStatuses,
+		ExecutionStatuses: a.executionStatuses,
+		BlockedStatuses:   a.blockedStatuses,
+		UnblockedStatus:   a.unblockedStatus,
 	}
 
 	var unblockedKeys []string
@@ -1677,7 +1686,10 @@ func (a *taskEntityRepoAdapter) UpdateStatusIfCurrent(ctx context.Context, id in
 		BlockedAt:       task.BlockedAt,
 		Guarded:         true,
 
-		TerminalStatuses: a.terminalStatuses,
+		TerminalStatuses:  a.terminalStatuses,
+		ExecutionStatuses: a.executionStatuses,
+		BlockedStatuses:   a.blockedStatuses,
+		UnblockedStatus:   a.unblockedStatus,
 	}
 
 	var unblockedKeys []string
@@ -1744,7 +1756,10 @@ func (s *TaskService) makeTaskEntityAdapter(opts TransitionOptions) *taskEntityR
 			documentPath: docPathPtr,
 			force:        opts.Force,
 		},
-		terminalStatuses: s.taskTerminalStatuses(),
+		terminalStatuses:  s.taskTerminalStatuses(),
+		executionStatuses: s.taskExecutionStatuses(),
+		blockedStatuses:   s.taskStatusesByPhase("blocked"),
+		unblockedStatus:   models.TaskStatus(s.entitySvc.GetWorkflowService().GetDefaultStatus()),
 	}
 }
 
@@ -1757,6 +1772,25 @@ func (s *TaskService) taskTerminalStatuses() []string {
 		return nil
 	}
 	return wf.GetTerminalStatuses()
+}
+
+func (s *TaskService) taskStatusesByPhase(phase string) []string {
+	wf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelTask)
+	if wf == nil {
+		return nil
+	}
+	return wf.GetStatusesByPhase(phase)
+}
+
+// taskExecutionStatuses accepts the current workflow vocabulary (execution)
+// and the established task-workflow vocabulary (development). The latter is
+// the default shipped task workflow's active work phase.
+func (s *TaskService) taskExecutionStatuses() []string {
+	statuses := s.taskStatusesByPhase("execution")
+	if len(statuses) != 0 {
+		return statuses
+	}
+	return s.taskStatusesByPhase("development")
 }
 
 // GetTaskHistory retrieves the complete status change history for a task.

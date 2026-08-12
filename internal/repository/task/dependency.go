@@ -239,6 +239,12 @@ func (r *TaskRepository) GetTaskDependencies(ctx context.Context, taskKey string
 // ReopenTaskWithAutoBlock reopens a task and automatically blocks all dependent tasks.
 // This is the recommended method to use when reopening tasks with dependents.
 func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int64, agent *string, notes *string) error {
+	return r.ReopenTaskWithAutoBlockWithPolicy(ctx, taskID, agent, notes, models.TaskDependencyStatusPolicy{})
+}
+
+// ReopenTaskWithAutoBlockWithPolicy applies caller-resolved workflow status
+// semantics while retaining the legacy convenience API above.
+func (r *TaskRepository) ReopenTaskWithAutoBlockWithPolicy(ctx context.Context, taskID int64, agent *string, notes *string, policy models.TaskDependencyStatusPolicy) error {
 	// Start transaction for atomic operations
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -246,7 +252,7 @@ func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := r.ReopenTaskWithAutoBlockWithTx(ctx, tx, taskID, agent, notes); err != nil {
+	if err := r.ReopenTaskWithAutoBlockWithPolicyWithTx(ctx, tx, taskID, agent, notes, policy); err != nil {
 		return err
 	}
 
@@ -262,6 +268,12 @@ func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int
 // caller-provided transaction. This allows the service layer to own the transaction
 // boundary when this operation must be composed with other atomic operations.
 func (r *TaskRepository) ReopenTaskWithAutoBlockWithTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string) error {
+	return r.ReopenTaskWithAutoBlockWithPolicyWithTx(ctx, tx, taskID, agent, notes, models.TaskDependencyStatusPolicy{})
+}
+
+// ReopenTaskWithAutoBlockWithPolicyWithTx is the transaction-aware form of
+// ReopenTaskWithAutoBlockWithPolicy.
+func (r *TaskRepository) ReopenTaskWithAutoBlockWithPolicyWithTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string, policy models.TaskDependencyStatusPolicy) error {
 	// Get the task being reopened
 	var taskKey string
 	err := tx.QueryRowContext(ctx, "SELECT key FROM tasks WHERE id = ?", taskID).Scan(&taskKey)
@@ -270,7 +282,7 @@ func (r *TaskRepository) ReopenTaskWithAutoBlockWithTx(ctx context.Context, tx *
 	}
 
 	// Reopen the task
-	if err := r.reopenTaskInTx(ctx, tx, taskID, agent, notes); err != nil {
+	if err := r.reopenTaskInTx(ctx, tx, taskID, agent, notes, policy.ReopenStatus); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
 	}
 
@@ -283,7 +295,7 @@ func (r *TaskRepository) ReopenTaskWithAutoBlockWithTx(ctx context.Context, tx *
 	// Block all non-completed dependents and their transitive dependents
 	blockedTasks := make(map[string]bool)
 	for _, dependent := range dependents {
-		if err := r.blockTaskAndDependentsInTx(ctx, tx, dependent, taskKey, blockedTasks); err != nil {
+		if err := r.blockTaskAndDependentsInTx(ctx, tx, dependent, taskKey, blockedTasks, policy); err != nil {
 			return fmt.Errorf("failed to block dependent %s: %w", dependent.Key, err)
 		}
 	}
@@ -294,7 +306,10 @@ func (r *TaskRepository) ReopenTaskWithAutoBlockWithTx(ctx context.Context, tx *
 // reopenTaskInTx reopens a task within a transaction.
 // NOTE: Workflow validation is handled by the service layer. This method performs
 // the raw status update without checking the current status.
-func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string) error {
+func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string, reopenStatus models.TaskStatus) error {
+	if reopenStatus == "" {
+		reopenStatus = defaultTaskReopenStatus
+	}
 	// Get current task state for history record
 	var currentStatus string
 	err := tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
@@ -307,14 +322,14 @@ func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID 
 
 	// Update status and clear completed_at
 	query := `UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatus("in_progress"), taskID)
+	_, err = tx.ExecContext(ctx, query, reopenStatus, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("in_progress"), agent, notes, false)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, reopenStatus, agent, notes, false)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -432,7 +447,7 @@ func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, 
 }
 
 // blockTaskAndDependentsInTx recursively blocks a task and all its dependents within a transaction
-func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql.Tx, task *models.Task, reopenedTaskKey string, blockedTasks map[string]bool) error {
+func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql.Tx, task *models.Task, reopenedTaskKey string, blockedTasks map[string]bool, policy models.TaskDependencyStatusPolicy) error {
 	// Skip if already processed
 	if blockedTasks[task.Key] {
 		return nil
@@ -446,21 +461,25 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 	// service callers. Until then it routes through isTerminalTaskStatus with
 	// the documented default, so the literal set lives in exactly one place in
 	// this file rather than being restated here.
-	if isTerminalTaskStatus(nil, task.Status) {
+	if isTerminalTaskStatus(policy.TerminalStatuses, task.Status) {
 		return nil
 	}
 
 	// Block this task
 	reason := fmt.Sprintf("%s%s was reopened", DependencyReopenedBlockReasonPrefix, reopenedTaskKey)
 	query := `UPDATE tasks SET status = ?, blocked_at = CURRENT_TIMESTAMP, blocked_reason = ? WHERE id = ?`
-	_, err := tx.ExecContext(ctx, query, models.TaskStatus("blocked"), reason, task.ID)
+	blockedStatus := policy.BlockedStatuses
+	if len(blockedStatus) == 0 {
+		blockedStatus = defaultTaskBlockedStatuses
+	}
+	_, err := tx.ExecContext(ctx, query, blockedStatus[0], reason, task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to block task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatus("blocked"), nil, reason, false)
+	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, blockedStatus[0], nil, reason, false)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -475,7 +494,7 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 	}
 
 	for _, dependent := range dependents {
-		if err := r.blockTaskAndDependentsInTx(ctx, tx, dependent, reopenedTaskKey, blockedTasks); err != nil {
+		if err := r.blockTaskAndDependentsInTx(ctx, tx, dependent, reopenedTaskKey, blockedTasks, policy); err != nil {
 			return err
 		}
 	}
@@ -492,13 +511,33 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 // defaultBugTerminalStatuses / defaultChangeCardTerminalStatuses.
 var defaultTaskTerminalStatuses = []string{"completed", "archived"}
 
+var defaultTaskExecutionStatuses = []string{"in_progress"}
+
+var defaultTaskBlockedStatuses = []string{"blocked"}
+
+const defaultTaskUnblockedStatus models.TaskStatus = "todo"
+
+const defaultTaskReopenStatus models.TaskStatus = "in_progress"
+
 // isTerminalTaskStatus reports whether status appears in terminalStatuses
 // (case-insensitively), falling back to defaultTaskTerminalStatuses when the
 // caller supplied none.
 func isTerminalTaskStatus(terminalStatuses []string, status models.TaskStatus) bool {
-	list := terminalStatuses
+	return taskStatusInList(terminalStatuses, defaultTaskTerminalStatuses, status)
+}
+
+func isExecutionTaskStatus(executionStatuses []string, status models.TaskStatus) bool {
+	return taskStatusInList(executionStatuses, defaultTaskExecutionStatuses, status)
+}
+
+func isBlockedTaskStatus(blockedStatuses []string, status models.TaskStatus) bool {
+	return taskStatusInList(blockedStatuses, defaultTaskBlockedStatuses, status)
+}
+
+func taskStatusInList(statuses, fallback []string, status models.TaskStatus) bool {
+	list := statuses
 	if len(list) == 0 {
-		list = defaultTaskTerminalStatuses
+		list = fallback
 	}
 	for _, t := range list {
 		if strings.EqualFold(t, string(status)) {
@@ -517,6 +556,13 @@ func isTerminalTaskStatus(terminalStatuses []string, status models.TaskStatus) b
 // list used to decide dependency satisfaction; pass nil to accept the
 // documented default.
 func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, completedTaskKey string, terminalStatuses []string) ([]string, error) {
+	return r.AutoUnblockDependentsWithPolicy(ctx, tx, completedTaskKey, terminalStatuses, nil, "")
+}
+
+// AutoUnblockDependentsWithPolicy applies a service-resolved dependency status
+// policy while retaining the historical AutoUnblockDependents API for direct
+// repository callers.
+func (r *TaskRepository) AutoUnblockDependentsWithPolicy(ctx context.Context, tx *sql.Tx, completedTaskKey string, terminalStatuses, blockedStatuses []string, unblockedStatus models.TaskStatus) ([]string, error) {
 	// Get dependents of the completed task
 	dependents, err := r.getTaskDependentsInTx(ctx, tx, completedTaskKey)
 	if err != nil {
@@ -526,7 +572,7 @@ func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, 
 	var unblocked []string
 	for _, dependent := range dependents {
 		// Only consider blocked tasks
-		if dependent.Status != models.TaskStatus("blocked") {
+		if !isBlockedTaskStatus(blockedStatuses, dependent.Status) {
 			continue
 		}
 
@@ -546,7 +592,7 @@ func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, 
 		}
 
 		// Unblock the task: set status to todo, clear blocked_at and blocked_reason
-		if err := r.unblockTaskInTx(ctx, tx, dependent); err != nil {
+		if err := r.unblockTaskInTx(ctx, tx, dependent, unblockedStatus); err != nil {
 			return nil, fmt.Errorf("failed to unblock %s: %w", dependent.Key, err)
 		}
 
@@ -633,16 +679,19 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 
 // unblockTaskInTx transitions a task from blocked to todo within a transaction,
 // clearing blocked_at and blocked_reason, and recording history.
-func (r *TaskRepository) unblockTaskInTx(ctx context.Context, tx *sql.Tx, task *models.Task) error {
+func (r *TaskRepository) unblockTaskInTx(ctx context.Context, tx *sql.Tx, task *models.Task, unblockedStatus models.TaskStatus) error {
+	if unblockedStatus == "" {
+		unblockedStatus = defaultTaskUnblockedStatus
+	}
 	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
-	_, err := tx.ExecContext(ctx, query, models.TaskStatus("todo"), task.ID)
+	_, err := tx.ExecContext(ctx, query, unblockedStatus, task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to unblock task: %w", err)
 	}
 
 	notes := "Auto-unblocked: all dependencies satisfied"
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatus("todo"), nil, notes, false)
+	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, unblockedStatus, nil, notes, false)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}

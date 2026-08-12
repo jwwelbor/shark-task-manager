@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -955,6 +957,30 @@ func TestGetSummary_ArchivedSprintAccepted(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	assert.Equal(t, "S024", result.SprintKey)
+}
+
+func TestGetSummary_UsesConfiguredDonePhase(t *testing.T) {
+	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	sprintRepo := &MockSprintRepository{GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+		return sprintHelper("S024", "wrapped", startDate, endDate), nil
+	}}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(context.Context, int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{}, nil
+		},
+		GetCompletionEventsFunc: func(context.Context, int64, time.Time, time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
+		},
+		GetVelocityDataFunc: func(context.Context, int) ([]AnalyticsVelocityRow, error) { return []AnalyticsVelocityRow{}, nil },
+	}
+	sprintWorkflow := &config.WorkflowConfig{Steps: map[string]*config.Step{"wrapped": {Phase: "done"}, "archived": {Phase: "done", Terminal: true}}, StatusMetadata: map[string]config.StatusMetadata{"wrapped": {Phase: "done"}, "archived": {Phase: "done"}}}
+	sprintWorkflow.DeriveLegacy()
+	svc := NewSprintAnalyticsService(analyticsRepo, sprintRepo)
+	svc.SetWorkflow(workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Sprint: sprintWorkflow}))
+	result, err := svc.GetSummary(context.Background(), "S024", false)
+	require.NoError(t, err)
 	assert.Equal(t, "S024", result.SprintKey)
 }
 

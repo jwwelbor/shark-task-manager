@@ -110,6 +110,50 @@ func TestAutoUnblock_SingleDependency(t *testing.T) {
 	assert.Nil(t, updated.BlockedReason)
 }
 
+func TestTaskStatusPolicy_UsesConfiguredDependencyTargetsAndTimestamps(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRepository(db)
+	_, featureID, cleanup := setupAutoUnblockTest(t)
+	defer cleanup()
+
+	prerequisite := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Prerequisite", Description: stringPtr("")}, FeatureID: featureID, Status: "queued", Priority: 5}
+	dependent := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Dependent", Description: stringPtr("")}, FeatureID: featureID, Status: "stalled", Priority: 5, DependsOn: stringPtr(`["T-E97-F01-001"]`)}
+	require.NoError(t, repo.Create(ctx, prerequisite))
+	require.NoError(t, repo.Create(ctx, dependent))
+	_, err := database.ExecContext(ctx, "UPDATE tasks SET blocked_reason = ? WHERE id = ?", "Prerequisite task T-E97-F01-001 was reopened", dependent.ID)
+	require.NoError(t, err)
+
+	_, err = repo.StatusUpdateRaw(ctx, models.StatusUpdateParams{
+		TaskID: prerequisite.ID, TaskKey: prerequisite.Key, OldStatus: "queued", NewStatus: "shipped",
+		TerminalStatuses: []string{"shipped"}, BlockedStatuses: []string{"stalled"}, ExecutionStatuses: []string{"working"}, UnblockedStatus: "queued",
+	})
+	require.NoError(t, err)
+	updatedDependent, err := repo.GetByID(ctx, dependent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatus("queued"), updatedDependent.Status)
+
+	_, err = repo.StatusUpdateRaw(ctx, models.StatusUpdateParams{
+		TaskID: prerequisite.ID, TaskKey: prerequisite.Key, OldStatus: "shipped", NewStatus: "working",
+		TerminalStatuses: []string{"shipped"}, BlockedStatuses: []string{"stalled"}, ExecutionStatuses: []string{"working"}, UnblockedStatus: "queued",
+	})
+	require.NoError(t, err)
+	updatedPrerequisite, err := repo.GetByID(ctx, prerequisite.ID)
+	require.NoError(t, err)
+	assert.True(t, updatedPrerequisite.StartedAt.Valid)
+
+	require.NoError(t, repo.ReopenTaskWithAutoBlockWithPolicy(ctx, prerequisite.ID, nil, nil, models.TaskDependencyStatusPolicy{
+		TerminalStatuses: []string{"shipped"}, BlockedStatuses: []string{"stalled"}, ReopenStatus: "working", UnblockedStatus: "queued",
+	}))
+	updatedPrerequisite, err = repo.GetByID(ctx, prerequisite.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatus("working"), updatedPrerequisite.Status)
+	updatedDependent, err = repo.GetByID(ctx, dependent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatus("stalled"), updatedDependent.Status)
+}
+
 func TestAutoUnblock_MultipleDeps_PartialCompletion(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
