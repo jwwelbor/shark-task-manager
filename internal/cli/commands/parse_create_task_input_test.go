@@ -142,11 +142,23 @@ func TestParseCreateTaskInput_DependsOn(t *testing.T) {
 		t.Errorf("expected 2 dependencies, got %d: %v", len(got.DependsOn), got.DependsOn)
 		return
 	}
-	if got.DependsOn[0] != "E07-F01-001" {
-		t.Errorf("expected DependsOn[0]=%q, got %q", "E07-F01-001", got.DependsOn[0])
+	if got.DependsOn[0] != "T-E07-F01-001" {
+		t.Errorf("expected DependsOn[0]=%q, got %q", "T-E07-F01-001", got.DependsOn[0])
 	}
-	if got.DependsOn[1] != "E07-F01-002" {
-		t.Errorf("expected DependsOn[1]=%q, got %q", "E07-F01-002", got.DependsOn[1])
+	if got.DependsOn[1] != "T-E07-F01-002" {
+		t.Errorf("expected DependsOn[1]=%q, got %q", "T-E07-F01-002", got.DependsOn[1])
+	}
+}
+
+func TestParseCreateTaskInput_DependsOnPreservesInvalidKeyForValidation(t *testing.T) {
+	cmd := newTestTaskCreateCmd()
+	if err := cmd.Flags().Set("depends-on", "not-a-task-key"); err != nil {
+		t.Fatalf("set depends-on flag: %v", err)
+	}
+
+	got := parseCreateTaskInput(cmd, []string{"E07", "F01", "Dependent Task"})
+	if len(got.DependsOn) != 1 || got.DependsOn[0] != "not-a-task-key" {
+		t.Errorf("DependsOn = %#v, want []string{\"not-a-task-key\"}", got.DependsOn)
 	}
 }
 
