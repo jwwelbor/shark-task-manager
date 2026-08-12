@@ -86,17 +86,23 @@ func TestValidateWorkflow_AmbiguousPhase_NoPrimary(t *testing.T) {
 	} {
 		cfg := designationFixture()
 		cfg.Steps[tc.step].Primary = false
-		err := ValidateWorkflow(cfg)
+		err := ValidateWorkflowForLevel(cfg, "sprint")
 		require.Error(t, err, "phase %s: expected ambiguous-phase error", tc.phase)
 		assert.Contains(t, err.Error(), tc.phase)
 		assert.Contains(t, err.Error(), "primary")
 	}
 }
 
+func TestValidateWorkflowForLevel_NonSprintAllowsAmbiguousLifecyclePhases(t *testing.T) {
+	cfg := designationFixture()
+	cfg.Steps["planning"].Primary = false
+	require.NoError(t, ValidateWorkflowForLevel(cfg, "feature"))
+}
+
 func TestValidateWorkflow_AmbiguousCompletedSprintStatus_NoPrimary(t *testing.T) {
 	cfg := designationFixture()
 	cfg.Steps["completed"].Primary = false
-	err := ValidateWorkflow(cfg)
+	err := ValidateWorkflowForLevel(cfg, "sprint")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "completed (done-phase, non-terminal)")
 	assert.Contains(t, err.Error(), "primary")
