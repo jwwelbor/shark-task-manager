@@ -8,6 +8,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -59,6 +60,43 @@ type QuestionFullReadDeniedError struct{ Key string }
 
 func (e *QuestionFullReadDeniedError) Error() string {
 	return fmt.Sprintf("full Question read for %s is not authorized", e.Key)
+}
+
+// QuestionRuleError is a caller-correctable Question workflow rejection.
+// Its class lets transports preserve the public 400/409 contract without
+// inferring business semantics from Error text.
+type QuestionRuleError struct {
+	Class QuestionRuleErrorClass
+	Err   error
+}
+
+// QuestionRuleErrorClass classifies a Question rule rejection for transports.
+type QuestionRuleErrorClass uint8
+
+const (
+	QuestionRuleValidation QuestionRuleErrorClass = iota + 1
+	QuestionRuleConflict
+)
+
+func (e *QuestionRuleError) Error() string { return e.Err.Error() }
+func (e *QuestionRuleError) Unwrap() error { return e.Err }
+
+func questionValidationError(err error) error {
+	return &QuestionRuleError{Class: QuestionRuleValidation, Err: err}
+}
+
+func questionConflictError(err error) error {
+	return &QuestionRuleError{Class: QuestionRuleConflict, Err: err}
+}
+
+// classifyQuestionTransitionError preserves the API's caller-correctable 409
+// for the repository's typed optimistic-write conflict while leaving actual
+// database failures unclassified as internal errors.
+func classifyQuestionTransitionError(err error) error {
+	if errors.Is(err, repoerr.ErrConditionalWriteConflict) {
+		return questionConflictError(err)
+	}
+	return err
 }
 
 // CreateQuestionInput is the bounded base-record shape for direct Question
@@ -157,13 +195,13 @@ func (s *QuestionService) CreateQuestion(ctx context.Context, input CreateQuesti
 	summary := strings.TrimSpace(input.Summary)
 	requester := strings.TrimSpace(input.Requester)
 	if title == "" {
-		return nil, fmt.Errorf("question title is required")
+		return nil, questionValidationError(fmt.Errorf("question title is required"))
 	}
 	if summary == "" {
-		return nil, fmt.Errorf("question summary is required")
+		return nil, questionValidationError(fmt.Errorf("question summary is required"))
 	}
 	if requester == "" {
-		return nil, fmt.Errorf("question requester is required")
+		return nil, questionValidationError(fmt.Errorf("question requester is required"))
 	}
 
 	slug := utils.GenerateSlug(title)
@@ -418,7 +456,7 @@ func normalizeQuestionReadPage(limit, offset int) (int, error) {
 // values are trimmed once and rejected before the repository is called.
 func (s *QuestionService) UpdateQuestion(ctx context.Context, key string, updates QuestionUpdates) (*models.Question, error) {
 	if updates.Title == nil && updates.Summary == nil && updates.Requester == nil && updates.Description == nil && updates.Blocking == nil {
-		return nil, fmt.Errorf("question update requires at least one supported field")
+		return nil, questionValidationError(fmt.Errorf("question update requires at least one supported field"))
 	}
 	question, err := s.GetQuestion(ctx, key)
 	if err != nil {
@@ -440,7 +478,7 @@ func (s *QuestionService) UpdateQuestion(ctx context.Context, key string, update
 		question.Blocking = *updates.Blocking
 	}
 	if err := question.Validate(); err != nil {
-		return nil, fmt.Errorf("validate question update: %w", err)
+		return nil, fmt.Errorf("validate question update: %w", questionValidationError(err))
 	}
 	if err := s.repo.Update(ctx, question); err != nil {
 		return nil, fmt.Errorf("update question %s: %w", key, err)

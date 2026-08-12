@@ -35,6 +35,7 @@ type MockTaskRepository struct {
 	GetByIDFunc                       func(ctx context.Context, id int64) (*models.Task, error)
 	UpdateFunc                        func(ctx context.Context, task *models.Task) error
 	UpdateNoResequenceFunc            func(ctx context.Context, task *models.Task) error
+	UpdateClearingDependenciesFunc    func(ctx context.Context, task *models.Task, skipResequence bool) error
 	DeleteFunc                        func(ctx context.Context, id int64) error
 	ListFunc                          func(ctx context.Context) ([]*models.Task, error)
 	ListByFeatureFunc                 func(ctx context.Context, featureID int64) ([]*models.Task, error)
@@ -84,6 +85,13 @@ func (m *MockTaskRepository) UpdateNoResequence(ctx context.Context, task *model
 		return m.UpdateNoResequenceFunc(ctx, task)
 	}
 	return fmt.Errorf("UpdateNoResequence not implemented in mock")
+}
+
+func (m *MockTaskRepository) UpdateClearingDependencies(ctx context.Context, task *models.Task, skipResequence bool) error {
+	if m.UpdateClearingDependenciesFunc != nil {
+		return m.UpdateClearingDependenciesFunc(ctx, task, skipResequence)
+	}
+	return m.Update(ctx, task)
 }
 
 func (m *MockTaskRepository) Delete(ctx context.Context, id int64) error {
@@ -3341,6 +3349,7 @@ func TestTaskService_UpdateTask_SetsDependsOn(t *testing.T) {
 
 func TestTaskService_UpdateTask_ClearDependsOn(t *testing.T) {
 	var capturedTask *models.Task
+	clearCalled := false
 	agentType := "developer"
 	existingDeps := `["T-E07-F01-002"]`
 	mockRepo := &MockTaskRepository{
@@ -3357,6 +3366,11 @@ func TestTaskService_UpdateTask_ClearDependsOn(t *testing.T) {
 			capturedTask = task
 			return nil
 		},
+		UpdateClearingDependenciesFunc: func(ctx context.Context, task *models.Task, skipResequence bool) error {
+			clearCalled = true
+			capturedTask = task
+			return nil
+		},
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
@@ -3368,6 +3382,7 @@ func TestTaskService_UpdateTask_ClearDependsOn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, task)
 	require.NotNil(t, capturedTask, "repo Update must be called")
+	assert.True(t, clearCalled, "ClearDependsOn must use the relationship-clearing repository path")
 	assert.Nil(t, capturedTask.DependsOn, "ClearDependsOn=true should set DependsOn to nil")
 }
 

@@ -11,8 +11,23 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestClassifyQuestionTransitionError(t *testing.T) {
+	conflict := fmt.Errorf("record Question response: Question changed or is not answerable: %w", repoerr.ErrConditionalWriteConflict)
+	classified := classifyQuestionTransitionError(conflict)
+	var ruleErr *QuestionRuleError
+	require.ErrorAs(t, classified, &ruleErr)
+	assert.Equal(t, QuestionRuleConflict, ruleErr.Class)
+	assert.ErrorIs(t, classified, repoerr.ErrConditionalWriteConflict)
+
+	infra := errors.New("database unavailable")
+	assert.Same(t, infra, classifyQuestionTransitionError(infra))
+}
 
 type mockQuestionRepository struct {
 	createFn                func(context.Context, *models.Question) error
@@ -273,6 +288,27 @@ func TestQuestionServiceConfigureWorkflow_TC102(t *testing.T) {
 	if question.ContextData != before {
 		t.Fatal("TC-102 rejected configuration mutated context data")
 	}
+}
+
+// A stale transition write remains a caller-correctable conflict through the
+// actual service operation, rather than falling through as an internal error.
+func TestQuestionServiceConfigureWorkflowClassifiesConditionalWriteConflict(t *testing.T) {
+	question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001"}, Status: models.QuestionStatusOpen, Summary: "Confirm release", Requester: "alice"}
+	repo := &mockQuestionRepository{
+		getByKeyFn: func(_ context.Context, _ string) (*models.Question, error) { return question, nil },
+		configureWorkflowFn: func(context.Context, int64, models.QuestionStatus, *string, *string, string) error {
+			return fmt.Errorf("Question changed or is already configured: %w", repoerr.ErrConditionalWriteConflict)
+		},
+	}
+	svc, err := NewQuestionService(repo)
+	require.NoError(t, err)
+
+	_, err = svc.ConfigureWorkflow(context.Background(), ConfigureWorkflowInput{Key: "Q001", ResolutionOwner: "release-owner", Responders: []string{"alice"}})
+	require.Error(t, err)
+	var ruleErr *QuestionRuleError
+	require.ErrorAs(t, err, &ruleErr)
+	assert.Equal(t, QuestionRuleConflict, ruleErr.Class)
+	assert.ErrorIs(t, err, repoerr.ErrConditionalWriteConflict)
 }
 
 // TestQuestionServiceConfigureWorkflowRejectsDuplicateResponderIdentity_TC102

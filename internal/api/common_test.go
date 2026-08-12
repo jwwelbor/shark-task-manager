@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // TestHandleServiceErrorClassifiesQuestionBusinessRuleErrors locks in that
@@ -20,13 +22,13 @@ func TestHandleServiceErrorClassifiesQuestionBusinessRuleErrors(t *testing.T) {
 		entityType string
 		wantStatus int
 	}{
-		{"draft_or_open_conflict", errors.New("configure Question workflow Q001: Question must be draft or open"), "question", http.StatusConflict},
-		{"already_configured_conflict", errors.New("configure Question workflow Q001: Question is already configured"), "question", http.StatusConflict},
-		{"claim_mismatch_conflict", errors.New("record Question response Q001: active claim does not match responder session"), "question", http.StatusConflict},
-		{"not_ready_for_resolution_conflict", errors.New("resolve Question Q001: Question must be ready for resolution with all responders completed"), "question", http.StatusConflict},
-		{"already_terminal_conflict", errors.New("withdrawn Question Q001: Question is already terminal"), "question", http.StatusConflict},
-		{"required_field_bad_request", errors.New("record Question response: session and responder are required"), "question", http.StatusBadRequest},
-		{"destination_missing_bad_request", errors.New("resolve Question Q001: validate destination: document destination \"docs/x.md\" does not exist: stat: no such file"), "question", http.StatusBadRequest},
+		{"draft_or_open_conflict", &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: errors.New("configure Question workflow Q001: Question must be draft or open")}, "question", http.StatusConflict},
+		{"already_configured_conflict", &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: errors.New("configure Question workflow Q001: Question is already configured")}, "question", http.StatusConflict},
+		{"claim_mismatch_conflict", &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: errors.New("record Question response Q001: active claim does not match responder session")}, "question", http.StatusConflict},
+		{"not_ready_for_resolution_conflict", &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: errors.New("resolve Question Q001: Question must be ready for resolution with all responders completed")}, "question", http.StatusConflict},
+		{"already_terminal_conflict", &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: errors.New("withdrawn Question Q001: Question is already terminal")}, "question", http.StatusConflict},
+		{"required_field_bad_request", &services.QuestionRuleError{Class: services.QuestionRuleValidation, Err: errors.New("record Question response: session and responder are required")}, "question", http.StatusBadRequest},
+		{"destination_missing_bad_request", &services.QuestionRuleError{Class: services.QuestionRuleValidation, Err: errors.New("resolve Question Q001: validate destination: document destination \"docs/x.md\" does not exist: stat: no such file")}, "question", http.StatusBadRequest},
 		{"unclassified_falls_back_to_500", errors.New("boom: unexpected database failure"), "question", http.StatusInternalServerError},
 		{"non_question_entity_keeps_generic_500", errors.New("must be draft or open"), "bug", http.StatusInternalServerError},
 	}

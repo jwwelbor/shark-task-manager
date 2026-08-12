@@ -52,12 +52,12 @@ func (s *QuestionService) ConfigureWorkflow(ctx context.Context, input Configure
 		return nil, err
 	}
 	if question.Status != models.QuestionStatusDraft && question.Status != models.QuestionStatusOpen {
-		return nil, fmt.Errorf("configure Question workflow %s: Question must be draft or open", question.Key)
+		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, questionConflictError(errors.New("Question must be draft or open")))
 	}
 	if existing, err := models.DecodeQuestionState(question.ContextData); err != nil {
 		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, err)
 	} else if existing != nil {
-		return nil, fmt.Errorf("configure Question workflow %s: Question is already configured", question.Key)
+		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, questionConflictError(errors.New("Question is already configured")))
 	}
 	responders := make([]models.QuestionResponder, len(input.Responders))
 	for i, identity := range input.Responders {
@@ -65,14 +65,14 @@ func (s *QuestionService) ConfigureWorkflow(ctx context.Context, input Configure
 	}
 	state := models.QuestionState{ResolutionOwner: input.ResolutionOwner, Responders: responders}
 	if err := state.Validate(); err != nil {
-		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, err)
+		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, questionValidationError(err))
 	}
 	encoded, err := models.EncodeQuestionState(question.ContextData, state)
 	if err != nil {
 		return nil, fmt.Errorf("encode configured Question workflow %s: %w", question.Key, err)
 	}
 	if err := s.repo.ConfigureWorkflow(ctx, question.ID, question.Status, question.ContextData, encoded, state.ResolutionOwner); err != nil {
-		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, err)
+		return nil, fmt.Errorf("configure Question workflow %s: %w", question.Key, classifyQuestionTransitionError(err))
 	}
 	question.ContextData = encoded
 	question.Status = models.QuestionStatusOpen
@@ -104,20 +104,20 @@ func (s *QuestionService) RecordResponse(ctx context.Context, input RecordQuesti
 		return question, nil
 	}
 	if question.Status != models.QuestionStatusOpen && question.Status != models.QuestionStatusAnswering {
-		return nil, fmt.Errorf("record Question response %s: Question must be open or answering", question.Key)
+		return nil, fmt.Errorf("record Question response %s: %w", question.Key, questionConflictError(errors.New("Question must be open or answering")))
 	}
 	if input.SessionID == "" || input.Responder == "" {
-		return nil, errors.New("record Question response: session and responder are required")
+		return nil, questionValidationError(errors.New("record Question response: session and responder are required"))
 	}
 	claim, err := s.claimReader.Get(ctx, string(models.EntityTypeQuestion), question.Key)
 	if err != nil {
 		return nil, fmt.Errorf("record Question response %s: load claim: %w", question.Key, err)
 	}
 	if claim == nil || claim.SessionID != input.SessionID || claim.ClaimedBy != input.Responder {
-		return nil, fmt.Errorf("record Question response %s: active claim does not match responder session", question.Key)
+		return nil, fmt.Errorf("record Question response %s: %w", question.Key, questionConflictError(errors.New("active claim does not match responder session")))
 	}
 	if state.CurrentResponder() != input.Responder {
-		return nil, fmt.Errorf("record Question response %s: responder is not current", question.Key)
+		return nil, fmt.Errorf("record Question response %s: %w", question.Key, questionConflictError(errors.New("responder is not current")))
 	}
 	response := models.QuestionResponse{SessionID: input.SessionID, Responder: input.Responder, Summary: input.Summary, EvidencePointer: input.EvidencePointer, RecordedAt: time.Now().UTC()}
 	state.Responses = append(state.Responses, response)
@@ -128,7 +128,7 @@ func (s *QuestionService) RecordResponse(ctx context.Context, input RecordQuesti
 		}
 	}
 	if err := state.Validate(); err != nil {
-		return nil, fmt.Errorf("record Question response %s: %w", question.Key, err)
+		return nil, fmt.Errorf("record Question response %s: %w", question.Key, questionValidationError(err))
 	}
 	encoded, err := models.EncodeQuestionState(question.ContextData, *state)
 	if err != nil {
@@ -139,7 +139,7 @@ func (s *QuestionService) RecordResponse(ctx context.Context, input RecordQuesti
 		nextStatus = models.QuestionStatusReadyForResolution
 	}
 	if err := s.repo.RecordResponse(ctx, question.ID, question.Status, nextStatus, question.ContextData, encoded, input.Responder); err != nil {
-		return nil, fmt.Errorf("record Question response %s: %w", question.Key, err)
+		return nil, fmt.Errorf("record Question response %s: %w", question.Key, classifyQuestionTransitionError(err))
 	}
 	question.ContextData, question.Status = encoded, nextStatus
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeQuestion, question.ID); err != nil {
@@ -171,15 +171,15 @@ func (s *QuestionService) Resolve(ctx context.Context, input ResolveQuestionInpu
 		return nil, fmt.Errorf("resolve Question: %w", err)
 	}
 	if question.Status != models.QuestionStatusReadyForResolution || state.CurrentResponder() != "" {
-		return nil, fmt.Errorf("resolve Question %s: Question must be ready for resolution with all responders completed", question.Key)
+		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, questionConflictError(errors.New("Question must be ready for resolution with all responders completed")))
 	}
 	kind, pointer := strings.TrimSpace(input.Kind), strings.TrimSpace(input.Pointer)
 	if kind != input.Kind || pointer != input.Pointer {
-		return nil, errors.New("resolve Question: resolution kind and pointer must be trimmed")
+		return nil, questionValidationError(errors.New("resolve Question: resolution kind and pointer must be trimmed"))
 	}
 	state.ResolutionKind, state.ResolutionPointer = kind, pointer
 	if err := state.Validate(); err != nil {
-		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, err)
+		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, questionValidationError(err))
 	}
 	if err := s.validateResolutionDestination(ctx, kind, pointer); err != nil {
 		return nil, fmt.Errorf("resolve Question %s: validate destination: %w", question.Key, err)
@@ -189,7 +189,7 @@ func (s *QuestionService) Resolve(ctx context.Context, input ResolveQuestionInpu
 		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, err)
 	}
 	if err := s.repo.Resolve(ctx, question.ID, question.Status, models.QuestionStatusResolved, question.ContextData, encoded, input.Owner, kind); err != nil {
-		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, err)
+		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, classifyQuestionTransitionError(err))
 	}
 	question.ContextData, question.Status = encoded, models.QuestionStatusResolved
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeQuestion, question.ID); err != nil {
@@ -208,30 +208,30 @@ func (s *QuestionService) validateResolutionDestination(ctx context.Context, kin
 			return err
 		}
 		if !found {
-			return fmt.Errorf("follow-up work destination %q does not exist", pointer)
+			return questionValidationError(fmt.Errorf("follow-up work destination %q does not exist", pointer))
 		}
 		return nil
 	case "local_clarification":
 		if !strings.HasPrefix(pointer, "note:") {
-			return errors.New("local clarification pointer must reference note:<id>")
+			return questionValidationError(errors.New("local clarification pointer must reference note:<id>"))
 		}
 		found, err := s.repo.NoteExists(ctx, strings.TrimPrefix(pointer, "note:"))
 		if err != nil {
 			return err
 		}
 		if !found {
-			return fmt.Errorf("local clarification note %q does not exist", pointer)
+			return questionValidationError(fmt.Errorf("local clarification note %q does not exist", pointer))
 		}
 		return nil
 	case "product_decision":
 		if !strings.HasPrefix(pointer, "docs/product/progress.md#") || strings.TrimPrefix(pointer, "docs/product/progress.md#") == "" {
-			return errors.New("product decision pointer must be a docs/product/progress.md anchor")
+			return questionValidationError(errors.New("product decision pointer must be a docs/product/progress.md anchor"))
 		}
 		return s.validateResolutionDocument("docs/product/progress.md")
 	}
 	paths := strings.Split(pointer, ";")
 	if kind == "architecture_decision" && len(paths) < 2 {
-		return errors.New("architecture decision pointer must include an ADR and affected reference")
+		return questionValidationError(errors.New("architecture decision pointer must include an ADR and affected reference"))
 	}
 	for _, path := range paths {
 		if err := s.validateResolutionDocument(strings.TrimSpace(path)); err != nil {
@@ -243,7 +243,7 @@ func (s *QuestionService) validateResolutionDestination(ctx context.Context, kin
 
 func (s *QuestionService) validateResolutionDocument(pointer string) error {
 	if pointer == "" || filepath.IsAbs(pointer) || strings.HasPrefix(filepath.Clean(pointer), "..") {
-		return fmt.Errorf("invalid local document pointer %q", pointer)
+		return questionValidationError(fmt.Errorf("invalid local document pointer %q", pointer))
 	}
 	root, err := filepath.Abs(s.projectRoot)
 	if err != nil {
@@ -251,11 +251,17 @@ func (s *QuestionService) validateResolutionDocument(pointer string) error {
 	}
 	path := filepath.Join(root, pointer)
 	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("document pointer %q escapes project root", pointer)
+	if err != nil {
+		return fmt.Errorf("resolve document path %q: %w", pointer, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return questionValidationError(fmt.Errorf("document pointer %q escapes project root", pointer))
 	}
 	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("document destination %q does not exist: %w", pointer, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return questionValidationError(fmt.Errorf("document destination %q does not exist: %w", pointer, err))
+		}
+		return fmt.Errorf("stat document destination %q: %w", pointer, err)
 	}
 	return nil
 }
@@ -269,10 +275,10 @@ func (s *QuestionService) Withdraw(ctx context.Context, input WithdrawQuestionIn
 // pointer; it reads but never mutates the superseding Question.
 func (s *QuestionService) Supersede(ctx context.Context, input SupersedeQuestionInput) (*models.Question, error) {
 	if input.SupersededBy == input.Key {
-		return nil, errors.New("supersede Question: superseding Question must differ from target")
+		return nil, questionValidationError(errors.New("supersede Question: superseding Question must differ from target"))
 	}
 	if err := models.ValidateQuestionKey(input.SupersededBy); err != nil {
-		return nil, fmt.Errorf("supersede Question: superseding Question: %w", err)
+		return nil, fmt.Errorf("supersede Question: superseding Question: %w", questionValidationError(err))
 	}
 	if _, err := s.repo.GetByKey(ctx, input.SupersededBy); err != nil {
 		return nil, fmt.Errorf("supersede Question: load superseding Question: %w", err)
@@ -286,17 +292,17 @@ func (s *QuestionService) closeWithReason(ctx context.Context, key, owner, reaso
 		return nil, fmt.Errorf("%s Question: %w", status, err)
 	}
 	if isQuestionTerminal(question.Status) {
-		return nil, fmt.Errorf("%s Question %s: Question is already terminal", status, question.Key)
+		return nil, fmt.Errorf("%s Question %s: %w", status, question.Key, questionConflictError(errors.New("Question is already terminal")))
 	}
 	if err := validateTerminalReason(reason); err != nil {
-		return nil, fmt.Errorf("%s Question %s: %w", status, question.Key, err)
+		return nil, fmt.Errorf("%s Question %s: %w", status, question.Key, questionValidationError(err))
 	}
 	encoded, err := encodeQuestionTerminalProvenance(question.ContextData, string(status), reason, supersededBy)
 	if err != nil {
 		return nil, fmt.Errorf("%s Question %s: %w", status, question.Key, err)
 	}
 	if err := s.repo.Withdraw(ctx, question.ID, question.Status, status, question.ContextData, encoded, owner, reason); err != nil {
-		return nil, fmt.Errorf("%s Question %s: %w", status, question.Key, err)
+		return nil, fmt.Errorf("%s Question %s: %w", status, question.Key, classifyQuestionTransitionError(err))
 	}
 	question.ContextData, question.Status = encoded, status
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeQuestion, question.ID); err != nil {
@@ -318,7 +324,7 @@ func (s *QuestionService) loadClosableQuestion(ctx context.Context, key, owner s
 		return nil, nil, errors.New("Question workflow is not configured")
 	}
 	if owner != state.ResolutionOwner {
-		return nil, nil, errors.New("resolution owner does not match configured owner")
+		return nil, nil, questionConflictError(errors.New("resolution owner does not match configured owner"))
 	}
 	return question, state, nil
 }
