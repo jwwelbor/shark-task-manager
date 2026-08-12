@@ -980,19 +980,14 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
+	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+		return fmt.Errorf("dependency validation failed: %w", err)
+	}
 
 	// Skip-cascade fast path: single-row UPDATE, no transaction. Used by
 	// UpdateNoResequence (--parallel renumber).
 	if forceSkipCascade {
-		if err := r.ValidateTaskDependencies(ctx, task); err != nil {
-			return fmt.Errorf("dependency validation failed: %w", err)
-		}
 		return r.updateRowDirect(ctx, task)
-	}
-
-	// Validate dependencies before updating
-	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
-		return fmt.Errorf("dependency validation failed: %w", err)
 	}
 
 	// Check if execution_order is being changed - if so, cascade to other tasks.

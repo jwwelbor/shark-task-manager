@@ -257,7 +257,7 @@ layer guarantees exactly two ordering/selection contracts:
   the archive terminal, the done-but-not-archived sprint status — it calls a
   named selector in `internal/config/workflow/selectors.go`
   (`PrimaryAggregationStatus`, `StatusForPhase`, `ArchiveTerminalStatus`,
-  `CompletedSprintStatus`, `DefaultTransition`).
+  `CompletedSprintStatus`).
 
 Selectors apply the **designation rule**: one candidate wins trivially;
 several candidates require exactly one step tagged `primary: true` in the

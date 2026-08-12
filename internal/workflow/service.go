@@ -206,13 +206,6 @@ func (s *Service) ArchiveTerminalStatus() (string, error) {
 	return s.selected(s.workflow.ArchiveTerminalStatus())
 }
 
-// DefaultTransition returns the happy-path transition out of a status
-// (StatusFlow[from][0], a guaranteed pass-first contract for route-based
-// workflows).
-func (s *Service) DefaultTransition(from string) (string, error) {
-	return s.selected(s.workflow.DefaultTransition(from))
-}
-
 // IsTerminalStatus returns true if the given status is a terminal status.
 func (s *Service) IsTerminalStatus(status string) bool {
 	for _, terminal := range s.GetTerminalStatuses() {
