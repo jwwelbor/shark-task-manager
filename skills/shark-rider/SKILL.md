@@ -150,7 +150,7 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 | Capability | Recipe |
 |-----------|--------|
 | Idea → epic → workflow | `/shark-rider vision "idea"` → follow `shark skill get specification-writing workflows/write-epic.md`; fallback `shark create epic`; then offer `/shark-rider run <epic>` → `verbs/vision.md` |
-| Source document → epic portfolio | `/shark-rider breakdown <docs-path> [--output=<docs-path>]` → analyze outcome boundaries, interactions, delivery waves, sprint fit, and cross-epic map effects; proposal-only unless explicitly re-run with `--create` → `verbs/breakdown.md` |
+| Source document → epic portfolio | `/shark-rider breakdown <docs-path> [--output=<docs-path>]` → derive intrinsic epic scale from outcomes and acceptance, test merges, optionally compare genuine precedents, then propose the exact charter-ready epic delta; confirm, create, and verify approved epics in the same interaction; leave feature decomposition to each epic's Shark workflow → `verbs/breakdown.md` |
 | Progress-driven project setup | `/shark-rider project bootstrap` → prepare Shark, seed progress, coordinate discovery, and integrate architecture → `verbs/project.md` |
 | Product design | `/shark-rider project product-design` → owning action retrieves the `product-design` bundle and checkpoints each artifact → `verbs/product-design.md` |
 | Brownfield analysis | `/shark-rider project brownfield-analysis` → owning action runs the selected analysis depth and checkpoints outputs → `verbs/brownfield-analysis.md` |
