@@ -21,11 +21,49 @@ package commands
 //     clear; flag present with keys -> set the JSON-encoded list.
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
+
+func TestReadStringSliceFromFlagNormalizesSupportedDependsOnFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		flagType string
+		value    string
+		want     []string
+	}{
+		{name: "string ordinary", flagType: "string", value: "T-E07-F01-002,T-E07-F01-003", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+		{name: "string trims whitespace and empty members", flagType: "string", value: " T-E07-F01-002 , , T-E07-F01-003 ", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+		{name: "string comma only", flagType: "string", value: " , , ", want: []string{}},
+		{name: "string empty", flagType: "string", value: "", want: []string{}},
+		{name: "string slice", flagType: "stringSlice", value: "T-E07-F01-002,T-E07-F01-003", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "update"}
+			if tc.flagType == "stringSlice" {
+				cmd.Flags().StringSlice("depends-on", nil, "dependency keys")
+			} else {
+				cmd.Flags().String("depends-on", "", "dependency keys")
+			}
+			if err := cmd.Flags().Set("depends-on", tc.value); err != nil {
+				t.Fatalf("set --depends-on: %v", err)
+			}
+
+			got, err := readStringSliceFromFlag(cmd, "depends-on")
+			if err != nil {
+				t.Fatalf("readStringSliceFromFlag() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("readStringSliceFromFlag() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
 
 // --depends-on with keys sets TaskUpdates.DependsOn to the JSON-encoded list.
 func TestTaskUpdate_DependsOnFlag_SetsDependsOn(t *testing.T) {
