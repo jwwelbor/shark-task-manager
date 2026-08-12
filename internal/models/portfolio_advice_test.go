@@ -206,8 +206,6 @@ func TestPortfolioAdviceVocabulary(t *testing.T) {
 		{name: "roadmap cycle", got: string(PortfolioWarningRoadmapOrderCycle), want: "ROADMAP_ORDER_CYCLE"},
 		{name: "contradictory order", got: string(PortfolioWarningContradictoryOrder), want: "CONTRADICTORY_ORDER"},
 		{name: "missing order", got: string(PortfolioWarningMissingOrdering), want: "MISSING_ORDERING"},
-		{name: "child state unavailable", got: string(PortfolioWarningChildStateUnavailable), want: "CHILD_STATE_UNAVAILABLE"},
-		{name: "relationship state unavailable", got: string(PortfolioWarningRelationshipStateUnavailable), want: "RELATIONSHIP_STATE_UNAVAILABLE"},
 		{name: "claim state unavailable", got: string(PortfolioWarningClaimStateUnavailable), want: "CLAIM_STATE_UNAVAILABLE"},
 		{name: "unknown workflow status", got: string(PortfolioWarningUnknownWorkflowStatus), want: "UNKNOWN_WORKFLOW_STATUS"},
 		{name: "dangling relationship", got: string(PortfolioWarningDanglingRelationship), want: "DANGLING_RELATIONSHIP"},

@@ -363,10 +363,8 @@ only for the product judgment call, as required by `CLAUDE.md` Rule 5.
 
 | Failure | Behavior |
 | --- | --- |
-| Epic list fails or context is cancelled | Return a wrapped error and no misleading envelope. |
-| Descendant-state query fails | Keep core epic fields, set all progress-dependent eligibility to `unknown`, add `CHILD_STATE_UNAVAILABLE`, and return empty blocker/active descendant arrays. |
-| Relationship query fails | Set all relationship-dependent eligibility to `unknown`, return empty relationship/layer arrays, and add `RELATIONSHIP_STATE_UNAVAILABLE`. |
-| Active-claim read fails | Keep eligibility, omit active work, set `evidence_complete=false`, and add `CLAIM_STATE_UNAVAILABLE`. |
+| Portfolio snapshot read fails or context is cancelled | Return a wrapped error and no advice envelope. |
+| Active claim has invalid progress | Exclude the active work, set `evidence_complete=false`, and add `CLAIM_STATE_UNAVAILABLE`. |
 | Unknown epic/child status is not present in configured workflow | Keep the entity visible, classify affected eligibility as `unknown`, and add `UNKNOWN_WORKFLOW_STATUS` with the entity key. |
 | Relationship endpoint cannot be resolved | Omit the malformed edge from layers, retain an actionable `DANGLING_RELATIONSHIP` warning, and mark evidence incomplete. |
 
