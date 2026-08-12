@@ -32,6 +32,12 @@ const (
 	questionPointerMaxBytes  = 2048
 )
 
+var questionCredentialLabelPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)password\s*=`),
+	regexp.MustCompile(`(?i)authorization\s*:`),
+	regexp.MustCompile(`(?i)bearer(?:\s|:)`),
+}
+
 // QuestionResponderStatus is the bounded lifecycle state of one configured
 // responder. It is private to QuestionState rather than generic context.
 type QuestionResponderStatus string
@@ -186,8 +192,13 @@ func ValidateQuestionBoundedText(field, value string, minBytes, maxBytes int) er
 	if bytes := len(value); bytes < minBytes || bytes > maxBytes {
 		return fmt.Errorf("%s must contain %d through %d UTF-8 bytes; use a typed note or authoritative record pointer", field, minBytes, maxBytes)
 	}
+	for _, pattern := range questionCredentialLabelPatterns {
+		if pattern.MatchString(value) {
+			return fmt.Errorf("%s contains forbidden credential, rendered prompt, or transcript material; use a typed note or authoritative record pointer", field)
+		}
+	}
 	lower := strings.ToLower(value)
-	for _, marker := range []string{"api_key", "password=", "authorization:", "bearer ", "system prompt", "user prompt", "assistant:"} {
+	for _, marker := range []string{"api_key", "system prompt", "user prompt", "assistant:"} {
 		if strings.Contains(lower, marker) {
 			return fmt.Errorf("%s contains forbidden credential, rendered prompt, or transcript material; use a typed note or authoritative record pointer", field)
 		}

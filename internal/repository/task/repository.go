@@ -962,22 +962,31 @@ func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Ta
 // execution_order resequence is suppressed regardless of whether the order has
 // actually changed.
 //
-// In the skip-cascade path (TD-008), two optimizations apply:
-//  1. Dependency validation is bypassed — the --parallel update path renumbers
-//     an existing task and never changes DependsOn, so re-validating the
-//     existing graph wastes a SELECT round-trip.
-//  2. No transaction is opened — the operation is a single non-cascading row
-//     update, so BEGIN/COMMIT add latency (meaningful on Turso, negligible on
-//     local SQLite) without any atomicity benefit.
+// In the skip-cascade path (TD-008), one optimization applies: no transaction
+// is opened — the operation is a single non-cascading row update, so
+// BEGIN/COMMIT add latency (meaningful on Turso, negligible on local SQLite)
+// without any atomicity benefit.
+//
+// Dependency validation (ValidateTaskDependencies) still runs on this path.
+// It originally didn't need to: the --parallel update path (UpdateNoResequence)
+// only renumbered execution_order and never touched DependsOn. B048 wired
+// `--depends-on` through `shark task update` (including when combined with
+// `--parallel`), so this path can now set/clear tasks.depends_on too, and an
+// unvalidated write here would let a nonexistent, circular, or self
+// dependency reach the column that gates status advancement. The call is a
+// cheap no-op when task.DependsOn is nil/empty (ValidateTaskDependencies
+// returns immediately without a query in that case).
 func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool) error {
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Skip-cascade fast path: single-row UPDATE, no transaction, no dep validation.
-	// Used by UpdateNoResequence (--parallel renumber); DependsOn is unchanged in
-	// this path so circular-dependency re-validation is unnecessary.
+	// Skip-cascade fast path: single-row UPDATE, no transaction. Used by
+	// UpdateNoResequence (--parallel renumber).
 	if forceSkipCascade {
+		if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+			return fmt.Errorf("dependency validation failed: %w", err)
+		}
 		return r.updateRowDirect(ctx, task)
 	}
 

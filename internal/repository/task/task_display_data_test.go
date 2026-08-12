@@ -28,6 +28,64 @@ type relationshipEntry struct {
 	EntityType       string `json:"entity_type"`
 }
 
+type dependencyEntry struct {
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// TestGetTaskDisplayDataRaw_DependsOnUsesOnlyOutgoingEdges is the B055
+// regression test. An incoming depends_on edge belongs in Blocks, not Depends
+// On: B --depends_on--> A means B waits on A, while A has no dependency on B.
+func TestGetTaskDisplayDataRaw_DependsOnUsesOnlyOutgoingEdges(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	db := dbconn.NewDB(database)
+
+	taskRepo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+	relRepo := entityrel.NewEntityRelationshipRepository(db)
+
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E95", Title: "B055 Regression Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityHigh}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E95-F01", Title: "B055 Regression Feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusDraft}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+
+	prerequisite := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E95-F01-001", Title: "Prerequisite"}, FeatureID: testFeature.ID, Status: "todo", Priority: 5}
+	require.NoError(t, taskRepo.Create(ctx, prerequisite))
+
+	dependent := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E95-F01-002", Title: "Dependent"}, FeatureID: testFeature.ID, Status: "todo", Priority: 5}
+	require.NoError(t, taskRepo.Create(ctx, dependent))
+
+	relatedTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E95-F01-003", Title: "Related Task"}, FeatureID: testFeature.ID, Status: "todo", Priority: 5}
+	require.NoError(t, taskRepo.Create(ctx, relatedTask))
+
+	dependsOn := &models.EntityRelationship{FromEntityType: models.EntityTypeTask, FromEntityID: dependent.ID, ToEntityType: models.EntityTypeTask, ToEntityID: prerequisite.ID, RelationshipType: models.EntityRelDependsOn}
+	require.NoError(t, relRepo.Create(ctx, dependsOn))
+	require.NoError(t, relRepo.Create(ctx, &models.EntityRelationship{FromEntityType: models.EntityTypeTask, FromEntityID: dependent.ID, ToEntityType: models.EntityTypeTask, ToEntityID: relatedTask.ID, RelationshipType: models.EntityRelRelatedTo}))
+	require.NoError(t, relRepo.Create(ctx, &models.EntityRelationship{FromEntityType: models.EntityTypeTask, FromEntityID: dependent.ID, ToEntityType: models.EntityTypeEpic, ToEntityID: testEpic.ID, RelationshipType: models.EntityRelDependsOn}))
+
+	prerequisiteRaw, err := taskRepo.GetTaskDisplayDataRaw(ctx, prerequisite.ID)
+	require.NoError(t, err)
+	var prerequisiteDependencies []dependencyEntry
+	require.NoError(t, json.Unmarshal([]byte(prerequisiteRaw.DependenciesJSON), &prerequisiteDependencies))
+	require.Empty(t, prerequisiteDependencies, "incoming depends_on must not render as Depends On")
+	var prerequisiteBlocks []relationshipEntry
+	require.NoError(t, json.Unmarshal([]byte(prerequisiteRaw.BlocksJSON), &prerequisiteBlocks))
+	require.Len(t, prerequisiteBlocks, 1)
+	require.Equal(t, dependent.Key, prerequisiteBlocks[0].TaskKey)
+	require.Equal(t, "incoming", prerequisiteBlocks[0].Direction)
+
+	dependentRaw, err := taskRepo.GetTaskDisplayDataRaw(ctx, dependent.ID)
+	require.NoError(t, err)
+	var dependentDependencies []dependencyEntry
+	require.NoError(t, json.Unmarshal([]byte(dependentRaw.DependenciesJSON), &dependentDependencies))
+	require.Len(t, dependentDependencies, 1, "only outgoing task-to-task depends_on relationships render as Depends On")
+	require.Equal(t, prerequisite.Key, dependentDependencies[0].Key)
+}
+
 // TestGetTaskDisplayDataRaw_CrossEntityBlocks is the B049 regression test.
 // Before the fix, task_display_data's blocks_json hardcoded
 // to_entity_type = 'task', so a task blocking a feature (the exact real-world

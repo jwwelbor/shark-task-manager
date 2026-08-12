@@ -14,7 +14,7 @@ Treat `commands` as a static alias for `--fast`. Do not run any `shark` command.
 Print the verb groups plus the compact command reference below.
 
 ```
-Getting started:  /shark-rider project bootstrap | product-design | vision "idea"
+Getting started:  /shark-rider project bootstrap | product-design | vision "idea" | breakdown <docs-path>
 Day-to-day:       /shark-rider run <key> | triage "desc" | demo <epic-key|feature-key> [--draft] | walkthrough <entity-key|docs-path> [scope] | viewer | status | list <key> | get <key>
 Sprint:           /shark-rider plan-sprint <key> | run-sprint <key> | run-agent-team <epic-key|feature-key> | run-sprint-team <sprint-key> | retro-sprint <key>
 Maintenance:      /shark-rider update-docs | amend <key> "change" | revalidate <key> | help [commands|<verb>]
@@ -42,6 +42,7 @@ fall through to state-aware help.
 | `project bootstrap` | Bootstrap architecture docs through `shark skill get research workflows/bootstrap.md`. Afterward suggest product design, vision capture, or `/shark-rider run <key>`. |
 | `product-design` | Run the bundled product-design D01-D14 methodology through `shark skill get product-design`. |
 | `vision` | Turn an idea into a Shark epic through the bundled epic-writing workflow, then offer `/shark-rider run <epic-key>`. |
+| `breakdown` | Turn an authoritative project document into the smallest coherent portfolio of charter-ready epics. Use `/shark-rider breakdown <docs-path> [--output=<docs-path>]`; it derives epic scale from outcomes and acceptance, treats existing epics as an optional cross-check, shows the exact delta, and asks for approval. After approval, it creates and verifies the epics in the same interaction, then stops before feature decomposition, workflow execution, or sprint planning. |
 | `run` | Drive an epic, feature, task, bug, change-card, or tech-debt item through its workflow. Use `/shark-rider run <key>`. |
 | `plan` | Recommend an execution shape for `shark plan [root\|collection]`. It does not claim, dispatch, advance, or launch a team. |
 | `triage` | Capture, classify, confirm, create, and stop. Use `/shark-rider triage "thing to track"`. |

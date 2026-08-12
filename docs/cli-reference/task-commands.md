@@ -330,7 +330,7 @@ shark task update <task-key> [flags]
 - `--order <int>` - New execution order (-1=no change)
 - `--parallel` - Set `--order` without renumbering siblings (preserve duplicate-order parallel groups). Pairs with `--order`; without `--order`, has no effect.
 - `--status <string>` - New status (uses workflow validation)
-- `--depends-on <string>` - New comma-separated dependency task keys
+- `--depends-on <string>` - Replace same-feature legacy dependency task keys. When absent, dependencies remain unchanged. An explicit empty, whitespace-only, or comma-only value clears the legacy dependency list. This does not add, remove, or clear `shark task link` relationship edges; use `task link`/`unlink` for those edges and cross-feature dependencies.
 - `--key <string>` - New key
 - `--filename <string>` - New file path (relative to project root)
 - `--reason <string>` - Reason for backward status transitions

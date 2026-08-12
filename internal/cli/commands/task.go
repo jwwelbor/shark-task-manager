@@ -361,7 +361,10 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid task key: %w", err)
 	}
 
-	updates := parseTaskUpdates(cmd)
+	updates, err := parseTaskUpdates(cmd)
+	if err != nil {
+		return err
+	}
 
 	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
 	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).

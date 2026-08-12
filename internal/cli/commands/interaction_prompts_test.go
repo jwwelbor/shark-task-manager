@@ -436,6 +436,99 @@ func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 	}
 }
 
+func TestPortfolioBreakdownRiderProcedure(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	paths := map[string]string{
+		"rider router": filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
+		"static help":  filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+		"procedure":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "breakdown.md"),
+	}
+
+	contents := make(map[string]string, len(paths))
+	for name, path := range paths {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err, "%s should be shipped", name)
+		contents[name] = string(body)
+	}
+
+	for name, want := range map[string][]string{
+		"rider router": {
+			"/shark-rider breakdown <docs-path> [--output=<docs-path>]",
+			"`breakdown`",
+			"`verbs/breakdown.md`",
+			"confirm, create, and verify approved epics in the same interaction",
+			"leave feature decomposition to each epic's Shark workflow",
+		},
+		"static help": {
+			"breakdown <docs-path>",
+			"`breakdown`",
+			"smallest coherent portfolio of charter-ready epics",
+			"existing epics as an optional cross-check",
+			"creates and verifies the epics in the same interaction",
+			"stops before feature decomposition",
+		},
+		"procedure": {
+			"/shark-rider breakdown <docs-path> [--output=<docs-path>]",
+			"approved epics in the same interaction",
+			"shark list --all --json",
+			"Do not inspect sprint capacity or velocity",
+			"Establish intrinsic scale, then compare when useful",
+			"procedure must work when the project has no existing",
+			"needs several demonstrable increments",
+			"optional secondary drift check",
+			"feature count, completed and remaining feature count, and known task count",
+			"solely because precedents are absent",
+			"Classify each candidate at the smallest plausible Shark level",
+			"This classification is routing, not decomposition",
+			"below epic",
+			"ADR, oracle, benchmark, migration, test harness, research gate, or storage",
+			"Do not assume that each source outcome, gate, phase, or heading is an epic",
+			"A stable contract alone does",
+			"Run the merge challenge",
+			"A later delivery wave is not, by itself, an epic boundary",
+			"Prefer fewer coherent epics when the evidence is ambiguous",
+			"Check portfolio inflation and decomposition readiness",
+			"Treat cross-epic contract overhead as a",
+			"measurable success criteria",
+			"high-level UAT scenarios with observable results",
+			"Define the decomposition handoff",
+			"stops at charter-ready epics",
+			"Do not propose feature titles, feature counts, feature sizes",
+			"use `/shark-rider run <epic-key>`",
+			"Sprint planning follows task generation",
+			"Shark `depends_on` represents a hard completion barrier",
+			"Present the proposal and ask for approval",
+			"Ask the user whether to create and apply that exact proposal",
+			"confirmation before changing Shark state",
+			"Do not require a second invocation or a special apply flag",
+			"like Rider triage",
+			"Create the approved epics",
+			"If the refresh changes the approved delta",
+			"shark create epic \"<title>\" --description=\"<one-sentence outcome>\" --json",
+			"shark admin validate",
+			"Do not run the new epics",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, expected := range want {
+				require.Contains(t, contents[name], expected)
+			}
+		})
+	}
+
+	for _, forbidden := range []string{
+		"--create",
+		"proposal mode",
+		"create mode",
+		"shark sprint velocity --json",
+		"### Likely feature slices",
+		"Target feature sizes",
+		"First sprint-ready target",
+	} {
+		require.NotContains(t, contents["procedure"], forbidden)
+	}
+}
+
 func TestCrossEpicIntegrationLifecyclePrompts(t *testing.T) {
 	promptsDir := findRepoPromptsDir(t)
 	renderer, err := templates.NewOrchestratorRenderer(promptsDir)

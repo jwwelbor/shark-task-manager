@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -22,6 +26,23 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+type viewerTestDirEntry struct {
+	name string
+	dir  bool
+	info fs.FileInfo
+	err  error
+}
+
+func (e viewerTestDirEntry) Name() string { return e.name }
+func (e viewerTestDirEntry) IsDir() bool  { return e.dir }
+func (e viewerTestDirEntry) Type() fs.FileMode {
+	if e.info == nil {
+		return 0
+	}
+	return e.info.Mode().Type()
+}
+func (e viewerTestDirEntry) Info() (fs.FileInfo, error) { return e.info, e.err }
 
 // ----- Mocks for ViewerService dependencies -----
 
@@ -2724,6 +2745,28 @@ func TestViewerService_FolderFiles_DocsAndNestedDirectories(t *testing.T) {
 	if entry := nestedByName["deep"]; entry == nil || !entry.IsDir {
 		t.Fatalf("expected deep to be listed as a directory, got %+v", entry)
 	}
+}
+
+func TestFolderFileEntries_MetadataAvailability(t *testing.T) {
+	dir := t.TempDir()
+	emptyPath := filepath.Join(dir, "empty.md")
+	require.NoError(t, os.WriteFile(emptyPath, nil, 0o644))
+	emptyInfo, err := os.Stat(emptyPath)
+	require.NoError(t, err)
+
+	entries := folderFileEntries("docs", []os.DirEntry{
+		viewerTestDirEntry{name: "unavailable.md", err: fs.ErrNotExist},
+		viewerTestDirEntry{name: "empty.md", info: emptyInfo},
+	})
+	require.Len(t, entries, 2)
+
+	encoded, err := json.Marshal(entries)
+	require.NoError(t, err)
+	var response []map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &response))
+	require.Len(t, response, 2)
+	assert.NotContains(t, response[0], "size", "unavailable metadata must omit size: %s", encoded)
+	assert.Equal(t, float64(0), response[1]["size"], "zero-byte file must emit size: 0; encoded: %s", encoded)
 }
 
 func TestViewerService_NavFolders_ReturnsBuiltinsAndValidConfiguredFolders(t *testing.T) {

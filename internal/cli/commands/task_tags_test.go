@@ -51,7 +51,11 @@ func buildTaskUpdateCmd(t *testing.T, capture *services.TaskUpdates) *cobra.Comm
 		Use:  "update",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			*capture = parseTaskUpdates(cmd)
+			updates, err := parseTaskUpdates(cmd)
+			if err != nil {
+				return err
+			}
+			*capture = updates
 			return nil
 		},
 	}
