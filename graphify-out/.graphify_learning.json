@@ -1,0 +1,133 @@
+{
+  "generated_at": "2026-08-11T18:48:45.849411+00:00",
+  "nodes": {
+    "internal_sharkdata_default_data_skills_breakdown_test_context_decomposition_criteria_reference": {
+      "code_fingerprint": "2acdc1832a67a8b0837f4a53f5029b824c2cefa6bf8f7e6fb6a38c0ee417251b",
+      "label": "Decomposition Criteria reference",
+      "last": "2026-08-11T17:24:02.446531+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T17:24:02.446531+00:00",
+          "outcome": "useful",
+          "q": "review dev-artifacts/2026-08-11-lifecycle-benchmark-v2-plan.md"
+        }
+      ],
+      "score": 0.998641531,
+      "source_file": "sharkdata/default_data/skills/breakdown-test/context/decomposition-criteria.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "internal_sharkdata_default_data_skills_shark_attack_skill_execution_mode_shark_rider_run": {
+      "code_fingerprint": "8d541dd8c208d270b7c7350c556737d5920a4f95ea7b27be3427784ab152b330",
+      "label": "Execution mode: /shark-rider run",
+      "last": "2026-08-11T17:24:02.446531+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T17:24:02.446531+00:00",
+          "outcome": "useful",
+          "q": "review dev-artifacts/2026-08-11-lifecycle-benchmark-v2-plan.md"
+        }
+      ],
+      "score": 0.998641531,
+      "source_file": "sharkdata/default_data/skills/shark-attack/SKILL.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "models_epic": {
+      "code_fingerprint": "112557bab19e4dcf677b72d5b6b44493a3ea835ebe0dba2ada812911a7811928",
+      "label": "Epic",
+      "last": "2026-08-11T18:15:22.259247+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T18:15:22.259247+00:00",
+          "outcome": "useful",
+          "q": "How should lifecycle benchmark v2 be placed under E40, and which epic and cross-feature contracts need updating?"
+        },
+        {
+          "date": "2026-08-11T17:38:15.597115+00:00",
+          "outcome": "useful",
+          "q": "How should lifecycle benchmark v2 be broken into epics and features, including whether it belongs under E40?"
+        }
+      ],
+      "score": 1.998333742,
+      "source_file": "models/epic.go",
+      "status": "preferred",
+      "uses": 2
+    },
+    "repository_task_lifecycle_test": {
+      "code_fingerprint": "485f63c6e76b70a65638f5f9c0568aac8a9a589a319ebfda88f90a40c93e0062",
+      "label": "task_lifecycle_test.go",
+      "last": "2026-08-11T17:24:02.446531+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T17:24:02.446531+00:00",
+          "outcome": "useful",
+          "q": "review dev-artifacts/2026-08-11-lifecycle-benchmark-v2-plan.md"
+        }
+      ],
+      "score": 0.998641531,
+      "source_file": "repository/task_lifecycle_test.go",
+      "status": "tentative",
+      "uses": 1
+    },
+    "services_featureservice": {
+      "code_fingerprint": "41c05ebadf29581634415b3c891b00259b7111b59eb51a3e7d7dbe62a9798da8",
+      "label": "FeatureService",
+      "last": "2026-08-11T18:15:22.259247+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T18:15:22.259247+00:00",
+          "outcome": "useful",
+          "q": "How should lifecycle benchmark v2 be placed under E40, and which epic and cross-feature contracts need updating?"
+        },
+        {
+          "date": "2026-08-11T17:38:15.597115+00:00",
+          "outcome": "useful",
+          "q": "How should lifecycle benchmark v2 be broken into epics and features, including whether it belongs under E40?"
+        }
+      ],
+      "score": 1.998333742,
+      "source_file": "services/feature_service.go",
+      "status": "preferred",
+      "uses": 2
+    },
+    "services_featureservice_maybereopenparentepic": {
+      "code_fingerprint": "41c05ebadf29581634415b3c891b00259b7111b59eb51a3e7d7dbe62a9798da8",
+      "label": ".maybeReopenParentEpic()",
+      "last": "2026-08-11T18:15:22.259247+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T18:15:22.259247+00:00",
+          "outcome": "useful",
+          "q": "How should lifecycle benchmark v2 be placed under E40, and which epic and cross-feature contracts need updating?"
+        },
+        {
+          "date": "2026-08-11T17:38:15.597115+00:00",
+          "outcome": "useful",
+          "q": "How should lifecycle benchmark v2 be broken into epics and features, including whether it belongs under E40?"
+        }
+      ],
+      "score": 1.998333742,
+      "source_file": "services/feature_service.go",
+      "status": "preferred",
+      "uses": 2
+    },
+    "services_transitionoptions": {
+      "code_fingerprint": "7a05dee10a33fec3428adb6a730174d89bdae81e5121b594138d43a070eadd2c",
+      "label": "TransitionOptions",
+      "last": "2026-08-11T17:24:02.446531+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T17:24:02.446531+00:00",
+          "outcome": "useful",
+          "q": "review dev-artifacts/2026-08-11-lifecycle-benchmark-v2-plan.md"
+        }
+      ],
+      "score": 0.998641531,
+      "source_file": "services/transition_types.go",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}
