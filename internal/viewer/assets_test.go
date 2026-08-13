@@ -168,6 +168,24 @@ func TestViewerHTMLEmbedded(t *testing.T) {
 	}
 }
 
+func TestHydrateHierarchyTasksCapsConcurrentRequests(t *testing.T) {
+	fn := extractJSFunction(t, viewerHTMLContent(), "async function hydrateHierarchyTasks(hierarchy, tags)")
+	requireViewerHTMLMarkers(t, fn, "hydrateHierarchyTasks concurrency cap",
+		"const maxConcurrentHydrations = 6;",
+		"const workerCount = Math.min(maxConcurrentHydrations, featuresToHydrate.length);",
+		"Array.from({ length: workerCount }, hydrateNextFeature)",
+		"feature.tasks = [];",
+		"if (!feature.key) continue;",
+		"const tasks = await apiGetFeatureTasks(feature.key, tags);",
+		"feature.tasks = tasks;",
+		"catch {",
+		"best-effort: leave feature.tasks as [] on failure",
+	)
+	if strings.Contains(fn, "await Promise.all(fetches)") {
+		t.Error("hydrateHierarchyTasks must not start one request per feature without a concurrency cap")
+	}
+}
+
 // TestViewerHTMLContainsRequiredClasses verifies that key CSS IDs and class
 // names used by the JavaScript are present in the HTML.
 // TC-SMOKE-02.

@@ -248,8 +248,9 @@ func (s *FeatureProgressService) GetHealth(ctx context.Context, key string) (*Fe
 
 	// Count blocked tasks
 	var blockedTasks []*models.Task
+	taskWorkflow := s.workflowSvc.ForLevel(workflow.LevelTask)
 	for _, t := range tasks {
-		if string(t.Status) == "blocked" {
+		if taskWorkflow.IsBlockedStatus(string(t.Status)) {
 			blockedTasks = append(blockedTasks, t)
 		}
 	}
@@ -301,7 +302,8 @@ func (s *FeatureProgressService) GetWorkBreakdown(ctx context.Context, key strin
 		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
 	}
 
-	wf := s.workflowSvc.GetWorkflow()
+	wf := s.workflowSvc.ForLevel(workflow.LevelTask).GetWorkflow()
+	taskWorkflow := s.workflowSvc.ForLevel(workflow.LevelTask)
 
 	wb := &WorkBreakdown{FeatureKey: key}
 
@@ -325,13 +327,13 @@ func (s *FeatureProgressService) GetWorkBreakdown(ctx context.Context, key strin
 		wb.TotalTasks += count
 
 		// Check if terminal (completed)
-		if s.workflowSvc.IsTerminalStatus(statusStr) {
+		if taskWorkflow.IsTerminalStatus(statusStr) {
 			wb.CompletedTasks += count
 			continue
 		}
 
 		// Check if blocked
-		if statusStr == "blocked" {
+		if taskWorkflow.IsBlockedStatus(statusStr) {
 			wb.BlockedWork += count
 			continue
 		}
@@ -386,7 +388,7 @@ func (s *FeatureProgressService) GetActionItems(ctx context.Context, key string)
 		}
 
 		// Categorize by status phase and characteristics
-		if statusStr == "blocked" {
+		if s.workflowSvc.ForLevel(workflow.LevelTask).IsBlockedStatus(statusStr) {
 			ageDays := int(now.Sub(t.UpdatedAt).Hours() / 24)
 			item.AgeDays = &ageDays
 			result.Blocked = append(result.Blocked, item)

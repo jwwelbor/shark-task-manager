@@ -614,6 +614,81 @@ JSON
 	echo "TC-014i PASS"
 }
 
+# TC-014j: a crashed attempt can leave artifacts without record.jsonl. A rerun
+# must refuse that non-empty deterministic directory rather than mixing stale
+# stdout/post data into a new record.
+test_j() {
+	local out_dir="$WORKDIR/j-out"
+	local run_dir="$out_dir/cart-remove-item-last-match/default/rep-1"
+	mkdir -p "$run_dir/run"
+	printf 'stale artifact\n' >"$run_dir/run/stderr.ndjson"
+	if PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/j.out" 2>"$WORKDIR/j.err"; then
+		fail "j: rerun into a stale non-empty run directory unexpectedly succeeded"
+	fi
+	grep -qF "$run_dir" "$WORKDIR/j.err" || fail "j: refusal does not name stale run directory"
+	[[ ! -f "$run_dir/record.jsonl" ]] || fail "j: rerun wrote a record into stale directory"
+
+	local hidden_out="$WORKDIR/j-hidden-out"
+	local hidden_run="$hidden_out/cart-remove-item-last-match/default/rep-1"
+	mkdir -p "$hidden_run"
+	: >"$hidden_run/.stale"
+	if PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$hidden_out" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/j-hidden.out" 2>"$WORKDIR/j-hidden.err"; then
+		fail "j: rerun into a hidden-only stale run directory unexpectedly succeeded"
+	fi
+
+	local empty_out="$WORKDIR/j-empty-out"
+	local empty_run="$empty_out/cart-remove-item-last-match/default/rep-1"
+	mkdir -p "$empty_run"
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$empty_out" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/j-empty.out" 2>"$WORKDIR/j-empty.err" ||
+		fail "j: empty pre-created run directory should remain usable: $(cat "$WORKDIR/j-empty.err")"
+	[[ -f "$empty_run/record.jsonl" ]] || fail "j: empty pre-created run directory did not receive a record"
+	echo "TC-014j PASS"
+}
+
+# TC-014k: a huge failing ledger diagnostic must not overflow exec argv and
+# prevent the postrun-abort marker/record from being written.
+test_k() {
+	local out_dir="$WORKDIR/k-out" ledger_stub="$STUBBIN/build-ledgers-fail.sh"
+	cat >"$ledger_stub" <<'EOF'
+#!/usr/bin/env bash
+head -c 3000000 /dev/zero | tr '\0' x >&2
+exit 1
+EOF
+	chmod +x "$ledger_stub"
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" BUILD_LEDGERS_BIN="$ledger_stub" \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" --skip-canary --keep-scratch \
+		</dev/null >"$WORKDIR/k.out" 2>"$WORKDIR/k.err" ||
+		fail "k: post-run ledger failure must still produce a record: $(cat "$WORKDIR/k.err")"
+	local run_dir="$out_dir/cart-remove-item-last-match/default/rep-1"
+	[[ -f "$run_dir/post/postrun-abort.json" && -f "$run_dir/record.jsonl" ]] ||
+		fail "k: post-run abort marker or record missing after huge diagnostic"
+	python3 - "$run_dir/record.jsonl" <<'PYEOF'
+import json
+import sys
+record = json.load(open(sys.argv[1]))
+if record.get("quality", {}).get("postrun_abort") != "build_ledgers":
+    sys.exit("TC-014k FAIL: missing build_ledgers abort: %r" % record)
+if not any(e.get("kind") == "postrun_check_aborted" for e in record.get("errors", [])):
+    sys.exit("TC-014k FAIL: abort error absent: %r" % record.get("errors"))
+PYEOF
+	local scratch_root
+	scratch_root="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scratch_root"])' "$run_dir/meta.json")"
+	[[ ! -f "$run_dir/post/f2p.json" ]] || fail "k: F2P/oracle ran after an aborted ledger phase"
+	[[ ! -f "$scratch_root/checkout/pkg/cart/remove_item_last_test.go" ]] || fail "k: F2P file injected after aborted ledger phase"
+	rm -rf "$scratch_root"
+	echo "TC-014k PASS"
+}
+
 test_a
 test_b
 test_c
@@ -623,5 +698,7 @@ test_f
 test_g
 test_h
 test_i
+test_j
+test_k
 
 echo "TC-014: all sub-cases PASS"

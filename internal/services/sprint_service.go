@@ -2297,43 +2297,9 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 
 	switch resolvedMode {
 	case CarryoverNext:
-		// Find an existing planning sprint.
-		planningStatusStr, planningErr := s.statusInPhase("planning", "planning")
-		if planningErr != nil {
-			return nil, fmt.Errorf("failed to find next planning sprint: %w", planningErr)
-		}
-		planningSprints, listErr := s.listSprintsByWorkflowStatuses(ctx, []string{planningStatusStr})
-		if listErr != nil {
-			return nil, fmt.Errorf("failed to find next planning sprint: %w", listErr)
-		}
-
-		var nextSprint *models.Sprint
-		if len(planningSprints) > 0 {
-			// TC-C01: existing planning sprint found
-			nextSprint = planningSprints[0]
-		} else {
-			// TC-C02, TC-C04: auto-create sprint with start = closed.EndDate + 1 day, same duration
-			duration := sprintEntity.EndDate.Sub(sprintEntity.StartDate)
-			newStart := sprintEntity.EndDate.AddDate(0, 0, 1)
-			newEnd := newStart.Add(duration)
-
-			nextKey, keyErr := s.repo.GetNextKey(ctx)
-			if keyErr != nil {
-				return nil, fmt.Errorf("failed to generate key for auto-created sprint: %w", keyErr)
-			}
-
-			autoSprint := &models.Sprint{
-				Key:       nextKey,
-				Name:      "Sprint " + nextKey,
-				StartDate: newStart,
-				EndDate:   newEnd,
-				Status:    models.SprintStatus(s.workflowSvc.NormalizeStatus(s.workflowSvc.GetInitialStatusString())),
-				Slug:      utils.GenerateSlug("Sprint " + nextKey),
-			}
-			if createErr := s.repo.Create(ctx, autoSprint); createErr != nil {
-				return nil, fmt.Errorf("failed to auto-create next sprint: %w", createErr)
-			}
-			nextSprint = autoSprint
+		nextSprint, nextErr := s.nextPlanningSprint(ctx, sprintEntity)
+		if nextErr != nil {
+			return nil, nextErr
 		}
 
 		nextSprintKey = nextSprint.Key
@@ -2405,28 +2371,8 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		return nil, fmt.Errorf("unsupported carryover mode %q: must be %q or %q", resolvedMode, CarryoverNext, CarryoverBacklog)
 	}
 
-	// Step 6: Advance sprint status to completed inside the transaction (TC-C11)
-	completedStatus, completedErr := s.completedSprintStatus()
-	if completedErr != nil {
-		return nil, fmt.Errorf("failed to close sprint %s: %w", sprintKey, completedErr)
-	}
-	if statusErr := s.repo.UpdateStatusTx(ctx, tx, sprintEntity.ID, models.SprintStatus(completedStatus)); statusErr != nil {
-		return nil, fmt.Errorf("failed to update sprint %s status in transaction: %w", sprintKey, statusErr)
-	}
-
-	// Step 7: Insert sprint_completions row (TC-C08)
-	completion := &models.SprintCompletion{
-		SprintID:             sprintEntity.ID,
-		CompletedAt:          time.Now().UTC(),
-		PlannedEntityCount:   totalCount,
-		CompletedEntityCount: completedCount,
-		CarriedOverCount:     carriedOverCount,
-		DroppedCount:         droppedCount,
-		CarryoverMode:        string(resolvedMode),
-		NextSprintID:         nextSprintID,
-	}
-	if completionErr := s.repo.CreateCompletionTx(ctx, tx, completion); completionErr != nil {
-		return nil, fmt.Errorf("failed to create sprint_completions record for %s: %w", sprintKey, completionErr)
+	if err := s.recordSprintCloseTx(ctx, tx, sprintEntity, totalCount, completedCount, carriedOverCount, droppedCount, resolvedMode, nextSprintID); err != nil {
+		return nil, err
 	}
 
 	// Step 8: Commit
@@ -2448,6 +2394,68 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		NextSprintKey:      nextSprintKey,
 		CarryoverPreserved: carryoverPreserved,
 	}, nil
+}
+
+// nextPlanningSprint finds the next planning sprint or creates the next
+// date-contiguous one. It intentionally runs before reassignment so failures
+// leave the close transaction untouched.
+func (s *SprintService) nextPlanningSprint(ctx context.Context, closed *models.Sprint) (*models.Sprint, error) {
+	planningStatus, err := s.statusInPhase("planning", "planning")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find next planning sprint: %w", err)
+	}
+	planningSprints, err := s.listSprintsByWorkflowStatuses(ctx, []string{planningStatus})
+	if err != nil {
+		return nil, fmt.Errorf("failed to find next planning sprint: %w", err)
+	}
+	if len(planningSprints) > 0 {
+		return planningSprints[0], nil
+	}
+
+	nextKey, err := s.repo.GetNextKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate key for auto-created sprint: %w", err)
+	}
+	duration := closed.EndDate.Sub(closed.StartDate)
+	start := closed.EndDate.AddDate(0, 0, 1)
+	next := &models.Sprint{
+		Key:       nextKey,
+		Name:      "Sprint " + nextKey,
+		StartDate: start,
+		EndDate:   start.Add(duration),
+		Status:    models.SprintStatus(s.workflowSvc.NormalizeStatus(s.workflowSvc.GetInitialStatusString())),
+		Slug:      utils.GenerateSlug("Sprint " + nextKey),
+	}
+	if err := s.repo.Create(ctx, next); err != nil {
+		return nil, fmt.Errorf("failed to auto-create next sprint: %w", err)
+	}
+	return next, nil
+}
+
+// recordSprintCloseTx performs the terminal status write and completion
+// insert as one transaction-owned operation (TC-C08 and TC-C11).
+func (s *SprintService) recordSprintCloseTx(ctx context.Context, tx *sql.Tx, sprintEntity *models.Sprint, totalCount, completedCount, carriedOverCount, droppedCount int, mode CarryoverMode, nextSprintID *int64) error {
+	completedStatus, err := s.completedSprintStatus()
+	if err != nil {
+		return fmt.Errorf("failed to close sprint %s: %w", sprintEntity.Key, err)
+	}
+	if err := s.repo.UpdateStatusTx(ctx, tx, sprintEntity.ID, models.SprintStatus(completedStatus)); err != nil {
+		return fmt.Errorf("failed to update sprint %s status in transaction: %w", sprintEntity.Key, err)
+	}
+	completion := &models.SprintCompletion{
+		SprintID:             sprintEntity.ID,
+		CompletedAt:          time.Now().UTC(),
+		PlannedEntityCount:   totalCount,
+		CompletedEntityCount: completedCount,
+		CarriedOverCount:     carriedOverCount,
+		DroppedCount:         droppedCount,
+		CarryoverMode:        string(mode),
+		NextSprintID:         nextSprintID,
+	}
+	if err := s.repo.CreateCompletionTx(ctx, tx, completion); err != nil {
+		return fmt.Errorf("failed to create sprint_completions record for %s: %w", sprintEntity.Key, err)
+	}
+	return nil
 }
 
 // resolveCarryoverMode returns the effective CarryoverMode from config,

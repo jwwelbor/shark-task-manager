@@ -415,6 +415,15 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	}
 	require.NoError(t, taskRepo.Create(ctx, task))
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
+	prerequisite := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E93-F01-002", Title: "Prerequisite"},
+		FeatureID: testFeature.ID, Status: models.TaskStatus("todo"), Priority: 5,
+		ExecutionOrder: &order1,
+	}
+	require.NoError(t, taskRepo.Create(ctx, prerequisite))
+	t.Cleanup(func() {
+		_, err := database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", prerequisite.ID)
+		require.NoError(t, err)
+	})
 
 	// Inject a depends_on pointing to a well-formed but non-existent task key.
 	bogusDeps := `["T-E93-F01-999"]`
@@ -439,16 +448,45 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 1, *got.ExecutionOrder, "execution_order should be unchanged after a rejected update")
 
-	// Clearing DependsOn on the same fast path must still succeed (nil/empty
-	// deps are a no-op for ValidateTaskDependencies).
+	// TD-066: a link-created relationship is also a dependency gate. An
+	// explicit clear must delete it atomically with the legacy JSON clear,
+	// rather than leaving a hidden entity_relationships blocker behind.
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO entity_relationships (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		VALUES ('task', ?, 'task', ?, 'depends_on')`, task.ID, prerequisite.ID)
+	require.NoError(t, err)
+
+	// Clearing DependsOn must still succeed (nil/empty deps are a no-op for
+	// ValidateTaskDependencies), and it must remove the relationship gate.
 	task.DependsOn = nil
-	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task),
-		"UpdateNoResequence must still succeed when depends_on is nil")
+	require.NoError(t, taskRepo.UpdateClearingDependencies(ctx, task, true),
+		"explicit dependency clear must succeed when depends_on is nil")
+	var relationshipCount int
+	require.NoError(t, database.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM entity_relationships
+		WHERE from_entity_type = 'task' AND from_entity_id = ?
+		  AND to_entity_type = 'task' AND to_entity_id = ? AND relationship_type = 'depends_on'`, task.ID, prerequisite.ID,
+	).Scan(&relationshipCount))
+	assert.Zero(t, relationshipCount, "clear must remove the relationship-backed dependency gate")
 
 	got, err = taskRepo.GetByKey(ctx, "T-E93-F01-001")
 	require.NoError(t, err)
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 2, *got.ExecutionOrder, "execution_order should update once depends_on is valid (nil)")
+
+	// A valid dependency must be persisted through the same --parallel path.
+	validDeps := `["T-E93-F01-002"]`
+	task.DependsOn = &validDeps
+	newOrder = 3
+	task.ExecutionOrder = &newOrder
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task))
+
+	got, err = taskRepo.GetByKey(ctx, "T-E93-F01-001")
+	require.NoError(t, err)
+	require.NotNil(t, got.DependsOn)
+	assert.Equal(t, validDeps, *got.DependsOn, "--parallel update must persist a valid depends_on value")
+	require.NotNil(t, got.ExecutionOrder)
+	assert.Equal(t, 3, *got.ExecutionOrder)
 }
 
 // TestTaskRepository_UpdateNoResequence_FastPath verifies the TD-008 fast path:
@@ -519,6 +557,38 @@ func TestTaskRepository_UpdateNoResequence_FastPath(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 7, *got.ExecutionOrder)
+}
+
+func TestTaskRepository_UpdateNoResequence_IgnoresPersistedLegacyDependencies(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	taskRepo := NewTaskRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
+
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E91", Title: "TD-062 epic"}, Status: models.EpicStatusActive, Priority: models.PriorityHigh, BusinessValue: &highPriority}
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E91-F01", Title: "TD-062 feature"}, EpicID: testEpic.ID, Status: models.FeatureStatusDraft}
+	require.NoError(t, featureRepo.Create(ctx, testFeature))
+	order := 1
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E91-F01-001", Title: "legacy dependency"}, FeatureID: testFeature.ID, Status: "todo", Priority: 5, ExecutionOrder: &order}
+	require.NoError(t, taskRepo.Create(ctx, task))
+	legacyDeps := `["missing-task"]`
+	_, err := database.ExecContext(ctx, "UPDATE tasks SET depends_on = ? WHERE id = ?", legacyDeps, task.ID)
+	require.NoError(t, err)
+
+	newOrder := 2
+	task.ExecutionOrder = &newOrder
+	task.DependsOn = nil
+	require.NoError(t, taskRepo.UpdateNoResequence(ctx, task))
+
+	updated, err := taskRepo.GetByKey(ctx, task.Key)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ExecutionOrder)
+	assert.Equal(t, 2, *updated.ExecutionOrder)
 }
 
 // TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason tests rejection reason validation

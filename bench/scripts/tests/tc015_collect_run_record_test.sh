@@ -770,6 +770,7 @@ want_quality = {
     "fmt_clean": True,
     "vet_ok": False,
     "tests_pass": None,
+    "gate_reasons": {"tests_pass": "go test binary timed out mid-suite"},
     "lint_new_issues": [
         {"from_linter": "ineffassign", "path": "pkg/pricing/discount.go", "text": "ineffectual assignment to err"}
     ],
@@ -865,6 +866,80 @@ if record.get("sources", {}).get("loc") != "postrun":
     sys.exit("TC-015l FAIL: sources.loc=%r, want 'postrun'" % record.get("sources", {}).get("loc"))
 print("TC-015l: PASS (prod/test-split arithmetic over mixed numstat lines)")
 PYEOF
+}
+
+# TC-015m: a cap-fired marker takes precedence over a RunResult that happened
+# to arrive during the kill grace period, and a null quality gate retains its
+# reason instead of becoming an unexplained missing measurement.
+test_m() {
+	local raced="$WORKDIR/m-raced" out="$WORKDIR/m-raced.out"
+	cp -R "$FIXTURES_DIR/timeout-with-liveness" "$raced"
+	cp "$FIXTURES_DIR/clean-completed/run/stdout.json" "$raced/run/stdout.json"
+	python3 - "$raced/run/exit_status" <<'PYEOF'
+import json
+import sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"exit_code": 0, "signaled": False, "timed_out": True}, f)
+PYEOF
+	run_collect "$raced" "$out"
+	python3 - "$out" <<'PYEOF'
+import json
+import sys
+record = json.load(open(sys.argv[1]))
+if record.get("outcome") != "timeout":
+    sys.exit("TC-015m FAIL: cap-fired record outcome=%r, want timeout" % record.get("outcome"))
+if "runresult" in record or "oracle" in record or "quality" in record or "loc" in record:
+    sys.exit("TC-015m FAIL: cap-fired record must not retain RunResult/post-run families: %r" % record)
+print("TC-015m: cap-fired timeout precedence PASS")
+PYEOF
+
+	local unexecutable="$WORKDIR/m-unexecutable" quality_out="$WORKDIR/m-unexecutable.out"
+	cp -R "$FIXTURES_DIR/clean-completed" "$unexecutable"
+	python3 - "$unexecutable/post/quality.json" <<'PYEOF'
+import json
+import sys
+with open(sys.argv[1], "w") as f:
+    json.dump({
+        "fmt": {"status": None, "reason": "gofmt could not execute (exit code 127)"},
+        "vet": {"status": "pass"},
+        "tests": {"status": "fail"},
+    }, f)
+PYEOF
+	run_collect "$unexecutable" "$quality_out"
+	python3 - "$quality_out" <<'PYEOF'
+import json
+import sys
+quality = json.load(open(sys.argv[1])).get("quality", {})
+if quality.get("fmt_clean") is not None:
+    sys.exit("TC-015m FAIL: fmt_clean=%r, want null" % quality.get("fmt_clean"))
+if quality.get("gate_reasons", {}).get("fmt_clean") != "gofmt could not execute (exit code 127)":
+    sys.exit("TC-015m FAIL: missing null-gate reason: %r" % quality)
+print("TC-015m: unexecutable gate reason PASS")
+PYEOF
+
+	local aborted="$WORKDIR/m-aborted" abort_out="$WORKDIR/m-aborted.out"
+	cp -R "$FIXTURES_DIR/clean-completed" "$aborted"
+	printf '%s\n' '{"step":"build_ledgers","detail":"fixture ledger builder failed"}' >"$aborted/post/postrun-abort.json"
+	run_collect "$aborted" "$abort_out"
+	python3 - "$abort_out" <<'PYEOF'
+import json
+import sys
+record = json.load(open(sys.argv[1]))
+errors = [e for e in record.get("errors", []) if e.get("kind") == "postrun_check_aborted"]
+if len(errors) != 1 or "build_ledgers" not in errors[0].get("detail", ""):
+    sys.exit("TC-015m FAIL: post-run abort was not recorded: %r" % record.get("errors"))
+if "oracle" in record or "loc" in record or record.get("quality", {}).get("postrun_abort") != "build_ledgers":
+    sys.exit("TC-015m FAIL: abort record retained invalid post-run metrics: %r" % record)
+print("TC-015m: post-run abort record PASS")
+PYEOF
+
+	printf '%s\n' '{"step":"unknown","detail":"bad fixture"}' >"$aborted/post/postrun-abort.json"
+	if "$COLLECT_SCRIPT" --run-dir "$aborted" >"$WORKDIR/m-malformed.out" 2>"$WORKDIR/m-malformed.err"; then
+		fail "TC-015m: malformed postrun-abort marker unexpectedly succeeded"
+	fi
+	grep -q 'unrecognized step' "$WORKDIR/m-malformed.err" ||
+		fail "TC-015m: malformed marker error did not name the contract violation"
+	echo "TC-015m: malformed abort marker rejection PASS"
 }
 
 test_a

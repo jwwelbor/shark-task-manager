@@ -745,8 +745,11 @@ func (s *ViewerService) resolveSprint(ctx context.Context, key string) (*models.
 		return sprintEntity, nil
 	}
 
-	// Prefer an active sprint; fall back to planning if none exists.
-	for _, status := range []string{"active", "planning"} {
+	// Prefer an execution sprint; fall back to planning if none exists.
+	sprintWorkflow := s.workflowSvc.ForLevel(workflow.LevelSprint)
+	statuses := append([]string{}, sprintWorkflow.GetStatusesByPhase("execution")...)
+	statuses = append(statuses, sprintWorkflow.GetStatusesByPhase("planning")...)
+	for _, status := range statuses {
 		sprints, err := s.sprintSvc.ListSprints(ctx, &SprintListFilters{Status: status})
 		if err != nil {
 			return nil, fmt.Errorf("viewer sprint: failed to list %s sprint: %w", status, err)
@@ -755,7 +758,7 @@ func (s *ViewerService) resolveSprint(ctx context.Context, key string) (*models.
 			return sprints[0], nil
 		}
 	}
-	return nil, fmt.Errorf("sprint not found: no active or planning sprint found")
+	return nil, fmt.Errorf("sprint not found: no execution or planning sprint found")
 }
 
 func (s *ViewerService) buildSprintCatalog(ctx context.Context) (*SprintCatalog, error) {
@@ -763,9 +766,11 @@ func (s *ViewerService) buildSprintCatalog(ctx context.Context) (*SprintCatalog,
 		return nil, fmt.Errorf("viewer sprint: sprint service not wired")
 	}
 
-	activeStatuses := []string{"active", "closing"}
-	upcomingStatuses := []string{"planning"}
-	archivedStatuses := []string{"completed", "cancelled", "archived"}
+	sprintWorkflow := s.workflowSvc.ForLevel(workflow.LevelSprint)
+	activeStatuses := append([]string{}, sprintWorkflow.GetStatusesByPhase("execution")...)
+	activeStatuses = append(activeStatuses, sprintWorkflow.GetStatusesByPhase("review")...)
+	upcomingStatuses := sprintWorkflow.GetStatusesByPhase("planning")
+	archivedStatuses := sprintWorkflow.GetStatusesByPhase("done")
 
 	catalog := &SprintCatalog{
 		Active:   []*models.Sprint{},
@@ -833,8 +838,7 @@ func (s *ViewerService) SprintOverview(ctx context.Context, key string) (*Sprint
 	// Summary is only available for completed/archived sprints; skip it for others.
 	var summary *SprintSummaryResult
 	if s.sprintAnalyticsSvc != nil {
-		st := string(sprintEntity.Status)
-		if st == "completed" || st == "archived" {
+		if s.isSprintSummaryStatus(string(sprintEntity.Status)) {
 			summary, err = s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
 			if err != nil {
 				return nil, fmt.Errorf("viewer sprint overview: failed to load summary: %w", err)
@@ -899,7 +903,7 @@ func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintRe
 
 	summary, err := s.sprintAnalyticsSvc.GetSummary(ctx, sprintEntity.Key, false)
 	if err != nil {
-		if sprintEntity.Status == "completed" || sprintEntity.Status == "archived" {
+		if s.isSprintSummaryStatus(string(sprintEntity.Status)) {
 			return nil, fmt.Errorf("viewer sprint report: failed to load summary: %w", err)
 		}
 		summary = nil // summary not yet available for in-progress sprints
@@ -912,6 +916,11 @@ func (s *ViewerService) SprintReport(ctx context.Context, key string) (*SprintRe
 		Catalog:  catalog,
 		Summary:  summary,
 	}, nil
+}
+
+func (s *ViewerService) isSprintSummaryStatus(status string) bool {
+	meta := s.workflowSvc.ForLevel(workflow.LevelSprint).GetStatusMetadata(status)
+	return meta.Phase == "done"
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata

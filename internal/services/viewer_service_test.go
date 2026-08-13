@@ -5677,7 +5677,7 @@ func TestViewerService_SprintOverview_DefaultActiveSprint(t *testing.T) {
 	if statusCalls["active"] != 2 {
 		t.Fatalf("expected active sprint listing twice (resolve + catalog), got %d", statusCalls["active"])
 	}
-	for _, status := range []string{"closing", "planning", "completed", "cancelled", "archived"} {
+	for _, status := range []string{"closing", "planning", "completed", "archived"} {
 		if statusCalls[status] != 1 {
 			t.Fatalf("expected one catalog list call for %s, got %d", status, statusCalls[status])
 		}

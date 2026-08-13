@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -820,16 +821,16 @@ func TestNextStatusInfo_JSONSerialization(t *testing.T) {
 // --- mockEpicTaskLister implements EpicTaskLister for testing ---
 
 type mockEpicTaskLister struct {
-	listBlockedTasksByEpicFn     func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	listBlockedTasksByEpicFn     func(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error)
 	listByFeatureFn              func(ctx context.Context, featureID int64) ([]*models.Task, error)
 	updateStatusForcedFn         func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 	getStatusBreakdownMapBatchFn func(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
 	getTaskCountsForFeaturesFn   func(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
-func (m *mockEpicTaskLister) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+func (m *mockEpicTaskLister) ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error) {
 	if m.listBlockedTasksByEpicFn != nil {
-		return m.listBlockedTasksByEpicFn(ctx, epicKey)
+		return m.listBlockedTasksByEpicFn(ctx, epicKey, blockedStatuses)
 	}
 	return nil, nil
 }
@@ -1225,7 +1226,7 @@ func TestEpicService_GetTaskStatusRollup_NotFound(t *testing.T) {
 
 func TestEpicService_GetImpediments(t *testing.T) {
 	taskLister := &mockEpicTaskLister{
-		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 			if epicKey != "E01" {
 				t.Errorf("expected epicKey 'E01', got %q", epicKey)
 			}
@@ -1252,6 +1253,23 @@ func TestEpicService_GetImpediments(t *testing.T) {
 	}
 }
 
+func TestEpicService_GetImpediments_UsesConfiguredBlockedStatuses(t *testing.T) {
+	var captured []string
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(_ context.Context, _ string, blockedStatuses []string) ([]*models.Task, error) {
+			captured = blockedStatuses
+			return nil, nil
+		},
+	}
+	repo := &mockEpicRepo{}
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
+	svc.SetBlockedTaskStatuses([]string{"stalled", "waiting"})
+
+	_, err := svc.GetImpediments(context.Background(), "E01")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"stalled", "waiting"}, captured)
+}
+
 func TestEpicService_GetImpediments_NilTaskRepo(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
@@ -1267,7 +1285,7 @@ func TestEpicService_GetImpediments_NilTaskRepo(t *testing.T) {
 
 func TestEpicService_GetImpediments_RepoError(t *testing.T) {
 	taskLister := &mockEpicTaskLister{
-		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -1289,7 +1307,7 @@ func TestEpicService_GetHealth_Healthy(t *testing.T) {
 		},
 	}
 	taskLister := &mockEpicTaskLister{
-		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 			return []*models.Task{}, nil
 		},
 	}
@@ -1314,7 +1332,7 @@ func TestEpicService_GetHealth_Warning(t *testing.T) {
 		},
 	}
 	taskLister := &mockEpicTaskLister{
-		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 			return []*models.Task{
 				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "Blocked"}, Status: "blocked", Priority: 5},
 			}, nil
@@ -1338,7 +1356,7 @@ func TestEpicService_GetHealth_Critical_MultipleBlocked(t *testing.T) {
 		},
 	}
 	taskLister := &mockEpicTaskLister{
-		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 			return []*models.Task{
 				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "Blocked 1"}, Status: "blocked", Priority: 5},
 				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-002", Title: "Blocked 2"}, Status: "blocked", Priority: 5},
@@ -1363,7 +1381,7 @@ func TestEpicService_GetHealth_Critical_HighPriority(t *testing.T) {
 		},
 	}
 	taskLister := &mockEpicTaskLister{
-		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string, _ []string) ([]*models.Task, error) {
 			return []*models.Task{
 				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "High-pri blocked"}, Status: "blocked", Priority: 2},
 			}, nil

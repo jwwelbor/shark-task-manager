@@ -2705,27 +2705,39 @@ async function apiGetHierarchy(tags, includeTerminal) {
  */
 async function hydrateHierarchyTasks(hierarchy, tags) {
   if (!hierarchy || !Array.isArray(hierarchy.epics)) return;
-  const fetches = [];
+  const featuresToHydrate = [];
   for (const epic of hierarchy.epics) {
     const features = Array.isArray(epic.features) ? epic.features : [];
     for (const feature of features) {
       // Initialise to empty so downstream readers never see undefined.
       feature.tasks = [];
       if (!feature.key) continue;
-      fetches.push(
-        apiGetFeatureTasks(feature.key, tags).then(tasks => {
-          if (Array.isArray(tasks)) {
-            feature.tasks = tasks;
-          }
-        }).catch(() => {
-          // best-effort: leave feature.tasks as [] on failure
-        })
-      );
+      featuresToHydrate.push(feature);
     }
   }
-  if (fetches.length > 0) {
-    await Promise.all(fetches);
+  if (featuresToHydrate.length === 0) return;
+
+  // Keep dashboard hydration best-effort without overwhelming the API when a
+  // project has many features. Six requests matches the small, interactive
+  // browser workload while allowing enough parallelism for normal projects.
+  const maxConcurrentHydrations = 6;
+  let nextFeature = 0;
+  async function hydrateNextFeature() {
+    while (nextFeature < featuresToHydrate.length) {
+      const feature = featuresToHydrate[nextFeature++];
+      try {
+        const tasks = await apiGetFeatureTasks(feature.key, tags);
+        if (Array.isArray(tasks)) {
+          feature.tasks = tasks;
+        }
+      } catch {
+        // best-effort: leave feature.tasks as [] on failure
+      }
+    }
   }
+
+  const workerCount = Math.min(maxConcurrentHydrations, featuresToHydrate.length);
+  await Promise.all(Array.from({ length: workerCount }, hydrateNextFeature));
 }
 
 /**

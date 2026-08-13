@@ -157,6 +157,22 @@ func TestReadDirectChildrenMissingParent(t *testing.T) {
 	}
 }
 
+func TestReadDirectChildrenExistingLeafReportsParentFound(t *testing.T) {
+	database := testutil.NewIsolatedTestDB(t)
+	epicID := insertEpic(t, database, "E07")
+	featureID := insertFeature(t, database, epicID, "E07-F01", "Feature", nil)
+	insertTask(t, database, featureID, "T-E07-F01-001", "Leaf", "development", nil, 5, nil)
+	repo := planhierarchyrepo.NewRepository(dbconn.NewDB(database))
+
+	snapshot, err := repo.ReadDirectChildren(context.Background(), string(models.EntityTypeTask), "T-E07-F01-001", 15*time.Minute, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("ReadDirectChildren() error = %v", err)
+	}
+	if !snapshot.ParentFound || len(snapshot.Children) != 0 {
+		t.Fatalf("snapshot = %#v, want existing leaf with no children", snapshot)
+	}
+}
+
 func insertEpic(t *testing.T, database *sql.DB, key string) int64 {
 	t.Helper()
 	result, err := database.Exec(

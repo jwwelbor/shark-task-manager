@@ -229,7 +229,9 @@ The data model this feature introduces is the **I-02 JSONL record**. One record 
 | `oracle.f2p_resolved` | bool \| null | post-run | `null` only with a recorded reason. |
 | `oracle.repro_confirmed` | bool \| null | post-run | Bug items only; the item's own `f2p.test_names` is the repro set. |
 | `oracle.p2p_regressions[]`, `.p2p_regressions_count`, `.removed[]`, `.removed_count` | — | `diff-ledgers.sh --kind=test` | Copied from the script's stdout, not recomputed. |
-| `quality.fmt_clean`, `.vet_ok`, `.tests_pass` | bool \| null | post-run | |
+| `quality.fmt_clean`, `.vet_ok`, `.tests_pass` | bool \| null | post-run | A null value has a corresponding non-empty `quality.gate_reasons` entry. |
+| `quality.gate_reasons` | object | post-run | Maps each null quality field to its command-execution reason. |
+| `quality.postrun_abort` | string | post-run | Present only with `postrun_check_aborted`; one of `build_ledgers`, `test_diff`, or `lint_diff`. |
 | `quality.lint_new_issues[]`, `.lint_new_issues_count` | — | `diff-ledgers.sh --kind=lint` | Copied from the script's stdout. |
 | `quality.toolchain_guard` | string | `diff-ledgers.sh --toolchain-guard` | `pass`, or the named mismatched axes. |
 | `loc.prod_added/.prod_deleted/.test_added/.test_deleted/.files_touched` | integer | `git diff --numstat` | |

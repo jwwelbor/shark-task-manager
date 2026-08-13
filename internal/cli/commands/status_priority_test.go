@@ -25,7 +25,7 @@ const testWorkflowConfig = `{
 		"in_progress": {"color": "blue", "phase": "development", "description": "In progress"},
 		"ready_for_review": {"color": "yellow", "phase": "review", "description": "Awaiting review"},
 		"completed": {"color": "green", "phase": "done", "description": "Done"},
-		"blocked": {"color": "red", "phase": "any", "description": "Blocked"}
+		"blocked": {"color": "red", "phase": "blocked", "description": "Blocked"}
 	},
 	"special_statuses": {
 		"_start_": ["todo"],

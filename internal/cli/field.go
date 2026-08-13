@@ -81,12 +81,42 @@ func lookupField(obj map[string]interface{}, field string) (interface{}, error) 
 		}
 		val, exists := m[part]
 		if !exists {
+			if len(parts) == 1 {
+				return lookupEnvelopeEntityField(obj, field)
+			}
 			return nil, fmt.Errorf("field %s not found", part)
 		}
 		current = val
 	}
 
 	return current, nil
+}
+
+// lookupEnvelopeEntityField resolves an unqualified field from a response that
+// contains exactly one entity object, such as {"task": {"status": "todo"}}.
+// Explicit dot notation and top-level fields continue to use lookupField directly.
+func lookupEnvelopeEntityField(obj map[string]interface{}, field string) (interface{}, error) {
+	var value interface{}
+	found := false
+	for _, entityKey := range []string{"epic", "feature", "task", "bug", "change", "change_card", "idea", "tech_debt", "sprint", "question"} {
+		entity, ok := obj[entityKey].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		candidate, exists := entity[field]
+		if !exists {
+			continue
+		}
+		if found {
+			return nil, fmt.Errorf("field %s is ambiguous across response entities", field)
+		}
+		value = candidate
+		found = true
+	}
+	if !found {
+		return nil, fmt.Errorf("field %s not found", field)
+	}
+	return value, nil
 }
 
 // printFieldValue prints a field value in a human-friendly format:

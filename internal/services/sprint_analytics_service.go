@@ -7,6 +7,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	sprint "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // SprintAnalyticsService orchestrates sprint analytics queries (E19-F04).
@@ -17,6 +18,12 @@ type SprintAnalyticsService struct {
 	analyticsRepo SprintAnalyticsRepository // required
 	sprintRepo    SprintRepository          // required for burndown / summary (may be nil for velocity-only use)
 	now           func() time.Time          // injectable time source; defaults to time.Now
+	workflowSvc   *workflow.Service
+}
+
+// SetWorkflow configures sprint and task status classification for analytics.
+func (s *SprintAnalyticsService) SetWorkflow(workflowSvc *workflow.Service) {
+	s.workflowSvc = workflowSvc
 }
 
 // NewSprintAnalyticsService creates a SprintAnalyticsService.
@@ -120,10 +127,21 @@ func (s *SprintAnalyticsService) GetBurndown(ctx context.Context, sprintKey stri
 	var err error
 	if sprintKey == "" {
 		// No key provided → look up the active sprint
-		filters := &sprint.SprintListFilters{Status: sprintStatusPtr("active")}
-		sprints, listErr := s.sprintRepo.List(ctx, filters)
-		if listErr != nil {
-			return nil, fmt.Errorf("failed to find active sprint: %w", listErr)
+		activeStatuses := []string{"active"}
+		if s.workflowSvc != nil {
+			activeStatuses = s.workflowSvc.ForLevel(workflow.LevelSprint).GetStatusesByPhase("execution")
+		}
+		var sprints []*models.Sprint
+		for _, activeStatus := range activeStatuses {
+			filters := &sprint.SprintListFilters{Status: sprintStatusPtr(activeStatus)}
+			listed, listErr := s.sprintRepo.List(ctx, filters)
+			if listErr != nil {
+				return nil, fmt.Errorf("failed to find active sprint: %w", listErr)
+			}
+			if len(listed) > 0 {
+				sprints = listed
+				break
+			}
 		}
 		if len(sprints) == 0 {
 			return nil, fmt.Errorf("no active sprint found")
@@ -138,7 +156,7 @@ func (s *SprintAnalyticsService) GetBurndown(ctx context.Context, sprintKey stri
 
 	// Step 2: Validate sprint status.
 	// Planning sprints have no meaningful burndown data (AC-B-2, TC-B-04).
-	if sp.Status == models.SprintStatus("planning") {
+	if s.isPlanningSprintStatus(string(sp.Status)) {
 		return &BurndownResult{
 			SprintKey:  sp.Key,
 			SprintName: sp.Name,
@@ -162,7 +180,7 @@ func (s *SprintAnalyticsService) GetBurndown(ctx context.Context, sprintKey stri
 	// Key: (entityType, entityID) → earliest completion timestamp within the sprint.
 	completedAt := make(map[burndownEntityKey]time.Time)
 	for _, ev := range completionEvents {
-		if isTerminalStatus(ev.NewStatus) {
+		if s.isTerminalTaskStatus(ev.NewStatus) {
 			k := burndownEntityKey{entityType: ev.EntityType, entityID: ev.EntityID}
 			if existing, ok := completedAt[k]; !ok || ev.Timestamp.Before(existing) {
 				completedAt[k] = ev.Timestamp
@@ -280,7 +298,7 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 
 	// Step 2: Validate status is completed or archived (AC-S-1, TC-S-02).
 	status := string(sp.Status)
-	if status != "completed" && status != "archived" {
+	if !s.isTerminalSprintStatus(status) {
 		return nil, fmt.Errorf(
 			"sprint summary is available for completed or archived sprints only; sprint %s is in status %q",
 			sprintKey, status,
@@ -538,6 +556,31 @@ func isTerminalStatus(status string) bool {
 		"dismissed": true,
 	}
 	return terminals[status]
+}
+
+func (s *SprintAnalyticsService) isPlanningSprintStatus(status string) bool {
+	if s.workflowSvc != nil {
+		for _, candidate := range s.workflowSvc.ForLevel(workflow.LevelSprint).GetStatusesByPhase("planning") {
+			if candidate == status {
+				return true
+			}
+		}
+	}
+	return status == "planning"
+}
+
+func (s *SprintAnalyticsService) isTerminalSprintStatus(status string) bool {
+	if s.workflowSvc != nil {
+		return s.workflowSvc.ForLevel(workflow.LevelSprint).GetStatusMetadata(status).Phase == "done"
+	}
+	return status == "completed" || status == "archived"
+}
+
+func (s *SprintAnalyticsService) isTerminalTaskStatus(status string) bool {
+	if s.workflowSvc != nil {
+		return s.workflowSvc.ForLevel(workflow.LevelTask).IsTerminalStatus(status)
+	}
+	return isTerminalStatus(status)
 }
 
 // computeSizeAtDay returns the total sized value of all entities that are

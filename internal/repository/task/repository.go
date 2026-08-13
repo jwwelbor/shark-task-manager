@@ -652,7 +652,17 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) (_ []*m
 
 // ListBlockedTasksByEpic retrieves all blocked tasks for an epic.
 // This method is more efficient than loading all tasks and filtering client-side.
-func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error) {
+	if len(blockedStatuses) == 0 {
+		return []*models.Task{}, nil
+	}
+	placeholders := make([]string, len(blockedStatuses))
+	args := make([]interface{}, 0, len(blockedStatuses)+1)
+	args = append(args, epicKey)
+	for index, status := range blockedStatuses {
+		placeholders[index] = "?"
+		args = append(args, status)
+	}
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
@@ -662,11 +672,11 @@ func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey str
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
-		WHERE e.key = ? AND t.status = ?
+		WHERE e.key = ? AND t.status IN (` + strings.Join(placeholders, ", ") + `)
 		ORDER BY t.blocked_at DESC NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
 	`
 
-	return r.queryTasks(ctx, query, epicKey, models.TaskStatus("blocked"))
+	return r.queryTasks(ctx, query, args...)
 }
 
 // FilterByStatus retrieves tasks filtered by status
@@ -958,6 +968,17 @@ func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Ta
 	return r.updateInternal(ctx, task, true)
 }
 
+// UpdateClearingDependencies updates task fields and removes task-to-task
+// depends_on relationship rows in the same transaction. It is intentionally
+// separate from Update: only an explicit --clear-depends-on request may erase
+// relationship-backed dependencies that predate the legacy JSON field.
+func (r *TaskRepository) UpdateClearingDependencies(ctx context.Context, task *models.Task, skipResequence bool) error {
+	if err := r.updateInternal(ctx, task, skipResequence, true); err != nil {
+		return err
+	}
+	return nil
+}
+
 // updateInternal performs the task update. When forceSkipCascade is true the
 // execution_order resequence is suppressed regardless of whether the order has
 // actually changed.
@@ -976,23 +997,21 @@ func (r *TaskRepository) UpdateNoResequence(ctx context.Context, task *models.Ta
 // dependency reach the column that gates status advancement. The call is a
 // cheap no-op when task.DependsOn is nil/empty (ValidateTaskDependencies
 // returns immediately without a query in that case).
-func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool) error {
+func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, forceSkipCascade bool, clearDependencyRelationships ...bool) error {
+	clearRelationships := len(clearDependencyRelationships) > 0 && clearDependencyRelationships[0]
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
+	}
+	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
+		if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+			return fmt.Errorf("dependency validation failed: %w", err)
+		}
 	}
 
 	// Skip-cascade fast path: single-row UPDATE, no transaction. Used by
 	// UpdateNoResequence (--parallel renumber).
-	if forceSkipCascade {
-		if err := r.ValidateTaskDependencies(ctx, task); err != nil {
-			return fmt.Errorf("dependency validation failed: %w", err)
-		}
+	if forceSkipCascade && !clearRelationships {
 		return r.updateRowDirect(ctx, task)
-	}
-
-	// Validate dependencies before updating
-	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
-		return fmt.Errorf("dependency validation failed: %w", err)
 	}
 
 	// Check if execution_order is being changed - if so, cascade to other tasks.
@@ -1017,6 +1036,15 @@ func (r *TaskRepository) updateInternal(ctx context.Context, task *models.Task, 
 
 	if err := r.updateWithTx(ctx, tx, task, needsCascade); err != nil {
 		return err
+	}
+	if clearRelationships {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM entity_relationships
+			WHERE from_entity_type = 'task' AND from_entity_id = ?
+			  AND to_entity_type = 'task' AND relationship_type = 'depends_on'
+		`, task.ID); err != nil {
+			return fmt.Errorf("clear task dependency relationships: %w", err)
+		}
 	}
 
 	// Commit transaction
@@ -1374,13 +1402,13 @@ func (r *TaskRepository) updateStatusForcedInternalWithTx(ctx context.Context, t
 	args := []interface{}{newStatus}
 
 	// Set appropriate timestamp based on new status
-	if newStatus == models.TaskStatus("in_progress") && !startedAt.Valid {
+	if isExecutionTaskStatus(nil, newStatus) && !startedAt.Valid {
 		query += ", started_at = ?"
 		args = append(args, now)
-	} else if newStatus == models.TaskStatus("completed") && !completedAt.Valid {
+	} else if isTerminalTaskStatus(nil, newStatus) && !completedAt.Valid {
 		query += ", completed_at = ?"
 		args = append(args, now)
-	} else if newStatus == models.TaskStatus("blocked") && !blockedAt.Valid {
+	} else if isBlockedTaskStatus(nil, newStatus) && !blockedAt.Valid {
 		query += ", blocked_at = ?"
 		args = append(args, now)
 	}
@@ -1489,14 +1517,16 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 	query := "UPDATE tasks SET status = ?"
 	args := []interface{}{params.NewStatus}
 
-	// Set appropriate timestamp based on new status
-	if params.NewStatus == models.TaskStatus("in_progress") && !params.StartedAt.Valid {
+	// The service resolves status classifications from the task workflow. The
+	// repository applies that policy while retaining its atomic status/history
+	// write; direct legacy callers get the documented historical fallbacks.
+	if isExecutionTaskStatus(params.ExecutionStatuses, params.NewStatus) && !params.StartedAt.Valid {
 		query += ", started_at = ?"
 		args = append(args, now)
-	} else if params.NewStatus == models.TaskStatus("completed") && !params.CompletedAt.Valid {
+	} else if isTerminalTaskStatus(params.TerminalStatuses, params.NewStatus) && !params.CompletedAt.Valid {
 		query += ", completed_at = ?"
 		args = append(args, now)
-	} else if params.NewStatus == models.TaskStatus("blocked") && !params.BlockedAt.Valid {
+	} else if isBlockedTaskStatus(params.BlockedStatuses, params.NewStatus) && !params.BlockedAt.Valid {
 		query += ", blocked_at = ?"
 		args = append(args, now)
 	}
@@ -1559,7 +1589,7 @@ func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, 
 	// layer from the task workflow), not a hardcoded completed/archived pair.
 	var unblockedKeys []string
 	if isTerminalTaskStatus(params.TerminalStatuses, params.NewStatus) {
-		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, params.TaskKey, params.TerminalStatuses)
+		unblockedKeys, err = r.AutoUnblockDependentsWithPolicy(ctx, tx, params.TaskKey, params.TerminalStatuses, params.BlockedStatuses, params.UnblockedStatus)
 		if err != nil {
 			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
 		}

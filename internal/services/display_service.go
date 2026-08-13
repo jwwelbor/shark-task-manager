@@ -30,7 +30,7 @@ type DisplayFeatureRepository interface {
 // DisplayTaskRepository is the interface DisplayService needs for task data access.
 type DisplayTaskRepository interface {
 	GetTaskCountForFeature(ctx context.Context, featureID int64) (int, error)
-	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
+	ListBlockedTasksByEpic(ctx context.Context, epicKey string, blockedStatuses []string) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 }
 
@@ -501,8 +501,9 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 		info.Progress = 0.0
 	} else {
 		var totalProgress float64
+		featureWorkflow := s.workflowSvc.ForLevel(workflow.LevelFeature)
 		for _, d := range progressData {
-			if d.Status == "completed" || d.Status == "archived" {
+			if featureWorkflow.IsTerminalStatus(d.Status) {
 				totalProgress += 100.0
 			} else {
 				totalProgress += d.ProgressPct
@@ -558,8 +559,13 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 	}
 
 	// Blocked tasks
-	if blockCount, ok := info.TaskRollup["blocked"]; ok && blockCount > 0 {
-		blockedTasks, err := s.deps.TaskRepo.ListBlockedTasksByEpic(ctx, info.Epic.Key)
+	blockedStatuses := s.workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked")
+	blockCount := 0
+	for _, blockedStatus := range blockedStatuses {
+		blockCount += info.TaskRollup[blockedStatus]
+	}
+	if blockCount > 0 {
+		blockedTasks, err := s.deps.TaskRepo.ListBlockedTasksByEpic(ctx, info.Epic.Key, blockedStatuses)
 		if err == nil {
 			info.BlockedTasks = blockedTasks
 		}
@@ -569,8 +575,12 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 	}
 
 	// Approval backlog
-	if approvalCount, ok := info.TaskRollup["ready_for_review"]; ok {
-		info.ApprovalBacklog = approvalCount
+	taskWorkflow := s.workflowSvc.ForLevel(workflow.LevelTask)
+	for status, count := range info.TaskRollup {
+		meta := taskWorkflow.GetStatusMetadata(status)
+		if meta.Phase == "review" || meta.Phase == "approval" {
+			info.ApprovalBacklog += count
+		}
 	}
 
 	// Related documents

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -276,6 +277,7 @@ func (r *BugRepository) List(ctx context.Context, filters *BugListFilters) ([]*m
 		if !filters.IncludeTerminal {
 			terminalStatuses := filters.TerminalStatuses
 			if len(terminalStatuses) == 0 {
+				slog.Warn("bug repository using legacy terminal-status fallback")
 				terminalStatuses = defaultBugTerminalStatuses
 			}
 			placeholders := make([]string, len(terminalStatuses))

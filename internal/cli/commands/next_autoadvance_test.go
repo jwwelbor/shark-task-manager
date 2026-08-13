@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -42,23 +45,17 @@ const terminalPassWorkflowConfig = `{
 // project and resets the global workflow-service singleton.
 func TestPickAutoAdvanceTarget_TerminalPassTargetWins(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, ".sharkconfig.json"), []byte(terminalPassWorkflowConfig), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, ".sharkconfig.json"), []byte(terminalPassWorkflowConfig), 0644), "failed to write config")
 
 	origCwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd failed: %v", err)
-	}
+	require.NoError(t, err, "getwd failed")
 	t.Cleanup(func() {
 		// Chdir back is best-effort: origCwd came from os.Getwd moments ago,
 		// so failure is practically impossible and unactionable in cleanup.
 		_ = os.Chdir(origCwd)
 		cli.ResetWorkflowService()
 	})
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("chdir failed: %v", err)
-	}
+	require.NoError(t, os.Chdir(tmp), "chdir failed")
 	cli.ResetWorkflowService()
 
 	// Transitions as production produces them (pass-first ordering); the old
@@ -73,9 +70,7 @@ func TestPickAutoAdvanceTarget_TerminalPassTargetWins(t *testing.T) {
 		},
 	}
 
-	if got := pickAutoAdvanceTarget(info); got != "done" {
-		t.Errorf("expected auto-advance to the terminal pass target %q, got %q", "done", got)
-	}
+	assert.Equal(t, "done", pickAutoAdvanceTarget(info), "expected auto-advance to the terminal pass target")
 }
 
 // TestPickAutoAdvanceTarget_PassSelfLoopPauses: a pass outcome that loops back
@@ -103,23 +98,17 @@ func TestPickAutoAdvanceTarget_PassSelfLoopPauses(t *testing.T) {
 	}
 }`
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, ".sharkconfig.json"), []byte(selfLoopConfig), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, ".sharkconfig.json"), []byte(selfLoopConfig), 0644), "failed to write config")
 
 	origCwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd failed: %v", err)
-	}
+	require.NoError(t, err, "getwd failed")
 	t.Cleanup(func() {
 		// Chdir back is best-effort: origCwd came from os.Getwd moments ago,
 		// so failure is practically impossible and unactionable in cleanup.
 		_ = os.Chdir(origCwd)
 		cli.ResetWorkflowService()
 	})
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("chdir failed: %v", err)
-	}
+	require.NoError(t, os.Chdir(tmp), "chdir failed")
 	cli.ResetWorkflowService()
 
 	info := &services.NextStatusInfo{
@@ -131,7 +120,5 @@ func TestPickAutoAdvanceTarget_PassSelfLoopPauses(t *testing.T) {
 		},
 	}
 
-	if got := pickAutoAdvanceTarget(info); got != "" {
-		t.Errorf("expected pause (empty) for a pass self-loop, got %q", got)
-	}
+	assert.Empty(t, pickAutoAdvanceTarget(info), "expected pause for a pass self-loop")
 }

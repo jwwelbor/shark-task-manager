@@ -151,3 +151,103 @@ func TestResolveNextCascadeFallsThroughBlockedChild_TC306(t *testing.T) {
 		t.Fatalf("resolved_via = %#v, want E39", got.ResolvedVia)
 	}
 }
+
+// TD-053: preserve a compact Question handoff only when it is the reason every
+// parked cascade child cannot progress. A mixed human pause must not be
+// attributed to the Question, or the parent would falsely imply that answering
+// it unblocks the whole cascade.
+func TestResolveNextCascadeMixedPauseDoesNotRetainQuestionBlock_TD053(t *testing.T) {
+	originalDescribe := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = originalDescribe }()
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		if entityType != "epic" || key != "E53" {
+			t.Fatalf("cascade lookup = %s %s, want epic E53", entityType, key)
+		}
+		return services.PlanHierarchyChildrenState{Children: []services.PlanHierarchyChild{
+			{Key: "E53-F01", EntityType: models.EntityTypeFeature},
+			{Key: "E53-F02", EntityType: models.EntityTypeFeature},
+		}, TotalChildren: 2, NonTerminalChildren: 2}, nil
+	}
+
+	question := &services.QuestionBlock{QuestionKey: "Q053", Summary: "Gate", ResolutionOwner: "owner"}
+	cache := &nextAdapterCache{
+		questionBlocker: questionBlockerFunc(func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+			if entityType == models.EntityTypeFeature && key == "E53-F01" {
+				return question, nil
+			}
+			return nil, nil
+		}),
+		entries: map[string]*nextAdapters{
+			"epic": {
+				transitioner: fixedNextTransitioner{info: &services.NextStatusInfo{EntityType: models.EntityTypeEpic, EntityKey: "E53", CurrentStatus: "active"}},
+				actionSvc: &action.MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*action.PopulatedAction, error) {
+					return &action.PopulatedAction{Action: "cascade"}, nil
+				}},
+			},
+			"feature": {
+				transitioner: keyedByEntityTransitioner{statuses: map[string]string{"E53-F01": "active", "E53-F02": "human_gate"}},
+				actionSvc: &action.MockActionService{GetStatusActionPopulatedFunc: func(_ context.Context, status string, _ map[string]string) (*action.PopulatedAction, error) {
+					if status == "human_gate" {
+						return &action.PopulatedAction{Action: action.ActionPause}, nil
+					}
+					return &action.PopulatedAction{Action: action.ActionSpawnAgent, AgentType: "developer", Instruction: "work"}, nil
+				}},
+			},
+		},
+	}
+
+	got, err := resolveNext(context.Background(), cache, "epic", "E53", 0)
+	if err != nil {
+		t.Fatalf("resolveNext(cascade) error = %v", err)
+	}
+	if got.Action != action.ActionPause {
+		t.Fatalf("action = %q, want pause", got.Action)
+	}
+	if got.QuestionBlock != nil {
+		t.Fatalf("question_block = %#v, want nil for mixed pause reasons", got.QuestionBlock)
+	}
+}
+
+func TestResolveNextCascadeAllQuestionBlockedRetainsFirstQuestionBlock_TD053(t *testing.T) {
+	originalDescribe := planDescribeDispatchableChildren
+	defer func() { planDescribeDispatchableChildren = originalDescribe }()
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		if entityType != "epic" || key != "E53" {
+			t.Fatalf("cascade lookup = %s %s, want epic E53", entityType, key)
+		}
+		return services.PlanHierarchyChildrenState{Children: []services.PlanHierarchyChild{
+			{Key: "E53-F01", EntityType: models.EntityTypeFeature},
+			{Key: "E53-F02", EntityType: models.EntityTypeFeature},
+		}, TotalChildren: 2, NonTerminalChildren: 2}, nil
+	}
+
+	first := &services.QuestionBlock{QuestionKey: "Q053-1", Summary: "First gate", ResolutionOwner: "owner"}
+	cache := &nextAdapterCache{
+		questionBlocker: questionBlockerFunc(func(_ context.Context, entityType models.EntityType, key string) (*services.QuestionBlock, error) {
+			if entityType != models.EntityTypeFeature {
+				return nil, nil
+			}
+			if key == "E53-F01" {
+				return first, nil
+			}
+			return &services.QuestionBlock{QuestionKey: "Q053-2", Summary: "Second gate", ResolutionOwner: "owner"}, nil
+		}),
+		entries: map[string]*nextAdapters{
+			"epic": {
+				transitioner: fixedNextTransitioner{info: &services.NextStatusInfo{EntityType: models.EntityTypeEpic, EntityKey: "E53", CurrentStatus: "active"}},
+				actionSvc: &action.MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*action.PopulatedAction, error) {
+					return &action.PopulatedAction{Action: "cascade"}, nil
+				}},
+			},
+			"feature": {transitioner: keyedByEntityTransitioner{statuses: map[string]string{"E53-F01": "active", "E53-F02": "active"}}},
+		},
+	}
+
+	got, err := resolveNext(context.Background(), cache, "epic", "E53", 0)
+	if err != nil {
+		t.Fatalf("resolveNext(cascade) error = %v", err)
+	}
+	if got.Action != action.ActionPause || got.QuestionBlock == nil || *got.QuestionBlock != *first {
+		t.Fatalf("resolveNext(cascade) = %#v, want first compact Question pause", got)
+	}
+}

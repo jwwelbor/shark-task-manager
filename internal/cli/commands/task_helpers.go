@@ -260,7 +260,7 @@ func parseCreateTaskInput(cmd *cobra.Command, args []string) services.CreateTask
 	var dependsOn []string
 	for _, d := range strings.Split(dependsOnStr, ",") {
 		if d = strings.TrimSpace(d); d != "" {
-			dependsOn = append(dependsOn, d)
+			dependsOn = append(dependsOn, normalizeDependencyTaskKey(d))
 		}
 	}
 	return services.CreateTaskInput{
@@ -327,18 +327,15 @@ func parseDependsOnUpdateFlag(cmd *cobra.Command) (*string, bool, error) {
 	if !cmd.Flags().Changed("depends-on") {
 		return nil, false, nil
 	}
-	dependsOnStr, err := cmd.Flags().GetString("depends-on")
+	dependencies, err := readStringSliceFromFlag(cmd, "depends-on")
 	if err != nil {
 		return nil, false, fmt.Errorf("read --depends-on flag: %w", err)
 	}
-	var dependencies []string
-	for _, dependency := range strings.Split(dependsOnStr, ",") {
-		if dependency = strings.TrimSpace(dependency); dependency != "" {
-			dependencies = append(dependencies, dependency)
-		}
-	}
 	if len(dependencies) == 0 {
 		return nil, true, nil
+	}
+	for i, dependency := range dependencies {
+		dependencies[i] = normalizeDependencyTaskKey(dependency)
 	}
 	encoded, err := json.Marshal(dependencies)
 	if err != nil {
@@ -346,6 +343,17 @@ func parseDependsOnUpdateFlag(cmd *cobra.Command) (*string, bool, error) {
 	}
 	value := string(encoded)
 	return &value, false, nil
+}
+
+// normalizeDependencyTaskKey canonicalizes documented short task keys at the
+// CLI boundary. Invalid values are retained for repository validation so users
+// receive the existing dependency-specific error rather than a parser rewrite.
+func normalizeDependencyTaskKey(input string) string {
+	normalized, err := NormalizeTaskKey(input)
+	if err != nil {
+		return input
+	}
+	return normalized
 }
 
 // parsePriorityFlag reads the priority flag as either int or string type,

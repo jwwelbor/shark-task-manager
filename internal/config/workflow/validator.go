@@ -37,6 +37,18 @@ func (e *WorkflowValidationError) Error() string {
 // - nil if workflow is valid
 // - WorkflowValidationError with actionable message and fix suggestion if invalid
 func ValidateWorkflow(workflow *WorkflowConfig) error {
+	return validateWorkflowForLevel(workflow, "task")
+}
+
+// ValidateWorkflowForLevel validates a workflow in the context of its entity
+// level. Sprint lifecycle phase selectors are only meaningful for sprint
+// workflows; other levels may legitimately have several review/execution
+// steps without a primary designation.
+func ValidateWorkflowForLevel(workflow *WorkflowConfig, level string) error {
+	return validateWorkflowForLevel(workflow, level)
+}
+
+func validateWorkflowForLevel(workflow *WorkflowConfig, level string) error {
 	if workflow == nil {
 		return &WorkflowValidationError{
 			Message: "workflow config is nil",
@@ -67,7 +79,7 @@ func ValidateWorkflow(workflow *WorkflowConfig) error {
 	// Rule 5: Route-based (steps:) specific checks (E35-F06). The legacy-map
 	// rules above already cover reachability/terminal-paths via the derived
 	// maps; these add the checks only the route-based schema can express.
-	if err := validateRouteBased(workflow); err != nil {
+	if err := validateRouteBased(workflow, level); err != nil {
 		return err
 	}
 
@@ -78,7 +90,7 @@ func ValidateWorkflow(workflow *WorkflowConfig) error {
 // (E35-F06): the start step exists, every workable step defines the core
 // outcome vocabulary with targets that resolve to real steps (D7), and no old
 // status alias is claimed by two steps. It is a no-op for legacy workflows.
-func validateRouteBased(workflow *WorkflowConfig) error {
+func validateRouteBased(workflow *WorkflowConfig, level string) error {
 	if !workflow.HasSteps() {
 		return nil
 	}
@@ -117,7 +129,7 @@ func validateRouteBased(workflow *WorkflowConfig) error {
 	// Ambiguity is a config problem, not a runtime-pick problem: when a
 	// semantic selection has several candidates, exactly one must be tagged
 	// primary: true (see selectors.go).
-	if err := validatePrimaryDesignations(workflow); err != nil {
+	if err := validatePrimaryDesignations(workflow, level == "sprint"); err != nil {
 		return err
 	}
 
@@ -145,18 +157,20 @@ func validateRouteBased(workflow *WorkflowConfig) error {
 // Each check consumes the same derived candidate set and the same designate
 // rule the runtime selector uses, so validate-time and runtime can never
 // disagree about what is ambiguous.
-func validatePrimaryDesignations(workflow *WorkflowConfig) error {
+func validatePrimaryDesignations(workflow *WorkflowConfig, sprintLifecycle bool) error {
 	if err := requireDesignation(workflow, "aggregation (reopen-target)", workflow.SpecialStatuses[AggregationStatusKey]); err != nil {
 		return err
 	}
 
-	for _, phase := range []string{"planning", "execution", "review"} {
-		if err := requireDesignation(workflow, fmt.Sprintf("%q-phase", phase), workflow.GetStatusesByPhase(phase)); err != nil {
+	if sprintLifecycle {
+		for _, phase := range []string{"planning", "execution", "review"} {
+			if err := requireDesignation(workflow, fmt.Sprintf("%q-phase", phase), workflow.GetStatusesByPhase(phase)); err != nil {
+				return err
+			}
+		}
+		if err := requireDesignation(workflow, "completed (done-phase, non-terminal)", workflow.completedSprintCandidates()); err != nil {
 			return err
 		}
-	}
-	if err := requireDesignation(workflow, "completed (done-phase, non-terminal)", workflow.completedSprintCandidates()); err != nil {
-		return err
 	}
 
 	if archival := workflow.archiveActionTerminals(); len(archival) > 0 {
@@ -421,7 +435,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 	configData, configErr := readRawConfigKeys(configPath)
 	var workflowFilePath string
 	if configErr == nil {
-		workflowFilePath, _ = resolveWorkflowFilePath(configPath, configData)
+		workflowFilePath, _ = resolveWorkflowFilePath(configPath, configData, "")
 	}
 	if workflowFilePath != "" {
 		workflowData, workflowErr := readRawConfigKeys(workflowFilePath)
@@ -448,6 +462,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 		"epic":      multi.Epic,
 		"feature":   multi.Feature,
 		"task":      multi.Task,
+		"sprint":    multi.Sprint,
 		"bug":       multi.Bug,
 		"change":    multi.Change,
 		"tech_debt": multi.TechDebt,
@@ -475,7 +490,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 			})
 		}
 		// Run full validation
-		if err := ValidateWorkflow(wf); err != nil {
+		if err := ValidateWorkflowForLevel(wf, level); err != nil {
 			results = append(results, WorkflowValidationFinding{
 				Level:   "error",
 				Message: fmt.Sprintf("%s_workflow: %v", level, err),

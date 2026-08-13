@@ -21,11 +21,52 @@ package commands
 //     clear; flag present with keys -> set the JSON-encoded list.
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestReadStringSliceFromFlagNormalizesSupportedDependsOnFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		flagType string
+		value    string
+		want     []string
+	}{
+		{name: "string ordinary", flagType: "string", value: "T-E07-F01-002,T-E07-F01-003", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+		{name: "string short task keys", flagType: "string", value: "E07-F01-002,E07-F01-003", want: []string{"E07-F01-002", "E07-F01-003"}},
+		{name: "string trims whitespace and empty members", flagType: "string", value: " T-E07-F01-002 , , T-E07-F01-003 ", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+		{name: "string comma only", flagType: "string", value: " , , ", want: []string{}},
+		{name: "string empty", flagType: "string", value: "", want: []string{}},
+		{name: "string slice", flagType: "stringSlice", value: "T-E07-F01-002,T-E07-F01-003", want: []string{"T-E07-F01-002", "T-E07-F01-003"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "update"}
+			if tc.flagType == "stringSlice" {
+				cmd.Flags().StringSlice("depends-on", nil, "dependency keys")
+			} else {
+				cmd.Flags().String("depends-on", "", "dependency keys")
+			}
+			if err := cmd.Flags().Set("depends-on", tc.value); err != nil {
+				t.Fatalf("set --depends-on: %v", err)
+			}
+
+			got, err := readStringSliceFromFlag(cmd, "depends-on")
+			if err != nil {
+				t.Fatalf("readStringSliceFromFlag() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("readStringSliceFromFlag() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
 
 // --depends-on with keys sets TaskUpdates.DependsOn to the JSON-encoded list.
 func TestTaskUpdate_DependsOnFlag_SetsDependsOn(t *testing.T) {
@@ -45,6 +86,35 @@ func TestTaskUpdate_DependsOnFlag_SetsDependsOn(t *testing.T) {
 	}
 	if capturedUpdates.ClearDependsOn {
 		t.Error("expected ClearDependsOn=false")
+	}
+}
+
+func TestTaskUpdate_DependsOnFlag_NormalizesShortTaskKeys(t *testing.T) {
+	var capturedUpdates services.TaskUpdates
+	cmd := buildTaskUpdateCmdCapture(t, &capturedUpdates)
+	cmd.SetArgs([]string{"E07-F01-001", "--depends-on=E07-F01-002,E07-F01-003"})
+	cmd.SilenceErrors = true
+	require.NoError(t, cmd.Execute())
+	require.NotNil(t, capturedUpdates.DependsOn, "expected DependsOn after short-form --depends-on input")
+	const want = `["T-E07-F01-002","T-E07-F01-003"]`
+	assert.Equal(t, want, *capturedUpdates.DependsOn)
+}
+
+func TestTaskUpdate_DependsOnFlag_PreservesInvalidKeyForValidation(t *testing.T) {
+	var capturedUpdates services.TaskUpdates
+	cmd := buildTaskUpdateCmdCapture(t, &capturedUpdates)
+	cmd.SetArgs([]string{"E07-F01-001", "--depends-on=not-a-task-key"})
+	cmd.SilenceErrors = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+
+	if capturedUpdates.DependsOn == nil {
+		t.Fatal("expected DependsOn after invalid --depends-on input")
+	}
+	const want = `["not-a-task-key"]`
+	if *capturedUpdates.DependsOn != want {
+		t.Errorf("DependsOn = %q, want %q", *capturedUpdates.DependsOn, want)
 	}
 }
 

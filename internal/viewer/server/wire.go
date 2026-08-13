@@ -452,7 +452,8 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	epicService.SetSearchIndexer(searchRepo)
 	epicService.SetAggregateMutationCoordinator(aggregateCoordinator)
 
-	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
+	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo, workflowSvc.ForLevel(workflow.LevelTask).GetStatusesByPhase("blocked"))
+	analyticsSvc.SetFeatureWorkflow(workflowSvc.ForLevel(workflow.LevelFeature))
 	epicService.SetAnalyticsService(analyticsSvc)
 
 	bugService := services.NewBugService(
@@ -498,6 +499,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	sprintAnalyticsRepo := sprintrepo.NewSprintAnalyticsRepository(db)
 	sprintSvc := services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, nil, db)
 	sprintAnalyticsSvc := services.NewSprintAnalyticsService(&sprintAnalyticsAdapter{repo: sprintAnalyticsRepo}, sprintRepo)
+	sprintAnalyticsSvc.SetWorkflow(workflowSvc)
 
 	// Step 5b: Construct ViewerService for the read-only dashboard API.
 	viewerService := services.NewViewerService(
