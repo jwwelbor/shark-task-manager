@@ -25,6 +25,9 @@ tests=(
 	"$SCRIPT_DIR/tc018_aggregate_report_test.sh"
 	"$SCRIPT_DIR/tc019_replay_manifest_test.sh"
 	"$SCRIPT_DIR/tc020_zero_go_change_test.sh"
+	"$SCRIPT_DIR/tc031_adapter_conformance_test.sh"
+	"$SCRIPT_DIR/tc038_frozen_interface_test.sh"
+	"$SCRIPT_DIR/tc041_predicate_argument_trace_test.sh"
 )
 
 status=0
