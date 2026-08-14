@@ -8,14 +8,15 @@
 # forward here so F08, F09, and F10 invoke this script rather than
 # re-deriving I-05's semantics themselves.
 #
-# T-E40-F06-004 stands up this scaffold and implements ONLY the REQ-F-005
-# time_ledger reconciliation check (ADR-F06-06). Later tasks MODIFY this
-# same script to add candidate identity (T-E40-F06-005, REQ-F-006), artifact
-# records (T-E40-F06-006, REQ-F-008), evaluator_access ordering
-# (T-E40-F06-007, REQ-F-012), and stop-outcome eligibility
-# (T-E40-F06-008, REQ-F-014) -- the `<bundle_dir>` argument contract is
-# deliberately the ONLY thing this task fixes for those tasks to build on;
-# nothing else about this script's internal structure is a promise.
+# T-E40-F06-004 stood up this scaffold and implemented the REQ-F-005
+# time_ledger reconciliation check (ADR-F06-06). T-E40-F06-005 adds the
+# REQ-F-006 / ADR-009 candidate-identity check described below. Later tasks
+# MODIFY this same script to add artifact records (T-E40-F06-006,
+# REQ-F-008), evaluator_access ordering (T-E40-F06-007, REQ-F-012), and
+# stop-outcome eligibility (T-E40-F06-008, REQ-F-014) -- the `<bundle_dir>`
+# argument contract is deliberately the ONLY thing this task fixes for those
+# tasks to build on; nothing else about this script's internal structure is
+# a promise.
 #
 # Reads the bundle's `bundle.json` stage index (`<bundle_dir>/bundle.json`
 # `stages[]`, spec.md "Bundle layout (I-05)"), then for each indexed stage
@@ -55,6 +56,40 @@
 # JSON's `residual_category` field always reads `"unclassified"`, naming
 # the architecture's binding rule explicitly rather than leaving it
 # implicit.
+#
+# T-E40-F06-005 candidate identity check (REQ-F-006, ADR-009, spec.md
+# "Stage snapshot (I-05)" `candidate` row):
+#
+#   For every stage snapshot whose OWN `stage_category` field (read from
+#   the snapshot itself, never from the bundle.json index -- mirroring the
+#   Go contract validator's e40I05ValidateStageSnapshot,
+#   tests/contracts/e40_i05_stage_evidence_contract_test.go, TC-042) is
+#   `code` or `review`:
+#
+#   1. the snapshot MUST carry a `candidate` object with `base_commit`,
+#      `tree_digest`, `binary_diff_digest`, `changed_path_digest`,
+#      `dirty_untracked_manifest`, and `test_suite_digest` -- a snapshot
+#      missing any one of them is rejected naming that exact field
+#      (`candidate_field_missing`, sourced from
+#      `bench/evidence/i05-schema.yaml`'s `error_kind` vocabulary).
+#      `test_suite_digest` is validated only for presence, exactly like the
+#      other digest fields -- never recomputed, never inspected for a
+#      Python- or Go-shaped path, matching ADR-F06-05's opacity discipline
+#      (REQ-F-007): the digest is already computed elsewhere from the
+#      adapter's normalized test-id set, and this validator's only job is
+#      to confirm it is present and fold it into the identity hash unread.
+#   2. `base_commit` is one field of the candidate's identity, never the
+#      identity by itself (ADR-009): this script never groups, compares, or
+#      dedupes candidates by `base_commit` alone. It hashes ALL SIX
+#      required fields -- `base_commit` plus the five digest/manifest
+#      fields, `dirty_untracked_manifest` hashed in its declared order
+#      (REQ-F-006 defines it as an ORDERED list; reordering it is itself an
+#      identity change, so this hash must never re-sort it) -- into a
+#      `candidate_identity_digest` reported alongside `base_commit` in the
+#      success JSON. Two snapshots sharing `base_commit` but differing in
+#      any one of the other five fields deterministically produce different
+#      digests; this script performs no cross-bundle merging of its own,
+#      leaving distinctness verification to the caller (tc045).
 #
 # Prints one fixed-order JSON document to stdout on success (bundle path,
 # then `stages[]` sorted by `dispatch_ordinal`, each stage's own keys in
@@ -103,6 +138,7 @@ python3 -c 'import yaml' >/dev/null 2>&1 || {
 bundle_dir_abs="$(cd "$bundle_dir" && pwd)"
 
 python3 - "$bundle_dir_abs" "$I05_SCHEMA" <<'PYEOF'
+import hashlib
 import json
 import os
 import sys
@@ -118,14 +154,26 @@ class ScriptError(RuntimeError):
     verdict. Reported on stderr and mapped to exit 2."""
 
 
-class LedgerViolation(RuntimeError):
-    """A real, informative REQ-F-005 rejection verdict -- mapped to exit 1,
-    never silently swallowed, never conflated with a script/usage error."""
+class Violation(RuntimeError):
+    """A real, informative rejection verdict -- mapped to exit 1, never
+    silently swallowed, never conflated with a script/usage error. Shared
+    base for every REQ-specific violation this validator raises so the
+    single top-level handler below stays exhaustive as more checks
+    (T-E40-F06-005 onward) are added to this script."""
 
     def __init__(self, kind, detail):
         super().__init__(detail)
         self.kind = kind
         self.detail = detail
+
+
+class LedgerViolation(Violation):
+    """A real, informative REQ-F-005 rejection verdict."""
+
+
+class CandidateViolation(Violation):
+    """A real, informative REQ-F-006 / ADR-009 candidate-identity rejection
+    verdict."""
 
 
 def load_yaml(path, label):
@@ -258,6 +306,95 @@ def validate_time_ledger(stage_key, dispatch_ordinal, ledger, known_categories):
     }
 
 
+# REQ-F-006 / ADR-009: the five candidate fields the task spec's AC-T1
+# dedicates an independent missing-field case to. `base_commit` is required
+# too (REQ-F-006's field list; mirrored from the Go contract validator's
+# e40I05ValidateCandidate) even though AC-T1 does not dedicate a case to it.
+CANDIDATE_REQUIRED_STRING_FIELDS = (
+    "base_commit",
+    "tree_digest",
+    "binary_diff_digest",
+    "changed_path_digest",
+    "test_suite_digest",
+)
+
+
+def validate_candidate(stage_key, dispatch_ordinal, stage_category, snapshot):
+    """Implements REQ-F-006 / ADR-009 for one code/review stage snapshot's
+    `candidate` block. Mirrors the Go contract validator's
+    e40I05ValidateCandidate (tests/contracts/e40_i05_stage_evidence_contract_test.go,
+    TC-042) field-for-field so the two validators agree on what "missing"
+    means. Returns None for any stage_category outside {code, review} --
+    REQ-F-006 does not apply, so a ledger-only fixture with no `candidate`
+    key at all (e.g. bench/scripts/testdata/evidence/ledger/*, none of
+    which declare a snapshot-level stage_category) is untouched by this
+    check. Raises CandidateViolation naming the first missing field for a
+    real rejection; never raises ScriptError, because a missing/incomplete
+    candidate block on a code/review snapshot is exactly the informative
+    verdict AC-T1 exists to produce, not a malformed input this script
+    cannot evaluate at all.
+
+    Identity discipline (REQ-F-006, ADR-009, AC-T2): `base_commit` is one
+    field of a candidate's identity, never the identity by itself. This
+    function never groups, compares, or dedupes candidates by `base_commit`
+    alone -- it hashes ALL SIX required fields (`base_commit` plus the five
+    digest/manifest fields, `dirty_untracked_manifest` hashed in its
+    declared order -- REQ-F-006 defines it as an ORDERED list, so this hash
+    must never re-sort it) into `candidate_identity_digest`, so two
+    snapshots sharing `base_commit` but differing in any one of the other
+    five fields deterministically produce different digests. Callers (and
+    tc045) compare that digest, and the `base_commit` reported alongside
+    it, across separate guard invocations to prove distinctness; this
+    script performs no cross-bundle merging of its own.
+    """
+    if stage_category not in ("code", "review"):
+        return None
+
+    candidate = snapshot.get("candidate")
+    if not isinstance(candidate, dict):
+        raise CandidateViolation(
+            "candidate_field_missing",
+            f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} category={stage_category}: "
+            f"candidate block missing or not an object",
+        )
+
+    for field in CANDIDATE_REQUIRED_STRING_FIELDS:
+        value = candidate.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise CandidateViolation(
+                "candidate_field_missing",
+                f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} category={stage_category} field={field}",
+            )
+
+    if "dirty_untracked_manifest" not in candidate:
+        raise CandidateViolation(
+            "candidate_field_missing",
+            f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} category={stage_category} field=dirty_untracked_manifest",
+        )
+
+    # Identity hash over all six required fields, in their own declared
+    # shapes/order (never re-sorted) -- json.dumps(sort_keys=True) here
+    # only sorts the OBJECT's key order for a stable serialization, not the
+    # dirty_untracked_manifest list's element order.
+    identity_payload = {
+        "base_commit": candidate["base_commit"],
+        "tree_digest": candidate["tree_digest"],
+        "binary_diff_digest": candidate["binary_diff_digest"],
+        "changed_path_digest": candidate["changed_path_digest"],
+        "dirty_untracked_manifest": candidate["dirty_untracked_manifest"],
+        "test_suite_digest": candidate["test_suite_digest"],
+    }
+    identity_digest = hashlib.sha256(
+        json.dumps(identity_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        "base_commit": candidate["base_commit"],
+        "candidate_identity_digest": f"sha256:{identity_digest}",
+        "result": "accepted",
+    }
+
+
 def resolve_within(root, rel_path, label):
     """Resolves a bundle-relative path and enforces containment, mirroring
     verify-evidence-roots.sh's resolve_in_evaluator_root (REQ-NF-005)."""
@@ -303,20 +440,27 @@ def main():
             raise ScriptError(f"stage={stage_key} dispatch_ordinal={dispatch_ordinal}: snapshot has no time_ledger object")
 
         ledger_result = validate_time_ledger(stage_key, dispatch_ordinal, ledger, known_categories)
-        stage_results.append(
-            {
-                "dispatch_ordinal": dispatch_ordinal,
-                "stage_key": stage_key,
-                "time_ledger": ledger_result,
-            }
+
+        stage_result = {
+            "dispatch_ordinal": dispatch_ordinal,
+            "stage_key": stage_key,
+            "time_ledger": ledger_result,
+        }
+        # REQ-F-006: stage_category is read from the snapshot's OWN field,
+        # never from the bundle.json index entry -- see header comment.
+        candidate_result = validate_candidate(
+            stage_key, dispatch_ordinal, snapshot.get("stage_category"), snapshot
         )
+        if candidate_result is not None:
+            stage_result["candidate"] = candidate_result
+        stage_results.append(stage_result)
 
     print(json.dumps({"bundle_dir": bundle_dir, "stages": stage_results}, sort_keys=True))
 
 
 try:
     main()
-except LedgerViolation as violation:
+except Violation as violation:
     sys.stderr.write(f"verify-stage-evidence: {violation.kind}: {violation.detail}\n")
     sys.exit(1)
 except ScriptError as exc:
