@@ -1,0 +1,10 @@
+# Committed fixture stand-in for a held-back reference solution (REQ-F-010
+# evaluator_only.reference_solution). Content is arbitrary and inert -- this
+# fixture is consumed only for its path/digest identity by
+# verify-evidence-roots.sh's offline test paths, never applied with `git
+# apply`.
+--- a/placeholder.txt
++++ b/placeholder.txt
+@@ -1 +1 @@
+-before
++after

@@ -1,0 +1,23 @@
+# Minimal, self-contained, committed I-04-shaped package fixture -- NOT a
+# real scenario, and never registered in bench/scenarios/scenarios.yaml.
+# Exists only to give verify-evidence-roots.sh's offline test paths (the
+# T-E40-F06-011 determinism proof, AC-016) a fully committed evaluator_only
+# block plus its real backing files, with no submodule and no network
+# required -- unlike tc043_root_policy_isolation_test.sh's own primary
+# assertions (AC-009, AC-010), which deliberately exercise the REAL
+# py-feature-recurring-tasks package against a real checkout-scenario-
+# fixture.sh checkout (test-plan.md Tier 1b/2: tc043 is a "real fixture
+# checkout" case, not a "committed bundle fixture" case) -- these files are
+# the committed *clean-roots and planted-leak* fixtures REQ-F-010/011's
+# guard needs for a checkout-free, network-free re-run. answer_keys carries
+# one real entry deliberately: every currently-committed real I-04 package
+# declares answer_keys: [], so this synthetic entry is the only committed
+# exerciser of that detection path (test-plan.md AC-009's other two source
+# kinds -- reference_solution, oracle_tests[] -- both have real-package
+# coverage via tc043's checkout-based cases).
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_probe.py
+  answer_keys:
+    - evaluator/answer_key.json
