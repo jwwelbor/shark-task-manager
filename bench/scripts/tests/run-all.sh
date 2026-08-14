@@ -25,6 +25,17 @@ tests=(
 	"$SCRIPT_DIR/tc018_aggregate_report_test.sh"
 	"$SCRIPT_DIR/tc019_replay_manifest_test.sh"
 	"$SCRIPT_DIR/tc020_zero_go_change_test.sh"
+	"$SCRIPT_DIR/tc031_adapter_conformance_test.sh"
+	"$SCRIPT_DIR/tc032_admission_full_confirmation_test.sh"
+	"$SCRIPT_DIR/tc033_admission_rejection_test.sh"
+	"$SCRIPT_DIR/tc034_admission_determinism_test.sh"
+	"$SCRIPT_DIR/tc035_toolchain_identity_test.sh"
+	"$SCRIPT_DIR/tc036_final_predicate_test.sh"
+	"$SCRIPT_DIR/tc037_repo_hygiene_test.sh"
+	"$SCRIPT_DIR/tc038_frozen_interface_test.sh"
+	"$SCRIPT_DIR/tc039_offline_capability_test.sh"
+	"$SCRIPT_DIR/tc040_fixture_base_verification_test.sh"
+	"$SCRIPT_DIR/tc041_predicate_argument_trace_test.sh"
 )
 
 status=0

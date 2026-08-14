@@ -1,0 +1,139 @@
+diff --git a/taskmanager/manager.py b/taskmanager/manager.py
+index d7f2b8d..f1f398c 100644
+--- a/taskmanager/manager.py
++++ b/taskmanager/manager.py
+@@ -1,14 +1,15 @@
+-"""In-memory task manager service wiring the models, priority, due-date, and
+-validation modules together.
++"""In-memory task manager service wiring the models, priority, due-date,
++validation, and recurrence modules together.
+ """
+ 
+ from __future__ import annotations
+ 
+-from datetime import date
++from datetime import date, timedelta
+ 
+-from .due_date import is_overdue
++from .due_date import is_overdue, parse_due_date
+ from .models import Status, Task
+ from .priority import validate_priority
++from .recurrence import next_due_date, validate_recurrence_rule
+ from .validation import non_empty_title
+ 
+ 
+@@ -19,13 +20,22 @@ class TaskManager:
+         self._tasks: dict[int, Task] = {}
+         self._next_id = 1
+ 
+-    def add_task(self, title: str, priority: str = "medium", due_date: str | None = None) -> Task:
++    def add_task(
++        self,
++        title: str,
++        priority: str = "medium",
++        due_date: str | None = None,
++        recurrence_rule: str | None = None,
++    ) -> Task:
+         validate_priority(priority)
++        if recurrence_rule is not None:
++            validate_recurrence_rule(recurrence_rule)
+         task = Task(
+             id=self._next_id,
+             title=non_empty_title(title),
+             priority=priority,
+             due_date=due_date,
++            recurrence_rule=recurrence_rule,
+         )
+         self._tasks[task.id] = task
+         self._next_id += 1
+@@ -34,8 +44,28 @@ class TaskManager:
+     def complete(self, task_id: int) -> Task:
+         task = self._tasks[task_id]
+         task.status = Status.DONE
++        if task.recurrence_rule is not None and task.due_date is not None:
++            self.generate_next_occurrence(task)
+         return task
+ 
++    def generate_next_occurrence(self, task: Task) -> Task:
++        """Create and register the next occurrence of a recurring task.
++
++        Independent of complete(): callable directly to produce a task's
++        next occurrence without marking the source task done.
++        """
++        if task.recurrence_rule is None or task.due_date is None:
++            raise ValueError(
++                "task has no recurrence_rule/due_date to generate a next occurrence from"
++            )
++        next_date = next_due_date(parse_due_date(task.due_date), task.recurrence_rule)
++        return self.add_task(
++            task.title,
++            priority=task.priority,
++            due_date=next_date.isoformat(),
++            recurrence_rule=task.recurrence_rule,
++        )
++
+     def list_tasks(self) -> list[Task]:
+         return list(self._tasks.values())
+ 
+@@ -46,6 +76,18 @@ class TaskManager:
+             if t.due_date is not None and not t.is_done() and is_overdue(t.due_date, today)
+         ]
+ 
++    def upcoming_occurrences(self, today: date, within_days: int = 7) -> list[Task]:
++        """Return not-done tasks due within [today, today + within_days]."""
++        cutoff = today + timedelta(days=within_days)
++        matching = [
++            t
++            for t in self._tasks.values()
++            if t.due_date is not None
++            and not t.is_done()
++            and today <= parse_due_date(t.due_date) <= cutoff
++        ]
++        return sorted(matching, key=lambda t: t.due_date)
++
+     def import_legacy_records(self, records: list[dict]) -> list[Task]:
+         """Convert already-stored records using the legacy three-level
+         string priority scale into Task objects on the new 1-5 integer
+diff --git a/taskmanager/models.py b/taskmanager/models.py
+index 334e2d2..77de581 100644
+--- a/taskmanager/models.py
++++ b/taskmanager/models.py
+@@ -19,6 +19,7 @@ class Task:
+     priority: str = "medium"
+     status: Status = Status.TODO
+     due_date: str | None = None  # ISO 8601 date string, e.g. "2026-01-15"
++    recurrence_rule: str | None = None  # one of taskmanager.recurrence.RECURRENCE_INTERVALS
+ 
+     def is_done(self) -> bool:
+         return self.status == Status.DONE
+diff --git a/taskmanager/recurrence.py b/taskmanager/recurrence.py
+new file mode 100644
+index 0000000..9585773
+--- /dev/null
++++ b/taskmanager/recurrence.py
+@@ -0,0 +1,25 @@
++"""Recurrence-rule calculations for recurring tasks."""
++
++from __future__ import annotations
++
++from datetime import date, timedelta
++
++RECURRENCE_INTERVALS = {
++    "daily": timedelta(days=1),
++    "weekly": timedelta(days=7),
++    "monthly": timedelta(days=30),
++}
++
++
++def validate_recurrence_rule(rule: str) -> None:
++    """Raise ValueError if rule is not one of the closed recurrence set."""
++    if rule not in RECURRENCE_INTERVALS:
++        raise ValueError(
++            f"recurrence_rule must be one of {sorted(RECURRENCE_INTERVALS)}, got {rule!r}"
++        )
++
++
++def next_due_date(due_date: date, rule: str) -> date:
++    """Return the next occurrence's due date, advanced by rule's interval."""
++    validate_recurrence_rule(rule)
++    return due_date + RECURRENCE_INTERVALS[rule]

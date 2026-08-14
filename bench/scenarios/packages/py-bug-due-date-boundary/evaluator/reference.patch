@@ -1,0 +1,15 @@
+diff --git a/taskmanager/due_date.py b/taskmanager/due_date.py
+index 8b9dcbc..32a74e8 100644
+--- a/taskmanager/due_date.py
++++ b/taskmanager/due_date.py
+@@ -13,8 +13,8 @@ def parse_due_date(value: str) -> date:
+ 
+ 
+ def is_overdue(due_date: str, today: date) -> bool:
+-    """Return True if due_date is strictly before today."""
+-    return parse_due_date(due_date) < today
++    """Return True if due_date is today or earlier."""
++    return parse_due_date(due_date) <= today
+ 
+ 
+ def days_until_due(due_date: str, today: date) -> int:

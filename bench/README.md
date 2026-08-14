@@ -212,6 +212,194 @@ A curator re-runs this sequence whenever `bench/corpus/corpus.yaml` or
 checkout at an unchanged base SHA and toolchain reproduces byte-identical
 verdicts and identity sets) still holds.
 
+## I-04 lifecycle scenario corpus and adapter contract (E40-F05)
+
+`bench/scenarios/` is I-04: a versioned lifecycle scenario corpus independent
+of `bench/corpus/corpus.yaml` (REQ-F-001) covering the four lifecycle
+families (`feature`, `bug`, `change_card`, `tech_debt`) on a second,
+controlled Python fixture (`bench/fixture-py`, a git submodule, same
+convention as `bench/fixture-repo`). `bench/fixture-repo` and its I-01
+tooling above are unmodified and remain registered as the `go` compatibility
+adapter. E40-F06, E40-F07, and E40-F08 read this section instead of
+re-deriving the package shape, the adapter contract, or the Tier 2 sequence
+from `bench/scenarios/**` or the scripts directly — the same role the
+"Manifest schema" section above plays for I-01.
+
+### I-04 scenario package schema
+
+`bench/scenarios/scenarios.yaml`, schema-versioned via its top-level
+`schema_version` (currently `"1.0"`), registers three things: `fixtures`
+(`fixture_id` → `submodule_path`, both `py` and `go`), `adapters` (`name` →
+`path`, `version`), and `scenarios` (a list of `packages/<scenario_id>`
+directory paths, relative to `bench/scenarios/`). Resolving a package's
+`fixture.fixture_id` or `adapter.name` means looking it up in these two maps
+— an unregistered id is rejected naming the field (REQ-F-015).
+
+Each `bench/scenarios/packages/<scenario_id>/package.yaml` carries the full
+I-04 field inventory. Every field is required unless noted. Loading the same
+package twice MUST yield byte-identical values for every field below
+(REQ-F-002/AC-009).
+
+| Field | Type | Contract |
+|---|---|---|
+| `schema_version` | string | Matches the index; the version the validator supports. |
+| `scenario_id` | string | Unique lowercase-kebab identity; the package's own directory name. |
+| `scenario_version` | integer | Incremented on any content change. |
+| `entity_family` | enum | `feature` \| `bug` \| `change_card` \| `tech_debt`. |
+| `stage_matrix.prelude.D01`…`.D05` | object | `{applicable: bool, reason: string}`; `reason` required when `applicable: false`. Family invariant (REQ-F-004): `feature` requires all five `true`; `bug`/`change_card`/`tech_debt` require all five `false`, each with a reason. |
+| `stage_matrix.lifecycle` | object | `{mode: all_dispatched, evidence_required: true}` — a declarative rule, never an enumerated status list. |
+| `fixture` | object | `{fixture_id, submodule_path, base_sha}`; `fixture_id` must resolve in `scenarios.yaml`'s `fixtures:` map. |
+| `adapter` | object | `{name, version}`; `name` must resolve in `scenarios.yaml`'s `adapters:` map. |
+| `toolchain_identity` | ordered list | `[{key, value}]`, captured from a real `adapter.sh identity` run and pinned at admission; opaque to consumers (REQ-F-008) — compare the whole ordered list for equality, never a named key. |
+| `input.agent_visible` | path | The issue-style initial input; MUST resolve outside the package's own `evaluator/` subtree. |
+| `replay_reference` | path, feature only | Opaque pointer to the I-06 response bundle E40-F07 consumes; absent for every other family. |
+| `evaluator_only` | object | `{reference_solution, oracle_tests[], answer_keys[]}`, all paths under `evaluator/`, never reachable from `input.agent_visible`. |
+| `final_predicate` | object | `{kind, …operands}` — see "Final predicate vocabulary" below. Every kind carries a `p2p_selection` operand `{include: [fixture-relative paths], exclude_test_ids: [ids]}` (REQ-F-017). |
+| `resource_policy` | object | `{max_cost_usd, max_wall_clock_seconds, max_generated_tasks}`, all strictly positive (REQ-F-011). |
+| `admission` | object | `{status, base_outcome, reference_outcome, toolchain_identity}`, written in place by `admit-scenario.sh` on an admitted verdict. Its `toolchain_identity` is the second encoding of the top-level field and MUST equal it element-for-element (AC-019). |
+
+The contract validator (`tests/contracts/e40_i04_scenario_contract_test.go`,
+TC-030) is the executable definition of this schema, reading only committed
+`bench/scenarios/**` files — it requires no populated submodule (REQ-NF-003),
+so it runs in CI without `git submodule update --init`. Treat this section
+as a reader's map to that test, not a substitute for it.
+
+### Final predicate vocabulary
+
+A closed set of four kinds, one permitted per family, each evaluable from an
+adapter's `test`/`lint` capability output alone (REQ-F-010) — no ledger file
+is read and none is committed under `bench/scenarios/` (AC-021).
+`bench/scripts/eval-predicate.sh <package.yaml> <test-output.json>
+<lint-output.json>` is the single named owner of this arithmetic; nothing
+else re-derives it.
+
+| Kind | Family | Operands | True when |
+|---|---|---|---|
+| `f2p_p2p` | `bug` | `f2p_test_ids[]`, `p2p_selection` | Every `f2p_test_ids` entry is `pass` and every `p2p_selection` entry is `pass`. |
+| `acceptance_tests` | `change_card` | `acceptance_test_ids[]`, `p2p_selection` | Every acceptance test is `pass` and every `p2p_selection` entry is `pass`. |
+| `p2p_plus_rule_drop` | `tech_debt` | `p2p_selection`, `rule`, `max_remaining` | Every `p2p_selection` entry is `pass` and the count of `lint` issues whose `rule` matches is `<= max_remaining`. |
+| `child_oracles_union` | `feature` | `integration_test_ids[]`, `child_oracles[]`, `p2p_selection` | Every integration test is `pass`, every declared child oracle evaluates true, and every `p2p_selection` entry is `pass`. |
+
+Every kind's P2P clause is absolute (REQ-F-017, ADR-F05-10), not
+base-relative: every entry the `p2p_selection` resolves to must be `pass`,
+whichever state (base or reference-applied) `test`/`lint` output was
+captured from. No base ledger is required or committed, because REQ-F-016
+requires the fixture's full suite green at `base_sha` and admission check
+(b) verifies the narrower `p2p_selection` subset per candidate —
+`bench/scripts/verify-fixture-py-base.sh <base_sha>` is the separate, named
+owner of the broader "the whole fixture is green at base_sha" claim
+(AC-020, TC-040).
+
+### Adapter capability contract
+
+`bench/adapters/<name>/adapter.sh <capability> [args]` (REQ-F-006) is an
+executable contract, not a library — the ONLY place in `bench/` that may
+know a fixture's language, package manager, or toolchain (REQ-F-007). Every
+generic scenario, evidence, or admission script reaches a language-specific
+command through this interface. `bench/adapters/<name>/adapter.yaml`
+declares `{name, version}`, registered in `scenarios.yaml`'s `adapters:` map.
+
+Exactly six capabilities — a closed set; adding a seventh requires an I-04
+`schema_version` bump. Each writes one JSON document to stdout:
+
+| Capability | Arguments | stdout JSON |
+|---|---|---|
+| `identity` | `--checkout <dir>` | `{adapter, version, toolchain_identity: [{key, value}]}` — ordered, opaque. |
+| `inject-tests` | `--checkout <dir> --files <path>…` | `{injected: [{source, destination}]}`. Places evaluator-only test files where the toolchain discovers them. |
+| `test` | `--checkout <dir> [--include <path>…] [--exclude-id <id>…] [--only-id <id>…]` | `{entries: [{id, outcome}]}`, `id` already normalized to `<module-or-package>::<test-name>`, `outcome` one of `pass`\|`fail`\|`skip`. `--include`/`--exclude-id` carry a `p2p_selection`; `--only-id` names a predicate's own test ids. |
+| `lint` | `--checkout <dir>` | `{issues: [{rule, file, text}]}` — a multiset; identity excludes line/column so it is stable under position shifts. |
+| `build` | `--checkout <dir>` | `{ok: bool, diagnostics: [string]}`. Used by admission check (a). |
+| `format-check` | `--checkout <dir>` | `{ok: bool, offending_files: [string]}`. |
+
+Exit status `0` means "the capability ran" — even when its *subject* is red
+(a failing test, a lint issue, an unformatted file): that outcome is
+reported IN the JSON, not via a non-zero exit. A non-zero exit means the
+toolchain itself could not be invoked. This is what lets a generic
+consumer — `admit-scenario.sh`, `eval-predicate.sh`, or a future E40-F06/08
+component — read "did the check run" and "did the code pass" as two
+independent signals without ever branching on which adapter answered.
+
+Two adapters are registered today: `python` (`bench/adapters/python/`, the
+four seed scenarios' fixture) and `go` (`bench/adapters/go/`, the I-01
+compatibility adapter — its `test`/`lint` delegate to the unmodified
+`bench/scripts/build-ledgers.sh`/`diff-ledgers.sh`, reshaped into this JSON
+shape). `bench/scripts/tests/tc031_adapter_conformance_test.sh` runs the
+identical assertion set against both, live, proving they emit the same
+shape (AC-010) and normalized test ids (AC-011) without either adapter's
+own scripts branching on which fixture is under test.
+
+### Adding a new scenario package
+
+1. Register the fixture (if new) and the adapter (if new) in
+   `bench/scenarios/scenarios.yaml`'s `fixtures:`/`adapters:` maps.
+2. Create `bench/scenarios/packages/<scenario_id>/package.yaml` with the
+   full field inventory above, plus `input/prompt.md` (agent-visible) and an
+   `evaluator/` subtree (`reference.patch`, any held-back oracle test
+   files) — never cross-referenced from `input.agent_visible`.
+3. Add the package's relative directory to `scenarios.yaml`'s `scenarios:`
+   list.
+4. Run `tests/contracts/e40_i04_scenario_contract_test.go` (`make test`) to
+   confirm the schema is well-formed before attempting execution admission —
+   it needs no populated submodule.
+5. Run the Tier 2 sequence below to admit the package for real.
+
+### Test tiers
+
+Mirrors the I-01 tiering above, for the same reason (REQ-NF-003 keeps the
+schema validator submodule-free so CI stays green without initializing
+either submodule):
+
+| Tier | Runs | Needs submodule? | Where |
+|---|---|---|---|
+| Tier 1 | `make test` (CI + every dev machine) | No — reads only committed scenario artifacts | `tests/contracts/e40_i04_scenario_contract_test.go` (TC-030) |
+| Tier 1b | Curator, manually or via `bench/scripts/tests/run-all.sh` | Yes for the adapter conformance run (both checkouts); no fixture-language branching in the harness itself | `bench/scripts/tests/tc031_adapter_conformance_test.sh` (TC-031) |
+| Tier 2 | Curator, at scenario-corpus build time and on every scenario/fixture/adapter change | Yes — `git submodule update --init` first (both `bench/fixture-repo` and `bench/fixture-py`) | `bench/scripts/{admit-scenario,eval-predicate,checkout-scenario-fixture,verify-fixture-py-base}.sh` against real checkouts |
+
+### Tier 2 curator command sequence
+
+A curator re-runs this exact sequence whenever a scenario package,
+`bench/fixture-py`'s pinned `base_sha`, or an adapter changes, to confirm
+REQ-NF-004's "byte-identical verdicts... at an unchanged fixture SHA and
+toolchain identity" still holds:
+
+```bash
+# 1. Initialize both fixture submodules (once per clone/checkout).
+git submodule update --init
+
+# 2. Confirm the whole Python fixture is green at its pinned base_sha
+#    (REQ-F-016/AC-020) -- broader than any one package's own
+#    p2p_selection, so run this before admitting any package against it.
+bench/scripts/verify-fixture-py-base.sh 964fa68e4c9e0c4e0f3756d9efd78b888c558fd9
+
+# 3. Admit each of the four seed packages (REQ-F-012/013). Each writes its
+#    own package.yaml's admission: block in place on an admitted verdict.
+bench/scripts/admit-scenario.sh bench/scenarios/packages/py-bug-due-date-boundary/package.yaml
+bench/scripts/admit-scenario.sh bench/scenarios/packages/py-change-priority-scale/package.yaml
+bench/scripts/admit-scenario.sh bench/scenarios/packages/py-techdebt-consolidate-validation/package.yaml
+bench/scripts/admit-scenario.sh bench/scenarios/packages/py-feature-recurring-tasks/package.yaml
+
+# 4. To check one package's final_predicate directly against a captured
+#    test/lint state (e.g. while authoring a new package), invoke the
+#    single named predicate owner rather than re-deriving REQ-F-010:
+#    bench/scripts/eval-predicate.sh <package.yaml> <test-output.json> <lint-output.json>
+
+# 5. checkout-scenario-fixture.sh is the generic, fixture_id-keyed sibling
+#    of checkout-fixture.sh (REQ-NF-006) -- use it directly to inspect a
+#    fixture checkout without running the full admission gate:
+#    bench/scripts/checkout-scenario-fixture.sh py 964fa68e4c9e0c4e0f3756d9efd78b888c558fd9 /tmp/shark-bench-scenario-checkout
+
+# 6. Run the full bench self-test suite (I-01's Tier 1b/2 scripts plus
+#    I-04's TC-031 through TC-041, run together).
+bench/scripts/tests/run-all.sh
+```
+
+`admit-scenario.sh`'s own exit code is its per-candidate summary assertion:
+`0` if admitted, `1` if rejected (naming the specific failing check), `2` on
+a script/toolchain error that kept a check from even running. Re-running
+step 3 against an unmutated package on an unchanged checkout/toolchain
+reproduces byte-identical `package.yaml` content (REQ-NF-004,
+`bench/scripts/tests/tc034_admission_determinism_test.sh`).
+
 ## Run driver and artifact schema
 
 `bench/scripts/run-one.sh` (the driver) provisions a scratch shark project,

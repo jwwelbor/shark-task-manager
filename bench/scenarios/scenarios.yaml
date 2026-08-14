@@ -1,0 +1,43 @@
+# I-04 scenario index (REQ-F-001). Plays the role bench/corpus/corpus.yaml
+# plays for I-01, without inheriting any of its fields (ADR-F05-01) -- no
+# field here is named after corpus.yaml's fixture.toolchain.go_version,
+# golangci_lint_version, p2p_sets, or reference_patch_path.
+#
+# schema_version is the I-04 package.yaml version this repo's validator
+# (tests/contracts/e40_i04_scenario_contract_test.go) currently supports.
+# Bumping it is required before adding a seventh adapter capability
+# (REQ-F-006) or any other field-shape change.
+schema_version: "1.0"
+
+# Registered fixtures: fixture_id -> submodule_path. Both the controlled
+# Python fixture (the four seed scenarios, REQ-F-005) and the existing Go
+# fixture (the compatibility adapter, REQ-F-005/research Decision 6) are
+# registered here so a package's fixture.fixture_id can be resolved and
+# validated without requiring either submodule to be populated
+# (REQ-NF-003).
+fixtures:
+  py:
+    submodule_path: bench/fixture-py
+  go:
+    submodule_path: bench/fixture-repo
+
+# Registered adapters: name -> path, version. version mirrors the value
+# each bench/adapters/<name>/adapter.yaml carries so a package's
+# adapter: {name, version} block can be diffed against what actually ran.
+adapters:
+  python:
+    path: bench/adapters/python
+    version: "1.0.0"
+  go:
+    path: bench/adapters/go
+    version: "1.0.0"
+
+# The scenario list gains one entry per seed task as it lands real content
+# (T-E40-F05-008/010/011/013); freezing the admitted base_sha is
+# T-E40-F05-014. Each entry is a path (relative to this file's directory)
+# to a scenario package directory.
+scenarios:
+  - packages/py-bug-due-date-boundary
+  - packages/py-change-priority-scale
+  - packages/py-feature-recurring-tasks
+  - packages/py-techdebt-consolidate-validation

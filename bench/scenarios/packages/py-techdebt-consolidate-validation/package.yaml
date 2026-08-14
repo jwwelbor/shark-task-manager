@@ -1,0 +1,111 @@
+# I-04 lifecycle scenario package: py-techdebt-consolidate-validation
+# (REQ-F-014 seed 3 of 4, tech_debt family). The subject is bench/fixture-py's
+# task-title validation: the same check taskmanager/validation.py's
+# non_empty_title already provides is duplicated inline across three other
+# modules -- taskmanager/bulk_import.py, taskmanager/cli.py, and
+# taskmanager/reminders.py -- added by this package's own commit on top of
+# T-E40-F05-001's base scaffold (bench/fixture-py commit
+# 2b030a9982a54473b023aebaaa35fe18bb5c42c6), alongside but independent of
+# the bug and change_card seeds' own commits (T-E40-F05-010 Scope Boundary:
+# do not modify their packages or fixture content). bulk_import.py's inline
+# copy additionally shadows its own now-redundant import of
+# non_empty_title, which ruff's F811 (redefined-while-unused) flags -- the
+# named lint rule this package's final_predicate tracks (ADR-F05-04: no
+# complexity tool introduced, the debt signal comes entirely from the
+# existing `lint` capability output).
+#
+# fixture.base_sha is frozen (T-E40-F05-014): bench/fixture-py's `main`
+# commit merging this branch's own seed commit with
+# py-change-priority-scale's, the one shared base_sha across all four
+# packages -- this package's own fixture-py commit (the duplicated-
+# validation subject) is an ancestor of that merge, so no further fixture
+# change was needed here. The admission: block below (AC-T3) was written by
+# a real `admit-scenario.sh` run against this file at the frozen SHA -- not
+# hand-authored -- so it satisfies TC-032's caller-path contract (no
+# hardcoded verdicts), superseding this task's original interim run.
+schema_version: "1.0"
+scenario_id: "py-techdebt-consolidate-validation"
+scenario_version: 1
+entity_family: tech_debt
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "tech_debt scenarios skip the product-design prelude (entity_family: tech_debt)"}
+    D02: {applicable: false, reason: "tech_debt scenarios skip the product-design prelude (entity_family: tech_debt)"}
+    D03: {applicable: false, reason: "tech_debt scenarios skip the product-design prelude (entity_family: tech_debt)"}
+    D04: {applicable: false, reason: "tech_debt scenarios skip the product-design prelude (entity_family: tech_debt)"}
+    D05: {applicable: false, reason: "tech_debt scenarios skip the product-design prelude (entity_family: tech_debt)"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+# Captured from a real `bench/adapters/python/adapter.sh identity --checkout
+# <checkout of base_sha>` run (REQ-F-008) -- not hand-typed. T-E40-F05-014's
+# admission run re-derives and pins this for real; this is a real, not
+# fabricated, snapshot from the same toolchain used for
+# py-bug-due-date-boundary (pyproject.toml is unchanged by this package's
+# fixture commit, so pyproject_sha256 matches).
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_consolidate_validation.py
+  answer_keys: []
+final_predicate:
+  kind: p2p_plus_rule_drop
+  # p2p_selection excludes only test_manager.py's recurring-tasks
+  # placeholder (a `@pytest.mark.skip` stand-in for the
+  # py-feature-recurring-tasks seed, T-E40-F05-013 -- a non-"pass" skip
+  # outcome would otherwise fail the absolute P2P clause), matching
+  # py-bug-due-date-boundary's own exclusion of that same placeholder. This
+  # kind names no test id operands of its own (REQ-F-010), so the injected
+  # oracle (evaluator/test_consolidate_validation.py) is admitted as an
+  # ordinary member of the absolute p2p_selection clause, not a separately
+  # named id. Verified against the real adapter at the frozen base_sha
+  # (T-E40-F05-014): 16 entries, all "pass", at both base (13 fixture tests
+  # + 3 injected oracle tests) and after the reference patch is applied --
+  # proving the consolidation is behavior-preserving, not merely
+  # lint-clean.
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  rule: F811
+  max_remaining: 0
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

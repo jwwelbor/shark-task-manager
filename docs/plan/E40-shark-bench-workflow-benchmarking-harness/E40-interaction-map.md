@@ -1,7 +1,7 @@
 ---
 type: interaction-map
 epic: E40
-last_updated: 2026-08-12
+last_updated: 2026-08-13
 ---
 
 # E40 cross-feature interaction map
@@ -18,10 +18,10 @@ and observable downstream use.
 | I-02 | E40-F02 Bench harness | E40-F03 Baseline report and noise band | [Metric collection and artifact schema](architecture.md#metric-collection-and-artifact-schema) | One JSONL record per v1 run with manifest, per-stage, post-run, and rollup data | File artifact |
 | I-03 | E40-F04 `shark run` live progress and per-run log | E40-F02 Bench harness | [Run liveness contract](architecture.md#run-liveness-contract) | stderr NDJSON progress and `.shark/runs/<run_id>/run.log` used to diagnose and attribute a killed v1 run | Process stream and file artifact |
 | I-04 | E40-F05 Lifecycle scenario corpus and adapter contract | E40-F06 Stage evidence and evaluator isolation; E40-F07 Replayable product-design prelude; E40-F08 Canonical multi-entity lifecycle runner | [Lifecycle scenario package contract](architecture.md#lifecycle-scenario-package-contract) | Versioned scenario identity, family, stage matrix, fixture and adapter, visible input, replay and evaluator references, resource policy, final predicate, and admission result | File artifact |
-| I-05 | E40-F06 Stage evidence and evaluator isolation | E40-F08 Canonical multi-entity lifecycle runner; E40-F09 Calibrated evaluation and comparison identity; E40-F10 Operator workflow and retained lifecycle baseline | [Stage evidence and isolation contract](architecture.md#stage-evidence-and-isolation-contract) | Three-root access policy and immutable stage snapshot with prompt, input, replay, output, usage, cost, elapsed, error, rework, digest, and evaluator-access lineage | File artifact and access policy |
-| I-06 | E40-F07 Replayable product-design prelude | E40-F08 Canonical multi-entity lifecycle runner | [Product-design replay contract](architecture.md#product-design-replay-contract) | Authorized replay response sequence, D01-D05 artifact references and digests, consumption lineage, and terminal prelude outcome | File artifact |
-| I-07 | E40-F08 Canonical multi-entity lifecycle runner | E40-F09 Calibrated evaluation and comparison identity; E40-F10 Operator workflow and retained lifecycle baseline | [Lifecycle run record contract](architecture.md#lifecycle-run-record-contract) | Entity graph; dispatches; scheduling decisions; claims, heartbeats, transitions, releases; evidence references; Questions; usage; limits; stop outcome; aggregate eligibility | File artifact |
-| I-08 | E40-F09 Calibrated evaluation and comparison identity | E40-F10 Operator workflow and retained lifecycle baseline | [Lifecycle evaluation record contract](architecture.md#lifecycle-evaluation-record-contract) | Structural results, calibrated judge evidence, held-back execution-oracle result, complete comparison identity, eligibility verdict, and invalidity reasons | File artifact |
+| I-05 | E40-F06 Stage evidence and evaluator isolation | E40-F08 Canonical multi-entity lifecycle runner; E40-F09 Calibrated evaluation and comparison identity; E40-F10 Operator workflow and retained lifecycle baseline | [Stage evidence and isolation contract](architecture.md#stage-evidence-and-isolation-contract) | Three-root access policy; immutable stage snapshot; non-overlapping time ledger; exact candidate snapshot; typed artifact producer, consumer, and access records; prompt, input, replay, output, usage, cost, error, rework, digest, and evaluator-access lineage | File artifact and access policy |
+| I-06 | E40-F07 Replayable product-design prelude | E40-F08 Canonical multi-entity lifecycle runner | [Product-design replay contract](architecture.md#product-design-replay-contract) | Authorized replay response sequence, D01-D05 artifact references and digests, request and response volume, revision and unresolved-gate counts, downstream artifact-consumption lineage, and terminal prelude outcome | File artifact |
+| I-07 | E40-F08 Canonical multi-entity lifecycle runner | E40-F09 Calibrated evaluation and comparison identity; E40-F10 Operator workflow and retained lifecycle baseline | [Lifecycle run record contract](architecture.md#lifecycle-run-record-contract) | Entity graph; dispatches; scheduling; claims and transitions; stage intervals; candidate and artifact references; workflow-policy identity; explicit review-gate results and raw structured findings; Questions; usage; limits; stop outcome; aggregate eligibility | File artifact |
+| I-08 | E40-F09 Calibrated evaluation and comparison identity | E40-F10 Operator workflow and retained lifecycle baseline | [Lifecycle evaluation record contract](architecture.md#lifecycle-evaluation-record-contract) | Structural, calibrated-judge, and held-back-oracle results; normalized and confirmed review findings; independent and sequential gate-comparison evidence; complete candidate and workflow-policy identity; eligibility verdict; invalidity reasons | File artifact |
 
 All rows use the default `live` gate mode except I-04 through I-08, staged
 below. A feature workflow may refine a shape only if it updates the
@@ -171,10 +171,13 @@ integration evidence.
   belongs to E40-F05 through E40-F10.
 - E40-F08 drives public Shark contracts but does not own generic dispatch,
   claims, Questions, or prompt assembly. Those seams are X-11 and X-13.
-- E40-F09 owns aggregate eligibility. E40-F10 may format or publish the verdict,
-  but it may not weaken or recompute it.
+- E40-F09 owns aggregate eligibility, finding normalization and confirmation,
+  and the independent-versus-sequential review comparison contract. E40-F10 may
+  format or publish those results, but it may not weaken or recompute them.
 - E40-F10 retains both the lifecycle headline and stage diagnostic view from the
   same I-07/I-08 inputs. A stage view is never a separate product baseline.
+- Finish-feature scope in lifecycle v2 stops at its controlled deep-review gate.
+  PR feedback, CI, merge, and cleanup remain deferred delivery-tail scenarios.
 
 Cross-epic seams use X-07 through X-13 in
 [E40-cross-epic-map.md](E40-cross-epic-map.md). Keep the I and X namespaces

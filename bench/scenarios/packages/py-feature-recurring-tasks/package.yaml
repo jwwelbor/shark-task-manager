@@ -1,0 +1,145 @@
+# I-04 lifecycle scenario package: py-feature-recurring-tasks (REQ-F-014 seed
+# 4 of 4, feature family). The subject is bench/fixture-py's recurring-task
+# scheduling: a recurrence_rule field on Task, next-occurrence generation on
+# completion, and an upcoming-occurrences listing. None of this exists at
+# fixture.base_sha -- tests/test_manager.py's committed
+# @pytest.mark.skip(reason="recurring-task scheduling is not implemented in
+# the fixture's base state") placeholder is the base fixture's own proof of
+# that deliberate absence (T-E40-F05-008's discovery). The capability is
+# added by this package's evaluator/reference.patch, never by a further
+# commit to bench/fixture-py -- unlike the bug/change_card/tech_debt
+# families, a feature seed's predicate needs the capability ABSENT at base
+# (REQ-F-012 check (d)) and PRESENT only after the reference solution
+# (check (e)), so committing it into the fixture's own tracked base_sha
+# would make the predicate trivially true at base for every consumer, not
+# just false-until-fixed like the other three families.
+#
+# This is the only seed whose stage_matrix.prelude is all `true` (only the
+# feature family runs the benchmark's own D01-D05 product-design prelude,
+# REQ-F-003/ADR-F05-02) and the only seed carrying a replay_reference
+# (REQ-F-009) -- its interior shape belongs to E40-F07/I-06 and is not typed
+# here (see evaluator/replay/reference-bundle.json's own header comment).
+#
+# fixture.base_sha is frozen (T-E40-F05-014): bench/fixture-py's `main`
+# commit merging the py-change-priority-scale and
+# py-techdebt-consolidate-validation seed branches, the one shared base_sha
+# across all four packages (still the same commit py-bug-due-date-boundary
+# uses, now both pointing at the merge). This family's own precondition --
+# the skip-marked test_manager.py placeholder proving the recurring-task
+# capability's absence -- was already present pre-freeze and carries
+# forward unchanged through the merge (neither seed branch touches
+# tests/test_manager.py), so no further fixture-py commit was needed for
+# this package specifically. This package's own evaluator/reference.patch
+# WAS rebased by T-E40-F05-014: the py-change-priority-scale seed's
+# priority-scale revert shifted context lines in taskmanager/manager.py and
+# taskmanager/models.py that the original patch's hunks no longer matched,
+# so the patch was regenerated against the frozen base's actual content,
+# applying the identical semantic recurrence-support diff (same fields,
+# same methods, same behavior -- only the surrounding context changed).
+#
+# final_predicate.kind: child_oracles_union's three child_oracles are
+# designed to be independently breakable from the two integration_test_ids
+# entries: each child oracle calls its own capability directly (add_task's
+# recurrence_rule field, generate_next_occurrence() called without going
+# through complete(), upcoming_occurrences() on manually-constructed tasks),
+# while the end-to-end tests drive the full path through complete()'s
+# internal wiring and assert only loose window membership (not the exact
+# due-date offset) -- see evaluator/test_recurring.py's own header comment
+# for the full reasoning this task's TC-036 AC-T5 states rely on.
+#
+# The admission: block below (AC-T4) was written by a real `admit-scenario.sh`
+# run against this file at the frozen base_sha (T-E40-F05-014) -- not
+# hand-authored -- so it satisfies TC-032's caller-path contract (no
+# hardcoded verdicts), superseding this task's original interim run.
+schema_version: "1.0"
+scenario_id: "py-feature-recurring-tasks"
+scenario_version: 1
+entity_family: feature
+stage_matrix:
+  prelude:
+    D01: {applicable: true}
+    D02: {applicable: true}
+    D03: {applicable: true}
+    D04: {applicable: true}
+    D05: {applicable: true}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+# Captured from a real `bench/adapters/python/adapter.sh identity --checkout
+# <checkout of base_sha>` run (REQ-F-008) -- not hand-typed. admit-scenario.sh's
+# own admission run re-derives and pins this for real; this is a real, not
+# fabricated, snapshot from the same toolchain (matches
+# py-bug-due-date-boundary's own pin byte-for-byte, since both are captured
+# against the same frozen base_sha checkout and toolchain).
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+replay_reference: evaluator/replay/reference-bundle.json
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_recurring.py
+  answer_keys: []
+final_predicate:
+  kind: child_oracles_union
+  # p2p_selection excludes this package's own four test ids (they are
+  # queried independently as this predicate's named ids, and are meant to
+  # fail at base -- included them here would make check (b)'s "every P2P
+  # entry is pass at base" impossible to satisfy) and test_manager.py's
+  # recurring-tasks placeholder (the same permanently-skipped stand-in
+  # named in this file's header, excluded by py-bug-due-date-boundary for
+  # the identical reason: a skip outcome is not "pass", so it would also
+  # fail the absolute P2P clause). Verified against the real adapter at the
+  # frozen base_sha (T-E40-F05-014): 13 entries, all "pass", at base and
+  # again after the rebased reference patch.
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_recurring::test_add_task_accepts_recurrence_rule"
+      - "tests.test_recurring::test_generate_next_occurrence_advances_by_rule_interval"
+      - "tests.test_recurring::test_upcoming_occurrences_filters_to_window_and_excludes_done"
+      - "tests.test_recurring::test_completing_recurring_task_schedules_next_occurrence_into_upcoming_list"
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  integration_test_ids:
+    - "tests.test_recurring::test_completing_recurring_task_schedules_next_occurrence_into_upcoming_list"
+  child_oracles:
+    - "tests.test_recurring::test_add_task_accepts_recurrence_rule"
+    - "tests.test_recurring::test_generate_next_occurrence_advances_by_rule_interval"
+    - "tests.test_recurring::test_upcoming_occurrences_filters_to_window_and_excludes_done"
+resource_policy:
+  max_cost_usd: 8.0
+  max_wall_clock_seconds: 900
+  max_generated_tasks: 30
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

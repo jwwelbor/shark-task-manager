@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Visual reference for Shark product design, epic, feature, task, standalone, sprint, review, and shipping workflows.">
+  <title>Shark workflow atlas</title>
+  <style>
+    :root {
+      --ink: #e8edf5;
+      --muted: #9ba8bb;
+      --paper: #0c111b;
+      --panel: #121927;
+      --panel-2: #182132;
+      --line: #2b3850;
+      --spec: #a78bfa;
+      --spec-bg: #2d2348;
+      --code: #fbbf24;
+      --code-bg: #4a3314;
+      --review: #f472b6;
+      --review-bg: #48213b;
+      --ops: #34d399;
+      --ops-bg: #123f3a;
+      --decision: #38bdf8;
+      --decision-bg: #153852;
+      --danger: #fb7185;
+      --radius: 18px;
+      --shadow: 0 18px 45px rgb(0 0 0 / 22%);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% -10%, rgb(99 102 241 / 18%), transparent 35rem),
+        radial-gradient(circle at 90% 10%, rgb(20 184 166 / 10%), transparent 32rem),
+        var(--paper);
+      font: 16px/1.62 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: #8bd6ff; }
+    code {
+      color: #f8d889;
+      background: rgb(255 255 255 / 6%);
+      border: 1px solid rgb(255 255 255 / 8%);
+      border-radius: 6px;
+      padding: .08rem .32rem;
+    }
+
+    .shell { width: min(1500px, calc(100% - 32px)); margin: 0 auto; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgb(255 255 255 / 8%);
+      background: rgb(12 17 27 / 88%);
+      backdrop-filter: blur(18px);
+    }
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      gap: 20px;
+    }
+    .brand { color: white; font-weight: 800; letter-spacing: -.02em; text-decoration: none; }
+    .nav { display: flex; gap: 18px; overflow-x: auto; white-space: nowrap; }
+    .nav a { color: var(--muted); font-size: .82rem; text-decoration: none; }
+    .nav a:hover { color: white; }
+
+    .hero { padding: 78px 0 42px; }
+    .eyebrow {
+      color: var(--ops);
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.12; letter-spacing: -.035em; }
+    h1 { max-width: 980px; margin-top: 12px; font-size: clamp(3rem, 8vw, 7.4rem); }
+    h2 { font-size: clamp(2rem, 4vw, 3.5rem); }
+    h3 { font-size: 1.35rem; }
+    .hero-copy { max-width: 860px; margin: 28px 0 0; color: #bcc7d6; font-size: 1.15rem; }
+    .hero-note {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 28px;
+      padding: 9px 13px;
+      color: #c8d4e4;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgb(255 255 255 / 3%);
+      font-size: .82rem;
+    }
+    .hero-note::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ops); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+    .chip { border: 1px solid; border-radius: 999px; padding: 7px 11px; font-size: .78rem; font-weight: 750; }
+    .chip.spec { color: #d8ccff; border-color: var(--spec); background: var(--spec-bg); }
+    .chip.code { color: #ffe6a3; border-color: var(--code); background: var(--code-bg); }
+    .chip.review { color: #ffc4e7; border-color: var(--review); background: var(--review-bg); }
+    .chip.ops { color: #b6f7db; border-color: var(--ops); background: var(--ops-bg); }
+    .chip.decision { color: #c1ebff; border-color: var(--decision); background: var(--decision-bg); }
+
+    main { padding-bottom: 100px; }
+    section { scroll-margin-top: 76px; padding: 62px 0; }
+    .section-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 620px); gap: 40px; align-items: end; margin-bottom: 28px; }
+    .section-head p { margin: 0; color: var(--muted); }
+    .kicker { display: block; margin-bottom: 8px; color: var(--spec); font-size: .75rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, rgb(255 255 255 / 4%), transparent 50%), var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .diagram { padding: 24px; overflow-x: auto; }
+    .mermaid { min-width: 760px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+    .card { padding: 22px; }
+    .card p { color: var(--muted); }
+    .stat { font-size: clamp(2.2rem, 5vw, 4.5rem); line-height: 1; font-weight: 850; letter-spacing: -.07em; }
+    .stat.spec { color: var(--spec); }
+    .stat.review { color: var(--review); }
+    .stat.code { color: var(--code); }
+    .caption { margin-top: 12px; color: var(--muted); font-size: .88rem; }
+    .warning { border-left: 3px solid var(--danger); }
+    .insight { border-left: 3px solid var(--ops); }
+    .route { color: #d7dfeb; font-weight: 760; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: 13px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: #aab6c7; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .table-wrap { overflow-x: auto; }
+    .type { display: inline-block; min-width: 70px; border-radius: 999px; padding: 2px 8px; text-align: center; font-size: .68rem; font-weight: 850; letter-spacing: .06em; }
+    .type.spec { color: #ded5ff; background: var(--spec-bg); }
+    .type.code { color: #ffe5a0; background: var(--code-bg); }
+    .type.review { color: #ffc8e9; background: var(--review-bg); }
+    .type.ops { color: #baf5dc; background: var(--ops-bg); }
+
+    details { border-top: 1px solid var(--line); }
+    details:first-child { border-top: 0; }
+    summary { cursor: pointer; padding: 17px 20px; font-weight: 780; }
+    summary::marker { color: var(--decision); }
+    details > div { padding: 0 20px 20px; }
+
+    .callout {
+      margin-top: 20px;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-2);
+      color: #c7d1df;
+    }
+    .callout strong { color: white; }
+    .artifact-list { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
+    .artifact-list li + li { margin-top: 7px; }
+    .flow-label { margin: 0 0 12px; color: var(--muted); font-size: .85rem; }
+    .verdict {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 20px;
+    }
+    .verdict > div { padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+    .verdict h3 { margin-bottom: 10px; }
+    .yes h3 { color: var(--ops); }
+    .trim h3 { color: var(--code); }
+    footer { border-top: 1px solid var(--line); padding: 32px 0 60px; color: var(--muted); font-size: .84rem; }
+
+    @media (max-width: 900px) {
+      .section-head { grid-template-columns: 1fr; gap: 14px; }
+      .span-4, .span-6, .span-8 { grid-column: span 12; }
+      .verdict { grid-template-columns: 1fr; }
+      .nav { display: none; }
+      h1 { font-size: clamp(3rem, 15vw, 5.2rem); }
+    }
+    @media print {
+      body { color: #111827; background: white; }
+      .topbar { display: none; }
+      .panel, .verdict > div { box-shadow: none; background: white; break-inside: avoid; }
+      .hero { padding-top: 30px; }
+      section { padding: 30px 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="#top">SHARK / WORKFLOW ATLAS</a>
+      <nav class="nav" aria-label="Page sections">
+        <a href="#whole-system">Whole system</a>
+        <a href="#product-design">Product design</a>
+        <a href="#delivery">Delivery levels</a>
+        <a href="#sprint">Sprint</a>
+        <a href="#reviews">Review comparison</a>
+        <a href="#value">Value audit</a>
+      </nav>
+    </div>
+  </header>
+
+  <div id="top" class="shell">
+    <header class="hero">
+      <span class="eyebrow">Current default workflows · 2026-08-13</span>
+      <h1>From idea to shipped code.</h1>
+      <p class="hero-copy">A visual map of what Shark creates, what each gate consumes, and where planning, code, verification, and shipping overlap. The diagrams use the live route-based workflow YAML and embedded prompts as the source of truth.</p>
+      <div class="hero-note">This page maps gates and artifacts. It does not claim that every gate has proven return on time.</div>
+      <div class="legend" aria-label="Color legend">
+        <span class="chip spec">SPEC / RESEARCH ARTIFACT</span>
+        <span class="chip code">CODE / TEST CHANGE</span>
+        <span class="chip review">CODE-RELATED REVIEW</span>
+        <span class="chip ops">TRACKER / OPERATIONS</span>
+        <span class="chip decision">HUMAN DECISION</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="whole-system">
+        <div class="section-head">
+          <div><span class="kicker">01 · System map</span><h2>How the layers feed one another</h2></div>
+          <p>Product design supplies evidence and constraints. Epic design turns those into product and architecture contracts. Features refine those contracts into buildable specs and tests. Tasks produce code. Feature gates verify the aggregate. Finish-feature ships the branch.</p>
+        </div>
+        <div class="panel diagram">
+          <pre class="mermaid">
+flowchart LR
+    PD[Product design<br/>D01 through D14] --> HANDOFF[Project readiness<br/>and epic source]
+    HANDOFF --> EPIC[Epic PRD, research,<br/>architecture, UAT plan, maps]
+    EPIC --> FEATURE[Feature research,<br/>spec, test plan]
+    FEATURE --> TASKS[Thin task specs]
+    TASKS --> CODE[TDD code and tests]
+    CODE --> VERIFY[Feature verification<br/>review, QA, UAT]
+    VERIFY --> SHIP[Finish-feature<br/>deep review, PR, CI, merge]
+    SPRINT[Sprint plan and backlog] -. schedules .-> TASKS
+    SPRINT -. may include .-> STANDALONE[Bug, change,<br/>tech debt]
+    STANDALONE --> SHIP
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class PD,HANDOFF,EPIC,FEATURE,TASKS spec;
+    class CODE code;
+    class VERIFY,SHIP review;
+    class SPRINT,STANDALONE ops;
+          </pre>
+        </div>
+
+        <div class="grid" style="margin-top:18px">
+          <article class="panel card span-4">
+            <div class="stat spec">7</div>
+            <h3>Epic gates before execution</h3>
+            <p>Draft, assessment, refinement, research, design, decomposition, and feature review precede the epic’s active phase.</p>
+          </article>
+          <article class="panel card span-4">
+            <div class="stat spec">7</div>
+            <h3>Standard feature gates before coding</h3>
+            <p>Draft through task review precede feature activation. SIMPLE features bypass specification and test planning.</p>
+          </article>
+          <article class="panel card span-4">
+            <div class="stat review">4</div>
+            <h3>Complex feature review surfaces</h3>
+            <p>Feature craft review, deep QA, UAT red-team, then finish-feature’s six-angle pre-PR review.</p>
+          </article>
+          <div class="span-12 caption">Counts describe route steps, not measured elapsed time. Product-design artifacts and task-level work add more steps upstream and downstream.</div>
+        </div>
+        <div class="callout"><strong>Escape and reuse routes:</strong> epic, feature, task, change, and bug workflows also expose <code>blocked</code>, <code>on_hold</code>, and <code>cancelled</code> states. Tech debt exposes <code>cancelled</code> and <code>wont_fix</code>, while failed or blocked resolution returns to <code>identified</code>. Sprint uses <code>on_hold</code>. Epic and feature drafts can jump to <code>active</code> when already planned, and planning prompts reuse qualifying artifacts instead of rewriting them.</div>
+      </section>
+
+      <section id="product-design">
+        <div class="section-head">
+          <div><span class="kicker">02 · Product design</span><h2>Evidence dependencies, not a required waterfall</h2></div>
+          <p>Each D-artifact can run independently when its evidence dependencies exist. Rider supports D01–D07, D01–D11, D01–D14, or custom scope. D12–D14 require real test sessions and human-confirmed verdicts.</p>
+        </div>
+        <div class="panel diagram">
+          <pre class="mermaid">
+flowchart TB
+    subgraph VISION[Vision]
+      direction LR
+      D01[D01 Vision] --> D02[D02 Success criteria]
+    end
+    subgraph DISCOVERY[Discovery]
+      direction LR
+      D03[D03 Market research]
+      D04[D04 Feasibility]
+      D05[D05 Stakeholder insights]
+    end
+    subgraph SYNTHESIS[User synthesis]
+      direction LR
+      D06[D06 User insights] --> D07[D07 User needs] --> D08[D08 Personas]
+    end
+    subgraph JOURNEY[Journey strategy]
+      direction LR
+      D09[D09 Journey maps] --> D10[D10 Touchpoints] --> D11[D11 Friction points]
+    end
+    subgraph VALIDATION[Validation]
+      direction LR
+      D12[D12 Test results] --> D13[D13 User feedback] --> D14[D14 Validated designs]
+    end
+    D01 --> D03
+    D01 --> D04
+    D01 --> D05
+    D03 --> D06
+    D05 --> D06
+    D08 --> D09
+    D11 --> D12
+    D04 -. stack feedback .-> ARCH[Architecture reconciliation]
+    D01 -. product intent .-> EPIC[Epic planning source]
+    D07 -. prioritized needs .-> EPIC
+    D08 -. persona IDs .-> FSPEC[Feature design and specs]
+    D14 -. validated direction .-> FSPEC
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    class D01,D02,D03,D04,D05,D06,D07,D08,D09,D10,D11 spec;
+    class D12,D13,D14 review;
+    class ARCH,EPIC,FSPEC ops;
+          </pre>
+        </div>
+        <div class="panel table-wrap" style="margin-top:18px">
+          <table>
+            <thead><tr><th>Concern</th><th>Artifacts</th><th>Feeds</th><th>Value condition</th></tr></thead>
+            <tbody>
+              <tr><td>Vision</td><td><code>D01-vision-statement.md</code><br><code>D02-success-criteria.md</code></td><td>Discovery scope, initiative outcomes, epic source</td><td>Useful when intent or success is uncertain</td></tr>
+              <tr><td>Discovery</td><td><code>D03-market-research.md</code><br><code>D04-feasibility-report.md</code><br><code>D05-stakeholder-insights.md</code></td><td>User synthesis, stack feedback, risks</td><td>Needs real sources; do not fabricate quotes or baselines</td></tr>
+              <tr><td>User synthesis</td><td><code>D06-user-insights.md</code><br><code>D07-user-needs.md</code><br><code>D08-user-personas.md</code></td><td>Journey strategy and downstream feature rationale</td><td>Strongest when behavioral differences change design</td></tr>
+              <tr><td>Journey strategy</td><td><code>D09-journey-maps.md</code><br><code>D10-touchpoints.md</code><br><code>D11-friction-points.md</code></td><td>Feature design and user-test targets</td><td>Useful for experience work; often excessive for internal mechanics</td></tr>
+              <tr><td>Validation</td><td><code>D12-test-results.md</code><br><code>D13-user-feedback.md</code><br><code>D14-validated-designs.md</code></td><td>Persona-backed design verdicts and feature design</td><td>Only valuable with actual participants, observations, and decisions</td></tr>
+              <tr><td>Checkpoint</td><td><code>docs/product/progress.md</code></td><td>Resume state, decision log, cross-epic map presence</td><td>Operational record; derived from real files, not checkbox claims</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="delivery">
+        <div class="section-head">
+          <div><span class="kicker">03 · Delivery hierarchy</span><h2>Epic → feature → task</h2></div>
+          <p>The hierarchy becomes progressively more concrete: business scope, system design, feature contract, test strategy, thin task slices, then production code.</p>
+        </div>
+
+        <article class="panel" id="epic">
+          <div class="card"><h3>Epic workflow</h3><p class="route">draft → assessment → refinement → research → design → decomposition → feature review → active → completed</p></div>
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    E0[Draft<br/>epic entity] --> E1[Assessment<br/>classification]
+    E1 --> E2[Refinement<br/>epic PRD]
+    E2 --> E3[Research<br/>research report]
+    E3 --> E4[Design<br/>architecture and UAT plan]
+    E4 --> E5[Decomposition<br/>feature entities]
+    E5 --> E6[Feature review<br/>coverage report]
+    E6 --> E7[Active<br/>run child features]
+    E7 --> E8[Completed]
+    E6 -. fail .-> E5
+    E7 -. child fail .-> E6
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class E0,E1,E2,E3,E4,E5 spec;
+    class E6 review;
+    class E7,E8 ops;
+            </pre>
+          </div>
+          <details open><summary>Epic artifacts and handoffs</summary><div class="table-wrap"><table>
+            <thead><tr><th>Step</th><th>Artifact or mutation</th><th>Used next by</th><th>Type</th></tr></thead>
+            <tbody>
+              <tr><td>Draft</td><td>Epic entity and epic markdown file</td><td>Assessment</td><td><span class="type ops">TRACKER</span></td></tr>
+              <tr><td>Assessment</td><td>Classification outcome; may reclassify and cancel the epic</td><td>Refinement or lighter workflow</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Refinement</td><td>Epic PRD in the epic file; material questions become linked <code>Q###</code></td><td>Research, design, feature decomposition</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Research</td><td><code>research-report.md</code> with schema 2 checklist, evidence, capability map, findings, decisions, and sources</td><td>Architecture and decomposition</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Design</td><td><code>architecture.md</code>, <code>uat-plan.md</code>, required <code>E##-cross-epic-map.md</code>, conditional <code>E##-interaction-map.md</code>, global map and progress updates</td><td>Feature boundaries, specs, test plans, QA</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Decomposition</td><td>Feature entities with order, size, thin description, and I/X ownership</td><td>Feature workflows</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Feature review</td><td><code>E##-feature-review.md</code></td><td>Epic activation or decomposition rework</td><td><span class="type review">REVIEW</span></td></tr>
+              <tr><td>Active</td><td>Child feature status and aggregate progress</td><td>Epic completion</td><td><span class="type ops">TRACKER</span></td></tr>
+            </tbody>
+          </table></div></details>
+        </article>
+
+        <article class="panel" id="feature" style="margin-top:24px">
+          <div class="card"><h3>Feature workflow with risk-based routes</h3><p class="route">SIMPLE skips spec and test plan. STANDARD combines review and QA. COMPLEX adds a separate deep QA gate.</p></div>
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    F0[Draft] --> F1[Assessment<br/>scope and tier]
+    F1 --> F2[Research<br/>research report]
+    F2 -->|SIMPLE| F5[Task generation]
+    F2 -->|STANDARD or COMPLEX| F3[Specification<br/>spec]
+    F3 --> F4[Test planning<br/>test plan]
+    F4 --> F5
+    F5 --> F6[Task review<br/>review report]
+    F6 --> F7[Active<br/>run tasks]
+    F7 --> F8[Code review<br/>craft for all tiers]
+    F8 -->|SIMPLE or STANDARD| F10[Approval<br/>UAT red-team]
+    F8 -->|COMPLEX| F9[Deep QA<br/>tests and wiring]
+    F9 --> F10
+    F10 --> F11[Completed]
+    F6 -. fail .-> F5
+    F8 -. fail .-> F7
+    F9 -. fail .-> F7
+    F10 -. fail .-> F7
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class F0,F1,F2,F3,F4,F5 spec;
+    class F6,F8,F9,F10 review;
+    class F7 code;
+    class F11 ops;
+            </pre>
+          </div>
+          <details open><summary>Feature artifacts and handoffs</summary><div class="table-wrap"><table>
+            <thead><tr><th>Step</th><th>Artifact or mutation</th><th>Used next by</th><th>Type</th></tr></thead>
+            <tbody>
+              <tr><td>Assessment</td><td>Scope result and SIMPLE, STANDARD, or COMPLEX decision note</td><td>Research routing</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Research</td><td><code>research-report.md</code> with evidence and capability map</td><td>Lite tasks or feature specification</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Specification</td><td><code>spec.md</code>: incremental requirements, acceptance criteria, architecture, file paths, I/X contracts, questions</td><td>Test planning and tasks</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Test planning</td><td><code>test-plan.md</code>: AC matrix, TC IDs, caller-path contracts, integration coverage</td><td>Task specs, development, QA</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Task generation</td><td>Task entities and thin task files, at most 50 lines, with implementation and tests in the same task</td><td>Task review and development</td><td><span class="type spec">SPEC</span></td></tr>
+              <tr><td>Task review</td><td><code>E##-F##-task-review.md</code></td><td>Feature activation or task decomposition rework</td><td><span class="type review">REVIEW</span></td></tr>
+              <tr><td>Code review</td><td><code>code-review-&lt;timestamp&gt;-E##-F##.md</code> and finding notes when needed</td><td>Approval for SIMPLE/STANDARD; QA for COMPLEX</td><td><span class="type review">REVIEW</span></td></tr>
+              <tr><td>QA</td><td><code>qa-&lt;timestamp&gt;-E##-F##.md</code> and finding notes</td><td>UAT or task kickback</td><td><span class="type review">REVIEW</span></td></tr>
+              <tr><td>Approval</td><td><code>uat-&lt;timestamp&gt;-E##-F##.md</code> and finding notes</td><td>Completion or task kickback</td><td><span class="type review">REVIEW</span></td></tr>
+            </tbody>
+          </table></div></details>
+        </article>
+
+        <article class="panel" id="task" style="margin-top:24px">
+          <div class="card"><h3>Task workflow</h3><p class="route">draft → development → completed</p></div>
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    T0[Draft<br/>thin task spec] --> T1[Write failing tests]
+    T1 --> T2[Minimum implementation]
+    T2 --> T3[Refactor with tests green]
+    T3 --> T4[Format, lint, tests<br/>caller-path check]
+    T4 --> T5[Completed<br/>feature aggregates]
+    T4 -. fail .-> T1
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class T0 spec;
+    class T1,T2,T3 code;
+    class T4 review;
+    class T5 ops;
+            </pre>
+          </div>
+          <div class="card callout"><strong>Task output:</strong> production code, committed tests tied to TC IDs, quality-gate evidence, and a completion summary. Tasks do not have their own review or QA states; those gates run once across the assembled feature.</div>
+        </article>
+      </section>
+
+      <section id="standalone">
+        <div class="section-head">
+          <div><span class="kicker">04 · Standalone delivery</span><h2>Change, bug, and tech debt</h2></div>
+          <p>These routes avoid the epic and feature planning stack. Bugs and changes use shared review and QA. Tech debt is lighter still: research, implementation, quality gate, and terminal disposition.</p>
+        </div>
+        <div class="grid">
+          <article class="panel span-6">
+            <div class="card"><h3>Change card</h3><p>Small, committed change that does not need feature decomposition.</p></div>
+            <div class="diagram"><pre class="mermaid">
+flowchart LR
+    C0[Draft<br/>change card] --> C1[Research<br/>CC report]
+    C1 --> C2[Development<br/>code and tests]
+    C2 --> C3[Code review<br/>review report]
+    C3 --> C4[QA<br/>QA report]
+    C4 --> C5[Completed]
+    C3 -. fail .-> C2
+    C4 -. fail .-> C2
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class C0,C1 spec;
+    class C2 code;
+    class C3,C4 review;
+    class C5 ops;
+            </pre></div>
+            <div class="card"><ul class="artifact-list"><li>Change-card entity file</li><li><code>CC-###.research-report.md</code></li><li>Code and appropriate tests</li><li>Shared code-review and QA reports</li></ul></div>
+          </article>
+
+          <article class="panel span-6">
+            <div class="card"><h3>Bug</h3><p>Defect route centered on reproduction and a regression test.</p></div>
+            <div class="diagram"><pre class="mermaid">
+flowchart LR
+    B0[Draft<br/>bug report] --> B1[Research<br/>reproduction evidence]
+    B1 --> B2[Development<br/>failing regression then fix]
+    B2 --> B3[Code review<br/>review report]
+    B3 --> B4[QA<br/>QA report]
+    B4 --> B5[Completed]
+    B3 -. fail .-> B2
+    B4 -. fail .-> B2
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class B0,B1 spec;
+    class B2 code;
+    class B3,B4 review;
+    class B5 ops;
+            </pre></div>
+            <div class="card"><ul class="artifact-list"><li>Bug report entity file</li><li><code>B###.research-report.md</code></li><li>Failing-then-passing regression test and minimum fix</li><li>Shared code-review and QA reports</li></ul></div>
+          </article>
+
+          <article class="panel span-12">
+            <div class="card"><h3>Tech debt</h3><p class="route">identified → research → triaged → in progress → resolved</p></div>
+            <div class="diagram"><pre class="mermaid">
+flowchart LR
+    D0[Identified<br/>debt card] --> D1[Research<br/>TD report]
+    D1 --> D2[Triaged<br/>analyze and resolve]
+    D2 --> D3[In progress<br/>resume if needed]
+    D3 --> D4[Resolved]
+    D0 -. no value .-> D5[Wont fix]
+    D1 -. no value .-> D5
+    D2 -. no value .-> D5
+    D2 -. failure .-> D0
+    D3 -. failure .-> D0
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class D0,D1 spec;
+    class D2,D3 code;
+    class D4,D5 ops;
+            </pre></div>
+            <div class="card callout"><strong>Important asymmetry:</strong> the default tech-debt route has no separate code-review or QA state. Its implementation step must pass the project quality gate, then the tracker receives a terminal disposition: <code>resolved</code>, <code>wont_fix</code>, or <code>cancelled</code>.</div>
+          </article>
+        </div>
+      </section>
+
+      <section id="sprint">
+        <div class="section-head">
+          <div><span class="kicker">05 · Sprint overlay</span><h2>Scope, dispatch, close, learn</h2></div>
+          <p>A sprint schedules existing entities; it does not replace their workflows. Planning changes assignments after confirmation. Execution delegates every selected key back to the ordinary Rider loop.</p>
+        </div>
+        <div class="panel diagram">
+          <pre class="mermaid">
+flowchart LR
+    S0[Planning<br/>plan view and proposal] --> S1[Research<br/>sprint report]
+    S1 --> S2[Active<br/>pull next entity]
+    S2 --> S3[Run keyed entity<br/>ordinary workflow]
+    S3 --> S2
+    S2 -->|backlog drained| S4[Close confirmation]
+    S4 --> S5[Closing<br/>retro and carryover]
+    S5 --> S6[Completed]
+    S6 --> S7[Archive confirmation]
+    S7 --> S8[Archived]
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    classDef decision fill:#153852,stroke:#38bdf8,color:#e0f5ff,stroke-width:2px;
+    class S0,S1 spec;
+    class S2,S3 ops;
+    class S4,S7 decision;
+    class S5 review;
+    class S6,S8 ops;
+          </pre>
+        </div>
+        <div class="panel table-wrap" style="margin-top:18px"><table>
+          <thead><tr><th>Phase</th><th>Artifact or state</th><th>Mutation gate</th></tr></thead>
+          <tbody>
+            <tr><td>Planning</td><td>Sprint entity file, plan proposal, backlog grouping, capacity allocation, readiness before/after</td><td>Explicit confirmation before each add or one auto-plan confirmation; never starts the sprint</td></tr>
+            <tr><td>Research</td><td><code>S###.research-report.md</code> with assigned-work and workflow evidence</td><td>Pass required before activation</td></tr>
+            <tr><td>Active</td><td>Session dispatch list, burndown JSON, basic summary JSON; child entities create their normal artifacts</td><td>Explicit confirmation before start and close</td></tr>
+            <tr><td>Closing</td><td><code>docs/sprints/S###-retro.md</code>: outcome, velocity, carryover, cycle time, quantitative recommendations</td><td>Retro confirmation gates pass to completed</td></tr>
+            <tr><td>Archived</td><td>Terminal sprint state</td><td>Separate explicit archive confirmation</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section id="reviews">
+        <div class="section-head">
+          <div><span class="kicker">06 · Review stack</span><h2>Feature QA is not finish-feature deep review</h2></div>
+          <p>They overlap on code and tests, but answer different questions. QA asks whether a complex feature works as specified through production-shaped paths. Finish-feature asks whether the entire branch is structurally safe to publish and then carries it through PR, CI, merge, and cleanup.</p>
+        </div>
+        <div class="panel diagram">
+          <pre class="mermaid">
+flowchart LR
+    TASKS[All task code complete] --> CR[Feature code review<br/>craft review]
+    CR -->|COMPLEX| QA[Feature deep QA<br/>AC, tests, wiring, runtime]
+    CR -->|SIMPLE or STANDARD| UAT[UAT red-team]
+    QA --> UAT
+    UAT --> DONE[Feature completed]
+    DONE --> DR[Finish-feature deep review<br/>six angles and consolidator]
+    DR --> PR[Create PR]
+    PR --> COMMENTS[Resolve comments]
+    COMMENTS --> CI[Required CI green]
+    CI --> MERGE[Squash merge and cleanup]
+
+    classDef code fill:#4a3314,stroke:#fbbf24,color:#fff3c4,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    class TASKS code;
+    class CR,QA,UAT,DR,COMMENTS,CI review;
+    class DONE,PR,MERGE ops;
+          </pre>
+        </div>
+
+        <div class="panel table-wrap" style="margin-top:18px"><table>
+          <thead><tr><th>Dimension</th><th>Feature QA deep gate</th><th>Finish-feature deep review</th></tr></thead>
+          <tbody>
+            <tr><td>When</td><td>Only after craft review for a COMPLEX feature</td><td>After a feature or fix branch is complete, before PR creation</td></tr>
+            <tr><td>Scope</td><td>One feature: spec, test plan, tasks, changed paths, declared I/X contracts</td><td>Branch diff and every changed file; optional task spec, feature PRD, and AC context</td></tr>
+            <tr><td>Topology</td><td>One QA agent at high effort</td><td>Six parallel specialist angles, then a consolidator at high effort by default</td></tr>
+            <tr><td>Primary question</td><td>Does the feature work as specified through production-shaped paths?</td><td>Is the changeset safe, coherent, idiomatic, tested, standards-aligned, and ready to publish?</td></tr>
+            <tr><td>Strongest unique checks</td><td>AC-by-AC proof, targeted execution, frontend visual check, runtime reachability, production signature, caller-path contract, integration wiring matrix</td><td>Removed behavior, SOLID, structural siblings, serialization round trips, reuse and complexity, counter-factual test quality, standards crosswalk</td></tr>
+            <tr><td>Deliberately excludes</td><td>Full integration suite and independent red-team; UAT owns red-team</td><td>It is not the feature lifecycle’s UAT decision and does not itself ship without PR and CI phases</td></tr>
+            <tr><td>Output</td><td><code>qa-&lt;timestamp&gt;-FEATURE.md</code> plus structured finding notes</td><td>Overall code-review report at the deep-review output path</td></tr>
+            <tr><td>Failure route</td><td>Kick implicated tasks back to development; feature returns active</td><td>Fix all findings and rerun tests before creating the PR</td></tr>
+            <tr><td>What follows</td><td>UAT red-team, then feature completion</td><td>PR, review comments, live CI, squash merge, branch and worktree cleanup</td></tr>
+          </tbody>
+        </table></div>
+
+        <div class="grid" style="margin-top:18px">
+          <div class="panel card span-6 insight"><h3>Where QA earns its keep</h3><p>It can catch a feature that has green unit tests but no production call site, a test that drives the wrong signature, a missing contract edge, or a frontend that was never rendered. Those are behavior-proof gaps that a diff-only craft review may miss.</p></div>
+          <div class="panel card span-6 warning"><h3>Where duplication is real</h3><p>Both inspect implementation and tests. SIMPLE/STANDARD feature review already combines craft, AC, wiring, targeted tests, and caller-path checks; finish-feature then performs another broad code review. COMPLEX adds separate QA before UAT and the final branch review.</p></div>
+        </div>
+        <div class="callout warning"><strong>Known finish-feature coverage hazard:</strong> the current deep-review collector builds its scope from <code>git diff main...HEAD</code>. That excludes uncommitted and untracked candidate files. Before treating its PASS as branch-wide evidence, inspect the working-tree diff, status, and untracked feature paths or commit the complete intended scope.</div>
+      </section>
+
+      <section id="value">
+        <div class="section-head">
+          <div><span class="kicker">07 · Decision aid</span><h2>Make every gate prove its value</h2></div>
+          <p>The repository defines extensive evidence production, but it does not yet prove that each artifact reduces defects or delivery risk enough to justify its cost. The next improvement should measure unique value by gate and remove duplicate work.</p>
+        </div>
+        <div class="panel diagram">
+          <pre class="mermaid">
+flowchart LR
+    G[Gate runs] --> M1[Measure elapsed time]
+    G --> M2[Count unique defects]
+    G --> M3[Count duplicate findings]
+    G --> M4[Track downstream escapes]
+    G --> M5[Track artifact reuse]
+    M1 --> D{Does the gate change<br/>a delivery decision?}
+    M2 --> D
+    M3 --> D
+    M4 --> D
+    M5 --> D
+    D -->|Yes, unique signal| KEEP[Keep or strengthen]
+    D -->|Same signal elsewhere| MERGE[Merge with adjacent gate]
+    D -->|No signal over sample| REMOVE[Remove or make optional]
+
+    classDef spec fill:#2d2348,stroke:#a78bfa,color:#f4f0ff,stroke-width:2px;
+    classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
+    classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
+    classDef decision fill:#153852,stroke:#38bdf8,color:#e0f5ff,stroke-width:2px;
+    class G,M1,M2,M3,M4,M5 review;
+    class D decision;
+    class KEEP,MERGE,REMOVE ops;
+          </pre>
+        </div>
+
+        <div class="verdict">
+          <div class="yes">
+            <h3>Keep as hard evidence</h3>
+            <ul class="artifact-list">
+              <li>One coherent business and architecture contract for work that is genuinely feature- or epic-sized.</li>
+              <li>TDD and the project quality gate at implementation time.</li>
+              <li>Production-path, caller-signature, integration-edge, and frontend-render proof when those risks exist.</li>
+              <li>Live required CI immediately before merge.</li>
+              <li>Human approval for product tradeoffs, sprint mutation, and risk acceptance.</li>
+            </ul>
+          </div>
+          <div class="trim">
+            <h3>Measure, merge, or make conditional</h3>
+            <ul class="artifact-list">
+              <li>Repeated research reports when the child adds no evidence beyond the parent capability map.</li>
+              <li>Separate spec, test-plan, task-review, code-review, QA, UAT, and final deep-review passes for low-risk work.</li>
+              <li>D08–D14 when there is no user-facing journey, prototype, or real participant evidence.</li>
+              <li>Review reruns over an identical commit SHA and unchanged evidence set.</li>
+              <li>Full-form reports for clean passes; the current compact-pass policy is the right direction.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top:18px">
+          <article class="panel card span-4"><h3>1 · Add review identity</h3><p>Record reviewed commit SHA, diff fingerprint, gate, duration, and finding fingerprints. Reuse a clean result when the evidence set is unchanged.</p></article>
+          <article class="panel card span-4"><h3>2 · Track yield</h3><p>For each gate, count unique blockers, duplicates of prior findings, false positives, and defects that escape to a later gate or production.</p></article>
+          <article class="panel card span-4"><h3>3 · Set retirement rules</h3><p>After a representative sample, merge or remove a gate that finds no unique blockers, is rarely consumed downstream, or duplicates another gate at high rates.</p></article>
+        </div>
+        <div class="callout"><strong>Practical first experiment:</strong> for the next 10 completed features, log minutes and unique defect fingerprints for feature code review, QA, UAT, and finish-feature deep review. Do not redesign the workflow from intuition alone. The likely overlap is visible; the actual defect yield still needs measurement.</div>
+      </section>
+    </main>
+
+    <footer>
+      <p><strong>Source boundary:</strong> current behavior is derived from <code>internal/sharkdata/default_data/workflow/*.yaml</code>, the matching embedded prompts and product-design bundle, Rider sprint skills, the deep-review skill, and the finish-feature procedure. Older narrative workflow documentation may describe legacy states.</p>
+      <p>Generated as a standalone reference. Mermaid diagrams load from the jsDelivr CDN when the page opens.</p>
+    </footer>
+  </div>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: "loose",
+      theme: "base",
+      flowchart: { curve: "basis", htmlLabels: true, nodeSpacing: 34, rankSpacing: 46 },
+      themeVariables: {
+        background: "#121927",
+        primaryColor: "#182132",
+        primaryTextColor: "#e8edf5",
+        primaryBorderColor: "#475569",
+        lineColor: "#7c8ba1",
+        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+        fontSize: "14px",
+        clusterBkg: "#0f1623",
+        clusterBorder: "#2b3850",
+        edgeLabelBackground: "#121927"
+      }
+    });
+  </script>
+</body>
+</html>

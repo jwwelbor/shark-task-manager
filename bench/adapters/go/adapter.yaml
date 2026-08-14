@@ -1,0 +1,10 @@
+# I-04 execution adapter descriptor (REQ-F-006). Registered in
+# bench/scenarios/scenarios.yaml under this `name`; `version` is echoed back
+# verbatim by `adapter.sh identity`'s `version` field so a package's admitted
+# `adapter: {name, version}` block can be diffed against what actually ran.
+#
+# This is the I-01 compatibility adapter (research-report.md Decision 3):
+# it wraps the existing, unmodified bench/scripts/build-ledgers.sh and the
+# bench/fixture-repo Makefile rather than introducing new Go tooling.
+name: go
+version: "1.0.0"

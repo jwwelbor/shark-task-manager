@@ -1,7 +1,7 @@
 ---
 epic: E40
 title: Shark Bench — workflow benchmarking harness architecture
-date: 2026-08-11
+date: 2026-08-13
 ---
 
 # E40 Architecture: Shark Bench
@@ -128,11 +128,22 @@ I-05 defines three roots:
 | Scratch Shark project | Shark database, generated planning documents, run logs, transcripts, claims, and history | Only through authorized Shark and harness surfaces |
 | Evaluator-only root | Approved artifacts, judge answer keys, reference patches, and hidden execution tests | Never during worker dispatch; evaluator access only after the applicable stage or run |
 
-Each applicable stage snapshot records scenario, entity, stage, prompt digest,
-input and replay lineage, output paths and digests, tokens, cost, elapsed time,
-errors, rework, and access events. Admission and every dispatch boundary prove
-that evaluator-only files are absent from both agent-visible roots. A named stop
-outcome still writes partial evidence but marks it ineligible for publication.
+Each applicable stage snapshot records scenario, entity, stage category, prompt
+digest, input and replay lineage, output paths and digests, tokens, cost,
+elapsed time, errors, rework, and access events. A non-overlapping interval
+ledger separates provider-active work, tool and test execution, queue or claim
+wait, replay or human-gate wait, retry or backoff, and unclassified time. The
+intervals reconcile to stage wall time; the collector never assigns an unknown
+interval to model work.
+
+Code-producing and review snapshots also pin the base commit, candidate tree
+and binary-diff digests, changed-path digest, dirty and untracked manifest, and
+test-suite digest. Each produced artifact records its type, path, digest, size,
+producer stage, and an explicit set of downstream consumption or access events.
+An empty set means no observed consumer; a missing set means incomplete
+evidence. Admission and every dispatch boundary prove that evaluator-only files
+are absent from both agent-visible roots. A named stop outcome still writes
+partial evidence but marks it ineligible for publication.
 
 ## Product-design replay contract
 
@@ -140,8 +151,12 @@ I-06 is a versioned sequence of authorized stakeholder answers, interview or
 proxy-research evidence, and frozen research-tool responses plus the D01-D05
 artifact lineage created from them. The replay adapter supplies a response only
 when the current action and request match an unused authorized entry. It records
-the entry digest and consuming stage. Missing input yields `unresolved_gate`;
-scored runs never fall back to live research or interactive input.
+the entry digest, consuming stage, request and response counts and sizes,
+revision or replacement count, replay wait classification, unresolved-gate
+count, and downstream artifact-consumption edges. These fields are replayed
+interaction proxies, not observed stakeholder minutes or cognitive effort.
+Missing input yields `unresolved_gate`; scored runs never fall back to live
+research or interactive input.
 
 E40-F07 wraps the existing E36-F02 product-design route through X-10. It does
 not copy the methodology or make D01-D05 a Shark workflow status. Bug,
@@ -154,8 +169,18 @@ I-07 contains the scenario identity and entity graph; every preserved keyed
 dispatch response; fork decision; claim, heartbeat, and release; prompt and
 worker-result reference; semantic outcome and resulting status; Question and
 replay decision; stage-evidence reference; usage, cost, and elapsed time; and
-resource ceilings plus observed consumption. It ends with one named scenario
-outcome and an aggregate-eligibility flag.
+resource ceilings plus observed consumption. It also records workflow-policy
+identity: enabled gates, gate order, reviewer provider, model, effort, prompt
+digest, full review-bundle digest, and whether fixes are allowed between gates.
+For deep review, the bundle digest covers the skill, all angle prompts, the
+consolidator prompt, and the diff-selection script used by the run.
+
+For each reached review gate, I-07 records one explicit gate result: findings,
+zero findings, or collection failure. Each finding preserves the raw Shark
+`review-finding` note fields and references the reviewed candidate plus any
+later candidate that claims resolution. E40-F08 does not adjudicate the
+reviewer's fingerprint, severity, or disposition. I-07 ends with one named
+scenario outcome and an aggregate-eligibility flag.
 
 E40-F08 writes a reason for every skipped or ineligible generated task. It runs
 all other eligible tasks. `resource_limit`, lease loss, missing outcome,
@@ -174,10 +199,40 @@ I-08 keeps three truths separate:
 
 The record also pins scenario and replay identity, fixture and adapter, Shark
 binary, installed Shark-data content, every rendered prompt, stage provider,
-model and effort, judge configuration, rubric, references, and resource policy.
-Missing or disagreeing identity makes the run ineligible for aggregation and
-records every divergence reason. Workflow completion and worker self-report are
-never substitutes for these results.
+model and effort, judge configuration, rubric, references, resource policy,
+candidate snapshot, and workflow policy. Missing or disagreeing identity makes
+the run ineligible for aggregation and records every divergence reason.
+Workflow completion and worker self-report are never substitutes for these
+results.
+
+I-08 preserves each raw review finding and adds a separate normalized finding
+identity, confirmation source, first-seen gate, duplicate or recurrence link,
+resolution candidate, and final disposition. Reviewer-provided fingerprints
+and severities are evidence, not adjudicated truth. Precision and recall are
+published only when a seeded defect set or other retained truth set exists;
+clean controls expose false positives. Without a truth set, I-08 reports
+confirmed and unconfirmed yield, overlap, recurrence, and downstream escapes.
+
+## Workflow value-attribution contract
+
+Review-gate comparisons use two distinct modes:
+
+1. **Independent frozen candidate:** feature QA and finish-feature deep review
+   inspect the same candidate and test-suite snapshot with no intervening fix.
+   This mode measures overlap and complementary coverage.
+2. **Sequential delivery:** gates run in their real order and every intervening
+   candidate remains visible. This mode measures incremental confirmed yield,
+   rework, and downstream escapes.
+
+Both modes require identical scenario inputs and explicit candidate and
+workflow-policy identity. A branch name or matching `HEAD` is insufficient.
+Observational stage order alone cannot establish causal gate value.
+
+E40-F10 derives first-pass yield; pre-code, review, rework, wait, and shipping
+shares; unique confirmed findings per gate; duplicate and recurrence rates;
+downstream escapes; artifact reuse and orphan counts; and cost or elapsed time
+per confirmed finding. Reports keep quality, time, and cost separate rather than
+publishing one composite efficiency score.
 
 ## Metric collection and artifact schema
 
@@ -189,6 +244,13 @@ Collection has four sources, each answering what the others cannot.
 | Stage transcripts | The agent JSON envelope per stage: token usage, cost, exact model IDs, API duration |
 | Scratch DB | `work_sessions` per-child time windows and outcomes; `entity_history` backward transitions as the rejection cross-check. Both tables are already `entity_type`/`entity_key` generic — no migration |
 | Post-run checks in the `--workdir` checkout | Oracle result from injected F2P tests; `p2p_regressions` against the base test ledger; `fmt`/`vet`/`test` gates; `lint_new_issues` against the base lint ledger; `git diff --numstat <base_sha>` for LOC with a prod/test split |
+
+Lifecycle v2 adds three retained sources: the I-05 interval and artifact-event
+ledger, exact candidate snapshots from the fixture worktree, and structured
+`review-finding` notes plus explicit zero-finding or collection-failure gate
+records from the scratch Shark project. F08 joins these sources into I-07; F09
+normalizes and evaluates them into I-08. Missing source data remains missing and
+invalidates any metric that depends on it.
 
 One JSONL record per run carries a manifest block (corpus item, variant, rep, fixture and bundle SHAs, exact model IDs, timeout cap), per-stage records, post-run check results, and a rollup. This record is the stable shape F03 reads; F03 reads nothing else. A run that times out still emits a record — its stage attribution comes from the liveness stream, not from stdout.
 
@@ -230,6 +292,14 @@ A fallback does exist, so this is a strong preference rather than a hard block. 
   evidence, oracle results, judge calibration, or any required identity field
   invalidates publication. The system retains partial and invalid records for
   diagnosis instead of discarding or silently averaging them.
+- **ADR-009 — Pin the candidate and gate policy, not only the workflow input.**
+  Review value depends on the exact tracked and untracked code, tests, gate set,
+  gate order, reviewer configuration, and fix policy. A commit or branch label
+  cannot represent that full identity.
+- **ADR-010 — Separate emitted findings from confirmed value.** Reviewers supply
+  candidate findings; I-08 owns normalization and confirmation. Reports do not
+  count duplicates, recurrences, waived findings, or unconfirmed observations
+  as unique defects prevented.
 
 ## Delivery boundaries and traceability
 
@@ -240,14 +310,14 @@ A fallback does exist, so this is a strong preference rather than a hard block. 
 | F03 Baseline and noise band | Operator starts the 10 x 3 batch and walks away; or replays a stored manifest | UAT-1 batch completes and the report states per-metric spread; UAT-7 replay reproduces the manifest's metrics within the published band | F02 artifacts; published noise band; replay verification result (G7) |
 | F04 `shark run` liveness | Any `shark run` invocation, bench or human | UAT-6 in-flight observability; stdout still one document | None; stderr NDJSON + `run.log` (I-03) |
 | F05 Lifecycle scenarios | Curator admits a versioned scenario package | UAT-08 loads all four families and rejects malformed or non-runnable cases | Phase 1 corpus principles (I-01); lifecycle scenario package (I-04) |
-| F06 Stage evidence and isolation | Harness admits and dispatches an applicable stage | UAT-09 proves hidden truth absent at dispatch and replays the captured stage later | I-04 and X-09; stage evidence bundle (I-05) |
-| F07 Product-design replay | Operator starts an admitted feature scenario | UAT-10 completes D01-D05 from frozen responses or stops at `unresolved_gate` | I-04 and X-10; product-design replay result (I-06) |
-| F08 Keyed lifecycle runner | Product-design prelude completes or a non-feature root is admitted | UAT-11 and UAT-12 cover every lease/transition path, Question, descendant, and safety stop | I-04, I-05, I-06, X-11, X-13; lifecycle run record (I-07) |
-| F09 Evaluation and identity | A stage snapshot or scenario run becomes evaluable | UAT-13 and UAT-14 separate structural, judge, and oracle truth and reject incompatible aggregates | I-05, I-07, X-12; lifecycle evaluation record (I-08) |
-| F10 Operator baseline | Operator previews, pilots, runs, or reports a lifecycle batch | UAT-15 prevents accidental spend and gates publication on inspected pilots and complete evidence | I-07 and I-08; retained baseline and diagnostic reports |
+| F06 Stage evidence and isolation | Harness admits and dispatches an applicable stage | UAT-09 and UAT-16 prove hidden truth absent, replay the stage, reconcile its time ledger, and detect candidate or artifact-evidence drift | I-04 and X-09; stage evidence bundle (I-05) |
+| F07 Product-design replay | Operator starts an admitted feature scenario | UAT-10 and UAT-18 complete D01-D05 from frozen responses, retain interaction proxies and artifact-use edges, or stop at `unresolved_gate` | I-04 and X-10; product-design replay result (I-06) |
+| F08 Keyed lifecycle runner | Product-design prelude completes or a non-feature root is admitted | UAT-11, UAT-12, UAT-16, and UAT-17 cover lease and transition paths plus runtime stage, policy, candidate, artifact-use, and structured-finding capture | I-04, I-05, I-06, X-11, X-13; lifecycle run record (I-07) |
+| F09 Evaluation and identity | A stage snapshot or scenario run becomes evaluable | UAT-13, UAT-14, UAT-17, and UAT-19 separate truth, normalize findings, compare gates, and reject incompatible candidate or policy identity | I-05, I-07, X-12; lifecycle evaluation record (I-08) |
+| F10 Operator baseline | Operator previews, pilots, runs, or reports a lifecycle or review-comparison batch | UAT-15 through UAT-18 prevent accidental spend and report lifecycle cost, artifact use, and confirmed review value from inspected evidence | I-07 and I-08; retained baseline and diagnostic reports |
 
 Phase 1 exit owns G1-G5 and G7. G7/UAT-7 remains owned by F03 and reuses
-I-01/I-02. Lifecycle v2 owns G8-G15 and UAT-08 through UAT-15 through
+I-01/I-02. Lifecycle v2 owns G8-G19 and UAT-08 through UAT-19 through
 E40-F05-E40-F10. G6 and UAT-03/UAT-04 now have a durable home in E40-F09 and
 E40-F10, but their detailed configuration-matrix design remains subject to
 those feature workflows rather than being retrofitted into completed F03.

@@ -1,0 +1,51 @@
+# TC-030 case 19 (UAT 20260813T204821Z Finding 1, REQ-F-009/015): the raw
+# string "valid/escape-into-evaluator" contains no "evaluator" path
+# segment, so a purely lexical check (the pre-rework
+# e40I04ResolvesInsideEvaluator) never flags it -- but
+# valid/escape-into-evaluator is a committed symlink that resolves to
+# valid/evaluator/reference.patch. Only resolving the symlink before the
+# containment check catches this leak. Expected failing field:
+# input.agent_visible.
+schema_version: "1.0"
+scenario_id: "test-case-19-agent-visible-symlink-escapes-into-evaluator"
+scenario_version: 1
+entity_family: bug
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D02: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D03: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D04: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D05: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "0000000000000000000000000000000000000000"
+adapter:
+  name: python
+  version: "1.0.0"
+toolchain_identity:
+  - key: python_version
+    value: "3.12.0"
+  - key: pytest_version
+    value: "8.0.0"
+input:
+  agent_visible: valid/escape-into-evaluator
+evaluator_only:
+  reference_solution: valid/evaluator/reference.patch
+  oracle_tests:
+    - valid/evaluator/oracle_test.txt
+  answer_keys: []
+final_predicate:
+  kind: f2p_p2p
+  p2p_selection:
+    include: ["taskmanager"]
+    exclude_test_ids: []
+  f2p_test_ids: ["tests.test_due_date::test_boundary"]
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20

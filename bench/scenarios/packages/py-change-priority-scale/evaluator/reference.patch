@@ -1,0 +1,155 @@
+diff --git a/taskmanager/manager.py b/taskmanager/manager.py
+index d7f2b8d..f652be3 100644
+--- a/taskmanager/manager.py
++++ b/taskmanager/manager.py
+@@ -8,7 +8,7 @@ from datetime import date
+ 
+ from .due_date import is_overdue
+ from .models import Status, Task
+-from .priority import validate_priority
++from .priority import migrate_legacy_priority, validate_priority
+ from .validation import non_empty_title
+ 
+ 
+@@ -19,7 +19,7 @@ class TaskManager:
+         self._tasks: dict[int, Task] = {}
+         self._next_id = 1
+ 
+-    def add_task(self, title: str, priority: str = "medium", due_date: str | None = None) -> Task:
++    def add_task(self, title: str, priority: int = 3, due_date: str | None = None) -> Task:
+         validate_priority(priority)
+         task = Task(
+             id=self._next_id,
+@@ -49,8 +49,14 @@ class TaskManager:
+     def import_legacy_records(self, records: list[dict]) -> list[Task]:
+         """Convert already-stored records using the legacy three-level
+         string priority scale into Task objects on the new 1-5 integer
+-        scale (py-change-priority-scale).
+-
+-        Not yet implemented: the 1-5 integer scale does not exist yet.
+-        """
+-        raise NotImplementedError("legacy priority-record conversion has not been implemented yet")
++        scale (py-change-priority-scale)."""
++        imported = []
++        for record in records:
++            priority = migrate_legacy_priority(record["priority"])
++            task = self.add_task(
++                record["title"], priority=priority, due_date=record.get("due_date")
++            )
++            if record.get("status") == "done":
++                self.complete(task.id)
++            imported.append(task)
++        return imported
+diff --git a/taskmanager/models.py b/taskmanager/models.py
+index 334e2d2..74544fa 100644
+--- a/taskmanager/models.py
++++ b/taskmanager/models.py
+@@ -16,7 +16,7 @@ class Status(str, Enum):
+ class Task:
+     id: int
+     title: str
+-    priority: str = "medium"
++    priority: int = 3
+     status: Status = Status.TODO
+     due_date: str | None = None  # ISO 8601 date string, e.g. "2026-01-15"
+ 
+diff --git a/taskmanager/priority.py b/taskmanager/priority.py
+index 70a72f1..1c48518 100644
+--- a/taskmanager/priority.py
++++ b/taskmanager/priority.py
+@@ -1,35 +1,48 @@
+ """Priority scale utilities for tasks.
+ 
+-The scale is one of three string levels, from most to least urgent:
+-"high", "medium", "low".
++The scale runs 1 (highest urgency) through 5 (lowest); see PRIORITY_LABELS.
+ """
+ 
+ from __future__ import annotations
+ 
+-PRIORITY_LEVELS = ("high", "medium", "low")
++MIN_PRIORITY = 1
++MAX_PRIORITY = 5
+ 
+ PRIORITY_LABELS = {
+-    "high": "high",
+-    "medium": "medium",
+-    "low": "low",
++    1: "critical",
++    2: "high",
++    3: "medium",
++    4: "low",
++    5: "trivial",
++}
++
++# Maps the legacy three-level string scale onto the new 1-5 integer scale,
++# for converting already-stored records (see legacy_records.py).
++LEGACY_PRIORITY_MAP = {
++    "high": 2,
++    "medium": 3,
++    "low": 4,
+ }
+ 
+ 
+-def validate_priority(priority: str) -> None:
+-    """Raise ValueError if priority is not one of the three string levels."""
+-    if priority not in PRIORITY_LEVELS:
+-        raise ValueError(f"priority must be one of {PRIORITY_LEVELS}, got {priority!r}")
++def validate_priority(priority: int) -> None:
++    """Raise ValueError if priority is outside the closed 1-5 scale."""
++    if not MIN_PRIORITY <= priority <= MAX_PRIORITY:
++        raise ValueError(
++            f"priority must be between {MIN_PRIORITY} and {MAX_PRIORITY}, got {priority}"
++        )
+ 
+ 
+-def label_for(priority: str) -> str:
++def label_for(priority: int) -> str:
+     """Return the human-readable label for priority."""
+     validate_priority(priority)
+     return PRIORITY_LABELS[priority]
+ 
+ 
+ def migrate_legacy_priority(level: str) -> int:
+-    """Convert a legacy string priority level to the new 1-5 integer scale.
+-
+-    Not yet implemented: the 1-5 integer scale does not exist yet.
+-    """
+-    raise NotImplementedError("priority scale migration has not been implemented yet")
++    """Convert a legacy string priority level ("high"/"medium"/"low") to
++    the new 1-5 integer scale."""
++    try:
++        return LEGACY_PRIORITY_MAP[level]
++    except KeyError:
++        raise ValueError(f"unknown legacy priority level: {level!r}") from None
+diff --git a/tests/test_priority.py b/tests/test_priority.py
+index 300212d..baa6348 100644
+--- a/tests/test_priority.py
++++ b/tests/test_priority.py
+@@ -1,13 +1,20 @@
+ import pytest
+ 
+-from taskmanager.priority import validate_priority
++from taskmanager.priority import label_for, validate_priority
+ 
+ 
+-@pytest.mark.parametrize("priority", ["high", "medium", "low"])
+-def test_validate_priority_accepts_known_levels(priority):
+-    validate_priority(priority)
++def test_label_for_medium_priority():
++    assert label_for(3) == "medium"
+ 
+ 
+-def test_validate_priority_rejects_unknown_level():
++@pytest.mark.parametrize(
++    "priority,label",
++    [(1, "critical"), (2, "high"), (3, "medium"), (4, "low"), (5, "trivial")],
++)
++def test_label_for_all_priorities(priority, label):
++    assert label_for(priority) == label
++
++
++def test_validate_priority_rejects_out_of_range():
+     with pytest.raises(ValueError):
+-        validate_priority("urgent")
++        validate_priority(6)
