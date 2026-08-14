@@ -1,0 +1,118 @@
+# bench/evidence/i05-schema.yaml
+#
+# Single machine-readable owner (REQ-F-017) of I-05's schema_version and
+# every closed vocabulary the stage-evidence bundle depends on:
+# stage_category, interval category, artifact_type, edge_kind,
+# evaluator_access.phase, stop outcome, and error kind. The Go contract
+# validator (tests/contracts/e40_i05_stage_evidence_contract_test.go, TC-042)
+# and every bench guard script under bench/scripts/ (T-E40-F06-003 onward)
+# MUST read these vocabularies from this file rather than embedding a
+# private copy -- a vocabulary change cannot land in one consumer and not
+# the other.
+#
+# Plays for I-05 the role bench/scenarios/scenarios.yaml plays for I-04
+# (spec.md "Component changes"), without inheriting any of its fields.
+
+schema_version: "1.0"
+
+# REQ-F-002: the three roots every bundle MUST declare, and the single
+# worker_access value each root name is allowed to carry. Pairwise-disjoint
+# path enforcement is validator logic, not vocabulary -- this section only
+# fixes the closed set of root names and their required worker_access mode.
+roots:
+  agent_fixture_checkout:
+    worker_access: read_write
+  scratch_shark_project:
+    worker_access: authorized_surfaces_only
+  evaluator_only:
+    worker_access: never_during_dispatch
+
+# REQ-F-003: a stage snapshot's stage_category MUST be exactly one value of
+# this closed eight-value set.
+stage_category:
+  - discovery
+  - specification
+  - planning
+  - code
+  - review
+  - qa
+  - uat
+  - shipping
+
+# REQ-F-005: the six time_ledger interval categories. Unknown or
+# unattributable time is routed to unclassified, never to provider_active.
+interval_category:
+  - provider_active
+  - tool_and_test
+  - queue_or_claim_wait
+  - replay_or_human_gate_wait
+  - retry_or_backoff
+  - unclassified
+
+# REQ-F-008: an artifact record's artifact_type.
+artifact_type:
+  - code_diff
+  - test_report
+  - transcript
+  - document
+  - patch
+  - log
+  - other
+
+# REQ-F-008: an artifact's consumer edge_kind.
+edge_kind:
+  - read
+  - modified
+  - referenced
+  - evaluator_access
+
+# REQ-F-012: evaluator_access event phase. Every legitimate access is
+# granted only after the applicable stage or scenario reaches terminal
+# status (REQ-F-012 ordering (b)/(c)); pre_terminal is the negative value a
+# validator rejects as isolation_violation, not a phase a valid bundle ever
+# carries.
+evaluator_access_phase:
+  - pre_terminal
+  - post_terminal
+
+# REQ-F-014: the ten named stop outcomes a bundle may terminate in.
+stop_outcome:
+  - resource_limit
+  - lease_loss
+  - missing_outcome
+  - unresolved_gate
+  - pause
+  - archive
+  - error
+  - cancellation
+  - worker_failure
+  - timeout
+
+# errors[].kind -- every named failure kind a validator, guard, or canary in
+# this feature can report (REQ-F-004, REQ-F-009, REQ-F-012, REQ-F-013,
+# REQ-F-014, REQ-F-015, REQ-F-016, REQ-F-019).
+error_kind:
+  - missing_root
+  - overlapping_root
+  - unknown_stage_category
+  - unknown_interval_category
+  - ledger_overlap
+  - ledger_non_reconciling
+  - candidate_field_missing
+  - artifact_field_missing
+  - usage_slot_unavailable
+  - unmapped_provider
+  - unverified_required_slot
+  - evaluator_access_out_of_order
+  - isolation_violation
+  - publication_eligible_conflict
+  - duplicate_dispatch_ordinal
+  - unsupported_schema_version
+  - missing_stage
+  - unmatched_dispatch
+  - snapshot_mutated
+  - tracked_file_changed
+  - untracked_file_changed
+  - test_suite_changed
+  - artifact_consumption_record_missing
+  - envelope_source_unavailable
