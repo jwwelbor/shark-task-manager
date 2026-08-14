@@ -53,6 +53,38 @@ type e40I05Schema struct {
 	ErrorKind            []string                  `yaml:"error_kind"`
 }
 
+// e40I05UsageSlotBinding is one (provider, semantic slot) binding in
+// bench/evidence/usage-mapping.yaml (REQ-F-009, REQ-F-018): the concrete
+// envelope path that slot resolves to for this provider, and whether that
+// path was observed in a real captured envelope (real_capture) or only
+// corroborated by a fixture, design document, or upstream source
+// (unverified).
+type e40I05UsageSlotBinding struct {
+	EnvelopePath     string `yaml:"envelope_path"`
+	VerificationTier string `yaml:"verification_tier"`
+}
+
+// e40I05ProviderUsageMapping is one provider's usage-mapping.yaml block.
+// status "unmapped" means the provider has no verified capture at all --
+// every slot fails closed for it regardless of what a snapshot claims to
+// have decoded (REQ-F-009, ADR-F06-04).
+type e40I05ProviderUsageMapping struct {
+	Status string                            `yaml:"status"`
+	Slots  map[string]e40I05UsageSlotBinding `yaml:"slots"`
+}
+
+// e40I05UsageMapping decodes bench/evidence/usage-mapping.yaml -- the X-09
+// versioned binding REQ-F-009/REQ-F-018 require: semantic slots bound to
+// concrete envelope paths per provider, each with its own
+// verification_tier, plus the required_identity_slots list REQ-F-018
+// requires be entirely real_capture (ADR-F06-04, ADR-F06-12).
+type e40I05UsageMapping struct {
+	SchemaVersion         string                                `yaml:"schema_version"`
+	VerifiedFrom          map[string]interface{}                `yaml:"verified_from"`
+	Providers             map[string]e40I05ProviderUsageMapping `yaml:"providers"`
+	RequiredIdentitySlots []string                              `yaml:"required_identity_slots"`
+}
+
 // TestTC042_I05StageEvidenceContract is the shared contract test E40-F08,
 // E40-F09, and E40-F10 must reuse verbatim (spec.md Cross-feature
 // interactions: "no twin test is created").
@@ -62,9 +94,11 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	schemaPath := filepath.Join(repoRoot, "bench", "evidence", "i05-schema.yaml")
+	mappingPath := filepath.Join(repoRoot, "bench", "evidence", "usage-mapping.yaml")
 	testdataRoot := filepath.Join(repoRoot, "tests", "contracts", "testdata", "e40_i05")
 
 	schema := e40I05ReadSchema(t, schemaPath)
+	mapping := e40I05ReadUsageMapping(t, mappingPath)
 
 	t.Run("schema_self_check", func(t *testing.T) {
 		if schema.SchemaVersion != e40I05SupportedSchemaVersion {
@@ -106,6 +140,57 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		}
 	})
 
+	// AC-T1 (task spec): usage-mapping.yaml's own required shape --
+	// schema_version and verified_from present (REQ-F-009), the committed
+	// provider split (anthropic_claude_cli mapped with the full 9-slot
+	// table, openai_codex_cli unmapped with no slots) matches spec.md's
+	// "Usage slot mapping" table exactly. A future edit flipping
+	// openai_codex_cli to mapped, or emptying anthropic_claude_cli's slots,
+	// would silently change what AC-008's fixtures below are actually
+	// proving; this pins the mapping's own shape independently of any
+	// bundle fixture.
+	t.Run("usage_mapping_self_check", func(t *testing.T) {
+		if mapping.SchemaVersion != e40I05SupportedSchemaVersion {
+			t.Errorf("usage-mapping.yaml schema_version = %q, want %q", mapping.SchemaVersion, e40I05SupportedSchemaVersion)
+		}
+		if len(mapping.VerifiedFrom) == 0 {
+			t.Error("usage-mapping.yaml verified_from is empty or missing (REQ-F-009 requires a provenance block)")
+		}
+
+		anthropic, ok := mapping.Providers["anthropic_claude_cli"]
+		if !ok {
+			t.Fatal("usage-mapping.yaml has no anthropic_claude_cli provider block")
+		}
+		if anthropic.Status != "mapped" {
+			t.Errorf("anthropic_claude_cli status = %q, want %q", anthropic.Status, "mapped")
+		}
+		wantSlots := []string{
+			"total_cost", "input_tokens", "output_tokens",
+			"cache_read_input_tokens", "cache_creation_input_tokens",
+			"model_ids", "api_active_duration_ms", "turn_count",
+			"provider_session_id",
+		}
+		if len(anthropic.Slots) != len(wantSlots) {
+			t.Errorf("anthropic_claude_cli has %d slots, want %d", len(anthropic.Slots), len(wantSlots))
+		}
+		for _, slot := range wantSlots {
+			if _, ok := anthropic.Slots[slot]; !ok {
+				t.Errorf("anthropic_claude_cli is missing slot binding %q", slot)
+			}
+		}
+
+		codex, ok := mapping.Providers["openai_codex_cli"]
+		if !ok {
+			t.Fatal("usage-mapping.yaml has no openai_codex_cli provider block")
+		}
+		if codex.Status != "unmapped" {
+			t.Errorf("openai_codex_cli status = %q, want %q", codex.Status, "unmapped")
+		}
+		if len(codex.Slots) != 0 {
+			t.Errorf("openai_codex_cli (unmapped) declares %d slot bindings, want 0", len(codex.Slots))
+		}
+	})
+
 	// AC-001, AC-002 (positive cell), AC-020 (bidirectional agreement):
 	// every fixture bundle under valid/ must satisfy the full REQ-F-002/
 	// 003/005/006/008/009 field inventory and every closed-vocabulary value
@@ -131,7 +216,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 			dir := dir
 			t.Run(filepath.Base(dir), func(t *testing.T) {
 				bundle, stages := e40I05ReadBundle(t, dir)
-				errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+				errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 				if len(errs) != 0 {
 					t.Errorf("valid fixture failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
 				}
@@ -185,7 +270,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 			c := c
 			t.Run(c.name, func(t *testing.T) {
 				bundle, stages := e40I05ReadBundle(t, c.dir)
-				errs := e40I05ValidateBundle(bundle, stages, c.dir, schema)
+				errs := e40I05ValidateBundle(bundle, stages, c.dir, schema, mapping)
 				if len(errs) == 0 {
 					t.Fatalf("case %s: expected validation errors, got none", c.name)
 				}
@@ -203,7 +288,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Run("valid_bundle_declares_all_three_roots", func(t *testing.T) {
 			dir := filepath.Join(testdataRoot, "valid", "prelude-lifecycle")
 			bundle, stages := e40I05ReadBundle(t, dir)
-			errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 			if len(errs) != 0 {
 				t.Errorf("valid bundle's root policy failed, want zero errors:\n%s", strings.Join(errs, "\n"))
 			}
@@ -216,7 +301,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Run("prelude_missing_stage_is_named", func(t *testing.T) {
 			dir := filepath.Join(testdataRoot, "invalid", "prelude-missing-stage")
 			bundle, stages := e40I05ReadBundle(t, dir)
-			errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 			if len(errs) == 0 {
 				t.Fatal("expected a missing_stage violation, got none")
 			}
@@ -228,7 +313,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Run("lifecycle_unmatched_dispatch_is_named", func(t *testing.T) {
 			dir := filepath.Join(testdataRoot, "invalid", "lifecycle-unmatched-dispatch")
 			bundle, stages := e40I05ReadBundle(t, dir)
-			errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 			if len(errs) == 0 {
 				t.Fatal("expected an unmatched_dispatch violation, got none")
 			}
@@ -246,7 +331,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Run("lifecycle_duplicate_ordinal_is_named", func(t *testing.T) {
 			dir := filepath.Join(testdataRoot, "invalid", "duplicate-dispatch-ordinal")
 			bundle, stages := e40I05ReadBundle(t, dir)
-			errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 			if len(errs) == 0 {
 				t.Fatal("expected a duplicate_dispatch_ordinal violation, got none")
 			}
@@ -258,7 +343,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Run("lifecycle_consistent_has_no_missing_stage_verdict_available", func(t *testing.T) {
 			dir := filepath.Join(testdataRoot, "valid", "lifecycle-only")
 			bundle, stages := e40I05ReadBundle(t, dir)
-			errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 			if len(errs) != 0 {
 				t.Errorf("consistent lifecycle-only bundle failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
 			}
@@ -271,14 +356,15 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 	})
 
 	// AC-015: table-driven REQ-F-016 malformed-bundle cases, each naming
-	// the failing field. The usage-mapping-dependent fail-closed cases
-	// (AC-008, AC-022) are T-E40-F06-002's addition to this table.
+	// the failing field. REQ-F-016 names exactly 11 items and does not
+	// itself include a provider-unmapped case, so AC-008's and AC-022's
+	// usage-mapping-dependent fail-closed decision tables (REQ-F-009,
+	// REQ-F-018 -- T-E40-F06-002's addition) live in their own
+	// "usage_mapping_fail_closed" / "usage_mapping_required_identity_slots"
+	// subtests below, not as a twelfth row of this REQ-F-016-scoped table.
 	t.Run("malformed_bundle_cases_req_f_016", func(t *testing.T) {
-		// REQ-F-016 names exactly 11 malformed-bundle items for this task
-		// (the zero-valued-usage-slot item is included; the twelfth item --
-		// a zero-valued slot rejected because a *provider* is declared
-		// unmapped -- is T-E40-F06-002's usage-mapping.yaml addition to
-		// this same table). Two of the 11 named items are themselves
+		// REQ-F-016 names exactly 11 malformed-bundle items for this task.
+		// Two of the 11 named items are themselves
 		// "A or B" pairs ("a missing or overlapping root", "an overlapping
 		// or non-reconciling ledger"); both sub-variants are exercised
 		// below for full decision-table coverage, so this table has 13
@@ -321,7 +407,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 			t.Run(c.dir, func(t *testing.T) {
 				dir := filepath.Join(testdataRoot, "invalid", c.dir)
 				bundle, stages := e40I05ReadBundle(t, dir)
-				errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+				errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 				if len(errs) == 0 {
 					t.Fatalf("case %s: expected validation errors, got none", c.dir)
 				}
@@ -351,7 +437,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		t.Run("valid_baseline_passes", func(t *testing.T) {
 			dir := filepath.Join(testdataRoot, "valid", "prelude-lifecycle")
 			bundle, stages := e40I05ReadBundle(t, dir)
-			if errs := e40I05ValidateBundle(bundle, stages, dir, schema); len(errs) != 0 {
+			if errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping); len(errs) != 0 {
 				t.Errorf("valid baseline fixture failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
 			}
 		})
@@ -365,7 +451,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 	t.Run("vocabulary_single_owner_bidirectional", func(t *testing.T) {
 		dir := filepath.Join(testdataRoot, "invalid", "unknown-stage-category")
 		bundle, stages := e40I05ReadBundle(t, dir)
-		errs := e40I05ValidateBundle(bundle, stages, dir, schema)
+		errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
 		if !e40ContainsErrorMatching(errs, "stage_category", "deployment") {
 			t.Errorf("expected an error naming the unknown stage_category value %q, got:\n%s", "deployment", strings.Join(errs, "\n"))
 		}
@@ -378,6 +464,127 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 				t.Fatalf("test fixture bug: %q must NOT be a declared stage_category value in i05-schema.yaml", v)
 			}
 		}
+	})
+
+	// AC-008: REQ-F-009/REQ-F-018 fail-closed decision table -- unmapped-
+	// provider rejection (unconditional) and unverified-slot-as-required
+	// rejection, each with its positive control.
+	t.Run("usage_mapping_fail_closed", func(t *testing.T) {
+		t.Run("unmapped_provider_rejects_decoded_usage", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "invalid", "unmapped-provider-decoded-usage")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+			if len(errs) == 0 {
+				t.Fatal("expected validation errors, got none")
+			}
+			if !e40ContainsErrorMatching(errs, "unmapped_provider", "openai_codex_cli") {
+				t.Errorf("expected an error naming the unmapped provider %q, got:\n%s", "openai_codex_cli", strings.Join(errs, "\n"))
+			}
+			// Purity check (mirrors malformed_bundle_cases_req_f_016's
+			// onlyErrorsMatching discipline): the fixture carries exactly
+			// this one injected defect.
+			for _, e := range errs {
+				if !strings.Contains(e, "unmapped_provider") {
+					t.Errorf("unexpected error not matching this case's own defect class: %s\nall errors:\n%s", e, strings.Join(errs, "\n"))
+				}
+			}
+		})
+
+		t.Run("unmapped_provider_absent_slots_accepted", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "valid", "unmapped-provider-absent-usage")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+			if len(errs) != 0 {
+				t.Errorf("recorded-absent unmapped-provider usage failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("unverified_slot_required_by_mapping_is_rejected", func(t *testing.T) {
+			path := filepath.Join(testdataRoot, "invalid", "usage-mapping-unverified-required-slot", "usage-mapping.yaml")
+			mutated := e40I05ReadUsageMapping(t, path)
+			errs := e40I05ValidateUsageMappingRequiredSlots(mutated)
+			if len(errs) == 0 {
+				t.Fatal("expected validation errors, got none")
+			}
+			if !e40ContainsErrorMatching(errs, "provider_session_id", "unverified") {
+				t.Errorf("expected an error naming provider_session_id and its unverified tier, got:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("unverified_slot_recorded_as_opportunistic_is_accepted", func(t *testing.T) {
+			// The committed mapping's own provider_session_id binding is
+			// unverified, and required_identity_slots deliberately excludes
+			// it (ADR-F06-12) -- so a snapshot presenting it is never
+			// rejected merely for carrying it. valid/prelude-lifecycle
+			// already records provider_session_id as ordinary, non-required
+			// usage evidence.
+			binding, ok := mapping.Providers["anthropic_claude_cli"].Slots["provider_session_id"]
+			if !ok {
+				t.Fatal("usage-mapping.yaml: anthropic_claude_cli has no provider_session_id binding")
+			}
+			if binding.VerificationTier != "unverified" {
+				t.Errorf("provider_session_id verification_tier = %q, want %q", binding.VerificationTier, "unverified")
+			}
+			for _, slot := range mapping.RequiredIdentitySlots {
+				if slot == "provider_session_id" {
+					t.Fatalf("committed required_identity_slots must not name provider_session_id (ADR-F06-12)")
+				}
+			}
+			dir := filepath.Join(testdataRoot, "valid", "prelude-lifecycle")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			if errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping); len(errs) != 0 {
+				t.Errorf("fixture recording provider_session_id as opportunistic evidence failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+	})
+
+	// AC-022: required_identity_slots declaration validity plus per-
+	// snapshot identity completeness, so E40-F09 inherits a decided slot
+	// set rather than an ambiguity.
+	t.Run("usage_mapping_required_identity_slots", func(t *testing.T) {
+		t.Run("committed_mapping_required_slots_all_real_capture", func(t *testing.T) {
+			errs := e40I05ValidateUsageMappingRequiredSlots(mapping)
+			if len(errs) != 0 {
+				t.Errorf("committed usage-mapping.yaml failed required_identity_slots validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("mapping_listing_unverified_slot_as_required_is_rejected", func(t *testing.T) {
+			path := filepath.Join(testdataRoot, "invalid", "usage-mapping-unverified-required-slot", "usage-mapping.yaml")
+			mutated := e40I05ReadUsageMapping(t, path)
+			errs := e40I05ValidateUsageMappingRequiredSlots(mutated)
+			if !e40ContainsErrorMatching(errs, "provider_session_id") {
+				t.Errorf("expected an error naming provider_session_id, got:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("snapshot_carrying_all_required_slots_is_identity_complete", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "valid", "usage-identity-complete")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			if errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping); len(errs) != 0 {
+				t.Errorf("identity-complete fixture failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("snapshot_missing_required_slot_is_rejected_naming_it", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "invalid", "usage-identity-incomplete")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+			if len(errs) == 0 {
+				t.Fatal("expected validation errors, got none")
+			}
+			if !e40ContainsErrorMatching(errs, "turn_count") {
+				t.Errorf("expected an error naming the missing slot %q, got:\n%s", "turn_count", strings.Join(errs, "\n"))
+			}
+			// Purity check: the fixture differs from valid/usage-identity-
+			// complete by exactly the one dropped slot, so exactly one
+			// error is expected.
+			for _, e := range errs {
+				if !strings.Contains(e, "turn_count") {
+					t.Errorf("unexpected error not matching this case's own defect class: %s\nall errors:\n%s", e, strings.Join(errs, "\n"))
+				}
+			}
+		})
 	})
 }
 
@@ -393,6 +600,25 @@ func e40I05ReadSchema(t *testing.T, path string) *e40I05Schema {
 		t.Fatalf("parse i05 schema %s: %v", path, err)
 	}
 	return &schema
+}
+
+// e40I05ReadUsageMapping reads and parses a committed usage-mapping.yaml
+// file (the real bench/evidence/usage-mapping.yaml, or an invalid/ fixture
+// carrying a deliberately mutated copy). Real filesystem read, per this
+// task's Caller-Path Contract: a validator reading a hand-built in-memory
+// mapping would stay green even if the real committed mapping were
+// malformed.
+func e40I05ReadUsageMapping(t *testing.T, path string) *e40I05UsageMapping {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read usage mapping %s: %v", path, err)
+	}
+	var mapping e40I05UsageMapping
+	if err := yaml.Unmarshal(data, &mapping); err != nil {
+		t.Fatalf("parse usage mapping %s: %v", path, err)
+	}
+	return &mapping
 }
 
 // e40I05ListBundleDirs lists the immediate subdirectories of root, each one
@@ -499,7 +725,7 @@ func e40I05StringSet(values []string) map[string]bool {
 // 009/012/014/016/017 field inventory to one decoded bundle plus its stage
 // snapshots, returning one description per violation. dir is the bundle's
 // own directory, used only for error context.
-func e40I05ValidateBundle(bundle map[string]interface{}, stageFiles []e40I05StageFile, dir string, schema *e40I05Schema) []string {
+func e40I05ValidateBundle(bundle map[string]interface{}, stageFiles []e40I05StageFile, dir string, schema *e40I05Schema, mapping *e40I05UsageMapping) []string {
 	var errs []string
 	addf := func(format string, args ...interface{}) {
 		errs = append(errs, fmt.Sprintf(format, args...))
@@ -617,7 +843,7 @@ func e40I05ValidateBundle(bundle map[string]interface{}, stageFiles []e40I05Stag
 
 	// Stage snapshot content validation.
 	for _, sf := range stageFiles {
-		errs = append(errs, e40I05ValidateStageSnapshot(sf.Content, sf.RelPath, schema)...)
+		errs = append(errs, e40I05ValidateStageSnapshot(sf.Content, sf.RelPath, schema, mapping)...)
 	}
 
 	// REQ-F-014: a stop outcome paired with publication_eligible: true is
@@ -711,7 +937,7 @@ func e40I05PathsOverlap(a, b string) bool {
 
 // e40I05ValidateStageSnapshot checks the REQ-F-003/005/006/008/009/012
 // field inventory for one stage snapshot.
-func e40I05ValidateStageSnapshot(stage map[string]interface{}, label string, schema *e40I05Schema) []string {
+func e40I05ValidateStageSnapshot(stage map[string]interface{}, label string, schema *e40I05Schema, mapping *e40I05UsageMapping) []string {
 	var errs []string
 	addf := func(format string, args ...interface{}) {
 		errs = append(errs, fmt.Sprintf("%s: "+format, append([]interface{}{label}, args...)...))
@@ -731,11 +957,13 @@ func e40I05ValidateStageSnapshot(stage map[string]interface{}, label string, sch
 
 	errs = append(errs, e40I05ValidateArtifacts(stage["artifacts"], schema, label)...)
 	errs = append(errs, e40I05ValidateUsage(stage["usage"], stage["errors"], label)...)
+	errs = append(errs, e40I05ValidateUsageProviderMapping(stage, mapping, label)...)
 	errs = append(errs, e40I05ValidateTimeLedger(stage["time_ledger"], schema, label)...)
 	errs = append(errs, e40I05ValidateEvaluatorAccess(stage["evaluator_access"], schema, label)...)
 
 	if category == "code" || category == "review" {
 		errs = append(errs, e40I05ValidateCandidate(stage["candidate"], label)...)
+		errs = append(errs, e40I05ValidateIdentityCompleteness(stage, mapping, label)...)
 	}
 
 	return errs
@@ -855,6 +1083,112 @@ func e40I05ValidateUsage(usageV, errorsV interface{}, label string) []string {
 		}
 		if _, present := usage[slot]; present {
 			errs = append(errs, fmt.Sprintf("%s: usage.%s is present (must be absent -- errors[] reports it usage_slot_unavailable, REQ-F-016/REQ-F-009)", label, slot))
+		}
+	}
+	return errs
+}
+
+// e40I05ValidateUsageProviderMapping checks REQ-F-009's fail-closed rule for
+// a provider usage-mapping.yaml declares unmapped: a stage snapshot naming
+// a top-level provider (additive evidence alongside stage_key/stage_category,
+// ADR-F06-01 -- REQ-F-009 fixes usage as a closed set of nine semantic
+// slots, so the provider claim is never itself a usage key) that is unmapped
+// MUST NOT carry any decoded usage value -- every populated slot is rejected
+// naming the offending provider (AC-008(a)). A snapshot that names the same
+// unmapped provider but carries no decoded slot values is accepted
+// (AC-008(b)); a snapshot with no provider claim at all is out of scope for
+// this check. A provider unknown to the mapping entirely is treated the same
+// as "unmapped" -- the mapping is the single source of truth for which
+// providers are bound, so an undeclared provider can never be presented as
+// decoded either.
+func e40I05ValidateUsageProviderMapping(stage map[string]interface{}, mapping *e40I05UsageMapping, label string) []string {
+	providerName, _ := stage["provider"].(string)
+	if providerName == "" {
+		return nil
+	}
+	if provider, known := mapping.Providers[providerName]; known && provider.Status == "mapped" {
+		return nil
+	}
+
+	usage, _ := e40I05AsMap(stage["usage"])
+	var errs []string
+	keys := make([]string, 0, len(usage))
+	for k := range usage {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if usage[k] == nil {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: unmapped_provider: provider = %q is declared unmapped in usage-mapping.yaml, but usage.%s is present (REQ-F-009 requires an unmapped provider to fail closed)", label, providerName, k))
+	}
+	return errs
+}
+
+// e40I05ValidateIdentityCompleteness checks REQ-F-018's per-snapshot
+// completeness rule for code/review snapshots: when the snapshot's top-level
+// provider names a mapped provider, every slot in usage-mapping.yaml's
+// required_identity_slots MUST be present in usage, or the snapshot is
+// rejected naming the missing slot (AC-022(c)/(d)). This is what lets
+// E40-F09 read a decided slot set for comparison identity rather than an
+// ambiguity. Unmapped-provider snapshots are covered by
+// e40I05ValidateUsageProviderMapping, not here.
+func e40I05ValidateIdentityCompleteness(stage map[string]interface{}, mapping *e40I05UsageMapping, label string) []string {
+	providerName, _ := stage["provider"].(string)
+	if providerName == "" {
+		return nil
+	}
+	provider, known := mapping.Providers[providerName]
+	if !known || provider.Status != "mapped" {
+		return nil
+	}
+
+	usage, _ := e40I05AsMap(stage["usage"])
+	var errs []string
+	for _, slot := range mapping.RequiredIdentitySlots {
+		if _, present := usage[slot]; !present {
+			errs = append(errs, fmt.Sprintf("%s: usage_slot_unavailable: required identity slot %q is missing from usage (REQ-F-018 identity completeness)", label, slot))
+		}
+	}
+	return errs
+}
+
+// e40I05ValidateUsageMappingRequiredSlots checks REQ-F-018's
+// required_identity_slots declaration rule directly against a decoded
+// usage-mapping.yaml (real or a mutated invalid/ fixture copy), independent
+// of any bundle: every slot the mapping names as required MUST resolve, in
+// every provider that binds it, to verification_tier real_capture. A
+// required slot resolving to any other tier -- unverified included -- is
+// rejected naming the slot and its offending tier (AC-022(a)/(b)), because
+// REQ-F-018 forbids an unverified slot from gating G14 comparison identity
+// (ADR-F06-12).
+func e40I05ValidateUsageMappingRequiredSlots(mapping *e40I05UsageMapping) []string {
+	var errs []string
+	if len(mapping.RequiredIdentitySlots) == 0 {
+		errs = append(errs, "required_identity_slots: usage-mapping.yaml declares an empty or missing required_identity_slots list (REQ-F-018)")
+		return errs
+	}
+	providerNames := make([]string, 0, len(mapping.Providers))
+	for name := range mapping.Providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+
+	for _, slot := range mapping.RequiredIdentitySlots {
+		found := false
+		for _, providerName := range providerNames {
+			binding, ok := mapping.Providers[providerName].Slots[slot]
+			if !ok {
+				continue
+			}
+			found = true
+			if binding.VerificationTier != "real_capture" {
+				errs = append(errs, fmt.Sprintf("unverified_required_slot: required_identity_slots names %q, but provider %q binds it at verification_tier %q (must be real_capture, REQ-F-018)", slot, providerName, binding.VerificationTier))
+			}
+		}
+		if !found {
+			errs = append(errs, fmt.Sprintf("unverified_required_slot: required_identity_slots names %q, which no provider binds at all (REQ-F-018)", slot))
 		}
 	}
 	return errs
