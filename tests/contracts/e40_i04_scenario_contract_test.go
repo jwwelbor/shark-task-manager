@@ -154,13 +154,14 @@ func TestTC030_I04ScenarioPackageContract(t *testing.T) {
 			}
 		}
 
-		// Validate every package the index actually registers. This loop is
-		// vacuous today (index.Scenarios is empty per this task's scope
-		// boundary), which is expected, not a defect: AC-019's
-		// admission-block cross-encoding assertion inside
-		// e40I04ValidateScenarioPackage stays untested against real content
-		// until T-E40-F05-014 writes the first admission block into a
-		// committed package (task spec "Test Cases" note). AC-009 (load
+		// Validate every package the index actually registers. index.Scenarios
+		// now lists the four committed seed packages, so this loop runs for
+		// real and does exercise AC-019's admission-block cross-encoding
+		// assertion inside e40I04ValidateScenarioPackage -- but only ever in
+		// the matching-values direction, since every seed's admission block
+		// mirrors its own top-level toolchain_identity exactly; there is no
+		// negative-path testdata case that constructs a divergent
+		// admission.toolchain_identity (tracked separately). AC-009 (load
 		// twice, identical result) is proven here the same way TC-001 proves
 		// it for I-01: parse the same committed bytes twice within one test
 		// run and compare.

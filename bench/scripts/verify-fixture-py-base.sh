@@ -83,6 +83,10 @@ command -v python3 >/dev/null 2>&1 || {
 	echo "verify-fixture-py-base: python3 not found on PATH" >&2
 	exit 2
 }
+python3 -c 'import tomllib' >/dev/null 2>&1 || {
+	echo "verify-fixture-py-base: python3 3.11+ (tomllib) required" >&2
+	exit 2
+}
 
 WORKDIR="$(mktemp -d)"
 CHECKOUT_DIR="$WORKDIR/checkout"
