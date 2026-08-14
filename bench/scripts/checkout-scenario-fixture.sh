@@ -93,4 +93,4 @@ fixture_submodule="$REPO_ROOT/$submodule_rel"
 mkdir -p "$(dirname "$dest_dir")"
 
 git -c advice.detachedHead=false clone --quiet -- "$fixture_submodule" "$dest_dir"
-git -C "$dest_dir" -c advice.detachedHead=false checkout --quiet "$base_sha"
+git -C "$dest_dir" -c advice.detachedHead=false checkout --quiet "$base_sha" --

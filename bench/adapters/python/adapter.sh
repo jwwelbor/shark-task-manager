@@ -110,6 +110,7 @@ esac
 CHECKOUT=""
 FILES=()
 INCLUDE=()
+INCLUDE_GIVEN=0
 EXCLUDE_IDS=()
 ONLY_IDS=()
 
@@ -127,6 +128,7 @@ while [[ $# -gt 0 ]]; do
 		done
 		;;
 	--include)
+		INCLUDE_GIVEN=1
 		shift
 		while [[ $# -gt 0 && "$1" != --* ]]; do
 			INCLUDE+=("$1")
@@ -250,6 +252,13 @@ cmd_test() {
 		local resolved_only
 		resolved_only="$(resolve_nodeids "$CHECKOUT" "${ONLY_IDS[@]}")" || exit 1
 		mapfile -t pos_args <<<"$resolved_only"
+	elif [[ "$INCLUDE_GIVEN" -eq 1 && ${#INCLUDE[@]} -eq 0 ]]; then
+		# --include was given but resolved to zero paths -- a legitimate
+		# empty p2p_selection (REQ-F-012(b)/AC-007), not "no --include
+		# given". Return the empty result directly rather than falling
+		# through to an unfiltered pytest run over the whole suite.
+		echo '{"entries": []}'
+		return 0
 	else
 		if [[ ${#INCLUDE[@]} -gt 0 ]]; then
 			pos_args=("${INCLUDE[@]}")

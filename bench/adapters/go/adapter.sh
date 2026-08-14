@@ -146,6 +146,7 @@ esac
 CHECKOUT=""
 FILES=()
 INCLUDE=()
+INCLUDE_GIVEN=0
 EXCLUDE_IDS=()
 ONLY_IDS=()
 
@@ -163,6 +164,7 @@ while [[ $# -gt 0 ]]; do
 		done
 		;;
 	--include)
+		INCLUDE_GIVEN=1
 		shift
 		while [[ $# -gt 0 && "$1" != --* ]]; do
 			INCLUDE+=("$1")
@@ -305,8 +307,7 @@ cmd_test() {
 	# REQ-F-012 check (b) must be able to see and reject that empty set
 	# by name, the same "empty is a valid result" contract the Python
 	# adapter documents for pytest exit 5.
-	local include_given=0
-	[[ ${#INCLUDE[@]} -gt 0 ]] && include_given=1
+	local include_given="$INCLUDE_GIVEN"
 
 	python3 - "$tests_json" "$include_file" "$exclude_file" "$only_file" "$include_given" <<'PYEOF'
 import json
