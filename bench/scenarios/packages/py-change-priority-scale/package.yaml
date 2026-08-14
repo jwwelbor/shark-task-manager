@@ -1,0 +1,110 @@
+# I-04 lifecycle scenario package: py-change-priority-scale (REQ-F-014 seed
+# 2 of 4, change_card family). The subject is bench/fixture-py's priority
+# field: this package's own commit on top of T-E40-F05-008's base_sha
+# reverts taskmanager/priority.py, taskmanager/models.py, and
+# taskmanager/manager.py from the 1-5 integer scale to the legacy
+# three-level string scale ("high"/"medium"/"low"), and adds
+# taskmanager/legacy_records.py holding already-stored records under that
+# legacy scale -- the "before" state this scenario's reference solution
+# converts forward. taskmanager/due_date.py's overdue-comparison bug from
+# py-bug-due-date-boundary is untouched and stays unfixed alongside this
+# subject (T-E40-F05-010 Scope).
+#
+# fixture.base_sha is frozen (T-E40-F05-014): bench/fixture-py's `main`
+# commit merging this branch's own seed commit with
+# py-techdebt-consolidate-validation's, the one shared base_sha across all
+# four packages -- this package's own fixture-py commit (the priority-scale
+# revert) is an ancestor of that merge, so no further fixture change was
+# needed here. The admission: block below (AC-T3) was written by a real
+# `admit-scenario.sh` run against this file at the frozen SHA -- not
+# hand-authored -- so it satisfies TC-032's caller-path contract (no
+# hardcoded verdicts), superseding this task's original interim run.
+schema_version: "1.0"
+scenario_id: "py-change-priority-scale"
+scenario_version: 1
+entity_family: change_card
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "change_card scenarios skip the product-design prelude (entity_family: change_card)"}
+    D02: {applicable: false, reason: "change_card scenarios skip the product-design prelude (entity_family: change_card)"}
+    D03: {applicable: false, reason: "change_card scenarios skip the product-design prelude (entity_family: change_card)"}
+    D04: {applicable: false, reason: "change_card scenarios skip the product-design prelude (entity_family: change_card)"}
+    D05: {applicable: false, reason: "change_card scenarios skip the product-design prelude (entity_family: change_card)"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+# Captured from a real `bench/adapters/python/adapter.sh identity --checkout
+# <checkout of base_sha>` run (REQ-F-008) -- not hand-typed. T-E40-F05-014's
+# admission run re-derives and pins this for real; this is a real, not
+# fabricated, snapshot from the same toolchain used for
+# py-bug-due-date-boundary (pyproject.toml is unchanged by this package's
+# fixture commit, so pyproject_sha256 matches).
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_priority_scale_acceptance.py
+  answer_keys: []
+final_predicate:
+  kind: acceptance_tests
+  # p2p_selection excludes all three acceptance-test ids (so check (b)'s
+  # "every P2P entry is pass at base" isn't poisoned by tests this
+  # predicate expects to fail at base) and test_manager.py's
+  # recurring-tasks placeholder (a `@pytest.mark.skip` stand-in for the
+  # py-feature-recurring-tasks seed, T-E40-F05-013 -- a non-"pass" skip
+  # outcome would otherwise also fail the absolute P2P clause), matching
+  # py-bug-due-date-boundary's own exclusion of that same placeholder.
+  # Verified against the real adapter: 13 entries, all "pass", at base
+  # (the fixture's suite minus the injected acceptance tests and the
+  # skip placeholder) and 16 entries, all "pass", after the reference
+  # patch is applied.
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_priority_scale_acceptance::test_new_scale_labels_and_range"
+      - "tests.test_priority_scale_acceptance::test_legacy_records_converted_to_new_scale"
+      - "tests.test_priority_scale_acceptance::test_validate_priority_rejects_out_of_range"
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  acceptance_test_ids:
+    - "tests.test_priority_scale_acceptance::test_new_scale_labels_and_range"
+    - "tests.test_priority_scale_acceptance::test_legacy_records_converted_to_new_scale"
+    - "tests.test_priority_scale_acceptance::test_validate_priority_rejects_out_of_range"
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

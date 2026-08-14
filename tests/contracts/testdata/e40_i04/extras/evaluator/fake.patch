@@ -1,0 +1,7 @@
+# TC-030 case 25 decoy fixture (code review NEW-1,
+# code-review-20260813T232337Z-E40-F05.md): a real, existing file whose
+# resolved path contains an "evaluator" path segment ("extras/evaluator/")
+# without being a descendant of the case's actual evaluator/ subtree
+# (tests/contracts/testdata/e40_i04/valid/evaluator/). Its only purpose is
+# to exist on disk so case-25's containment failure is attributable to the
+# subtree check, not to AC-001's existence check.

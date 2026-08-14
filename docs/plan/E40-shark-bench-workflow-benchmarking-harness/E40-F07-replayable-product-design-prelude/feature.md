@@ -2,7 +2,7 @@
 feature_key: E40-F07-replayable-product-design-prelude
 epic_key: E40
 title: Replayable product-design prelude
-description: Run the real D01 through D05 Shark Rider product-design prelude for feature scenarios from versioned stakeholder and research responses. Route human questions and research through a replay adapter, block live input during scored runs, record response lineage, and preserve explicit non-applicable stages for other entity families. Consumes I-04 and X-10. Produces I-06.
+description: Run the real D01 through D05 Shark Rider product-design prelude for feature scenarios from versioned stakeholder and research responses. Route human questions and research through a replay adapter, block live input during scored runs, record response and artifact-consumption lineage plus replayed interaction proxies, and preserve explicit non-applicable stages for other entity families. Consumes I-04 and X-10. Produces I-06.
 ---
 
 # Replayable product-design prelude
@@ -25,6 +25,11 @@ or unrecorded operator decision.
   scored runs. Disable live network research and unrecorded human input.
 - Record which response each stage consumed and connect every generated D01-D05
   artifact to its input, response, prompt, and output digests.
+- Record the count and size of authorized requests and responses, revision or
+  replacement count, replay wait classification, and unresolved-gate count.
+  Label these values as replayed interaction proxies, not observed human time.
+- Record which later D01-D05 stage consumes each earlier artifact so F10 can
+  identify reused and orphaned product-design outputs.
 - Stop with `unresolved_gate` when the bundle lacks an authorized answer.
 
 ## Acceptance boundary
@@ -35,6 +40,8 @@ or unrecorded operator decision.
 - Missing replay input stops the scenario and never invents an answer.
 - Non-feature scenarios bypass the prelude and retain explicit non-applicable
   stage records.
+- Replaying the same bundle reproduces the interaction counts and artifact
+  consumption edges, and the report cannot label them as human minutes.
 
 ## Contracts
 
@@ -50,6 +57,8 @@ or unrecorded operator decision.
 ## Out of scope
 
 - D06-D14 product-design artifacts.
+- Estimating stakeholder cognitive effort or elapsed human work from scripted
+  replay data.
 - New product-design methodology or production Rider behavior.
 - The keyed Shark entity lifecycle after the prelude completes.
 
@@ -59,4 +68,9 @@ The feature workflow must verify the live Rider adapter and bundled methodology
 before specifying the replay seam. Any required generic Rider change must be
 triaged under its owning epic and linked; benchmark-only replay remains here.
 
-*Last updated: 2026-08-11*
+## 2026-08-13 amendment: replayed interaction burden
+
+I-06 now exposes reproducible interaction-volume and artifact-use proxies. It
+does not convert scripted responses into a claim about real stakeholder effort.
+
+*Last updated: 2026-08-13*

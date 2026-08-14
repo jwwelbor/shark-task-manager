@@ -1,0 +1,55 @@
+# TC-030 case 25 (code review NEW-1, code-review-20260813T232337Z-E40-F05.md):
+# evaluator_only.reference_solution is "extras/evaluator/fake.patch" -- a
+# real, existing file (so AC-001's existence check alone would not catch
+# this) whose resolved path contains an "evaluator" path segment, but is
+# NOT a descendant of this case's actual evaluator/ subtree
+# (valid/evaluator/, per this directory's shared-testdata layout). The
+# pre-NEW-1-fix validator's e40I04HasEvaluatorSegment checked only whether
+# *any* segment of the resolved path was literally "evaluator", so
+# "extras/evaluator/fake.patch" incorrectly satisfied the requireEvaluator
+# check -- a decoy evaluator/ directory outside the package's real one was
+# enough to pass. Expected failing field:
+# evaluator_only.reference_solution.
+schema_version: "1.0"
+scenario_id: "test-case-25-evaluator-reference-solution-nested-evaluator-segment"
+scenario_version: 1
+entity_family: bug
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D02: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D03: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D04: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D05: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "0000000000000000000000000000000000000000"
+adapter:
+  name: python
+  version: "1.0.0"
+toolchain_identity:
+  - key: python_version
+    value: "3.12.0"
+  - key: pytest_version
+    value: "8.0.0"
+input:
+  agent_visible: valid/input/prompt.md
+evaluator_only:
+  reference_solution: extras/evaluator/fake.patch
+  oracle_tests:
+    - valid/evaluator/oracle_test.txt
+  answer_keys: []
+final_predicate:
+  kind: f2p_p2p
+  p2p_selection:
+    include: ["taskmanager"]
+    exclude_test_ids: []
+  f2p_test_ids: ["tests.test_due_date::test_boundary"]
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20

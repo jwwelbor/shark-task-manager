@@ -1,0 +1,61 @@
+# TC-030 case 27 (round-4 code review NEW-6, code-review-20260814T011910Z-E40-F05.md):
+# this package's evaluator/ entry is a committed symlink `evaluator ->
+# private` pointing at a differently-named real sibling directory, and
+# input.agent_visible declares "evaluator/secret" -- a path that, once the
+# "evaluator" symlink component is resolved, canonicalizes to
+# packageDir/private/secret. That real location is inside the same
+# canonical subtree evaluatorRoot itself resolves to (both "evaluator" and
+# "private" name the same real directory), so this is a genuine leak of a
+# file meant to be evaluator-only into the agent-visible surface
+# (REQ-F-009). The pre-NEW-6-fix literal any-"evaluator"-segment check
+# (e40I04HasEvaluatorSegment) operated on the already-resolved path, where
+# the "evaluator" segment no longer appears at all (it reads
+# .../private/secret) -- so the old check silently passed this leak.
+# evaluator_only.reference_solution and oracle_tests[0] also route through
+# the "evaluator" symlink and are expected to resolve correctly (they are
+# NOT part of this case's expected violation -- only the leak-surface
+# check on input.agent_visible is). Expected failing field:
+# input.agent_visible.
+schema_version: "1.0"
+scenario_id: "test-case-27-agent-visible-symlink-redirect-into-evaluator"
+scenario_version: 1
+entity_family: bug
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D02: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D03: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D04: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D05: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "0000000000000000000000000000000000000000"
+adapter:
+  name: python
+  version: "1.0.0"
+toolchain_identity:
+  - key: python_version
+    value: "3.12.0"
+  - key: pytest_version
+    value: "8.0.0"
+input:
+  agent_visible: evaluator/secret
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/oracle_test.txt
+  answer_keys: []
+final_predicate:
+  kind: f2p_p2p
+  p2p_selection:
+    include: ["taskmanager"]
+    exclude_test_ids: []
+  f2p_test_ids: ["tests.test_due_date::test_boundary"]
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20

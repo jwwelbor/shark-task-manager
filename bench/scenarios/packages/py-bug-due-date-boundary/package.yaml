@@ -1,0 +1,95 @@
+# I-04 lifecycle scenario package: py-bug-due-date-boundary (REQ-F-014 seed
+# 1 of 4, bug family). The subject is bench/fixture-py's overdue check
+# comparing strictly `<` instead of `<=`, so a task due exactly today is
+# never reported overdue -- already present in bench/fixture-py's base
+# commit (T-E40-F05-001's provisional scaffold), not added by this package.
+#
+# fixture.base_sha is frozen (T-E40-F05-014): bench/fixture-py's `main`
+# commit merging the py-change-priority-scale and
+# py-techdebt-consolidate-validation seed branches, the one shared base_sha
+# across all four packages. The admission: block below (AC-T3) was written
+# by a real `admit-scenario.sh` run against this file at that frozen SHA --
+# not hand-authored -- so it satisfies TC-032's caller-path contract (no
+# hardcoded verdicts), superseding T-E40-F05-009's original interim run.
+schema_version: "1.0"
+scenario_id: "py-bug-due-date-boundary"
+scenario_version: 1
+entity_family: bug
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D02: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D03: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D04: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D05: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+# Captured from a real `bench/adapters/python/adapter.sh identity --checkout
+# <checkout of base_sha>` run (REQ-F-008) -- not hand-typed. Every
+# `admit-scenario.sh` run, including T-E40-F05-014's frozen-base re-run,
+# re-derives and pins this for real; this is a real, not fabricated,
+# snapshot from the same toolchain (pyproject.toml is byte-identical to the
+# pre-freeze fixture, so pyproject_sha256 is unchanged by the freeze).
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_due_date_boundary.py
+  answer_keys: []
+final_predicate:
+  kind: f2p_p2p
+  # p2p_selection excludes both the F2P repro test itself (so check (b)'s
+  # "every P2P entry is pass at base" isn't poisoned by the test this
+  # predicate expects to fail at base) and test_manager.py's
+  # recurring-tasks placeholder (a `@pytest.mark.skip` stand-in for the
+  # py-feature-recurring-tasks seed, T-E40-F05-013 -- a non-"pass" skip
+  # outcome would otherwise also fail the absolute P2P clause). Verified
+  # against the real adapter at the frozen base_sha (T-E40-F05-014): 13
+  # entries, all "pass", at base and again after the reference patch.
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today"
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  f2p_test_ids:
+    - "tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today"
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

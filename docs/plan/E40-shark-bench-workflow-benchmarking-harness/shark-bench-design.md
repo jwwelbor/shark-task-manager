@@ -1,7 +1,7 @@
 # Shark Bench — Design
 
 **Epic**: E40 · **Status**: Phase 1 delivered; lifecycle v2 boundaries assigned
-2026-08-11
+2026-08-13
 
 > **Isolation corrected to match ADR-001, Q001 (resolved):** the original
 > design below prescribed `shark run --worktree`; the per-run steps in §1 now
@@ -16,6 +16,12 @@
 > change-card, and tech-debt lifecycles. The authoritative contracts are I-04
 > through I-08 in [architecture.md](architecture.md) and
 > [E40-interaction-map.md](E40-interaction-map.md).
+
+> **Value-attribution extension (2026-08-13):** lifecycle v2 also separates
+> provider work from coordination time, pins the exact reviewed candidate and
+> gate policy, records artifact use and structured review findings, and compares
+> feature QA with finish-feature deep review under independent and sequential
+> policies. The full PR/CI/merge tail remains deferred.
 
 Benchmark harness that measures the effectiveness of a shark workflow configuration and detects the effect of config changes (model, effort, prompt, per-step assignments). Modeled on the transferable mechanics of SWE-bench / Aider polyglot / terminal-bench: execution-based test oracles, fresh isolation per attempt, per-step cost/latency capture, repetition with variance reporting, and paired per-task A/B comparison.
 
@@ -128,6 +134,11 @@ scenario adapter and write evaluator access plus results into I-08.
 | **Defects** | *Definition: escapes to terminal status.* At terminal: inject held-back F2P tests → `go test -run '<F2P regex>' -count=1` (still-failing = unresolved); full suite diffed against the base-SHA test ledger → newly-red = `p2p_regressions[]`. P2: `-race` sweep. P3: adversarial reviewer files bugs → `defects_posthoc`. |
 | **Code quality** | `make fmt && git diff --exit-code` → `fmt_clean`; `go vet` → `vet_ok`; `golangci-lint --out-format json` diffed against base-SHA lint ledger → `lint_new_issues` (only *new* issues count); `make test` → `tests_pass`. Rubric reviewer is P3, reported alongside, never instead. |
 | **LOC** | `git add -A -N && git diff --numstat <base_sha>` → added/deleted, prod vs `*_test.go` split, `files_touched`. |
+| **Time attribution** | I-05 records non-overlapping provider-active, tool/test, queue/claim, replay/human-gate, retry/backoff, and unclassified intervals. Stage and lifecycle totals must reconcile before publication. |
+| **Candidate identity** | For each code-producing or review stage, hash the base commit, candidate tree, binary diff, changed-path set, dirty and untracked manifest, and test suite. A matching branch or `HEAD` is not sufficient. |
+| **Review findings** | Preserve raw `review-finding` fields in I-07; normalize and confirm them in I-08. Report emitted, unique, duplicate, recurrent, confirmed, unconfirmed, and downstream-escape findings by gate, severity, and defect class. Publish precision and recall only against seeded defects or another retained truth set. |
+| **Artifact use** | Record typed producer and downstream consumer/access edges plus artifact size. An explicit empty consumer set means orphaned; a missing set means incomplete telemetry. |
+| **Replayed human burden** | Record request/response counts and sizes, revisions, replay wait class, and unresolved gates for D01-D05. These are reproducible interaction proxies, not observed human minutes. |
 
 ---
 
@@ -152,6 +163,16 @@ scenario adapter and write evaluator access plus results into I-08.
 - Require uniform scenario and replay, fixture and adapter, Shark binary,
   installed content, rendered prompt, provider/model/effort, judge, reference,
   and resource-policy identity. Reject and retain every incompatible run.
+- Require uniform candidate and workflow-policy identity for review comparisons:
+  exact candidate/test snapshot, enabled gates, order, reviewer configuration,
+  full review-bundle digest, and whether fixes are allowed.
+- Compare QA and finish-feature deep review in two modes: independently against
+  one frozen candidate with no intervening fixes, and sequentially in real gate
+  order with every intervening candidate retained. Only the independent or a
+  controlled policy comparison supports a causal gate-value claim.
+- Keep quality, elapsed time, and cost as separate outcomes. Report paired
+  deltas, unique confirmed finding yield, overlap, recurrence, downstream
+  escapes, rework, and artifact use; do not publish one efficiency score.
 
 ---
 
@@ -167,7 +188,8 @@ scenario adapter and write evaluator access plus results into I-08.
   operator execution and retained publication.
 - **After lifecycle v2:** epic roots, D06-D14, a SWE-bench Verified slice,
   codex usage parity where still missing, a post-hoc adversarial defect window,
-  and corpus rotation remain deferred.
+  sprint scenarios, the PR/CI/merge delivery tail, and corpus rotation remain
+  deferred.
 
 ---
 

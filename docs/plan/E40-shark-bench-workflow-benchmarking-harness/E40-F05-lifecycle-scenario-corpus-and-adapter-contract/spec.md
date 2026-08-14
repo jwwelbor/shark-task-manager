@@ -47,7 +47,7 @@ feature re-implements none of those.
 | REQ-F-013 | Each package MUST carry an `admission` block recording `status: admitted`, the reproducible `base_outcome` and `reference_outcome` from checks (c) and (d), and the `toolchain_identity` under which they were observed. Re-running the gate on a clean checkout at the same fixture SHA and toolchain MUST produce an identical verdict for every candidate. | architecture I-04 field list ("admission status with reproducible base and reference outcomes"); feature.md Acceptance boundary 2 |
 | REQ-F-014 | The admitted set MUST contain exactly one seed scenario per lifecycle family — all four on the controlled Python fixture, all four passing REQ-F-012 — with these `scenario_id`s: `py-bug-due-date-boundary`, `py-change-priority-scale`, `py-techdebt-consolidate-validation`, `py-feature-recurring-tasks`. Their subjects are fixed in [Seed scenarios](#seed-scenarios). | feature.md Scope 2; epic G8; UAT-08 |
 | REQ-F-015 | A schema validator MUST reject a malformed package with the **failing field named** — unknown `entity_family`, unregistered `fixture_id` or `adapter.name`, missing or non-positive resource ceiling, prelude stage without an explicit boolean, `false` prelude stage without a reason, family-invariant violation, unknown `final_predicate.kind`, a predicate kind not permitted for the declared family, a missing operand path, or an `input.agent_visible` path resolving inside `evaluator/`. | feature.md Acceptance boundary 1; UAT-08 |
-| REQ-F-016 | The controlled Python fixture MUST be a self-contained Python task-manager repository held at a pinned base commit, carrying its own dependency/config manifest (`pyproject.toml`), the lint configuration the adapter's `lint` capability targets, the formatter configuration `format-check` targets, and a real test suite discoverable by the `test` capability. Its working tree MUST contain fixture code only — no scenario packages, no evaluator-only material, no shark source. Its full test suite MUST be green at `base_sha`, which is what makes the absolute P2P semantics of REQ-F-017 sound. | E40-F01 REQ-F-001 precedent; feature.md Scope 3; ADR-F05-09 |
+| REQ-F-016 | The controlled Python fixture MUST be a self-contained Python task-manager repository held at a pinned base commit, carrying its own dependency/config manifest (`pyproject.toml`), the lint configuration the adapter's `lint` capability targets, the formatter configuration `format-check` targets, and a real test suite discoverable by the `test` capability. Its working tree MUST contain fixture code only — no scenario packages, no evaluator-only material, no shark source. Its full test suite MUST be green at `base_sha` — every entry `pass` — with exactly one named, permanent exception: `tests.test_manager::test_recurring_task_generates_next_occurrence`, committed `@pytest.mark.skip`, which is the `py-feature-recurring-tasks` seed's own proof that the recurring-task capability is genuinely absent at base (mirroring ADR-F05-09's documentation of the Go fixture's permanently-failing regression probe, the same pattern applied to a `skip` outcome instead of a `fail`). Any *other* skipped or failing entry MUST still reject the fixture as not green. This is what makes the absolute P2P semantics of REQ-F-017 sound. | E40-F01 REQ-F-001 precedent; feature.md Scope 3; ADR-F05-09, ADR-F05-11 |
 | REQ-F-017 | A `p2p_selection` operand MUST be an object `{include: [fixture-relative paths], exclude_test_ids: [ids]}`, resolved by passing it to the adapter's `test` capability. Its clause in a final predicate is **absolute**: every entry the selection resolves to MUST be `pass`. No base ledger is required or committed for I-04, because REQ-F-016 requires the fixture suite green at `base_sha` and admission check (b) verifies it per scenario. | ADR-F05-10; feature.md Acceptance boundary 1 |
 
 ### Non-functional requirements
@@ -84,7 +84,7 @@ feature re-implements none of those.
 | AC-017 | `bench/scripts/checkout-fixture.sh` is byte-unchanged by this feature; multi-fixture checkout is provided by `bench/scripts/checkout-scenario-fixture.sh`, and the existing I-01 callers continue to invoke the original script. |
 | AC-018 | With the network disabled and dependency caches warm, the admission gate completes over all four seeds. |
 | AC-019 | TC-030 asserts the toolchain identity agrees across its two encodings: each package's top-level `toolchain_identity` equals its `admission.toolchain_identity`, element for element and in order. |
-| AC-020 | A fresh clone of `bench/fixture-py` at `base_sha` contains `pyproject.toml` with lint and formatter configuration, a discoverable test suite, and no scenario package or evaluator-only file; the adapter's `test` capability reports every entry `pass` at that SHA. Verified by a bench script, not by TC-030, which must not require a populated submodule. |
+| AC-020 | A fresh clone of `bench/fixture-py` at `base_sha` contains `pyproject.toml` with lint and formatter configuration, a discoverable test suite, and no scenario package or evaluator-only file; the adapter's `test` capability reports every entry `pass` at that SHA, with exactly one named, permanent exception — `tests.test_manager::test_recurring_task_generates_next_occurrence` — which is permitted (and expected) to report `skip` rather than `pass`; it MUST NOT report `fail`, and no *other* entry may report `skip` or `fail` (REQ-F-016). Verified by a bench script, not by TC-030, which must not require a populated submodule. |
 | AC-021 | Every predicate evaluation performed by `eval-predicate.sh` reads only `test` and `lint` capability output — no ledger file is read, and none is committed under `bench/scenarios/`. |
 
 ### Out of scope for this feature
@@ -115,7 +115,7 @@ feature re-implements none of those.
 | `bench/scripts/checkout-scenario-fixture.sh` | New sibling of `checkout-fixture.sh`. `checkout-scenario-fixture.sh <fixture_id> <base_sha> <dest_dir>` resolves `submodule_path` from `scenarios.yaml` and clones that submodule at the SHA. Generic over fixtures; adds no argument to and changes no byte of `checkout-fixture.sh` (REQ-NF-006). |
 | `bench/scripts/admit-scenario.sh` | New. The REQ-F-012 execution gate: checkout, `build`, stage-matrix invariant, predicate-at-base, predicate-after-reference, resource policy. Rejects naming the failing check; writes the reproducible `admission` block. |
 | `bench/scripts/eval-predicate.sh` | New. Evaluates one `final_predicate` to a boolean from `test` and `lint` capability output. The single owner of the REQ-F-010 arithmetic, so `admit-scenario.sh` and later E40-F09 invoke it rather than re-deriving the semantics — the same "single named owner" discipline `diff-ledgers.sh` established for I-01. |
-| `bench/scripts/verify-fixture-py-base.sh` | New. Runs the adapter's `test` capability with no `--include`/`--exclude-id` filter against `bench/fixture-py` at `base_sha` and asserts every entry is `pass` (AC-020, TC-040). Admission check (b) alone only proves the narrower `p2p_selection` subset is green; this script is the named owner of the broader "fixture is green at base_sha" claim so `admit-scenario.sh` does not silently under-cover it. |
+| `bench/scripts/verify-fixture-py-base.sh` | New. Runs the adapter's `test` capability with no `--include`/`--exclude-id` filter against `bench/fixture-py` at `base_sha` and asserts every entry is `pass`, with the one named exception AC-020/REQ-F-016 permit (`tests.test_manager::test_recurring_task_generates_next_occurrence`, ADR-F05-11) (AC-020, TC-040). Admission check (b) alone only proves the narrower `p2p_selection` subset is green; this script is the named owner of the broader "fixture is green at base_sha" claim so `admit-scenario.sh` does not silently under-cover it. |
 | `bench/scripts/tests/tc031_adapter_conformance_test.sh` | New. Runs one assertion set against both adapters (AC-010, AC-011) and the REQ-F-007 grep (AC-012). Registered in `bench/scripts/tests/run-all.sh`. |
 | `bench/scripts/tests/run-all.sh` | Modified. Registers the new bench test cases. |
 | `bench/README.md` | Modified. Adds an "I-04 scenario package schema" section and the adapter capability contract, so E40-F06/F07/F08 read the shape instead of re-deriving it — the role its "Manifest schema" section plays for I-01. |
@@ -299,7 +299,9 @@ commits `TestStock_PermanentlyFailingRegressionProbe` — a permanently red test
 that exists to exercise I-01's rejection branch (b). The Python fixture needs no
 such probe because I-04's rejection branches are exercised by malformed packages
 (AC-005) and by admission check fixtures (AC-007), not by a poisoned suite. A
-green base is what makes ADR-F05-10's absolute semantics available.
+green base is what makes ADR-F05-10's absolute semantics available — "green"
+carrying exactly one further, differently-motivated named exception at the
+individual-test level, unrelated to rejection-branch testing; see ADR-F05-11.
 
 **ADR-F05-10 — P2P truth is absolute, not base-relative, so I-04 commits no
 ledgers.** I-01 needed base-SHA test and lint ledgers because F02 counts
@@ -325,6 +327,56 @@ P2P clause would otherwise become quietly unsatisfiable. Check (b) resolves each
 scenario's `p2p_selection` at base and rejects a non-empty failing entry set with
 that check named, converting a silent unsatisfiable predicate into a loud
 admission rejection. Any future change to check (b) must preserve this coupling.
+
+**ADR-F05-11 — `tests.test_manager::test_recurring_task_generates_next_occurrence`
+is a permanently-`skip`ped, named exception to REQ-F-016's "green at `base_sha`",
+committed at the fixture's very first commit.** The `py-feature-recurring-tasks`
+seed's `child_oracles_union` predicate (REQ-F-014, seed 4 of 4) requires the
+recurring-task capability to be genuinely **absent** at base (check (d),
+REQ-F-012) and present only after its evaluator-only reference patch is applied
+(check (e)) — the capability's absence at base is this seed's entire subject, not
+an incidental gap. `tests/test_manager.py`'s `@pytest.mark.skip(reason=
+"recurring-task scheduling is not implemented in the fixture's base state")`
+placeholder is the fixture's own committed proof of that absence, and all four
+seed packages' `final_predicate.p2p_selection.exclude_test_ids` already exclude
+this same id for the identical reason: a `skip` is not `pass`, so leaving it
+inside any package's own absolute P2P selection would make that selection
+unsatisfiable at base by construction, not by regression.
+
+This is a **different** exception from the one ADR-F05-09 declines to add: that
+ADR is about *not* needing a Go-style `TestStock_PermanentlyFailingRegressionProbe`
+to exercise I-04's own rejection branches (a fixture-authoring choice). This ADR
+is about one specific seed's predicate design requiring one specific capability's
+absence to be provable at base at all — a property of the corpus, not of I-04's
+admission machinery. It mirrors ADR-F05-09's Go-fixture precedent in shape (a
+named, permanent, non-transient test outcome carved out of an otherwise-absolute
+"every entry passes" claim, documented at the spec level rather than left as an
+undocumented implementation detail) while differing in kind (`skip`, not `fail` —
+the Go probe proves I-01's rejection path handles a failing entry; this
+placeholder proves a capability is absent, which `skip` states more precisely
+than a contrived `fail` would).
+
+`bench/scripts/verify-fixture-py-base.sh` is the sole enforcement point
+(REQ-F-016, AC-020, TC-040): its `ALLOWED_SKIP_ID` constant names exactly this
+one id as the only outcome permitted to be `skip` rather than `pass`; any other
+`skip`, or any `fail`, still rejects the fixture as not green — including a
+regression that turns this same test into an unexpected `fail`, or a second,
+undocumented skip appearing anywhere else in the suite. This is what keeps
+AC-020 non-vacuous rather than opening a general "skips are fine" reading.
+Rejected alternative: implementing a minimal stub of the recurring-task
+capability so `test_manager.py`'s placeholder passes unmodified at base (UAT
+Finding 4's resolution path 1) — rejected not because it would flip check (d)
+(a stub sufficient for this one shallow unit test would not necessarily satisfy
+`evaluator/test_recurring.py`'s stricter child-oracle assertions, so check (d)
+could remain technically satisfied), but because it would replace a structural,
+self-evident absence — the capability simply does not exist in
+`taskmanager/manager.py`/`models.py` at base — with an implementation detail
+that happens to be shallow enough not to satisfy the oracle, a property that
+depends on how narrowly the stub is written rather than on the capability's
+actual presence. That is exactly the fragile, engineered-to-dodge-the-oracle
+invariant the committed `skip` marker's structural guarantee avoids, and it
+undermines the one seed whose entire design depends on the capability's
+absence being real, not stubbed-around.
 
 ### Integration with existing code
 

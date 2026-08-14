@@ -1,14 +1,14 @@
 ---
 epic: E40
 title: Shark Bench UAT plan
-date: 2026-08-11
+date: 2026-08-13
 ---
 
 # E40 UAT plan
 
 Use observable retained evidence, not implementation claims. UAT-01, UAT-02,
 UAT-05, UAT-06, and UAT-07 preserve the completed Phase 1 contract. UAT-08
-through UAT-15 gate lifecycle v2. UAT-03 and UAT-04 remain the configuration
+through UAT-19 gate lifecycle v2. UAT-03 and UAT-04 remain the configuration
 comparison scenarios and now have owners in E40-F09 and E40-F10.
 
 ## Phase 1 regression scenarios
@@ -43,6 +43,10 @@ implements the comparison and publication behavior from new I-07/I-08 records.
 | UAT-13 | Structural, judge, and execution truth stay separate | Supply artifacts with a structural defect, a calibrated-judge disagreement, and an implementation that reaches terminal workflow status but fails the held-back oracle. Verify all three results remain distinct and each blocks publication as configured. | E40-F09; G13; I-08 |
 | UAT-14 | Comparison identity fails closed | Omit each required identity field and mix one field at a time across otherwise valid runs. Reject every aggregate, retain the invalid inventory and divergence reason, and accept only a fully uniform set. | E40-F09; G14; I-08; X-12 |
 | UAT-15 | Operator commands prevent accidental spend and gate publication | Run preview and report operations with provider access monitored and verify zero calls. Verify pilot and baseline operations refuse missing acknowledgement or non-positive limits. Retain and inspect one real pilot per family, including raw artifacts and oracle evidence, before publishing a repeated baseline. | E40-F10; G15; I-07, I-08 |
+| UAT-16 | Stage time separates work from coordination | Run a scenario containing provider work, tests, a replayed gate, and retry or wait time. Verify every stage has one category, its provider-active, tool/test, queue/claim, replay/human-gate, retry/backoff, and unclassified intervals do not overlap, and their union reconciles to stage and lifecycle wall time. | E40-F06/E40-F08/E40-F10; G16; I-05, I-07 |
+| UAT-17 | QA and finish-feature deep review have measurable incremental value | First run feature QA and finish-feature deep review independently against the same frozen candidate with no fixes between them. Then run the real sequential policy with every intervening candidate retained. Verify raw and normalized findings preserve gate, round, severity, defect class, fingerprint, criterion, disposition, confirmation, duplicates, recurrence, resolution, and first-seen gate. Report overlap and unique confirmed yield; publish precision or recall only for seeded defects and clean controls. | E40-F08/E40-F09/E40-F10; G17; I-07, I-08 |
+| UAT-18 | Artifact use and replayed interaction burden are visible | Produce one planning artifact consumed downstream and one orphan. Verify typed producer and consumer edges distinguish them. Replay D01-D05 and reproduce request and response counts and sizes, revisions, and unresolved gates; verify no report labels those proxies as observed human minutes. | E40-F06/E40-F07/E40-F08/E40-F10; G18; I-05, I-06, I-07 |
+| UAT-19 | Candidate and workflow-policy identity fail closed | Change one candidate or policy field at a time: tree, binary diff, changed paths, untracked manifest, test-suite digest, enabled gates, gate order, reviewer provider/model/effort/prompt, review-bundle digest, or fix policy. Reject each paired comparison and retain the exact divergence. Accept a comparison only when both candidates and the required policy fields match its declared independent or sequential mode. | E40-F06/E40-F08/E40-F09; G19; I-05, I-07, I-08 |
 
 ## Interaction coverage
 
@@ -50,14 +54,14 @@ implements the comparison and publication behavior from new I-07/I-08 records.
   through UAT-01, UAT-02, UAT-05, UAT-06, and UAT-07.
 - **I-04:** UAT-08 validates the lifecycle scenario package before E40-F06,
   E40-F07, or E40-F08 consumes it.
-- **I-05:** UAT-09 validates the stage snapshot and three-root isolation before
-  E40-F09 or E40-F10 trusts it.
-- **I-06:** UAT-10 validates product-design replay before E40-F08 starts the
-  feature entity lifecycle.
-- **I-07:** UAT-11 and UAT-12 validate complete and partial lifecycle run
-  records before evaluation or reporting.
-- **I-08:** UAT-13 and UAT-14 validate the evaluation and identity verdict before
-  UAT-15 publishes it.
+- **I-05:** UAT-09, UAT-16, UAT-18, and UAT-19 validate isolation, time,
+  candidate, and artifact evidence before E40-F09 or E40-F10 trusts it.
+- **I-06:** UAT-10 and UAT-18 validate product-design replay and interaction
+  proxies before E40-F08 starts the feature entity lifecycle.
+- **I-07:** UAT-11, UAT-12, UAT-16, and UAT-17 validate complete and partial
+  lifecycle records plus raw runtime review evidence before evaluation.
+- **I-08:** UAT-13, UAT-14, UAT-17, and UAT-19 validate evaluation, normalized
+  findings, and comparison identity before E40-F10 publishes them.
 - **X-07-X-09:** preserve and extend runner/usage compatibility through the
   named Phase 1 and v2 scenarios.
 - **X-10-X-13:** UAT-10, UAT-11, UAT-12, and UAT-14 cover product design, Rider
@@ -78,5 +82,11 @@ only the intended directory layout.
 positive cost, wall-time, and generated-task ceilings. Preserve partial evidence
 when a ceiling stops a scenario and exclude that scenario from publication.
 
-**Reproducibility:** Pin the complete identity listed in I-08. Reject rather
-than normalize missing or mixed identities.
+**Reproducibility:** Pin the complete identity listed in I-08, including the
+candidate snapshot and workflow policy. Reject rather than normalize missing or
+mixed identities.
+
+**Value attribution:** Keep emitted findings separate from normalized and
+confirmed findings. Distinguish independent frozen-candidate comparisons from
+sequential delivery observations, and do not infer causal gate value from order
+alone.

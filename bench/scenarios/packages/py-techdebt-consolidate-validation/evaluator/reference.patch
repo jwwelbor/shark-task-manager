@@ -1,0 +1,95 @@
+diff --git a/taskmanager/bulk_import.py b/taskmanager/bulk_import.py
+index 98a4d74..11df02f 100644
+--- a/taskmanager/bulk_import.py
++++ b/taskmanager/bulk_import.py
+@@ -1,12 +1,9 @@
+ """Bulk task import from an external line-delimited source.
+ 
+-Each imported line is a task title. This module validates titles the same
+-way taskmanager/validation.py's non_empty_title does, but re-implements the
+-check inline instead of importing and calling the shared validator -- one
+-of three inline copies of the same task-field validation (see also
+-taskmanager/cli.py and taskmanager/reminders.py). Here the duplication also
+-shadows the module's own import of non_empty_title, which is what makes
+-this copy machine-detectable via ruff's F811 (redefined-while-unused).
++Each imported line is a task title, validated by the shared
++taskmanager.validation.non_empty_title -- the same title-field check
++taskmanager/cli.py and taskmanager/reminders.py now also delegate to,
++consolidating what used to be three separate inline copies.
+ """
+ 
+ from __future__ import annotations
+@@ -14,13 +11,6 @@ from __future__ import annotations
+ from .validation import non_empty_title
+ 
+ 
+-def non_empty_title(title: str) -> str:
+-    trimmed = title.strip()
+-    if not trimmed:
+-        raise ValueError("title must not be empty")
+-    return trimmed
+-
+-
+ def import_titles(lines: list[str]) -> list[str]:
+     """Validate and clean a batch of imported task titles."""
+     return [non_empty_title(line) for line in lines]
+diff --git a/taskmanager/cli.py b/taskmanager/cli.py
+index 5a46f42..8ea27e8 100644
+--- a/taskmanager/cli.py
++++ b/taskmanager/cli.py
+@@ -1,18 +1,16 @@
+ """Command-line entry-point helpers for the task manager.
+ 
+-parse_title_arg validates a raw title argument the same way
+-taskmanager/validation.py's non_empty_title does, but re-implements the
+-check inline instead of importing and calling the shared validator -- one
+-of three inline copies of the same task-field validation (see also
+-taskmanager/bulk_import.py and taskmanager/reminders.py).
++parse_title_arg validates a raw title argument via the shared
++taskmanager.validation.non_empty_title -- the same title-field check
++taskmanager/bulk_import.py and taskmanager/reminders.py now also delegate
++to, consolidating what used to be three separate inline copies.
+ """
+ 
+ from __future__ import annotations
+ 
++from .validation import non_empty_title
++
+ 
+ def parse_title_arg(raw: str) -> str:
+     """Validate a title passed on the command line."""
+-    trimmed = raw.strip()
+-    if not trimmed:
+-        raise ValueError("title must not be empty")
+-    return trimmed
++    return non_empty_title(raw)
+diff --git a/taskmanager/reminders.py b/taskmanager/reminders.py
+index 49ae92d..208b2fe 100644
+--- a/taskmanager/reminders.py
++++ b/taskmanager/reminders.py
+@@ -1,18 +1,16 @@
+ """Reminder text formatting for tasks.
+ 
+-format_reminder validates title the same way taskmanager/validation.py's
+-non_empty_title does, but re-implements the check inline instead of
+-importing and calling the shared validator -- one of three inline copies
+-of the same task-field validation (see also taskmanager/bulk_import.py and
+-taskmanager/cli.py).
++format_reminder validates title via the shared
++taskmanager.validation.non_empty_title -- the same title-field check
++taskmanager/bulk_import.py and taskmanager/cli.py now also delegate to,
++consolidating what used to be three separate inline copies.
+ """
+ 
+ from __future__ import annotations
+ 
++from .validation import non_empty_title
++
+ 
+ def format_reminder(title: str) -> str:
+     """Return a reminder string for title."""
+-    trimmed = title.strip()
+-    if not trimmed:
+-        raise ValueError("title must not be empty")
+-    return f"Reminder: {trimmed}"
++    return f"Reminder: {non_empty_title(title)}"

@@ -1,12 +1,12 @@
 ---
 epic_key: E40
 title: Shark Bench: workflow benchmarking harness
-description: Benchmark program around Shark that measures workflow quality, cost, and lifecycle behavior from reproducible scenario inputs through planning, execution, review, and held-back evaluation. Phase 1 uses shark run for task and bug baselines; lifecycle v2 adds replayable product-design inputs, a canonical keyed Rider loop, stage evidence, calibrated evaluation, strict comparison identity, and retained multi-entity baselines.
+description: Benchmark program around Shark that measures workflow quality, cost, and lifecycle behavior from reproducible scenario inputs through planning, execution, review, and held-back evaluation. Phase 1 uses shark run for task and bug baselines; lifecycle v2 adds replayable product-design inputs, a canonical keyed Rider loop, stage evidence, exact candidate and policy identity, artifact-use and structured-finding telemetry, calibrated evaluation, controlled QA-versus-deep-review comparisons, and retained multi-entity baselines.
 ---
 
 # Shark Bench: workflow benchmarking harness
 
-**Epic Key**: E40 · **Last updated**: 2026-08-11
+**Epic Key**: E40 · **Last updated**: 2026-08-13
 
 This document is the single source of business context for E40. Features reference
 it; they must not restate it. Technical mechanics (architecture, per-metric
@@ -66,7 +66,7 @@ is now fixed — the pattern generalizes.
 
 ## 2. Goals and Success Criteria
 
-G1-G7 preserve the Phase 1 contract. G8-G15 define the lifecycle v2 exit
+G1-G7 preserve the Phase 1 contract. G8-G19 define the lifecycle v2 exit
 contract. A later feature workflow may refine implementation detail, but it may
 not orphan or silently weaken these epic-level outcomes.
 
@@ -87,10 +87,14 @@ not orphan or silently weaken these epic-level outcomes.
 | G13 | Artifact and implementation quality are independently evaluated | v2 | Applicable artifacts pass deterministic structural checks and a calibrated versioned judge; implementation correctness comes from a held-back execution oracle, never terminal workflow status or worker self-report |
 | G14 | Comparisons have complete identity | v2 | Scenario, fixture, adapter, Shark binary, installed content, prompt, provider/model/effort, judge, reference, and resource-policy identity are present and uniform; mixed or incomplete runs are rejected from aggregates with reasons retained |
 | G15 | Provider-backed baselines are deliberate and inspectable | v2 | Dry-run and report operations make no provider calls; provider-backed runs require explicit spend and safety limits; one retained, inspected pilot per scenario family precedes repeated baseline publication |
+| G16 | Lifecycle cost separates work from coordination | v2 | Every applicable stage records a non-overlapping time ledger for provider-active work, tools and tests, queue or claim wait, replay or human-gate wait, retry or backoff, and unclassified time; reports group stages as discovery, specification, planning, code, review, QA, UAT, or shipping without double counting wall time |
+| G17 | Review-gate value is measurable | v2 | Code review, QA, UAT, and controlled finish-feature deep-review comparisons retain structured findings with gate, round, severity, defect class, fingerprint, affected criterion, disposition, confirmation, first-seen gate, recurrence, resolution candidate, and duplicate linkage; reports show unique confirmed yield, overlap, false positives where truth labels permit, downstream escapes, and cost per gate |
+| G18 | Artifact use and replayed human burden are visible | v2 | Every produced artifact has a typed producer record and downstream consumption or access edges; reports identify reused and orphaned artifacts. Replayed product-design stages record request and response counts, payload size, revision count, and unresolved gates without presenting those proxies as observed human minutes |
+| G19 | The reviewed candidate and workflow policy are exact | v2 | Every code-producing or review stage pins the base commit, candidate tree and diff digests, changed-path digest, dirty and untracked manifest, test-suite digest, enabled gates, gate order, reviewer configuration and full review-bundle digest, and whether fixes were allowed; independent and sequential review comparisons reject mismatched candidates or policies |
 
 **Phase 1 exit owns G1-G5 and G7.** G6 remains the paired configuration-change
 criterion and is now owned by the v2 evaluation and operator-reporting tranche,
-primarily E40-F09 and E40-F10. G8-G15 are jointly gated by UAT-08 through UAT-15.
+primarily E40-F09 and E40-F10. G8-G19 are jointly gated by UAT-08 through UAT-19.
 See [architecture.md](architecture.md#delivery-boundaries-and-traceability) and
 [uat-plan.md](uat-plan.md) for feature ownership and observable scenarios.
 
@@ -128,17 +132,23 @@ claims being made from this data.
   feature, bug, change-card, and tech-debt scenarios, a controlled Python
   fixture, and a language-neutral adapter boundary. Produces I-04.
 - **E40-F06 — Stage evidence and evaluator isolation.** Define the three-root
-  isolation model and immutable stage evidence. Produces I-05.
+  isolation model, immutable stage evidence, decomposed time ledger, exact
+  candidate snapshot, and artifact producer/consumer records. Produces I-05.
 - **E40-F07 — Replayable product-design prelude.** Run feature scenarios through
-  D01-D05 using versioned stakeholder and research responses. Produces I-06.
+  D01-D05 using versioned stakeholder and research responses, including explicit
+  replayed human-interaction proxies. Produces I-06.
 - **E40-F08 — Canonical multi-entity lifecycle runner.** Drive the real keyed
-  Shark lifecycle for the root and every eligible descendant. Produces I-07.
+  Shark lifecycle for the root and every eligible descendant while capturing
+  stage spans, workflow policy, artifact use, and structured review findings.
+  Produces I-07.
 - **E40-F09 — Calibrated evaluation and comparison identity.** Combine
   structural checks, a calibrated artifact judge, held-back execution truth,
-  and fail-closed identity validation. Produces I-08.
+  review-finding confirmation, paired gate evaluation, and fail-closed identity
+  validation. Produces I-08.
 - **E40-F10 — Operator workflow and retained lifecycle baseline.** Add safe
   preview, pilot, run, inspection, reporting, noise-band, and publication
-  operations that consume I-07 and I-08.
+  operations, including independent and sequential QA-versus-finish-feature
+  deep-review comparisons, that consume I-07 and I-08.
 
 ### Out of scope
 
@@ -154,6 +164,9 @@ Out of scope for E40 entirely:
 Still deferred after lifecycle v2:
 
 - Epics as primary scenario roots and the full D06-D14 product-design arc.
+- Sprint planning, execution, close, and retrospective scenarios.
+- The delivery tail after the controlled finish-feature review comparison: PR
+  feedback, CI wait and retry, merge, and branch or worktree cleanup.
 - A SWE-bench Verified slice, corpus rotation policy, and post-hoc adversarial
   defect window.
 - A hosted dashboard, scheduled service, or CI-triggered provider spend.
@@ -227,7 +240,7 @@ Still deferred after lifecycle v2:
 
 **Phase 1 exit was gated on UAT-1, UAT-2, UAT-5, UAT-6, and UAT-7.** Lifecycle
 v2 retains those regression contracts, assigns UAT-3 and UAT-4 to E40-F09 and
-E40-F10, and adds UAT-8 through UAT-15. Full detail and coverage pointers live
+E40-F10, and adds UAT-8 through UAT-19. Full detail and coverage pointers live
 in [uat-plan.md](uat-plan.md).
 
 **UAT-1 — Unattended baseline batch produces a report with a noise band**
@@ -297,6 +310,17 @@ directory alone, with no other state.
   the invalid inventory.
 - **UAT-15:** dry-run and report paths spend nothing; retained pilots for all four
   families are inspected before a repeated lifecycle baseline is published.
+- **UAT-16:** stage time partitions into provider, tool/test, wait, retry, and
+  unclassified intervals whose total reconciles to lifecycle wall time.
+- **UAT-17:** structured findings support an independent frozen-candidate and an
+  actual sequential QA-versus-finish-feature deep-review comparison without
+  treating duplicate or unconfirmed findings as unique value.
+- **UAT-18:** artifact producer/consumer edges identify reused and orphaned
+  outputs, and D01-D05 reports replayed interaction proxies without claiming
+  measured human effort.
+- **UAT-19:** changing the candidate tree, untracked manifest, test suite, gate
+  set, gate order, reviewer configuration, or fix policy invalidates a paired
+  comparison.
 
 The full Given/When/Then scenarios and feature ownership live in
 [uat-plan.md](uat-plan.md).
