@@ -1,0 +1,6 @@
+--- a/example/answer.py
++++ b/example/answer.py
+@@ -1,2 +1,2 @@
+ def answer():
+-    return None
++    return 42
