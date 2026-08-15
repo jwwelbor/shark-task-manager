@@ -91,6 +91,45 @@
 #      digests; this script performs no cross-bundle merging of its own,
 #      leaving distinctness verification to the caller (tc045).
 #
+# T-E40-F06-006 artifact-record check (REQ-F-008, ADR-F06-07, spec.md
+# "Stage snapshot (I-05)" `artifacts` row):
+#
+#   For every entry in a stage snapshot's OPTIONAL `artifacts` array, this
+#   script reports a per-artifact consumer verdict derived from the RAW
+#   JSON-key shape of that entry's `consumers` field -- never from a
+#   `.get(key, default)`-style read that would silently coerce "key
+#   absent" into "key present, empty" (the exact Go `omitempty`/zero-value
+#   trap ADR-F06-07 forbids and this task's Notes for Agent name
+#   explicitly):
+#
+#     - `consumers` key present and an empty list (`consumers: []`) ->
+#       verdict `orphan` ("no consumer observed").
+#     - `consumers` key entirely absent from the artifact object -> verdict
+#       `consumption_evidence_missing` ("consumption evidence was not
+#       collected").
+#     - `consumers` key present and non-empty -> verdict `consumed`. Not
+#       one of ADR-F06-07's two named states, but the third cell the same
+#       field naturally partitions into: spec.md's ADR-F06-07 names this
+#       distinction's whole point as being able to "distinguish a consumed
+#       artifact from an orphan" (UAT-18), so a validator that could only
+#       ever report `orphan` or `consumption_evidence_missing` -- with no
+#       way to represent an artifact that WAS actually consumed -- would
+#       leave that distinction unrepresentable in its own output.
+#
+#   A snapshot with no `artifacts` key at all is untouched by this check
+#   (mirrors validate_candidate's not-applicable return), so ledger-only
+#   fixtures under bench/scripts/testdata/evidence/ledger/ and
+#   bench/scripts/testdata/evidence/candidate/ (neither of which declare an
+#   `artifacts` key) are unaffected. This check reads only the `path` and
+#   `consumers` shape needed to derive the verdict -- `path` is not itself
+#   being asserted as a REQ-F-008 required field here (TC-042's Go
+#   validator owns REQ-F-016's full field-inventory rejection, including a
+#   record missing `producer_stage` or `digest`); it is simply the
+#   identifier this function's per-artifact verdict is keyed to, so an
+#   artifact entry with no usable `path` means this function cannot report
+#   a verdict for it at all, not that REQ-F-008's field list is enforced
+#   here.
+#
 # Prints one fixed-order JSON document to stdout on success (bundle path,
 # then `stages[]` sorted by `dispatch_ordinal`, each stage's own keys in
 # sorted order via `sort_keys=True` -- "Emit fixed-order JSON (sorted by
@@ -395,6 +434,63 @@ def validate_candidate(stage_key, dispatch_ordinal, stage_category, snapshot):
     }
 
 
+def validate_artifacts(stage_key, dispatch_ordinal, snapshot):
+    """Implements REQ-F-008 / ADR-F06-07 per-artifact consumer verdicts for
+    one stage snapshot's `artifacts` array. Returns None when the snapshot
+    carries no `artifacts` key at all -- REQ-F-008 does not apply, so a
+    ledger-only or candidate-only fixture with no `artifacts` key is
+    untouched by this check (mirrors validate_candidate's not-applicable
+    return for a non-code/review stage_category). Raises ScriptError for a
+    malformed `artifacts` array/entry this script cannot evaluate at all
+    (not a list, an entry that is not an object, a missing `path`, or a
+    `consumers` value that is present but not a list) -- never for the
+    empty-vs-absent `consumers` distinction itself, which is the normal,
+    informative verdict this function exists to report, not a rejection.
+
+    ADR-F06-07 non-coercion discipline: the empty-vs-absent distinction is
+    read directly off the decoded artifact dict's own key membership
+    (`"consumers" not in artifact`), never via a `.get("consumers", [])`
+    default read, which would silently collapse "key absent" into "key
+    present, empty" -- the exact trap this check exists to catch (tc046
+    AC-T3).
+    """
+    if "artifacts" not in snapshot:
+        return None
+
+    artifacts = snapshot["artifacts"]
+    if not isinstance(artifacts, list):
+        raise ScriptError(
+            f"stage={stage_key} dispatch_ordinal={dispatch_ordinal}: snapshot.artifacts must be a list"
+        )
+
+    results = []
+    for idx, artifact in enumerate(artifacts):
+        if not isinstance(artifact, dict):
+            raise ScriptError(
+                f"stage={stage_key} dispatch_ordinal={dispatch_ordinal}: artifacts[{idx}] is not an object"
+            )
+        path = artifact.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise ScriptError(
+                f"stage={stage_key} dispatch_ordinal={dispatch_ordinal}: artifacts[{idx}] missing required field 'path'"
+            )
+
+        if "consumers" not in artifact:
+            verdict = "consumption_evidence_missing"
+        else:
+            consumers = artifact["consumers"]
+            if not isinstance(consumers, list):
+                raise ScriptError(
+                    f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
+                    f"consumers must be a list when present"
+                )
+            verdict = "orphan" if len(consumers) == 0 else "consumed"
+
+        results.append({"path": path, "verdict": verdict})
+
+    return results
+
+
 def resolve_within(root, rel_path, label):
     """Resolves a bundle-relative path and enforces containment, mirroring
     verify-evidence-roots.sh's resolve_in_evaluator_root (REQ-NF-005)."""
@@ -453,6 +549,9 @@ def main():
         )
         if candidate_result is not None:
             stage_result["candidate"] = candidate_result
+        artifact_results = validate_artifacts(stage_key, dispatch_ordinal, snapshot)
+        if artifact_results is not None:
+            stage_result["artifacts"] = artifact_results
         stage_results.append(stage_result)
 
     print(json.dumps({"bundle_dir": bundle_dir, "stages": stage_results}, sort_keys=True))
