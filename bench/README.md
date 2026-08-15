@@ -981,7 +981,7 @@ document per dispatched stage:
 | `artifacts` | array | `{artifact_type, path, digest, size_bytes, producer_stage, consumers}` (REQ-F-008). `consumers: []` ("orphan", no consumer observed) and an absent `consumers` key ("consumption evidence not collected") are two distinct, never-coerced states. |
 | `usage` | object | Semantic slots from `usage-mapping.yaml` (see "Usage slot table" below). A slot the mapping could not resolve is absent, with a matching `usage_slot_unavailable` entry in `errors[]` — never zero, never null. |
 | `time_ledger` | object | See "Time ledger rules" below. |
-| `candidate` | object, `code`/`review` only | `base_commit`, `tree_digest`, `binary_diff_digest`, `changed_path_digest`, `dirty_untracked_manifest` (ordered `{path, digest, tracked}`), `test_suite_digest`. `base_commit` is one field of the identity, never the identity alone (REQ-F-006, ADR-009). |
+| `candidate` | object, `code`/`review` only | REQ-F-006's six required fields — `base_commit`, `tree_digest`, `binary_diff_digest`, `changed_path_digest`, `dirty_untracked_manifest` (ordered `{path, digest, tracked}`), `test_suite_digest` — plus two replay-guard fields `replay-stage-evidence.sh` reads: `test_suite_ids` (the recorded normalized `<module-or-package>::<test-name>` id set the replay guard diffs against a live `<adapter> test` invocation to name a differing test by id, since the opaque `test_suite_digest` alone cannot) and `test_suite_dir` (excluded from the file-drift walk as the test-suite check's own domain). `base_commit` is one field of the identity, never the identity alone (REQ-F-006, ADR-009). |
 | `errors` | array | `{kind, detail, …}`, `kind` resolving against `i05-schema.yaml`'s `error_kind` vocabulary. |
 | `rework_count` | integer | Re-entries into this stage for this entity. |
 | `evaluator_access` | array | REQ-F-012 events; also appended to the bundle's `access.jsonl`. |
@@ -1109,9 +1109,11 @@ roots. For every indexed stage:
    two independent drift checks against `--checkout`, sourced from the
    snapshot's own `candidate` block: file drift
    (`tracked_file_changed`/`untracked_file_changed`, naming the path) from
-   `dirty_untracked_manifest`, and test-suite drift (`test_suite_changed`,
-   naming the differing test id) from a live `<adapter> test --checkout`
-   invocation diffed against the recorded normalized id set.
+   `dirty_untracked_manifest` (excluding `candidate.test_suite_dir`, the
+   test-suite check's own domain below), and test-suite drift
+   (`test_suite_changed`, naming the differing test id) from a live
+   `<adapter> test --checkout` invocation diffed against
+   `candidate.test_suite_ids`, the recorded normalized id set.
 
 Exit `0` = replay clean (a JSON summary on stdout). Exit `1` = one or more
 named drift/mutation verdicts on stderr. Exit `2` = a script/usage error.
