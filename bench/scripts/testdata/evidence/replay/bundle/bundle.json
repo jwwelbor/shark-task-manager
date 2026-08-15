@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "stages": [
+    {
+      "dispatch_ordinal": 1,
+      "stage_key": "develop",
+      "stage_category": "code",
+      "snapshot_path": "stages/1-develop.json",
+      "snapshot_digest": "sha256:3396385280de6e55ffd8b3e5b19abebc4551571d9819ecc14d60ad5189746a80"
+    }
+  ]
+}
