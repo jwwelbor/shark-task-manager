@@ -33,17 +33,17 @@
 #      mismatch its own recorded value). A mismatch means the stored
 #      snapshot file was edited after it was recorded.
 #
-#      A mismatch is reported with the most specific diagnosis this script
-#      can make from the CURRENT content alone (it holds no separate
-#      "before" copy to diff against): if any `artifacts[]` entry in the
-#      mismatched snapshot is missing its `consumers` key, that is reported
-#      as `artifact_consumption_record_missing` naming the artifact --
-#      because an absent `consumers` key is independently a LEGITIMATE,
-#      digest-matching state per REQ-F-008/ADR-F06-07 ("consumption
-#      evidence was not collected"), so a mismatched digest plus a missing
-#      key together is exactly what "the key was deleted after recording"
-#      looks like. Every other kind of edit falls back to the generic
-#      `snapshot_mutated` naming the stage (REQ-F-015, AC-013 case (ii)).
+#      A mismatch ALWAYS yields `snapshot_mutated` naming the stage
+#      (REQ-F-015, AC-013 case (ii): "a one-byte edit to ANY snapshot field
+#      yields snapshot_mutated"). When the mismatched content additionally
+#      shows an `artifacts[]` entry missing its `consumers` key, this
+#      script ALSO appends the more specific `artifact_consumption_record_missing`
+#      naming that artifact (AC-012 case (d)) -- in addition to, never
+#      instead of, `snapshot_mutated`. An absent `consumers` key is
+#      independently a LEGITIMATE, digest-matching state per
+#      REQ-F-008/ADR-F06-07 ("consumption evidence was not collected"), so
+#      this refinement only ever fires alongside a genuine digest mismatch,
+#      never on its own.
 #
 #   2. Only when the digest matches (an untampered snapshot) and its
 #      `stage_category` is `code` or `review`: two independent REQ-F-013
@@ -54,8 +54,9 @@
 #           already defines this as an ordered `{path, digest, tracked}`
 #           list -- the recorded per-file inventory this script treats as
 #           ground truth for replay, run BEFORE any adapter invocation so a
-#           `python3 -m pytest` cache directory the test-suite check below
-#           creates can never masquerade as a drifted file):
+#           cache directory the test-suite check below creates as a side
+#           effect of running the adapter's own test runner can never
+#           masquerade as a drifted file):
 #             - a manifest entry whose CURRENT digest under `--checkout`
 #               differs from its recorded digest is `tracked_file_changed`
 #               (`tracked: true`) or `untracked_file_changed`
@@ -201,22 +202,25 @@ def check_immutability(stage_key, stage_entry, snapshot, verdicts):
     if recomputed == recorded_in_snapshot == recorded_in_index:
         return True
 
-    # Most specific diagnosis available from the CURRENT content alone
-    # (ADR-F06-07: an absent `consumers` key is independently legitimate,
-    # so only a DIGEST MISMATCH plus a missing key together identifies a
-    # post-recording deletion).
-    named = False
+    # REQ-F-015/AC-013(ii): ANY digest mismatch is snapshot_mutated, full
+    # stop -- this is never replaced by a more specific verdict below.
+    verdicts.append(("snapshot_mutated", f"stage={stage_key}"))
+
+    # ADR-F06-07: an absent `consumers` key is independently legitimate
+    # (REQ-F-008 "consumption evidence was not collected"), so this more
+    # specific diagnosis only ever fires ALONGSIDE the digest mismatch
+    # above, never as a substitute for it -- a bundle whose `consumers` key
+    # was always absent never reaches this branch at all, because its
+    # digest was computed over that same already-absent content and so
+    # matches.
     for artifact in snapshot.get("artifacts") or []:
         if "consumers" not in artifact:
-            named = True
             verdicts.append(
                 (
                     "artifact_consumption_record_missing",
                     f"stage={stage_key} artifact={artifact.get('path', '<unknown>')}",
                 )
             )
-    if not named:
-        verdicts.append(("snapshot_mutated", f"stage={stage_key}"))
     return False
 
 

@@ -215,10 +215,15 @@ code="$(run_replay "$bundle_d" "$checkout_d" "$out" "$err" "$log")"
 [[ "$code" -eq 1 ]] || fail "case (d): guard exited $code, want 1 (drift detected): $(cat "$err")"
 grep -q "artifact_consumption_record_missing" "$err" || fail "case (d): stderr does not name artifact_consumption_record_missing: $(cat "$err")"
 grep -q "artifact=artifacts/develop.diff" "$err" || fail "case (d): stderr does not name the offending artifact: $(cat "$err")"
+# Deleting the consumers key IS a snapshot content edit, so the generic
+# snapshot_mutated verdict (AC-013: "a one-byte edit to ANY snapshot field
+# yields snapshot_mutated") must ALSO be present, never replaced by the
+# more specific artifact_consumption_record_missing verdict above.
+grep -q "snapshot_mutated" "$err" || fail "case (d): stderr does not also name snapshot_mutated (a consumers-key deletion is a snapshot edit like any other): $(cat "$err")"
 [[ ! -s "$out" ]] || fail "case (d): guard printed stdout on a drift verdict: $(cat "$out")"
 assert_zero_invocations "case (d)" "$log"
 
-echo "TC-049(AC-T2(d): deleted consumers key -> artifact_consumption_record_missing naming the artifact, zero provider invocations) PASS"
+echo "TC-049(AC-T2(d): deleted consumers key -> artifact_consumption_record_missing AND snapshot_mutated, zero provider invocations) PASS"
 
 # ---------------------------------------------------------------------------
 # AC-T4 / AC-013 case (i): recomputing snapshot_digest over an UNMODIFIED
@@ -271,5 +276,24 @@ grep -q "stage=develop" "$err" || fail "case (ii): stderr does not name the stag
 assert_zero_invocations "case (ii)" "$log"
 
 echo "TC-049(AC-013(ii): one-byte rework_count edit -> snapshot_mutated naming the stage, zero provider invocations) PASS"
+
+# ---------------------------------------------------------------------------
+# REQ-F-007 opacity discipline (ADR-F06-05): replay-stage-evidence.sh itself
+# contains no fixture-language branching token, the same single-script proof
+# tc031/tc045 established for their own guards at their point in the build
+# order. Scoped to $GUARD only -- never this test script, which legitimately
+# names bench/adapters/python/adapter.sh to drive a REAL adapter, exactly as
+# tc048 already does. The repo-wide sweep across every generic evidence
+# script is AC-019/T-E40-F06-011's job.
+# ---------------------------------------------------------------------------
+echo "TC-049: replay-stage-evidence.sh contains no fixture-language branching token"
+
+FORBIDDEN_TOKENS='\<python\>|\<pytest\>|\<pip\>|\<go[[:space:]]+test\>|\<golangci-lint\>|\<go[[:space:]]+build\>'
+if hits="$(grep -nE "$FORBIDDEN_TOKENS" "$GUARD")"; then
+	fail "forbidden fixture-language token found in $GUARD (REQ-F-007 opacity discipline, ADR-F06-05):
+$hits"
+fi
+
+echo "TC-049(replay-stage-evidence.sh contains no forbidden fixture-language token) PASS"
 
 echo "TC-049: PASS"
