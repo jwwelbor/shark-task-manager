@@ -6,6 +6,7 @@
   },
   "stage_key": "D02",
   "stage_category": "specification",
+  "provider": "anthropic_claude_cli",
   "prompt_digest": "sha256:prompt2",
   "input_lineage": [
     {

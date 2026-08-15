@@ -6,6 +6,7 @@
   },
   "stage_key": "develop",
   "stage_category": "deployment",
+  "provider": "anthropic_claude_cli",
   "prompt_digest": "sha256:prompt1",
   "input_lineage": [
     {

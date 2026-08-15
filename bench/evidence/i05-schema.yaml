@@ -12,6 +12,17 @@
 #
 # Plays for I-05 the role bench/scenarios/scenarios.yaml plays for I-04
 # (spec.md "Component changes"), without inheriting any of its fields.
+#
+# REQ-F-003/REQ-F-009: every stage snapshot MUST also carry a top-level
+# `provider` field (string, sibling of stage_key/stage_category) naming the
+# CLI/provider that executed the dispatch -- see spec.md "Stage snapshot
+# (I-05)". The closed set of valid provider *names* is owned by
+# bench/evidence/usage-mapping.yaml (REQ-F-009), not here -- this file only
+# fixes that the field's *presence* is required. A snapshot with no
+# `provider` claim MUST be rejected as `missing_provider` (see error_kind
+# below), never silently treated as out of scope for the usage-mapping
+# fail-closed check (REQ-F-009) or the identity-completeness check
+# (REQ-F-018) it gates.
 
 schema_version: "1.0"
 
@@ -109,6 +120,7 @@ error_kind:
   - duplicate_dispatch_ordinal
   - unsupported_schema_version
   - missing_stage
+  - missing_provider
   - unmatched_dispatch
   - snapshot_mutated
   - tracked_file_changed

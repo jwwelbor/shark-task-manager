@@ -6,6 +6,7 @@
   },
   "stage_key": "D03",
   "stage_category": "planning",
+  "provider": "anthropic_claude_cli",
   "prompt_digest": "sha256:prompt3",
   "input_lineage": [
     {

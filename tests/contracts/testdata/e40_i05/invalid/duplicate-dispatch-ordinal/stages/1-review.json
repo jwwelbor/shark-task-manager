@@ -6,6 +6,7 @@
   },
   "stage_key": "review",
   "stage_category": "review",
+  "provider": "anthropic_claude_cli",
   "prompt_digest": "sha256:prompt1",
   "input_lineage": [
     {

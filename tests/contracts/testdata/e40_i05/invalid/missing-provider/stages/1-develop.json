@@ -1,40 +1,19 @@
 {
-  "dispatch_ordinal": 4,
+  "dispatch_ordinal": 1,
   "entity": {
     "entity_key": "B-E40-BENCH-001",
     "entity_type": "bug"
   },
   "stage_key": "develop",
   "stage_category": "code",
-  "provider": "anthropic_claude_cli",
-  "prompt_digest": "sha256:prompt4",
-  "input_lineage": [
-    {
-      "source_kind": "prior_stage_artifact",
-      "path": "artifacts/D03/plan.md",
-      "digest": "sha256:plandigest"
-    }
-  ],
+  "prompt_digest": "sha256:prompt0100",
+  "input_lineage": [],
   "artifacts": [
     {
       "artifact_type": "code_diff",
       "path": "artifacts/develop/change.patch",
-      "digest": "sha256:1111diff",
+      "digest": "sha256:0100diff",
       "size_bytes": 512,
-      "producer_stage": "develop",
-      "consumers": [
-        {
-          "consuming_stage": "review",
-          "edge_kind": "read",
-          "observed_at": "2026-08-14T00:00:01Z"
-        }
-      ]
-    },
-    {
-      "artifact_type": "test_report",
-      "path": "artifacts/develop/tests.json",
-      "digest": "sha256:2222tests",
-      "size_bytes": 128,
       "producer_stage": "develop"
     }
   ],
@@ -47,7 +26,6 @@
     "model_ids": [
       "claude-sonnet-5"
     ],
-    "provider_session_id": "sess-abc123",
     "api_active_duration_ms": 4200,
     "turn_count": 3
   },
@@ -80,21 +58,15 @@
     }
   },
   "candidate": {
-    "base_commit": "abc1234",
-    "tree_digest": "sha256:3333tree",
-    "binary_diff_digest": "sha256:4444binarydiff",
-    "changed_path_digest": "sha256:5555changedpath",
-    "dirty_untracked_manifest": [
-      {
-        "path": "scratch/tmp.log",
-        "digest": "sha256:6666tmp",
-        "tracked": false
-      }
-    ],
-    "test_suite_digest": "sha256:7777testsuite"
+    "base_commit": "abc0100",
+    "tree_digest": "sha256:0100tree",
+    "binary_diff_digest": "sha256:0100binarydiff",
+    "changed_path_digest": "sha256:0100changedpath",
+    "dirty_untracked_manifest": [],
+    "test_suite_digest": "sha256:0100testsuite"
   },
   "errors": [],
   "rework_count": 0,
   "evaluator_access": [],
-  "snapshot_digest": "sha256:snap4"
+  "snapshot_digest": "sha256:snap0100"
 }

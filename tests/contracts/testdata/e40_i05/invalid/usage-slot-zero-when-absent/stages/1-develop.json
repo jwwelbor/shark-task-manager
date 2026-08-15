@@ -6,6 +6,7 @@
   },
   "stage_key": "develop",
   "stage_category": "code",
+  "provider": "anthropic_claude_cli",
   "prompt_digest": "sha256:prompt1",
   "input_lineage": [
     {
@@ -40,7 +41,14 @@
   "usage": {
     "total_cost": 0,
     "input_tokens": 100,
-    "output_tokens": 50
+    "output_tokens": 50,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "model_ids": [
+      "claude-sonnet-5"
+    ],
+    "api_active_duration_ms": 900,
+    "turn_count": 1
   },
   "time_ledger": {
     "stage_start": 0,

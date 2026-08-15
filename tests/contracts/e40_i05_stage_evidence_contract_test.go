@@ -586,6 +586,60 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 			}
 		})
 	})
+
+	// AC-001/AC-008/AC-022 regression: `provider` is a required field
+	// (REQ-F-003/REQ-F-009), not an optional one. Before this fixture and the
+	// e40I05ValidateUsageProviderMapping/e40I05ValidateIdentityCompleteness
+	// fix, an otherwise-fully-valid code/review snapshot with no top-level
+	// `provider` claim at all silently bypassed both the usage-mapping
+	// fail-closed check (REQ-F-009) and the identity-completeness check
+	// (REQ-F-018) -- omission was treated as "out of scope" rather than a
+	// named defect. UAT round 1 rejected E40-F06 for exactly this gap.
+	t.Run("provider_required", func(t *testing.T) {
+		t.Run("missing_provider_on_otherwise_valid_code_snapshot_is_rejected", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "invalid", "missing-provider")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+			if len(errs) == 0 {
+				t.Fatal("expected validation errors, got none")
+			}
+			if !e40ContainsErrorMatching(errs, "missing_provider") {
+				t.Errorf("expected an error naming missing_provider, got:\n%s", strings.Join(errs, "\n"))
+			}
+			// Purity check: the fixture is byte-identical to a fully valid
+			// code snapshot except for the omitted `provider` field, so every
+			// reported error must trace to that one omission (both the
+			// usage-mapping and identity-completeness validators key off the
+			// same missing field, so two errors naming missing_provider is
+			// the correct, non-contaminated outcome).
+			for _, e := range errs {
+				if !strings.Contains(e, "missing_provider") {
+					t.Errorf("unexpected error not matching this case's own defect class: %s\nall errors:\n%s", e, strings.Join(errs, "\n"))
+				}
+			}
+		})
+
+		t.Run("committed_valid_fixtures_all_declare_provider", func(t *testing.T) {
+			// Direct regression for the UAT finding: the comprehensive
+			// positive-control fixture (prelude-lifecycle) previously carried
+			// no `provider` field on any of its five stages and still
+			// passed, because both provider-dependent validators no-opped on
+			// absence. Assert directly that every stage file under every
+			// valid/ fixture now declares a non-empty provider, so a future
+			// regression that re-drops the field fails here even if the
+			// validator itself regressed too.
+			validRoot := filepath.Join(testdataRoot, "valid")
+			dirs := e40I05ListBundleDirs(t, validRoot)
+			for _, dir := range dirs {
+				_, stages := e40I05ReadBundle(t, dir)
+				for _, sf := range stages {
+					if s, _ := sf.Content["provider"].(string); strings.TrimSpace(s) == "" {
+						t.Errorf("%s/%s: provider is required and missing on a committed valid fixture", filepath.Base(dir), sf.RelPath)
+					}
+				}
+			}
+		})
+	})
 }
 
 // e40I05ReadSchema reads and parses the real committed i05-schema.yaml.
@@ -1096,15 +1150,18 @@ func e40I05ValidateUsage(usageV, errorsV interface{}, label string) []string {
 // MUST NOT carry any decoded usage value -- every populated slot is rejected
 // naming the offending provider (AC-008(a)). A snapshot that names the same
 // unmapped provider but carries no decoded slot values is accepted
-// (AC-008(b)); a snapshot with no provider claim at all is out of scope for
-// this check. A provider unknown to the mapping entirely is treated the same
-// as "unmapped" -- the mapping is the single source of truth for which
+// (AC-008(b)). `provider` is a required field on every stage snapshot
+// (REQ-F-003/REQ-F-009); a snapshot with no provider claim at all is
+// rejected as `missing_provider` rather than treated as out of scope --
+// omitting the field must never be a way to bypass this fail-closed check.
+// A provider unknown to the mapping entirely is treated the same as
+// "unmapped" -- the mapping is the single source of truth for which
 // providers are bound, so an undeclared provider can never be presented as
 // decoded either.
 func e40I05ValidateUsageProviderMapping(stage map[string]interface{}, mapping *e40I05UsageMapping, label string) []string {
 	providerName, _ := stage["provider"].(string)
 	if providerName == "" {
-		return nil
+		return []string{fmt.Sprintf("%s: missing_provider: provider is required and missing (REQ-F-003/REQ-F-009 -- an absent provider claim MUST NOT bypass usage-mapping fail-closed validation)", label)}
 	}
 	if provider, known := mapping.Providers[providerName]; known && provider.Status == "mapped" {
 		return nil
@@ -1132,12 +1189,17 @@ func e40I05ValidateUsageProviderMapping(stage map[string]interface{}, mapping *e
 // required_identity_slots MUST be present in usage, or the snapshot is
 // rejected naming the missing slot (AC-022(c)/(d)). This is what lets
 // E40-F09 read a decided slot set for comparison identity rather than an
-// ambiguity. Unmapped-provider snapshots are covered by
+// ambiguity. `provider` is a required field (REQ-F-003); a code/review
+// snapshot with no provider claim at all is rejected as `missing_provider`
+// -- comparison identity can never be established without knowing which
+// provider produced the candidate, so omitting the field must never let a
+// code/review snapshot evade this check. Unmapped-provider snapshots (a
+// provider claim that is present but not `mapped`) are covered by
 // e40I05ValidateUsageProviderMapping, not here.
 func e40I05ValidateIdentityCompleteness(stage map[string]interface{}, mapping *e40I05UsageMapping, label string) []string {
 	providerName, _ := stage["provider"].(string)
 	if providerName == "" {
-		return nil
+		return []string{fmt.Sprintf("%s: missing_provider: provider is required and missing (REQ-F-018 identity completeness cannot be evaluated without a provider claim)", label)}
 	}
 	provider, known := mapping.Providers[providerName]
 	if !known || provider.Status != "mapped" {
