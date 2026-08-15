@@ -1,0 +1,18 @@
+{
+  "dispatch_ordinal": 2,
+  "stage_key": "specification",
+  "stage_category": "specification",
+  "time_ledger": {
+    "stage_start": 500,
+    "stage_end": 900,
+    "reconciliation_epsilon_ns": 0,
+    "intervals": {
+      "tool_and_test": [
+        [
+          500,
+          900
+        ]
+      ]
+    }
+  }
+}

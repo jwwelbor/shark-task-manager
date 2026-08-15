@@ -175,6 +175,30 @@
 #   a refused (pre-terminal) request raises `isolation_violation` and never
 #   writes any event at all, matching REQ-F-012's "not a warning."
 #
+# T-E40-F06-008 stop-outcome eligibility check (REQ-F-014, spec.md "Bundle
+# layout (I-05)" `stop_outcome`/`publication_eligible`/
+# `ineligibility_reasons` rows):
+#
+#   Bundle-level (not per-stage): a bare `<bundle_dir>` invocation reads the
+#   optional `bundle.json` `stop_outcome` field. Absent -> not applicable,
+#   a clean terminal run, untouched by this check. Present -> it MUST be one
+#   of the ten REQ-F-017 stop_outcome values sourced live from
+#   `bench/evidence/i05-schema.yaml` (never a private copy here, mirroring
+#   the interval_category and stage_category sourcing discipline above),
+#   `publication_eligible` MUST be `false`, and `ineligibility_reasons[]`
+#   MUST be a non-empty list -- else rejected. A bundle pairing a
+#   stop_outcome with `publication_eligible: true` is rejected naming
+#   `publication_eligible_conflict` (i05-schema.yaml `error_kind`
+#   vocabulary) -- the literal contradiction AC-T2 exists to catch.
+#
+#   This check adds no gate to the per-stage loop above: whatever subset of
+#   `stages[]` a stopped bundle indexes is read and validated exactly like
+#   any other bundle's stages, so a bundle carrying fewer stage snapshots
+#   than a complete run (the real shape of "partial evidence retained") is
+#   reported stage-by-stage same as always -- AC-T1's "partial snapshots
+#   stay present/readable" is a property of that unchanged per-stage read,
+#   not of anything new this check adds.
+#
 # Prints one fixed-order JSON document to stdout on success (bundle path,
 # then `stages[]` sorted by `dispatch_ordinal`, each stage's own keys in
 # sorted order via `sort_keys=True` -- "Emit fixed-order JSON (sorted by
@@ -570,6 +594,11 @@ class CandidateViolation(Violation):
     verdict."""
 
 
+class EligibilityViolation(Violation):
+    """A real, informative REQ-F-014 rejection verdict -- a stop_outcome
+    bundle that also declares publication_eligible: true."""
+
+
 def load_yaml(path, label):
     with open(path) as f:
         data = yaml.safe_load(f)
@@ -846,6 +875,71 @@ def validate_artifacts(stage_key, dispatch_ordinal, snapshot):
     return results
 
 
+def validate_eligibility(bundle, known_stop_outcomes):
+    """Implements REQ-F-014 for the bundle-level `stop_outcome` /
+    `publication_eligible` / `ineligibility_reasons` triad (spec.md "Bundle
+    layout (I-05)"). Returns None when the bundle carries no `stop_outcome`
+    key at all -- REQ-F-014 does not apply to a clean terminal run, so
+    every fixture used by tc043-tc048 (none of which declare stop_outcome)
+    is untouched by this check, mirroring validate_candidate's /
+    validate_artifacts's not-applicable return for a field that does not
+    apply to every bundle.
+
+    Raises EligibilityViolation naming `publication_eligible_conflict`
+    (bench/evidence/i05-schema.yaml `error_kind` vocabulary) when a
+    stop_outcome bundle also declares `publication_eligible: true` -- the
+    literal contradiction AC-T2 exists to catch. This is the only
+    REQ-F-014 failure mode this function treats as an informative
+    rejection verdict rather than a malformed-input ScriptError, because it
+    is the only REQ-F-014 failure mode with a named `error_kind` in
+    i05-schema.yaml.
+
+    Raises ScriptError for a `stop_outcome` value outside the closed
+    REQ-F-017 vocabulary (sourced live from i05-schema.yaml, never a
+    private copy here), or a stop_outcome bundle missing a non-empty
+    `ineligibility_reasons[]` -- malformed authoring input this script
+    cannot evaluate as a described contradiction, not one of the two
+    states this task's ACs exercise.
+
+    Does NOT itself confirm "partial snapshots stay present/readable"
+    (AC-T1) -- that is a property of the unchanged per-stage loop in
+    main(), which reads and validates whatever subset of `stages[]` the
+    bundle actually indexes for every bundle, stop_outcome or not. This
+    function's own job is strictly the bundle-level eligibility triad.
+    """
+    stop_outcome = bundle.get("stop_outcome")
+    if stop_outcome is None:
+        return None
+
+    if stop_outcome not in known_stop_outcomes:
+        raise ScriptError(
+            f"bundle.json stop_outcome={stop_outcome!r} is not one of the closed REQ-F-017 "
+            f"stop_outcome vocabulary in i05-schema.yaml: {sorted(known_stop_outcomes)}"
+        )
+
+    publication_eligible = bundle.get("publication_eligible")
+    if publication_eligible is not False:
+        raise EligibilityViolation(
+            "publication_eligible_conflict",
+            f"stop_outcome={stop_outcome!r} but publication_eligible={publication_eligible!r} "
+            f"(REQ-F-014 requires publication_eligible: false whenever stop_outcome is present)",
+        )
+
+    ineligibility_reasons = bundle.get("ineligibility_reasons")
+    if not isinstance(ineligibility_reasons, list) or not ineligibility_reasons:
+        raise ScriptError(
+            f"bundle.json stop_outcome={stop_outcome!r}: ineligibility_reasons[] missing or empty "
+            f"(REQ-F-014 requires a non-empty list whenever publication_eligible is false)"
+        )
+
+    return {
+        "stop_outcome": stop_outcome,
+        "publication_eligible": publication_eligible,
+        "ineligibility_reasons": ineligibility_reasons,
+        "result": "accepted",
+    }
+
+
 def resolve_within(root, rel_path, label):
     """Resolves a bundle-relative path and enforces containment, mirroring
     verify-evidence-roots.sh's resolve_in_evaluator_root (REQ-NF-005)."""
@@ -863,6 +957,9 @@ def main():
     known_categories = schema.get("interval_category")
     if not isinstance(known_categories, list) or not known_categories:
         raise ScriptError(f"i05-schema.yaml declares no interval_category vocabulary: {i05_schema_path}")
+    known_stop_outcomes = schema.get("stop_outcome")
+    if not isinstance(known_stop_outcomes, list) or not known_stop_outcomes:
+        raise ScriptError(f"i05-schema.yaml declares no stop_outcome vocabulary: {i05_schema_path}")
 
     bundle_json_path = os.path.join(bundle_dir, "bundle.json")
     if not os.path.isfile(bundle_json_path):
@@ -909,7 +1006,13 @@ def main():
             stage_result["artifacts"] = artifact_results
         stage_results.append(stage_result)
 
-    print(json.dumps({"bundle_dir": bundle_dir, "stages": stage_results}, sort_keys=True))
+    output = {"bundle_dir": bundle_dir, "stages": stage_results}
+    # REQ-F-014: bundle-level, not per-stage -- see header comment.
+    eligibility_result = validate_eligibility(bundle, known_stop_outcomes)
+    if eligibility_result is not None:
+        output["eligibility"] = eligibility_result
+
+    print(json.dumps(output, sort_keys=True))
 
 
 try:
