@@ -14,7 +14,15 @@
 # declares answer_keys: [], so this synthetic entry is the only committed
 # exerciser of that detection path (test-plan.md AC-009's other two source
 # kinds -- reference_solution, oracle_tests[] -- both have real-package
-# coverage via tc043's checkout-based cases).
+# coverage via tc043's checkout-based cases). `adapter:` is required (round-4
+# UAT fix, T-E40-F06-003): the guard derives oracle_tests[] entries' real
+# test identities through this name's adapter.sh collect-ids capability
+# rather than approximating them from the file's own basename stem;
+# test_probe.py has no external imports, so any --checkout directory works
+# as its collection context (no real fixture checkout needed offline).
+adapter:
+  name: python
+  version: "1.0.0"
 evaluator_only:
   reference_solution: evaluator/reference.patch
   oracle_tests:

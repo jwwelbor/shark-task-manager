@@ -7,13 +7,27 @@
 # admission script may branch on fixture language; they call this contract
 # instead.
 #
-# Closed set of six capabilities, one function each below:
+# Closed set of seven capabilities, one function each below:
 #   identity        --checkout <dir>
 #   inject-tests    --checkout <dir> --files <path>...
 #   test            --checkout <dir> [--include <path>...] [--exclude-id <id>...] [--only-id <id>...]
 #   lint            --checkout <dir>
 #   build           --checkout <dir>
 #   format-check    --checkout <dir>
+#   collect-ids     --checkout <dir> --file <path>
+#
+# `collect-ids` was added by E40-F06 (T-E40-F06-003 rework, round-4 UAT
+# fix) so a generic isolation guard can learn the real, normalized test
+# identities an evaluator-only file defines without executing them --
+# REQ-F-007 still routes that derivation through this adapter rather than
+# letting the generic guard approximate it from the file's own name. This
+# widened the vocabulary from six to seven without the corpus-wide I-04
+# `schema_version` bump the six-capability convention below otherwise
+# implies: that bump touches every committed package.yaml/scenarios.yaml
+# (E40-F05-owned) and this task's own Integration Contracts row holds I-04
+# in `contract-only` gate mode, so the bump is deferred to that owner
+# rather than made here. The go adapter does not implement `collect-ids`
+# (no committed I-04 package registers it, so no consumer exists yet).
 #
 # Each capability writes exactly one JSON document to stdout, per the shape
 # fixed in spec.md's "Adapter capability contract" table. Exit status 0 means
@@ -37,7 +51,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-	echo "usage: adapter.sh <identity|inject-tests|test|lint|build|format-check> --checkout <dir> [...]" >&2
+	echo "usage: adapter.sh <identity|inject-tests|test|lint|build|format-check|collect-ids> --checkout <dir> [...]" >&2
 }
 
 fail() {
@@ -101,13 +115,14 @@ CAPABILITY="$1"
 shift
 
 case "$CAPABILITY" in
-identity | inject-tests | test | lint | build | format-check) ;;
+identity | inject-tests | test | lint | build | format-check | collect-ids) ;;
 *)
-	fail "unknown capability '$CAPABILITY' (closed set: identity, inject-tests, test, lint, build, format-check)"
+	fail "unknown capability '$CAPABILITY' (closed set: identity, inject-tests, test, lint, build, format-check, collect-ids)"
 	;;
 esac
 
 CHECKOUT=""
+FILE=""
 FILES=()
 INCLUDE=()
 INCLUDE_GIVEN=0
@@ -118,6 +133,10 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--checkout)
 		CHECKOUT="${2:-}"
+		shift 2
+		;;
+	--file)
+		FILE="${2:-}"
 		shift 2
 		;;
 	--files)
@@ -444,6 +463,54 @@ print(json.dumps({"ok": len(offending) == 0, "offending_files": offending}))
 PYEOF
 }
 
+cmd_collect_ids() {
+	[[ -n "$FILE" ]] || fail "collect-ids requires --file <path>"
+	[[ -f "$FILE" ]] || fail "collect-ids source file not found: $FILE"
+
+	# --collect-only imports the file (module-level code runs) but never
+	# calls a test function's body -- REQ-F-010's "a test identity those
+	# files define... without running them". -p no:cacheprovider and
+	# PYTHONDONTWRITEBYTECODE=1 keep this read-only against $CHECKOUT (no
+	# .pytest_cache/__pycache__ written) so a generic isolation guard can
+	# call this against a root it is about to scan for leaks without
+	# poisoning that same root -- empirically verified while authoring this
+	# capability (both flags were required; either alone still wrote a
+	# cache directory).
+	local collect_out="$WORKDIR/collect.out"
+	local collect_err="$WORKDIR/collect.err"
+	local collect_exit=0
+	(cd "$CHECKOUT" && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest --collect-only -q -p no:cacheprovider "$FILE") \
+		>"$collect_out" 2>"$collect_err" || collect_exit=$?
+
+	# Collection exits 0 (tests found) or 5 ("no tests collected" -- a
+	# legitimate empty result, mirroring cmd_test's own --include precedent
+	# above). Anything else means collection itself could not complete
+	# (e.g. an import error in the file under test) -- the toolchain
+	# failed, not "zero ids".
+	if [[ "$collect_exit" -ne 0 && "$collect_exit" -ne 5 ]]; then
+		fail "collect-only could not run (exit $collect_exit): $(cat "$collect_err") $(cat "$collect_out")"
+	fi
+
+	python3 - "$collect_out" <<'PYEOF'
+import json
+import sys
+
+out_path = sys.argv[1]
+with open(out_path) as f:
+    lines = f.read().splitlines()
+
+ids = []
+for line in lines:
+    line = line.strip()
+    if "::" not in line:
+        continue
+    name = line.rsplit("::", 1)[-1]
+    ids.append({"id": line, "name": name})
+
+print(json.dumps({"ids": ids}))
+PYEOF
+}
+
 case "$CAPABILITY" in
 identity) cmd_identity ;;
 inject-tests) cmd_inject_tests ;;
@@ -451,4 +518,5 @@ test) cmd_test ;;
 lint) cmd_lint ;;
 build) cmd_build ;;
 format-check) cmd_format_check ;;
+collect-ids) cmd_collect_ids ;;
 esac

@@ -299,8 +299,16 @@ generic scenario, evidence, or admission script reaches a language-specific
 command through this interface. `bench/adapters/<name>/adapter.yaml`
 declares `{name, version}`, registered in `scenarios.yaml`'s `adapters:` map.
 
-Exactly six capabilities — a closed set; adding a seventh requires an I-04
-`schema_version` bump. Each writes one JSON document to stdout:
+A closed set — originally six capabilities, adding a seventh requires an
+I-04 `schema_version` bump. `collect-ids` (below) was added by E40-F06
+(T-E40-F06-003 round-4 UAT fix) without that bump: the bump would touch
+every committed `package.yaml`/`scenarios.yaml` file, which is I-04/E40-F05
+corpus, and this feature's own Integration Contracts row holds I-04 in
+`contract-only` gate mode. This is a known, flagged gap against the
+convention this paragraph states, deferred to I-04's owner (E40-F05) rather
+than made from an F06 rework — not a silent violation. The go adapter does
+not implement `collect-ids` (no committed I-04 package registers it, so no
+consumer exists yet). Each capability writes one JSON document to stdout:
 
 | Capability | Arguments | stdout JSON |
 |---|---|---|
@@ -310,6 +318,7 @@ Exactly six capabilities — a closed set; adding a seventh requires an I-04
 | `lint` | `--checkout <dir>` | `{issues: [{rule, file, text}]}` — a multiset; identity excludes line/column so it is stable under position shifts. |
 | `build` | `--checkout <dir>` | `{ok: bool, diagnostics: [string]}`. Used by admission check (a). |
 | `format-check` | `--checkout <dir>` | `{ok: bool, offending_files: [string]}`. |
+| `collect-ids` | `--checkout <dir> --file <path>` | `{ids: [{id, name}]}` — the real, normalized test identity(ies) `<path>` defines, discovered without executing them (import + collection only). Lets a generic isolation guard (`verify-evidence-roots.sh`) reject a leaked identity by what a file actually defines, not by approximating it from the file's own name. Python only today (see above). |
 
 Exit status `0` means "the capability ran" — even when its *subject* is red
 (a failing test, a lint issue, an unformatted file): that outcome is

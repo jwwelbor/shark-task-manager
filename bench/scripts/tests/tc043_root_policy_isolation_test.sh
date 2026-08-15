@@ -352,9 +352,16 @@ assert_dynamic_detection() {
 	# signal only fires if the guard's target list actually contains
 	# <leaked_basename>, which requires reading it from package.yaml at
 	# call time rather than from a hardcoded/grepped-in literal.
+	# leak_target is a full copy of the real fixture checkout, not a bare
+	# directory holding only the planted file: the guard's derived_test_identity
+	# signal (T-E40-F06-003 round-4 UAT fix) resolves the DECLARED oracle_tests[]
+	# entry's real test identity by asking the package's adapter to import and
+	# collect it against fixture_checkout, and the real oracle file imports
+	# from the fixture's own taskmanager package -- a bare directory would
+	# make that import fail closed (ScriptError), not exercise this case.
 	local label="$1" candidate_dir="$2" leaked_basename="$3"
 	local leak_target="$WORKDIR/ac010-$label-leak"
-	mkdir -p "$leak_target"
+	cp -r "$FIXTURE_CHECKOUT" "$leak_target"
 	{
 		cat "$candidate_dir/evaluator/$leaked_basename"
 		echo "# TC-043 AC-010 ($label): content-modified marker, digest deliberately differs"
@@ -490,5 +497,44 @@ set -e
 grep -q "match_kind=test_identity" "$err" || fail "test_identity regression (real reference): failure message's match_kind was not 'test_identity': $(cat "$err")"
 
 echo "TC-043(test_identity whole-token regression: prose mention -> CLEAN, real reference -> violation) PASS"
+
+# ---------------------------------------------------------------------------
+# Round-4 UAT fix regression (T-E40-F06-003): reproduces the UAT report
+# verbatim -- a file renamed to something unrelated, carrying NEITHER the
+# original oracle_tests[] file's basename (no filename match) NOR its stem
+# as a whole-token reference (no test_identity match: "test_recurring" does
+# not appear anywhere in the planted content) NOR its byte content (no
+# content_digest match), but still literally defining one of the real,
+# held-back py-feature-recurring-tasks oracle's test functions
+# (test_add_task_accepts_recurrence_rule). Before this fix the guard
+# matched none of the three existing signals and exited 0 ("CLEAN") -- a
+# real held-back test identity leaking into an agent-visible root,
+# undetected. Only the new derived_test_identity signal (the package's own
+# adapter asked to enumerate the real oracle file's defined test
+# identities) can catch this.
+# ---------------------------------------------------------------------------
+echo "TC-043: round-4 UAT fix regression - renamed file carrying a held-back oracle's real test identity"
+
+PLANTED_IDENTITY="$FIXTURE_CHECKOUT/renamed_oracle_identity.py"
+cat >"$PLANTED_IDENTITY" <<'EOF'
+def test_add_task_accepts_recurrence_rule():
+    pass
+EOF
+
+out="$WORKDIR/identity.out"
+err="$WORKDIR/identity.err"
+set +e
+run_guard "$CANDIDATE_DIR/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$CANDIDATE_DIR" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail "round-4 UAT fix regression: guard exited 0 (CLEAN) with renamed_oracle_identity.py planted, want non-zero -- this is the exact round-4 UAT reproduction"
+grep -q "root=agent_fixture_checkout" "$err" || fail "round-4 UAT fix regression: failure message does not name the fixture-checkout root: $(cat "$err")"
+grep -qF "$PLANTED_IDENTITY" "$err" || fail "round-4 UAT fix regression: failure message does not name the planted path: $(cat "$err")"
+grep -q 'source=evaluator_only.oracle_tests\[0\]' "$err" || fail "round-4 UAT fix regression: failure message does not name the matched evaluator_only source: $(cat "$err")"
+grep -q "match_kind=derived_test_identity" "$err" || fail "round-4 UAT fix regression: failure message's match_kind was not 'derived_test_identity': $(cat "$err")"
+grep -q "identity=test_add_task_accepts_recurrence_rule" "$err" || fail "round-4 UAT fix regression: failure message does not name the leaked identity test_add_task_accepts_recurrence_rule: $(cat "$err")"
+
+rm -f "$PLANTED_IDENTITY"
+echo "TC-043(round-4 UAT fix regression: renamed file carrying a held-back oracle's real test identity -> rejected, naming the identity) PASS"
 
 echo "TC-043: PASS"

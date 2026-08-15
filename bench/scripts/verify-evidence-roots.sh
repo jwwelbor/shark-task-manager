@@ -11,7 +11,7 @@
 # the two callers it is serving.
 #
 # Derives, from <package_yaml>'s own evaluator_only block (reference_solution,
-# oracle_tests[], answer_keys[]) resolved against <evaluator_root>, three
+# oracle_tests[], answer_keys[]) resolved against <evaluator_root>, four
 # independent signals per declared entry (REQ-F-011: "any evaluator-only
 # file, its content digest, or a test identity it defines"):
 #   (1) filename  -- a file bearing the same basename exists anywhere in an
@@ -32,7 +32,26 @@
 #                     skip-marked `test_recurring_task_...` placeholder)
 #                     inside any file's content in an agent-visible root
 #                     (catches a copy-paste that keeps the defining name but
-#                     drops the original file name).
+#                     drops the original file name -- but only when the new
+#                     name still shares the ORIGINAL file's stem; see (4)).
+#   (4) derived_test_identity -- oracle_tests[] entries only, additive to
+#                     (3), not a replacement (round-4 UAT fix, T-E40-F06-003):
+#                     the stem in (3) is an approximation that a file both
+#                     renamed AND stripped of any stem-bearing reference
+#                     (e.g. no `import test_recurring`) defeats. This signal
+#                     derives the entry's REAL, adapter-normalized test
+#                     identity(ies) -- what the file actually defines, not a
+#                     name guessed from its own filename -- by asking the
+#                     package's own declared adapter (its `adapter.name`
+#                     field resolved to bench/adapters/<name>/adapter.sh,
+#                     REQ-F-006) to enumerate them via its collect-ids
+#                     capability, never by this generic script parsing the
+#                     file's language itself (REQ-F-007). Each derived
+#                     identity's own defining-name segment is then searched
+#                     as a whole token the same way (3) searches the stem, so
+#                     a copy-paste that keeps only the defining function/test
+#                     name -- dropping BOTH the original file name and any
+#                     stem reference -- is still caught.
 #
 # Names are ALWAYS derived from <package_yaml> at call time (REQ-F-010) --
 # nothing here is hardcoded per scenario, so renaming an oracle_tests[]
@@ -49,11 +68,15 @@
 # `roots:` map (REQ-F-017: one machine-readable vocabulary owner) rather
 # than embedded here as a private copy.
 #
-# A REQ-NF-007 "bounded filesystem walk, no network call": this script
-# never checks out a fixture, never invokes an adapter, and never spawns any
-# process other than python3 for YAML/digest work -- both <fixture_checkout>
-# and <scratch_project> are caller-supplied, already-materialized
-# directories. It never invokes a dispatcher of any kind, which is exactly
+# A REQ-NF-007 "bounded filesystem walk, no network call": this script never
+# checks out a fixture and never spawns any process other than python3 (for
+# YAML/digest work) and, once per oracle_tests[] entry, the package's own
+# declared adapter's collect-ids capability (signal (4) above) -- a single
+# bounded local subprocess, no network, run with its collection-cache
+# disabled so it never writes into <fixture_checkout> (the very root this
+# script is about to scan). Both <fixture_checkout> and <scratch_project> are
+# otherwise caller-supplied, already-materialized directories this script
+# only reads. It never invokes a dispatcher of any kind, which is exactly
 # the property AC-009 case (d) observes via a PATH-stubbed dispatcher's
 # empty invocation log.
 #
@@ -116,15 +139,17 @@ fixture_checkout_abs="$(cd "$fixture_checkout" && pwd)"
 scratch_project_abs="$(cd "$scratch_project" && pwd)"
 evaluator_root_abs="$(cd "$evaluator_root" && pwd)"
 
-python3 - "$package_yaml_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$evaluator_root_abs" "$I05_SCHEMA" <<'PYEOF'
+python3 - "$package_yaml_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$evaluator_root_abs" "$I05_SCHEMA" "$BENCH_DIR/adapters" <<'PYEOF'
 import hashlib
+import json
 import os
 import re
+import subprocess
 import sys
 
 import yaml
 
-package_yaml_path, fixture_checkout, scratch_project, evaluator_root, i05_schema_path = sys.argv[1:6]
+package_yaml_path, fixture_checkout, scratch_project, evaluator_root, i05_schema_path, adapters_dir = sys.argv[1:7]
 
 
 class ScriptError(RuntimeError):
@@ -159,7 +184,67 @@ def resolve_in_evaluator_root(evaluator_root, rel_path, label):
     return candidate
 
 
-def build_targets(package_yaml_path, evaluator_root):
+def word_boundary_pattern(token):
+    """Compiles a whole-token byte regex for `token` (no adjoining
+    [A-Za-z0-9_.] on either side) -- shared by the stem signal (3) and the
+    adapter-derived identity signal (4) below so both apply the identical
+    false-positive protections (the word-boundary regression case tc043
+    exercises for signal (3) applies equally to (4))."""
+    return re.compile(rb"(?<![A-Za-z0-9_.])" + re.escape(token.encode()) + rb"(?![A-Za-z0-9_.])")
+
+
+def derive_test_identities(package, package_yaml_path, resolved_path, fixture_checkout, adapters_dir, label):
+    """Shells out to the package's own declared adapter's collect-ids
+    capability (REQ-F-007: this generic script never parses the file's
+    language itself) to learn the REAL, normalized test identity name(s)
+    `resolved_path` defines -- round-4 UAT fix, T-E40-F06-003: the stem
+    signal (3) above is only an approximation of a defined test's identity,
+    and a file both renamed and stripped of any stem reference defeats it.
+    Fails closed (ScriptError, exit 2) on any adapter resolution or
+    invocation problem, mirroring T-E40-F06-002's fail-closed identity
+    precedent -- an oracle_tests[] entry this script cannot verify is never
+    silently skipped."""
+    adapter_block = package.get("adapter")
+    if not isinstance(adapter_block, dict) or not adapter_block.get("name"):
+        raise ScriptError(
+            f"{label}: package.yaml has no adapter.name -- cannot derive this oracle_tests[] entry's real test identity: {package_yaml_path}"
+        )
+    adapter_name = adapter_block["name"]
+    adapter_script = os.path.join(adapters_dir, adapter_name, "adapter.sh")
+    if not os.path.isfile(adapter_script) or not os.access(adapter_script, os.X_OK):
+        raise ScriptError(f"{label}: adapter.name {adapter_name!r} has no executable adapter.sh at {adapter_script!r}")
+
+    try:
+        proc = subprocess.run(
+            [adapter_script, "collect-ids", "--checkout", fixture_checkout, "--file", resolved_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ScriptError(f"{label}: {adapter_name!r} adapter's collect-ids capability timed out: {exc}") from exc
+
+    if proc.returncode != 0:
+        raise ScriptError(
+            f"{label}: {adapter_name!r} adapter's collect-ids capability failed (exit {proc.returncode}): {proc.stderr.strip()}"
+        )
+
+    try:
+        payload = json.loads(proc.stdout)
+        names = [entry["name"] for entry in payload["ids"]]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ScriptError(
+            f"{label}: {adapter_name!r} adapter's collect-ids capability returned malformed output: {proc.stdout!r}"
+        ) from exc
+
+    if not names:
+        raise ScriptError(
+            f"{label}: {adapter_name!r} adapter's collect-ids capability found no test identities defined in {resolved_path!r}"
+        )
+    return names
+
+
+def build_targets(package_yaml_path, evaluator_root, fixture_checkout, adapters_dir):
     """Builds the ordered, package-derived list of search targets
     (REQ-F-010: "names MUST be derived from the package at call time, never
     from a hardcoded list")."""
@@ -214,10 +299,14 @@ def build_targets(package_yaml_path, evaluator_root):
         # verified against the real py-bug-due-date-boundary package this
         # would have been a live false positive for, not a hypothetical one.
         stem_pattern = None
+        identity_names = []
+        identity_patterns = []
         if field == "oracle_tests":
-            stem_pattern = re.compile(
-                rb"(?<![A-Za-z0-9_.])" + re.escape(stem.encode()) + rb"(?![A-Za-z0-9_.])"
+            stem_pattern = word_boundary_pattern(stem)
+            identity_names = derive_test_identities(
+                package, package_yaml_path, resolved, fixture_checkout, adapters_dir, label
             )
+            identity_patterns = [word_boundary_pattern(name) for name in identity_names]
         targets.append(
             {
                 "source": label,
@@ -225,6 +314,8 @@ def build_targets(package_yaml_path, evaluator_root):
                 "basename": basename,
                 "stem": stem,
                 "stem_pattern": stem_pattern,
+                "identity_names": identity_names,
+                "identity_patterns": identity_patterns,
                 "digest": digest,
             }
         )
@@ -243,7 +334,12 @@ def walk_files(root):
 def check_root(root_name, root_path, targets):
     """Returns the first violation found walking root_path, checking
     targets in their package-declared order and match kinds in a fixed
-    priority (filename, content_digest, test_identity), or None if clean."""
+    priority (filename, content_digest, test_identity, derived_test_identity
+    -- see signals (1)-(4) above), or None if clean. derived_test_identity is
+    deliberately checked LAST: it is additive to test_identity (3), not a
+    replacement, so a file that already matches an earlier signal reports
+    that signal's kind unchanged (T-E40-F06-003 round-4 UAT fix -- existing
+    match_kind assertions in tc043 must not regress)."""
     for path in walk_files(root_path):
         try:
             with open(path, "rb") as f:
@@ -254,11 +350,14 @@ def check_root(root_name, root_path, targets):
         file_digest = hashlib.sha256(file_bytes).hexdigest()
         for target in targets:
             if file_basename == target["basename"]:
-                return (root_name, path, target, "filename")
+                return (root_name, path, target, "filename", None)
             if file_digest == target["digest"]:
-                return (root_name, path, target, "content_digest")
+                return (root_name, path, target, "content_digest", None)
             if target["stem_pattern"] is not None and target["stem_pattern"].search(file_bytes):
-                return (root_name, path, target, "test_identity")
+                return (root_name, path, target, "test_identity", None)
+            for identity_name, identity_pattern in zip(target["identity_names"], target["identity_patterns"]):
+                if identity_pattern.search(file_bytes):
+                    return (root_name, path, target, "derived_test_identity", identity_name)
     return None
 
 
@@ -274,19 +373,20 @@ def main():
     root_fixture_checkout = "agent_fixture_checkout"
     root_scratch_project = "scratch_shark_project"
 
-    targets = build_targets(package_yaml_path, evaluator_root)
+    targets = build_targets(package_yaml_path, evaluator_root, fixture_checkout, adapters_dir)
 
     violation = check_root(root_fixture_checkout, fixture_checkout, targets) or check_root(
         root_scratch_project, scratch_project, targets
     )
 
     if violation is not None:
-        root_name, matched_path, target, match_kind = violation
+        root_name, matched_path, target, match_kind, identity_name = violation
+        identity_suffix = f" identity={identity_name}" if identity_name is not None else ""
         sys.stderr.write(
             "verify-evidence-roots: isolation_violation: "
             f"root={root_name} path={matched_path} "
             f"source={target['source']}={target['declared_path']!r} "
-            f"match_kind={match_kind}\n"
+            f"match_kind={match_kind}{identity_suffix}\n"
         )
         sys.exit(1)
 
