@@ -299,16 +299,11 @@ generic scenario, evidence, or admission script reaches a language-specific
 command through this interface. `bench/adapters/<name>/adapter.yaml`
 declares `{name, version}`, registered in `scenarios.yaml`'s `adapters:` map.
 
-A closed set — originally six capabilities, adding a seventh requires an
-I-04 `schema_version` bump. `collect-ids` (below) was added by E40-F06
-(T-E40-F06-003 round-4 UAT fix) without that bump: the bump would touch
-every committed `package.yaml`/`scenarios.yaml` file, which is I-04/E40-F05
-corpus, and this feature's own Integration Contracts row holds I-04 in
-`contract-only` gate mode. This is a known, flagged gap against the
-convention this paragraph states, deferred to I-04's owner (E40-F05) rather
-than made from an F06 rework — not a silent violation. The go adapter does
-not implement `collect-ids` (no committed I-04 package registers it, so no
-consumer exists yet). Each capability writes one JSON document to stdout:
+A closed set — six capabilities; adding a seventh requires an I-04
+`schema_version` bump (that bump would touch every committed
+`package.yaml`/`scenarios.yaml` file, I-04/E40-F05 corpus this feature's own
+Integration Contracts row holds in `contract-only` gate mode). Each
+capability writes one JSON document to stdout:
 
 | Capability | Arguments | stdout JSON |
 |---|---|---|
@@ -318,7 +313,6 @@ consumer exists yet). Each capability writes one JSON document to stdout:
 | `lint` | `--checkout <dir>` | `{issues: [{rule, file, text}]}` — a multiset; identity excludes line/column so it is stable under position shifts. |
 | `build` | `--checkout <dir>` | `{ok: bool, diagnostics: [string]}`. Used by admission check (a). |
 | `format-check` | `--checkout <dir>` | `{ok: bool, offending_files: [string]}`. |
-| `collect-ids` | `--checkout <dir> --file <path>` | `{ids: [{id, name}]}` — the real, normalized test identity(ies) `<path>` defines, discovered without executing them (import + collection only). Lets a generic isolation guard (`verify-evidence-roots.sh`) reject a leaked identity by what a file actually defines, not by approximating it from the file's own name. Python only today (see above). |
 
 Exit status `0` means "the capability ran" — even when its *subject* is red
 (a failing test, a lint issue, an unformatted file): that outcome is
@@ -941,6 +935,22 @@ I-04 package layout:
   (REQ-F-010, AC-010). Exit `0` = both roots clean ("CLEAN" on stdout).
   Exit `1` = an isolation violation, naming the offending root, path, and
   matched evaluator-only source. Exit `2` = a script/usage/authoring error.
+  For an `oracle_tests[]` entry, one signal (`derived_test_identity`) derives
+  the file's REAL, normalized test identity(ies) rather than approximating
+  them from the file's own name (T-E40-F06-003 round-4 UAT fix) — it
+  resolves the package's declared `adapter.name` through TWO registries
+  (never a raw path join of that candidate-controlled string, round-3
+  code-review fix): `scenarios.yaml`'s own `adapters:` map confirms it names
+  a real, registered I-04 adapter; `bench/scripts/id-collectors/registry.yaml`
+  then maps that same name to a collector script this feature owns. This
+  keeps the capability outside `bench/adapters/**` entirely (REQ-NF-006
+  freezes that tree) while still leaving the generic guard itself ignorant
+  of any language's syntax (REQ-F-007) — it only shells out to the resolved
+  collector, e.g. `bench/scripts/id-collectors/python-collect-ids.sh
+  --checkout <dir> --file <path>` (a real toolchain-collection subprocess,
+  no test body ever executed), emitting `{ids: [{id, name}]}` for every
+  identity a file defines, including a parametrized test's base name with
+  any runtime `[param]` suffix stripped.
 - Evaluator access after the isolation boundary is lifted only in the
   REQ-F-012 order — see "Evaluator access ordering" below.
 

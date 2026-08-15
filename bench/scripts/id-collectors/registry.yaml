@@ -1,0 +1,29 @@
+# F06-owned registry mapping a REGISTERED I-04 adapter name to this
+# feature's own test-identity collector script (T-E40-F06-003 round-3
+# code-review rework).
+#
+# Deliberately a second, independent registry -- not a new field bolted onto
+# bench/scenarios/scenarios.yaml's own `adapters:` map -- because
+# REQ-NF-006 freezes bench/scenarios/** (and bench/adapters/**) as I-04's
+# byte-unchanged surface; this feature reads that map read-only (to confirm
+# an adapter.name is a REAL, registered I-04 adapter, mirroring
+# admit-scenario.sh's resolve_adapter_script) but may not add a field to it.
+# This file is what F06 owns and edits instead.
+#
+# verify-evidence-roots.sh resolves a package-declared adapter.name to a
+# collector script via TWO independent dict-keyed lookups (scenarios.yaml's
+# adapters: map, then this file's collectors: map) -- never a raw
+# os.path.join of the untrusted, candidate-controlled adapter.name string
+# (T-E40-F06-003 round-3 code-review finding F.1: the prior fix joined
+# adapter_name directly into a filesystem path with no registry lookup or
+# containment check, letting an absolute or '../'-laden name select and
+# execute an arbitrary script).
+#
+# collect-ids never lived under bench/adapters/<name>/adapter.sh to begin
+# with (round-3 code-review finding F.5: that tree is frozen and may not
+# gain a capability from this feature) -- each collector below is a sibling
+# script this feature owns outright, not a hidden extra adapter capability.
+# No go-adapter parity: no committed I-04 package registers the go adapter
+# for an oracle_tests[] entry today, so no go collector exists yet.
+collectors:
+  python: python-collect-ids.sh

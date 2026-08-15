@@ -537,4 +537,104 @@ grep -q "identity=test_add_task_accepts_recurrence_rule" "$err" || fail "round-4
 rm -f "$PLANTED_IDENTITY"
 echo "TC-043(round-4 UAT fix regression: renamed file carrying a held-back oracle's real test identity -> rejected, naming the identity) PASS"
 
+# ---------------------------------------------------------------------------
+# Round-3 code-review fix regression, finding F.1 (T-E40-F06-003): a
+# malicious/escaping package.yaml adapter.name must not select and execute
+# an arbitrary script. Points adapter.name at a real, executable script
+# outside bench/scenarios/scenarios.yaml's registered adapters -- both an
+# absolute-path escape and a '../'-laden traversal escape -- and asserts the
+# guard fails closed (non-zero, never CLEAN) WITHOUT ever invoking the
+# planted script (its own marker file is proof of non-execution, a stronger
+# assertion than the exit code alone: even a guard that failed closed for an
+# unrelated reason after already running the script would leave this marker
+# behind).
+# ---------------------------------------------------------------------------
+echo "TC-043: round-3 code-review fix regression - malicious adapter.name path escape"
+
+MALICIOUS_ADAPTER_DIR="$WORKDIR/evil-adapter-dir"
+mkdir -p "$MALICIOUS_ADAPTER_DIR"
+EVIL_MARKER="$WORKDIR/evil-adapter-invoked.marker"
+rm -f "$EVIL_MARKER"
+cat >"$MALICIOUS_ADAPTER_DIR/adapter.sh" <<EOF
+#!/usr/bin/env bash
+touch "$EVIL_MARKER"
+echo '{"ids": [{"id": "x", "name": "pwned"}]}'
+EOF
+chmod +x "$MALICIOUS_ADAPTER_DIR/adapter.sh"
+
+assert_adapter_name_escape_rejected() {
+	# assert_adapter_name_escape_rejected <label> <malicious_adapter_name>
+	local label="$1" malicious_name="$2"
+	local candidate
+	candidate="$(mk_candidate "evil-adapter-$label")"
+	python3 - "$candidate/package.yaml" "$malicious_name" <<'PYEOF'
+import sys
+
+import yaml
+
+path, malicious_name = sys.argv[1:3]
+with open(path) as f:
+    data = yaml.safe_load(f)
+data["adapter"] = {"name": malicious_name, "version": "1.0.0"}
+with open(path, "w") as f:
+    yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+PYEOF
+
+	local out="$WORKDIR/evil-adapter-$label.out" err="$WORKDIR/evil-adapter-$label.err"
+	set +e
+	run_guard "$candidate/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$candidate" >"$out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -ne 0 ]] || fail "adapter.name escape ($label): guard exited 0 (CLEAN) with a malicious adapter.name=$malicious_name, want non-zero"
+	[[ "$(cat "$out")" != "CLEAN" ]] || fail "adapter.name escape ($label): guard stdout was CLEAN with a malicious adapter.name=$malicious_name planted"
+	[[ ! -e "$EVIL_MARKER" ]] || fail "adapter.name escape ($label): the planted malicious adapter.sh at $MALICIOUS_ADAPTER_DIR was ACTUALLY EXECUTED (marker file present) -- path-escape/execution vulnerability, not merely a failed guard: $(cat "$err")"
+	grep -q "adapter.name not registered" "$err" || fail "adapter.name escape ($label): failure message does not report the unregistered/rejected adapter.name (fail-closed via registry lookup, not execution): $(cat "$err")"
+}
+
+TRAVERSAL_ADAPTER_NAME="$(python3 -c "import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$MALICIOUS_ADAPTER_DIR" "$BENCH_DIR/adapters")"
+[[ "$TRAVERSAL_ADAPTER_NAME" == ../* ]] || fail "test setup bug: computed traversal adapter.name does not actually contain '../': $TRAVERSAL_ADAPTER_NAME"
+
+assert_adapter_name_escape_rejected absolute "$MALICIOUS_ADAPTER_DIR"
+assert_adapter_name_escape_rejected traversal "$TRAVERSAL_ADAPTER_NAME"
+
+echo "TC-043(round-3 code-review fix regression: malicious adapter.name (absolute and '../' traversal) rejected without executing the planted script) PASS"
+
+# ---------------------------------------------------------------------------
+# Round-3 code-review fix regression, finding F.2 (T-E40-F06-003): a renamed
+# copy of a parametrize-decorated oracle test, stripped of its original file
+# name and any stem reference, must still be caught. The runtime node id
+# (e.g. "test_foo[1]") never appears as literal source text in
+# "def test_foo(n): ...", so only a derived BASE identity (the [param]
+# suffix stripped) can catch this via a word-boundary source search.
+# ---------------------------------------------------------------------------
+echo "TC-043: round-3 code-review fix regression - renamed parametrized oracle test"
+
+PARAM_CANDIDATE="$(mk_candidate parametrized)"
+# Copied from a committed fixture rather than heredoc'd inline: a real
+# parametrize-decorated test cannot be authored without a collection-tool
+# token TC-051's AC-T3 forbidden-token sweep looks for, and this script is
+# itself a sweep target.
+cp "$OFFLINE_FIXTURES/parametrized-oracle/test_recurring.py" "$PARAM_CANDIDATE/evaluator/test_recurring.py"
+
+PLANTED_PARAM_IDENTITY="$FIXTURE_CHECKOUT/renamed_param_oracle_identity.py"
+cat >"$PLANTED_PARAM_IDENTITY" <<'EOF'
+def test_add_task_accepts_recurrence_rule_param(n):
+    assert n > 0
+EOF
+
+out="$WORKDIR/param-identity.out"
+err="$WORKDIR/param-identity.err"
+set +e
+run_guard "$PARAM_CANDIDATE/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$PARAM_CANDIDATE" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail "round-3 code-review fix regression (parametrized): guard exited 0 (CLEAN) with a renamed parametrized oracle test planted, want non-zero"
+grep -q "root=agent_fixture_checkout" "$err" || fail "round-3 code-review fix regression (parametrized): failure message does not name the fixture-checkout root: $(cat "$err")"
+grep -qF "$PLANTED_PARAM_IDENTITY" "$err" || fail "round-3 code-review fix regression (parametrized): failure message does not name the planted path: $(cat "$err")"
+grep -q "match_kind=derived_test_identity" "$err" || fail "round-3 code-review fix regression (parametrized): failure message's match_kind was not 'derived_test_identity': $(cat "$err")"
+grep -q "identity=test_add_task_accepts_recurrence_rule_param" "$err" || fail "round-3 code-review fix regression (parametrized): failure message does not name the base (suffix-stripped) leaked identity: $(cat "$err")"
+
+rm -f "$PLANTED_PARAM_IDENTITY"
+echo "TC-043(round-3 code-review fix regression: renamed parametrized oracle test -> rejected, naming the base identity) PASS"
+
 echo "TC-043: PASS"

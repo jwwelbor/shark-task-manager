@@ -39,19 +39,31 @@
 #                     the stem in (3) is an approximation that a file both
 #                     renamed AND stripped of any stem-bearing reference
 #                     (e.g. no `import test_recurring`) defeats. This signal
-#                     derives the entry's REAL, adapter-normalized test
-#                     identity(ies) -- what the file actually defines, not a
-#                     name guessed from its own filename -- by asking the
-#                     package's own declared adapter (its `adapter.name`
-#                     field resolved to bench/adapters/<name>/adapter.sh,
-#                     REQ-F-006) to enumerate them via its collect-ids
-#                     capability, never by this generic script parsing the
-#                     file's language itself (REQ-F-007). Each derived
+#                     derives the entry's REAL, normalized test identity(ies)
+#                     -- what the file actually defines, not a name guessed
+#                     from its own filename -- by resolving the package's
+#                     declared `adapter.name` through TWO independent
+#                     registries (never a raw path join of that untrusted,
+#                     candidate-controlled string, T-E40-F06-003 round-3
+#                     code-review fix): first bench/scenarios/scenarios.yaml's
+#                     own `adapters:` map confirms it names a REAL, registered
+#                     I-04 adapter (mirroring admit-scenario.sh's
+#                     resolve_adapter_script); then this feature's own
+#                     bench/scripts/id-collectors/registry.yaml maps that same
+#                     validated name to a collector script THIS feature owns
+#                     (collect-ids never lived under bench/adapters/**, which
+#                     REQ-NF-006 leaves frozen). The generic guard never
+#                     parses the file's language itself (REQ-F-007) -- it only
+#                     shells out to the resolved collector. Each derived
 #                     identity's own defining-name segment is then searched
 #                     as a whole token the same way (3) searches the stem, so
 #                     a copy-paste that keeps only the defining function/test
 #                     name -- dropping BOTH the original file name and any
-#                     stem reference -- is still caught.
+#                     stem reference -- is still caught, including for a
+#                     parametrized test (whose collector-derived identities
+#                     include the base name with any runtime `[param]` suffix
+#                     stripped, since that suffix never appears in the file's
+#                     own source text).
 #
 # Names are ALWAYS derived from <package_yaml> at call time (REQ-F-010) --
 # nothing here is hardcoded per scenario, so renaming an oracle_tests[]
@@ -70,15 +82,15 @@
 #
 # A REQ-NF-007 "bounded filesystem walk, no network call": this script never
 # checks out a fixture and never spawns any process other than python3 (for
-# YAML/digest work) and, once per oracle_tests[] entry, the package's own
-# declared adapter's collect-ids capability (signal (4) above) -- a single
-# bounded local subprocess, no network, run with its collection-cache
-# disabled so it never writes into <fixture_checkout> (the very root this
-# script is about to scan). Both <fixture_checkout> and <scratch_project> are
-# otherwise caller-supplied, already-materialized directories this script
-# only reads. It never invokes a dispatcher of any kind, which is exactly
-# the property AC-009 case (d) observes via a PATH-stubbed dispatcher's
-# empty invocation log.
+# YAML/digest work) and, once per oracle_tests[] entry, the id-collectors/
+# registry-resolved collector script (signal (4) above) -- a single bounded
+# local subprocess, no network, run with its collection-cache disabled so it
+# never writes into <fixture_checkout> (the very root this script is about to
+# scan). Both <fixture_checkout> and <scratch_project> are otherwise
+# caller-supplied, already-materialized directories this script only reads.
+# It never invokes a dispatcher of any kind, which is exactly the property
+# AC-009 case (d) observes via a PATH-stubbed dispatcher's empty invocation
+# log.
 #
 # Exit status: 0 = both roots clean ("CLEAN" on stdout). 1 = an isolation
 # violation was found -- a normal, informative verdict; the message on
@@ -139,7 +151,7 @@ fixture_checkout_abs="$(cd "$fixture_checkout" && pwd)"
 scratch_project_abs="$(cd "$scratch_project" && pwd)"
 evaluator_root_abs="$(cd "$evaluator_root" && pwd)"
 
-python3 - "$package_yaml_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$evaluator_root_abs" "$I05_SCHEMA" "$BENCH_DIR/adapters" <<'PYEOF'
+python3 - "$package_yaml_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$evaluator_root_abs" "$I05_SCHEMA" "$BENCH_DIR/scenarios/scenarios.yaml" "$SCRIPT_DIR/id-collectors" <<'PYEOF'
 import hashlib
 import json
 import os
@@ -149,7 +161,15 @@ import sys
 
 import yaml
 
-package_yaml_path, fixture_checkout, scratch_project, evaluator_root, i05_schema_path, adapters_dir = sys.argv[1:7]
+(
+    package_yaml_path,
+    fixture_checkout,
+    scratch_project,
+    evaluator_root,
+    i05_schema_path,
+    scenarios_yaml_path,
+    collectors_dir,
+) = sys.argv[1:8]
 
 
 class ScriptError(RuntimeError):
@@ -193,58 +213,145 @@ def word_boundary_pattern(token):
     return re.compile(rb"(?<![A-Za-z0-9_.])" + re.escape(token.encode()) + rb"(?![A-Za-z0-9_.])")
 
 
-def derive_test_identities(package, package_yaml_path, resolved_path, fixture_checkout, adapters_dir, label):
-    """Shells out to the package's own declared adapter's collect-ids
-    capability (REQ-F-007: this generic script never parses the file's
-    language itself) to learn the REAL, normalized test identity name(s)
-    `resolved_path` defines -- round-4 UAT fix, T-E40-F06-003: the stem
-    signal (3) above is only an approximation of a defined test's identity,
-    and a file both renamed and stripped of any stem reference defeats it.
-    Fails closed (ScriptError, exit 2) on any adapter resolution or
-    invocation problem, mirroring T-E40-F06-002's fail-closed identity
-    precedent -- an oracle_tests[] entry this script cannot verify is never
-    silently skipped."""
+def resolve_collector_script(adapter_name, scenarios_yaml_path, collectors_dir, label):
+    """Resolves a package-declared adapter.name (untrusted -- REQ-F-010's
+    "for each I-04 scenario package" reads any candidate's own package.yaml,
+    including a not-yet-admitted one) to this feature's own test-identity
+    collector script via TWO independent dict-keyed registry lookups, never
+    a raw os.path.join of the untrusted string (T-E40-F06-003 round-3
+    code-review finding F.1: the prior fix joined adapter_name directly into
+    a filesystem path with no registry lookup or containment check, letting
+    an absolute or '../'-laden name escape bench/adapters/ entirely and
+    select/execute an arbitrary script).
+
+    Step 1 mirrors admit-scenario.sh's own resolve_adapter_script
+    (bench/scripts/admit-scenario.sh:151-158) -- the established, safe
+    precedent for resolving this exact field -- confirming adapter_name
+    names a REAL, registered I-04 adapter per bench/scenarios/scenarios.yaml's
+    own `adapters:` map (a file this feature reads but never edits,
+    REQ-NF-006).
+
+    Step 2 looks up that SAME validated adapter_name in this feature's own
+    id-collectors/registry.yaml to find its collector script. This is an
+    independent registry, not a second hop through scenarios.yaml's
+    adapters: map: collect-ids never lived under bench/adapters/<name>/
+    adapter.sh (round-3 code-review finding F.5 -- that tree is frozen and
+    may not gain a capability from this feature), so its resolution target
+    is a sibling script this feature owns, not an adapter.sh path.
+
+    Fails closed (ScriptError, exit 2) if adapter_name is not registered in
+    EITHER map, or if the resolved collector path escapes collectors_dir or
+    is not an executable file."""
+    with open(scenarios_yaml_path) as f:
+        scenarios_data = yaml.safe_load(f)
+    if not isinstance(scenarios_data, dict):
+        raise ScriptError(f"{label}: scenarios.yaml is not a YAML mapping: {scenarios_yaml_path}")
+    registered_adapters = scenarios_data.get("adapters") or {}
+    if adapter_name not in registered_adapters:
+        raise ScriptError(f"{label}: adapter.name not registered in {scenarios_yaml_path}: {adapter_name!r}")
+
+    registry_path = os.path.join(collectors_dir, "registry.yaml")
+    with open(registry_path) as f:
+        registry_data = yaml.safe_load(f)
+    if not isinstance(registry_data, dict):
+        raise ScriptError(f"{label}: id-collectors registry is not a YAML mapping: {registry_path}")
+    collectors = registry_data.get("collectors") or {}
+    collector_rel = collectors.get(adapter_name)
+    if not collector_rel:
+        raise ScriptError(
+            f"{label}: adapter {adapter_name!r} has no test-identity collector registered in {registry_path}"
+        )
+
+    collectors_dir_real = os.path.realpath(collectors_dir)
+    collector_script = os.path.realpath(os.path.join(collectors_dir, collector_rel))
+    if collector_script != collectors_dir_real and not collector_script.startswith(collectors_dir_real + os.sep):
+        raise ScriptError(
+            f"{label}: id-collectors registry entry for {adapter_name!r} escapes {collectors_dir!r}: "
+            f"{collector_rel!r} -> {collector_script!r}"
+        )
+    if not os.path.isfile(collector_script) or not os.access(collector_script, os.X_OK):
+        raise ScriptError(
+            f"{label}: collector script for adapter {adapter_name!r} not found or not executable: {collector_script!r}"
+        )
+    return collector_script
+
+
+def derive_test_identities(package, package_yaml_path, resolved_path, fixture_checkout, scenarios_yaml_path, collectors_dir, label):
+    """Shells out to a registry-resolved, F06-owned test-identity collector
+    (REQ-F-007: this generic script never parses the file's language itself)
+    to learn the REAL, normalized test identity name(s) `resolved_path`
+    defines -- round-4 UAT fix, T-E40-F06-003: the stem signal (3) above is
+    only an approximation of a defined test's identity, and a file both
+    renamed and stripped of any stem reference defeats it. Fails closed
+    (ScriptError, exit 2) on any collector resolution or invocation problem,
+    mirroring T-E40-F06-002's fail-closed identity precedent -- an
+    oracle_tests[] entry this script cannot verify is never silently
+    skipped."""
     adapter_block = package.get("adapter")
     if not isinstance(adapter_block, dict) or not adapter_block.get("name"):
         raise ScriptError(
             f"{label}: package.yaml has no adapter.name -- cannot derive this oracle_tests[] entry's real test identity: {package_yaml_path}"
         )
     adapter_name = adapter_block["name"]
-    adapter_script = os.path.join(adapters_dir, adapter_name, "adapter.sh")
-    if not os.path.isfile(adapter_script) or not os.access(adapter_script, os.X_OK):
-        raise ScriptError(f"{label}: adapter.name {adapter_name!r} has no executable adapter.sh at {adapter_script!r}")
+    if not isinstance(adapter_name, str):
+        raise ScriptError(f"{label}: package.yaml adapter.name is not a string: {adapter_name!r}")
+
+    collector_script = resolve_collector_script(adapter_name, scenarios_yaml_path, collectors_dir, label)
 
     try:
         proc = subprocess.run(
-            [adapter_script, "collect-ids", "--checkout", fixture_checkout, "--file", resolved_path],
+            [collector_script, "--checkout", fixture_checkout, "--file", resolved_path],
             capture_output=True,
             text=True,
             timeout=60,
         )
     except subprocess.TimeoutExpired as exc:
-        raise ScriptError(f"{label}: {adapter_name!r} adapter's collect-ids capability timed out: {exc}") from exc
+        raise ScriptError(f"{label}: {adapter_name!r} adapter's test-identity collector timed out: {exc}") from exc
 
     if proc.returncode != 0:
         raise ScriptError(
-            f"{label}: {adapter_name!r} adapter's collect-ids capability failed (exit {proc.returncode}): {proc.stderr.strip()}"
+            f"{label}: {adapter_name!r} adapter's test-identity collector failed (exit {proc.returncode}): {proc.stderr.strip()}"
         )
 
     try:
         payload = json.loads(proc.stdout)
-        names = [entry["name"] for entry in payload["ids"]]
+        raw_entries = payload["ids"]
     except (ValueError, KeyError, TypeError) as exc:
         raise ScriptError(
-            f"{label}: {adapter_name!r} adapter's collect-ids capability returned malformed output: {proc.stdout!r}"
+            f"{label}: {adapter_name!r} adapter's test-identity collector returned malformed output: {proc.stdout!r}"
         ) from exc
+
+    names = []
+    for entry in raw_entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        # Hardening (round-3 code-review finding F.7): reject a malformed or
+        # degenerate collector response before it becomes a search pattern --
+        # an empty string zero-width-matches almost any byte offset, so a
+        # {"name": ""} entry would make the guard report a false
+        # isolation_violation on nearly any file in an otherwise-clean root.
+        if not isinstance(name, str) or not name:
+            raise ScriptError(
+                f"{label}: {adapter_name!r} adapter's test-identity collector returned a non-string or empty name: {entry!r}"
+            )
+        names.append(name)
 
     if not names:
         raise ScriptError(
-            f"{label}: {adapter_name!r} adapter's collect-ids capability found no test identities defined in {resolved_path!r}"
+            f"{label}: {adapter_name!r} adapter's test-identity collector found no test identities defined in {resolved_path!r}"
         )
-    return names
+    # Dedupe, preserving first-seen order (a parametrized test's stripped
+    # base identity repeats across several parametrize cases).
+    seen = set()
+    deduped = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append(name)
+    return deduped
 
 
-def build_targets(package_yaml_path, evaluator_root, fixture_checkout, adapters_dir):
+def build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios_yaml_path, collectors_dir):
     """Builds the ordered, package-derived list of search targets
     (REQ-F-010: "names MUST be derived from the package at call time, never
     from a hardcoded list")."""
@@ -304,7 +411,7 @@ def build_targets(package_yaml_path, evaluator_root, fixture_checkout, adapters_
         if field == "oracle_tests":
             stem_pattern = word_boundary_pattern(stem)
             identity_names = derive_test_identities(
-                package, package_yaml_path, resolved, fixture_checkout, adapters_dir, label
+                package, package_yaml_path, resolved, fixture_checkout, scenarios_yaml_path, collectors_dir, label
             )
             identity_patterns = [word_boundary_pattern(name) for name in identity_names]
         targets.append(
@@ -373,7 +480,7 @@ def main():
     root_fixture_checkout = "agent_fixture_checkout"
     root_scratch_project = "scratch_shark_project"
 
-    targets = build_targets(package_yaml_path, evaluator_root, fixture_checkout, adapters_dir)
+    targets = build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios_yaml_path, collectors_dir)
 
     violation = check_root(root_fixture_checkout, fixture_checkout, targets) or check_root(
         root_scratch_project, scratch_project, targets
