@@ -499,6 +499,49 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 			}
 		})
 
+		// A provider absent from usage-mapping.yaml's Providers map entirely
+		// (never declared, as opposed to openai_codex_cli above, which IS
+		// declared with status "unmapped") must fail closed identically:
+		// the mapping is the single source of truth for which providers are
+		// bound (REQ-F-009), so an undeclared provider can never be
+		// presented as decoded either. UAT round 1 (2026-08-15) named
+		// "unknown" as a distinct required category alongside "missing" and
+		// "unmapped" -- this pair of fixtures gives it dedicated coverage
+		// instead of resting on the unmapped-provider cases alone.
+		t.Run("unknown_provider_rejects_decoded_usage", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "invalid", "unknown-provider-decoded-usage")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+			if len(errs) == 0 {
+				t.Fatal("expected validation errors, got none")
+			}
+			if !e40ContainsErrorMatching(errs, "unmapped_provider", "acme_widget_cli") {
+				t.Errorf("expected an error naming the unknown provider %q, got:\n%s", "acme_widget_cli", strings.Join(errs, "\n"))
+			}
+			// Purity check: the fixture carries exactly this one injected
+			// defect (a decoded usage value under a provider the mapping
+			// has never heard of).
+			for _, e := range errs {
+				if !strings.Contains(e, "unmapped_provider") {
+					t.Errorf("unexpected error not matching this case's own defect class: %s\nall errors:\n%s", e, strings.Join(errs, "\n"))
+				}
+			}
+			// Confirm the fixture's premise: acme_widget_cli is genuinely
+			// absent from the committed mapping, not merely unmapped.
+			if _, known := mapping.Providers["acme_widget_cli"]; known {
+				t.Fatalf("test fixture bug: %q must NOT be declared in usage-mapping.yaml's providers map", "acme_widget_cli")
+			}
+		})
+
+		t.Run("unknown_provider_absent_slots_accepted", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "valid", "unknown-provider-absent-usage")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+			if len(errs) != 0 {
+				t.Errorf("recorded-absent unknown-provider usage failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
 		t.Run("unverified_slot_required_by_mapping_is_rejected", func(t *testing.T) {
 			path := filepath.Join(testdataRoot, "invalid", "usage-mapping-unverified-required-slot", "usage-mapping.yaml")
 			mutated := e40I05ReadUsageMapping(t, path)
