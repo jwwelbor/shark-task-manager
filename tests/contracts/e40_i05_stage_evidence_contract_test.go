@@ -628,6 +628,44 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 				}
 			}
 		})
+
+		// e40I05ValidateIdentityCompleteness is only invoked for `code`/
+		// `review` stages (the same category gate as e40I05ValidateCandidate,
+		// see e40I05ValidateStageSnapshot) -- every case above uses `qa` to
+		// isolate the usage-mapping check cleanly, so none of them actually
+		// exercises this function's own unmapped/unknown branch. Prove it
+		// directly with `code`-category fixtures: a candidate stage produced
+		// by an unmapped or wholly unknown provider carries zero decoded
+		// usage (REQ-F-009 forces this -- see usage_mapping_fail_closed
+		// above) and is therefore never identity-complete by definition, so
+		// e40I05ValidateIdentityCompleteness intentionally defers to
+		// e40I05ValidateUsageProviderMapping rather than independently
+		// rejecting it for the required slots it can never carry (see this
+		// function's doc comment). This is not a hypothetical: ADR-F06-04(4)
+		// records that `openai_codex_cli` genuinely dispatches `code`/
+		// `review` stages today with no decodable envelope, so a codex
+		// candidate accepted without comparison identity is the real,
+		// expected shape, not an edge case -- and it must stay a proven,
+		// pinned behavior rather than an untested silent no-op, per the UAT
+		// finding's own wording ("fail-closed validators silently no-op").
+		t.Run("code_stage_from_unmapped_provider_accepted_without_identity", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "valid", "unmapped-provider-code-no-identity")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			if errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping); len(errs) != 0 {
+				t.Errorf("code-category stage from unmapped provider %q failed validation, want zero errors (ADR-F06-04(4)):\n%s", "openai_codex_cli", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("code_stage_from_unknown_provider_accepted_without_identity", func(t *testing.T) {
+			dir := filepath.Join(testdataRoot, "valid", "unknown-provider-code-no-identity")
+			bundle, stages := e40I05ReadBundle(t, dir)
+			if errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping); len(errs) != 0 {
+				t.Errorf("code-category stage from a provider absent from usage-mapping.yaml failed validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			if _, known := mapping.Providers["acme_widget_cli"]; known {
+				t.Fatalf("test fixture bug: %q must NOT be declared in usage-mapping.yaml's providers map", "acme_widget_cli")
+			}
+		})
 	})
 
 	// AC-001/AC-008/AC-022 regression: `provider` is a required field
@@ -1221,7 +1259,7 @@ func e40I05ValidateUsageProviderMapping(stage map[string]interface{}, mapping *e
 		if usage[k] == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: unmapped_provider: provider = %q is declared unmapped in usage-mapping.yaml, but usage.%s is present (REQ-F-009 requires an unmapped provider to fail closed)", label, providerName, k))
+		errs = append(errs, fmt.Sprintf("%s: unmapped_provider: provider = %q is not a mapped provider in usage-mapping.yaml, but usage.%s is present (REQ-F-009 requires an unmapped or unknown provider to fail closed)", label, providerName, k))
 	}
 	return errs
 }
