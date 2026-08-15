@@ -1,0 +1,6 @@
+COMMAND: claude --output-format json
+EXIT: 0
+DURATION: 1500ms
+---STDOUT---
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1500,"duration_api_ms":1200,"num_turns":3,"result":"synthetic developer stage result","session_id":"synthetic-session-dev-0001","total_cost_usd":0.0142,"usage":{"input_tokens":80,"cache_creation_input_tokens":20,"output_tokens":95},"modelUsage":{"claude-sonnet-5":{"inputTokens":80,"outputTokens":95,"cacheReadInputTokens":400,"cacheCreationInputTokens":20,"webSearchRequests":0,"costUSD":0.0142,"contextWindow":1000000,"maxOutputTokens":64000,"canonicalModel":"claude-sonnet-5","provider":"firstParty"}},"permission_denials":[],"uuid":"00000000-0000-0000-0000-000000000001"}
+---STDERR---

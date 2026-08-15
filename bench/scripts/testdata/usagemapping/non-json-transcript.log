@@ -1,0 +1,6 @@
+COMMAND: claude --output-format json
+EXIT: 0
+DURATION: 1500ms
+---STDOUT---
+I've completed the task. All tests pass and the implementation follows the specification. The changes are ready for review.
+---STDERR---
