@@ -49,6 +49,17 @@
       "response": "unused-by-tc055-genuinely-never-resolved",
       "response_digest": "unused-by-tc055-genuinely-never-resolved",
       "entry_digest": "tc055-entry-digest-d04-01"
+    },
+    {
+      "entry_id": "D05-01",
+      "stage": "D05",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "topic_key": "interview_mode_choice",
+      "required": false,
+      "response": "unused-by-tc055-genuinely-never-resolved",
+      "response_digest": "unused-by-tc055-genuinely-never-resolved",
+      "entry_digest": "tc055-entry-digest-d05-01"
     }
   ]
 }

@@ -18,6 +18,21 @@
 # (tests/contracts/testdata/e40_i06/**), not this script's, for the tasks
 # this feature actually decomposed into.
 #
+# This script never reads the result's own top-level `terminal_outcome` to
+# DECIDE a verdict -- only to pass it through on success (see below). A
+# result that labels itself "unresolved_gate" while an artifact's own
+# `consumed_entries[]` still fails to reconcile against the ledger is still
+# rejected `unattributed_artifact`: the label is not trusted evidence, only
+# the ledger and the artifact/bundle shape are (AC-006's own "never the
+# reverse" half, tc055 case (vi)).
+#
+# `stages[].consumed_entries[]` (Document B's stage-level ledger mirror,
+# spec.md "Document B") is deliberately NOT read by this check -- REQ-F-009
+# and AC-006/AC-T1 both frame the two failure modes in terms of an
+# ARTIFACT's own claimed lineage, so this task reconciles
+# `stages[].artifacts[].consumed_entries[]` only. A future task may extend
+# this script to also reconcile the stage-level mirror field.
+#
 # REQ-F-009 / ADR-F07-05: the resolver's own consumption ledger
 # (`<bundle_path>.consumption.jsonl`, replay-answer.sh's single-writer
 # side-file -- see that script's own header) is the single arbiter every

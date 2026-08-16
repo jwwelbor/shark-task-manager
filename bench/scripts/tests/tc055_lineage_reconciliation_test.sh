@@ -31,6 +31,18 @@
 #         stage, submitted with D02 listed FIRST in the source JSON, proves
 #         the script's own output re-sorts stages into fixed order
 #         (D01 then D02) rather than preserving input order (REQ-NF-004).
+#   (vi)  case (ii)'s exact zero-required-consumed D03 artifact, but with
+#         top-level terminal_outcome LAUNDERED to "unresolved_gate" instead
+#         of naming the real defect -- still fails unattributed_artifact
+#         naming stage=D03. Proves the verdict is derived from the
+#         artifact/ledger shape alone, never from trusting the result's own
+#         terminal_outcome label (the exact attack ADR-F07-05 names: a
+#         resolver-bypassing run hiding behind the gate label).
+#   (vii) a D05 artifact with an empty consumed_entries[], against a stage
+#         whose sole bundle entry is required=false, is accepted -- proves
+#         the "zero required consumed" trigger is genuinely gated on
+#         required=true (AC-T2's own qualifier), not on "consumed nothing
+#         at all" regardless of whether anything was required.
 #
 # Caller-Path Contract (test-plan.md tc055 row): real result/bundle JSON,
 # real reconciliation against the resolver's own recorded ledger. This test
@@ -197,5 +209,54 @@ assert [s['stage'] for s in stages] == ['D01', 'D02'], f\"stage order={[s['stage
 " "$out_v" || fail "case (v): output JSON stage order does not match fixed-order discipline"
 
 echo "TC-055(case v: combined result accepted, output stage order fixed regardless of input order) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (vi): case (ii)'s exact defect, laundered behind a top-level
+# terminal_outcome of "unresolved_gate" instead of the honest value -- still
+# fails unattributed_artifact naming stage=D03. Proves the verdict is
+# derived from the artifact/ledger shape alone, never from trusting the
+# result's own terminal_outcome label.
+# ---------------------------------------------------------------------------
+echo "TC-055: case (vi) - zero-required-consumed defect laundered behind terminal_outcome: unresolved_gate is still rejected"
+
+out_vi="$WORKDIR/case-vi.out"
+err_vi="$WORKDIR/case-vi.err"
+set +e
+"$VALIDATOR" "$FIXTURE_DIR/result-case-ii-laundered-as-gate.json" "$BUNDLE" >"$out_vi" 2>"$err_vi"
+code_vi=$?
+set -e
+[[ "$code_vi" -eq 1 ]] || fail "case (vi): exited $code_vi, want 1 (the gate label must not launder the defect): $(cat "$err_vi")"
+[[ ! -s "$out_vi" ]] || fail "case (vi): printed stdout on a rejection, want empty: $(cat "$out_vi")"
+grep -q "unattributed_artifact" "$err_vi" || fail "case (vi): failure message does not name unattributed_artifact: $(cat "$err_vi")"
+grep -q "stage=D03" "$err_vi" || fail "case (vi): failure message does not name the stage: $(cat "$err_vi")"
+
+echo "TC-055(case vi: laundering the defect behind terminal_outcome: unresolved_gate does not fool the guard) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (vii): a D05 artifact with an empty consumed_entries[], against a
+# stage whose sole bundle entry is required=false, is accepted -- proves the
+# "zero required consumed" trigger is genuinely gated on required=true
+# (AC-T2's own qualifier), not on "consumed nothing at all" regardless of
+# whether anything was required.
+# ---------------------------------------------------------------------------
+echo "TC-055: case (vii) - zero consumption against a stage with no required entries is accepted"
+
+out_vii="$WORKDIR/case-vii.out"
+err_vii="$WORKDIR/case-vii.err"
+set +e
+"$VALIDATOR" "$FIXTURE_DIR/result-case-vi-no-required-entries.json" "$BUNDLE" >"$out_vii" 2>"$err_vii"
+code_vii=$?
+set -e
+[[ "$code_vii" -eq 0 ]] || fail "case (vii): exited $code_vii, want 0 (no required entry means nothing to be unattributed from): $(cat "$err_vii")"
+python3 -c "
+import json, sys
+doc = json.load(open(sys.argv[1]))
+stages = doc['stages']
+assert len(stages) == 1 and stages[0]['stage'] == 'D05', f\"stages={stages!r}\"
+assert stages[0]['required_entry_count'] == 0, f\"required_entry_count={stages[0]['required_entry_count']!r}, want 0\"
+assert stages[0]['result'] == 'accepted'
+" "$out_vii" || fail "case (vii): output JSON does not report D05 accepted with zero required entries"
+
+echo "TC-055(case vii: zero consumption against a stage with no required entries is accepted) PASS"
 
 echo "TC-055 PASS"

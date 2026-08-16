@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "run_id": "tc055-case-i",
-  "terminal_outcome": "unattributed_artifact",
+  "terminal_outcome": "complete",
   "stages": [
     {
       "stage": "D04",

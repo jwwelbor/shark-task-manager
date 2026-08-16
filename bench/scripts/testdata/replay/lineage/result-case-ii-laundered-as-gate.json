@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "run_id": "tc055-case-ii",
-  "terminal_outcome": "complete",
+  "run_id": "tc055-case-ii-laundered",
+  "terminal_outcome": "unresolved_gate",
   "stages": [
     {
       "stage": "D03",
