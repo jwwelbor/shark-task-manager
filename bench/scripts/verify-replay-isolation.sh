@@ -154,12 +154,58 @@ def sha256_of_file(path):
 
 def walk_files(root):
     """Deterministic, sorted, .git-excluding file walk (REQ-NF-004: byte-
-    identical verdicts across repeated runs over an unchanged root) --
-    mirrors verify-evidence-roots.sh's own walk_files."""
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d != ".git")
-        for name in sorted(filenames):
-            yield os.path.join(dirpath, name)
+    identical verdicts across repeated runs over an unchanged root) that
+    ALSO descends into symlinked subdirectories (Code Review Kickback
+    Round 2, Finding A): a bare os.walk(root) (no followlinks=True) never
+    descends into a symlinked subdirectory, so a bundle copy sitting behind
+    one -- e.g. a dispatched session running
+    `ln -s "$(dirname "$REPLAY_BUNDLE_PATH")" ./notes` inside a guarded
+    root, which is exactly REQ-F-012's own stated threat model -- was never
+    visited and this guard printed CLEAN even though the copy was genuinely
+    reachable under that root.
+
+    Deliberately NOT restricted to symlink targets that resolve inside
+    `root`: the reported exploit's symlink points OUTSIDE the root (at the
+    real bundle's own directory), and that is precisely the disclosure this
+    guard exists to catch -- rejecting an outside-root symlink target
+    instead of following it would silently reintroduce the same blind spot
+    this fix closes.
+
+    A visited-directory guard (each directory's resolved (st_dev, st_ino)
+    pair) makes this loop-safe against a symlink cycle -- e.g. a directory
+    symlinked to one of its own ancestors -- which a bare
+    os.walk(root, followlinks=True) has no protection against and can hang
+    on."""
+    visited = set()
+
+    def _dir_key(path):
+        st = os.stat(path)  # follows symlinks: identifies the real directory
+        return (st.st_dev, st.st_ino)
+
+    def _walk(dirpath):
+        try:
+            key = _dir_key(dirpath)
+        except OSError:
+            return
+        if key in visited:
+            return
+        visited.add(key)
+        try:
+            entries = sorted(os.listdir(dirpath))
+        except OSError:
+            return
+        subdirs = []
+        for name in entries:
+            full = os.path.join(dirpath, name)
+            if os.path.isdir(full):  # follows symlinks
+                if name != ".git":  # mirrors the original's dirnames-only .git prune
+                    subdirs.append(full)
+            elif os.path.isfile(full):  # follows symlinks
+                yield full
+        for sub in subdirs:
+            yield from _walk(sub)
+
+    yield from _walk(root)
 
 
 def find_bulk_disclosure(root_name, root_path, bundle_digest):

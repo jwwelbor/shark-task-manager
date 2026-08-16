@@ -179,4 +179,89 @@ grep -q "bundle_bulk_disclosure" "$err" || fail "case (d): failure message does 
 
 echo "TC-056(case d: bulk-disclosure failure occurs with zero PATH-stubbed dispatcher invocations, proving the check runs before dispatch) PASS"
 
+# ---------------------------------------------------------------------------
+# Case (e)/(f): Code Review Kickback Round 2 (2026-08-16), Finding A -- a
+# bundle copy reached ONLY through a SYMLINKED DIRECTORY inside a guarded
+# root must still fail bundle_bulk_disclosure. This mirrors the exact
+# session-realistic exploit the reviewer reproduced: run-prelude.sh exports
+# REPLAY_BUNDLE_PATH (the real bundle's own path) into the dispatched
+# session's environment and pins its cwd inside a guarded root, so
+# `ln -s "$(dirname "$REPLAY_BUNDLE_PATH")" ./notes` alone defeated a guard
+# that walked with no followlinks -- no bulk copy of bytes required. Content
+# digest (not filename) still does the matching here, exactly like case (b),
+# because the symlinked-directory target legitimately shares the bundle's
+# own filename in the real exploit shape.
+# ---------------------------------------------------------------------------
+echo "TC-056: case (e) - bundle reached via a symlinked directory in fixture checkout fails"
+
+read -r FC_E SP_E < <(fresh_roots "case-e" "clean-fixture-checkout" "clean-scratch-project")
+EXTERNAL_E="$WORKDIR/case-e/external-leak"
+mkdir -p "$EXTERNAL_E"
+cp "$BUNDLE" "$EXTERNAL_E/$(basename "$BUNDLE")"
+ln -s "$EXTERNAL_E" "$FC_E/notes"
+[[ -L "$FC_E/notes" ]] || fail "case (e): test setup bug -- $FC_E/notes is not a symlink"
+PLANTED_E="$FC_E/notes/$(basename "$BUNDLE")"
+[[ -f "$PLANTED_E" ]] || fail "case (e): test setup bug -- planted bundle copy not reachable at $PLANTED_E via the symlinked directory"
+
+out="$WORKDIR/e.out"
+err="$WORKDIR/e.err"
+set +e
+"$VERIFY_ISOLATION" "$BUNDLE" "$FC_E" "$SP_E" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 1 ]] || fail "case (e): verify-replay-isolation.sh exited $code with the bundle reachable via a symlinked directory in the fixture checkout, want 1 (Code Review Kickback Round 2, Finding A): stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "bundle_bulk_disclosure" "$err" || fail "case (e): failure message does not name bundle_bulk_disclosure: $(cat "$err")"
+grep -q "root=agent_fixture_checkout" "$err" || fail "case (e): failure message does not name the agent_fixture_checkout root: $(cat "$err")"
+grep -qF "path=$PLANTED_E" "$err" || fail "case (e): failure message does not name the exact planted path (reached through the symlinked directory) $PLANTED_E: $(cat "$err")"
+
+echo "TC-056(case e: bundle reached via a symlinked directory in fixture checkout -> bundle_bulk_disclosure naming root=agent_fixture_checkout and the exact path, Code Review Kickback Round 2 Finding A) PASS"
+
+echo "TC-056: case (f) - bundle reached via a symlinked directory in scratch project fails"
+
+read -r FC_F SP_F < <(fresh_roots "case-f" "clean-fixture-checkout" "clean-scratch-project")
+EXTERNAL_F="$WORKDIR/case-f/external-leak"
+mkdir -p "$EXTERNAL_F"
+cp "$BUNDLE" "$EXTERNAL_F/$(basename "$BUNDLE")"
+ln -s "$EXTERNAL_F" "$SP_F/notes"
+[[ -L "$SP_F/notes" ]] || fail "case (f): test setup bug -- $SP_F/notes is not a symlink"
+PLANTED_F="$SP_F/notes/$(basename "$BUNDLE")"
+[[ -f "$PLANTED_F" ]] || fail "case (f): test setup bug -- planted bundle copy not reachable at $PLANTED_F via the symlinked directory"
+
+out="$WORKDIR/f.out"
+err="$WORKDIR/f.err"
+set +e
+"$VERIFY_ISOLATION" "$BUNDLE" "$FC_F" "$SP_F" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 1 ]] || fail "case (f): verify-replay-isolation.sh exited $code with the bundle reachable via a symlinked directory in the scratch project, want 1 (Code Review Kickback Round 2, Finding A): stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "bundle_bulk_disclosure" "$err" || fail "case (f): failure message does not name bundle_bulk_disclosure: $(cat "$err")"
+grep -q "root=scratch_shark_project" "$err" || fail "case (f): failure message does not name the scratch_shark_project root: $(cat "$err")"
+grep -qF "path=$PLANTED_F" "$err" || fail "case (f): failure message does not name the exact planted path (reached through the symlinked directory) $PLANTED_F: $(cat "$err")"
+
+echo "TC-056(case f: bundle reached via a symlinked directory in scratch project -> bundle_bulk_disclosure naming root=scratch_shark_project and the exact path, Code Review Kickback Round 2 Finding A) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (g): a self-referential symlinked directory (one pointing back at one
+# of its own ancestors) must not hang the guard. The kickback's own CAUTION:
+# a bare os.walk(root, followlinks=True) has no cycle protection and can
+# hang on exactly this shape -- the fix needs a visited-directory guard.
+# ---------------------------------------------------------------------------
+echo "TC-056: case (g) - a self-referential symlinked directory does not hang the guard"
+
+read -r FC_G SP_G < <(fresh_roots "case-g" "clean-fixture-checkout" "clean-scratch-project")
+ln -s "$FC_G" "$FC_G/self-loop"
+[[ -L "$FC_G/self-loop" ]] || fail "case (g): test setup bug -- $FC_G/self-loop is not a symlink"
+
+out="$WORKDIR/g.out"
+err="$WORKDIR/g.err"
+set +e
+timeout 15 "$VERIFY_ISOLATION" "$BUNDLE" "$FC_G" "$SP_G" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -ne 124 ]] || fail "case (g): verify-replay-isolation.sh timed out (hung) walking a self-referential symlinked directory -- the followlinks fix needs a visited-directory cycle guard"
+[[ "$code" -eq 0 ]] || fail "case (g): verify-replay-isolation.sh exited $code (want 0/CLEAN) on clean roots with only a self-referential symlink cycle present, no bundle copy planted: stdout=$(cat "$out") stderr=$(cat "$err")"
+[[ "$(cat "$out")" == "CLEAN" ]] || fail "case (g): stdout was $(cat "$out"), want CLEAN"
+
+echo "TC-056(case g: self-referential symlinked directory -> guard terminates and reports CLEAN, no infinite loop) PASS"
+
 echo "TC-056: PASS"
