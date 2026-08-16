@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 # verify-replay-isolation.sh <transcript_path>
+# verify-replay-isolation.sh <bundle_path> <fixture_checkout> <scratch_project>
 #
-# T-E40-F07-004 slice: REQ-F-005's OBSERVATIONAL transcript scan -- the
-# BINDING half of the live-egress two-half proof (spec.md "Live-egress set
-# and its two-half proof"; ADR-F07-03). Scans a retained scored-run
-# transcript for tool-use records naming any bench/replay/live-egress-tools.yaml
-# member; a single such record stops the scenario with the named terminal
-# outcome `live_interaction_reached`, identifying the tool name and the
-# stage. This holds regardless of whether run-prelude.sh's --disallowedTools
-# denial (structural, belt-and-braces) actually worked -- REQ-F-004's
-# argument-vector check is not treated as proof by itself (REQ-F-005).
+# T-E40-F07-004 slice (one positional arg): REQ-F-005's OBSERVATIONAL
+# transcript scan -- the BINDING half of the live-egress two-half proof
+# (spec.md "Live-egress set and its two-half proof"; ADR-F07-03). Scans a
+# retained scored-run transcript for tool-use records naming any
+# bench/replay/live-egress-tools.yaml member; a single such record stops the
+# scenario with the named terminal outcome `live_interaction_reached`,
+# identifying the tool name and the stage. This holds regardless of whether
+# run-prelude.sh's --disallowedTools denial (structural, belt-and-braces)
+# actually worked -- REQ-F-004's argument-vector check is not treated as
+# proof by itself (REQ-F-005).
 #
-# Called with exactly ONE positional argument (a transcript path), this
-# script runs the transcript-scan half only. T-E40-F07-006 MODIFIES this
-# same file to add a second invocation shape --
-#   verify-replay-isolation.sh <bundle_path> <fixture_checkout> <scratch_project>
-# -- the REQ-F-012 bulk-disclosure guard, dispatched on argument COUNT
-# rather than a subcommand keyword (three positional args, not one). This
-# task's Brownfield Context requires the transcript-scan portion below to be
-# left untouched by that later change.
+# T-E40-F07-006 slice (three positional args): the REQ-F-012 bulk-disclosure
+# guard (ADR-F07-07). Proves the replay bundle -- and any copy of it that is
+# byte-identical in content, however it is named -- is absent from BOTH
+# agent-visible roots. The two shapes are dispatched on argument COUNT
+# rather than a subcommand keyword; this preserves the one-arg transcript-
+# scan invocation exactly as T-E40-F07-004 defined it. `replay_reference` is
+# authorized input the session legitimately consumes one entry at a time
+# (ADR-F07-07), so a single supplied entry's response sitting in a
+# agent-visible root is not a violation -- only the whole bundle, or a
+# content-identical copy of it, is. This is a NEW guard, not an edit to
+# F06's `verify-evidence-roots.sh`: the replay bundle is not
+# `evaluator_only` material, so it falls outside that guard's contract by
+# design, and F06's script is frozen (REQ-NF-006(d)).
 #
 # Retained-transcript format (this task's own, first definition -- no prior
 # convention in this repo fixes a shape for it): JSONL, one JSON object per
@@ -38,13 +45,21 @@
 # about transcript shape that can stop holding without this script noticing;
 # a real D01-D05 session always uses at least one tool.
 #
-# Exit status: 0 = transcript clean ("CLEAN" on stdout). 1 =
-# `live_interaction_reached` -- a normal, informative verdict; the message
-# on stderr names the tool, the stage, the transcript line number, and the
-# transcript path. 2 = a script/usage/authoring error (bad args, missing
-# files, malformed live-egress-tools.yaml, malformed i06-schema.yaml,
-# malformed transcript JSON, a tool_use record with a missing/unknown stage
-# or tool_name, or a transcript with zero recognized tool_use records).
+# Exit status (one-arg transcript-scan shape): 0 = transcript clean ("CLEAN"
+# on stdout). 1 = `live_interaction_reached` -- a normal, informative
+# verdict; the message on stderr names the tool, the stage, the transcript
+# line number, and the transcript path. 2 = a script/usage/authoring error
+# (bad args, missing files, malformed live-egress-tools.yaml, malformed
+# i06-schema.yaml, malformed transcript JSON, a tool_use record with a
+# missing/unknown stage or tool_name, or a transcript with zero recognized
+# tool_use records).
+#
+# Exit status (three-arg bulk-disclosure shape): 0 = both roots clean
+# ("CLEAN" on stdout). 1 = `bundle_bulk_disclosure` -- a normal, informative
+# verdict; the message on stderr names the offending root (i05-schema.yaml's
+# `agent_fixture_checkout` or `scratch_shark_project`) and the exact planted
+# path. 2 = a script/usage/authoring error (bad args, missing bundle/root,
+# malformed i05-schema.yaml).
 #
 # Requires: python3 with PyYAML (`import yaml`) on PATH.
 set -euo pipefail
@@ -53,11 +68,150 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIVE_EGRESS_FILE="$BENCH_DIR/replay/live-egress-tools.yaml"
 I06_SCHEMA="$BENCH_DIR/replay/i06-schema.yaml"
+I05_SCHEMA="$BENCH_DIR/evidence/i05-schema.yaml"
 
 usage() {
 	echo "usage: verify-replay-isolation.sh <transcript_path>" >&2
+	echo "       verify-replay-isolation.sh <bundle_path> <fixture_checkout> <scratch_project>" >&2
 	exit 2
 }
+
+if [[ $# -eq 3 ]]; then
+	# -------------------------------------------------------------------
+	# T-E40-F07-006: REQ-F-012 bulk-disclosure guard.
+	# -------------------------------------------------------------------
+	bundle_path="$1"
+	fixture_checkout="$2"
+	scratch_project="$3"
+
+	[[ -f "$bundle_path" ]] || {
+		echo "verify-replay-isolation: bundle not found: $bundle_path" >&2
+		exit 2
+	}
+	[[ -d "$fixture_checkout" ]] || {
+		echo "verify-replay-isolation: fixture checkout dir not found: $fixture_checkout" >&2
+		exit 2
+	}
+	[[ -d "$scratch_project" ]] || {
+		echo "verify-replay-isolation: scratch project dir not found: $scratch_project" >&2
+		exit 2
+	}
+	[[ -f "$I05_SCHEMA" ]] || {
+		echo "verify-replay-isolation: i05-schema.yaml not found: $I05_SCHEMA" >&2
+		exit 2
+	}
+	command -v python3 >/dev/null 2>&1 || {
+		echo "verify-replay-isolation: python3 not found on PATH" >&2
+		exit 2
+	}
+	python3 -c 'import yaml' >/dev/null 2>&1 || {
+		echo "verify-replay-isolation: python3 module 'yaml' (PyYAML) not available" >&2
+		exit 2
+	}
+
+	bundle_path_abs="$(cd "$(dirname "$bundle_path")" && pwd)/$(basename "$bundle_path")"
+	fixture_checkout_abs="$(cd "$fixture_checkout" && pwd)"
+	scratch_project_abs="$(cd "$scratch_project" && pwd)"
+
+	python3 - "$bundle_path_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$I05_SCHEMA" <<'PYEOF2'
+import hashlib
+import os
+import sys
+
+import yaml
+
+bundle_path, fixture_checkout, scratch_project, i05_schema_path = sys.argv[1:5]
+
+
+class ScriptError(RuntimeError):
+    """A prerequisite this guard depends on could not be resolved at all --
+    distinct from a normal bundle_bulk_disclosure verdict. Reported on
+    stderr and mapped to exit 2."""
+
+
+def load_roots_vocabulary(path):
+    # REQ-F-012's guard reports violations against I-05's own root-name
+    # vocabulary (agent_fixture_checkout / scratch_shark_project) rather
+    # than a private copy embedded here -- the same single-owner discipline
+    # verify-evidence-roots.sh (F06) applies to the same file. I-06 itself
+    # declares no roots: of its own (i06-schema.yaml's own header note).
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ScriptError(f"i05-schema.yaml is not a YAML mapping: {path}")
+    roots = data.get("roots")
+    if not isinstance(roots, dict):
+        raise ScriptError(f"i05-schema.yaml declares no roots: mapping: {path}")
+    for required in ("agent_fixture_checkout", "scratch_shark_project"):
+        if required not in roots:
+            raise ScriptError(f"i05-schema.yaml roots: is missing required key {required!r}: {path}")
+
+
+def sha256_of_file(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def walk_files(root):
+    """Deterministic, sorted, .git-excluding file walk (REQ-NF-004: byte-
+    identical verdicts across repeated runs over an unchanged root) --
+    mirrors verify-evidence-roots.sh's own walk_files."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d != ".git")
+        for name in sorted(filenames):
+            yield os.path.join(dirpath, name)
+
+
+def find_bulk_disclosure(root_name, root_path, bundle_digest):
+    """Returns (root_name, path) for the first file under root_path whose
+    RAW BYTE CONTENT digest equals the whole bundle's digest, or None if
+    none found. Content digest ONLY (never filename): REQ-F-012 requires a
+    content-digest-identical renamed copy to independently fail, which a
+    filename-only check would miss (spec.md AC-009 case b). Comparing
+    against the WHOLE bundle's digest -- never a partial/entry-level
+    fragment -- is exactly what keeps a single legitimately-supplied entry
+    response (ADR-F07-07's "entry-at-a-time disclosure is not truth-hiding")
+    from tripping this guard: one entry's response is never byte-identical
+    to the full, multi-entry bundle file."""
+    for path in walk_files(root_path):
+        try:
+            with open(path, "rb") as f:
+                file_bytes = f.read()
+        except OSError:
+            continue
+        if hashlib.sha256(file_bytes).hexdigest() == bundle_digest:
+            return (root_name, path)
+    return None
+
+
+def main():
+    load_roots_vocabulary(i05_schema_path)
+    bundle_digest = sha256_of_file(bundle_path)
+
+    violation = find_bulk_disclosure("agent_fixture_checkout", fixture_checkout, bundle_digest) or find_bulk_disclosure(
+        "scratch_shark_project", scratch_project, bundle_digest
+    )
+
+    if violation is not None:
+        root_name, matched_path = violation
+        sys.stderr.write(
+            "verify-replay-isolation: bundle_bulk_disclosure: "
+            f"root={root_name} path={matched_path} bundle={bundle_path}\n"
+        )
+        sys.exit(1)
+
+    print("CLEAN")
+
+
+try:
+    main()
+except ScriptError as exc:
+    sys.stderr.write(f"verify-replay-isolation: {exc}\n")
+    sys.exit(2)
+PYEOF2
+
+	exit $?
+fi
 
 [[ $# -eq 1 ]] || usage
 transcript_path="$1"
