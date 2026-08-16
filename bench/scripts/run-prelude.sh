@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # run-prelude.sh [--live-egress-file <path>]
 # run-prelude.sh --verify-argv <captured_argv_json> [--live-egress-file <path>]
-# run-prelude.sh --package <package.yaml> --result-out <path> [--live-egress-file <path>]
+# run-prelude.sh --package <package.yaml> --result-out <path> \
+#                [--artifact-root <scratch_shark_project>] [--live-egress-file <path>]
 #
 # T-E40-F07-004 slice: the PATH-resolved dispatch SCAFFOLD and its REQ-F-004
 # structural denial-argument construction and fail-before-dispatch
@@ -10,31 +11,46 @@
 # argument vector without ever touching the dispatcher (AC-T1's third case:
 # "a stubbed argv missing a member fails before dispatch").
 #
-# This is a deliberately PARTIAL scaffold. Out of scope here, per this
-# task's Brownfield Context, and added by later tasks that MODIFY this same
-# file, keeping this task's argv/denial portion untouched:
-#   - REQ-F-014's replay_reference consistency check, REQ-F-012's bulk-
-#     disclosure check, and REQ-F-013's non-applicable short-circuit
-#     (T-E40-F07-010).
-#   - REQ-F-015's scratch-project working-directory pin, the REAL
-#     bench/replay/preamble.md read from disk (this task uses an in-memory
-#     placeholder -- bench/replay/preamble.md does not exist yet, see
-#     PLACEHOLDER_PREAMBLE below), preamble_digest recording, and
-#     REQ-F-016's Output Standards filename check (T-E40-F07-011).
-#   - Writing the I-06 replay result document at all (T-E40-F07-009/011).
-#
-# T-E40-F07-010 update: lands the first two of the bullets above --
-# REQ-F-014's read-only replay_reference consistency assertion (checked
-# before ANY dispatch, package or --package-less) and REQ-F-013's
-# non-applicable short-circuit (an all-non-applicable I-04 package never
-# reaches build_disallowed_args/dispatch_mode at all -- it returns after
-# writing an explicit `not_applicable` result). Both are gated behind the
-# new, OPTIONAL `--package`/`--result-out` flags: every existing
+# T-E40-F07-010 update: REQ-F-014's read-only replay_reference consistency
+# assertion (checked before ANY dispatch, package or --package-less) and
+# REQ-F-013's non-applicable short-circuit (an all-non-applicable I-04
+# package never reaches build_disallowed_args/dispatch_mode at all -- it
+# returns after writing an explicit `not_applicable` result). Both are
+# gated behind the `--package`/`--result-out` flags: every existing
 # --live-egress-file / --verify-argv invocation (T-E40-F07-004's own tc053)
-# is byte-for-byte unaffected because this task's own Brownfield Context
-# forbids touching the argv/denial portion below. REQ-F-012's bulk-
-# disclosure check and REQ-F-015/016's real placement/preamble remain
-# T-E40-F07-011's, unchanged here.
+# is byte-for-byte unaffected.
+#
+# T-E40-F07-011 update: lands the remaining scored-dispatch bullets --
+#   - REQ-F-015's scratch-project working-directory pin: the OPTIONAL
+#     `--artifact-root <path>` flag. When present, the dispatched
+#     subprocess's cwd is pinned to it (never the fixture checkout, never
+#     the evaluator-only root -- F07 introduces no fourth root) and its
+#     realpath plus a recomputable identity digest are recorded in the
+#     written result. Kept OPTIONAL (not required alongside --package) so
+#     T-E40-F07-010's own tc057 -- which dispatches --package without
+#     --artifact-root to prove REQ-F-014 in isolation -- is byte-for-byte
+#     unaffected; production callers (E40-F08) always supply it.
+#   - REQ-F-016's real, digest-pinned `bench/replay/preamble.md`, read from
+#     disk at dispatch time (never an in-memory constant -- replaces the
+#     PLACEHOLDER_PREAMBLE T-E40-F07-004 used before this file existed) for
+#     EVERY dispatch, package or --package-less alike, with its
+#     preamble_digest recorded whenever a result is written.
+#   - Two routing VALUES the fixed preamble references only by NAME
+#     (`$REPLAY_ANSWER_SCRIPT` / `$REPLAY_BUNDLE_PATH`, exported into the
+#     dispatched subprocess's environment, never into preamble.md's own
+#     bytes) -- keeping preamble.md's content, and therefore its digest,
+#     identical across every scenario.
+#   - REQ-F-016's Output Standards filename check: every file produced
+#     under `<artifact_root>/docs/product/` other than `progress.md` (the
+#     wrapped action's own derived record, REQ-F-015) MUST match `D0X-*.md`,
+#     asserted positively -- a violation is named and rejected BEFORE any
+#     result is written.
+#   - Writing the I-06 "complete" replay result for a successful
+#     (`exit 0`) dispatch that had at least one applicable prelude stage and
+#     was given `--artifact-root`. Deliberately NOT exercised here: a
+#     failing (non-zero-exit) scored dispatch writes no result -- REQ-F-017's
+#     full stop-outcome taxonomy for that path is out of this task's own
+#     Acceptance Criteria (AC-T1-AC-T4) and is left to later wiring.
 #
 # Dispatch shape (spec.md "Component changes" row for run-prelude.sh, fixed
 # there so no task author invents it): a subprocess invocation of a named
@@ -69,7 +85,8 @@ usage() {
 usage:
   run-prelude.sh [--live-egress-file <path>]
   run-prelude.sh --verify-argv <captured_argv_json> [--live-egress-file <path>]
-  run-prelude.sh --package <package.yaml> --result-out <path> [--live-egress-file <path>]
+  run-prelude.sh --package <package.yaml> --result-out <path> \
+                 [--artifact-root <scratch_shark_project>] [--live-egress-file <path>]
 USAGE
 	exit 2
 }
@@ -78,6 +95,7 @@ live_egress_file="$DEFAULT_LIVE_EGRESS_FILE"
 verify_argv_path=""
 package_path=""
 result_out_path=""
+artifact_root_path=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -101,6 +119,11 @@ while [[ $# -gt 0 ]]; do
 		result_out_path="$2"
 		shift 2
 		;;
+	--artifact-root)
+		[[ $# -ge 2 ]] || usage
+		artifact_root_path="$2"
+		shift 2
+		;;
 	*)
 		usage
 		;;
@@ -114,8 +137,8 @@ done
 [[ -z "$package_path" || -z "$verify_argv_path" ]] || usage
 # --result-out is required alongside --package: REQ-F-013's non-applicable
 # short-circuit must know where to write the explicit not_applicable
-# record, and T-E40-F07-011 is expected to reuse the same flag for the
-# scored-dispatch result it adds.
+# record, and T-E40-F07-011 reuses the same flag for the scored-dispatch
+# "complete" result it adds.
 if [[ -n "$package_path" ]]; then
 	[[ -n "$result_out_path" ]] || usage
 fi
@@ -130,6 +153,24 @@ command -v python3 >/dev/null 2>&1 || {
 }
 python3 -c 'import yaml' >/dev/null 2>&1 || {
 	echo "run-prelude: python3 module 'yaml' (PyYAML) not available" >&2
+	exit 2
+}
+
+# T-E40-F07-011: bench/replay/preamble.md is required for EVERY dispatch
+# (never an in-memory constant, REQ-F-016) -- checked up front alongside
+# the other fixed, committed inputs this script depends on.
+preamble_file_abs="$BENCH_DIR/replay/preamble.md"
+[[ -f "$preamble_file_abs" ]] || {
+	echo "run-prelude: preamble.md not found: $preamble_file_abs" >&2
+	exit 2
+}
+# T-E40-F07-011: the resolver the dispatched session's preamble instructs it
+# to invoke, by absolute path -- only its presence is checked here; this
+# script never executes it itself (the DISPATCHED session does, indirectly,
+# over its own Bash tool calls).
+replay_answer_script_abs="$SCRIPT_DIR/replay-answer.sh"
+[[ -x "$replay_answer_script_abs" ]] || {
+	echo "run-prelude: replay-answer.sh not found or not executable: $replay_answer_script_abs" >&2
 	exit 2
 }
 
@@ -166,36 +207,53 @@ if [[ -n "$package_path" ]]; then
 	result_out_arg="$result_out_path"
 fi
 
+# T-E40-F07-011/REQ-F-015: OPTIONAL -- the scratch Shark project root the
+# dispatched subprocess's cwd is pinned to. Resolved (and existence-checked)
+# here, up front, like every other real filesystem input this script reads;
+# left "__none__" (never required) so T-E40-F07-010's own tc057, which
+# dispatches --package with no --artifact-root, is unaffected.
+artifact_root_abs="__none__"
+if [[ -n "$artifact_root_path" ]]; then
+	[[ -d "$artifact_root_path" ]] || {
+		echo "run-prelude: --artifact-root directory not found: $artifact_root_path" >&2
+		exit 2
+	}
+	artifact_root_abs="$(cd "$artifact_root_path" && pwd)"
+fi
+
 # The single-owner I-06 schema file (REQ-F-018): read at call time for
 # schema_version rather than duplicating it as a private constant here.
 # Always the real, committed file -- unlike --live-egress-file, no test case
 # needs a scratch override of this.
 i06_schema_file="$BENCH_DIR/replay/i06-schema.yaml"
 
-python3 - "$live_egress_file_abs" "$verify_argv_abs" "$package_abs" "$result_out_arg" "$i06_schema_file" <<'PYEOF'
+python3 - "$live_egress_file_abs" "$verify_argv_abs" "$package_abs" "$result_out_arg" "$i06_schema_file" \
+	"$artifact_root_abs" "$preamble_file_abs" "$replay_answer_script_abs" <<'PYEOF'
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 import yaml
 
-live_egress_path, verify_argv_arg, package_arg, result_out_arg, i06_schema_path = sys.argv[1:6]
+(
+    live_egress_path,
+    verify_argv_arg,
+    package_arg,
+    result_out_arg,
+    i06_schema_path,
+    artifact_root_arg,
+    preamble_path,
+    replay_answer_script_path,
+) = sys.argv[1:9]
 verify_argv_path = None if verify_argv_arg == "__none__" else verify_argv_arg
 package_path = None if package_arg == "__none__" else package_arg
 result_out_path = None if result_out_arg == "__none__" else result_out_arg
-
-# T-E40-F07-011 replaces this in-memory placeholder with bench/replay/preamble.md's
-# real, digest-pinned content, read from disk at dispatch time (never an
-# in-memory constant, per that task's own AC-T3) -- this task's Scope
-# deliberately does not create bench/replay/preamble.md (reserved for
-# T-E40-F07-011; T-E40-F07-001 explicitly excludes it too).
-PLACEHOLDER_PREAMBLE = (
-    "[T-E40-F07-004 placeholder preamble -- bench/replay/preamble.md does not "
-    "exist yet. T-E40-F07-011 replaces this in-memory placeholder with the "
-    "real, digest-pinned preamble content read from disk at dispatch time.]"
-)
+artifact_root_path = None if artifact_root_arg == "__none__" else artifact_root_arg
 
 # research-report.md / spec.md: F07 wraps the existing
 # `/shark-rider project product-design` action through X-10, unmodified.
@@ -208,6 +266,20 @@ PROVIDER_BIN_NAME = "claude"
 # and TC-030's own package validation rely on.
 PRELUDE_STAGES = ["D01", "D02", "D03", "D04", "D05"]
 
+# REQ-F-015: the artifact root's placement kind -- I-05's own three-root
+# vocabulary (bench/evidence/i05-schema.yaml), referenced by name only. F07
+# introduces no fourth root.
+ARTIFACT_ROOT_KIND = "scratch_shark_project"
+
+# REQ-F-016: the bundle's own Output Standard for a D01-D05 artifact
+# filename -- SKILL.md "Output Standards (All D-Artifacts)" #1
+# ("D01-vision-statement.md"), applied generically across D01-D14 there but
+# checked here only against whatever this scored dispatch actually produced.
+# progress.md (REQ-F-015, the wrapped action's own derived record) is the
+# one expected sibling file this pattern deliberately does not match.
+ARTIFACT_FILENAME_PATTERN = re.compile(r"^D\d{2}-.+\.md$")
+PROGRESS_FILENAME = "progress.md"
+
 
 class ScriptError(RuntimeError):
     """A prerequisite this script depends on could not be resolved at all --
@@ -217,11 +289,17 @@ class ScriptError(RuntimeError):
 
 
 class Violation(RuntimeError):
-    """A real, informative REQ-F-014 rejection verdict -- mapped to exit 1,
-    never conflated with a script/usage error, mirroring
+    """A real, informative rejection verdict -- mapped to exit 1, never
+    conflated with a script/usage error, mirroring
     replay-answer.sh's/verify-replay-result.sh's own Violation/ScriptError
     split. kind is one of package_replay_reference_missing,
-    package_replay_reference_unexpected, or package_scenario_id_mismatch."""
+    package_replay_reference_unexpected, package_scenario_id_mismatch
+    (REQ-F-014), or artifact_filename_output_standard (REQ-F-016,
+    T-E40-F07-011). These run-prelude.sh-local kinds are this script's own
+    pre-/post-dispatch operational vocabulary, distinct from
+    i06-schema.yaml's error_kind list (which governs I-06 DOCUMENT
+    validation verdicts -- TC-052/verify-replay-result.sh's own emitted
+    messages, REQ-F-019) -- T-E40-F07-010 established this split first."""
 
     def __init__(self, kind, detail):
         super().__init__(detail)
@@ -369,7 +447,14 @@ def check_consistency(package):
     rejected even on an all-non-applicable package). No I-04 file is ever
     written here (REQ-NF-006) -- this only reads the package and, when at
     least one stage is applicable, the bundle its own replay_reference
-    names."""
+    names.
+
+    Returns a {bundle_path, bundle_digest, bundle_version} dict (real,
+    freshly-computed values -- T-E40-F07-011 reuses this same read rather
+    than re-opening the bundle) when at least one stage is applicable, else
+    None. Callers other than main()'s own applicable/not_applicable branch
+    (i.e. anything downstream of a real dispatch) must treat a None return
+    as "no bundle was consulted for this run" and never fabricate one."""
     pkg_id = package["scenario_id"]
     pkg_path = package["path"]
     replay_reference = package.get("replay_reference")
@@ -390,8 +475,9 @@ def check_consistency(package):
                 f"resolve to an existing file: {bundle_path}",
             )
         try:
-            with open(bundle_path) as f:
-                bundle = json.load(f)
+            with open(bundle_path, "rb") as f:
+                bundle_bytes = f.read()
+            bundle = json.loads(bundle_bytes)
         except (OSError, json.JSONDecodeError) as exc:
             raise ScriptError(
                 f"package {pkg_id} replay_reference bundle is not readable/valid JSON: {bundle_path}: {exc}"
@@ -405,6 +491,11 @@ def check_consistency(package):
                 f"scenario_binding.scenario_id={bundle_scenario_id!r}, which disagrees with the "
                 f"package's own scenario_id={pkg_id!r}",
             )
+        return {
+            "bundle_path": bundle_path,
+            "bundle_digest": f"sha256:{hashlib.sha256(bundle_bytes).hexdigest()}",
+            "bundle_version": bundle.get("bundle_version"),
+        }
     else:
         if replay_reference:
             raise Violation(
@@ -413,6 +504,7 @@ def check_consistency(package):
                 f"replay_reference field ({replay_reference!r}); REQ-F-014 forbids replay_reference "
                 f"on an all-non-applicable package",
             )
+        return None
 
 
 def write_not_applicable_result(package, schema_version, result_out_path):
@@ -491,12 +583,182 @@ def verify_argv_mode(members, argv_path):
     sys.exit(0)
 
 
-def dispatch_mode(members):
+def sha256_file(path):
+    """Streams a file's bytes through sha256 rather than reading it whole --
+    the same "real digest of the real bytes" discipline this feature applies
+    everywhere else (entry_digest, bundle_digest, preamble_digest)."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def compute_identity_digest(real_path):
+    """REQ-F-015: a recomputable identity digest for a recorded root path.
+    'Recomputable' means any consumer holding only the RECORDED `path` can
+    reproduce this exact value without any other state -- so the digest is
+    computed over the path's own UTF-8 bytes, not over directory contents
+    (which would make it neither stable nor reproducible from the path
+    alone)."""
+    return f"sha256:{hashlib.sha256(real_path.encode('utf-8')).hexdigest()}"
+
+
+def check_output_standard_filenames(product_dir):
+    """REQ-F-016: every file produced directly under the artifact root's
+    product-design directory, OTHER than progress.md (the wrapped action's
+    own derived record, REQ-F-015), MUST match the bundle's own Output
+    Standard (D0X-*.md), asserted POSITIVELY against the produced set. A
+    missing product_dir means nothing was produced -- not itself a
+    violation this function reports. Raises Violation naming every
+    offending filename (never just the first) so a caller sees the whole
+    problem in one pass. Returns the sorted list of conforming filenames
+    actually present (progress.md excluded), for stage/artifact bucketing
+    by the caller."""
+    if not os.path.isdir(product_dir):
+        return []
+    names = sorted(
+        name for name in os.listdir(product_dir) if os.path.isfile(os.path.join(product_dir, name))
+    )
+    violations = [
+        name for name in names if name != PROGRESS_FILENAME and not ARTIFACT_FILENAME_PATTERN.match(name)
+    ]
+    if violations:
+        raise Violation(
+            "artifact_filename_output_standard",
+            f"produced artifact filename(s) under {product_dir} do not conform to the bundle's own "
+            f"Output Standard (D0X-*.md): {', '.join(violations)}",
+        )
+    return [name for name in names if name != PROGRESS_FILENAME]
+
+
+def write_complete_result(package, schema_version, result_out_path, artifact_root_path,
+                           preamble_digest, prompt, response_text, bundle_info):
+    """REQ-F-015/REQ-F-016 (T-E40-F07-011): writes the I-06 "complete" replay
+    result after a successful (`exit 0`) dispatch against a package with at
+    least one applicable prelude stage and a supplied --artifact-root.
+    Records the scratch project's real path and a recomputable
+    identity_digest, the preamble_digest of the file actually dispatched,
+    and -- per applicable D01-D05 stage -- the Output-Standard-conformant
+    artifacts found under <artifact_root>/docs/product/ (checked and
+    enforced by check_output_standard_filenames BEFORE this function writes
+    anything).
+
+    Left as honest, empty/zero placeholders rather than fabricated, and
+    deliberately out of this task's own Acceptance Criteria (AC-T1-AC-T4):
+    stage-level and artifact-level consumed_entries (REQ-F-009's
+    resolver-ledger reconciliation is not wired in here), artifact
+    input_digests/consumers (no downstream-consumer or ancestor-artifact
+    tracking exists yet), and replayed_interaction_proxies'
+    authorized_request_count/authorized_response_count/
+    revision_or_replacement_count/unresolved_gate_count (REQ-F-011 proxy
+    arithmetic owned elsewhere) -- present-but-empty/zero is itself a real,
+    meaningful value (REQ-F-010's own "no consumer observed" rule), never a
+    stand-in for data this function does not have."""
+    result_out_path = os.path.abspath(result_out_path)
+    result_out_dir = os.path.dirname(result_out_path)
+    if not os.path.isdir(result_out_dir):
+        raise ScriptError(f"--result-out parent directory does not exist: {result_out_dir}")
+
+    product_dir = os.path.join(artifact_root_path, "docs", "product")
+    conforming_filenames = check_output_standard_filenames(product_dir)
+
+    prompt_digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+    stages = []
+    for stage in PRELUDE_STAGES:
+        applicable = package["prelude"][stage]["applicable"]
+        record = {"stage": stage, "applicable": applicable, "consumed_entries": []}
+        if not applicable:
+            record["reason"] = package["prelude"][stage]["reason"]
+            record["artifacts"] = []
+        else:
+            stage_prefix = f"{stage}-"
+            artifacts = []
+            for name in conforming_filenames:
+                if not name.startswith(stage_prefix):
+                    continue
+                fpath = os.path.join(product_dir, name)
+                stat = os.stat(fpath)
+                artifacts.append(
+                    {
+                        "stage": stage,
+                        "artifact_type": "document",
+                        "path": fpath,
+                        "digest": f"sha256:{sha256_file(fpath)}",
+                        "size_bytes": stat.st_size,
+                        "produced_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                        "revision_index": 0,
+                        "prompt_digest": prompt_digest,
+                        "input_digests": [],
+                        "consumed_entries": [],
+                        "consumers": [],
+                    }
+                )
+            record["artifacts"] = artifacts
+        stages.append(record)
+
+    artifact_root_real = os.path.realpath(artifact_root_path)
+
+    result = {
+        "schema_version": schema_version,
+        "scenario": {
+            "scenario_id": package["scenario_id"],
+            "scenario_version": package.get("scenario_version"),
+            "entity_family": package.get("entity_family"),
+        },
+        # run_id is opaque to F07 (spec.md Document B); E40-F08 assigns it.
+        "run_id": "",
+        "replay_bundle": {
+            "replay_reference": package.get("replay_reference"),
+            "bundle_path": bundle_info["bundle_path"] if bundle_info else "",
+            "bundle_digest": bundle_info["bundle_digest"] if bundle_info else "",
+            "bundle_version": bundle_info["bundle_version"] if bundle_info else "",
+        },
+        "preamble_digest": preamble_digest,
+        "artifact_root": {
+            "path": artifact_root_real,
+            "identity_digest": compute_identity_digest(artifact_root_real),
+            "root_kind": ARTIFACT_ROOT_KIND,
+        },
+        "stages": stages,
+        "replayed_interaction_proxies": {
+            "measurement_kind": "replayed_interaction_proxy",
+            "authorized_request_count": 0,
+            "authorized_response_count": 0,
+            "request_bytes_total": len(prompt.encode("utf-8")),
+            "response_bytes_total": len(response_text.encode("utf-8")),
+            "revision_or_replacement_count": 0,
+            "replay_wait_ns": 0,
+            "replay_wait_category": "replay_or_human_gate_wait",
+            "unresolved_gate_count": 0,
+        },
+        "artifact_consumption_edges": [],
+        "terminal_outcome": "complete",
+        "publication_eligible": True,
+        "ineligibility_reasons": [],
+    }
+    with open(result_out_path, "w") as f:
+        json.dump(result, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
+def dispatch_mode(members, package=None, bundle_info=None):
     provider_bin = shutil.which(PROVIDER_BIN_NAME)
     if provider_bin is None:
         raise ScriptError(f"provider binary {PROVIDER_BIN_NAME!r} not found on PATH")
 
-    prompt = PLACEHOLDER_PREAMBLE + "\n\n" + RIDER_ACTION_INVOCATION
+    # REQ-F-016: the preamble is READ FROM DISK at dispatch time, for EVERY
+    # dispatch, never an in-memory constant -- so a future edit to
+    # bench/replay/preamble.md changes the dispatched prompt with no script
+    # edit, and preamble_digest (recorded below when a result is written)
+    # always matches the exact bytes that were actually prepended.
+    with open(preamble_path, "rb") as f:
+        preamble_bytes = f.read()
+    preamble_text = preamble_bytes.decode("utf-8")
+    preamble_digest = hashlib.sha256(preamble_bytes).hexdigest()
+
+    prompt = preamble_text + "\n\n" + RIDER_ACTION_INVOCATION
     disallowed_args = build_disallowed_args(members)
     argv = [provider_bin, "-p", prompt] + disallowed_args
 
@@ -519,9 +781,52 @@ def dispatch_mode(members):
         )
         sys.exit(1)
 
-    proc = subprocess.run(argv, capture_output=True, text=True)
+    dispatch_kwargs = {"capture_output": True, "text": True}
+    if artifact_root_path is not None:
+        # REQ-F-015: pin the dispatch working directory to the scratch
+        # Shark project root -- never the fixture checkout, never the
+        # evaluator-only root. F07 introduces no fourth root.
+        dispatch_kwargs["cwd"] = artifact_root_path
+        env = os.environ.copy()
+        # REQ-F-016: routing VALUES the fixed, digest-pinned preamble
+        # references only by NAME (REPLAY_ANSWER_SCRIPT / REPLAY_BUNDLE_PATH)
+        # -- kept out of preamble.md's own bytes so the same file, and the
+        # same preamble_digest, applies to every scenario this dispatches.
+        env["REPLAY_ANSWER_SCRIPT"] = replay_answer_script_path
+        if bundle_info is not None:
+            env["REPLAY_BUNDLE_PATH"] = bundle_info["bundle_path"]
+        dispatch_kwargs["env"] = env
+
+    proc = subprocess.run(argv, **dispatch_kwargs)
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr)
+
+    # T-E40-F07-011: a "complete" result is written only for a genuinely
+    # scored, placement-aware, successful dispatch -- --package,
+    # --result-out, and --artifact-root all supplied, and the provider
+    # exited 0. A failing (non-zero-exit) scored dispatch writes no result
+    # here (out of this task's own AC-T1-AC-T4; left to later wiring), and a
+    # --package-less/--artifact-root-less dispatch (tc053's own scaffold
+    # invocations, T-E40-F07-010's own tc057 case) is completely unaffected,
+    # matching its behaviour before this task.
+    if (
+        proc.returncode == 0
+        and package is not None
+        and result_out_path is not None
+        and artifact_root_path is not None
+    ):
+        schema_version = load_i06_schema_version(i06_schema_path)
+        write_complete_result(
+            package=package,
+            schema_version=schema_version,
+            result_out_path=result_out_path,
+            artifact_root_path=artifact_root_path,
+            preamble_digest=preamble_digest,
+            prompt=prompt,
+            response_text=proc.stdout,
+            bundle_info=bundle_info,
+        )
+
     sys.exit(proc.returncode)
 
 
@@ -531,11 +836,13 @@ def main():
         verify_argv_mode(members, verify_argv_path)
         return
 
+    package = None
+    bundle_info = None
     if package_path is not None:
         package = load_package(package_path)
         # REQ-F-014: checked before ANY prelude dispatch, whether this
         # package turns out applicable or not.
-        check_consistency(package)
+        bundle_info = check_consistency(package)
         if not any(stage["applicable"] for stage in package["prelude"].values()):
             # REQ-F-013: the Rider action is NEVER invoked for an
             # all-non-applicable package -- return here, before
@@ -546,11 +853,9 @@ def main():
             print("NOT_APPLICABLE")
             return
         # An applicable package passed its consistency check -- fall
-        # through to the unmodified dispatch path below (T-E40-F07-011
-        # extends this branch with the real placement/preamble/result
-        # write; out of this task's scope per its own Brownfield Context).
+        # through to the unmodified dispatch path below.
 
-    dispatch_mode(members)
+    dispatch_mode(members, package=package, bundle_info=bundle_info)
 
 
 try:
