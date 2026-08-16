@@ -45,6 +45,7 @@ tests=(
 	"$SCRIPT_DIR/tc049_snapshot_replay_test.sh"
 	"$SCRIPT_DIR/tc050_partial_evidence_test.sh"
 	"$SCRIPT_DIR/tc051_evidence_offline_determinism_test.sh"
+	"$SCRIPT_DIR/tc053_live_egress_denial_test.sh"
 )
 
 status=0

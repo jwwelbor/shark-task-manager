@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "-p",
+    "[fixture] a captured argv missing the WebFetch --disallowedTools entry -- represents a hypothetical run-prelude.sh regression, tc053 case (a3)",
+    "--disallowedTools",
+    "AskUserQuestion",
+    "--disallowedTools",
+    "WebSearch"
+  ]
+}
