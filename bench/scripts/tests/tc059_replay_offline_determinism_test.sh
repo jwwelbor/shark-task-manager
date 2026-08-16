@@ -11,12 +11,20 @@
 # mechanically rather than by convention:
 #
 #   AC-T1 (REQ-NF-004, AC-016): replay-answer.sh (the resolver),
-#     verify-replay-result.sh, verify-replay-isolation.sh (both its
-#     transcript-scan and bundle-disclosure shapes), and run-prelude.sh's
+#     verify-replay-result.sh, verify-replay-isolation.sh (its
+#     transcript-scan shape, its bundle-disclosure CLEAN shape, and its
+#     bundle-disclosure VIOLATION shape against a genuine two-candidate
+#     duplicate-digest ambiguity -- the case that actually exercises
+#     REQ-NF-004's directory-walk ordering discipline rather than merely
+#     trusting the script's own docstring), and run-prelude.sh's
 #     non-dispatch paths (--verify-argv completeness check and the
 #     REQ-F-013 all-non-applicable short-circuit), each invoked twice back
 #     to back over the same bundle/roots with the network disabled, produce
-#     byte-identical stdout and exit code.
+#     byte-identical stdout/stderr and exit code -- and both runs' exit code
+#     and non-empty output are checked against the EXPECTED verdict, not
+#     merely against each other, so an environmentally-degraded run that
+#     failed the same way twice (or a script that silently emitted nothing
+#     twice) cannot pass vacuously.
 #   AC-T2 (REQ-NF-004, AC-016): a PATH-stubbed provider's invocation log is
 #     empty across both runs of every guard/script above.
 #   AC-T3 (REQ-NF-001, AC-019): a repo-wide grep for forbidden generic-guard
@@ -136,6 +144,22 @@ PATH="$STUBBIN:$ORIGINAL_PATH" STUB_CLAUDE_LOG="$COMPLETE_ARGV_FIXTURE" \
 PATH="$ORIGINAL_PATH"
 [[ -s "$COMPLETE_ARGV_FIXTURE" ]] || fail "setup: no argv captured for the complete-argv fixture"
 
+# A third setup fixture: a root carrying TWO digest-identical renamed
+# copies of the real reference bundle, for the disclosure-mode VIOLATION
+# case below (as opposed to the CLEAN case reused from the committed
+# testdata/replay/roots fixtures). test-plan.md's "Determinism and offline
+# boundary" section requires verify-replay-isolation.sh's own named-path
+# output to be emitted in fixed order; with only one candidate match (the
+# CLEAN-then-single-plant shape tc056 already covers) that ordering
+# discipline can never actually be exercised -- a genuine two-candidate
+# ambiguity is what makes "the first match" a real choice the guard's own
+# sorted walk_files (not the OS's platform-dependent raw walk order) must
+# resolve identically every time.
+VIOLATION_FIXTURE_CHECKOUT="$WORKDIR/violation-fixture-checkout"
+mkdir -p "$VIOLATION_FIXTURE_CHECKOUT"
+cp "$REFERENCE_BUNDLE" "$VIOLATION_FIXTURE_CHECKOUT/aaa-first-copy.json"
+cp "$REFERENCE_BUNDLE" "$VIOLATION_FIXTURE_CHECKOUT/zzz-second-copy.json"
+
 # ---------------------------------------------------------------------------
 # AC-T1/AC-T2 helpers.
 #
@@ -146,13 +170,21 @@ PATH="$ORIGINAL_PATH"
 # being passed explicitly, the same discipline TC-051 established.
 # ---------------------------------------------------------------------------
 
-# run_guard_twice <label> <out1> <out2> <cmd...> -- runs <cmd...> (prefixed
-# by the enclosing mechanism's net_wrap, if any) twice, capturing stdout and
-# exit code each time, and asserts both runs are byte-identical on both
-# axes (AC-T1).
+# run_guard_twice <label> <want_exit> <out1> <out2> <cmd...> -- runs
+# <cmd...> (prefixed by the enclosing mechanism's net_wrap, if any) twice,
+# capturing stdout and exit code each time, and asserts both runs are
+# byte-identical on both axes (AC-T1). <want_exit> is asserted against BOTH
+# runs (never just code1==code2) and stdout is asserted non-empty: without
+# these, an environmentally-degraded run (e.g. a fixture path that silently
+# stopped resolving inside the network namespace, python3 unresolvable
+# under unshare --user) that failed the SAME way twice, or a script that
+# silently started printing nothing twice, would still diff clean and pass
+# vacuously -- exactly the "filter must do real discriminating work"
+# property TC-051's own raw_hit_count check exists to guarantee, applied
+# here to the byte-identity comparison itself rather than to a grep sweep.
 run_guard_twice() {
-	local label="$1" out1="$2" out2="$3"
-	shift 3
+	local label="$1" want_exit="$2" out1="$3" out2="$4"
+	shift 4
 
 	local code1 code2
 	set +e
@@ -169,9 +201,42 @@ run_guard_twice() {
 	fi
 	set -e
 
-	[[ "$code1" -eq "$code2" ]] || fail "$label: exit codes differ across two back-to-back runs: $code1 vs $code2"
+	[[ "$code1" -eq "$want_exit" ]] || fail "$label: run 1 exited $code1, want $want_exit -- the byte-identity comparison below would otherwise pass vacuously on an environmentally-degraded path"
+	[[ "$code2" -eq "$want_exit" ]] || fail "$label: run 2 exited $code2, want $want_exit -- the byte-identity comparison below would otherwise pass vacuously on an environmentally-degraded path"
+	[[ -s "$out1" ]] || fail "$label: run 1 produced empty stdout -- the byte-identity comparison below would otherwise pass vacuously on two silently-empty outputs"
 	diff -q "$out1" "$out2" >/dev/null || fail "$label: stdout differs across two back-to-back runs (AC-016 byte-identity violated): $(diff "$out1" "$out2" || true)"
-	echo "TC-059: $label - two back-to-back runs produced byte-identical stdout (exit $code1)"
+	echo "TC-059: $label - two back-to-back runs produced byte-identical, non-empty stdout (exit $code1)"
+}
+
+# run_guard_twice_stderr <label> <want_exit> <err1> <err2> <cmd...> -- same
+# discipline as run_guard_twice, but for a violation-path invocation whose
+# meaningful output (the named offending root/path) is on STDERR, not
+# stdout (verify-replay-isolation.sh's bundle_bulk_disclosure verdict, on
+# its failing path, prints nothing to stdout at all).
+run_guard_twice_stderr() {
+	local label="$1" want_exit="$2" err1="$3" err2="$4"
+	shift 4
+
+	local code1 code2
+	set +e
+	if [[ "${#net_wrap[@]}" -gt 0 ]]; then
+		"${net_wrap[@]}" "$@" >/dev/null 2>"$err1"
+		code1=$?
+		"${net_wrap[@]}" "$@" >/dev/null 2>"$err2"
+		code2=$?
+	else
+		"$@" >/dev/null 2>"$err1"
+		code1=$?
+		"$@" >/dev/null 2>"$err2"
+		code2=$?
+	fi
+	set -e
+
+	[[ "$code1" -eq "$want_exit" ]] || fail "$label: run 1 exited $code1, want $want_exit -- the byte-identity comparison below would otherwise pass vacuously on an environmentally-degraded path"
+	[[ "$code2" -eq "$want_exit" ]] || fail "$label: run 2 exited $code2, want $want_exit -- the byte-identity comparison below would otherwise pass vacuously on an environmentally-degraded path"
+	[[ -s "$err1" ]] || fail "$label: run 1 produced empty stderr -- the byte-identity comparison below would otherwise pass vacuously on two silently-empty outputs"
+	diff -q "$err1" "$err2" >/dev/null || fail "$label: stderr differs across two back-to-back runs (AC-016 byte-identity violated; a directory-walk order leak is exactly the failure mode this case guards against): $(diff "$err1" "$err2" || true)"
+	echo "TC-059: $label - two back-to-back runs produced byte-identical, non-empty stderr (exit $code1)"
 }
 
 # run_resolver_twice <mech_label> -- replay-answer.sh is stateful (writes a
@@ -213,6 +278,7 @@ run_resolver_twice() {
 
 	[[ "$code1" -eq "$code2" ]] || fail "$mech_label/replay-answer.sh: exit codes differ across two fresh-copy runs: $code1 vs $code2"
 	[[ "$code1" -eq 0 ]] || fail "$mech_label/replay-answer.sh: setup expectation broken -- a matching D01/problem_statement call should succeed (exit 0), got $code1"
+	[[ -s "$out1" ]] || fail "$mech_label/replay-answer.sh: run 1 produced empty stdout -- the byte-identity comparison below would otherwise pass vacuously on two silently-empty outputs"
 	diff -q "$out1" "$out2" >/dev/null || fail "$mech_label/replay-answer.sh: stdout differs across two fresh-copy runs of the same committed bundle content (AC-016 byte-identity violated)"
 	echo "TC-059: $mech_label/replay-answer.sh - two fresh-copy runs of the same committed bundle content produced byte-identical stdout (exit $code1)"
 }
@@ -235,28 +301,39 @@ run_mechanism() {
 	run_resolver_twice "$mech_label"
 
 	# --- verify-replay-result.sh (REQ-F-009 lineage reconciliation, T-E40-F07-007): read-only, reused directly. ---
-	run_guard_twice "$mech_label/verify-replay-result.sh" \
+	run_guard_twice "$mech_label/verify-replay-result.sh" 0 \
 		"$WORKDIR/$mech_label-lineage-1.out" "$WORKDIR/$mech_label-lineage-2.out" \
 		"$VALIDATOR" "$LINEAGE_RESULT_VALID" "$LINEAGE_BUNDLE"
 
 	# --- verify-replay-isolation.sh, transcript-scan shape (REQ-F-005, T-E40-F07-004): read-only, reused directly. ---
-	run_guard_twice "$mech_label/verify-replay-isolation.sh(transcript)" \
+	run_guard_twice "$mech_label/verify-replay-isolation.sh(transcript)" 0 \
 		"$WORKDIR/$mech_label-transcript-1.out" "$WORKDIR/$mech_label-transcript-2.out" \
 		"$ISOLATION" "$CLEAN_TRANSCRIPT"
 
-	# --- verify-replay-isolation.sh, bundle-disclosure shape (REQ-F-012, T-E40-F07-006): read-only, reused directly. ---
-	run_guard_twice "$mech_label/verify-replay-isolation.sh(disclosure)" \
+	# --- verify-replay-isolation.sh, bundle-disclosure shape, CLEAN case (REQ-F-012, T-E40-F07-006): read-only, reused directly. ---
+	run_guard_twice "$mech_label/verify-replay-isolation.sh(disclosure clean)" 0 \
 		"$WORKDIR/$mech_label-disclosure-1.out" "$WORKDIR/$mech_label-disclosure-2.out" \
 		"$ISOLATION" "$REFERENCE_BUNDLE" "$CLEAN_FIXTURE_CHECKOUT" "$CLEAN_SCRATCH_PROJECT"
 
+	# --- verify-replay-isolation.sh, bundle-disclosure shape, VIOLATION case
+	# with a genuine two-candidate duplicate-digest ambiguity (REQ-F-012,
+	# REQ-NF-004 ordering discipline): the meaningful output (root/path) is
+	# on stderr, not stdout, for this failing path -- compared via
+	# run_guard_twice_stderr. This is the case that actually exercises
+	# "first sorted match is stable across runs" rather than merely
+	# asserting it by reading the script's own docstring. ---
+	run_guard_twice_stderr "$mech_label/verify-replay-isolation.sh(disclosure violation, duplicate-digest ordering)" 1 \
+		"$WORKDIR/$mech_label-disclosure-violation-1.err" "$WORKDIR/$mech_label-disclosure-violation-2.err" \
+		"$ISOLATION" "$REFERENCE_BUNDLE" "$VIOLATION_FIXTURE_CHECKOUT" "$CLEAN_SCRATCH_PROJECT"
+
 	# --- run-prelude.sh --verify-argv (REQ-F-004 completeness check, non-dispatch, T-E40-F07-004): read-only, reused directly. ---
-	run_guard_twice "$mech_label/run-prelude.sh(--verify-argv)" \
+	run_guard_twice "$mech_label/run-prelude.sh(--verify-argv)" 0 \
 		"$WORKDIR/$mech_label-argv-1.out" "$WORKDIR/$mech_label-argv-2.out" \
 		"$RUN_PRELUDE" --verify-argv "$COMPLETE_ARGV_FIXTURE"
 
 	# --- run-prelude.sh --package (REQ-F-013 all-non-applicable short-circuit, non-dispatch, T-E40-F07-010): reused output path (idempotent overwrite). ---
 	local na_result="$WORKDIR/$mech_label-not-applicable-result.json"
-	run_guard_twice "$mech_label/run-prelude.sh(--package non-applicable)" \
+	run_guard_twice "$mech_label/run-prelude.sh(--package non-applicable)" 0 \
 		"$WORKDIR/$mech_label-na-1.out" "$WORKDIR/$mech_label-na-2.out" \
 		"$RUN_PRELUDE" --package "$BUG_PKG" --result-out "$na_result"
 
@@ -324,9 +401,19 @@ SWEEP_TARGETS=(
 
 for target in "${SWEEP_TARGETS[@]}"; do
 	[[ -f "$target" ]] || fail "AC-T3: sweep target does not exist: $target"
-	if hit="$(grep -nE "$FORBIDDEN_TOKENS" "$target")"; then
-		fail "AC-T3: forbidden generic-guard token found in $target -- REQ-NF-001/AC-019 language-neutrality violated: $hit"
-	fi
+	# grep exit 0 = match found, 1 = no match, >=2 = grep itself failed
+	# (e.g. a read error) -- distinguished explicitly so a grep failure can
+	# never be silently treated as "zero hits" (a fail-open on the exit
+	# code, not just on the pattern).
+	set +e
+	hit="$(grep -nE "$FORBIDDEN_TOKENS" "$target")"
+	grep_code=$?
+	set -e
+	case "$grep_code" in
+	0) fail "AC-T3: forbidden generic-guard token found in $target -- REQ-NF-001/AC-019 language-neutrality violated: $hit" ;;
+	1) : ;; # no match -- the expected zero-hit outcome
+	*) fail "AC-T3: grep itself failed (exit $grep_code) sweeping $target -- cannot conclude zero hits" ;;
+	esac
 done
 
 echo "TC-059: AC-T3/AC-019 - zero forbidden-token hits across the four generic F07 scripts PASS"
