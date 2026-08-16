@@ -1,21 +1,31 @@
 // TC-052 verifies the I-06 product-design replay contract E40-F07 produces
 // for E40-F08 (spec.md "Produces: I-06"). Per REQ-NF-003/ADR-F07-10, this
-// validator reads only in-repo artifacts -- bench/replay/i06-schema.yaml and
-// tests/contracts/testdata/e40_i06/{valid,invalid}/** -- and never a
-// populated fixture submodule, mirroring
-// TestTC042_I05StageEvidenceContract's own submodule-independence
-// discipline (bench/fixture-py and bench/fixture-repo are never read here).
+// validator reads only in-repo artifacts -- bench/replay/i06-schema.yaml,
+// tests/contracts/testdata/e40_i06/{valid,invalid}/**, and (T-E40-F07-008)
+// bench/evidence/i05-schema.yaml -- and never a populated fixture
+// submodule, mirroring TestTC042_I05StageEvidenceContract's own
+// submodule-independence discipline (bench/fixture-py and
+// bench/fixture-repo are never read here). The bench/evidence/i05-schema.yaml
+// read is a committed, non-submodule file this task's Integration Contracts
+// explicitly authorizes ("F07 reads this category name from
+// bench/evidence/i05-schema.yaml at validation time and edits nothing under
+// bench/evidence/"), matching spec.md "Integration with existing code" --
+// AC-018's REQ-NF-006(d) freeze covers writes, not this read.
 //
 // T-E40-F07-001 covered AC-001's document-kind core: REQ-F-001 (I-06 is two
 // distinct, unambiguous document kinds) and REQ-F-002 (the replay bundle's
 // schema_version/bundle_version/scenario_binding/entries[] field
-// inventory). This task (T-E40-F07-002) adds AC-002: REQ-F-003's
-// entry_digest recomputation, the one-byte-mutation boundary case, and the
-// consumed_entries[]/bundle join-key subset check. REQ-F-010/REQ-F-011's
-// artifact-record and interaction-proxy checks (AC-007, AC-008), and
-// REQ-F-017/REQ-F-018/REQ-F-019's terminal-outcome mapping, malformed-field
-// matrix, and vocabulary agreement (AC-013, AC-014, AC-015) remain later
-// tasks' extensions of this same test file (T-E40-F07-008, -009).
+// inventory). T-E40-F07-002 added AC-002: REQ-F-003's entry_digest
+// recomputation, the one-byte-mutation boundary case, and the
+// consumed_entries[]/bundle join-key subset check. This task
+// (T-E40-F07-008) adds AC-007 (REQ-F-010's artifact-record consumers[]
+// empty-vs-absent distinction and downstream edge recording) and AC-008
+// (REQ-F-011's closed, discriminated replayed_interaction_proxies field
+// set, its replay_wait_category/replay_wait_ns checks, and REQ-F-008's
+// unresolved_gate_count contradiction check). REQ-F-017/REQ-F-018/
+// REQ-F-019's terminal-outcome mapping, malformed-field matrix, and
+// vocabulary agreement (AC-013, AC-014, AC-015) remain T-E40-F07-009's
+// extension of this same test file.
 package contracts
 
 import (
@@ -389,6 +399,19 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 			}
 		})
 
+		t.Run("valid_result_minimal_artifact_records", func(t *testing.T) {
+			// result-minimal.json's own artifact record (T-E40-F07-001)
+			// must also satisfy this task's field-inventory validation --
+			// proving the new checks don't regress the already-committed
+			// fixture.
+			minimalDoc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-minimal.json"))
+			minimalStages, _ := minimalDoc["stages"].([]interface{})
+			errs := e40I06ValidateArtifactRecords(minimalStages, schema)
+			if len(errs) != 0 {
+				t.Errorf("result-minimal.json artifact records failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
 		// AC-T1/AC-007: consumers: [] yields orphan; the consumers key
 		// entirely absent yields consumption_evidence_missing; neither
 		// verdict applies to the other entry.
@@ -487,6 +510,7 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 			{"extra_field_outside_closed_set", "proxy-extra-field.json", []string{"proxy_field_unknown", "extra_debug_field"}},
 			{"human_time_named_field", "proxy-human-time-field.json", []string{"proxy_field_unknown", "stakeholder_minutes"}},
 			{"replay_wait_ns_exceeds_ceiling", "proxy-wait-implausible.json", []string{"proxy_wait_implausible", "replay_wait_ns"}},
+			{"missing_wait_category", "proxy-missing-wait-category.json", []string{"field_missing", "replay_wait_category"}},
 		}
 		for _, c := range cases {
 			c := c
@@ -1087,6 +1111,11 @@ func e40I06ValidateInteractionProxies(doc map[string]interface{}, schema *e40I06
 		errs = append(errs, fmt.Sprintf("proxy_measurement_kind_invalid: replayed_interaction_proxies.measurement_kind = %v, want %q", mk, schema.ReplayedInteractionProxiesDiscriminator))
 	}
 
+	// REQ-F-011 fixes "exactly the closed field set" -- both directions:
+	// no field outside it (unknown, below) and no field missing from it
+	// (missing, here). measurement_kind's own presence/value is already
+	// checked above, so it is skipped in this second pass to avoid a
+	// duplicate field_missing report.
 	fieldSet := e40I06StringSet(schema.ReplayedInteractionProxiesFields)
 	var unknown []string
 	for field := range proxies {
@@ -1098,9 +1127,24 @@ func e40I06ValidateInteractionProxies(doc map[string]interface{}, schema *e40I06
 	for _, field := range unknown {
 		errs = append(errs, fmt.Sprintf("proxy_field_unknown: replayed_interaction_proxies.%s is not in the closed field set %v", field, schema.ReplayedInteractionProxiesFields))
 	}
+	var missing []string
+	for _, field := range schema.ReplayedInteractionProxiesFields {
+		if field == "measurement_kind" {
+			continue
+		}
+		if _, present := proxies[field]; !present {
+			missing = append(missing, field)
+		}
+	}
+	sort.Strings(missing)
+	for _, field := range missing {
+		errs = append(errs, fmt.Sprintf("field_missing: replayed_interaction_proxies.%s", field))
+	}
 
-	if cat, hasCat := proxies["replay_wait_category"].(string); hasCat && cat != schema.ReplayWaitCategory {
-		errs = append(errs, fmt.Sprintf("vocabulary_value_unknown: replayed_interaction_proxies.replay_wait_category = %q, want %q", cat, schema.ReplayWaitCategory))
+	if cat, hasCat := proxies["replay_wait_category"]; hasCat {
+		if s, isString := cat.(string); !isString || s != schema.ReplayWaitCategory {
+			errs = append(errs, fmt.Sprintf("vocabulary_value_unknown: replayed_interaction_proxies.replay_wait_category = %v, want %q", cat, schema.ReplayWaitCategory))
+		}
 	}
 
 	if schema.ReplayWaitNsPlausibilityCeiling <= 0 {
