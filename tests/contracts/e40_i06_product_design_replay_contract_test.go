@@ -17,15 +17,19 @@
 // schema_version/bundle_version/scenario_binding/entries[] field
 // inventory). T-E40-F07-002 added AC-002: REQ-F-003's entry_digest
 // recomputation, the one-byte-mutation boundary case, and the
-// consumed_entries[]/bundle join-key subset check. This task
-// (T-E40-F07-008) adds AC-007 (REQ-F-010's artifact-record consumers[]
-// empty-vs-absent distinction and downstream edge recording) and AC-008
-// (REQ-F-011's closed, discriminated replayed_interaction_proxies field
-// set, its replay_wait_category/replay_wait_ns checks, and REQ-F-008's
-// unresolved_gate_count contradiction check). REQ-F-017/REQ-F-018/
-// REQ-F-019's terminal-outcome mapping, malformed-field matrix, and
-// vocabulary agreement (AC-013, AC-014, AC-015) remain T-E40-F07-009's
-// extension of this same test file.
+// consumed_entries[]/bundle join-key subset check. T-E40-F07-008 added
+// AC-007 (REQ-F-010's artifact-record consumers[] empty-vs-absent
+// distinction and downstream edge recording) and AC-008 (REQ-F-011's
+// closed, discriminated replayed_interaction_proxies field set, its
+// replay_wait_category/replay_wait_ns checks, and REQ-F-008's
+// unresolved_gate_count contradiction check). This task (T-E40-F07-009)
+// adds AC-013 (REQ-F-017's closed terminal_outcome set and its required
+// i07_stop_mapping seam into I-07's own stop vocabulary), AC-014
+// (REQ-F-019's 14-case malformed-field rejection matrix), and AC-015
+// (REQ-F-018's bidirectional single-owner vocabulary agreement, including
+// the error_kind sweep -- see error_kind_sweep below for why that
+// vocabulary is proven against emitted messages rather than a fixture
+// field).
 package contracts
 
 import (
@@ -191,6 +195,21 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 		// e40I06ValidateInteractionProxies below.
 		if schema.ReplayWaitNsPlausibilityCeiling <= 0 {
 			t.Errorf("i06-schema.yaml replay_wait_ns_plausibility_ceiling = %d, want a positive value", schema.ReplayWaitNsPlausibilityCeiling)
+		}
+
+		// AC-T1/REQ-F-017 (T-E40-F07-009): the closed, twelve-value
+		// terminal_outcome set this task's checks read from the schema
+		// rather than a Go constant.
+		wantTerminalOutcomes := []string{
+			"complete", "not_applicable", "unresolved_gate", "replay_desync",
+			"live_interaction_reached", "unattributed_artifact", "bundle_bulk_disclosure",
+			"resource_limit", "error", "cancellation", "worker_failure", "timeout",
+		}
+		if !e40StringSlicesEqual(schema.TerminalOutcome, wantTerminalOutcomes) {
+			t.Errorf("i06-schema.yaml terminal_outcome = %v, want %v", schema.TerminalOutcome, wantTerminalOutcomes)
+		}
+		if len(schema.ErrorKind) == 0 {
+			t.Error("i06-schema.yaml error_kind is empty")
 		}
 	})
 
@@ -566,6 +585,485 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 				t.Errorf("expected unresolved_gate_count_inconsistent, got:\n%s", strings.Join(errs, "\n"))
 			}
 		})
+	})
+
+	// AC-013/REQ-F-017 (T-E40-F07-009): the closed, twelve-value
+	// terminal_outcome decision table. Every non-complete/not_applicable
+	// value retains partial evidence (asserted at the fixture level, not
+	// re-derived here), sets publication_eligible: false, carries a
+	// non-empty ineligibility_reasons[], and -- for the ten "stop" values
+	// -- carries the i07_stop_mapping REQ-F-017 fixes: unresolved_gate for
+	// replay_desync; error for live_interaction_reached,
+	// unattributed_artifact, and bundle_bulk_disclosure; the outcome's own
+	// value for the remaining six stop outcomes (unresolved_gate,
+	// resource_limit, error, cancellation, worker_failure, timeout).
+	t.Run("terminal_outcome_mapping", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			file    string
+			outcome string
+		}{
+			{"complete", "result-minimal.json", "complete"},
+			{"not_applicable", "result-not-applicable.json", "not_applicable"},
+			{"unresolved_gate", "result-unresolved-gate.json", "unresolved_gate"},
+			{"replay_desync", "result-replay-desync.json", "replay_desync"},
+			{"live_interaction_reached", "result-live-interaction-reached.json", "live_interaction_reached"},
+			{"unattributed_artifact", "result-unattributed-artifact.json", "unattributed_artifact"},
+			{"bundle_bulk_disclosure", "result-bundle-bulk-disclosure.json", "bundle_bulk_disclosure"},
+			{"resource_limit", "result-resource-limit.json", "resource_limit"},
+			{"error", "result-error.json", "error"},
+			{"cancellation", "result-cancellation.json", "cancellation"},
+			{"worker_failure", "result-worker-failure.json", "worker_failure"},
+			{"timeout", "result-timeout.json", "timeout"},
+		}
+		if len(cases) != 12 {
+			t.Fatalf("test fixture bug: terminal_outcome_mapping table has %d cases, want all 12 closed-set values", len(cases))
+		}
+		for _, c := range cases {
+			c := c
+			t.Run(c.name, func(t *testing.T) {
+				doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", c.file))
+				if got, _ := doc["terminal_outcome"].(string); got != c.outcome {
+					t.Fatalf("fixture %s terminal_outcome = %q, want %q", c.file, got, c.outcome)
+				}
+				if errs := e40I06ValidateTerminalOutcome(doc, schema); len(errs) != 0 {
+					t.Errorf("fixture %s failed terminal_outcome validation, want zero errors:\n%s", c.file, strings.Join(errs, "\n"))
+				}
+
+				eligible, _ := doc["publication_eligible"].(bool)
+				reasons, _ := doc["ineligibility_reasons"].([]interface{})
+				gotMapping, hasMapping := doc["i07_stop_mapping"].(string)
+				wantMapping := e40I06I07StopMappingFor(c.outcome)
+
+				if c.outcome == "complete" || c.outcome == "not_applicable" {
+					if !eligible {
+						t.Errorf("fixture %s (non-stop outcome %s): publication_eligible = false, want true", c.file, c.outcome)
+					}
+					if hasMapping {
+						t.Errorf("fixture %s (non-stop outcome %s): carries i07_stop_mapping = %q, want absent", c.file, c.outcome, gotMapping)
+					}
+				} else {
+					if eligible {
+						t.Errorf("fixture %s (stop outcome %s): publication_eligible = true, want false", c.file, c.outcome)
+					}
+					if len(reasons) == 0 {
+						t.Errorf("fixture %s (stop outcome %s): ineligibility_reasons is empty, want non-empty", c.file, c.outcome)
+					}
+					if !hasMapping || gotMapping != wantMapping {
+						t.Errorf("fixture %s (stop outcome %s): i07_stop_mapping = %q (present=%v), want %q", c.file, c.outcome, gotMapping, hasMapping, wantMapping)
+					}
+				}
+			})
+		}
+	})
+
+	// AC-013 (T-E40-F07-009): the four named negative cases -- a stop
+	// outcome paired with publication_eligible: true, an absent
+	// i07_stop_mapping on a stop outcome, and an i07_stop_mapping naming a
+	// value outside I-07's own stop vocabulary. (An unknown terminal_outcome
+	// value is exercised as REQ-F-019 case 6 inside req_f_019_malformed_matrix
+	// below, and reused here by reference so it is not duplicated.)
+	t.Run("terminal_outcome_negative_cases", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			file    string
+			wantAny []string
+		}{
+			{"unknown_terminal_outcome", "unknown-terminal-outcome.json", []string{"vocabulary_value_unknown", "terminal_outcome"}},
+			{"stop_outcome_eligible_true", "stop-outcome-eligible-true.json", []string{"stop_outcome_eligibility_conflict"}},
+			{"i07_stop_mapping_missing", "i07-stop-mapping-missing.json", []string{"i07_stop_mapping_missing"}},
+			{"i07_stop_mapping_out_of_vocabulary", "i07-stop-mapping-out-of-vocabulary.json", []string{"i07_stop_mapping_out_of_vocabulary"}},
+		}
+		for _, c := range cases {
+			c := c
+			t.Run(c.name, func(t *testing.T) {
+				doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "invalid", c.file))
+				errs := e40I06ValidateTerminalOutcome(doc, schema)
+				if len(errs) == 0 {
+					t.Fatalf("case %s: expected validation errors, got none", c.name)
+				}
+				for _, want := range c.wantAny {
+					if !e40ContainsErrorMatching(errs, want) {
+						t.Errorf("case %s: expected an error naming %q, got:\n%s", c.name, want, strings.Join(errs, "\n"))
+					}
+				}
+			})
+		}
+	})
+
+	// AC-013 (T-E40-F07-009), coordinator-flagged regression (T-E40-F07-010
+	// concurrency note): a not_applicable result written by
+	// bench/scripts/run-prelude.sh's write_not_applicable_result
+	// (run-prelude.sh:418-469) carries vacuous {}/""/[] values for
+	// replay_bundle, preamble_digest, artifact_root, and
+	// replayed_interaction_proxies -- there is no bundle, preamble, root,
+	// or measured interaction for a run that never dispatched (REQ-F-013).
+	//
+	// Decision (documented here rather than silently resolved, per the
+	// parent loop's request): those four fields remain REQUIRED KEYS
+	// (i06-schema.yaml's document_kinds.result.required_fields is
+	// presence-only, and T-010's vacuous values ARE present) but their
+	// CONTENT is exempt from this file's deep field-inventory checks
+	// (e.g. e40I06ValidateInteractionProxies's closed-field-set/
+	// measurement_kind checks) specifically when terminal_outcome is
+	// not_applicable -- the same "not every check applies to every
+	// terminal_outcome" discipline e40I06ValidateUnresolvedGateCountConsistency
+	// already established above (T-E40-F07-008). bench/replay/i06-schema.yaml
+	// is NOT edited by this task: it is outside this task's literal Scope
+	// (tests/contracts/e40_i06_product_design_replay_contract_test.go and
+	// tests/contracts/testdata/e40_i06/{valid,invalid}/** only), and
+	// required_fields already passes as presence-only. REQ-F-013 itself
+	// already demonstrates a narrower stage-level shape carve-out
+	// ({applicable, reason} without artifacts[]/consumed_entries[]) than
+	// REQ-F-010's general per-stage shape -- reading that same carve-out as
+	// extending to the top-level dispatch-dependent fields is applying an
+	// existing rule, not inventing a new one.
+	//
+	// The alternative reading -- REQ-F-011's "exactly the closed field set"
+	// is unconditional, so even a never-dispatched run should emit a
+	// fully-fielded, all-zero replayed_interaction_proxies block -- would
+	// require editing run-prelude.sh's writer, which is outside this task's
+	// Scope. That call is left open for the parent loop.
+	t.Run("not_applicable_result_shape", func(t *testing.T) {
+		doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-not-applicable.json"))
+
+		t.Run("top_level_fields_present", func(t *testing.T) {
+			if errs := e40I06ValidateDocument(doc, "result", schema); len(errs) != 0 {
+				t.Errorf("not_applicable result failed top-level field presence, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			for _, f := range []string{"replay_bundle", "preamble_digest", "artifact_root", "replayed_interaction_proxies"} {
+				if _, present := doc[f]; !present {
+					t.Errorf("not_applicable result is missing required key %q (must be present, even if vacuous per REQ-F-013)", f)
+				}
+			}
+		})
+
+		t.Run("terminal_outcome_and_stage_reasons", func(t *testing.T) {
+			if errs := e40I06ValidateTerminalOutcome(doc, schema); len(errs) != 0 {
+				t.Errorf("not_applicable result failed terminal_outcome validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			if errs := e40I06ValidateStageReasons(doc); len(errs) != 0 {
+				t.Errorf("not_applicable result failed per-stage reason validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			if eligible, _ := doc["publication_eligible"].(bool); !eligible {
+				t.Error("not_applicable result publication_eligible = false, want true (REQ-F-017: not_applicable is eligible like complete)")
+			}
+			if _, present := doc["i07_stop_mapping"]; present {
+				t.Error("not_applicable result carries i07_stop_mapping, want absent (not_applicable is not a stop outcome)")
+			}
+		})
+	})
+
+	// AC-014/REQ-F-019 (T-E40-F07-009): the malformed-field rejection
+	// matrix. spec.md's REQ-F-019 prose names 10 semicolon-delimited cases,
+	// one of which ("an unknown stage/request_kind/edge_kind/
+	// terminal_outcome/error kind") bundles five closed vocabularies into
+	// one sentence. This task's own dispatch (T-E40-F07-009.md AC-T3,
+	// "Notes for Agent": "Fourteen fixtures... do not collapse the five
+	// vocabulary cases into one shared fixture") fixes the count at 14 by
+	// splitting exactly that one case into five fixtures and no other case
+	// into two: 10 - 1 + 5 = 14. Each row below names its REQ-F-019 case
+	// number in a comment. Six of the 14 reuse an already-committed fixture
+	// from an earlier task in this same file; the rest are new
+	// (tests/contracts/testdata/e40_i06/invalid/**, this task's Scope).
+	t.Run("req_f_019_malformed_matrix", func(t *testing.T) {
+		read := func(dir, name string) map[string]interface{} {
+			return e40I06ReadDocument(t, filepath.Join(testdataRoot, dir, name))
+		}
+		type malformedCase struct {
+			name    string
+			run     func() []string
+			wantAny []string
+		}
+		cases := []malformedCase{
+			{"case_01_unsupported_schema_version", func() []string { // case 1
+				return e40I06ValidateDocument(read("invalid", "unsupported-schema-version.json"), "bundle", schema)
+			}, []string{"schema_version_unsupported"}},
+			{"case_02_duplicate_ordinal", func() []string { // case 2
+				return e40I06ValidateDocument(read("invalid", "duplicate-ordinal.json"), "bundle", schema)
+			}, []string{"duplicate_ordinal"}},
+			{"case_03_unknown_stage", func() []string { // case 3 (vocab 1/5)
+				return e40I06ValidateDocument(read("invalid", "unknown-stage.json"), "bundle", schema)
+			}, []string{"vocabulary_value_unknown", "D09"}},
+			{"case_04_unknown_request_kind", func() []string { // case 4 (vocab 2/5)
+				return e40I06ValidateDocument(read("invalid", "unknown-request-kind.json"), "bundle", schema)
+			}, []string{"vocabulary_value_unknown", "chit_chat"}},
+			{"case_05_unknown_edge_kind", func() []string { // case 5 (vocab 3/5)
+				doc := read("invalid", "unknown-edge-kind.json")
+				stages, _ := doc["stages"].([]interface{})
+				return e40I06ValidateArtifactRecords(stages, schema)
+			}, []string{"vocabulary_value_unknown", "edge_kind"}},
+			{"case_06_unknown_terminal_outcome", func() []string { // case 6 (vocab 4/5)
+				return e40I06ValidateTerminalOutcome(read("invalid", "unknown-terminal-outcome.json"), schema)
+			}, []string{"vocabulary_value_unknown", "terminal_outcome"}},
+			// case 7 (vocab 5/5, "unknown error kind") is deliberately not a
+			// fixture case here -- see error_kind_sweep below and
+			// i06-schema.yaml's own error_kind comment (T-E40-F07-001's
+			// resolution, reaffirmed by this task's own dispatch note): I-06
+			// documents carry no errors[]-shaped field, so there is no
+			// document field a fixture could set to an out-of-vocabulary
+			// error_kind value. The vocabulary is proven by sweeping this
+			// validator's own emitted message-prefix tokens instead.
+			{"case_08_entry_digest_does_not_recompute", func() []string { // case 8
+				_, errs := e40I06RecomputeBundleEntryDigests(read("invalid", "entry-digest-mutated.json"))
+				return errs
+			}, []string{"replay_bundle_mutated"}},
+			{"case_09_response_reference_mismatch", func() []string { // case 9
+				return e40I06ValidateResponseReferences(read("invalid", "response-digest-mismatch.json"), filepath.Join(testdataRoot, "invalid"))
+			}, []string{"response_reference_unresolved"}},
+			{"case_10_proxy_non_discriminator_measurement_kind", func() []string { // case 10
+				return e40I06ValidateInteractionProxies(read("invalid", "proxy-wrong-measurement-kind.json"), schema)
+			}, []string{"proxy_measurement_kind_invalid"}},
+			{"case_11_artifact_missing_digest", func() []string { // case 11
+				doc := read("invalid", "artifact-missing-digest.json")
+				stages, _ := doc["stages"].([]interface{})
+				return e40I06ValidateArtifactRecords(stages, schema)
+			}, []string{"field_missing", "digest"}},
+			{"case_12_stop_outcome_eligible_true", func() []string { // case 12
+				return e40I06ValidateTerminalOutcome(read("invalid", "stop-outcome-eligible-true.json"), schema)
+			}, []string{"stop_outcome_eligibility_conflict"}},
+			{"case_13_not_applicable_missing_reason", func() []string { // case 13
+				return e40I06ValidateStageReasons(read("invalid", "not-applicable-missing-reason.json"))
+			}, []string{"not_applicable_reason_missing"}},
+			{"case_14_consumption_claim_absent_from_ledger", func() []string { // case 14
+				doc := read("invalid", "consumption-claim-absent-from-ledger.json")
+				stages, _ := doc["stages"].([]interface{})
+				return e40I06ValidateArtifactConsumptionAgainstLedger(stages)
+			}, []string{"unattributed_artifact"}},
+		}
+		if len(cases) != 13 {
+			t.Fatalf("test fixture bug: req_f_019_malformed_matrix table has %d cases, want 13 (14 REQ-F-019 cases minus case 7, proven separately by error_kind_sweep)", len(cases))
+		}
+		for _, c := range cases {
+			c := c
+			t.Run(c.name, func(t *testing.T) {
+				errs := c.run()
+				if len(errs) == 0 {
+					t.Fatalf("case %s: expected validation errors, got none", c.name)
+				}
+				for _, want := range c.wantAny {
+					if !e40ContainsErrorMatching(errs, want) {
+						t.Errorf("case %s: expected an error naming %q, got:\n%s", c.name, want, strings.Join(errs, "\n"))
+					}
+				}
+			})
+		}
+
+		// AC-014 Negative: correcting exactly one field passes, proving the
+		// validator is not rejecting the whole document for an unrelated
+		// reason (mirrors TC-042's valid_baseline_passes).
+		t.Run("valid_baseline_passes", func(t *testing.T) {
+			if errs := e40I06ValidateDocument(read("valid", "bundle-minimal.json"), "bundle", schema); len(errs) != 0 {
+				t.Errorf("valid bundle baseline failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			if errs := e40I06ValidateTerminalOutcome(read("valid", "result-minimal.json"), schema); len(errs) != 0 {
+				t.Errorf("valid result baseline (terminal_outcome) failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			artifactsDoc := read("valid", "result-artifact-records.json")
+			stages, _ := artifactsDoc["stages"].([]interface{})
+			if errs := e40I06ValidateArtifactRecords(stages, schema); len(errs) != 0 {
+				t.Errorf("valid artifact-records baseline failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			if errs := e40I06ValidateArtifactConsumptionAgainstLedger(stages); len(errs) != 0 {
+				t.Errorf("valid artifact-records baseline failed ledger reconciliation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			if errs := e40I06ValidateResponseReferences(read("valid", "bundle-minimal.json"), filepath.Join(testdataRoot, "valid")); len(errs) != 0 {
+				t.Errorf("valid bundle baseline failed response-reference resolution, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+	})
+
+	// AC-015/REQ-F-018 (T-E40-F07-009): single-owner vocabulary agreement
+	// is bidirectional. "Declared but unexercised" (schema has it, no valid/
+	// fixture uses it) is a non-fatal coverage note, mirroring TC-042's
+	// AC-020 discipline; "value present in neither" (a fixture uses a value
+	// absent from i06-schema.yaml) reuses two already-proven rejection
+	// cases and additionally asserts those exact values are genuinely
+	// absent from the schema -- proving the schema, not a private Go copy,
+	// is the thing actually consulted.
+	t.Run("vocabulary_single_owner_bidirectional", func(t *testing.T) {
+		exercised := map[string]map[string]bool{
+			"stage": {}, "request_kind": {}, "artifact_type": {}, "edge_kind": {}, "terminal_outcome": {},
+		}
+
+		bundleDoc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "bundle-minimal.json"))
+		if entries, ok := bundleDoc["entries"].([]interface{}); ok {
+			for _, re := range entries {
+				e, _ := re.(map[string]interface{})
+				if s, _ := e["stage"].(string); s != "" {
+					exercised["stage"][s] = true
+				}
+				if k, _ := e["request_kind"].(string); k != "" {
+					exercised["request_kind"][k] = true
+				}
+			}
+		}
+
+		resultFiles, err := filepath.Glob(filepath.Join(testdataRoot, "valid", "result-*.json"))
+		if err != nil {
+			t.Fatalf("glob valid result fixtures: %v", err)
+		}
+		if len(resultFiles) == 0 {
+			t.Fatal("no valid/result-*.json fixtures found")
+		}
+		for _, f := range resultFiles {
+			doc := e40I06ReadDocument(t, f)
+			if to, _ := doc["terminal_outcome"].(string); to != "" {
+				exercised["terminal_outcome"][to] = true
+			}
+			stages, _ := doc["stages"].([]interface{})
+			for _, rs := range stages {
+				s, _ := rs.(map[string]interface{})
+				arts, _ := s["artifacts"].([]interface{})
+				for _, ra := range arts {
+					a, _ := ra.(map[string]interface{})
+					if at, _ := a["artifact_type"].(string); at != "" {
+						exercised["artifact_type"][at] = true
+					}
+					cons, _ := a["consumers"].([]interface{})
+					for _, rc := range cons {
+						c, _ := rc.(map[string]interface{})
+						if ek, _ := c["edge_kind"].(string); ek != "" {
+							exercised["edge_kind"][ek] = true
+						}
+					}
+				}
+			}
+		}
+
+		for _, vocab := range []struct {
+			name   string
+			values []string
+		}{
+			{"stage", schema.Stage},
+			{"request_kind", schema.RequestKind},
+			{"artifact_type", schema.ArtifactType},
+			{"edge_kind", schema.EdgeKind},
+			{"terminal_outcome", schema.TerminalOutcome},
+		} {
+			for _, v := range vocab.values {
+				if !exercised[vocab.name][v] {
+					t.Logf("declared but unexercised (AC-015, non-fatal): %s = %q is in i06-schema.yaml but no valid/ fixture uses it", vocab.name, v)
+				}
+			}
+		}
+
+		// "Value present in neither" direction: D09 (unknown-stage.json)
+		// and "obliterated" (unknown-terminal-outcome.json) are already
+		// proven rejected elsewhere in this file (malformed_bundle_cases,
+		// req_f_019_malformed_matrix) -- assert here that the schema itself
+		// genuinely never declares them, so a validator embedding a private
+		// vocabulary copy that happened to also reject them would not pass
+		// this specific check by accident.
+		for _, v := range schema.Stage {
+			if v == "D09" {
+				t.Fatal("test fixture bug: D09 must NOT be a declared stage value in i06-schema.yaml")
+			}
+		}
+		for _, v := range schema.TerminalOutcome {
+			if v == "obliterated" {
+				t.Fatal("test fixture bug: \"obliterated\" must NOT be a declared terminal_outcome value in i06-schema.yaml")
+			}
+		}
+	})
+
+	// AC-015/REQ-F-018 (T-E40-F07-009): error_kind's single-owner agreement
+	// is proven differently from the other vocabularies. I-06's own
+	// documents carry no errors[]-shaped field (i06-schema.yaml's
+	// error_kind comment; Document A and Document B, spec.md "API /
+	// interface contracts"), so error_kind is exclusively the closed set of
+	// message-prefix tokens this validator (and every bench guard) MUST
+	// choose its own emitted verdict from -- proven by sweeping the
+	// validator's own emitted messages against i06-schema.yaml's error_kind
+	// list, not via a fixture document field. This resolution was fixed by
+	// T-E40-F07-001 and reaffirmed by this task's own dispatch note.
+	//
+	// emitted-but-undeclared is fatal: a validator inventing a verdict
+	// token neither i06-schema.yaml nor any consumer agreed to is exactly
+	// the private-vocabulary divergence REQ-F-018 forbids.
+	// declared-but-never-emitted-in-this-run is logged non-fatal, mirroring
+	// TC-042's AC-020 "declared but unexercised" discipline -- some
+	// error_kind values (replay_desync, unresolved_gate,
+	// bundle_bulk_disclosure, orphan, consumption_evidence_missing) are
+	// bench-script (verify-replay-isolation.sh/replay-answer.sh) or
+	// e40I06ArtifactConsumersVerdict return-value tokens this Go validator
+	// itself never emits as an error-message prefix.
+	t.Run("error_kind_sweep", func(t *testing.T) {
+		errKindSet := e40I06StringSet(schema.ErrorKind)
+		var all []string
+		collect := func(errs []string) { all = append(all, errs...) }
+		read := func(dir, name string) map[string]interface{} {
+			return e40I06ReadDocument(t, filepath.Join(testdataRoot, dir, name))
+		}
+
+		for _, f := range []string{
+			"unsupported-schema-version.json", "missing-bundle-version.json",
+			"duplicate-ordinal.json", "unknown-stage.json",
+			"unknown-request-kind.json", "bad-response-shape.json",
+			"entry-missing-field.json",
+		} {
+			collect(e40I06ValidateDocument(read("invalid", f), "bundle", schema))
+		}
+		collect(e40I06ValidateDocument(read("invalid", "result-as-bundle.json"), "bundle", schema))
+		collect(e40I06ValidateDocument(read("invalid", "bundle-as-result.json"), "result", schema))
+
+		for _, f := range []string{
+			"proxy-missing-measurement-kind.json", "proxy-wrong-measurement-kind.json",
+			"proxy-extra-field.json", "proxy-human-time-field.json",
+			"proxy-wait-implausible.json", "proxy-missing-wait-category.json",
+		} {
+			collect(e40I06ValidateInteractionProxies(read("invalid", f), schema))
+		}
+
+		for _, f := range []string{"unknown-edge-kind.json", "artifact-missing-digest.json"} {
+			doc := read("invalid", f)
+			stages, _ := doc["stages"].([]interface{})
+			collect(e40I06ValidateArtifactRecords(stages, schema))
+		}
+
+		for _, f := range []string{
+			"unknown-terminal-outcome.json", "stop-outcome-eligible-true.json",
+			"i07-stop-mapping-missing.json", "i07-stop-mapping-out-of-vocabulary.json",
+		} {
+			collect(e40I06ValidateTerminalOutcome(read("invalid", f), schema))
+		}
+
+		collect(e40I06ValidateStageReasons(read("invalid", "not-applicable-missing-reason.json")))
+
+		ledgerDoc := read("invalid", "consumption-claim-absent-from-ledger.json")
+		ledgerStages, _ := ledgerDoc["stages"].([]interface{})
+		collect(e40I06ValidateArtifactConsumptionAgainstLedger(ledgerStages))
+
+		collect(e40I06ValidateResponseReferences(read("invalid", "response-digest-mismatch.json"), filepath.Join(testdataRoot, "invalid")))
+
+		_, mutErrs := e40I06RecomputeBundleEntryDigests(read("invalid", "entry-digest-mutated.json"))
+		collect(mutErrs)
+
+		if len(all) == 0 {
+			t.Fatal("error_kind_sweep collected zero emitted errors -- the sweep itself is broken")
+		}
+
+		exercisedKinds := map[string]bool{}
+		for _, msg := range all {
+			kind := msg
+			if idx := strings.Index(msg, ":"); idx >= 0 {
+				kind = msg[:idx]
+			}
+			exercisedKinds[kind] = true
+			if !errKindSet[kind] {
+				t.Errorf("emitted error kind %q (from message %q) is not declared in i06-schema.yaml error_kind", kind, msg)
+			}
+		}
+		var unexercised []string
+		for _, kind := range schema.ErrorKind {
+			if !exercisedKinds[kind] {
+				unexercised = append(unexercised, kind)
+			}
+		}
+		sort.Strings(unexercised)
+		for _, kind := range unexercised {
+			t.Logf("declared but unexercised (AC-015, non-fatal): error_kind %q is in i06-schema.yaml but this test run never emitted it as a message prefix", kind)
+		}
 	})
 }
 
@@ -1183,4 +1681,240 @@ func e40I06ValidateUnresolvedGateCountConsistency(doc map[string]interface{}) []
 		return []string{"unresolved_gate_count_inconsistent: terminal_outcome is unresolved_gate but replayed_interaction_proxies.unresolved_gate_count is 0"}
 	}
 	return nil
+}
+
+// e40I06I07StopMappingFor returns REQ-F-017's fixed i07_stop_mapping target
+// for a given terminal_outcome value, or "" for complete/not_applicable
+// (neither is a stop outcome, so i07_stop_mapping is not required on
+// either).
+//
+// This is REQ-F-017's own closed mapping table (spec.md "Document B"
+// i07_stop_mapping row), not a private re-derivation of I-07's vocabulary.
+// architecture.md's "Lifecycle run record contract" section names most of
+// I-07's stop causes in prose ("resource_limit, lease loss, missing
+// outcome, unresolved_gate, pause, archive, error, cancellation, and
+// worker failure stop the scenario") but is informal English, not a
+// formal enum -- inconsistent backtick usage, and it never mentions
+// `timeout` even though REQ-F-017 explicitly lists timeout as one of "the
+// eight remaining values [that] map to themselves." REQ-F-017's own table
+// is therefore the authoritative, self-contained source this function
+// implements; I-07's actual schema does not exist yet (owned by E40-F08).
+func e40I06I07StopMappingFor(outcome string) string {
+	switch outcome {
+	case "complete", "not_applicable":
+		return ""
+	case "replay_desync":
+		return "unresolved_gate"
+	case "live_interaction_reached", "unattributed_artifact", "bundle_bulk_disclosure":
+		return "error"
+	case "unresolved_gate", "resource_limit", "error", "cancellation", "worker_failure", "timeout":
+		return outcome
+	default:
+		return ""
+	}
+}
+
+// e40I06I07StopVocabulary is the range of e40I06I07StopMappingFor over
+// every stop outcome -- the set of values REQ-F-017's own mapping table
+// ever produces as an i07_stop_mapping target. An i07_stop_mapping value
+// outside this set is i07_stop_mapping_out_of_vocabulary (AC-013/AC-T2).
+var e40I06I07StopVocabulary = map[string]bool{
+	"unresolved_gate": true,
+	"error":           true,
+	"resource_limit":  true,
+	"cancellation":    true,
+	"worker_failure":  true,
+	"timeout":         true,
+}
+
+// e40I06ValidateTerminalOutcome checks REQ-F-017: terminal_outcome is a
+// member of the closed set; a stop outcome (every value other than
+// complete/not_applicable) sets publication_eligible: false, carries a
+// non-empty ineligibility_reasons[], and carries an i07_stop_mapping that
+// is present and a member of I-07's own stop vocabulary
+// (e40I06I07StopVocabulary). This function does not check whether
+// i07_stop_mapping matches e40I06I07StopMappingFor's *specific* target for
+// this outcome -- AC-013/AC-T2 names only two i07_stop_mapping failure
+// modes (absent, out-of-vocabulary); mapping-table correctness for the 12
+// valid fixtures is asserted directly by the terminal_outcome_mapping
+// subtest instead.
+func e40I06ValidateTerminalOutcome(doc map[string]interface{}, schema *e40I06Schema) []string {
+	rawOutcome, present := doc["terminal_outcome"]
+	if !present {
+		return []string{"field_missing: terminal_outcome"}
+	}
+	outcome, isString := rawOutcome.(string)
+	if !isString {
+		return []string{"field_malformed: terminal_outcome must be a string"}
+	}
+	outcomeSet := e40I06StringSet(schema.TerminalOutcome)
+	if !outcomeSet[outcome] {
+		return []string{fmt.Sprintf("vocabulary_value_unknown: terminal_outcome %q is not one of %v", outcome, schema.TerminalOutcome)}
+	}
+
+	if outcome == "complete" || outcome == "not_applicable" {
+		return nil
+	}
+
+	var errs []string
+	if eligible, _ := doc["publication_eligible"].(bool); eligible {
+		errs = append(errs, fmt.Sprintf("stop_outcome_eligibility_conflict: terminal_outcome %q is a stop outcome but publication_eligible is true", outcome))
+	}
+	if reasons, ok := doc["ineligibility_reasons"].([]interface{}); !ok || len(reasons) == 0 {
+		errs = append(errs, fmt.Sprintf("field_malformed: ineligibility_reasons must be non-empty for stop outcome %q", outcome))
+	}
+
+	rawMapping, hasMapping := doc["i07_stop_mapping"]
+	if !hasMapping {
+		errs = append(errs, fmt.Sprintf("i07_stop_mapping_missing: terminal_outcome %q is a stop outcome and requires i07_stop_mapping", outcome))
+	} else if mapping, isStr := rawMapping.(string); !isStr || !e40I06I07StopVocabulary[mapping] {
+		errs = append(errs, fmt.Sprintf("i07_stop_mapping_out_of_vocabulary: i07_stop_mapping %v is not one of I-07's own stop vocabulary %v", rawMapping, e40I06SortedKeys(e40I06I07StopVocabulary)))
+	}
+
+	return errs
+}
+
+// e40I06SortedKeys returns m's keys sorted, for deterministic (REQ-NF-004)
+// error-message formatting.
+func e40I06SortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// e40I06ValidateStageReasons checks that every stages[] record with
+// applicable: false carries a non-empty reason -- REQ-F-013's per-stage
+// shape for a non-applicable stage ({applicable: false, reason}), applied
+// to any result document (not only a terminal_outcome: not_applicable one:
+// result-unresolved-gate.json's own D03-D05 stop records also carry
+// applicable: false and MUST name why, per REQ-F-002's Document B stages[]
+// contract). This is REQ-F-019 case 13 ("a not_applicable result missing a
+// per-stage reason").
+func e40I06ValidateStageReasons(doc map[string]interface{}) []string {
+	var errs []string
+	stages, _ := doc["stages"].([]interface{})
+	for i, raw := range stages {
+		stage, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		applicable, _ := stage["applicable"].(bool)
+		if applicable {
+			continue
+		}
+		reason, isStr := stage["reason"].(string)
+		if !isStr || strings.TrimSpace(reason) == "" {
+			stageName, _ := stage["stage"].(string)
+			errs = append(errs, fmt.Sprintf("not_applicable_reason_missing: stages[%d] (stage=%s) has applicable=false but no reason", i, stageName))
+		}
+	}
+	return errs
+}
+
+// e40I06ValidateArtifactConsumptionAgainstLedger checks REQ-F-019's final
+// named case: a consumption claim absent from the resolver ledger. Per
+// stage, the resolver ledger is stages[].consumed_entries[] (a list of
+// {entry_id, ...} objects, REQ-F-009's single writer); each artifact's own
+// consumed_entries[] (a list of entry_id strings, REQ-F-010) is the
+// artifact's *claim*. A claimed entry_id absent from that same stage's
+// ledger is unattributed_artifact, naming the artifact path and the
+// offending entry_id -- ADR-F07-05's "the resolver's ledger is the single
+// arbiter every artifact's claimed lineage reconciles against."
+func e40I06ValidateArtifactConsumptionAgainstLedger(stages []interface{}) []string {
+	var errs []string
+	for si, raw := range stages {
+		stage, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ledger := map[string]bool{}
+		rawConsumed, _ := stage["consumed_entries"].([]interface{})
+		for _, rc := range rawConsumed {
+			entry, ok := rc.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if id, _ := entry["entry_id"].(string); id != "" {
+				ledger[id] = true
+			}
+		}
+		rawArtifacts, _ := stage["artifacts"].([]interface{})
+		for ai, ra := range rawArtifacts {
+			artifact, ok := ra.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			rawClaims, _ := artifact["consumed_entries"].([]interface{})
+			for _, rc := range rawClaims {
+				claimedID, _ := rc.(string)
+				if claimedID == "" || ledger[claimedID] {
+					continue
+				}
+				path, _ := artifact["path"].(string)
+				errs = append(errs, fmt.Sprintf(
+					"unattributed_artifact: stages[%d].artifacts[%d] (path=%s) claims consumed_entries %q, which stages[%d].consumed_entries (the resolver ledger) never recorded",
+					si, ai, path, claimedID, si,
+				))
+			}
+		}
+	}
+	return errs
+}
+
+// e40I06ValidateResponseReferences checks REQ-F-019's response-reference
+// case: every entries[].response of shape {path, digest} MUST resolve,
+// relative to bundleDir (the bundle file's own directory) and contained
+// within it (mirroring replay-answer.sh's resolve_within discipline, spec.md
+// "Component changes"), to a file whose sha256 hex digest equals the
+// declared digest. An inline string response is skipped -- it has no
+// reference to resolve.
+func e40I06ValidateResponseReferences(bundle map[string]interface{}, bundleDir string) []string {
+	var errs []string
+	absBundleDir, err := filepath.Abs(bundleDir)
+	if err != nil {
+		return []string{fmt.Sprintf("field_malformed: could not resolve bundle directory %s: %v", bundleDir, err)}
+	}
+	rawEntries, _ := bundle["entries"].([]interface{})
+	for i, re := range rawEntries {
+		entry, ok := re.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rawResponse, present := entry["response"]
+		if !present {
+			continue
+		}
+		refMap, isMap := rawResponse.(map[string]interface{})
+		if !isMap {
+			continue // inline string response -- not a reference.
+		}
+		entryID, _ := entry["entry_id"].(string)
+		relPath, _ := refMap["path"].(string)
+		wantDigest, _ := refMap["digest"].(string)
+		if relPath == "" {
+			errs = append(errs, fmt.Sprintf("field_missing: entries[%d].response.path", i))
+			continue
+		}
+
+		resolved := filepath.Join(absBundleDir, relPath)
+		if resolved != absBundleDir && !strings.HasPrefix(resolved, absBundleDir+string(filepath.Separator)) {
+			errs = append(errs, fmt.Sprintf("response_reference_unresolved: entries[%d] (entry_id=%s) response.path %q escapes the bundle directory", i, entryID, relPath))
+			continue
+		}
+
+		data, err := os.ReadFile(resolved)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("response_reference_unresolved: entries[%d] (entry_id=%s) response.path %q does not resolve: %v", i, entryID, relPath, err))
+			continue
+		}
+		sum := sha256.Sum256(data)
+		got := hex.EncodeToString(sum[:])
+		if got != wantDigest {
+			errs = append(errs, fmt.Sprintf("response_reference_unresolved: entries[%d] (entry_id=%s) response.path %q resolved digest %q does not match declared digest %q", i, entryID, relPath, got, wantDigest))
+		}
+	}
+	return errs
 }

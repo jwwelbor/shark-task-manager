@@ -1,0 +1,1 @@
+This file's content was mutated after entry_digest and response_digest were recorded, so its real sha256 no longer matches the bundle's declared digest.

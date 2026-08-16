@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "scenario_id": "py-bug-due-date-boundary",
+    "scenario_version": 1,
+    "entity_family": "bug"
+  },
+  "run_id": "",
+  "replay_bundle": {},
+  "preamble_digest": "",
+  "artifact_root": {},
+  "stages": [
+    {
+      "stage": "D01",
+      "applicable": false,
+      "reason": "bug scenarios skip the product-design prelude (entity_family: bug)"
+    },
+    {
+      "stage": "D02",
+      "applicable": false,
+      "reason": "bug scenarios skip the product-design prelude (entity_family: bug)"
+    },
+    {
+      "stage": "D03",
+      "applicable": false,
+      "reason": "bug scenarios skip the product-design prelude (entity_family: bug)"
+    },
+    {
+      "stage": "D04",
+      "applicable": false,
+      "reason": "bug scenarios skip the product-design prelude (entity_family: bug)"
+    },
+    {
+      "stage": "D05",
+      "applicable": false,
+      "reason": "bug scenarios skip the product-design prelude (entity_family: bug)"
+    }
+  ],
+  "replayed_interaction_proxies": {},
+  "artifact_consumption_edges": [],
+  "terminal_outcome": "not_applicable",
+  "publication_eligible": true,
+  "ineligibility_reasons": []
+}

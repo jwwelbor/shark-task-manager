@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "bundle_version": "1",
+  "scenario_binding": {
+    "scenario_id": "py-feature-recurring-tasks",
+    "scenario_version": 1
+  },
+  "entries": [
+    {
+      "entry_id": "d03-research-01",
+      "stage": "D03",
+      "ordinal": 1,
+      "request_kind": "research_query",
+      "topic_key": "competitor_scan",
+      "required": false,
+      "response": {
+        "path": "responses/d03-competitor-scan.txt",
+        "digest": "09325e7a628411bf27ad439edac493a61626412313265641148a4aef6f563445"
+      },
+      "response_digest": "09325e7a628411bf27ad439edac493a61626412313265641148a4aef6f563445",
+      "entry_digest": "c3b9def5e57ec4bc7c332579026faa6f13444b3f20da11c584378e079b5bea35"
+    }
+  ]
+}
