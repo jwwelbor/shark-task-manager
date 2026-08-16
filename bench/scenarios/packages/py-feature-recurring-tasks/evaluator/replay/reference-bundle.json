@@ -29,6 +29,17 @@
       "entry_digest": "7474ab721dfe6f4e75d8cc61845e106be9a7cd50dfd6b9fe682b7b5c28d6c5cb"
     },
     {
+      "entry_id": "D02-03",
+      "stage": "D02",
+      "ordinal": 3,
+      "request_kind": "human_question",
+      "topic_key": "success_metrics",
+      "required": false,
+      "response": "Secondary signal: the upcoming-occurrences window excludes occurrences that are already marked done, so the list never shows stale or duplicate work.",
+      "response_digest": "268df479374d73b69b50574565c23dfccc24fe12e844eb622d7cb3fe180922a9",
+      "entry_digest": "9d9b1a7174dcff696f9e22e442235a1de75f9b920f4ccdc33b881d646f61284e"
+    },
+    {
       "entry_id": "D02-01",
       "stage": "D02",
       "ordinal": 1,
@@ -49,17 +60,6 @@
       "response": "No new storage backend or schema migration; recurrence state must fit the existing Task model as an additional field, and generation must happen synchronously on completion, not via a background scheduler.",
       "response_digest": "17a71dde6a6c2ac16240ae6dfec243b2293f7d66e36e4c9b414d1d33f6e657ba",
       "entry_digest": "aa91b7c0f87dc7f03768659a7a5c60b281ff128515d7ce081d80238973c87c45"
-    },
-    {
-      "entry_id": "D02-03",
-      "stage": "D02",
-      "ordinal": 3,
-      "request_kind": "human_question",
-      "topic_key": "success_metrics",
-      "required": true,
-      "response": "Secondary signal: the upcoming-occurrences window excludes occurrences that are already marked done, so the list never shows stale or duplicate work.",
-      "response_digest": "268df479374d73b69b50574565c23dfccc24fe12e844eb622d7cb3fe180922a9",
-      "entry_digest": "e0f1fb81735dab39a905989ce312d2a95935008a6cfffd1298f88367f2834be0"
     },
     {
       "entry_id": "D03-01",
