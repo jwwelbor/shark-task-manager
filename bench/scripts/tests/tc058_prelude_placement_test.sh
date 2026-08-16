@@ -317,6 +317,7 @@ OUTSIDE_DIR="$WORKDIR/outside-artifact-root"
 mkdir -p "$OUTSIDE_DIR"
 OUTSIDE_SECRET="$OUTSIDE_DIR/secret.md"
 echo "# secret content that must never be recorded as a D01 artifact" >"$OUTSIDE_SECRET"
+OUTSIDE_DIGEST="$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$OUTSIDE_SECRET")"
 
 SYMLINK_TARGET="$SCRATCH_C/docs/product/D01-vision-statement.md"
 ln -s "$OUTSIDE_SECRET" "$SYMLINK_TARGET"
@@ -338,6 +339,13 @@ set -e
 grep -q "artifact_path_escapes_root" "$ERR_C" || fail "AC-T4 containment: failure message does not name artifact_path_escapes_root: $(cat "$ERR_C")"
 grep -qF "$SYMLINK_TARGET" "$ERR_C" || fail "AC-T4 containment: failure message does not name the offending path $SYMLINK_TARGET: $(cat "$ERR_C")"
 [[ ! -e "$RESULT_C" ]] || fail "AC-T4 containment: a replay result was written despite the path-escape violation -- the outside secret's content may have been recorded"
+
+# tc056's own "content-digest, not filename" discipline made explicit: the
+# outside target's real content digest must never appear anywhere in this
+# invocation's own working state (no result file exists, so this is a
+# structural sanity check on the guard's discipline, not a redundant
+# re-assertion of the no-result check above).
+! grep -rqF "$OUTSIDE_DIGEST" "$WORKDIR" || fail "AC-T4 containment: the outside target's content digest ($OUTSIDE_DIGEST) appears in written output -- escaped content was recorded"
 
 echo "TC-058(case AC-T4 containment: symlinked D0X-*.md artifact escaping artifact_root rejected by real path, naming it, no result written) PASS"
 
