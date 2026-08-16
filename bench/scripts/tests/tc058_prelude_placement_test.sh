@@ -71,6 +71,7 @@ cleanup() {
 	for d in "${SCRATCH_ROOTS[@]:-}"; do
 		[[ -n "$d" ]] && rm -rf "$d"
 	done
+	return 0
 }
 trap cleanup EXIT
 
