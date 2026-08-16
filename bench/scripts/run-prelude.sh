@@ -794,15 +794,20 @@ def dispatch_mode(members, package=None, bundle_info=None):
 
     # REQ-F-004: fail closed BEFORE dispatch if the argument vector actually
     # about to be handed to subprocess.run is missing a member. Checked
-    # against the FINAL argv (not an intermediate disallowed_args slice
-    # computed earlier): T-E40-F07-010 and -011 both insert logic between
-    # construction and dispatch (the non-applicable short-circuit, the
-    # disclosure check, the real preamble read), so a gate scanning a
-    # pre-insertion slice would not see a post-insertion mutation of argv
-    # itself. missing_members scans whole argv elements
+    # against the FINAL argv actually constructed above (never an
+    # intermediate disallowed_args slice computed earlier), so a gate
+    # scanning a pre-construction value could not see a later mutation of
+    # argv itself. missing_members scans whole argv elements
     # (`tok == "--disallowedTools"`), so a prompt string that happens to
     # contain that literal substring cannot cause a false pass -- and even a
     # false positive here is a loud refusal to dispatch, the safe direction.
+    # Note: this is REQ-F-004's own structural denial-argument check only.
+    # REQ-F-012's disclosure check (verify-replay-isolation.sh's three-arg
+    # bulk-disclosure mode) is NOT called anywhere in this file -- it is the
+    # caller's dispatch loop's job (E40-F08's future work), invoked against
+    # the live in-flight roots immediately before every scored dispatch (see
+    # bench/README.md's "Bundle-disclosure guard" and "Tier 2 guard
+    # invocation sequence" sections).
     missing = missing_members(argv, members)
     if missing:
         sys.stderr.write(

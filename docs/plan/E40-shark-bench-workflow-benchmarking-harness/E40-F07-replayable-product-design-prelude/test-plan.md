@@ -74,8 +74,8 @@ artifacts (Go and non-Go). Cross-referencing each against the AC list:
 | `bench/replay/preamble.md` | REQ-F-016, AC-012 |
 | `bench/scenarios/packages/py-feature-recurring-tasks/evaluator/replay/reference-bundle.json` | REQ-NF-006(c) carve-out; fixture support for AC-004-AC-012 |
 | `bench/scripts/replay-answer.sh` | REQ-F-006, REQ-F-007, AC-004, AC-005 |
-| `bench/scripts/run-prelude.sh` | REQ-F-004, REQ-F-012, REQ-F-013, REQ-F-014, REQ-F-015, REQ-F-016; AC-003(a), AC-009, AC-010, AC-011, AC-012 |
-| `bench/scripts/verify-replay-result.sh` | REQ-F-003, REQ-F-009, REQ-F-010, REQ-F-011, REQ-F-013, REQ-F-017; AC-002, AC-006, AC-007, AC-008, AC-013 |
+| `bench/scripts/run-prelude.sh` | REQ-F-004, REQ-F-013, REQ-F-014, REQ-F-015, REQ-F-016; AC-003(a), AC-010, AC-011, AC-012 (REQ-F-012 is `verify-replay-isolation.sh`'s row below, invoked by the caller's dispatch loop, not by `run-prelude.sh` itself) |
+| `bench/scripts/verify-replay-result.sh` | REQ-F-009; AC-006 (REQ-F-003/010/011/013/017 and AC-002/007/008/013 are TC-052's row below — this script implements only REQ-F-009's lineage reconciliation) |
 | `bench/scripts/verify-replay-isolation.sh` | REQ-F-005, REQ-F-012; AC-003(b), AC-009 |
 | `bench/scripts/testdata/replay/` | fixture support for AC-003-AC-012, AC-016 |
 | `bench/scripts/tests/tc053_live_egress_denial_test.sh` | AC-003 |
