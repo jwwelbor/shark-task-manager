@@ -637,4 +637,92 @@ grep -q "identity=test_add_task_accepts_recurrence_rule_param" "$err" || fail "r
 rm -f "$PLANTED_PARAM_IDENTITY"
 echo "TC-043(round-3 code-review fix regression: renamed parametrized oracle test -> rejected, naming the base identity) PASS"
 
+# ---------------------------------------------------------------------------
+# Round-4 code-review fix regression, finding F.1 (T-E40-F06-003): the
+# text-parsing collector (bc716aff) reconstructed a test's identity by
+# string-splitting the collection tool's own free-form `--collect-only -q`
+# output on "::", which broke on a parametrize decorator's CUSTOM `ids=[...]`
+# identifier containing a space (silently dropped the whole line, so
+# no identity -- not even the base name -- was ever derived) or containing
+# "::" (took the wrong "::"-split segment as the name, emitting a garbage
+# identity). The current collector derives identity from the collection
+# tool's own structured collection data (item.originalname via a
+# collection-modification plugin hook) instead of parsing any text, so
+# neither shape can defeat it. Each case below first proves clean,
+# untouched roots still verify CLEAN with the custom-id fixture substituted
+# (no false hard-fail from the mix of an ordinary test plus a custom-id
+# parametrized one -- the same property the round-4 code-review report's own
+# reproduction checked), then plants a renamed, stripped file carrying only
+# the real function body and asserts it is rejected, naming the identity.
+# ---------------------------------------------------------------------------
+echo "TC-043: round-4 code-review fix regression - custom parametrize id containing a space"
+
+SPACE_ID_CANDIDATE="$(mk_candidate custom-id-space)"
+cp "$OFFLINE_FIXTURES/custom-id-space-oracle/test_recurring.py" "$SPACE_ID_CANDIDATE/evaluator/test_recurring.py"
+
+out="$WORKDIR/space-id-clean.out"
+err="$WORKDIR/space-id-clean.err"
+set +e
+run_guard "$SPACE_ID_CANDIDATE/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$SPACE_ID_CANDIDATE" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 0 ]] || fail "round-4 code-review fix regression (space id, clean roots): guard exited $code with the custom-id-space oracle substituted and nothing planted, want 0: $(cat "$err")"
+[[ "$(cat "$out")" == "CLEAN" ]] || fail "round-4 code-review fix regression (space id, clean roots): guard stdout was $(cat "$out"), want CLEAN"
+
+PLANTED_SPACE_ID="$FIXTURE_CHECKOUT/renamed_leak_custom_space_id.py"
+cat >"$PLANTED_SPACE_ID" <<'EOF'
+def test_add_task_accepts_recurrence_rule_custom_space_id(n):
+    assert n > 0
+EOF
+
+out="$WORKDIR/space-id-leak.out"
+err="$WORKDIR/space-id-leak.err"
+set +e
+run_guard "$SPACE_ID_CANDIDATE/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$SPACE_ID_CANDIDATE" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail "round-4 code-review fix regression (space id): guard exited 0 (CLEAN) with a renamed custom-space-id oracle test planted, want non-zero"
+grep -q "root=agent_fixture_checkout" "$err" || fail "round-4 code-review fix regression (space id): failure message does not name the fixture-checkout root: $(cat "$err")"
+grep -qF "$PLANTED_SPACE_ID" "$err" || fail "round-4 code-review fix regression (space id): failure message does not name the planted path: $(cat "$err")"
+grep -q "match_kind=derived_test_identity" "$err" || fail "round-4 code-review fix regression (space id): failure message's match_kind was not 'derived_test_identity': $(cat "$err")"
+grep -q "identity=test_add_task_accepts_recurrence_rule_custom_space_id" "$err" || fail "round-4 code-review fix regression (space id): failure message does not name the leaked identity test_add_task_accepts_recurrence_rule_custom_space_id: $(cat "$err")"
+
+rm -f "$PLANTED_SPACE_ID"
+echo "TC-043(round-4 code-review fix regression: custom parametrize id containing a space -> clean roots verify CLEAN, renamed leak rejected naming the identity) PASS"
+
+echo "TC-043: round-4 code-review fix regression - custom parametrize id containing '::'"
+
+COLON_ID_CANDIDATE="$(mk_candidate custom-id-colon)"
+cp "$OFFLINE_FIXTURES/custom-id-colon-oracle/test_recurring.py" "$COLON_ID_CANDIDATE/evaluator/test_recurring.py"
+
+out="$WORKDIR/colon-id-clean.out"
+err="$WORKDIR/colon-id-clean.err"
+set +e
+run_guard "$COLON_ID_CANDIDATE/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$COLON_ID_CANDIDATE" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 0 ]] || fail "round-4 code-review fix regression (colon id, clean roots): guard exited $code with the custom-id-colon oracle substituted and nothing planted, want 0: $(cat "$err")"
+[[ "$(cat "$out")" == "CLEAN" ]] || fail "round-4 code-review fix regression (colon id, clean roots): guard stdout was $(cat "$out"), want CLEAN"
+
+PLANTED_COLON_ID="$FIXTURE_CHECKOUT/renamed_leak_custom_colon_id.py"
+cat >"$PLANTED_COLON_ID" <<'EOF'
+def test_add_task_accepts_recurrence_rule_custom_colon_id(n):
+    assert n > 0
+EOF
+
+out="$WORKDIR/colon-id-leak.out"
+err="$WORKDIR/colon-id-leak.err"
+set +e
+run_guard "$COLON_ID_CANDIDATE/package.yaml" "$FIXTURE_CHECKOUT" "$SCRATCH_PROJECT" "$COLON_ID_CANDIDATE" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail "round-4 code-review fix regression (colon id): guard exited 0 (CLEAN) with a renamed custom-colon-id oracle test planted, want non-zero"
+grep -q "root=agent_fixture_checkout" "$err" || fail "round-4 code-review fix regression (colon id): failure message does not name the fixture-checkout root: $(cat "$err")"
+grep -qF "$PLANTED_COLON_ID" "$err" || fail "round-4 code-review fix regression (colon id): failure message does not name the planted path: $(cat "$err")"
+grep -q "match_kind=derived_test_identity" "$err" || fail "round-4 code-review fix regression (colon id): failure message's match_kind was not 'derived_test_identity': $(cat "$err")"
+grep -q "identity=test_add_task_accepts_recurrence_rule_custom_colon_id" "$err" || fail "round-4 code-review fix regression (colon id): failure message does not name the leaked identity test_add_task_accepts_recurrence_rule_custom_colon_id: $(cat "$err")"
+
+rm -f "$PLANTED_COLON_ID"
+echo "TC-043(round-4 code-review fix regression: custom parametrize id containing '::' -> clean roots verify CLEAN, renamed leak rejected naming the identity) PASS"
+
 echo "TC-043: PASS"

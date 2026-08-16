@@ -60,10 +60,15 @@
 #                     a copy-paste that keeps only the defining function/test
 #                     name -- dropping BOTH the original file name and any
 #                     stem reference -- is still caught, including for a
-#                     parametrized test (whose collector-derived identities
-#                     include the base name with any runtime `[param]` suffix
-#                     stripped, since that suffix never appears in the file's
-#                     own source text).
+#                     parametrized test, whose collector-derived identity is
+#                     always the bare defining name with no runtime `[param]`
+#                     suffix and no custom parametrize `ids=` content ever
+#                     mixed in (T-E40-F06-003 round-4 code-review fix: the
+#                     collector derives this from the collection tool's own
+#                     structured collection data -- item.originalname -- not
+#                     by parsing `--collect-only`'s free-form text output, so
+#                     neither an auto-generated suffix nor a custom id
+#                     containing a space or "::" can defeat it).
 #
 # Names are ALWAYS derived from <package_yaml> at call time (REQ-F-010) --
 # nothing here is hardcoded per scenario, so renaming an oracle_tests[]

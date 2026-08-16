@@ -293,11 +293,17 @@ owner of the broader "the whole fixture is green at base_sha" claim
 ### Adapter capability contract
 
 `bench/adapters/<name>/adapter.sh <capability> [args]` (REQ-F-006) is an
-executable contract, not a library — the ONLY place in `bench/` that may
-know a fixture's language, package manager, or toolchain (REQ-F-007). Every
-generic scenario, evidence, or admission script reaches a language-specific
-command through this interface. `bench/adapters/<name>/adapter.yaml`
-declares `{name, version}`, registered in `scenarios.yaml`'s `adapters:` map.
+executable contract, not a library — the only file that may know a
+fixture's language, package manager, or toolchain (REQ-F-007), with one
+named exception below. Every generic scenario, evidence, or admission
+script reaches a language-specific command through this interface.
+`bench/adapters/<name>/adapter.yaml` declares `{name, version}`, registered
+in `scenarios.yaml`'s `adapters:` map. The exception:
+`bench/scripts/id-collectors/` (see "Three-root policy" below), a
+test-identity collector this feature (E40-F06) owns because REQ-NF-006
+freezes `bench/adapters/**` byte-unchanged — it is language-aware by
+necessity, but is never reached through the `adapter.sh <capability>`
+interface and adds no capability to any adapter.
 
 A closed set — six capabilities; adding a seventh requires an I-04
 `schema_version` bump (that bump would touch every committed
@@ -949,8 +955,14 @@ I-04 package layout:
   collector, e.g. `bench/scripts/id-collectors/python-collect-ids.sh
   --checkout <dir> --file <path>` (a real toolchain-collection subprocess,
   no test body ever executed), emitting `{ids: [{id, name}]}` for every
-  identity a file defines, including a parametrized test's base name with
-  any runtime `[param]` suffix stripped.
+  identity a file defines. The python collector derives each `name` from
+  pytest's own STRUCTURED collection data (`item.originalname`, read via a
+  `pytest_collection_modifyitems` plugin hook) rather than parsing
+  `--collect-only`'s free-form text output — a bare `def` function name,
+  parametrize-suffix-free, with no custom `ids=` content ever mixed in,
+  even when that custom id itself contains a space or `::` (T-E40-F06-003
+  round-4 code-review fix; the prior text-parsing implementation silently
+  dropped or mis-derived exactly those two shapes).
 - Evaluator access after the isolation boundary is lifted only in the
   REQ-F-012 order — see "Evaluator access ordering" below.
 
