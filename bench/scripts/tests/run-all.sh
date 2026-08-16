@@ -51,6 +51,7 @@ tests=(
 	"$SCRIPT_DIR/tc056_bundle_disclosure_test.sh"
 	"$SCRIPT_DIR/tc057_non_applicable_record_test.sh"
 	"$SCRIPT_DIR/tc058_prelude_placement_test.sh"
+	"$SCRIPT_DIR/tc059_replay_offline_determinism_test.sh"
 )
 
 status=0
