@@ -49,6 +49,7 @@ tests=(
 	"$SCRIPT_DIR/tc054_replay_resolver_test.sh"
 	"$SCRIPT_DIR/tc055_lineage_reconciliation_test.sh"
 	"$SCRIPT_DIR/tc056_bundle_disclosure_test.sh"
+	"$SCRIPT_DIR/tc057_non_applicable_record_test.sh"
 )
 
 status=0

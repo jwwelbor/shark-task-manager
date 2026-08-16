@@ -1,0 +1,131 @@
+{
+  "bundle_version": "1.0.0",
+  "entries": [
+    {
+      "entry_digest": "3b83dd4464b01f396e17edcf54298f4b369b0cc769b09a9f12db201386f9eaec",
+      "entry_id": "D01-01",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "required": true,
+      "response": "Users with recurring obligations (weekly chores, monthly bills, periodic check-ins) currently re-create the same task by hand every cycle, which is easy to forget and gives no forward visibility into what is coming due.",
+      "response_digest": "9ba64797bf1b5c7cb44bd63e5cf23df0c4bed3840344ff0470e6af5578122799",
+      "stage": "D01",
+      "topic_key": "problem_statement"
+    },
+    {
+      "entry_digest": "03e237343cd847aa9399a9b0f6ff8e842a1313c856f08a128840487d85d49891",
+      "entry_id": "D01-02",
+      "ordinal": 2,
+      "request_kind": "human_question",
+      "required": true,
+      "response": "Individual users of the task manager who track chores, bills, or check-ins that repeat on a fixed schedule -- the same persona the base fixture already serves, not a new multi-tenant or team audience.",
+      "response_digest": "fbcc803d235f9100256f4c4e87d369046f64b4d720533963147dea69b2bd71ab",
+      "stage": "D01",
+      "topic_key": "target_users"
+    },
+    {
+      "entry_digest": "0ef6fb9d2ded93f1a81e06babc0f38d2f8b77944e71feddbfdd379c4f7822b4a",
+      "entry_id": "D02-03",
+      "ordinal": 3,
+      "request_kind": "human_question",
+      "required": false,
+      "response": "Secondary signal: the upcoming-occurrences window excludes occurrences that are already marked done, so the list never shows stale or duplicate work.",
+      "response_digest": "268df479374d73b69b50574565c23dfccc24fe12e844eb622d7cb3fe180922a9",
+      "stage": "D02",
+      "topic_key": "success_metrics"
+    },
+    {
+      "entry_digest": "d210f9616d9f98aff78e5840f65ae27c6e9ec5a3ee549af579c58f50ec6d6e57",
+      "entry_id": "D02-01",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "required": true,
+      "response": "A recurring task's next occurrence appears in the upcoming-occurrences list immediately after the current occurrence is completed, with no manual re-entry step.",
+      "response_digest": "acdc2905c74f643941f973de562ada5ef1faa247a1d9a06db7552985713555f1",
+      "stage": "D02",
+      "topic_key": "success_metrics"
+    },
+    {
+      "entry_digest": "9548ce554d2eacde2f408ab2f5003d8370fca7a3ac780826be551d3aa93a5ba8",
+      "entry_id": "D02-02",
+      "ordinal": 2,
+      "request_kind": "human_question",
+      "required": true,
+      "response": "No new storage backend or schema migration; recurrence state must fit the existing Task model as an additional field, and generation must happen synchronously on completion, not via a background scheduler.",
+      "response_digest": "17a71dde6a6c2ac16240ae6dfec243b2293f7d66e36e4c9b414d1d33f6e657ba",
+      "stage": "D02",
+      "topic_key": "constraints"
+    },
+    {
+      "entry_digest": "73cdaad93afb132e8a7657c06eba58a71e0f13747a731911464bfe63f467d67f",
+      "entry_id": "D03-01",
+      "ordinal": 1,
+      "request_kind": "research_query",
+      "required": true,
+      "response": "Comparable task managers (Todoist, Things, TickTick) all support recurrence rules expressed as a simple interval or day-of-week pattern rather than a full RFC 5545 RRULE grammar for their default/free tier.",
+      "response_digest": "edb4b21064422cbbdf91006d9bb859d6ad85ad7d73b3f9101417f598d1be0a30",
+      "stage": "D03",
+      "topic_key": "competitor_landscape"
+    },
+    {
+      "entry_digest": "28844efbcf876c01ad5ede1ae735a87d5a4f1002a877c9830ea4136dd4d84abf",
+      "entry_id": "D03-02",
+      "ordinal": 2,
+      "request_kind": "research_query",
+      "required": true,
+      "response": "Recurrence is a top-5 requested feature across public roadmaps for personal task-tracking tools; it is table-stakes rather than a differentiator, which argues for the simplest interval-based rule that meets the stated need.",
+      "response_digest": "c6dd0f09da9d809283f900c94a38c3793a8395bdbfc8d60217becf90578a50de",
+      "stage": "D03",
+      "topic_key": "market_sizing"
+    },
+    {
+      "entry_digest": "02e3ec9ed342f6ef904183424d4b914743a2dbcde22bf34fc7958bcd6591882a",
+      "entry_id": "D04-01",
+      "ordinal": 1,
+      "request_kind": "research_query",
+      "required": true,
+      "response": "The fixture's Python stdlib already provides everything a simple interval rule needs (datetime.timedelta); no third-party recurrence library (e.g. dateutil.rrule) is required for the fixed set of intervals in scope.",
+      "response_digest": "e0e17080829b3a1e58dd5f4ef43979a562d7b2d19aaffb3a08b0f80b2dd78fe3",
+      "stage": "D04",
+      "topic_key": "recurrence_library_options"
+    },
+    {
+      "entry_digest": "1ae5356a38e30d26fda3c7ff8abb23b112e6edc42ec10e3042c30888e04c44af",
+      "entry_id": "D04-02",
+      "ordinal": 2,
+      "request_kind": "research_query",
+      "required": true,
+      "response": "Computing the next occurrence from the just-completed occurrence's due date (rather than from 'now') avoids drift when a task is completed late, and matches how the comparable tools researched in D03 behave.",
+      "response_digest": "f182f8aada4b71dcd0711035fd0955aed8fe8a4056df75969c4c03a6fc03b148",
+      "stage": "D04",
+      "topic_key": "scheduling_algorithm_tradeoffs"
+    },
+    {
+      "entry_digest": "1f347af212f49954d9947082936fa1c25064889acf68b364d9b8ea45c1edec4c",
+      "entry_id": "D05-01",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "required": true,
+      "response": "Proceed in guided interview mode; the scope is small enough not to need workshop mode.",
+      "response_digest": "2913cdb00df9b8e11d8a87204a3ceb3a474b5c03a49c60fe62ad3edea2056b65",
+      "stage": "D05",
+      "topic_key": "interview_mode_choice"
+    },
+    {
+      "entry_digest": "8729a0af9400a4ce6cbccd4b66bac62204d528c24ac4eb330f900ccc548ec326",
+      "entry_id": "D05-02",
+      "ordinal": 2,
+      "request_kind": "human_question",
+      "required": true,
+      "response": "Confirmed: add a recurrence_rule field on Task, generate the next occurrence on completion, and list upcoming occurrences within a window, excluding completed ones.",
+      "response_digest": "7173578eafadb64582ba42d8d95897b0c140a81abceb2f2e414744adf4f673eb",
+      "stage": "D05",
+      "topic_key": "synthesis_confirmation"
+    }
+  ],
+  "scenario_binding": {
+    "scenario_id": "py-mismatched-scenario-fixture",
+    "scenario_version": 1
+  },
+  "schema_version": "1.0"
+}
