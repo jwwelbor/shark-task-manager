@@ -29,7 +29,12 @@
 #       both by a conforming positive case and by a distinct case where one
 #       non-conforming filename among the produced set is rejected, naming
 #       it, with zero result written (a validator that only ever exercises
-#       the happy path would not catch a check that silently no-ops).
+#       the happy path would not catch a check that silently no-ops). A
+#       third case (Code Review Kickback Round 1, Blocker 2) proves the
+#       check is a real realpath-based containment guard, not merely a
+#       filename-pattern check: a symlinked D0X-*.md entry whose FILENAME
+#       conforms but whose real bytes live outside artifact_root is
+#       rejected, naming the path, with zero result written.
 #
 # Caller-Path Contract (test-plan.md tc058 row): a REAL scratch-project
 # filesystem stood up by scripts/shark-scratch-env.sh, a REAL read of
@@ -287,5 +292,53 @@ grep -q "notes.txt" "$ERR_B" || fail "AC-T4 negative: failure message does not n
 [[ ! -e "$RESULT_B" ]] || fail "AC-T4 negative: a replay result was written despite the Output Standard violation"
 
 echo "TC-058(case AC-T4 negative: non-conforming filename rejected by name, no result written) PASS"
+
+# ---------------------------------------------------------------------------
+# AC-T4 (containment) -- Code Review Kickback Round 1 (2026-08-16, Blocker
+# 2): a symlinked D0X-*.md artifact whose FILENAME conforms to the Output
+# Standard but whose real bytes live OUTSIDE artifact_root is rejected,
+# naming the path -- proving the guard is a real path-containment check
+# (mirroring resolve_within), not merely the filename-pattern check AC-T4
+# (negative) above already covers. Mirrors tc056's own "content-digest, not
+# filename" discipline for the sibling bundle-disclosure guard: the outside
+# target's content is deliberately distinguishable from any real D01
+# artifact, and this case proves it is never hashed/recorded (no result is
+# written at all) rather than merely proving a filename mismatch is caught.
+# ---------------------------------------------------------------------------
+echo "TC-058: case AC-T4 (containment) - a symlinked D0X-*.md artifact pointing outside artifact_root is rejected, naming the path"
+
+SCRATCH_C="$(new_scratch_project symlink-escape)"
+mkdir -p "$SCRATCH_C/docs/product"
+for f in D02-success-criteria D03-market-research D04-feasibility-report D05-stakeholder-insights; do
+	echo "# $f (fixture)" >"$SCRATCH_C/docs/product/$f.md"
+done
+
+OUTSIDE_DIR="$WORKDIR/outside-artifact-root"
+mkdir -p "$OUTSIDE_DIR"
+OUTSIDE_SECRET="$OUTSIDE_DIR/secret.md"
+echo "# secret content that must never be recorded as a D01 artifact" >"$OUTSIDE_SECRET"
+
+SYMLINK_TARGET="$SCRATCH_C/docs/product/D01-vision-statement.md"
+ln -s "$OUTSIDE_SECRET" "$SYMLINK_TARGET"
+[[ -L "$SYMLINK_TARGET" ]] || fail "AC-T4 containment: test setup bug -- symlink not created at $SYMLINK_TARGET"
+cmp -s "$SYMLINK_TARGET" "$OUTSIDE_SECRET" || fail "AC-T4 containment: test setup bug -- symlink does not resolve to the outside secret's content"
+
+LOG_C="$WORKDIR/c-claude-invocations.jsonl"
+RESULT_C="$WORKDIR/c-result.json"
+ERR_C="$WORKDIR/c.err"
+rm -f "$LOG_C" "$RESULT_C"
+
+set +e
+PATH="$STUBBIN:$PATH" STUB_CLAUDE_LOG="$LOG_C" \
+	"$RUN_PRELUDE" --package "$FEATURE_PKG" --result-out "$RESULT_C" --artifact-root "$SCRATCH_C" \
+	>/dev/null 2>"$ERR_C"
+CODE_C=$?
+set -e
+[[ "$CODE_C" -ne 0 ]] || fail "AC-T4 containment: run-prelude.sh exited 0 with a symlinked artifact escaping artifact_root, want non-zero"
+grep -q "artifact_path_escapes_root" "$ERR_C" || fail "AC-T4 containment: failure message does not name artifact_path_escapes_root: $(cat "$ERR_C")"
+grep -qF "$SYMLINK_TARGET" "$ERR_C" || fail "AC-T4 containment: failure message does not name the offending path $SYMLINK_TARGET: $(cat "$ERR_C")"
+[[ ! -e "$RESULT_C" ]] || fail "AC-T4 containment: a replay result was written despite the path-escape violation -- the outside secret's content may have been recorded"
+
+echo "TC-058(case AC-T4 containment: symlinked D0X-*.md artifact escaping artifact_root rejected by real path, naming it, no result written) PASS"
 
 echo "TC-058: PASS"

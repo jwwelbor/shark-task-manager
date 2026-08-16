@@ -294,8 +294,11 @@ class Violation(RuntimeError):
     replay-answer.sh's/verify-replay-result.sh's own Violation/ScriptError
     split. kind is one of package_replay_reference_missing,
     package_replay_reference_unexpected, package_scenario_id_mismatch
-    (REQ-F-014), or artifact_filename_output_standard (REQ-F-016,
-    T-E40-F07-011). These run-prelude.sh-local kinds are this script's own
+    (REQ-F-014), artifact_filename_output_standard (REQ-F-016,
+    T-E40-F07-011), or artifact_path_escapes_root (REQ-F-016,
+    T-E40-F07-011 Code Review Kickback Round 1: a produced-artifact path
+    resolves outside artifact_root, e.g. via a symlink -- rejected before
+    hashing or recording it). These run-prelude.sh-local kinds are this script's own
     pre-/post-dispatch operational vocabulary, distinct from
     i06-schema.yaml's error_kind list (which governs I-06 DOCUMENT
     validation verdicts -- TC-052/verify-replay-result.sh's own emitted
@@ -604,7 +607,7 @@ def compute_identity_digest(real_path):
     return f"sha256:{hashlib.sha256(real_path.encode('utf-8')).hexdigest()}"
 
 
-def check_output_standard_filenames(product_dir):
+def check_output_standard_filenames(product_dir, artifact_root_real):
     """REQ-F-016: every file produced directly under the artifact root's
     product-design directory, OTHER than progress.md (the wrapped action's
     own derived record, REQ-F-015), MUST match the bundle's own Output
@@ -614,7 +617,20 @@ def check_output_standard_filenames(product_dir):
     offending filename (never just the first) so a caller sees the whole
     problem in one pass. Returns the sorted list of conforming filenames
     actually present (progress.md excluded), for stage/artifact bucketing
-    by the caller."""
+    by the caller.
+
+    Code Review Kickback Round 1 (2026-08-16), Blocker 2: os.path.isfile
+    (used above to build `names`) follows symlinks, and a filename
+    conforming to D0X-*.md says nothing about where its bytes actually
+    live. Every conforming candidate is therefore additionally
+    containment-checked here -- mirroring resolve_within's realpath-based
+    rule -- BEFORE being returned to the caller for hashing/recording
+    (write_complete_result), rejecting (naming the offending path) any
+    entry whose resolved real path escapes artifact_root_real, including
+    one reached through a symlinked file or a symlinked intermediate
+    directory component (os.path.realpath resolves every symlink along the
+    whole path, not just the final component, so this single per-file check
+    also covers a symlinked docs/ or docs/product/ directory)."""
     if not os.path.isdir(product_dir):
         return []
     names = sorted(
@@ -629,7 +645,17 @@ def check_output_standard_filenames(product_dir):
             f"produced artifact filename(s) under {product_dir} do not conform to the bundle's own "
             f"Output Standard (D0X-*.md): {', '.join(violations)}",
         )
-    return [name for name in names if name != PROGRESS_FILENAME]
+    conforming = [name for name in names if name != PROGRESS_FILENAME]
+    for name in conforming:
+        candidate_path = os.path.join(product_dir, name)
+        candidate_real = os.path.realpath(candidate_path)
+        if candidate_real != artifact_root_real and not candidate_real.startswith(artifact_root_real + os.sep):
+            raise Violation(
+                "artifact_path_escapes_root",
+                f"produced artifact {candidate_path!r} resolves outside artifact_root "
+                f"({artifact_root_real!r}): real path is {candidate_real!r}",
+            )
+    return conforming
 
 
 def write_complete_result(package, schema_version, result_out_path, artifact_root_path,
@@ -660,8 +686,14 @@ def write_complete_result(package, schema_version, result_out_path, artifact_roo
     if not os.path.isdir(result_out_dir):
         raise ScriptError(f"--result-out parent directory does not exist: {result_out_dir}")
 
+    # Computed before the containment-checked filename scan (Code Review
+    # Kickback Round 1, Blocker 2): check_output_standard_filenames needs
+    # artifact_root's OWN realpath to reject any produced-artifact path
+    # (symlinked file or symlinked intermediate directory component) whose
+    # resolved real path escapes it.
+    artifact_root_real = os.path.realpath(artifact_root_path)
     product_dir = os.path.join(artifact_root_path, "docs", "product")
-    conforming_filenames = check_output_standard_filenames(product_dir)
+    conforming_filenames = check_output_standard_filenames(product_dir, artifact_root_real)
 
     prompt_digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
@@ -697,8 +729,6 @@ def write_complete_result(package, schema_version, result_out_path, artifact_roo
                 )
             record["artifacts"] = artifacts
         stages.append(record)
-
-    artifact_root_real = os.path.realpath(artifact_root_path)
 
     result = {
         "schema_version": schema_version,
