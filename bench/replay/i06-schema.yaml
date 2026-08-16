@@ -174,6 +174,18 @@ replayed_interaction_proxies_fields:
 # own.
 replay_wait_category: "replay_or_human_gate_wait"
 
+# REQ-F-011/AC-008(e), T-E40-F07-008: the plausibility ceiling
+# replayed_interaction_proxies.replay_wait_ns MUST NOT exceed. A local file
+# read is the intended cost (REQ-NF-007); a value strictly greater than
+# this ceiling is rejected as proxy_wait_implausible (a synthesized,
+# human-like delay). REQ-F-018's single-owner rule applies here exactly as
+# it does to entry_digest's parameters above: no consumer may hardcode its
+# own copy of this number. The numeric value itself is a non-material
+# tuning constant (spec.md "Durable unresolved decisions" item 3) -- only
+# its existence and single ownership are load-bearing; any value that keeps
+# AC-008's synthesized-delay case discriminating satisfies the criterion.
+replay_wait_ns_plausibility_ceiling: 2000000000
+
 # REQ-F-017: the closed, twelve-value terminal_outcome set. The four
 # I-06-local diagnostics that I-07's own stop vocabulary does not contain
 # are called out so a future reader does not mistake them for values I-07
@@ -233,3 +245,10 @@ error_kind:
   - i07_stop_mapping_missing
   - i07_stop_mapping_out_of_vocabulary
   - vocabulary_value_unknown
+  # T-E40-F07-008/AC-T4, REQ-F-008: terminal_outcome: unresolved_gate paired
+  # with replayed_interaction_proxies.unresolved_gate_count: 0 is a named
+  # contradiction, distinct from proxy_field_unknown/proxy_wait_implausible
+  # -- the proxy block's field *inventory* can be fully valid while the
+  # gate-count value itself contradicts the terminal outcome it is meant to
+  # explain.
+  - unresolved_gate_count_inconsistent

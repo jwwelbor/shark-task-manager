@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -77,8 +78,26 @@ type e40I06Schema struct {
 	ReplayedInteractionProxiesDiscriminator string                            `yaml:"replayed_interaction_proxies_discriminator"`
 	ReplayedInteractionProxiesFields        []string                          `yaml:"replayed_interaction_proxies_fields"`
 	ReplayWaitCategory                      string                            `yaml:"replay_wait_category"`
-	TerminalOutcome                         []string                          `yaml:"terminal_outcome"`
-	ErrorKind                               []string                          `yaml:"error_kind"`
+	// ReplayWaitNsPlausibilityCeiling is REQ-F-011/AC-008(e)'s plausibility
+	// ceiling for replayed_interaction_proxies.replay_wait_ns
+	// (T-E40-F07-008): a value strictly greater than this is rejected as a
+	// synthesized delay. Schema-owned per REQ-F-018 -- never hardcoded in
+	// the validator.
+	ReplayWaitNsPlausibilityCeiling int64    `yaml:"replay_wait_ns_plausibility_ceiling"`
+	TerminalOutcome                 []string `yaml:"terminal_outcome"`
+	ErrorKind                       []string `yaml:"error_kind"`
+}
+
+// e40I06I05IntervalCategorySchema decodes only the interval_category
+// vocabulary from I-05's own bench/evidence/i05-schema.yaml
+// (T-E40-F06-004) -- read-only. Per this task's Integration Contracts ("F07
+// reads this category name from bench/evidence/i05-schema.yaml at
+// validation time and edits nothing under bench/evidence/"), this proves
+// i06-schema.yaml's replay_wait_category is still a member of I-05's own
+// declared interval_category set rather than a private copy that has
+// silently drifted from it.
+type e40I06I05IntervalCategorySchema struct {
+	IntervalCategory []string `yaml:"interval_category"`
 }
 
 // TestTC052_I06ProductDesignReplayContract is the shared contract test
@@ -137,6 +156,31 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 		}
 		if schema.EntryDigest.Canonicalization != "compact_json_sorted_keys" {
 			t.Errorf("i06-schema.yaml entry_digest.canonicalization = %q, want %q", schema.EntryDigest.Canonicalization, "compact_json_sorted_keys")
+		}
+
+		// AC-T3/REQ-NF-007 (T-E40-F07-008): replay_wait_category MUST be a
+		// member of I-05's own interval_category vocabulary -- a read-only
+		// cross-check against bench/evidence/i05-schema.yaml, never a
+		// private I-06 copy of I-05's set.
+		i05SchemaPath := filepath.Join(repoRoot, "bench", "evidence", "i05-schema.yaml")
+		i05Data, err := os.ReadFile(i05SchemaPath)
+		if err != nil {
+			t.Fatalf("read i05 schema %s: %v", i05SchemaPath, err)
+		}
+		var i05Schema e40I06I05IntervalCategorySchema
+		if err := yaml.Unmarshal(i05Data, &i05Schema); err != nil {
+			t.Fatalf("parse i05 schema %s: %v", i05SchemaPath, err)
+		}
+		if !e40I06StringSet(i05Schema.IntervalCategory)[schema.ReplayWaitCategory] {
+			t.Errorf("i06-schema.yaml replay_wait_category %q is not a member of I-05's own interval_category set %v (bench/evidence/i05-schema.yaml)", schema.ReplayWaitCategory, i05Schema.IntervalCategory)
+		}
+
+		// T-E40-F07-008: the replay_wait_ns plausibility ceiling
+		// (AC-008(e)) must be declared and positive -- an unset or zero
+		// ceiling would silently disable the synthesized-delay check in
+		// e40I06ValidateInteractionProxies below.
+		if schema.ReplayWaitNsPlausibilityCeiling <= 0 {
+			t.Errorf("i06-schema.yaml replay_wait_ns_plausibility_ceiling = %d, want a positive value", schema.ReplayWaitNsPlausibilityCeiling)
 		}
 	})
 
@@ -316,6 +360,186 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 			const spoofedDigest = "6c6e2f7d94638e37638aca64ec00c797fe09397b1566d9dd19883a906f6c2cd6"
 			if !e40ContainsErrorMatching(errs, "replay_bundle_mutated", spoofedDigest) {
 				t.Errorf("expected a replay_bundle_mutated error naming the offending digest %q, got:\n%s", spoofedDigest, strings.Join(errs, "\n"))
+			}
+		})
+	})
+
+	// AC-007/REQ-F-010 (T-E40-F07-008): every D01-D05 artifact record's
+	// consumers[] empty-versus-absent distinction, adopted verbatim from
+	// I-05's own rule (ADR-F06-07 inherited, REQ-F-010) -- the same
+	// decoder trap F06's TC-046 was designed to catch (a
+	// `.get("consumers", [])`-style default would collapse
+	// consumption_evidence_missing into orphan).
+	t.Run("artifact_records", func(t *testing.T) {
+		doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-artifact-records.json"))
+
+		t.Run("passes_document_validation", func(t *testing.T) {
+			errs := e40I06ValidateDocument(doc, "result", schema)
+			if len(errs) != 0 {
+				t.Errorf("valid artifact-records fixture failed document validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		stages, _ := doc["stages"].([]interface{})
+
+		t.Run("field_inventory_and_edge_kind", func(t *testing.T) {
+			errs := e40I06ValidateArtifactRecords(stages, schema)
+			if len(errs) != 0 {
+				t.Errorf("valid artifact-records fixture failed artifact-record validation, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		// AC-T1/AC-007: consumers: [] yields orphan; the consumers key
+		// entirely absent yields consumption_evidence_missing; neither
+		// verdict applies to the other entry.
+		t.Run("empty_consumers_is_orphan", func(t *testing.T) {
+			artifact := e40I06FindArtifactByPath(stages, "docs/product/D01-vision-orphan.md")
+			if artifact == nil {
+				t.Fatal("fixture artifact docs/product/D01-vision-orphan.md not found")
+			}
+			if _, isList := artifact["consumers"].([]interface{}); !isList {
+				t.Fatal("fixture artifact must carry consumers: [] (present, empty) for this case")
+			}
+			if v := e40I06ArtifactConsumersVerdict(artifact); v != "orphan" {
+				t.Errorf("consumers: [] verdict = %q, want %q", v, "orphan")
+			}
+		})
+
+		t.Run("absent_consumers_is_consumption_evidence_missing", func(t *testing.T) {
+			artifact := e40I06FindArtifactByPath(stages, "docs/product/D02-personas-uncollected.md")
+			if artifact == nil {
+				t.Fatal("fixture artifact docs/product/D02-personas-uncollected.md not found")
+			}
+			if _, present := artifact["consumers"]; present {
+				t.Fatal("fixture artifact must omit the consumers key entirely for this case")
+			}
+			if v := e40I06ArtifactConsumersVerdict(artifact); v != "consumption_evidence_missing" {
+				t.Errorf("absent consumers verdict = %q, want %q", v, "consumption_evidence_missing")
+			}
+		})
+
+		// A downstream edge from a later D0X stage to an earlier stage's
+		// artifact is recorded with its edge_kind intact and readable --
+		// the reused-versus-orphan distinction UAT-18 needs from E40-F10.
+		t.Run("downstream_edge_recorded_intact", func(t *testing.T) {
+			artifact := e40I06FindArtifactByPath(stages, "docs/product/D01-vision-reused.md")
+			if artifact == nil {
+				t.Fatal("fixture artifact docs/product/D01-vision-reused.md not found")
+			}
+			if v := e40I06ArtifactConsumersVerdict(artifact); v != "consumed" {
+				t.Fatalf("consumers: [{...}] verdict = %q, want %q", v, "consumed")
+			}
+			consumers, _ := artifact["consumers"].([]interface{})
+			if len(consumers) != 1 {
+				t.Fatalf("expected exactly one consumer edge, got %d", len(consumers))
+			}
+			edge, _ := consumers[0].(map[string]interface{})
+			if edge["consuming_stage"] != "D03" {
+				t.Errorf("edge consuming_stage = %v, want %q", edge["consuming_stage"], "D03")
+			}
+			if edge["edge_kind"] != "referenced" {
+				t.Errorf("edge edge_kind = %v, want %q", edge["edge_kind"], "referenced")
+			}
+			if s, _ := edge["observed_at"].(string); s == "" {
+				t.Error("edge observed_at is missing or empty")
+			}
+		})
+	})
+
+	// AC-008/REQ-F-011 (T-E40-F07-008): replayed_interaction_proxies'
+	// closed field set, required measurement_kind discriminator, and the
+	// human-time-name prohibition; AC-T3/REQ-NF-007's replay_wait_category
+	// and replay_wait_ns plausibility-ceiling checks.
+	t.Run("interaction_proxies", func(t *testing.T) {
+		t.Run("valid_proxy_block_at_boundary_ceiling", func(t *testing.T) {
+			// replay_wait_ns sits exactly *at* the declared ceiling
+			// (REQ-F-011 "exceeds"): the boundary value itself MUST pass.
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-proxies.json"))
+			errs := e40I06ValidateInteractionProxies(doc, schema)
+			if len(errs) != 0 {
+				t.Errorf("valid proxies fixture failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+			proxies, _ := doc["replayed_interaction_proxies"].(map[string]interface{})
+			if proxies["replay_wait_category"] != "replay_or_human_gate_wait" {
+				t.Errorf("replay_wait_category = %v, want %q", proxies["replay_wait_category"], "replay_or_human_gate_wait")
+			}
+		})
+
+		t.Run("valid_result_minimal_proxy_block", func(t *testing.T) {
+			// result-minimal.json's own replayed_interaction_proxies block
+			// (T-E40-F07-001) must also satisfy this task's closed-set
+			// validation, proving the new checks don't regress the
+			// already-committed fixture.
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-minimal.json"))
+			errs := e40I06ValidateInteractionProxies(doc, schema)
+			if len(errs) != 0 {
+				t.Errorf("result-minimal.json proxies failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		cases := []struct {
+			name    string
+			file    string
+			wantAny []string
+		}{
+			{"missing_measurement_kind", "proxy-missing-measurement-kind.json", []string{"field_missing", "measurement_kind"}},
+			{"wrong_measurement_kind_value", "proxy-wrong-measurement-kind.json", []string{"proxy_measurement_kind_invalid"}},
+			{"extra_field_outside_closed_set", "proxy-extra-field.json", []string{"proxy_field_unknown", "extra_debug_field"}},
+			{"human_time_named_field", "proxy-human-time-field.json", []string{"proxy_field_unknown", "stakeholder_minutes"}},
+			{"replay_wait_ns_exceeds_ceiling", "proxy-wait-implausible.json", []string{"proxy_wait_implausible", "replay_wait_ns"}},
+		}
+		for _, c := range cases {
+			c := c
+			t.Run(c.name, func(t *testing.T) {
+				doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "invalid", c.file))
+				errs := e40I06ValidateInteractionProxies(doc, schema)
+				if len(errs) == 0 {
+					t.Fatalf("case %s: expected validation errors, got none", c.name)
+				}
+				for _, want := range c.wantAny {
+					if !e40ContainsErrorMatching(errs, want) {
+						t.Errorf("case %s: expected an error naming %q, got:\n%s", c.name, want, strings.Join(errs, "\n"))
+					}
+				}
+			})
+		}
+	})
+
+	// AC-T4/REQ-F-008 (T-E40-F07-008): terminal_outcome: unresolved_gate
+	// paired with unresolved_gate_count: 0 is a named contradiction -- the
+	// counter obligation REQ-F-008 fixes, checked independently of the
+	// proxy block's own field-inventory validity. This is deliberately
+	// the narrow contradiction check AC-T4 fixes, not a literal
+	// count-equality against a per-stage gate-event record: Document B's
+	// stages[] shape is fixed by spec.md as
+	// {stage, applicable, reason?, artifacts[], consumed_entries[]} with
+	// no gate-event field, and REQ-F-001 forbids redefining that shape
+	// here.
+	t.Run("unresolved_gate_count_consistency", func(t *testing.T) {
+		t.Run("nonzero_count_accepted", func(t *testing.T) {
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-unresolved-gate.json"))
+			errs := e40I06ValidateUnresolvedGateCountConsistency(doc)
+			if len(errs) != 0 {
+				t.Errorf("valid unresolved-gate fixture failed, want zero errors:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("complete_outcome_not_checked", func(t *testing.T) {
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-minimal.json"))
+			errs := e40I06ValidateUnresolvedGateCountConsistency(doc)
+			if len(errs) != 0 {
+				t.Errorf("terminal_outcome complete fixture must never be checked here, got:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		t.Run("zero_count_rejected", func(t *testing.T) {
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "invalid", "unresolved-gate-count-zero.json"))
+			errs := e40I06ValidateUnresolvedGateCountConsistency(doc)
+			if len(errs) == 0 {
+				t.Fatal("expected an unresolved_gate_count_inconsistent violation, got none")
+			}
+			if !e40ContainsErrorMatching(errs, "unresolved_gate_count_inconsistent") {
+				t.Errorf("expected unresolved_gate_count_inconsistent, got:\n%s", strings.Join(errs, "\n"))
 			}
 		})
 	})
@@ -711,4 +935,208 @@ func e40StringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// e40I06AsNumber reports whether v decoded as a JSON number
+// (encoding/json's map[string]interface{} decodes every JSON number as
+// float64).
+func e40I06AsNumber(v interface{}) (float64, bool) {
+	n, ok := v.(float64)
+	return n, ok
+}
+
+// e40I06ArtifactConsumersVerdict classifies REQ-F-010's empty-versus-absent
+// distinction for one decoded artifact record's consumers field, adopted
+// verbatim from I-05's own rule (ADR-F06-07 inherited): the verdict is
+// derived strictly from Go's comma-ok map key-presence check on the raw
+// decoded JSON object, never from a zero-value/omitempty-style default --
+// the same discipline verify-stage-evidence.sh's Python implementation
+// applies via `"consumers" not in artifact`.
+func e40I06ArtifactConsumersVerdict(artifact map[string]interface{}) string {
+	raw, present := artifact["consumers"]
+	if !present {
+		return "consumption_evidence_missing"
+	}
+	list, _ := raw.([]interface{})
+	if len(list) == 0 {
+		return "orphan"
+	}
+	return "consumed"
+}
+
+// e40I06ArtifactRecordRequiredFields is REQ-F-010's per-artifact field
+// inventory, excluding consumers -- consumers' empty-vs-absent duality
+// (e40I06ArtifactConsumersVerdict) is a distinguishable *state*, never a
+// plain required-vs-missing field, the same "consumers is intentionally
+// not required" discipline I-05's own e40I05ValidateArtifacts documents,
+// adopted verbatim here per REQ-F-010/ADR-F06-07. Field name is `stage`
+// (not I-05's `producer_stage`) -- I-06's own document shape, matching the
+// already-committed result-minimal.json fixture (T-E40-F07-001).
+var e40I06ArtifactRecordRequiredFields = []string{
+	"stage", "artifact_type", "path", "digest", "size_bytes",
+	"produced_at", "revision_index", "prompt_digest", "input_digests",
+	"consumed_entries",
+}
+
+// e40I06ValidateArtifactRecords checks REQ-F-010's per-artifact field
+// inventory (excluding consumers' own empty-vs-absent state, handled
+// separately by e40I06ArtifactConsumersVerdict), artifact_type vocabulary
+// membership, and every present consumers[] edge's
+// {consuming_stage, edge_kind, observed_at} field set and edge_kind
+// vocabulary membership.
+func e40I06ValidateArtifactRecords(stages []interface{}, schema *e40I06Schema) []string {
+	var errs []string
+	artifactTypeSet := e40I06StringSet(schema.ArtifactType)
+	edgeKindSet := e40I06StringSet(schema.EdgeKind)
+	for si, rawStage := range stages {
+		stage, ok := rawStage.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rawArtifacts, _ := stage["artifacts"].([]interface{})
+		for ai, rawArtifact := range rawArtifacts {
+			artifact, ok := rawArtifact.(map[string]interface{})
+			if !ok {
+				errs = append(errs, fmt.Sprintf("field_malformed: stages[%d].artifacts[%d] must be an object", si, ai))
+				continue
+			}
+			for _, field := range e40I06ArtifactRecordRequiredFields {
+				if _, present := artifact[field]; !present {
+					errs = append(errs, fmt.Sprintf("field_missing: stages[%d].artifacts[%d].%s", si, ai, field))
+				}
+			}
+			if aType, _ := artifact["artifact_type"].(string); aType != "" && !artifactTypeSet[aType] {
+				errs = append(errs, fmt.Sprintf("vocabulary_value_unknown: stages[%d].artifacts[%d].artifact_type %q is not one of %v", si, ai, aType, schema.ArtifactType))
+			}
+			rawConsumers, present := artifact["consumers"]
+			if !present {
+				continue
+			}
+			consumers, isList := rawConsumers.([]interface{})
+			if !isList {
+				errs = append(errs, fmt.Sprintf("field_malformed: stages[%d].artifacts[%d].consumers must be an array when present", si, ai))
+				continue
+			}
+			for ci, rawEdge := range consumers {
+				edge, ok := rawEdge.(map[string]interface{})
+				if !ok {
+					errs = append(errs, fmt.Sprintf("field_malformed: stages[%d].artifacts[%d].consumers[%d] must be an object", si, ai, ci))
+					continue
+				}
+				for _, f := range []string{"consuming_stage", "edge_kind", "observed_at"} {
+					if _, present := edge[f]; !present {
+						errs = append(errs, fmt.Sprintf("field_missing: stages[%d].artifacts[%d].consumers[%d].%s", si, ai, ci, f))
+					}
+				}
+				if ek, _ := edge["edge_kind"].(string); ek != "" && !edgeKindSet[ek] {
+					errs = append(errs, fmt.Sprintf("vocabulary_value_unknown: stages[%d].artifacts[%d].consumers[%d].edge_kind %q is not one of %v", si, ai, ci, ek, schema.EdgeKind))
+				}
+			}
+		}
+	}
+	return errs
+}
+
+// e40I06FindArtifactByPath returns the first stages[].artifacts[] element
+// whose path field equals path, or nil if none matches. Test-only lookup
+// helper for AC-007's named fixture entries.
+func e40I06FindArtifactByPath(stages []interface{}, path string) map[string]interface{} {
+	for _, rawStage := range stages {
+		stage, ok := rawStage.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rawArtifacts, _ := stage["artifacts"].([]interface{})
+		for _, rawArtifact := range rawArtifacts {
+			artifact, ok := rawArtifact.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if p, _ := artifact["path"].(string); p == path {
+				return artifact
+			}
+		}
+	}
+	return nil
+}
+
+// e40I06ValidateInteractionProxies checks REQ-F-011's closed field set,
+// required measurement_kind discriminator, and human-time-name
+// prohibition (enforced structurally: any field name not in the closed
+// set is rejected, so a human-attributed field name like
+// stakeholder_minutes is caught the same way as any other unknown field),
+// plus AC-T3/REQ-NF-007's replay_wait_category and replay_wait_ns
+// plausibility-ceiling checks. Unknown-field violations are emitted in
+// sorted order so two runs over the same fixture produce byte-identical
+// output (REQ-NF-004), independent of Go map iteration order.
+func e40I06ValidateInteractionProxies(doc map[string]interface{}, schema *e40I06Schema) []string {
+	var errs []string
+
+	raw, present := doc["replayed_interaction_proxies"]
+	if !present {
+		return []string{"field_missing: replayed_interaction_proxies"}
+	}
+	proxies, ok := raw.(map[string]interface{})
+	if !ok {
+		return []string{"field_malformed: replayed_interaction_proxies must be an object"}
+	}
+
+	if mk, hasMK := proxies["measurement_kind"]; !hasMK {
+		errs = append(errs, "field_missing: replayed_interaction_proxies.measurement_kind")
+	} else if s, isString := mk.(string); !isString || s != schema.ReplayedInteractionProxiesDiscriminator {
+		errs = append(errs, fmt.Sprintf("proxy_measurement_kind_invalid: replayed_interaction_proxies.measurement_kind = %v, want %q", mk, schema.ReplayedInteractionProxiesDiscriminator))
+	}
+
+	fieldSet := e40I06StringSet(schema.ReplayedInteractionProxiesFields)
+	var unknown []string
+	for field := range proxies {
+		if !fieldSet[field] {
+			unknown = append(unknown, field)
+		}
+	}
+	sort.Strings(unknown)
+	for _, field := range unknown {
+		errs = append(errs, fmt.Sprintf("proxy_field_unknown: replayed_interaction_proxies.%s is not in the closed field set %v", field, schema.ReplayedInteractionProxiesFields))
+	}
+
+	if cat, hasCat := proxies["replay_wait_category"].(string); hasCat && cat != schema.ReplayWaitCategory {
+		errs = append(errs, fmt.Sprintf("vocabulary_value_unknown: replayed_interaction_proxies.replay_wait_category = %q, want %q", cat, schema.ReplayWaitCategory))
+	}
+
+	if schema.ReplayWaitNsPlausibilityCeiling <= 0 {
+		// The ceiling is required to be schema-declared and positive
+		// (asserted directly in schema_self_check); this defensive branch
+		// keeps the check from silently no-op'ing if that assertion were
+		// ever bypassed.
+		errs = append(errs, "field_missing: i06-schema.yaml replay_wait_ns_plausibility_ceiling must be declared and positive")
+	} else if waitNs, isNum := e40I06AsNumber(proxies["replay_wait_ns"]); isNum {
+		if waitNs > float64(schema.ReplayWaitNsPlausibilityCeiling) {
+			errs = append(errs, fmt.Sprintf("proxy_wait_implausible: replayed_interaction_proxies.replay_wait_ns = %v exceeds plausibility ceiling %d ns for a local file read (synthesized delay)", waitNs, schema.ReplayWaitNsPlausibilityCeiling))
+		}
+	}
+
+	return errs
+}
+
+// e40I06ValidateUnresolvedGateCountConsistency checks REQ-F-008/AC-T4: a
+// result whose terminal_outcome is unresolved_gate MUST report a nonzero
+// replayed_interaction_proxies.unresolved_gate_count -- the counter that
+// names how many times a missing bundle entry stopped the prelude cannot
+// itself be zero for a result reporting exactly that stop. This is
+// deliberately the narrow contradiction check AC-T4 fixes, not a literal
+// count-equality against a per-stage gate-event record: Document B's
+// stages[] shape is fixed by spec.md as
+// {stage, applicable, reason?, artifacts[], consumed_entries[]} with no
+// gate-event field, and REQ-F-001 forbids redefining that shape here.
+func e40I06ValidateUnresolvedGateCountConsistency(doc map[string]interface{}) []string {
+	outcome, _ := doc["terminal_outcome"].(string)
+	if outcome != "unresolved_gate" {
+		return nil
+	}
+	proxies, _ := doc["replayed_interaction_proxies"].(map[string]interface{})
+	count, ok := e40I06AsNumber(proxies["unresolved_gate_count"])
+	if !ok || count == 0 {
+		return []string{"unresolved_gate_count_inconsistent: terminal_outcome is unresolved_gate but replayed_interaction_proxies.unresolved_gate_count is 0"}
+	}
+	return nil
 }
