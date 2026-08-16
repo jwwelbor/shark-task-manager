@@ -312,13 +312,13 @@ this feature.
 | Live-egress observational violation | `verify-replay-isolation.sh` prints `live_interaction_reached` naming the tool and stage | N/A — internal | tc053 |
 | Resolver outcome | `replay-answer.sh` prints the supplied response on success, or `replay_desync`/`unresolved_gate` naming stage/kind/topic on failure | N/A — internal | tc054 |
 | Lineage reconciliation failure | `verify-replay-result.sh` prints `unattributed_artifact` naming the entry or stage, distinctly from `unresolved_gate` | N/A — internal | tc055 |
-| Artifact record verdict | `verify-replay-result.sh` prints `orphan` or `consumption_evidence_missing` per artifact, distinctly | N/A — internal | TC-052 |
-| Proxy block violation | `verify-replay-result.sh` prints the offending field name, including a human-time-named field | N/A — internal | TC-052 |
+| Artifact record verdict | TC-052 (the Go contract validator) reports `orphan` or `consumption_evidence_missing` per artifact, distinctly | N/A — internal | TC-052 |
+| Proxy block violation | TC-052 (the Go contract validator) reports the offending field name, including a human-time-named field | N/A — internal | TC-052 |
 | Bundle-disclosure violation | `verify-replay-isolation.sh` prints `bundle_bulk_disclosure` naming the root and path | N/A — internal | tc056 |
-| Non-applicable record verdict | `run-prelude.sh`/`verify-replay-result.sh` print `not_applicable` and confirm per-stage `reason` matched verbatim, or name the mismatch | N/A — internal | tc057 |
+| Non-applicable record verdict | `run-prelude.sh` prints `not_applicable`; tc057 itself confirms per-stage `reason` matched verbatim, or names the mismatch | N/A — internal | tc057 |
 | Read-only consistency violation | `run-prelude.sh` prints the offending package/bundle field before any dispatch occurs | N/A — internal | tc057 |
 | Placement/identity verdict | `run-prelude.sh` result records `artifact_root.path`/`identity_digest`, `preamble_digest`; violations name the off-limits root and path | N/A — internal | tc058 |
-| Terminal-outcome/eligibility verdict | `verify-replay-result.sh` prints `publication_eligible`, `ineligibility_reasons[]`, and `i07_stop_mapping` | N/A — internal | TC-052 |
+| Terminal-outcome/eligibility verdict | TC-052 (the Go contract validator) validates `publication_eligible`, `ineligibility_reasons[]`, and `i07_stop_mapping` | N/A — internal | TC-052 |
 | Offline/determinism failure | Any guard/script fails naming the specific byte offset or field that differed between the two runs, not a generic "non-deterministic" message | N/A — internal | tc059 |
 
 No new instrumentation beyond structured script/test output is required or
@@ -464,8 +464,8 @@ records no outstanding deferral).
 | Entry-at-a-time disclosure → real dispatch boundary | `verify-replay-isolation.sh` → planted-leak fixture roots | UAT-10 | tc056 |
 | Non-applicable families → explicit record | `run-prelude.sh` → three non-feature seed packages | UAT-10 ("non-feature scenarios … retain explicit non-applicable stage records") | tc057 |
 | Prelude placement → real scratch Shark project | `run-prelude.sh` → `scripts/shark-scratch-env.sh` and the real Rider action's dispatch shape | UAT-10 | tc058 |
-| Artifact-consumption edges → orphan/reuse detection | `verify-replay-result.sh` → typed producer/consumer edges | UAT-18 | TC-052 |
-| Replayed interaction proxies → human-time prohibition | `verify-replay-result.sh` → closed proxy field set | UAT-18 | TC-052 |
+| Artifact-consumption edges → orphan/reuse detection | TC-052 (the Go contract validator) → typed producer/consumer edges | UAT-18 | TC-052 |
+| Replayed interaction proxies → human-time prohibition | TC-052 (the Go contract validator) → closed proxy field set | UAT-18 | TC-052 |
 | Fixture and I-06 tree → shark's own quality gate | `bench/replay/*` tree → root `make fmt && make lint && make test` and `go list ./...` | Non-functional: repo hygiene, not a UAT scenario | TC-052 (repo-root gate; see AC-017) |
 | Frozen X-10/I-04/I-05 interfaces → new sibling tooling | `skills/shark-rider/verbs/product-design.md`, `internal/sharkdata/default_data/skills/product-design/**`, `bench/scenarios/**`, `bench/evidence/**` (unchanged except the declared carve-out) vs. `bench/replay/**` (new) | Non-functional: no regression to X-10, Phase 1, F05, or F06 (UAT-01, UAT-02, UAT-05-09 transitively) | AC-018 diff review |
 
