@@ -443,6 +443,28 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		})
 	})
 
+	// REQ-F-005: an interval lying outside [stage_start, stage_end) is its
+	// own defect (ledger_window_escape), distinct from ledger_overlap and
+	// ledger_non_reconciling. The fixture's two intervals are non-overlapping
+	// and their combined duration exactly equals the stage window, so the
+	// reconciliation residual is zero -- proving window containment is
+	// checked independently of the reconciliation math, not inferred from
+	// it. This is the counter-factual that fails against a validator missing
+	// the window-containment check entirely.
+	t.Run("time_ledger_window_escape", func(t *testing.T) {
+		dir := filepath.Join(testdataRoot, "invalid", "window-escape-ledger")
+		bundle, stages := e40I05ReadBundle(t, dir)
+		errs := e40I05ValidateBundle(bundle, stages, dir, schema, mapping)
+		if !e40ContainsErrorMatching(errs, "ledger_window_escape") {
+			t.Errorf("expected an error naming ledger_window_escape, got:\n%s", strings.Join(errs, "\n"))
+		}
+		for _, e := range errs {
+			if !strings.Contains(e, "ledger_window_escape") {
+				t.Errorf("unexpected error not matching this fixture's own defect class (ledger_window_escape): %s\nall errors:\n%s", e, strings.Join(errs, "\n"))
+			}
+		}
+	})
+
 	// AC-020: single-owner vocabulary agreement is bidirectional. A value
 	// used by a fixture but absent from i05-schema.yaml must be rejected as
 	// unknown -- reusing the unknown-stage-category case above proves the
@@ -1406,6 +1428,18 @@ func e40I05ValidateTimeLedger(v interface{}, schema *e40I05Schema, label string)
 			}
 			all = append(all, tagged{category: name, start: s, end: e})
 			total += e - s
+		}
+	}
+
+	// Window containment: an interval escaping [stage_start, stage_end) is
+	// its own defect, distinct from overlap and non-reconciliation -- a
+	// ledger can cover the full window (residual == 0) while still placing
+	// an individual interval outside it (e.g. one interval starts early to
+	// compensate for another that ends early), so this must be checked
+	// independently rather than inferred from the reconciliation residual.
+	for _, iv := range all {
+		if iv.start < start || iv.end > end {
+			errs = append(errs, fmt.Sprintf("%s: ledger_window_escape: %s [%v,%v) escapes stage window [%v,%v) (REQ-F-005)", label, iv.category, iv.start, iv.end, start, end))
 		}
 	}
 

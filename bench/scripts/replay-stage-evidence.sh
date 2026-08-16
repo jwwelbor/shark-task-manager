@@ -224,6 +224,21 @@ def check_immutability(stage_key, stage_entry, snapshot, verdicts):
     return False
 
 
+def resolve_within(root, rel_path, label):
+    """Resolves a root-relative path and enforces containment, mirroring
+    verify-stage-evidence.sh's resolve_within (REQ-NF-005) -- bundle content
+    (manifest paths, snapshot_path) is treated as possibly tampered per this
+    feature's own threat model, so an absolute or `../`-laden path must never
+    be allowed to escape the intended root."""
+    if os.path.isabs(rel_path):
+        raise ScriptError(f"{label}: absolute path not allowed: {rel_path!r}")
+    root_real = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.join(root, rel_path))
+    if candidate != root_real and not candidate.startswith(root_real + os.sep):
+        raise ScriptError(f"{label}: resolved path escapes {root!r}: {rel_path!r} -> {candidate!r}")
+    return candidate
+
+
 def check_file_drift(stage_key, candidate, checkout, verdicts):
     manifest = candidate.get("dirty_untracked_manifest") or []
     recorded_paths = set()
@@ -231,7 +246,7 @@ def check_file_drift(stage_key, candidate, checkout, verdicts):
         rel_path = entry["path"]
         recorded_paths.add(rel_path)
         kind = "tracked_file_changed" if entry.get("tracked") else "untracked_file_changed"
-        abs_path = os.path.join(checkout, rel_path)
+        abs_path = resolve_within(checkout, rel_path, f"stage={stage_key} manifest path")
         if not os.path.isfile(abs_path):
             verdicts.append((kind, f"stage={stage_key} path={rel_path}"))
             continue
@@ -245,9 +260,10 @@ def check_file_drift(stage_key, candidate, checkout, verdicts):
     # AFTER this scan specifically so its own cache side effects never leak
     # into this one.
     test_suite_dir = candidate.get("test_suite_dir")
-    for root, _dirs, files in os.walk(checkout):
+    for root, dirs, files in os.walk(checkout):
+        dirs[:] = sorted(d for d in dirs if d != ".git")
         rel_root = os.path.relpath(root, checkout)
-        for fname in files:
+        for fname in sorted(files):
             rel_path = fname if rel_root == "." else os.path.join(rel_root, fname)
             if test_suite_dir and (
                 rel_path == test_suite_dir or rel_path.startswith(test_suite_dir + os.sep)
@@ -301,7 +317,7 @@ def main():
         snapshot_path = stage_entry.get("snapshot_path")
         if not snapshot_path:
             raise ScriptError(f"stage={stage_key}: stage index entry missing snapshot_path")
-        snapshot_full_path = os.path.join(bundle_dir, snapshot_path)
+        snapshot_full_path = resolve_within(bundle_dir, snapshot_path, f"stage={stage_key} snapshot_path")
         if not os.path.isfile(snapshot_full_path):
             raise ScriptError(f"stage={stage_key}: snapshot file not found: {snapshot_full_path}")
         snapshot = load_json(snapshot_full_path)

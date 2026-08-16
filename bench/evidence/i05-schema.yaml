@@ -109,6 +109,7 @@ error_kind:
   - unknown_interval_category
   - ledger_overlap
   - ledger_non_reconciling
+  - ledger_window_escape
   - candidate_field_missing
   - artifact_field_missing
   - usage_slot_unavailable
