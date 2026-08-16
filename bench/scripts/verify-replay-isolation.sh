@@ -175,25 +175,37 @@ def walk_files(root):
     pair) makes this loop-safe against a symlink cycle -- e.g. a directory
     symlinked to one of its own ancestors -- which a bare
     os.walk(root, followlinks=True) has no protection against and can hang
-    on."""
+    on.
+
+    Walked with an explicit stack, not Python recursion: a recursive
+    directory-by-directory walker hits RecursionError on a deep tree
+    (observed at ~1000 nested directories, well within what `mkdir -p` can
+    produce in a guarded root this guard's own threat model gives a
+    dispatched session write access to), which is an uncaught exception --
+    not this script's ScriptError -- and would surface as a bare Python
+    traceback with a misleading exit 1 (this script's contract reserves
+    exit 1 for a genuine bundle_bulk_disclosure verdict, not a script
+    error)."""
     visited = set()
 
     def _dir_key(path):
         st = os.stat(path)  # follows symlinks: identifies the real directory
         return (st.st_dev, st.st_ino)
 
-    def _walk(dirpath):
+    stack = [root]
+    while stack:
+        dirpath = stack.pop()
         try:
             key = _dir_key(dirpath)
         except OSError:
-            return
+            continue
         if key in visited:
-            return
+            continue
         visited.add(key)
         try:
             entries = sorted(os.listdir(dirpath))
         except OSError:
-            return
+            continue
         subdirs = []
         for name in entries:
             full = os.path.join(dirpath, name)
@@ -202,10 +214,10 @@ def walk_files(root):
                     subdirs.append(full)
             elif os.path.isfile(full):  # follows symlinks
                 yield full
-        for sub in subdirs:
-            yield from _walk(sub)
-
-    yield from _walk(root)
+        # Push in reverse so the stack (LIFO) still visits subdirectories in
+        # sorted order -- REQ-NF-004 determinism, matching the recursive
+        # form this replaces.
+        stack.extend(reversed(subdirs))
 
 
 def find_bulk_disclosure(root_name, root_path, bundle_digest):
