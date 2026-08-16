@@ -31,13 +31,20 @@
 # Write, Bash for replay-answer.sh, ...) is expected and permitted; only a
 # live-egress-set member's name triggers `live_interaction_reached`.
 #
+# FAILS CLOSED, NEVER OPEN (ADR-F07-03): a transcript in which this scanner
+# recognizes ZERO tool_use records anywhere -- e.g. one in a shape this
+# scanner does not understand -- is refused (ScriptError, exit 2), never
+# silently certified CLEAN. The binding gate must not rest on an assumption
+# about transcript shape that can stop holding without this script noticing;
+# a real D01-D05 session always uses at least one tool.
+#
 # Exit status: 0 = transcript clean ("CLEAN" on stdout). 1 =
 # `live_interaction_reached` -- a normal, informative verdict; the message
 # on stderr names the tool, the stage, the transcript line number, and the
 # transcript path. 2 = a script/usage/authoring error (bad args, missing
 # files, malformed live-egress-tools.yaml, malformed i06-schema.yaml,
-# malformed transcript JSON, or a tool_use record with a missing/unknown
-# stage or tool_name).
+# malformed transcript JSON, a tool_use record with a missing/unknown stage
+# or tool_name, or a transcript with zero recognized tool_use records).
 #
 # Requires: python3 with PyYAML (`import yaml`) on PATH.
 set -euo pipefail
@@ -124,10 +131,23 @@ def load_valid_stages(path):
 
 
 def scan_transcript(path, live_egress_members, valid_stages):
-    """Returns (tool_name, stage, lineno) for the FIRST tool_use record
-    naming a live-egress-set member, or None if the transcript is clean.
-    Parses real JSON per line -- REQ-NF-004/test-plan.md Caller-Path
-    Contract: never a boolean "contains a violation" flag."""
+    """Returns (violation, recognized_count). violation is (tool_name, stage,
+    lineno) for the FIRST tool_use record naming a live-egress-set member, or
+    None if no such record was found. recognized_count is the number of
+    records this scanner recognized as a tool_use record (type == "tool_use"
+    with a well-formed tool_name/stage) anywhere in the transcript --
+    regardless of whether any of them named a live-egress-set member.
+
+    recognized_count exists so the binding gate (ADR-F07-03) cannot fail
+    OPEN on a transcript in a shape this scanner does not recognize at all
+    (e.g. a real provider transcript's own native record shape, which this
+    task does not define -- see the module docstring). A transcript this
+    scanner cannot recognize as containing ANY tool_use record is refused,
+    not silently certified clean; main() below is the single caller that
+    enforces that. Parses real JSON per line -- REQ-NF-004/test-plan.md
+    Caller-Path Contract: never a boolean "contains a violation" flag."""
+    violation = None
+    recognized_count = 0
     with open(path) as f:
         for lineno, raw_line in enumerate(f, start=1):
             line = raw_line.strip()
@@ -149,15 +169,16 @@ def scan_transcript(path, live_egress_members, valid_stages):
                 raise ScriptError(
                     f"transcript line {lineno}: tool_use record has a missing/unknown stage {stage!r}: {path}"
                 )
-            if tool_name in live_egress_members:
-                return (tool_name, stage, lineno)
-    return None
+            recognized_count += 1
+            if violation is None and tool_name in live_egress_members:
+                violation = (tool_name, stage, lineno)
+    return violation, recognized_count
 
 
 def main():
     live_egress_members = load_live_egress_members(live_egress_path)
     valid_stages = load_valid_stages(i06_schema_path)
-    violation = scan_transcript(transcript_path, live_egress_members, valid_stages)
+    violation, recognized_count = scan_transcript(transcript_path, live_egress_members, valid_stages)
     if violation is not None:
         tool_name, stage, lineno = violation
         sys.stderr.write(
@@ -165,6 +186,19 @@ def main():
             f"tool={tool_name} stage={stage} line={lineno} transcript={transcript_path}\n"
         )
         sys.exit(1)
+    if recognized_count == 0:
+        # Fail closed, never open: a transcript this scanner recognized zero
+        # tool_use records in is NOT proof of isolation -- it may simply be
+        # in a shape this scanner does not understand (ADR-F07-03: the
+        # binding gate must not rest on an assumption that can silently stop
+        # holding). A real D01-D05 session always uses at least one tool
+        # (Read/Write/Bash at minimum), so a genuinely clean transcript has
+        # recognized_count > 0.
+        raise ScriptError(
+            "transcript contains zero records this scanner recognizes as a tool_use record "
+            '(a JSON object with "type": "tool_use", a non-empty "tool_name", and a "stage" in '
+            f"i06-schema.yaml's stage: vocabulary) -- refusing to certify CLEAN: {transcript_path}"
+        )
     print("CLEAN")
 
 

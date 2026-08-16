@@ -224,13 +224,20 @@ def dispatch_mode(members):
 
     prompt = PLACEHOLDER_PREAMBLE + "\n\n" + RIDER_ACTION_INVOCATION
     disallowed_args = build_disallowed_args(members)
+    argv = [provider_bin, "-p", prompt] + disallowed_args
 
-    # REQ-F-004: fail closed BEFORE dispatch if the just-constructed denial
-    # arguments are somehow missing a member. By construction above this can
-    # only fire on a future regression to build_disallowed_args itself --
-    # belt-and-braces, not dead code, because missing_members is the exact
-    # function --verify-argv mode exercises directly against a fixture.
-    missing = missing_members(disallowed_args, members)
+    # REQ-F-004: fail closed BEFORE dispatch if the argument vector actually
+    # about to be handed to subprocess.run is missing a member. Checked
+    # against the FINAL argv (not an intermediate disallowed_args slice
+    # computed earlier): T-E40-F07-010 and -011 both insert logic between
+    # construction and dispatch (the non-applicable short-circuit, the
+    # disclosure check, the real preamble read), so a gate scanning a
+    # pre-insertion slice would not see a post-insertion mutation of argv
+    # itself. missing_members scans whole argv elements
+    # (`tok == "--disallowedTools"`), so a prompt string that happens to
+    # contain that literal substring cannot cause a false pass -- and even a
+    # false positive here is a loud refusal to dispatch, the safe direction.
+    missing = missing_members(argv, members)
     if missing:
         sys.stderr.write(
             "run-prelude: argv_incomplete: refusing to dispatch -- constructed argument vector is "
@@ -238,7 +245,6 @@ def dispatch_mode(members):
         )
         sys.exit(1)
 
-    argv = [provider_bin, "-p", prompt] + disallowed_args
     proc = subprocess.run(argv, capture_output=True, text=True)
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr)

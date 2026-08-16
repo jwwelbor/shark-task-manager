@@ -28,6 +28,12 @@
 #            tool-use record yields live_interaction_reached naming the
 #            tool and the stage.
 #       (b2) a clean transcript fixture passes.
+#       (b3) fail-closed regression: a transcript in a shape this scanner
+#            recognizes ZERO tool_use records in (even one carrying a real
+#            live WebSearch call, just not in this scanner's own record
+#            shape) is refused, never silently certified CLEAN
+#            (ADR-F07-03: the binding gate must not rest on an assumption
+#            about transcript shape).
 #
 # Caller-Path Contract (test-plan.md tc053 row): real argv construction by
 # the real script, real transcript-file parsing. Never a hand-written
@@ -277,6 +283,34 @@ set -e
 [[ "$(cat "$out")" == "CLEAN" ]] || fail "case (b2): stdout was $(cat "$out"), want CLEAN"
 
 echo "TC-053(case b2: clean transcript -> exit 0, CLEAN) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (b3): fail-closed regression -- a transcript in a shape this scanner
+# recognizes ZERO tool_use records in (even one carrying a REAL live
+# WebSearch call, just not in this scanner's own type/tool_name/stage
+# record shape) is refused (ScriptError, exit 2), never silently certified
+# CLEAN. Without this, the binding gate (ADR-F07-03) would fail OPEN the
+# moment a real transcript's native shape differs from this task's own
+# first-defined fixture shape -- exactly the platform-assumption risk
+# REQ-F-005 exists to avoid.
+# ---------------------------------------------------------------------------
+echo "TC-053: case (b3) - fail-closed regression: unrecognized transcript shape is refused, not silently CLEAN"
+
+UNRECOGNIZED_TRANSCRIPT="$TESTDATA/transcript/unrecognized-shape.jsonl"
+[[ -f "$UNRECOGNIZED_TRANSCRIPT" ]] || fail "unrecognized-shape transcript fixture not found: $UNRECOGNIZED_TRANSCRIPT"
+grep -q "WebSearch" "$UNRECOGNIZED_TRANSCRIPT" || fail "case (b3): test setup bug -- fixture no longer names WebSearch"
+
+out="$WORKDIR/b3.out"
+err="$WORKDIR/b3.err"
+set +e
+"$VERIFY_ISOLATION" "$UNRECOGNIZED_TRANSCRIPT" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 2 ]] || fail "case (b3): verify-replay-isolation.sh exited $code on an unrecognized-shape transcript, want 2 (script/authoring error, never a silent pass): stdout=$(cat "$out") stderr=$(cat "$err")"
+[[ "$(cat "$out")" != "CLEAN" ]] || fail "case (b3): stdout was CLEAN for an unrecognized-shape transcript -- fail-OPEN regression"
+grep -q "zero records" "$err" || fail "case (b3): failure message does not explain the zero-recognized-records refusal: $(cat "$err")"
+
+echo "TC-053(case b3: unrecognized transcript shape -> refused (exit 2), never silently CLEAN) PASS"
 
 # ---------------------------------------------------------------------------
 # Negative-half regression (test-plan.md AC-003 negative case): an
