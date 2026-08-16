@@ -6,18 +6,22 @@
 // TestTC042_I05StageEvidenceContract's own submodule-independence
 // discipline (bench/fixture-py and bench/fixture-repo are never read here).
 //
-// This task (T-E40-F07-001) covers AC-001's document-kind core only:
-// REQ-F-001 (I-06 is two distinct, unambiguous document kinds) and
-// REQ-F-002 (the replay bundle's schema_version/bundle_version/
-// scenario_binding/entries[] field inventory). REQ-F-003's entry_digest
-// recomputation (AC-002), REQ-F-010/REQ-F-011's artifact-record and
-// interaction-proxy checks (AC-007, AC-008), and REQ-F-017/REQ-F-018/
-// REQ-F-019's terminal-outcome mapping, malformed-field matrix, and
-// vocabulary agreement (AC-013, AC-014, AC-015) are later tasks' extensions
-// of this same test file (T-E40-F07-002, -008, -009).
+// T-E40-F07-001 covered AC-001's document-kind core: REQ-F-001 (I-06 is two
+// distinct, unambiguous document kinds) and REQ-F-002 (the replay bundle's
+// schema_version/bundle_version/scenario_binding/entries[] field
+// inventory). This task (T-E40-F07-002) adds AC-002: REQ-F-003's
+// entry_digest recomputation, the one-byte-mutation boundary case, and the
+// consumed_entries[]/bundle join-key subset check. REQ-F-010/REQ-F-011's
+// artifact-record and interaction-proxy checks (AC-007, AC-008), and
+// REQ-F-017/REQ-F-018/REQ-F-019's terminal-outcome mapping, malformed-field
+// matrix, and vocabulary agreement (AC-013, AC-014, AC-015) remain later
+// tasks' extensions of this same test file (T-E40-F07-008, -009).
 package contracts
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -43,6 +47,21 @@ type e40I06DocumentKindSpec struct {
 	EntryRequiredFields []string `yaml:"entry_required_fields"`
 }
 
+// e40I06EntryDigestSpec decodes bench/replay/i06-schema.yaml's
+// entry_digest block (REQ-F-003, T-E40-F07-002): the machine-readable
+// parameters of the single canonical-serialization rule this file's
+// recompute helpers implement. The Go code never hand-derives a second,
+// competing definition of the rule -- schema_self_check below asserts
+// these schema-declared parameters still match what the helpers
+// implement, so a future schema edit that changes the rule without a
+// matching Go change fails loudly instead of silently diverging.
+type e40I06EntryDigestSpec struct {
+	Algorithm        string `yaml:"algorithm"`
+	Encoding         string `yaml:"encoding"`
+	DigestPrefix     string `yaml:"digest_prefix"`
+	Canonicalization string `yaml:"canonicalization"`
+}
+
 // e40I06Schema decodes bench/replay/i06-schema.yaml -- REQ-F-018's single
 // machine-readable owner of I-06's schema_version and every closed
 // vocabulary. The Go validator below reads every vocabulary from this
@@ -52,6 +71,7 @@ type e40I06Schema struct {
 	DocumentKinds                           map[string]e40I06DocumentKindSpec `yaml:"document_kinds"`
 	Stage                                   []string                          `yaml:"stage"`
 	RequestKind                             []string                          `yaml:"request_kind"`
+	EntryDigest                             e40I06EntryDigestSpec             `yaml:"entry_digest"`
 	ArtifactType                            []string                          `yaml:"artifact_type"`
 	EdgeKind                                []string                          `yaml:"edge_kind"`
 	ReplayedInteractionProxiesDiscriminator string                            `yaml:"replayed_interaction_proxies_discriminator"`
@@ -101,6 +121,22 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 		wantRequestKinds := []string{"human_question", "research_query"}
 		if !e40StringSlicesEqual(schema.RequestKind, wantRequestKinds) {
 			t.Errorf("i06-schema.yaml request_kind = %v, want %v", schema.RequestKind, wantRequestKinds)
+		}
+		// REQ-F-003 (T-E40-F07-002): the schema's declared entry_digest
+		// parameters must match what e40I06RecomputeEntryDigest below
+		// actually implements -- a schema edit that changes the rule
+		// without a matching Go change fails here, not silently.
+		if schema.EntryDigest.Algorithm != "sha256" {
+			t.Errorf("i06-schema.yaml entry_digest.algorithm = %q, want %q", schema.EntryDigest.Algorithm, "sha256")
+		}
+		if schema.EntryDigest.Encoding != "hex" {
+			t.Errorf("i06-schema.yaml entry_digest.encoding = %q, want %q", schema.EntryDigest.Encoding, "hex")
+		}
+		if schema.EntryDigest.DigestPrefix != "" {
+			t.Errorf("i06-schema.yaml entry_digest.digest_prefix = %q, want empty", schema.EntryDigest.DigestPrefix)
+		}
+		if schema.EntryDigest.Canonicalization != "compact_json_sorted_keys" {
+			t.Errorf("i06-schema.yaml entry_digest.canonicalization = %q, want %q", schema.EntryDigest.Canonicalization, "compact_json_sorted_keys")
 		}
 	})
 
@@ -205,6 +241,83 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	// AC-002/REQ-F-003 (T-E40-F07-002): entry_digest is the single join
+	// key to I-05 (ADR-F07-08) -- it MUST recompute from the stored bundle
+	// alone, a one-byte edit to any entry field MUST be caught, and a
+	// result's consumed_entries[].entry_digest values MUST be a subset of
+	// the bundle's own freshly recomputed digest set.
+	t.Run("entry_digest", func(t *testing.T) {
+		// AC-T1: every entry's entry_digest recomputes from the stored
+		// bundle, excluding the digest field itself. Asserting zero
+		// errors (not merely "contains no replay_bundle_mutated") also
+		// catches the self-defeating implementation bug of hashing the
+		// entry_digest field into its own input, which would produce a
+		// spurious mismatch here even with no real mutation.
+		t.Run("recomputes_from_valid_bundle", func(t *testing.T) {
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "bundle-minimal.json"))
+			_, errs := e40I06RecomputeBundleEntryDigests(doc)
+			if len(errs) != 0 {
+				t.Errorf("valid bundle fixture: want zero recompute errors, got:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		// AC-T2: a one-byte edit to any entry field yields
+		// replay_bundle_mutated naming the entry -- and only that entry,
+		// not every entry in the bundle (a validator that flags every
+		// entry regardless of which one changed would still pass a bare
+		// "contains replay_bundle_mutated" check, so this asserts exactly
+		// one violation naming the mutated entry_id).
+		t.Run("one_byte_mutation_detected", func(t *testing.T) {
+			doc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "invalid", "entry-digest-mutated.json"))
+			_, errs := e40I06RecomputeBundleEntryDigests(doc)
+			if len(errs) != 1 {
+				t.Fatalf("mutated bundle fixture: want exactly one recompute error, got %d:\n%s", len(errs), strings.Join(errs, "\n"))
+			}
+			if !e40ContainsErrorMatching(errs, "replay_bundle_mutated", "d01-vision-01") {
+				t.Errorf("expected a replay_bundle_mutated error naming \"d01-vision-01\", got:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		// AC-T3: a valid result fixture's stages[].consumed_entries[]
+		// .entry_digest values are all present in the bundle's own
+		// recomputed digest set (the join-key subset property).
+		t.Run("consumed_entries_subset_of_bundle", func(t *testing.T) {
+			bundleDoc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "bundle-minimal.json"))
+			resultDoc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "result-minimal.json"))
+			digestSet, mutationErrs := e40I06RecomputeBundleEntryDigests(bundleDoc)
+			if len(mutationErrs) != 0 {
+				t.Fatalf("valid bundle fixture: want zero recompute errors, got:\n%s", strings.Join(mutationErrs, "\n"))
+			}
+			errs := e40I06ValidateConsumedEntriesSubset(resultDoc, digestSet)
+			if len(errs) != 0 {
+				t.Errorf("valid result fixture: want zero subset errors, got:\n%s", strings.Join(errs, "\n"))
+			}
+		})
+
+		// AC-T3 (negative): a result fixture whose one consumed-entry
+		// digest is not in the bundle's recomputed set is rejected naming
+		// the offending entry_digest -- the join-key spoof case. A
+		// validator that trusts the result's recorded entry_digest
+		// without checking it against the bundle's own recomputed set
+		// would accept this fixture silently.
+		t.Run("consumed_entry_digest_not_in_bundle", func(t *testing.T) {
+			bundleDoc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "valid", "bundle-minimal.json"))
+			resultDoc := e40I06ReadDocument(t, filepath.Join(testdataRoot, "invalid", "consumed-entry-digest-not-in-bundle.json"))
+			digestSet, mutationErrs := e40I06RecomputeBundleEntryDigests(bundleDoc)
+			if len(mutationErrs) != 0 {
+				t.Fatalf("valid bundle fixture: want zero recompute errors, got:\n%s", strings.Join(mutationErrs, "\n"))
+			}
+			errs := e40I06ValidateConsumedEntriesSubset(resultDoc, digestSet)
+			if len(errs) == 0 {
+				t.Fatal("expected a replay_bundle_mutated violation for the spoofed entry_digest, got none")
+			}
+			const spoofedDigest = "6c6e2f7d94638e37638aca64ec00c797fe09397b1566d9dd19883a906f6c2cd6"
+			if !e40ContainsErrorMatching(errs, "replay_bundle_mutated", spoofedDigest) {
+				t.Errorf("expected a replay_bundle_mutated error naming the offending digest %q, got:\n%s", spoofedDigest, strings.Join(errs, "\n"))
+			}
+		})
 	})
 }
 
@@ -445,6 +558,138 @@ func e40I06ValidateBundleBody(doc map[string]interface{}, schema *e40I06Schema) 
 		}
 	}
 
+	return errs
+}
+
+// e40I06CanonicalEntryJSON serializes entry (every field except
+// entry_digest itself) per i06-schema.yaml's entry_digest block
+// (REQ-F-003, T-E40-F07-002, "compact_json_sorted_keys"): a compact JSON
+// object, keys sorted lexicographically at every nesting level, UTF-8, no
+// \uXXXX-escaped non-ASCII characters. Go's encoding/json already sorts
+// map[string]interface{} keys (recursively) when marshaling, so the only
+// deviation from json.Marshal's default output this needs is disabling
+// HTML-escaping (Go escapes '<', '>', '&' by default; Python's json.dumps
+// and jq do not) to keep the two languages byte-identical.
+func e40I06CanonicalEntryJSON(entry map[string]interface{}) ([]byte, error) {
+	filtered := make(map[string]interface{}, len(entry))
+	for k, v := range entry {
+		if k == "entry_digest" {
+			continue
+		}
+		filtered[k] = v
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(filtered); err != nil {
+		return nil, err
+	}
+	// Encoder.Encode appends a trailing newline the canonical form must
+	// not carry.
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+// e40I06RecomputeEntryDigest recomputes REQ-F-003's entry_digest for one
+// bundle entry: sha256 hex digest (no prefix, per i06-schema.yaml's
+// entry_digest.digest_prefix) of e40I06CanonicalEntryJSON's output.
+func e40I06RecomputeEntryDigest(entry map[string]interface{}) (string, error) {
+	canonical, err := e40I06CanonicalEntryJSON(entry)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// e40I06RecomputeBundleEntryDigests recomputes REQ-F-003's entry_digest
+// for every entries[] element in a decoded bundle document. It returns
+// the freshly recomputed digest set (the ground truth "bundle's
+// recomputed digest set" REQ-F-003 names as the single join key to I-05,
+// independent of whatever value happens to be stored in each entry's own
+// entry_digest field) and one replay_bundle_mutated violation per entry
+// whose recomputed digest does not match its stored entry_digest (AC-T2).
+// Entries with a malformed or missing entry_id/entry_digest are skipped
+// here -- those are e40I06ValidateBundleBody's field_missing/
+// field_malformed violations, not this function's concern.
+//
+// Deliberately not called from e40I06ValidateDocument/
+// e40I06ValidateBundleBody: several of T-E40-F07-001's existing invalid/
+// fixtures (duplicate-ordinal.json, unknown-stage.json, etc.) carry a
+// placeholder entry_digest that predates this task's canonicalization
+// rule and would now also fail this check, which is harmless for those
+// fixtures' own "wantAny" substring assertions but would conflate two
+// unrelated defects in one document. TC-052 exercises this recompute path
+// through its own dedicated "entry_digest" subtests instead. Wiring this
+// into the general bundle-validation pipeline is left to a later task,
+// which will also need to update those pre-existing fixtures' entry_digest
+// values.
+func e40I06RecomputeBundleEntryDigests(bundle map[string]interface{}) (map[string]bool, []string) {
+	var errs []string
+	digestSet := map[string]bool{}
+	rawEntries, _ := bundle["entries"].([]interface{})
+	for i, rawEntry := range rawEntries {
+		entry, isMap := rawEntry.(map[string]interface{})
+		if !isMap {
+			continue
+		}
+		entryID, _ := entry["entry_id"].(string)
+		storedDigest, hasStoredDigest := entry["entry_digest"].(string)
+		got, err := e40I06RecomputeEntryDigest(entry)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("field_malformed: entries[%d] could not be canonically serialized: %v", i, err))
+			continue
+		}
+		digestSet[got] = true
+		if !hasStoredDigest || storedDigest == "" {
+			continue
+		}
+		if got != storedDigest {
+			errs = append(errs, fmt.Sprintf(
+				"replay_bundle_mutated: entries[%d] (entry_id=%s) recomputed entry_digest %q does not match stored entry_digest %q",
+				i, entryID, got, storedDigest,
+			))
+		}
+	}
+	return digestSet, errs
+}
+
+// e40I06ValidateConsumedEntriesSubset checks REQ-F-003's join-key
+// invariant (AC-T3): every stages[].consumed_entries[].entry_digest value
+// in a decoded result document must appear in bundleDigests, the bundle's
+// own recomputed digest set (e40I06RecomputeBundleEntryDigests). A value
+// absent from that set -- whether from a mutated bundle entry or a
+// forged/spoofed digest the result never derived from any bundle entry --
+// is rejected as replay_bundle_mutated naming the offending digest, per
+// REQ-F-003 ("A result whose recorded entry_digest does not recompute
+// from the bundle MUST be rejected as replay_bundle_mutated naming the
+// entry").
+func e40I06ValidateConsumedEntriesSubset(result map[string]interface{}, bundleDigests map[string]bool) []string {
+	var errs []string
+	rawStages, _ := result["stages"].([]interface{})
+	for si, rawStage := range rawStages {
+		stage, isMap := rawStage.(map[string]interface{})
+		if !isMap {
+			continue
+		}
+		rawConsumed, _ := stage["consumed_entries"].([]interface{})
+		for ci, rawEntry := range rawConsumed {
+			entry, isMap := rawEntry.(map[string]interface{})
+			if !isMap {
+				continue
+			}
+			digest, _ := entry["entry_digest"].(string)
+			if digest == "" {
+				errs = append(errs, fmt.Sprintf("field_missing: stages[%d].consumed_entries[%d].entry_digest", si, ci))
+				continue
+			}
+			if !bundleDigests[digest] {
+				errs = append(errs, fmt.Sprintf(
+					"replay_bundle_mutated: stages[%d].consumed_entries[%d].entry_digest %q is not in the bundle's recomputed digest set",
+					si, ci, digest,
+				))
+			}
+		}
+	}
 	return errs
 }
 

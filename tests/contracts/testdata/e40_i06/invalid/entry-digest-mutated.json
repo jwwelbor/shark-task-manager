@@ -11,7 +11,7 @@
       "stage": "D01",
       "ordinal": 1,
       "request_kind": "human_question",
-      "topic_key": "target_persona",
+      "topic_key": "target_personb",
       "required": true,
       "response": "Small teams that manage recurring household or team chores and need the system to regenerate the next occurrence automatically.",
       "response_digest": "c9ec3eee2926b9bf639dd4ec066297addf41c1986e18a447e3363c52bf992aec",

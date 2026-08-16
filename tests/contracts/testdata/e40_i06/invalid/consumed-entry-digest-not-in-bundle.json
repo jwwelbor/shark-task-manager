@@ -42,7 +42,7 @@
       "consumed_entries": [
         {
           "entry_id": "d01-vision-01",
-          "entry_digest": "39491caa1eb3a1bccfac5fc0094f4d3c1b02c84f018409a6d047795f2baeb6bd",
+          "entry_digest": "6c6e2f7d94638e37638aca64ec00c797fe09397b1566d9dd19883a906f6c2cd6",
           "request_kind": "human_question",
           "topic_key": "target_persona",
           "supplied_at": "2026-08-15T00:00:00Z",

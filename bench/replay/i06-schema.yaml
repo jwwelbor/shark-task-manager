@@ -3,7 +3,8 @@
 # Single machine-readable owner (REQ-F-018) of I-06's schema_version and
 # every closed vocabulary the product-design replay contract depends on:
 # document_kinds, stage, request_kind, artifact_type, edge_kind, the
-# replayed_interaction_proxies field set, terminal_outcome, and error_kind.
+# replayed_interaction_proxies field set, terminal_outcome, error_kind, and
+# entry_digest's canonical-serialization rule.
 # The Go contract validator
 # (tests/contracts/e40_i06_product_design_replay_contract_test.go, TC-052)
 # and every bench guard script under bench/scripts/ (T-E40-F07-004 onward)
@@ -19,9 +20,9 @@
 # are deliberately smaller than I-05's own sets -- I-06 has no
 # evaluator_access event and D01-D05 produce planning documents only.
 #
-# REQ-F-003's entry_digest canonical-serialization rule is defined by
-# T-E40-F07-002, not here: this file only fixes (via document_kinds.bundle
-# .entry_required_fields below) that entry_digest is a required field.
+# REQ-F-003's entry_digest canonical-serialization rule is defined below
+# (entry_digest: block, T-E40-F07-002); document_kinds.bundle
+# .entry_required_fields only fixes that entry_digest is a required field.
 #
 # The live-egress denial set (REQ-F-004) is owned by a separate file,
 # bench/replay/live-egress-tools.yaml (T-E40-F07-004) -- not duplicated
@@ -90,6 +91,49 @@ stage:
 request_kind:
   - human_question
   - research_query
+
+# REQ-F-003: entry_digest's canonical-serialization rule -- the single
+# join key to I-05 (ADR-F07-08, T-E40-F07-002). Any consumer (this file's
+# own Go validator, and every later bench/scripts/ guard, per REQ-F-018's
+# single-owner rule) computes entry_digest as follows:
+#   1. Take one entries[] element (a decoded JSON object) and remove the
+#      entry_digest field itself -- every other
+#      document_kinds.bundle.entry_required_fields member is included
+#      using its own stored value exactly as-is; a {path, digest} response
+#      is included verbatim, never re-resolved through the referenced
+#      file. Duplicate keys and byte-level key ordering in the *source*
+#      file are irrelevant -- the rule operates on the decoded object, not
+#      the file's raw bytes.
+#   2. Serialize the remaining object per `canonicalization` below:
+#      object keys sorted lexicographically (byte-wise) at every nesting
+#      level, no inserted whitespace between tokens, non-ASCII characters
+#      left as raw UTF-8 (never \uXXXX-escaped), forward slashes and HTML
+#      metacharacters left unescaped. Every numeric field (e.g. `ordinal`)
+#      MUST be an integer serialized with no fractional part, no exponent,
+#      and no leading `+`/zero -- required so a JSON decoder that reads
+#      numbers as float64 (Go) and one that reads them as int (Python)
+#      serialize identically. Equivalent to Go's encoding/json map
+#      encoding with html-escaping disabled, Python's
+#      json.dumps(obj, sort_keys=True, separators=(",", ":"),
+#      ensure_ascii=False), or `jq -cS`.
+#   3. Hash the UTF-8 bytes with `algorithm` and hex-encode with
+#      `encoding`, prefixed with `digest_prefix` (empty here -- matching
+#      this document's own response_digest convention, unlike
+#      bench/scripts/verify-stage-evidence.sh's "sha256:"-prefixed
+#      candidate_identity_digest, a different file's different
+#      convention).
+# A result whose recorded consumed_entries[].entry_digest is not present
+# in the bundle's own freshly recomputed digest set (this same rule,
+# applied to the bundle's own stored entries) MUST be rejected as
+# replay_bundle_mutated naming the offending digest (REQ-F-003) -- whether
+# because the cited bundle entry was edited after the digest was recorded,
+# or because the result cites a digest no bundle entry produces (a
+# join-key spoof).
+entry_digest:
+  algorithm: sha256
+  encoding: hex
+  digest_prefix: ""
+  canonicalization: compact_json_sorted_keys
 
 # REQ-F-010: stages[].artifacts[].artifact_type. D01-D05 produce planning
 # documents only (REQ-F-016 Output Standards, D0X-*.md); this feature has
