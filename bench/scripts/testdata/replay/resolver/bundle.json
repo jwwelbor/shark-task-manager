@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "bundle_version": "1.0.0",
+  "scenario_binding": {
+    "scenario_id": "tc054-resolver-fixture",
+    "scenario_version": 1
+  },
+  "entries": [
+    {
+      "entry_id": "D01-01",
+      "stage": "D01",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "topic_key": "problem_statement",
+      "required": true,
+      "response": "The problem is that manual recurrence tracking is error-prone and users forget to recreate periodic tasks.",
+      "response_digest": "976d9850030822a3ef665b1050921a80658be85316dc1f7be76ca0f713fcdfed",
+      "entry_digest": "74d1b820aceb5d6c7501b0445ec80d35a2327fc58a6b5e6e600c88f706bdf24c"
+    },
+    {
+      "entry_id": "D01-02",
+      "stage": "D01",
+      "ordinal": 2,
+      "request_kind": "human_question",
+      "topic_key": "target_users",
+      "required": true,
+      "response": "Individual users managing personal recurring obligations such as bills and chores.",
+      "response_digest": "e778c538937b32320fd331b9490a65bc53031993c43c8862408d53e05a5479c5",
+      "entry_digest": "be1ced0fffd41e788718dbbb915fa08ff37e61537f694e10daa7ee3e40896aed"
+    },
+    {
+      "entry_id": "D03-01",
+      "stage": "D03",
+      "ordinal": 1,
+      "request_kind": "research_query",
+      "topic_key": "competitor_landscape",
+      "required": true,
+      "response": "Competitor tools handle recurrence with simple interval rules rather than full RRULE grammars.",
+      "response_digest": "f5721b708d6ec9db21b9cfa7ec0a6fad77ad134a1a39c8804d306b092a7d93a8",
+      "entry_digest": "c1bf7b922258975ecfcdf95039e9d287f42949a8126a4df42bc56a0261d55e98"
+    },
+    {
+      "entry_id": "D05-01",
+      "stage": "D05",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "topic_key": "interview_mode_choice",
+      "required": true,
+      "response": {
+        "path": "responses/d05-note.txt",
+        "digest": "fa09a7845d9d049fc6d75b7ce42b247faa68e259b211a4702dab2eef794f3d43"
+      },
+      "response_digest": "fa09a7845d9d049fc6d75b7ce42b247faa68e259b211a4702dab2eef794f3d43",
+      "entry_digest": "5e72ec20e9cee3e2bc882886207cde5647ab998b6807d7855fc9f711160da177"
+    }
+  ]
+}
