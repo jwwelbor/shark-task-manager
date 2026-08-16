@@ -156,6 +156,17 @@ terminal_outcome:
 # schema_version_unsupported, field_missing, field_malformed, and
 # duplicate_ordinal; the remaining entries are declared here (single-owner,
 # REQ-F-018) for later tasks to exercise without a schema-file edit.
+#
+# Unlike I-05's error_kind, none of these tokens is a value ever stored
+# *inside* a bundle or result document -- I-06 has no errors[]-shaped
+# field (Document A and Document B, spec.md "API / interface contracts").
+# error_kind is exclusively the closed set of prefixes the Go validator
+# (this file's TC-052 reader) and every bench guard script MUST choose
+# their own emitted verdict message from (REQ-F-019: "the failing field
+# named"), so REQ-F-019/AC-014's "unknown error kind" malformed case is
+# proven by sweeping the validator's/guard's own emitted messages against
+# this list, not by a fixture document containing an out-of-vocabulary
+# error_kind field.
 error_kind:
   - document_kind_mismatch
   - schema_version_unsupported

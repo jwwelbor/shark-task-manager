@@ -147,8 +147,13 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 			if len(errs) == 0 {
 				t.Fatal("expected a document_kind_mismatch violation, got none")
 			}
-			if !e40ContainsErrorMatching(errs, "document_kind_mismatch", "bundle") {
-				t.Errorf("expected a document_kind_mismatch error naming \"bundle\", got:\n%s", strings.Join(errs, "\n"))
+			// Assert the *ordered* phrase, not just that "bundle" appears
+			// anywhere in the message: the reverse-direction message also
+			// contains the substring "bundle" (as the detected kind), so a
+			// validator that swapped expected/got would still pass a bare
+			// substring check on "bundle" alone.
+			if !e40ContainsErrorMatching(errs, "document_kind_mismatch", `expected "bundle"`) {
+				t.Errorf("expected a document_kind_mismatch error naming \"bundle\" as the *expected* kind, got:\n%s", strings.Join(errs, "\n"))
 			}
 			if len(errs) != 1 {
 				t.Errorf("expected exactly one kind-mismatch error (no half-validation fallthrough), got %d:\n%s", len(errs), strings.Join(errs, "\n"))
@@ -161,8 +166,8 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 			if len(errs) == 0 {
 				t.Fatal("expected a document_kind_mismatch violation, got none")
 			}
-			if !e40ContainsErrorMatching(errs, "document_kind_mismatch", "result") {
-				t.Errorf("expected a document_kind_mismatch error naming \"result\", got:\n%s", strings.Join(errs, "\n"))
+			if !e40ContainsErrorMatching(errs, "document_kind_mismatch", `expected "result"`) {
+				t.Errorf("expected a document_kind_mismatch error naming \"result\" as the *expected* kind, got:\n%s", strings.Join(errs, "\n"))
 			}
 			if len(errs) != 1 {
 				t.Errorf("expected exactly one kind-mismatch error (no half-validation fallthrough), got %d:\n%s", len(errs), strings.Join(errs, "\n"))
@@ -378,21 +383,36 @@ func e40I06ValidateBundleBody(doc map[string]interface{}, schema *e40I06Schema) 
 			}
 		}
 
+		// Stage vocabulary membership and per-stage ordinal uniqueness are
+		// deliberately independent checks: an entry with a missing or
+		// unknown stage still has its ordinal type-checked and grouped
+		// (keyed on its raw stage value) for duplicate detection, so a
+		// bad stage value can never mask a duplicate-ordinal violation.
+		var stageKey string
+		hasStageKey := false
 		if rawStage, present := entry["stage"]; present {
 			stage, isString := rawStage.(string)
 			if !isString {
 				addf("field_malformed: entries[%d].stage must be a string", i)
-			} else if !stageSet[stage] {
-				addf("vocabulary_value_unknown: entries[%d].stage %q is not one of %v", i, stage, schema.Stage)
-			} else if rawOrdinal, hasOrdinal := entry["ordinal"]; hasOrdinal {
+			} else {
+				stageKey = stage
+				hasStageKey = true
+				if !stageSet[stage] {
+					addf("vocabulary_value_unknown: entries[%d].stage %q is not one of %v", i, stage, schema.Stage)
+				}
+			}
+		}
+
+		if hasStageKey {
+			if rawOrdinal, hasOrdinal := entry["ordinal"]; hasOrdinal {
 				if ordinal, isNum := rawOrdinal.(float64); isNum {
-					if seenOrdinalsByStage[stage] == nil {
-						seenOrdinalsByStage[stage] = map[float64]bool{}
+					if seenOrdinalsByStage[stageKey] == nil {
+						seenOrdinalsByStage[stageKey] = map[float64]bool{}
 					}
-					if seenOrdinalsByStage[stage][ordinal] {
-						addf("duplicate_ordinal: stage %s ordinal %v is used by more than one entry", stage, ordinal)
+					if seenOrdinalsByStage[stageKey][ordinal] {
+						addf("duplicate_ordinal: stage %s ordinal %v is used by more than one entry", stageKey, ordinal)
 					}
-					seenOrdinalsByStage[stage][ordinal] = true
+					seenOrdinalsByStage[stageKey][ordinal] = true
 				} else {
 					addf("field_malformed: entries[%d].ordinal must be a number", i)
 				}

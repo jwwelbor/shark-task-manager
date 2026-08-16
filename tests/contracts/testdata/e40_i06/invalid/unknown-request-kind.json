@@ -13,9 +13,9 @@
       "request_kind": "chit_chat",
       "topic_key": "target_persona",
       "required": true,
-      "response": "Small teams that manage recurring chores.",
-      "response_digest": "1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70",
-      "entry_digest": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+      "response": "Small teams that manage recurring household or team chores and need the system to regenerate the next occurrence automatically.",
+      "response_digest": "c9ec3eee2926b9bf639dd4ec066297addf41c1986e18a447e3363c52bf992aec",
+      "entry_digest": "4161845429ab27aec9a79a4a099247e2cfe34ef1851e26362d5186ef7d1f6bf4"
     }
   ]
 }

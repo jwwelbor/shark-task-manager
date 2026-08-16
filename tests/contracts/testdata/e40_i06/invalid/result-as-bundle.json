@@ -9,13 +9,13 @@
   "replay_bundle": {
     "replay_reference": "evaluator/replay/reference-bundle.json",
     "bundle_path": "bench/scenarios/packages/py-feature-recurring-tasks/evaluator/replay/reference-bundle.json",
-    "bundle_digest": "c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b",
+    "bundle_digest": "54bc5a91883d456ed243a42ddfc113968067eeb744f67a6c31d6a1ec820bc098",
     "bundle_version": "1"
   },
-  "preamble_digest": "d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c",
+  "preamble_digest": "892d185ce2a318a500a5d913c1a1b727834d8c1475c64b9ee7a81b4004d9a49a",
   "artifact_root": {
     "path": "/tmp/scratch-shark-project",
-    "identity_digest": "e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d",
+    "identity_digest": "f2653f4c0c898ae26702f4905ce0c2af3b92748bd792d41ab9ff55037bc4c29c",
     "root_kind": "scratch_shark_project"
   },
   "stages": [
@@ -27,20 +27,22 @@
           "stage": "D01",
           "artifact_type": "document",
           "path": "docs/product/D01-vision.md",
-          "digest": "f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e",
+          "digest": "c618d39f87d58b096631cf1398f67aef9ebed2f50fb7b1e12358fce1228bd4e7",
           "size_bytes": 1024,
           "produced_at": "2026-08-15T00:00:00Z",
           "revision_index": 0,
-          "prompt_digest": "0718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f",
+          "prompt_digest": "48604a56b9aa363f78a43a00492cd35b9d07f26c3d7591bef68c57fd742bd68e",
           "input_digests": [],
-          "consumed_entries": ["d01-vision-01"],
+          "consumed_entries": [
+            "d01-vision-01"
+          ],
           "consumers": []
         }
       ],
       "consumed_entries": [
         {
           "entry_id": "d01-vision-01",
-          "entry_digest": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9",
+          "entry_digest": "4161845429ab27aec9a79a4a099247e2cfe34ef1851e26362d5186ef7d1f6bf4",
           "request_kind": "human_question",
           "topic_key": "target_persona",
           "supplied_at": "2026-08-15T00:00:00Z",
@@ -49,10 +51,30 @@
         }
       ]
     },
-    {"stage": "D02", "applicable": true, "artifacts": [], "consumed_entries": []},
-    {"stage": "D03", "applicable": true, "artifacts": [], "consumed_entries": []},
-    {"stage": "D04", "applicable": true, "artifacts": [], "consumed_entries": []},
-    {"stage": "D05", "applicable": true, "artifacts": [], "consumed_entries": []}
+    {
+      "stage": "D02",
+      "applicable": true,
+      "artifacts": [],
+      "consumed_entries": []
+    },
+    {
+      "stage": "D03",
+      "applicable": true,
+      "artifacts": [],
+      "consumed_entries": []
+    },
+    {
+      "stage": "D04",
+      "applicable": true,
+      "artifacts": [],
+      "consumed_entries": []
+    },
+    {
+      "stage": "D05",
+      "applicable": true,
+      "artifacts": [],
+      "consumed_entries": []
+    }
   ],
   "replayed_interaction_proxies": {
     "measurement_kind": "replayed_interaction_proxy",
