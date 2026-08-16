@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "run_id": "tc055-valid",
+  "terminal_outcome": "complete",
+  "stages": [
+    {
+      "stage": "D01",
+      "applicable": true,
+      "artifacts": [
+        {
+          "path": "docs/product/D01-vision.md",
+          "artifact_type": "document",
+          "consumed_entries": [
+            { "entry_id": "D01-01", "entry_digest": "tc055-entry-digest-d01-01" }
+          ]
+        }
+      ]
+    }
+  ]
+}

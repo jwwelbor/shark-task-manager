@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "bundle_version": "1.0.0",
+  "scenario_binding": {
+    "scenario_id": "tc055-lineage-fixture",
+    "scenario_version": 1
+  },
+  "entries": [
+    {
+      "entry_id": "D01-01",
+      "stage": "D01",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "topic_key": "vision_goal",
+      "required": true,
+      "response": "The product vision is reducing manual recurrence-tracking errors for individual users managing bills and chores.",
+      "response_digest": "f3523ce0215022a9cb07228cfb8be7528fcd56f1dba21e08a823bcdc25b30f8c",
+      "entry_digest": "tc055-entry-digest-d01-01"
+    },
+    {
+      "entry_id": "D02-01",
+      "stage": "D02",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "topic_key": "success_metrics",
+      "required": true,
+      "response": "unused-by-tc055-genuinely-never-resolved",
+      "response_digest": "unused-by-tc055-genuinely-never-resolved",
+      "entry_digest": "tc055-entry-digest-d02-01"
+    },
+    {
+      "entry_id": "D03-01",
+      "stage": "D03",
+      "ordinal": 1,
+      "request_kind": "research_query",
+      "topic_key": "competitor_landscape",
+      "required": true,
+      "response": "unused-by-tc055-genuinely-never-resolved",
+      "response_digest": "unused-by-tc055-genuinely-never-resolved",
+      "entry_digest": "tc055-entry-digest-d03-01"
+    },
+    {
+      "entry_id": "D04-01",
+      "stage": "D04",
+      "ordinal": 1,
+      "request_kind": "research_query",
+      "topic_key": "tech_feasibility",
+      "required": true,
+      "response": "unused-by-tc055-genuinely-never-resolved",
+      "response_digest": "unused-by-tc055-genuinely-never-resolved",
+      "entry_digest": "tc055-entry-digest-d04-01"
+    }
+  ]
+}

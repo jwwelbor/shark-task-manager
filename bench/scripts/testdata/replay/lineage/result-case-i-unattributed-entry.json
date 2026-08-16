@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "run_id": "tc055-case-i",
+  "terminal_outcome": "unattributed_artifact",
+  "stages": [
+    {
+      "stage": "D04",
+      "applicable": true,
+      "artifacts": [
+        {
+          "path": "docs/product/D04-feasibility.md",
+          "artifact_type": "document",
+          "consumed_entries": [
+            { "entry_id": "D04-01", "entry_digest": "tc055-entry-digest-d04-01" }
+          ]
+        }
+      ]
+    }
+  ]
+}
