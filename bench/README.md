@@ -1210,3 +1210,414 @@ property a PATH-stubbed dispatcher's empty invocation log proves — so step
 2 always completes before any provider spend. Steps 3 through 6 never make
 a provider call either; `replay-stage-evidence.sh`'s own test-suite drift
 check invokes only the I-04 adapter's `test` capability, never a provider.
+
+## I-06 product-design replay contract (E40-F07)
+
+I-06 wraps the existing Shark Rider product-design action (X-10) and its
+bundled D01-D05 methodology — never forks it. `skills/shark-rider/verbs/
+product-design.md` and every file under `internal/sharkdata/default_data/
+skills/product-design/**` are byte-frozen (REQ-NF-006(a)); the routing this
+feature needs arrives instead as a benchmark-owned, digest-pinned preamble
+(`bench/replay/preamble.md`) prepended to the dispatch. F07 defines and
+validates the I-06 schema, the replay bundle for the seed feature scenario,
+the resolver, the prelude host-side adapter, and the isolation/lineage
+guards; it does not start the keyed Shark entity lifecycle (E40-F08 / I-07)
+and does not score artifact quality (E40-F09 / I-08). E40-F08 and E40-F10
+read this section instead of re-deriving the document shapes, the
+`entry_digest` join rule, the resolver's matching semantics, the live-egress
+proof, or the guard invocation order from `bench/replay/**` or the scripts
+directly — the same role the "I-05 stage evidence and isolation contract"
+section above plays for I-05.
+
+The single machine-readable owner of every closed vocabulary below —
+`document_kinds`, `stage`, `request_kind`, `artifact_type`, `edge_kind`, the
+`replayed_interaction_proxies` field set, `terminal_outcome`, and
+`error_kind` — is `bench/replay/i06-schema.yaml` (REQ-F-018). The live-egress
+denial set is owned by the separate `bench/replay/live-egress-tools.yaml`,
+per REQ-F-018's single-owner rule applied per vocabulary. The Go contract
+validator (`tests/contracts/e40_i06_product_design_replay_contract_test.go`,
+TC-052) and every bench guard script under `bench/scripts/` read both files
+at call time rather than embedding a private copy. Treat this section as a
+reader's map to those two files, not a substitute for either.
+
+### Two-document split (REQ-F-001)
+
+I-06 is **two** schema-versioned, file-backed documents with distinct roles
+— never one bundle-of-snapshots the way I-05 is. Neither redefines,
+retypes, or duplicates an I-04 or I-05 field; both reference those
+contracts by path and digest only.
+
+- **Document A — the replay bundle** (I-06 *input*). The committed,
+  versioned file I-04's `package.yaml` `replay_reference` points at.
+- **Document B — the replay result** (I-06 *output*). The per-run document
+  E40-F08 consumes; the interaction map calls this "the product-design
+  replay result."
+
+TC-052 validates both shapes from `document_kinds.bundle`/`document_kinds
+.result` in `i06-schema.yaml` and rejects a document of one kind supplied
+where the other is expected, naming the expected kind — a result opened as
+a bundle, or the reverse, fails loudly rather than half-validating.
+
+#### Document A fields — replay bundle
+
+| Field | Type | Contract |
+|---|---|---|
+| `schema_version` | string | The I-06 version `i06-schema.yaml` declares. |
+| `bundle_version` | string | Bumped whenever any entry changes; recorded in the result so a rerun against a different bundle is visible, not silent. |
+| `scenario_binding` | object | `{scenario_id, scenario_version}`; `scenario_id` MUST equal the owning package's (REQ-F-014). |
+| `entries` | array | Ordered authorized entries, each `{entry_id, stage, ordinal, request_kind, topic_key, required, response, response_digest, entry_digest}`. `stage` is `D01`-`D05`; `request_kind` is `human_question` or `research_query`; `ordinal` is unique within its stage; `response` is inline text or a `{path, digest}` reference resolved and contained relative to the bundle file; `entry_digest` is the REQ-F-003 join key (below). Every entry is single-use within a prelude run. |
+
+The seed fixture is `bench/scenarios/packages/py-feature-recurring-tasks/
+evaluator/replay/reference-bundle.json` — the one I-04 carve-out
+REQ-NF-006(c) permits this feature to write; `package.yaml`'s
+`replay_reference` pointer is unchanged.
+
+#### Document B fields — replay result
+
+| Field | Type | Contract |
+|---|---|---|
+| `schema_version` | string | As above. |
+| `scenario` | object | `{scenario_id, scenario_version, entity_family}`, copied verbatim from the I-04 package. |
+| `run_id` | string | Opaque to F07; E40-F08 assigns it. |
+| `replay_bundle` | object | `{replay_reference, bundle_path, bundle_digest, bundle_version}` — the exact input this run consumed. |
+| `preamble_digest` | string | `sha256` of `bench/replay/preamble.md` as dispatched. |
+| `artifact_root` | object | `{path, identity_digest, root_kind: "scratch_shark_project"}` (REQ-F-015; see "Artifact placement" below). |
+| `stages` | array | One record per `D01`-`D05`: `{stage, applicable, reason?, artifacts[], consumed_entries[]}`. `reason` is required and copied verbatim when `applicable` is `false`. |
+| `stages[].artifacts` | array | `{artifact_type, path, digest, size_bytes, produced_at, revision_index, prompt_digest, input_digests[], consumed_entries[], consumers[]}`. `consumers: []` ("orphan") and an absent `consumers` key ("consumption evidence not collected") are distinct and never coerced — the same rule I-05 fixed for its own artifact records. `consumers[]` edges are `{consuming_stage, edge_kind, observed_at}`. |
+| `stages[].consumed_entries` | array | `{entry_id, entry_digest, request_kind, topic_key, supplied_at, request_bytes, response_bytes}` — written only by the resolver ledger (see "Lineage reconciliation" below). |
+| `replayed_interaction_proxies` | object | REQ-F-011 closed field set (see "Interaction-volume proxies" below). |
+| `artifact_consumption_edges` | array | `{producer_stage, artifact_path, consuming_stage, edge_kind}` — the flattened cross-stage view E40-F10 reads for reuse and orphan counts. |
+| `terminal_outcome` | enum | The closed set (see "terminal_outcome and the I-07 seam" below). |
+| `i07_stop_mapping` | string, required on every stop outcome | The I-07 bucket E40-F08 propagates. |
+| `publication_eligible` | bool | `false` for every outcome other than `complete` and `not_applicable`. |
+| `ineligibility_reasons` | array of string | Non-empty whenever `publication_eligible` is `false`. |
+
+### `entry_digest` — the I-05 join key (REQ-F-003)
+
+`entry_digest` is a `sha256` over one `entries[]` element's canonical
+serialization, excluding the digest field itself — decoded-object keys
+sorted lexicographically at every nesting level, compact separators, no
+`\uXXXX`-escaping, integers with no fractional part or leading zero
+(`i06-schema.yaml`'s `entry_digest:` block; equivalent to `jq -cS` or
+Python's `json.dumps(obj, sort_keys=True, separators=(",", ":"),
+ensure_ascii=False)`). It is recomputable by any consumer from the stored
+bundle alone, and it is the **single field** two contracts join on: E40-F08
+writes it verbatim into each I-05 stage snapshot's `replay_lineage[]
+.entry_digest` alongside the bundle path as `replay_reference`
+(`bench/evidence/**`'s own `replay_lineage[]` field notes this interior as
+"opaque — E40-F07 owns it"). A one-byte edit to any entry field changes its
+recomputed digest; a result whose `consumed_entries[].entry_digest` values
+are not a subset of the bundle's own freshly recomputed digest set is
+rejected `replay_bundle_mutated`, naming the entry — whether the cited
+bundle entry was edited after the digest was recorded or the result cites a
+digest no bundle entry produces (a join-key spoof).
+
+### Resolver semantics — `bench/scripts/replay-answer.sh` (REQ-F-006/007)
+
+```
+replay-answer.sh --bundle <path> --stage <D01|...|D05> \
+                 --kind <human_question|research_query> --topic <key>
+```
+
+The **single named owner** of request matching, response supply, and
+consumption recording — no other script, test, or the dispatched session
+itself may re-derive these semantics; the session reaches this script only
+through the preamble's routing instruction.
+
+Matching is **ordinal-primary with a topic assertion** (ADR-F07-04), never
+a match against the model's own literal request text, which regenerates
+differently every run. The resolver looks at the bundle's `entries[]` for
+the caller's `--stage`, finds the **lowest ordinal not yet consumed** in
+this bundle's own consumption ledger, and supplies its response only when
+that entry's own `request_kind`/`topic_key` both equal the caller-supplied
+`--kind`/`--topic`. There is no nearest, partial, or fuzzy match — a
+one-character near-miss fails exactly like any other disagreement. Three,
+and only three, outcomes exist:
+
+- **Exit 0 — supplied.** The lowest-unconsumed-ordinal entry's
+  `request_kind`/`topic_key` both match. The response bytes are written
+  verbatim to stdout (no added newline), and exactly one consumption record
+  is appended to the ledger before the response is printed.
+- **Exit 1 — `replay_desync`.** An unconsumed entry exists for the stage,
+  but its `request_kind` or `topic_key` disagrees with the caller's. Stderr
+  names both the expected (bundle-declared) and supplied (caller-given)
+  kind/topic. No response is printed; no consumption record is appended.
+- **Exit 1 — `unresolved_gate`.** No unconsumed entry remains for the stage
+  (exhausted, or the bundle never declared one). Stderr names stage, kind,
+  and topic. REQ-F-008 requires the *caller* (`run-prelude.sh`, ultimately
+  E40-F08's dispatch loop) to stop the prelude on this outcome and never
+  invent, paraphrase, or degrade to a default answer — this script's own
+  job is only to report the gate precisely enough for that caller to do so.
+- **Exit 2 — `ScriptError`.** A malformed bundle or an unresolvable
+  `{path, digest}` response (escapes the bundle directory, missing file, or
+  resolved bytes that do not hash to the declared digest) — never a
+  matching verdict.
+
+**Ledger side-file.** This script is the single writer of the consumption
+ledger, at `<bundle_path>.consumption.jsonl`, one compact JSON object per
+successful supply, appended in call order: `{entry_id, entry_digest, stage,
+ordinal, request_kind, topic_key, response_digest, supplied_at}`. A missing
+side-file means every entry in the bundle is unconsumed — a fresh scratch
+project's own bundle copy simply has no side-file yet, which is how two
+independent scored passes over the identical committed bundle, driven by
+the same call sequence, each start from an empty ledger and consume a
+byte-identical response sequence (REQ-F-007, AC-005). No network call is
+made anywhere in this script.
+
+### Live-egress denial and the observational binding gate (REQ-F-004/005)
+
+`bench/replay/live-egress-tools.yaml` is the one owner of the **live-egress
+set** a scored prelude dispatch must not reach: `AskUserQuestion`,
+`WebSearch`, and `WebFetch` — `WebFetch` included even though the wrapped
+bundle's own "Tools Used" section never names it, because "cannot reach
+live research" is a reachability property of the session, not a
+documentation property of the bundle (ADR-F07-02). Enforcement is
+**tool-name-scoped and session-wide**, never a per-call-site list. Both
+halves read this one file at call time, so adding or removing a tool
+changes both enforcement and detection with no script edit:
+
+| Half | Mechanism | Binding? |
+|---|---|---|
+| Structural denial | `bench/scripts/run-prelude.sh` emits one `--disallowedTools <tool>` argument per set member and refuses to dispatch — `argv_incomplete`, exit 1, before any subprocess spend — if any member is missing from the final constructed argv | No — belt-and-braces |
+| Observational detection | `bench/scripts/verify-replay-isolation.sh <transcript_path>` scans the retained scored-run transcript for tool-use records naming any set member; one hit is `live_interaction_reached`, naming the tool, stage, and transcript line | **Yes** — this is the contract |
+
+The binding half rests on no assumption about a provider CLI's own denial
+semantics (ADR-F07-03): a transcript is JSONL, one JSON object per
+non-blank line; a `{"type": "tool_use", "stage": "D0X", "tool_name": "..."}`
+record is a tool invocation, and any `tool_name` that is not itself a
+live-egress-set member is ordinary, permitted tool use (`Read`, `Write`,
+`Bash` for `replay-answer.sh`, ...). The scanner **fails closed, never
+open**: a transcript in which it recognizes zero `tool_use` records
+anywhere is refused (`ScriptError`, exit 2), never silently certified
+clean, because a real D01-D05 session always uses at least one tool. Exit
+0 = clean (`CLEAN` on stdout).
+
+### Bundle-disclosure guard (REQ-F-012)
+
+`bench/scripts/verify-replay-isolation.sh <bundle_path> <fixture_checkout>
+<scratch_project>` is the second invocation shape the same script
+reserves, dispatched on argument count (three positional args) rather than
+a subcommand — a **new** guard, not an edit to F06's frozen
+`verify-evidence-roots.sh`, because the replay bundle is not
+`evaluator_only` material and falls outside that guard's contract by
+design (ADR-F07-07). It proves the replay bundle — and any copy of it that
+is byte-identical in content, however it is named — is absent from
+**both** agent-visible roots at every dispatch. A planted bundle or
+bundle-derived file is a named `bundle_bulk_disclosure` violation
+identifying the root (`agent_fixture_checkout` or `scratch_shark_project`)
+and the exact path. `replay_reference` is authorized input the session
+legitimately consumes one entry at a time (ADR-F07-07) — a single
+resolved entry response sitting in an agent-visible root is not a
+violation; only the whole bundle, or a content-identical copy, is. Exit
+0 = both roots clean (`CLEAN` on stdout). This guard is invoked against the
+**live** in-flight roots, immediately before every scored dispatch — the
+same "against the live roots, not only the declared package layout"
+discipline F06's dispatch-boundary check established; `run-prelude.sh`
+does not call it internally, the caller's dispatch loop does (E40-F08's
+job, mirroring "E40-F08's dispatch loop calls this, not F06" above).
+
+### Lineage reconciliation (REQ-F-009)
+
+`bench/scripts/verify-replay-result.sh <result_path> <bundle_path>` is the
+resolver ledger's reconciliation check: every artifact's claimed lineage
+must reconcile against `<bundle_path>.consumption.jsonl`, the same
+single-writer ledger `replay-answer.sh` appends to — never trusted
+alongside it, always reconciled against it. Two failures are named and
+kept distinguishable, because they have different causes and different
+downstream owners:
+
+- **`unattributed_artifact`.** A stage's artifact claims (in its own
+  `consumed_entries[]`) an `{entry_id, entry_digest}` pair the ledger never
+  recorded for that stage — fabrication or resolver bypass, named on the
+  entry and the artifact's stage. Or: a stage produced at least one
+  artifact whose combined `consumed_entries[]` intersects **none** of the
+  bundle's own `required: true` entries for that stage — the artifact
+  exists but nothing it was required to ground itself in was ever
+  attributed to it, named on the stage.
+- **`unresolved_gate`.** A stage that produced no artifact at all is
+  untouched by either check above — REQ-F-008 already requires
+  `unresolved_gate` to stop the prelude before an artifact for that stage
+  is ever produced, so "zero artifacts, zero required entries consumed" is
+  the shape a genuine gate takes, not a rejection this script raises. This
+  script passes the result's own top-level `terminal_outcome` straight
+  through unexamined on success — never asserting or deriving it, since
+  full `terminal_outcome` vocabulary validation is TC-052's job — which is
+  how a genuine `unresolved_gate` run is reported without this script ever
+  manufacturing an `unattributed_artifact` verdict for it. A validator that
+  collapsed the two into one verdict, in either direction, is rejected by
+  AC-006.
+
+A missing `<bundle_path>.consumption.jsonl` means the ledger is **empty**
+(zero consumptions occurred), a valid state, not a script error — mirroring
+`replay-answer.sh`'s own "missing side-file = every entry unconsumed"
+convention. Exit 0 prints one fixed-order JSON summary (`stages[]` sorted
+by `stage`, each stage's `artifacts[]` sorted by `path`, each artifact's
+claimed entries sorted by the bundle's `ordinal`) — REQ-NF-004
+byte-identical verdicts. Exit 1 = a named rejection on stderr. Exit 2 = a
+script/usage/authoring error.
+
+This script currently checks `stages[].artifacts[].consumed_entries[]`
+reconciliation only — REQ-F-009's own two-verdict split, the slice
+T-E40-F07-007 decomposed into. The remaining Document B field inventory
+(REQ-F-001/002/010/011/013/017/019: proxy closure, non-applicable
+completeness, stop-outcome eligibility, the full closed-vocabulary sweep)
+is TC-052's job, over the static fixtures under
+`tests/contracts/testdata/e40_i06/{valid,invalid}/` — the same
+schema-validator/execution-guard split ADR-F07-10 fixes and ADR-F06-09/
+ADR-F05-07 already established for I-05/I-04. Consumers needing the full
+result-shape check invoke TC-052 (`go test ./tests/contracts/...`), not
+this script alone.
+
+### Interaction-volume proxies (REQ-F-011)
+
+`replayed_interaction_proxies` carries a required `measurement_kind:
+"replayed_interaction_proxy"` discriminator and exactly the closed field
+set `i06-schema.yaml`'s `replayed_interaction_proxies_fields:` declares:
+`authorized_request_count`, `authorized_response_count`,
+`request_bytes_total`, `response_bytes_total`,
+`revision_or_replacement_count`, `replay_wait_ns`, `replay_wait_category`,
+`unresolved_gate_count`. Any field outside this set, any `measurement_kind`
+other than the discriminator, and any field name or unit expressing human
+time, stakeholder minutes, or cognitive effort is rejected naming the
+offending field — the structural half of UAT-18's "no report labels these
+as human minutes." `replay_wait_category` MUST be I-05's own
+`replay_or_human_gate_wait` interval-category value, referenced by name,
+not redefined. `replay_wait_ns` is the harness's own resolver-latency
+measurement for a local file read — no F07 component synthesizes, pads, or
+models a human-latency delay (REQ-NF-007); a value exceeding
+`i06-schema.yaml`'s `replay_wait_ns_plausibility_ceiling` is rejected
+`proxy_wait_implausible` as a synthesized delay. `unresolved_gate_count`
+must agree with `terminal_outcome`: an `unresolved_gate` outcome paired
+with a zero count is rejected `unresolved_gate_count_inconsistent` — the
+gate-count value can contradict the terminal outcome it exists to explain
+even when the proxy block's own field inventory is otherwise valid.
+
+### Artifact placement (REQ-F-015/016)
+
+The prelude dispatch's working directory is I-05's own
+`roots.scratch_shark_project` — D01-D05 artifacts and `docs/product/
+progress.md` are planning documents written there, never into the
+agent-visible fixture checkout and never into the evaluator-only root. F07
+introduces **no fourth root**. `bench/scripts/run-prelude.sh --package
+<package.yaml> --result-out <path> --artifact-root <scratch_shark_project>`
+pins the dispatched subprocess's `cwd` to that root and records its
+realpath plus a recomputable identity digest as the result's
+`artifact_root` object. `bench/replay/preamble.md` — the digest-pinned,
+methodology-free interaction-routing preamble — is read from disk and
+prepended to every dispatch; its `sha256` is recorded as `preamble_digest`
+so prompt identity is pinned for E40-F09. The preamble references the
+resolver only by two environment-exported names
+(`$REPLAY_ANSWER_SCRIPT`/`$REPLAY_BUNDLE_PATH`), never by baking a
+scenario-specific path into the preamble's own bytes, so the same file and
+the same digest apply to every scenario. Before writing a `complete`
+result, `run-prelude.sh` positively asserts every artifact produced under
+`<artifact_root>/docs/product/`, other than `progress.md` (the wrapped
+action's own derived record), matches the bundle's own Output Standard
+filename pattern `D0X-*.md` — a violation is named and rejected before any
+result is written. The provider binary is resolved from `PATH` (never a
+hardcoded absolute path), mirroring `internal/runner/claude_dispatcher.go`'s
+own `exec.LookPath("claude")` resolution read there for **posture only** —
+nothing under `internal/` is imported (REQ-NF-001).
+
+### Non-applicable families (REQ-F-013/014)
+
+When every `stage_matrix.prelude.D01`-`.D05` entry of an I-04 package is
+`applicable: false`, `run-prelude.sh --package <package.yaml> --result-out
+<path>` never invokes the Rider action — `main()` returns after writing the
+result, before `build_disallowed_args`/dispatch is ever reached, so a
+PATH-stubbed dispatcher records zero invocations — and still writes a
+replay result whose `terminal_outcome` is `not_applicable` and whose
+per-stage records carry `{applicable: false, reason}` copied **verbatim**
+from the package. An absent result for such a scenario is itself a named
+failure, never an accepted absence.
+
+Before any dispatch, `check_consistency()` enforces REQ-F-014's read-only
+assertion over I-04, regardless of whether the package turns out
+applicable: a package with any `prelude.D0X.applicable: true` must carry a
+non-empty `replay_reference` resolving to a bundle whose
+`scenario_binding.scenario_id` equals the package's `scenario_id`; a
+package whose prelude stages are all `applicable: false` must not carry
+`replay_reference`. Either violation is rejected naming the package and the
+offending field. No I-04 file is edited to satisfy this check
+(REQ-NF-006(c)).
+
+### `terminal_outcome` and the I-07 seam (REQ-F-017)
+
+`terminal_outcome` is exactly one value of the closed, twelve-value set
+`i06-schema.yaml` declares: `complete`, `not_applicable`,
+`unresolved_gate`, `replay_desync`, `live_interaction_reached`,
+`unattributed_artifact`, `bundle_bulk_disclosure`, `resource_limit`,
+`error`, `cancellation`, `worker_failure`, `timeout`. Any value other than
+`complete`/`not_applicable` retains partial evidence, sets
+`publication_eligible: false`, and carries a non-empty
+`ineligibility_reasons[]`; a result pairing a stop outcome with
+`publication_eligible: true` is rejected.
+
+Four values are **I-06-local diagnostics** that I-07's own stop vocabulary
+does not contain — `replay_desync`, `live_interaction_reached`,
+`unattributed_artifact`, `bundle_bulk_disclosure`. F07 does not widen
+E40-F08's I-07 enum with these; instead every stop outcome carries a
+required `i07_stop_mapping` field naming the I-07 bucket E40-F08
+propagates:
+
+| `terminal_outcome` | `i07_stop_mapping` |
+|---|---|
+| `replay_desync` | `unresolved_gate` |
+| `live_interaction_reached` | `error` |
+| `unattributed_artifact` | `error` |
+| `bundle_bulk_disclosure` | `error` |
+| every other stop value | itself |
+
+`terminal_outcome` keeps the specific F07 cause, verbatim, both in that
+field and in `ineligibility_reasons[]`; `i07_stop_mapping` is only the
+propagation instruction. A stop outcome missing `i07_stop_mapping`, or
+naming a value outside I-07's own stop vocabulary, is rejected.
+
+### Tier 2 guard invocation sequence
+
+Every guard below is offline once fixtures are present — zero provider
+calls, byte-identical verdicts across repeated runs at an unchanged bundle
+and package (REQ-NF-004). `bench/scripts/run-prelude.sh` is the **only**
+provider-calling path in this feature, and no test in it exercises that
+path — every test drives a PATH-stubbed dispatcher instead.
+
+```bash
+# 1. Before any dispatch, once per candidate package: REQ-F-014's read-only
+#    consistency assertion runs inside run-prelude.sh itself (no separate
+#    invocation needed) whenever --package is supplied.
+
+# 2. Dispatch boundary, immediately before EVERY scored dispatch, against
+#    the LIVE in-flight roots (REQ-F-012) -- E40-F08's dispatch loop calls
+#    this, not run-prelude.sh itself:
+bench/scripts/verify-replay-isolation.sh \
+  <bundle_path> <live_fixture_checkout> <live_scratch_project>
+
+# 3. The scored dispatch itself (the only provider-calling path):
+bench/scripts/run-prelude.sh --package <package.yaml> \
+  --result-out <result_path> --artifact-root <scratch_shark_project>
+
+# 4. Observational binding gate, over the retained transcript from step 3
+#    (REQ-F-005) -- proves the isolation independently of step 3's own
+#    --disallowedTools argv, which is belt-and-braces only:
+bench/scripts/verify-replay-isolation.sh <retained_transcript_path>
+
+# 5. Lineage reconciliation against the resolver's own consumption ledger
+#    (REQ-F-009):
+bench/scripts/verify-replay-result.sh <result_path> <bundle_path>
+
+# 6. Full Document A/B field-shape, vocabulary, and eligibility validation
+#    against static fixtures (REQ-F-001/002/010/011/013/017/019) -- runs
+#    under `make test`, not here, the same split TC-030/TC-042 already
+#    established for I-04/I-05:
+go test ./tests/contracts/... -run TestTC052_I06ProductDesignReplayContract
+
+# 7. Run the full bench self-test suite (TC-053 through TC-059, alongside
+#    every earlier tier's cases):
+bench/scripts/tests/run-all.sh
+```
+
+`replay-answer.sh` is invoked indirectly, inside step 3's dispatched
+session, only through the preamble's routing instruction — no test in this
+feature calls it as a substitute for a live dispatch except tc054, which
+drives it directly as the resolver itself (there is no caller above it to
+substitute).
