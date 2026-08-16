@@ -148,21 +148,22 @@ fi
 # and where to write REQ-F-013's explicit not_applicable record. package_path
 # resolves the package.yaml itself so its containing directory can serve as
 # the base replay_reference resolves against (mirrors TC-030's own
-# filepath.Join(packageDir, rawPath) rule). result_out_path need not exist
-# yet -- this script creates it -- so only its parent directory is resolved.
+# filepath.Join(packageDir, rawPath) rule). result_out_path is deliberately
+# NOT resolved/validated here: REQ-F-014's own "MUST be checked before any
+# prelude dispatch" wording ranks the consistency assertion ahead of any
+# output-path hygiene, so a bad --result-out must never mask a genuine
+# consistency violation by failing first. It is validated (and resolved)
+# only inside the Python short-circuit branch, after check_consistency has
+# already passed -- see write_not_applicable_result.
 package_abs="__none__"
-result_out_abs="__none__"
+result_out_arg="__none__"
 if [[ -n "$package_path" ]]; then
 	[[ -f "$package_path" ]] || {
 		echo "run-prelude: --package file not found: $package_path" >&2
 		exit 2
 	}
 	package_abs="$(cd "$(dirname "$package_path")" && pwd)/$(basename "$package_path")"
-	[[ -d "$(dirname "$result_out_path")" ]] || {
-		echo "run-prelude: --result-out parent directory does not exist: $result_out_path" >&2
-		exit 2
-	}
-	result_out_abs="$(cd "$(dirname "$result_out_path")" && pwd)/$(basename "$result_out_path")"
+	result_out_arg="$result_out_path"
 fi
 
 # The single-owner I-06 schema file (REQ-F-018): read at call time for
@@ -171,7 +172,7 @@ fi
 # needs a scratch override of this.
 i06_schema_file="$BENCH_DIR/replay/i06-schema.yaml"
 
-python3 - "$live_egress_file_abs" "$verify_argv_abs" "$package_abs" "$result_out_abs" "$i06_schema_file" <<'PYEOF'
+python3 - "$live_egress_file_abs" "$verify_argv_abs" "$package_abs" "$result_out_arg" "$i06_schema_file" <<'PYEOF'
 import json
 import os
 import shutil
@@ -418,7 +419,18 @@ def write_not_applicable_result(package, schema_version, result_out_path):
     """REQ-F-013: writes the explicit not_applicable replay result -- the
     deliverable itself, not merely "nothing to do". Each D01-D05 record
     carries {applicable: false, reason} copied VERBATIM from the package
-    (never regenerated or paraphrased -- tc057 byte-diffs it)."""
+    (never regenerated or paraphrased -- tc057 byte-diffs it).
+
+    result_out_path is resolved and its parent directory validated HERE,
+    deliberately deferred from argument parsing -- this function is only
+    ever reached after check_consistency has already passed (see main()),
+    so a bad --result-out can never mask a real REQ-F-014 rejection by
+    failing before the consistency assertion runs."""
+    result_out_path = os.path.abspath(result_out_path)
+    result_out_dir = os.path.dirname(result_out_path)
+    if not os.path.isdir(result_out_dir):
+        raise ScriptError(f"--result-out parent directory does not exist: {result_out_dir}")
+
     stages = [
         {
             "stage": stage,
