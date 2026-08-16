@@ -1,0 +1,513 @@
+#!/usr/bin/env bash
+# verify-evidence-roots.sh <package_yaml> <fixture_checkout> <scratch_project> <evaluator_root>
+#
+# The REQ-F-010 (admission-time) / REQ-F-011 (dispatch-boundary) isolation
+# guard (ADR-F06-03). Both requirements share one underlying property --
+# "no evaluator-only material is reachable from an agent-visible root" -- so
+# one script proves it, invoked either once per candidate package (admission
+# time, against a fresh checkout) or immediately before every worker
+# dispatch (against the live, in-flight roots). The caller decides *when*
+# to invoke this script; the script itself does not know or care which of
+# the two callers it is serving.
+#
+# Derives, from <package_yaml>'s own evaluator_only block (reference_solution,
+# oracle_tests[], answer_keys[]) resolved against <evaluator_root>, four
+# independent signals per declared entry (REQ-F-011: "any evaluator-only
+# file, its content digest, or a test identity it defines"):
+#   (1) filename  -- a file bearing the same basename exists anywhere in an
+#                     agent-visible root.
+#   (2) content_digest -- any file in an agent-visible root is byte-
+#                     identical to the declared entry (catches a rename that
+#                     preserves content).
+#   (3) test_identity  -- oracle_tests[] entries only (the files that
+#                     actually define tests; reference_solution/answer_keys
+#                     are not test-defining files and are covered by (1)/(2)
+#                     alone). The entry's own basename stem (the `<module>`
+#                     half of I-04's `<module>::<test>` normalized id, e.g.
+#                     "test_recurring" for "test_recurring.py") appears as a
+#                     whole token (no adjoining identifier character on
+#                     either side -- a real match, e.g. an `import
+#                     test_recurring`, not merely a shared prefix with an
+#                     unrelated identifier such as the base fixture's own
+#                     skip-marked `test_recurring_task_...` placeholder)
+#                     inside any file's content in an agent-visible root
+#                     (catches a copy-paste that keeps the defining name but
+#                     drops the original file name -- but only when the new
+#                     name still shares the ORIGINAL file's stem; see (4)).
+#   (4) derived_test_identity -- oracle_tests[] entries only, additive to
+#                     (3), not a replacement (round-4 UAT fix, T-E40-F06-003):
+#                     the stem in (3) is an approximation that a file both
+#                     renamed AND stripped of any stem-bearing reference
+#                     (e.g. no `import test_recurring`) defeats. This signal
+#                     derives the entry's REAL, normalized test identity(ies)
+#                     -- what the file actually defines, not a name guessed
+#                     from its own filename -- by resolving the package's
+#                     declared `adapter.name` through TWO independent
+#                     registries (never a raw path join of that untrusted,
+#                     candidate-controlled string, T-E40-F06-003 round-3
+#                     code-review fix): first bench/scenarios/scenarios.yaml's
+#                     own `adapters:` map confirms it names a REAL, registered
+#                     I-04 adapter (mirroring admit-scenario.sh's
+#                     resolve_adapter_script); then this feature's own
+#                     bench/scripts/id-collectors/registry.yaml maps that same
+#                     validated name to a collector script THIS feature owns
+#                     (collect-ids never lived under bench/adapters/**, which
+#                     REQ-NF-006 leaves frozen). The generic guard never
+#                     parses the file's language itself (REQ-F-007) -- it only
+#                     shells out to the resolved collector. Each derived
+#                     identity's own defining-name segment is then searched
+#                     as a whole token the same way (3) searches the stem, so
+#                     a copy-paste that keeps only the defining function/test
+#                     name -- dropping BOTH the original file name and any
+#                     stem reference -- is still caught, including for a
+#                     parametrized test, whose collector-derived identity is
+#                     always the bare defining name with no runtime `[param]`
+#                     suffix and no custom parametrize `ids=` content ever
+#                     mixed in (T-E40-F06-003 round-4 code-review fix: the
+#                     collector derives this from the collection tool's own
+#                     structured collection data -- item.originalname -- not
+#                     by parsing `--collect-only`'s free-form text output, so
+#                     neither an auto-generated suffix nor a custom id
+#                     containing a space or "::" can defeat it).
+#
+# Names are ALWAYS derived from <package_yaml> at call time (REQ-F-010) --
+# nothing here is hardcoded per scenario, so renaming an oracle_tests[]
+# entry in a scratch copy of a package changes the search target with no
+# edit to this script (AC-010).
+#
+# Walks BOTH agent-visible roots -- <fixture_checkout> AND <scratch_project>
+# -- independently (ADR-F06-03: "a guard that walks only --workdir misses
+# everything Shark writes into the scratch project"). <evaluator_root> is
+# never walked for leaks; it is only the root the declared evaluator_only
+# paths are read FROM.
+#
+# Root names in messages are read from bench/evidence/i05-schema.yaml's
+# `roots:` map (REQ-F-017: one machine-readable vocabulary owner) rather
+# than embedded here as a private copy.
+#
+# A REQ-NF-007 "bounded filesystem walk, no network call": this script never
+# checks out a fixture and never spawns any process other than python3 (for
+# YAML/digest work) and, once per oracle_tests[] entry, the id-collectors/
+# registry-resolved collector script (signal (4) above) -- a single bounded
+# local subprocess, no network, run with its collection-cache disabled so it
+# never writes into <fixture_checkout> (the very root this script is about to
+# scan). Both <fixture_checkout> and <scratch_project> are otherwise
+# caller-supplied, already-materialized directories this script only reads.
+# It never invokes a dispatcher of any kind, which is exactly the property
+# AC-009 case (d) observes via a PATH-stubbed dispatcher's empty invocation
+# log.
+#
+# Exit status: 0 = both roots clean ("CLEAN" on stdout). 1 = an isolation
+# violation was found -- a normal, informative verdict; the message on
+# stderr names the offending root, the offending path, the evaluator-only
+# source it matched, and the match kind. 2 = a script/usage/authoring error
+# (bad args, missing files, malformed package.yaml, a declared evaluator_only
+# path that escapes <evaluator_root> or does not exist on disk).
+#
+# Requires: python3 with PyYAML (`import yaml`) on PATH.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+I05_SCHEMA="$BENCH_DIR/evidence/i05-schema.yaml"
+
+usage() {
+	echo "usage: verify-evidence-roots.sh <package_yaml> <fixture_checkout> <scratch_project> <evaluator_root>" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+package_yaml="$1"
+fixture_checkout="$2"
+scratch_project="$3"
+evaluator_root="$4"
+
+[[ -f "$package_yaml" ]] || {
+	echo "verify-evidence-roots: package.yaml not found: $package_yaml" >&2
+	exit 2
+}
+[[ -d "$fixture_checkout" ]] || {
+	echo "verify-evidence-roots: fixture checkout dir not found: $fixture_checkout" >&2
+	exit 2
+}
+[[ -d "$scratch_project" ]] || {
+	echo "verify-evidence-roots: scratch project dir not found: $scratch_project" >&2
+	exit 2
+}
+[[ -d "$evaluator_root" ]] || {
+	echo "verify-evidence-roots: evaluator root dir not found: $evaluator_root" >&2
+	exit 2
+}
+[[ -f "$I05_SCHEMA" ]] || {
+	echo "verify-evidence-roots: i05-schema.yaml not found: $I05_SCHEMA" >&2
+	exit 2
+}
+command -v python3 >/dev/null 2>&1 || {
+	echo "verify-evidence-roots: python3 not found on PATH" >&2
+	exit 2
+}
+python3 -c 'import yaml' >/dev/null 2>&1 || {
+	echo "verify-evidence-roots: python3 module 'yaml' (PyYAML) not available" >&2
+	exit 2
+}
+
+package_yaml_abs="$(cd "$(dirname "$package_yaml")" && pwd)/$(basename "$package_yaml")"
+fixture_checkout_abs="$(cd "$fixture_checkout" && pwd)"
+scratch_project_abs="$(cd "$scratch_project" && pwd)"
+evaluator_root_abs="$(cd "$evaluator_root" && pwd)"
+
+python3 - "$package_yaml_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$evaluator_root_abs" "$I05_SCHEMA" "$BENCH_DIR/scenarios/scenarios.yaml" "$SCRIPT_DIR/id-collectors" <<'PYEOF'
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+import yaml
+
+(
+    package_yaml_path,
+    fixture_checkout,
+    scratch_project,
+    evaluator_root,
+    i05_schema_path,
+    scenarios_yaml_path,
+    collectors_dir,
+) = sys.argv[1:8]
+
+
+class ScriptError(RuntimeError):
+    """A prerequisite this guard depends on could not be resolved at all --
+    distinct from a normal isolation-violation verdict. Reported on stderr
+    and mapped to exit 2."""
+
+
+def load_yaml(path, label):
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ScriptError(f"{label} is not a YAML mapping: {path}")
+    return data
+
+
+def resolve_in_evaluator_root(evaluator_root, rel_path, label):
+    """Resolves a package-declared relative path (untrusted input -- it
+    comes from the candidate's own package.yaml) against evaluator_root and
+    enforces containment before anything is read from it, mirroring
+    admit-scenario.sh's resolve_scoped (REQ-NF-005)."""
+    if os.path.isabs(rel_path):
+        raise ScriptError(f"{label}: absolute path not allowed: {rel_path!r}")
+    root_real = os.path.realpath(evaluator_root)
+    candidate = os.path.realpath(os.path.join(evaluator_root, rel_path))
+    if candidate != root_real and not candidate.startswith(root_real + os.sep):
+        raise ScriptError(f"{label}: resolved path escapes evaluator_root: {rel_path!r} -> {candidate!r}")
+    if not os.path.isfile(candidate):
+        raise ScriptError(
+            f"{label}: declared evaluator_only path does not exist as a file under evaluator_root: {rel_path!r} -> {candidate!r}"
+        )
+    return candidate
+
+
+def word_boundary_pattern(token):
+    """Compiles a whole-token byte regex for `token` (no adjoining
+    [A-Za-z0-9_.] on either side) -- shared by the stem signal (3) and the
+    adapter-derived identity signal (4) below so both apply the identical
+    false-positive protections (the word-boundary regression case tc043
+    exercises for signal (3) applies equally to (4))."""
+    return re.compile(rb"(?<![A-Za-z0-9_.])" + re.escape(token.encode()) + rb"(?![A-Za-z0-9_.])")
+
+
+def resolve_collector_script(adapter_name, scenarios_yaml_path, collectors_dir, label):
+    """Resolves a package-declared adapter.name (untrusted -- REQ-F-010's
+    "for each I-04 scenario package" reads any candidate's own package.yaml,
+    including a not-yet-admitted one) to this feature's own test-identity
+    collector script via TWO independent dict-keyed registry lookups, never
+    a raw os.path.join of the untrusted string (T-E40-F06-003 round-3
+    code-review finding F.1: the prior fix joined adapter_name directly into
+    a filesystem path with no registry lookup or containment check, letting
+    an absolute or '../'-laden name escape bench/adapters/ entirely and
+    select/execute an arbitrary script).
+
+    Step 1 mirrors admit-scenario.sh's own resolve_adapter_script
+    (bench/scripts/admit-scenario.sh:151-158) -- the established, safe
+    precedent for resolving this exact field -- confirming adapter_name
+    names a REAL, registered I-04 adapter per bench/scenarios/scenarios.yaml's
+    own `adapters:` map (a file this feature reads but never edits,
+    REQ-NF-006).
+
+    Step 2 looks up that SAME validated adapter_name in this feature's own
+    id-collectors/registry.yaml to find its collector script. This is an
+    independent registry, not a second hop through scenarios.yaml's
+    adapters: map: collect-ids never lived under bench/adapters/<name>/
+    adapter.sh (round-3 code-review finding F.5 -- that tree is frozen and
+    may not gain a capability from this feature), so its resolution target
+    is a sibling script this feature owns, not an adapter.sh path.
+
+    Fails closed (ScriptError, exit 2) if adapter_name is not registered in
+    EITHER map, or if the resolved collector path escapes collectors_dir or
+    is not an executable file."""
+    with open(scenarios_yaml_path) as f:
+        scenarios_data = yaml.safe_load(f)
+    if not isinstance(scenarios_data, dict):
+        raise ScriptError(f"{label}: scenarios.yaml is not a YAML mapping: {scenarios_yaml_path}")
+    registered_adapters = scenarios_data.get("adapters") or {}
+    if adapter_name not in registered_adapters:
+        raise ScriptError(f"{label}: adapter.name not registered in {scenarios_yaml_path}: {adapter_name!r}")
+
+    registry_path = os.path.join(collectors_dir, "registry.yaml")
+    with open(registry_path) as f:
+        registry_data = yaml.safe_load(f)
+    if not isinstance(registry_data, dict):
+        raise ScriptError(f"{label}: id-collectors registry is not a YAML mapping: {registry_path}")
+    collectors = registry_data.get("collectors") or {}
+    collector_rel = collectors.get(adapter_name)
+    if not collector_rel:
+        raise ScriptError(
+            f"{label}: adapter {adapter_name!r} has no test-identity collector registered in {registry_path}"
+        )
+
+    collectors_dir_real = os.path.realpath(collectors_dir)
+    collector_script = os.path.realpath(os.path.join(collectors_dir, collector_rel))
+    if collector_script != collectors_dir_real and not collector_script.startswith(collectors_dir_real + os.sep):
+        raise ScriptError(
+            f"{label}: id-collectors registry entry for {adapter_name!r} escapes {collectors_dir!r}: "
+            f"{collector_rel!r} -> {collector_script!r}"
+        )
+    if not os.path.isfile(collector_script) or not os.access(collector_script, os.X_OK):
+        raise ScriptError(
+            f"{label}: collector script for adapter {adapter_name!r} not found or not executable: {collector_script!r}"
+        )
+    return collector_script
+
+
+def derive_test_identities(package, package_yaml_path, resolved_path, fixture_checkout, scenarios_yaml_path, collectors_dir, label):
+    """Shells out to a registry-resolved, F06-owned test-identity collector
+    (REQ-F-007: this generic script never parses the file's language itself)
+    to learn the REAL, normalized test identity name(s) `resolved_path`
+    defines -- round-4 UAT fix, T-E40-F06-003: the stem signal (3) above is
+    only an approximation of a defined test's identity, and a file both
+    renamed and stripped of any stem reference defeats it. Fails closed
+    (ScriptError, exit 2) on any collector resolution or invocation problem,
+    mirroring T-E40-F06-002's fail-closed identity precedent -- an
+    oracle_tests[] entry this script cannot verify is never silently
+    skipped."""
+    adapter_block = package.get("adapter")
+    if not isinstance(adapter_block, dict) or not adapter_block.get("name"):
+        raise ScriptError(
+            f"{label}: package.yaml has no adapter.name -- cannot derive this oracle_tests[] entry's real test identity: {package_yaml_path}"
+        )
+    adapter_name = adapter_block["name"]
+    if not isinstance(adapter_name, str):
+        raise ScriptError(f"{label}: package.yaml adapter.name is not a string: {adapter_name!r}")
+
+    collector_script = resolve_collector_script(adapter_name, scenarios_yaml_path, collectors_dir, label)
+
+    try:
+        proc = subprocess.run(
+            [collector_script, "--checkout", fixture_checkout, "--file", resolved_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ScriptError(f"{label}: {adapter_name!r} adapter's test-identity collector timed out: {exc}") from exc
+
+    if proc.returncode != 0:
+        raise ScriptError(
+            f"{label}: {adapter_name!r} adapter's test-identity collector failed (exit {proc.returncode}): {proc.stderr.strip()}"
+        )
+
+    try:
+        payload = json.loads(proc.stdout)
+        raw_entries = payload["ids"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ScriptError(
+            f"{label}: {adapter_name!r} adapter's test-identity collector returned malformed output: {proc.stdout!r}"
+        ) from exc
+
+    names = []
+    for entry in raw_entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        # Hardening (round-3 code-review finding F.7): reject a malformed or
+        # degenerate collector response before it becomes a search pattern --
+        # an empty string zero-width-matches almost any byte offset, so a
+        # {"name": ""} entry would make the guard report a false
+        # isolation_violation on nearly any file in an otherwise-clean root.
+        if not isinstance(name, str) or not name:
+            raise ScriptError(
+                f"{label}: {adapter_name!r} adapter's test-identity collector returned a non-string or empty name: {entry!r}"
+            )
+        names.append(name)
+
+    if not names:
+        raise ScriptError(
+            f"{label}: {adapter_name!r} adapter's test-identity collector found no test identities defined in {resolved_path!r}"
+        )
+    # Dedupe, preserving first-seen order (a parametrized test's stripped
+    # base identity repeats across several parametrize cases).
+    seen = set()
+    deduped = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append(name)
+    return deduped
+
+
+def build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios_yaml_path, collectors_dir):
+    """Builds the ordered, package-derived list of search targets
+    (REQ-F-010: "names MUST be derived from the package at call time, never
+    from a hardcoded list")."""
+    package = load_yaml(package_yaml_path, "package.yaml")
+    evaluator_only = package.get("evaluator_only")
+    if not isinstance(evaluator_only, dict):
+        raise ScriptError(f"package.yaml has no evaluator_only block: {package_yaml_path}")
+
+    declared_entries = []  # [(field, index_or_None, declared_rel_path)]
+
+    reference_solution = evaluator_only.get("reference_solution")
+    if reference_solution:
+        declared_entries.append(("reference_solution", None, reference_solution))
+
+    for idx, entry in enumerate(evaluator_only.get("oracle_tests") or []):
+        declared_entries.append(("oracle_tests", idx, entry))
+
+    for idx, entry in enumerate(evaluator_only.get("answer_keys") or []):
+        declared_entries.append(("answer_keys", idx, entry))
+
+    if not declared_entries:
+        raise ScriptError(
+            f"package.yaml evaluator_only block declares no reference_solution, oracle_tests[], or answer_keys[] entries: {package_yaml_path}"
+        )
+
+    targets = []
+    for field, idx, declared_rel_path in declared_entries:
+        label = f"evaluator_only.{field}" + (f"[{idx}]" if idx is not None else "")
+        resolved = resolve_in_evaluator_root(evaluator_root, declared_rel_path, label)
+        basename = os.path.basename(resolved)
+        stem = os.path.splitext(basename)[0]
+        with open(resolved, "rb") as f:
+            content = f.read()
+        digest = hashlib.sha256(content).hexdigest()
+        # The test_identity signal applies only to oracle_tests[] entries --
+        # REQ-F-010's "a test identity those files define" grammatically
+        # scopes to the files that define tests. reference_solution (a
+        # patch) and answer_keys (data) are not test-defining files, and
+        # their stems can coincide with ordinary English words ("reference",
+        # "answer") that would otherwise produce false isolation violations
+        # on legitimate, unrelated content. Word-boundary pattern: matches
+        # the stem only as a whole identifier (no adjoining [A-Za-z0-9_.] on
+        # either side), so a shared *prefix* with an unrelated identifier
+        # (e.g. the base fixture's own test_recurring_task_... placeholder
+        # sharing "test_recurring" with an oracle file named
+        # test_recurring.py) is never a false positive. "." is included in
+        # the disqualifying class alongside identifier characters: without
+        # it, an ordinary base-fixture comment or docstring mentioning the
+        # oracle file's own name in prose (e.g. "see
+        # test_due_date_boundary.py") would match, because "." is not a
+        # word character and would otherwise satisfy the lookahead --
+        # verified against the real py-bug-due-date-boundary package this
+        # would have been a live false positive for, not a hypothetical one.
+        stem_pattern = None
+        identity_names = []
+        identity_patterns = []
+        if field == "oracle_tests":
+            stem_pattern = word_boundary_pattern(stem)
+            identity_names = derive_test_identities(
+                package, package_yaml_path, resolved, fixture_checkout, scenarios_yaml_path, collectors_dir, label
+            )
+            identity_patterns = [word_boundary_pattern(name) for name in identity_names]
+        targets.append(
+            {
+                "source": label,
+                "declared_path": declared_rel_path,
+                "basename": basename,
+                "stem": stem,
+                "stem_pattern": stem_pattern,
+                "identity_names": identity_names,
+                "identity_patterns": identity_patterns,
+                "digest": digest,
+            }
+        )
+    return targets
+
+
+def walk_files(root):
+    """Deterministic, sorted, .git-excluding file walk (REQ-NF-004: byte-
+    identical verdicts across repeated runs over an unchanged root)."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d != ".git")
+        for name in sorted(filenames):
+            yield os.path.join(dirpath, name)
+
+
+def check_root(root_name, root_path, targets):
+    """Returns the first violation found walking root_path, checking
+    targets in their package-declared order and match kinds in a fixed
+    priority (filename, content_digest, test_identity, derived_test_identity
+    -- see signals (1)-(4) above), or None if clean. derived_test_identity is
+    deliberately checked LAST: it is additive to test_identity (3), not a
+    replacement, so a file that already matches an earlier signal reports
+    that signal's kind unchanged (T-E40-F06-003 round-4 UAT fix -- existing
+    match_kind assertions in tc043 must not regress)."""
+    for path in walk_files(root_path):
+        try:
+            with open(path, "rb") as f:
+                file_bytes = f.read()
+        except OSError:
+            continue
+        file_basename = os.path.basename(path)
+        file_digest = hashlib.sha256(file_bytes).hexdigest()
+        for target in targets:
+            if file_basename == target["basename"]:
+                return (root_name, path, target, "filename", None)
+            if file_digest == target["digest"]:
+                return (root_name, path, target, "content_digest", None)
+            if target["stem_pattern"] is not None and target["stem_pattern"].search(file_bytes):
+                return (root_name, path, target, "test_identity", None)
+            for identity_name, identity_pattern in zip(target["identity_names"], target["identity_patterns"]):
+                if identity_pattern.search(file_bytes):
+                    return (root_name, path, target, "derived_test_identity", identity_name)
+    return None
+
+
+def main():
+    # REQ-F-017: root names come from the single vocabulary owner, not a
+    # private copy embedded in this script.
+    schema = load_yaml(i05_schema_path, "i05-schema.yaml")
+    schema_roots = schema.get("roots") or {}
+    for required in ("agent_fixture_checkout", "scratch_shark_project"):
+        if required not in schema_roots:
+            raise ScriptError(f"i05-schema.yaml roots: is missing required key {required!r}")
+
+    root_fixture_checkout = "agent_fixture_checkout"
+    root_scratch_project = "scratch_shark_project"
+
+    targets = build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios_yaml_path, collectors_dir)
+
+    violation = check_root(root_fixture_checkout, fixture_checkout, targets) or check_root(
+        root_scratch_project, scratch_project, targets
+    )
+
+    if violation is not None:
+        root_name, matched_path, target, match_kind, identity_name = violation
+        identity_suffix = f" identity={identity_name}" if identity_name is not None else ""
+        sys.stderr.write(
+            "verify-evidence-roots: isolation_violation: "
+            f"root={root_name} path={matched_path} "
+            f"source={target['source']}={target['declared_path']!r} "
+            f"match_kind={match_kind}{identity_suffix}\n"
+        )
+        sys.exit(1)
+
+    print("CLEAN")
+
+
+try:
+    main()
+except ScriptError as exc:
+    sys.stderr.write(f"verify-evidence-roots: {exc}\n")
+    sys.exit(2)
+PYEOF

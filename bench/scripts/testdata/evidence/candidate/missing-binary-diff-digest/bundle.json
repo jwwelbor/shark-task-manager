@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "stages": [
+    {
+      "dispatch_ordinal": 1,
+      "stage_key": "develop",
+      "stage_category": "code",
+      "snapshot_path": "stages/1-develop.json",
+      "snapshot_digest": "sha256:tc045-missing-binary-diff-digest"
+    }
+  ]
+}

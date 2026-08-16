@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "stage_matrix_source": {
+    "package_path": "bench/scenarios/packages/tc050-eligibility/package.yaml",
+    "package_digest": "sha256:tc050-eligible-with-stop-outcome-package",
+    "prelude": {
+      "D01": {
+        "applicable": true
+      },
+      "D02": {
+        "applicable": true
+      },
+      "D03": {
+        "applicable": true
+      },
+      "D04": {
+        "applicable": true
+      },
+      "D05": {
+        "applicable": true
+      }
+    },
+    "lifecycle": {
+      "mode": "all_dispatched",
+      "evidence_required": true
+    }
+  },
+  "stages": [
+    {
+      "dispatch_ordinal": 1,
+      "stage_key": "discovery",
+      "stage_category": "discovery",
+      "snapshot_path": "stages/1-discovery.json",
+      "snapshot_digest": "sha256:tc050-eligible-with-stop-outcome-1"
+    },
+    {
+      "dispatch_ordinal": 2,
+      "stage_key": "specification",
+      "stage_category": "specification",
+      "snapshot_path": "stages/2-specification.json",
+      "snapshot_digest": "sha256:tc050-eligible-with-stop-outcome-2"
+    }
+  ],
+  "stop_outcome": "error",
+  "publication_eligible": true,
+  "ineligibility_reasons": [
+    "stop_outcome:error"
+  ]
+}

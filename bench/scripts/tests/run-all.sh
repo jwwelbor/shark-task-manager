@@ -36,6 +36,15 @@ tests=(
 	"$SCRIPT_DIR/tc039_offline_capability_test.sh"
 	"$SCRIPT_DIR/tc040_fixture_base_verification_test.sh"
 	"$SCRIPT_DIR/tc041_predicate_argument_trace_test.sh"
+	"$SCRIPT_DIR/tc043_root_policy_isolation_test.sh"
+	"$SCRIPT_DIR/tc044_time_ledger_reconciliation_test.sh"
+	"$SCRIPT_DIR/tc045_candidate_identity_test.sh"
+	"$SCRIPT_DIR/tc046_artifact_record_test.sh"
+	"$SCRIPT_DIR/tc047_usage_mapping_canary_test.sh"
+	"$SCRIPT_DIR/tc048_evaluator_access_ordering_test.sh"
+	"$SCRIPT_DIR/tc049_snapshot_replay_test.sh"
+	"$SCRIPT_DIR/tc050_partial_evidence_test.sh"
+	"$SCRIPT_DIR/tc051_evidence_offline_determinism_test.sh"
 )
 
 status=0

@@ -1,0 +1,108 @@
+{
+  "dispatch_ordinal": 5,
+  "entity": {
+    "entity_key": "B-E40-BENCH-001",
+    "entity_type": "bug"
+  },
+  "stage_key": "review",
+  "stage_category": "review",
+  "provider": "anthropic_claude_cli",
+  "prompt_digest": "sha256:prompt5",
+  "input_lineage": [
+    {
+      "source_kind": "prior_stage_artifact",
+      "path": "artifacts/D03/plan.md",
+      "digest": "sha256:plandigest"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_type": "code_diff",
+      "path": "artifacts/review/change.patch",
+      "digest": "sha256:1111diff",
+      "size_bytes": 512,
+      "producer_stage": "review",
+      "consumers": [
+        {
+          "consuming_stage": "review",
+          "edge_kind": "read",
+          "observed_at": "2026-08-14T00:00:01Z"
+        }
+      ]
+    },
+    {
+      "artifact_type": "test_report",
+      "path": "artifacts/review/tests.json",
+      "digest": "sha256:2222tests",
+      "size_bytes": 128,
+      "producer_stage": "review"
+    }
+  ],
+  "usage": {
+    "total_cost": 0.42,
+    "input_tokens": 1200,
+    "output_tokens": 800,
+    "cache_read_input_tokens": 100,
+    "cache_creation_input_tokens": 50,
+    "model_ids": [
+      "claude-sonnet-5"
+    ],
+    "provider_session_id": "sess-abc123",
+    "api_active_duration_ms": 4200,
+    "turn_count": 3
+  },
+  "time_ledger": {
+    "stage_start": 0,
+    "stage_end": 1000000,
+    "reconciliation_epsilon_ns": 100,
+    "intervals": {
+      "provider_active": [
+        [
+          0,
+          600000
+        ]
+      ],
+      "tool_and_test": [
+        [
+          600000,
+          950000
+        ]
+      ],
+      "queue_or_claim_wait": [],
+      "replay_or_human_gate_wait": [],
+      "retry_or_backoff": [],
+      "unclassified": [
+        [
+          950000,
+          999950
+        ]
+      ]
+    }
+  },
+  "candidate": {
+    "base_commit": "abc1234",
+    "tree_digest": "sha256:3333tree",
+    "binary_diff_digest": "sha256:4444binarydiff",
+    "changed_path_digest": "sha256:5555changedpath",
+    "dirty_untracked_manifest": [
+      {
+        "path": "scratch/tmp.log",
+        "digest": "sha256:6666tmp",
+        "tracked": false
+      }
+    ],
+    "test_suite_digest": "sha256:7777testsuite"
+  },
+  "errors": [],
+  "rework_count": 0,
+  "evaluator_access": [
+    {
+      "accessor": "execution_oracle",
+      "artifact_path": "/fixtures/py-bug-01/evaluator/reference_solution.patch",
+      "digest": "sha256:ccccref",
+      "phase": "post_terminal",
+      "granted_at": "2026-08-14T00:10:00Z"
+    }
+  ],
+  "snapshot_digest": "sha256:snap5"
+}

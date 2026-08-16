@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "scenario_id": "py-bug-invalid-case",
+    "scenario_version": 1,
+    "entity_family": "bug"
+  },
+  "run_id": "run-2026-08-14-900",
+  "roots": {
+    "agent_fixture_checkout": {
+      "path": "/evidence-root/py-bug-01/run-01/checkout",
+      "worker_access": "read_write",
+      "identity_digest": "sha256:aaaa1111checkout"
+    },
+    "scratch_shark_project": {
+      "path": "/evidence-root/py-bug-01/run-01/scratch",
+      "worker_access": "authorized_surfaces_only",
+      "identity_digest": "sha256:bbbb2222scratch"
+    },
+    "evaluator_only": {
+      "path": "/fixtures/py-bug-01/evaluator",
+      "worker_access": "never_during_dispatch",
+      "identity_digest": "sha256:cccc3333evaluator"
+    }
+  },
+  "stage_matrix_source": {
+    "package_path": "bench/scenarios/packages/py-bug-01/package.yaml",
+    "package_digest": "sha256:dddd4444package",
+    "prelude": {
+      "D01": {
+        "applicable": false,
+        "reason": "bug family has no discovery prelude"
+      },
+      "D02": {
+        "applicable": false,
+        "reason": "bug family has no specification prelude"
+      },
+      "D03": {
+        "applicable": false,
+        "reason": "bug family has no planning prelude"
+      },
+      "D04": {
+        "applicable": false,
+        "reason": "bug family has no qa prelude"
+      },
+      "D05": {
+        "applicable": false,
+        "reason": "bug family has no uat prelude"
+      }
+    },
+    "lifecycle": {
+      "mode": "all_dispatched",
+      "evidence_required": true
+    }
+  },
+  "stages": [
+    {
+      "dispatch_ordinal": 1,
+      "stage_key": "review",
+      "stage_category": "review",
+      "snapshot_path": "stages/1-review.json",
+      "snapshot_digest": "sha256:snap1"
+    }
+  ],
+  "publication_eligible": true,
+  "ineligibility_reasons": []
+}

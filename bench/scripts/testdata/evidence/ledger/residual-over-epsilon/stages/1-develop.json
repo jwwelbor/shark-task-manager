@@ -1,0 +1,17 @@
+{
+  "dispatch_ordinal": 1,
+  "stage_key": "develop",
+  "time_ledger": {
+    "stage_start": 0,
+    "stage_end": 1000000,
+    "reconciliation_epsilon_ns": 100,
+    "intervals": {
+      "provider_active": [[0, 400000]],
+      "tool_and_test": [[400000, 700000]],
+      "queue_or_claim_wait": [],
+      "replay_or_human_gate_wait": [],
+      "retry_or_backoff": [],
+      "unclassified": [[700000, 999000]]
+    }
+  }
+}

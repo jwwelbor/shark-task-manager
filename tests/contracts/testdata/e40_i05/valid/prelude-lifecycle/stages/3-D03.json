@@ -1,0 +1,65 @@
+{
+  "dispatch_ordinal": 3,
+  "entity": {
+    "entity_key": "B-E40-BENCH-001",
+    "entity_type": "bug"
+  },
+  "stage_key": "D03",
+  "stage_category": "planning",
+  "provider": "anthropic_claude_cli",
+  "prompt_digest": "sha256:prompt3",
+  "input_lineage": [
+    {
+      "source_kind": "agent_visible_input",
+      "path": "input/prompt.md",
+      "digest": "sha256:inputdigest"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_type": "document",
+      "path": "artifacts/D03/notes.md",
+      "digest": "sha256:artifact3",
+      "size_bytes": 64,
+      "producer_stage": "D03",
+      "consumers": []
+    }
+  ],
+  "usage": {
+    "total_cost": 0.01,
+    "input_tokens": 100,
+    "output_tokens": 50
+  },
+  "time_ledger": {
+    "stage_start": 0,
+    "stage_end": 1000000,
+    "reconciliation_epsilon_ns": 100,
+    "intervals": {
+      "provider_active": [
+        [
+          0,
+          600000
+        ]
+      ],
+      "tool_and_test": [
+        [
+          600000,
+          950000
+        ]
+      ],
+      "queue_or_claim_wait": [],
+      "replay_or_human_gate_wait": [],
+      "retry_or_backoff": [],
+      "unclassified": [
+        [
+          950000,
+          999950
+        ]
+      ]
+    }
+  },
+  "errors": [],
+  "rework_count": 0,
+  "evaluator_access": [],
+  "snapshot_digest": "sha256:snap3"
+}

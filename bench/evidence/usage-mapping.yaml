@@ -1,0 +1,83 @@
+# bench/evidence/usage-mapping.yaml
+#
+# The versioned X-09 binding (REQ-F-009, REQ-F-018, ADR-F06-04): semantic
+# usage slots bound to concrete provider envelope paths, never a field name
+# written inline into i05-schema.yaml and never E27-F15's unmerged Go
+# structs (ADR-F06-04). tests/contracts/e40_i05_stage_evidence_contract_test.go
+# (TC-042) is the single Go reader of this file; bench/scripts/canary-usagemapping.sh
+# (T-E40-F06-009) is the only other consumer.
+#
+# Every slot binding carries its own verification_tier: real_capture (the
+# envelope path was observed in a real captured provider envelope) or
+# unverified (corroborated only by a hand-authored fixture, a design
+# document, or upstream source). required_identity_slots is the subset I-05
+# asserts as provider identity for comparison (epic G14); every listed slot
+# MUST be real_capture (REQ-F-018) -- provider_session_id is deliberately
+# excluded (ADR-F06-12).
+
+schema_version: "1.0"
+
+# REQ-F-009: provenance of the real captured envelope the anthropic_claude_cli
+# block below is populated from -- never a hand-authored fixture.
+verified_from:
+  source: "bench/README.md#confirmed-claude-cli-json-envelope-field-names-q003-closure-req-f-021"
+  capture_method: "one real bench/scripts/run-one.sh invocation against corpus item validate-sku-max-length"
+  captured_at: "2026-08-06"
+  claude_cli_version: "2.1.223"
+  run_id: "2aed0d9d-7db0-40b3-b756-e3a2404b42af"
+
+providers:
+  # Populated from the in-repo confirmed capture (bench/README.md
+  # "Confirmed claude CLI JSON envelope field names"). Every slot below is
+  # real_capture except provider_session_id, which rests only on E27-F15's
+  # hand-authored testdata/claude-usage-result.json (REQ-F-018).
+  anthropic_claude_cli:
+    status: mapped
+    slots:
+      total_cost:
+        envelope_path: total_cost_usd
+        verification_tier: real_capture
+      input_tokens:
+        envelope_path: usage.input_tokens
+        verification_tier: real_capture
+      output_tokens:
+        envelope_path: usage.output_tokens
+        verification_tier: real_capture
+      cache_read_input_tokens:
+        envelope_path: usage.cache_read_input_tokens
+        verification_tier: real_capture
+      cache_creation_input_tokens:
+        envelope_path: usage.cache_creation_input_tokens
+        verification_tier: real_capture
+      model_ids:
+        envelope_path: "sorted(modelUsage keys)"
+        verification_tier: real_capture
+      api_active_duration_ms:
+        envelope_path: duration_api_ms
+        verification_tier: real_capture
+      turn_count:
+        envelope_path: num_turns
+        verification_tier: real_capture
+      provider_session_id:
+        envelope_path: session_id
+        verification_tier: unverified
+
+  # buildCodexArgs on main does not pass --json, so a codex stage's
+  # transcript stdout is not a decodable envelope today (REQ-F-009,
+  # ADR-F06-04(4)). No slots block: an unmapped provider has nothing to
+  # bind, and every consumer MUST fail closed rather than decode by guess.
+  openai_codex_cli:
+    status: unmapped
+
+# REQ-F-018: every real_capture slot except provider_session_id, which is
+# deliberately excluded (ADR-F06-12) so no unverified slot gates G14
+# comparison identity.
+required_identity_slots:
+  - model_ids
+  - total_cost
+  - input_tokens
+  - output_tokens
+  - cache_read_input_tokens
+  - cache_creation_input_tokens
+  - api_active_duration_ms
+  - turn_count

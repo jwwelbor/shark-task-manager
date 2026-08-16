@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "stages": [
+    {
+      "dispatch_ordinal": 1,
+      "stage_key": "plan",
+      "stage_category": "planning",
+      "snapshot_path": "stages/1-plan.json",
+      "snapshot_digest": "sha256:tc046-mixed-consumers"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "dispatch_ordinal": 1,
+  "stage_key": "plan",
+  "stage_category": "planning",
+  "time_ledger": {
+    "stage_start": 0,
+    "stage_end": 1000,
+    "reconciliation_epsilon_ns": 0,
+    "intervals": {
+      "tool_and_test": [[0, 1000]]
+    }
+  },
+  "artifacts": [
+    {
+      "artifact_type": "document",
+      "path": "artifacts/empty-array-entry.md",
+      "digest": "sha256:artifact-empty-array-entry",
+      "size_bytes": 42,
+      "producer_stage": "plan",
+      "consumers": []
+    },
+    {
+      "artifact_type": "document",
+      "path": "artifacts/absent-key-entry.md",
+      "digest": "sha256:artifact-absent-key-entry",
+      "size_bytes": 17,
+      "producer_stage": "plan"
+    },
+    {
+      "artifact_type": "document",
+      "path": "artifacts/populated-entry.md",
+      "digest": "sha256:artifact-populated-entry",
+      "size_bytes": 99,
+      "producer_stage": "plan",
+      "consumers": [
+        {
+          "consuming_stage": "review",
+          "edge_kind": "read",
+          "observed_at": "2026-08-14T00:00:01Z"
+        }
+      ]
+    }
+  ]
+}

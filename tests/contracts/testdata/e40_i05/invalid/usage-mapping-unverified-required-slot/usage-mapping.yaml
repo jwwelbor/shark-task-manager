@@ -1,0 +1,61 @@
+# Fixture for TC-042 AC-008(c) / AC-022(b): a mutated copy of
+# bench/evidence/usage-mapping.yaml whose only injected defect is listing
+# provider_session_id -- an unverified slot -- in required_identity_slots.
+# Every other field is identical to the committed mapping (REQ-F-018 must
+# reject this naming provider_session_id, not the whole file).
+
+schema_version: "1.0"
+
+verified_from:
+  source: "bench/README.md#confirmed-claude-cli-json-envelope-field-names-q003-closure-req-f-021"
+  capture_method: "one real bench/scripts/run-one.sh invocation against corpus item validate-sku-max-length"
+  captured_at: "2026-08-06"
+  claude_cli_version: "2.1.223"
+  run_id: "2aed0d9d-7db0-40b3-b756-e3a2404b42af"
+
+providers:
+  anthropic_claude_cli:
+    status: mapped
+    slots:
+      total_cost:
+        envelope_path: total_cost_usd
+        verification_tier: real_capture
+      input_tokens:
+        envelope_path: usage.input_tokens
+        verification_tier: real_capture
+      output_tokens:
+        envelope_path: usage.output_tokens
+        verification_tier: real_capture
+      cache_read_input_tokens:
+        envelope_path: usage.cache_read_input_tokens
+        verification_tier: real_capture
+      cache_creation_input_tokens:
+        envelope_path: usage.cache_creation_input_tokens
+        verification_tier: real_capture
+      model_ids:
+        envelope_path: "sorted(modelUsage keys)"
+        verification_tier: real_capture
+      api_active_duration_ms:
+        envelope_path: duration_api_ms
+        verification_tier: real_capture
+      turn_count:
+        envelope_path: num_turns
+        verification_tier: real_capture
+      provider_session_id:
+        envelope_path: session_id
+        verification_tier: unverified
+  openai_codex_cli:
+    status: unmapped
+
+# Injected defect: provider_session_id is unverified but listed as
+# required, which REQ-F-018 forbids (ADR-F06-12).
+required_identity_slots:
+  - model_ids
+  - total_cost
+  - input_tokens
+  - output_tokens
+  - cache_read_input_tokens
+  - cache_creation_input_tokens
+  - api_active_duration_ms
+  - turn_count
+  - provider_session_id

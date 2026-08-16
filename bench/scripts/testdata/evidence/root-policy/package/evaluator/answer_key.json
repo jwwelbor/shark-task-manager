@@ -1,0 +1,4 @@
+{
+  "_comment": "Committed fixture stand-in for a held-back answer_keys[] entry (REQ-F-010 evaluator_only.answer_keys). No real, currently-committed I-04 package declares a non-empty answer_keys[] (all four seeds under bench/scenarios/packages/ carry answer_keys: []), so this synthetic entry is the only committed exerciser of the answer_keys[] detection path -- consumed only for its path/digest identity by verify-evidence-roots.sh's offline test paths.",
+  "expected_output": "probe-answer-42"
+}

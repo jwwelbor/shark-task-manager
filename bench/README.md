@@ -293,14 +293,23 @@ owner of the broader "the whole fixture is green at base_sha" claim
 ### Adapter capability contract
 
 `bench/adapters/<name>/adapter.sh <capability> [args]` (REQ-F-006) is an
-executable contract, not a library — the ONLY place in `bench/` that may
-know a fixture's language, package manager, or toolchain (REQ-F-007). Every
-generic scenario, evidence, or admission script reaches a language-specific
-command through this interface. `bench/adapters/<name>/adapter.yaml`
-declares `{name, version}`, registered in `scenarios.yaml`'s `adapters:` map.
+executable contract, not a library — the only file that may know a
+fixture's language, package manager, or toolchain (REQ-F-007), with one
+named exception below. Every generic scenario, evidence, or admission
+script reaches a language-specific command through this interface.
+`bench/adapters/<name>/adapter.yaml` declares `{name, version}`, registered
+in `scenarios.yaml`'s `adapters:` map. The exception:
+`bench/scripts/id-collectors/` (see "Three-root policy" below), a
+test-identity collector this feature (E40-F06) owns because REQ-NF-006
+freezes `bench/adapters/**` byte-unchanged — it is language-aware by
+necessity, but is never reached through the `adapter.sh <capability>`
+interface and adds no capability to any adapter.
 
-Exactly six capabilities — a closed set; adding a seventh requires an I-04
-`schema_version` bump. Each writes one JSON document to stdout:
+A closed set — six capabilities; adding a seventh requires an I-04
+`schema_version` bump (that bump would touch every committed
+`package.yaml`/`scenarios.yaml` file, I-04/E40-F05 corpus this feature's own
+Integration Contracts row holds in `contract-only` gate mode). Each
+capability writes one JSON document to stdout:
 
 | Capability | Arguments | stdout JSON |
 |---|---|---|
@@ -878,3 +887,326 @@ one does not — `fail` is metric-scoped in `verification.json`'s
 never a single bare bit. If NO metric ends up with a `pass`/`fail` score
 (an empty `metrics[]`, or every entry `band_no_interval`), the verdict is
 `invalid` (reason `no_comparable_metrics`) — never a vacuous pass.
+
+## I-05 stage evidence and isolation contract (E40-F06)
+
+`bench/evidence/` is I-05: a separate, file-backed, schema-versioned
+evidence bundle format independent of I-02's run-record schema (REQ-F-001).
+I-05 records nothing live — F06 defines and validates the schema, the
+three-root isolation guard, the bundle validator, the replay guard, and the
+X-09 usage-mapping canary; E40-F08 populates real bundles during a real
+lifecycle run, E40-F09 consumes them for comparison identity, and E40-F10
+derives reports from them. E40-F08/F09/F10 read this section instead of
+re-deriving the bundle shape, the ledger rules, or the guard invocation
+order from `bench/evidence/**` or the scripts directly — the same role the
+"Manifest schema" and "I-04 scenario package schema" sections play for
+I-01 and I-04.
+
+The single machine-readable owner of every closed vocabulary below —
+`stage_category`, interval category, `artifact_type`, `edge_kind`,
+`evaluator_access.phase`, stop outcome, and `errors[].kind` — is
+`bench/evidence/i05-schema.yaml` (REQ-F-017). The Go contract validator
+(`tests/contracts/e40_i05_stage_evidence_contract_test.go`, TC-042) and
+every guard script under `bench/scripts/` read that file at call time
+rather than embedding a private copy, so a vocabulary change cannot land
+in one consumer and not the other. Treat this section as a reader's map to
+that file and to `bench/evidence/usage-mapping.yaml`, not a substitute for
+either.
+
+### Three-root policy (REQ-F-002)
+
+Every bundle declares exactly three roots, each with a fixed `worker_access`
+mode. The three paths MUST be pairwise disjoint — no root may be nested
+inside, or equal to, another; a bundle declaring fewer than three roots, or
+an overlapping pair, is rejected naming the offending pair.
+
+| Root | `worker_access` | Meaning |
+|---|---|---|
+| `agent_fixture_checkout` | `read_write` | The I-04 fixture checkout the worker edits directly. |
+| `scratch_shark_project` | `authorized_surfaces_only` | The scratch Shark project the lifecycle runs against — Shark writes here too, not only the worker. |
+| `evaluator_only` | `never_during_dispatch` | `reference_solution`, `oracle_tests[]`, `answer_keys[]` — reachable by neither agent-visible root at any dispatch boundary (REQ-F-010/011). |
+
+Two guards enforce this against the *live* roots, never only the declared
+I-04 package layout:
+
+- `bench/scripts/verify-evidence-roots.sh <package.yaml> <fixture_checkout>
+  <scratch_project> <evaluator_root>` — one script serving both the
+  REQ-F-010 admission-time check (once per candidate package, against a
+  fresh checkout) and the REQ-F-011 dispatch-boundary check (immediately
+  before every worker dispatch, against the live in-flight roots). It walks
+  **both** agent-visible roots independently — a guard that walks only
+  `--workdir` misses everything Shark writes into the scratch project
+  (ADR-F06-03) — and derives every evaluator-only name, digest, and test
+  identity from `<package.yaml>` at call time, never from a hardcoded list
+  (REQ-F-010, AC-010). Exit `0` = both roots clean ("CLEAN" on stdout).
+  Exit `1` = an isolation violation, naming the offending root, path, and
+  matched evaluator-only source. Exit `2` = a script/usage/authoring error.
+  For an `oracle_tests[]` entry, one signal (`derived_test_identity`) derives
+  the file's REAL, normalized test identity(ies) rather than approximating
+  them from the file's own name (T-E40-F06-003 round-4 UAT fix) — it
+  resolves the package's declared `adapter.name` through TWO registries
+  (never a raw path join of that candidate-controlled string, round-3
+  code-review fix): `scenarios.yaml`'s own `adapters:` map confirms it names
+  a real, registered I-04 adapter; `bench/scripts/id-collectors/registry.yaml`
+  then maps that same name to a collector script this feature owns. This
+  keeps the capability outside `bench/adapters/**` entirely (REQ-NF-006
+  freezes that tree) while still leaving the generic guard itself ignorant
+  of any language's syntax (REQ-F-007) — it only shells out to the resolved
+  collector, e.g. `bench/scripts/id-collectors/python-collect-ids.sh
+  --checkout <dir> --file <path>` (a real toolchain-collection subprocess,
+  no test body ever executed), emitting `{ids: [{id, name}]}` for every
+  identity a file defines. The python collector derives each `name` from
+  pytest's own STRUCTURED collection data (`item.originalname`, read via a
+  `pytest_collection_modifyitems` plugin hook) rather than parsing
+  `--collect-only`'s free-form text output — a bare `def` function name,
+  parametrize-suffix-free, with no custom `ids=` content ever mixed in,
+  even when that custom id itself contains a space or `::` (T-E40-F06-003
+  round-4 code-review fix; the prior text-parsing implementation silently
+  dropped or mis-derived exactly those two shapes).
+- Evaluator access after the isolation boundary is lifted only in the
+  REQ-F-012 order — see "Evaluator access ordering" below.
+
+### Bundle layout (I-05)
+
+One directory per run under an operator-supplied evidence output root,
+mirroring the run-directory convention "Run directory layout" documents
+for I-02:
+
+```
+<evidence_root>/<scenario_id>/<run_id>/
+├── bundle.json                 # identity, roots, stage index, stop outcome, eligibility
+├── stages/
+│   └── <dispatch_ordinal>-<stage_key>.json   # one immutable snapshot per stage
+└── access.jsonl                # append-only evaluator_access events
+```
+
+`bundle.json` top-level fields (every field required unless marked):
+
+| Field | Type | Contract |
+|---|---|---|
+| `schema_version` | string | The I-05 version `i05-schema.yaml` declares and TC-042 supports. |
+| `scenario` | object | `{scenario_id, scenario_version, entity_family}`, copied verbatim from the I-04 package. |
+| `run_id` | string | The lifecycle run this bundle belongs to. Opaque to F06; E40-F08 assigns it. |
+| `roots` | object | The three roots above, each `{path, worker_access, identity_digest}`. Pairwise disjoint. |
+| `stage_matrix_source` | object | `{package_path, package_digest, prelude, lifecycle}` — a snapshot of the I-04 halves this bundle's completeness is evaluated against, taken at run time (REQ-F-004). |
+| `stages` | array | Ordered index `{dispatch_ordinal, stage_key, stage_category, snapshot_path, snapshot_digest}`. `dispatch_ordinal` is unique within the bundle. |
+| `terminal_status` | object | `{reached: bool, reached_at}` — gates the `--grant-access inject-tests` broker (REQ-F-012). |
+| `stop_outcome` | string, optional | Absent on a clean terminal run; one of the ten values below otherwise. |
+| `publication_eligible` | bool | `false` whenever `stop_outcome` is present (REQ-F-014). |
+| `ineligibility_reasons` | array of string | Non-empty whenever `publication_eligible` is `false`. |
+
+### Stage-snapshot field reference
+
+`stages/<dispatch_ordinal>-<stage_key>.json`, one immutable, content-addressed
+document per dispatched stage:
+
+| Field | Type | Contract |
+|---|---|---|
+| `dispatch_ordinal` | integer | Matches the bundle index entry; unique per bundle. |
+| `entity` | object | `{entity_key, entity_type}` for the concrete dispatched entity — never the cascade parent. |
+| `stage_key` | string | The workflow step or prelude stage (`D01`–`D05`) this dispatch served. |
+| `stage_category` | enum | One of `discovery`, `specification`, `planning`, `code`, `review`, `qa`, `uat`, `shipping` (REQ-F-003). |
+| `prompt_digest` | string | `sha256` of the rendered prompt. The prompt text itself is never stored in the snapshot. |
+| `input_lineage` | array | `{source_kind, path, digest}` for every input the stage consumed. |
+| `replay_lineage` | array, feature family only | `{replay_reference, entry_digest}` pointers into the I-06 bundle; opaque interior (E40-F07 owns it). |
+| `artifacts` | array | `{artifact_type, path, digest, size_bytes, producer_stage, consumers}` (REQ-F-008). `consumers: []` ("orphan", no consumer observed) and an absent `consumers` key ("consumption evidence not collected") are two distinct, never-coerced states. |
+| `usage` | object | Semantic slots from `usage-mapping.yaml` (see "Usage slot table" below). A slot the mapping could not resolve is absent, with a matching `usage_slot_unavailable` entry in `errors[]` — never zero, never null. |
+| `time_ledger` | object | See "Time ledger rules" below. |
+| `candidate` | object, `code`/`review` only | REQ-F-006's six required fields — `base_commit`, `tree_digest`, `binary_diff_digest`, `changed_path_digest`, `dirty_untracked_manifest` (ordered `{path, digest, tracked}`), `test_suite_digest` — plus two replay-guard fields `replay-stage-evidence.sh` reads: `test_suite_ids` (the recorded normalized `<module-or-package>::<test-name>` id set the replay guard diffs against a live `<adapter> test` invocation to name a differing test by id, since the opaque `test_suite_digest` alone cannot) and `test_suite_dir` (excluded from the file-drift walk as the test-suite check's own domain). `base_commit` is one field of the identity, never the identity alone (REQ-F-006, ADR-009). |
+| `errors` | array | `{kind, detail, …}`, `kind` resolving against `i05-schema.yaml`'s `error_kind` vocabulary. |
+| `rework_count` | integer | Re-entries into this stage for this entity. |
+| `evaluator_access` | array | REQ-F-012 events; also appended to the bundle's `access.jsonl`. |
+| `snapshot_digest` | string | `sha256` over the canonical serialization excluding this field (REQ-F-015). Recomputing it must reproduce the recorded value; a mismatch is `snapshot_mutated`. |
+
+`bench/scripts/verify-stage-evidence.sh <bundle_dir>` is the single named
+owner of this validation arithmetic — field inventory, root policy,
+REQ-F-004's completeness split (prelude `missing_stage` vs. lifecycle
+duplicate/unmatched dispatch), ledger reconciliation, candidate identity,
+artifact records, usage fail-closed posture, access ordering, stop-outcome
+eligibility, and snapshot immutability — so F08/F09/F10 invoke it rather
+than re-deriving I-05's semantics, the discipline `eval-predicate.sh`
+established for I-04 and `diff-ledgers.sh` for I-01. Exit `0` = valid (a
+fixed-order JSON summary on stdout, sorted by `dispatch_ordinal`). Exit
+`1` = a named rejection verdict on stderr. Exit `2` = a script/usage error.
+
+### Time ledger rules (REQ-F-005)
+
+Every snapshot's `time_ledger` is `{stage_start, stage_end,
+reconciliation_epsilon_ns, intervals: {<category>: [[start, end), …]}}`
+over six categories: `provider_active`, `tool_and_test`,
+`queue_or_claim_wait`, `replay_or_human_gate_wait`, `retry_or_backoff`,
+`unclassified`.
+
+- Every interval is a genuine **half-open** `[start, end)` span
+  (`start < end`), fully contained in `[stage_start, stage_end)`. An
+  interval that escapes the stage window is rejected naming the interval
+  and the window.
+- No two intervals overlap, across **any** two categories — rejected
+  naming both offending categories and both intervals.
+- The union of all intervals must reconcile to `[stage_start, stage_end)`
+  within `reconciliation_epsilon_ns`; any residual **within** the epsilon
+  lands in `unclassified`, never in `provider_active`. A residual larger
+  than the epsilon is rejected naming its magnitude.
+- Unknown or unattributable time is never assigned to `provider_active` —
+  the one property UAT-16 turns on.
+
+`verify-stage-evidence.sh` is this rule set's single owner; nothing else
+re-derives it.
+
+### Usage slot table (X-09)
+
+`bench/evidence/usage-mapping.yaml` binds each semantic slot I-05 records
+to a concrete provider envelope path, never a field name written inline
+into `i05-schema.yaml` and never E27-F15's unmerged Go structs
+(ADR-F06-04). It carries its own `schema_version`, a `verified_from`
+provenance block, and one block per provider. Consumers read a slot by its
+semantic name and never hard-code an envelope path.
+
+| Semantic slot | `anthropic_claude_cli` envelope path | `verification_tier` | Required identity slot? |
+|---|---|---|---|
+| `total_cost` | `total_cost_usd` | `real_capture` | Yes |
+| `input_tokens` | `usage.input_tokens` | `real_capture` | Yes |
+| `output_tokens` | `usage.output_tokens` | `real_capture` | Yes |
+| `cache_read_input_tokens` | `usage.cache_read_input_tokens` | `real_capture` | Yes |
+| `cache_creation_input_tokens` | `usage.cache_creation_input_tokens` | `real_capture` | Yes |
+| `model_ids` | sorted keys of `modelUsage` | `real_capture` | Yes |
+| `api_active_duration_ms` | `duration_api_ms` | `real_capture` | Yes |
+| `turn_count` | `num_turns` | `real_capture` | Yes |
+| `provider_session_id` | `session_id` | `unverified` | No — deliberately excluded (ADR-F06-12) so no `unverified` slot gates G14 comparison identity. |
+
+`openai_codex_cli` is declared `unmapped`: `buildCodexArgs` on `main` does
+not pass `--json`, so a codex stage's transcript stdout is not a decodable
+envelope today, and every slot fails closed. A provider declared `unmapped`
+MUST NOT be decoded by guess.
+
+`bench/scripts/canary-usagemapping.sh [--transcript <path>]` re-verifies
+every `anthropic_claude_cli` slot against a **real captured envelope**,
+defaulting to the committed fixtures under `bench/scripts/testdata/run/`
+and accepting an operator-supplied live transcript. It tells apart two
+REQ-F-019 drift classes rather than conflating them:
+
+- **envelope-field drift** — one mapped path absent from a real captured
+  envelope: fails naming that slot and path
+  (`usage_slot_unavailable slot=<slot> envelope_path=<path>`).
+- **envelope-availability drift** — the transcript's `---STDOUT---` block
+  is no longer decodable JSON at all (e.g. a lifecycle change that starts
+  persisting assistant prose instead of the raw envelope): fails as **one**
+  whole-source failure (`envelope_source_unavailable transcript=<path>`),
+  never as nine independent per-slot failures.
+
+Every diagnostic goes to stderr, ending in exactly one line reading `PASS`
+or `FAIL: <field>` — the same convention `canary-runsurface.sh` already
+established. Exit `0` = PASS. Exit `1` = a named drift verdict. Exit `2` =
+a script/usage error.
+
+### Evaluator access ordering (REQ-F-012)
+
+Evaluator-only material becomes readable only after its authorized
+boundary, and every read appends one `evaluator_access` event
+(`{accessor, artifact_path, digest, phase, granted_at}`, `phase` one of
+`pre_terminal`/`post_terminal`) to the bundle:
+
+1. Absent from both agent-visible roots at every dispatch boundary
+   (`verify-evidence-roots.sh`, above).
+2. After the applicable stage or scenario reaches `terminal_status`, a
+   held-back oracle test MAY be placed into the fixture checkout, and only
+   through I-04's `adapter.sh inject-tests` capability:
+   `verify-stage-evidence.sh <bundle_dir> --grant-access inject-tests
+   --accessor <name> --adapter <adapter.sh> --checkout <dir> --files
+   <path>…`. Requested before `terminal_status.reached`, this is rejected
+   as `isolation_violation` and the adapter is never invoked.
+3. The post-run oracle reads reference solutions and answer keys **in
+   place** from the `evaluator_only` root, never by copying them into the
+   worker checkout first:
+   `verify-stage-evidence.sh <bundle_dir> --grant-access in-place-read
+   --accessor <name> --evaluator-root <dir> --artifact <rel_path>
+   --checkout <dir>`. A read performed by first copying the file into the
+   worker checkout is rejected naming the violation, not merely warned.
+
+### Replay and immutability (REQ-F-013, REQ-F-015)
+
+`bench/scripts/replay-stage-evidence.sh <bundle_dir> [--checkout
+<fixture_checkout>] [--adapter <adapter_path>]` re-evaluates a **stored**
+bundle against its named roots with no worker rerun and no provider call —
+every field it needs is resolvable from the bundle plus the caller-supplied
+roots. For every indexed stage:
+
+1. Recomputes `snapshot_digest` over the snapshot's own canonical
+   serialization (excluding that field). A mismatch is `snapshot_mutated`,
+   naming the stage; when the mismatched content also shows an `artifacts[]`
+   entry missing its `consumers` key, it additionally (never instead)
+   reports `artifact_consumption_record_missing`.
+2. Only when the digest matches and `stage_category` is `code`/`review`,
+   two independent drift checks against `--checkout`, sourced from the
+   snapshot's own `candidate` block: file drift
+   (`tracked_file_changed`/`untracked_file_changed`, naming the path) from
+   `dirty_untracked_manifest` (excluding `candidate.test_suite_dir`, the
+   test-suite check's own domain below), and test-suite drift
+   (`test_suite_changed`, naming the differing test id) from a live
+   `<adapter> test --checkout` invocation diffed against
+   `candidate.test_suite_ids`, the recorded normalized id set.
+
+Exit `0` = replay clean (a JSON summary on stdout). Exit `1` = one or more
+named drift/mutation verdicts on stderr. Exit `2` = a script/usage error.
+
+### Stop outcomes and partial evidence (REQ-F-014)
+
+A bundle terminating in one of the ten named stop outcomes —
+`resource_limit`, `lease_loss`, `missing_outcome`, `unresolved_gate`,
+`pause`, `archive`, `error`, `cancellation`, `worker_failure`, `timeout` —
+retains its partial stage snapshots and sets `publication_eligible: false`
+with a non-empty `ineligibility_reasons[]`. Partial evidence is never
+discarded, and is never readable as a valid baseline contribution. A
+bundle pairing any stop outcome with `publication_eligible: true` is
+rejected as `publication_eligible_conflict`.
+
+### Tier 2 guard invocation sequence
+
+The four guard scripts above are offline once the fixtures and caches are
+present — zero provider calls, byte-identical verdicts across repeated
+runs at an unchanged bundle, fixture SHA, and toolchain identity
+(REQ-NF-004):
+
+```bash
+# 1. Admission time, once per I-04 candidate package, against a fresh
+#    checkout (REQ-F-010):
+bench/scripts/verify-evidence-roots.sh \
+  bench/scenarios/packages/py-feature-recurring-tasks/package.yaml \
+  <fresh_fixture_checkout> <empty_scratch_project> <evaluator_root>
+
+# 2. Dispatch boundary, immediately before EVERY worker dispatch, against
+#    the live in-flight roots (REQ-F-011) -- E40-F08's dispatch loop calls
+#    this, not F06.
+bench/scripts/verify-evidence-roots.sh \
+  <package.yaml> <live_fixture_checkout> <live_scratch_project> <evaluator_root>
+
+# 3. After a stage or run completes, validate the bundle's field shape,
+#    completeness, ledger, candidate identity, artifacts, usage, access
+#    ordering, and eligibility in one pass:
+bench/scripts/verify-stage-evidence.sh <evidence_root>/<scenario_id>/<run_id>
+
+# 4. Grant evaluator access only through the broker, only in the
+#    authorized order (REQ-F-012) -- see "Evaluator access ordering" above.
+
+# 5. Re-evaluate a stored bundle with no worker rerun and no provider call
+#    (REQ-F-013/015):
+bench/scripts/replay-stage-evidence.sh <bundle_dir> --checkout <fixture_checkout> --adapter <adapter.sh>
+
+# 6. Re-verify the X-09 usage mapping against a real captured envelope
+#    (run at usage-mapping.yaml authoring time, or as a manual Tier 2
+#    spot-check against a live transcript):
+bench/scripts/canary-usagemapping.sh
+bench/scripts/canary-usagemapping.sh --transcript <live_transcript_path>
+
+# 7. Run the full bench self-test suite (I-01/I-04's scripts plus I-05's
+#    TC-043 through TC-051, run together). TC-042 (the Go contract
+#    validator) runs under `make test`, not here -- the same split TC-030
+#    already established for I-04.
+bench/scripts/tests/run-all.sh
+```
+
+`verify-evidence-roots.sh` never invokes a dispatcher of any kind — the
+property a PATH-stubbed dispatcher's empty invocation log proves — so step
+2 always completes before any provider spend. Steps 3 through 6 never make
+a provider call either; `replay-stage-evidence.sh`'s own test-suite drift
+check invokes only the I-04 adapter's `test` capability, never a provider.
