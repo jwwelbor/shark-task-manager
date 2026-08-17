@@ -1,0 +1,114 @@
+# I-08 lifecycle evaluation record contract.
+# This file is the vocabulary owner for the file-backed F09 evaluator.
+schema_version: "1.0"
+artifact_root: bench/evaluations
+
+top_level_fields:
+  - schema_version
+  - evaluation_id
+  - identity
+  - source_artifacts
+  - structural
+  - judge
+  - execution_oracle
+  - eligibility
+  - candidate_snapshots
+  - workflow_policy
+  - comparison
+  - review_findings
+
+required_fields:
+  - /schema_version
+  - /evaluation_id
+  - /identity
+  - /source_artifacts
+  - /structural
+  - /judge
+  - /execution_oracle
+  - /eligibility
+  - /eligibility/aggregate_eligible
+  - /eligibility/publication_eligible
+  - /eligibility/invalidity_reasons
+  - /candidate_snapshots
+  - /workflow_policy
+  - /comparison
+
+properties:
+  /schema_version: string
+  /evaluation_id: string
+  /identity: object
+  /source_artifacts: object
+  /structural: object
+  /judge: object
+  /execution_oracle: object
+  /eligibility: object
+  /eligibility/aggregate_eligible: boolean
+  /eligibility/publication_eligible: boolean
+  /eligibility/invalidity_reasons: array
+  /candidate_snapshots: array
+  /workflow_policy: object
+  /comparison: object
+
+truth_result:
+  - pass
+  - fail
+  - not_applicable
+
+check_applicability:
+  - applicable
+  - not_applicable
+
+oracle_result:
+  - pass
+  - fail
+  - not_run
+
+invalidity_reason:
+  - source_missing
+  - source_malformed
+  - missing_join
+  - duplicate_join
+  - contradictory_join
+  - missing_structural
+  - structural_failure
+  - missing_judge
+  - missing_calibration
+  - calibration_overlap
+  - duplicate_calibration_example
+  - judge_identity_missing
+  - judge_usage_invalid
+  - judge_score_invalid
+  - judge_reference_missing
+  - missing_oracle
+  - oracle_failure
+  - pre_terminal
+  - evaluator_access_out_of_order
+  - isolation_violation
+  - evaluator_only_residue
+  - cleanup_failure
+  - identity_missing
+  - malformed_digest
+  - unsupported_schema_version
+  - failed_oracle
+  - aggregate_ineligible
+  - malformed_record
+  - duplicate_record
+
+structural_check:
+  - required_artifacts
+  - ownership
+  - links
+  - dependencies
+  - status_transitions
+  - traceability
+  - executable_task
+
+digest_rules:
+  algorithm: sha256
+  encoding: lowercase_hex
+  canonicalization: compact_json_sorted_keys_utf8
+  file_encoding: sha256_raw_bytes
+
+comparison_modes:
+  - independent_frozen_candidate
+  - sequential_delivery

@@ -459,6 +459,7 @@ def grant_inject_tests(bundle_dir, accessor, adapter_path, checkout, files):
         event = {
             "accessor": accessor,
             "artifact_path": source,
+            "destination": destination_rel,
             "digest": f"sha256:{sha256_file(destination_abs)}",
             "phase": "post_terminal",
             "granted_at": now_rfc3339(),

@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "evaluation_id": "eval-tc067-valid",
+  "identity": {
+    "run_id": "run-tc067",
+    "scenario_id": "scenario-tc067",
+    "scenario_version": "1",
+    "fixture_id": "fixture-tc067",
+    "fixture_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "adapter_id": "fixture-adapter",
+    "adapter_version": "1",
+    "toolchain_identity": [{"key": "tool", "value": "fixture"}],
+    "shark_binary_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "shark_content_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "rendered_prompt_digests": ["dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
+    "provider_identity": [{"stage": "code", "provider": "fixture", "model": "fixture-model", "effort": "low"}],
+    "judge_identity": {"model": "judge-fixture", "configuration": "default"},
+    "reference_digests": ["eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"],
+    "resource_policy_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "source_artifacts": {
+    "i05_path": "runs/tc067/stage-evidence",
+    "i05_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "i07_path": "runs/tc067/lifecycle.jsonl",
+    "i07_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "replay_lineage": ["stage-1"]
+  },
+  "structural": {
+    "applicability": "applicable",
+    "checks": [{"check_id": "required_artifacts", "stage": "code", "entity": "task", "result": "pass", "evidence_refs": ["stage-1"]}],
+    "observed_result": "pass"
+  },
+  "judge": {
+    "applicability": "not_applicable",
+    "observed_result": "not_applicable",
+    "invalidity_reasons": []
+  },
+  "execution_oracle": {
+    "predicate_kind": "acceptance_tests",
+    "access_event": {"phase": "post_terminal", "accessor": "f09-evaluator", "artifact_path": "tests/oracle.py", "digest": "3333333333333333333333333333333333333333333333333333333333333333"},
+    "test_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "reference_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "adapter_id": "fixture-adapter",
+    "observed_result": "pass",
+    "summary": "bounded"
+  },
+  "candidate_snapshots": [{
+    "stage": "code",
+    "candidate": {
+      "base_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tree_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "binary_diff_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "changed_path_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "dirty_untracked_manifest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "test_suite_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "identity_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  }],
+  "workflow_policy": {
+    "enabled_gates": ["qa", "deep_review"],
+    "gate_order": ["qa", "deep_review"],
+    "reviewer": {"provider": "fixture", "model": "fixture-model", "effort": "low"},
+    "prompt_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "review_bundle_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "fixes_allowed_between_gates": false
+  },
+  "comparison": {"mode": null, "accepted": false, "quality_delta": null},
+  "eligibility": {
+    "structural_valid": true,
+    "judge_valid": true,
+    "oracle_valid": true,
+    "aggregate_eligible": true,
+    "publication_eligible": true,
+    "invalidity_reasons": []
+  }
+}

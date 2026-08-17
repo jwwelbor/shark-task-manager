@@ -2,6 +2,7 @@
 # TC-071: raw I-07 findings remain evidence while F09 adjudicates independently.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 NORMALIZER="$SCRIPT_DIR/../normalize-review-findings.sh"
 FIXTURE="$SCRIPT_DIR/../../../tests/contracts/testdata/e40_i08/valid/review-findings.json"
 INVALID="$SCRIPT_DIR/../../../tests/contracts/testdata/e40_i08/invalid/malformed-review-findings.json"
@@ -51,5 +52,27 @@ code=$?
 set -e
 [[ "$code" -eq 2 ]] || { echo "TC-071 FAIL: malformed finding accepted with exit $code" >&2; exit 1; }
 grep -q "every review finding must be an object" "$WORKDIR/invalid.err" || { echo "TC-071 FAIL: malformed finding diagnostic missing" >&2; exit 1; }
+
+# Production integration: evaluate-lifecycle.sh must own normalization.
+mkdir -p "$WORKDIR/i05"
+printf '%s\n' '{"roots":{"agent_fixture_checkout":"/does/not/exist"},"stages":[{"stage_path":"stages/code.json"}]}' > "$WORKDIR/i05/bundle.json"
+python3 - "$FIXTURE" "$WORKDIR/i07.jsonl" <<'PY'
+import json, pathlib, sys
+pathlib.Path(sys.argv[2]).write_text(json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_text())) + "\n")
+PY
+evaluator="$SCRIPT_DIR/../evaluate-lifecycle.sh"
+set +e
+"$evaluator" --i05 "$WORKDIR/i05" --i07 "$WORKDIR/i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$WORKDIR/evaluation.jsonl" >/dev/null 2>/dev/null
+set -e
+python3 - "$WORKDIR/evaluation.jsonl" "$FIXTURE" <<'PY'
+import json, pathlib, sys
+evaluation = json.loads(pathlib.Path(sys.argv[1]).read_text())
+source = json.loads(pathlib.Path(sys.argv[2]).read_text())
+findings = evaluation["review_findings"]
+assert findings["raw_source_ref"]["i07_digest"], findings
+assert findings["raw_review_gates"] == source["review_gates"], "evaluator did not retain raw I-07 review gates"
+assert len(findings["normalized_findings"]) == 5, findings
+assert not any(item["code"] == "review_findings_bypass" for item in evaluation["eligibility"]["invalidity_reasons"]), evaluation
+PY
 
 echo "TC-071 PASS"

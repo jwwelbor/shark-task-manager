@@ -2,7 +2,10 @@
 # TC-071: preserve I-07 review evidence and independently normalize findings.
 set -euo pipefail
 exec python3 - "$@" <<'PY'
-import argparse, hashlib, json, sys
+import argparse
+import hashlib
+import json
+import sys
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
@@ -14,11 +17,13 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 def finding_id(gate, finding):
-    raw = {"gate": gate, "fingerprint": finding.get("fingerprint"), "criterion": finding.get("criterion"), "defect_class": finding.get("defect_class")}
+    raw = {"fingerprint": finding["fingerprint"], "defect_class": finding["defect_class"]}
     return "f09-" + hashlib.sha256(canonical(raw).encode()).hexdigest()[:16]
 
 try:
     source = json.loads(Path(args.i07).read_text(encoding="utf-8"))
+    if not isinstance(source, dict):
+        raise ValueError("I-07 review source must be an object")
     gates = source.get("review_gates")
     if not isinstance(gates, list):
         raise ValueError("review_gates must be an array")
@@ -32,17 +37,25 @@ try:
             raise ValueError("every review gate requires gate_id")
         gate = gate_record["gate_id"]
         candidate = gate_record.get("candidate_ref")
-        for finding in gate_record.get("findings", []):
+        findings = gate_record.get("findings")
+        if not isinstance(findings, list):
+            raise ValueError("every review gate requires a findings array")
+        for finding in findings:
             if not isinstance(finding, dict):
                 raise ValueError("every review finding must be an object")
+            if not isinstance(finding.get("fingerprint"), str) or not finding["fingerprint"].strip():
+                raise ValueError("every review finding requires a non-empty fingerprint")
+            if not isinstance(finding.get("defect_class"), str) or not finding["defect_class"].strip():
+                raise ValueError("every review finding requires a non-empty defect_class")
             raw.append({"gate": gate, "candidate_ref": candidate, "finding": finding})
             fingerprint = finding.get("fingerprint")
-            previous = seen_by_fingerprint.get(fingerprint)
+            recurrence_key = (fingerprint, finding.get("defect_class"))
+            previous = seen_by_fingerprint.get(recurrence_key)
             link = "recurrent" if previous and previous["raw_source_ref"]["candidate_ref"] != candidate else ("duplicate" if previous else None)
             source_kind = "seeded_truth_set" if finding.get("truth_set_id") in truth_ids else "independent_adjudication"
             confirmed = finding.get("truth_set_id") in truth_ids
             normalized.append({
-                "f09_finding_id": "f09-" + hashlib.sha256(canonical({"fingerprint": fingerprint, "defect_class": finding.get("defect_class")}).encode()).hexdigest()[:16],
+                "f09_finding_id": finding_id(gate, finding),
                 "raw_finding": finding,
                 "raw_source_ref": {"gate": gate, "candidate_ref": candidate},
                 "confirmation_source": source_kind,
@@ -52,7 +65,7 @@ try:
                 "final_disposition": "confirmed" if confirmed else "unconfirmed",
             })
             if not previous:
-                seen_by_fingerprint[fingerprint] = normalized[-1]
+                seen_by_fingerprint[recurrence_key] = normalized[-1]
     unique = [item for item in normalized if item["duplicate_or_recurrence"] != "duplicate"]
     confirmed_ids = {item["f09_finding_id"] for item in unique if item["final_disposition"] == "confirmed"}
     unconfirmed_ids = {item["f09_finding_id"] for item in unique if item["final_disposition"] == "unconfirmed"}

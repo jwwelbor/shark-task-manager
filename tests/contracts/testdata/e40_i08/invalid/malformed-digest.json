@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "evaluation_id": "eval-tc067-malformed-digest",
+  "identity": {
+    "run_id": "run-tc067",
+    "scenario_id": "scenario-tc067",
+    "scenario_version": "1",
+    "fixture_id": "fixture-tc067",
+    "fixture_digest": "not-a-digest",
+    "adapter_id": "fixture-adapter",
+    "adapter_version": "1",
+    "shark_binary_digest": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "shark_content_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "source_artifacts": {},
+  "structural": {},
+  "judge": {},
+  "execution_oracle": {},
+  "eligibility": {"aggregate_eligible": false, "invalidity_reasons": [{"code": "malformed_digest", "path": "/identity/fixture_digest"}]}
+}

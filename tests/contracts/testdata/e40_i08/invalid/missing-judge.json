@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "evaluation_id": "eval-tc067-missing-judge",
+  "identity": {
+    "run_id": "run-tc067",
+    "scenario_id": "scenario-tc067",
+    "scenario_version": "1",
+    "fixture_id": "fixture-tc067",
+    "fixture_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "adapter_id": "fixture-adapter",
+    "adapter_version": "1",
+    "shark_binary_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "shark_content_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "source_artifacts": {"i05_path": "runs/tc067/stage-evidence", "i07_path": "runs/tc067/lifecycle.jsonl"},
+  "structural": {"applicability": "applicable", "checks": [], "observed_result": "pass"},
+  "execution_oracle": {"observed_result": "pass"},
+  "eligibility": {"structural_valid": true, "judge_valid": false, "oracle_valid": true, "aggregate_eligible": false, "publication_eligible": false, "invalidity_reasons": [{"code": "missing_calibration", "path": "/judge"}]}
+}

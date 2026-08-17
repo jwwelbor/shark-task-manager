@@ -59,10 +59,17 @@ tests=(
 	"$SCRIPT_DIR/tc064_lifecycle_runner_offline_determinism_test.sh"
 	"$SCRIPT_DIR/tc065_prelude_question_isolation_test.sh"
 	"$SCRIPT_DIR/tc066_lifecycle_worker_question_handoff_test.sh"
+	"$SCRIPT_DIR/tc067_lifecycle_evaluation_truth_test.sh"
+	"$SCRIPT_DIR/tc068_heldback_oracle_isolation_test.sh"
+	"$SCRIPT_DIR/tc069_calibration_boundary_test.sh"
 	"$SCRIPT_DIR/tc070_comparison_identity_test.sh"
 	"$SCRIPT_DIR/tc075_content-identity_x12_test.sh"
 	"$SCRIPT_DIR/tc071_review_finding_normalization_test.sh"
 	"$SCRIPT_DIR/tc072_review_comparison_modes_test.sh"
+	"$SCRIPT_DIR/tc073_evaluation_replay_determinism_test.sh"
+	"$SCRIPT_DIR/tc074_invalid-retention-and-aggregation_test.sh"
+	"$SCRIPT_DIR/tc076_static-safety-language-neutrality_test.sh"
+	"$SCRIPT_DIR/tc077_full-regression-registration_test.sh"
 )
 
 status=0
