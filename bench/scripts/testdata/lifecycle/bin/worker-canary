@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${LIFECYCLE_CANARY_LOG:?LIFECYCLE_CANARY_LOG is required}"
+: "${LIFECYCLE_EXPECTED_PROMPT:?LIFECYCLE_EXPECTED_PROMPT is required}"
+: "${LIFECYCLE_WORKER_RESULT:?LIFECYCLE_WORKER_RESULT is required}"
+
+captured_stdin="$(mktemp)"
+cleanup() { rm -f "$captured_stdin"; }
+trap cleanup EXIT
+cat >"$captured_stdin"
+
+python3 - "$LIFECYCLE_CANARY_LOG" "$LIFECYCLE_EXPECTED_PROMPT" "$LIFECYCLE_WORKER_RESULT" "$captured_stdin" <<'PYEOF'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+
+log_path, expected_path, result_path, captured_path = map(pathlib.Path, sys.argv[1:])
+actual = captured_path.read_bytes()
+expected = expected_path.read_bytes()
+if actual != expected:
+    raise SystemExit("worker canary received prompt bytes that differ from fixture")
+
+record = {
+    # The fixture has no provider arguments. argv here models the command
+    # vector the adapter handed to the external binary, not this helper's
+    # private capture-file argument.
+    "argv": [],
+    "stdin_sha256": hashlib.sha256(actual).hexdigest(),
+    "stdin_bytes": len(actual),
+    "entity_key": os.environ.get("LIFECYCLE_ENTITY_KEY", ""),
+    "session_id": os.environ.get("LIFECYCLE_SESSION_ID", ""),
+}
+with log_path.open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, sort_keys=True) + "\n")
+sys.stdout.write(result_path.read_text(encoding="utf-8"))
+PYEOF

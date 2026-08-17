@@ -1,0 +1,4 @@
+run exact bytes
+credential-sentinel
+provider-secret-sentinel
+transcript-line-999
