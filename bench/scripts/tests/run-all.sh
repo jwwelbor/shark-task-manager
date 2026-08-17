@@ -59,6 +59,10 @@ tests=(
 	"$SCRIPT_DIR/tc064_lifecycle_runner_offline_determinism_test.sh"
 	"$SCRIPT_DIR/tc065_prelude_question_isolation_test.sh"
 	"$SCRIPT_DIR/tc066_lifecycle_worker_question_handoff_test.sh"
+	"$SCRIPT_DIR/tc070_comparison_identity_test.sh"
+	"$SCRIPT_DIR/tc075_content-identity_x12_test.sh"
+	"$SCRIPT_DIR/tc071_review_finding_normalization_test.sh"
+	"$SCRIPT_DIR/tc072_review_comparison_modes_test.sh"
 )
 
 status=0

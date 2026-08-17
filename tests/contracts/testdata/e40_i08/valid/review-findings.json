@@ -1,0 +1,7 @@
+{
+  "truth_set": {"digest": "1111111111111111111111111111111111111111111111111111111111111111", "finding_ids": ["seed-1", "seed-2"]},
+  "review_gates": [
+    {"gate_id":"qa","candidate_ref":{"snapshot_digest":"candidate-a"},"findings":[{"fingerprint":"same","severity":"high","defect_class":"boundary","disposition":"open","truth_set_id":"seed-1"},{"fingerprint":"same","severity":"low","defect_class":"boundary","disposition":"confirmed","truth_set_id":"seed-1"}]},
+    {"gate_id":"deep_review","candidate_ref":{"snapshot_digest":"candidate-b"},"findings":[{"fingerprint":"same","severity":"medium","defect_class":"boundary","disposition":"confirmed","truth_set_id":"seed-1"},{"fingerprint":"new","severity":"medium","defect_class":"oracle","disposition":"open","truth_set_id":"seed-2"},{"fingerprint":"clean","severity":"low","defect_class":"style","disposition":"open"}]}
+  ]
+}
