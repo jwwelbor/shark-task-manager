@@ -7,10 +7,10 @@ description: Prepare truthful, portable demo scenario maps from documented proje
 
 ## Purpose and boundary
 
-Use this craft skill to prepare a traceable demo script for an epic or feature.
-It answers how to truthfully show documented delivered behavior. It is not a
-workflow status, UAT gate, acceptance decision, deployment recipe, or backlog
-creator. The Rider procedure supplies documented project state, linked
+Use this craft skill to prepare a traceable demo script for an epic, feature, or
+sprint. It answers how to truthfully show documented delivered behavior. It is
+not a workflow status, UAT gate, acceptance decision, deployment recipe, or
+backlog creator. The Rider procedure supplies documented project state, linked
 guidance, and the selected artifact location; this skill must not assume a
 framework, package manager, browser, deployment provider, credential,
 endpoint, environment, or capture tool.
@@ -27,6 +27,8 @@ scenario. Preserve the labels exactly:
 1. Read the selected entity's committed requirements, acceptance criteria,
    related documents, and documented project guidance. Use only commands,
    access, environments, and capture methods that those sources document.
+   For a sprint, use the assigned backlog as the scope snapshot and trace each
+   item to its documented parent requirements; do not include unassigned work.
 2. Select an evidence surface that fits the capability: UI capture or
    recording, CLI transcript, API request/response plus resulting state, SDK
    runnable example, pipeline artifact or data, infrastructure health or metric

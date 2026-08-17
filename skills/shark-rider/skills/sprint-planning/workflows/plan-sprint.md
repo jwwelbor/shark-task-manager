@@ -221,3 +221,66 @@ This workflow is safe to re-invoke:
 - `shark sprint plan` is called exactly once at the start (Step 2). It is not re-called within the same workflow body.
 - `shark sprint start` is never called.
 - `shark sprint add` is only called after explicit user confirmation.
+
+---
+
+## Size and Scope Guidelines (owner-ratified 2026-08-15)
+
+A sprint's job is to produce **one coherent, demoable increment** tied to a
+single Sprint Goal — not a bucket of whatever backlog items fit under a point
+ceiling. Capacity/velocity is a forecasting tool for *how much* of that goal
+fits in the window; it is not license to pull in unrelated backlog just
+because points are free.
+
+Apply these checks in every planning session, interactive or auto:
+
+- **One goal, one theme.** Before proposing assignments, look at what
+  feature/epic clusters the eligible backlog actually falls into. If the
+  candidate set spans more than ~2 unrelated epics/themes, don't propose all
+  of it — propose the largest coherent cluster (the epic/feature group with
+  the most in-flight or interdependent work) as the sprint, and set the
+  `--goal` on `shark sprint create`/`shark sprint update` to name the
+  demoable outcome in one sentence.
+- **Standalone entities (bugs/change-cards/tech-debt) need a home, not a
+  default.** Don't dump all eligible bugs/CCs/TDs into whichever sprint is
+  being planned just because they showed up in the backlog. Tech-debt items
+  in `identified` status are their normal resting state — being eligible is
+  not the same as being sprint-worthy. Pull in only items that are (a) direct
+  functional blockers on the sprint's chosen theme, or (b) explicitly
+  requested by the user. Route everything else to a future sprint grouped by
+  its own coherent theme (see "Route leftovers" below) rather than leaving it
+  to accumulate unsorted in the next planning pass.
+- **Every sprint-assigned entity needs a size before the sprint is
+  considered ready.** `shark sprint readiness` scores "Sizing coverage" and
+  "Capacity utilization" — an entity with no `size` silently drops out of the
+  capacity math and inflates the readiness score misleadingly. Before
+  reporting readiness, check `unsized_entities` in the readiness response and
+  size every one of them with `shark update <key> --size N` (fibonacci: 1,
+  2, 3, 5, 8, 13) using the same judgment you'd apply to any other estimate —
+  read the entity, compare it to already-sized siblings in the same
+  feature/theme, don't leave it as a TODO for later. Note: tech-debt entities
+  may already carry a t-shirt `effort_estimate` (XS–XXL) in their doc
+  frontmatter — that is a *different* field from sprint `size` and does not
+  substitute for it; both can coexist.
+- **Capacity should reflect the chosen scope, not an arbitrary constant.**
+  When no capacity is configured yet (`shark sprint capacity show` returns
+  empty), set it based on the actual point total of the coherent cluster
+  you're proposing — not a round guess applied before scope is narrowed.
+  Capacity utilization near 100% for a single-theme sprint is a good signal;
+  utilization over ~150% is a sign the scope needs narrowing, not that
+  capacity needs raising.
+- **Route leftovers to themed future sprints, not one big backlog dump.**
+  When narrowing scope drops entities out of the sprint being planned, group
+  the remainder by their own coherent theme (shared epic, shared subsystem,
+  shared root cause) and create one sprint per theme
+  (`shark sprint create "<theme>" --start=… --end=… --goal="…"`) rather than
+  parking everything in a single undifferentiated follow-up sprint.
+
+Origin: S002 was initially planned with 59 entities across 6 unrelated
+tracks (E04, E10, E11, E19, generic tooling bugs, cross-cutting change-cards,
+and unrelated Blades/E12 tech-debt) at 178% capacity utilization, with 24
+entities carrying no size at all. The owner flagged that a sprint needs to
+represent a demoable increment, not a capacity-filling grab-bag. It was
+re-scoped down to the 21-task E11 readiness cluster (verdict → report →
+waiver write path) and the remainder was split into five themed follow-up
+sprints (S003–S007).
