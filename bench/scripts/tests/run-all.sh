@@ -52,6 +52,12 @@ tests=(
 	"$SCRIPT_DIR/tc057_non_applicable_record_test.sh"
 	"$SCRIPT_DIR/tc058_prelude_placement_test.sh"
 	"$SCRIPT_DIR/tc059_replay_offline_determinism_test.sh"
+	"$SCRIPT_DIR/tc060_lifecycle_runner_contract_test.sh"
+	"$SCRIPT_DIR/tc061_lifecycle_runner_loop_test.sh"
+	"$SCRIPT_DIR/tc062_lifecycle_runner_limits_test.sh"
+	"$SCRIPT_DIR/tc063_review_finding_capture_test.sh"
+	"$SCRIPT_DIR/tc064_lifecycle_runner_offline_determinism_test.sh"
+	"$SCRIPT_DIR/tc065_prelude_question_isolation_test.sh"
 )
 
 status=0
