@@ -170,6 +170,11 @@ def validate_replay(package, replay_path, expected_stages):
         raise GateError(f"I-04 replay bundle is not readable JSON: {exc}") from exc
     if replay_bundle.get("bundle_version") != authorized_doc.get("bundle_version"):
         raise GateError("I-06 replay bundle_version does not match the authorized I-04 replay bundle")
+    binding = authorized_doc.get("scenario_binding") if isinstance(authorized_doc, dict) else None
+    if not isinstance(binding, dict) or binding.get("scenario_id") != package_scenario_id:
+        raise GateError("authorized I-04 replay bundle scenario_binding.scenario_id does not match the package")
+    if binding.get("scenario_version") != package.get("scenario_version"):
+        raise GateError("authorized I-04 replay bundle scenario_binding.scenario_version does not match the package")
     stages = result.get("stages")
     if not isinstance(stages, list):
         raise GateError("I-06 replay result has no stages array")
@@ -214,6 +219,18 @@ def route_questions(result, run_id, scratch_root):
         if any(not str(question.get(field, "")).strip() for field in fields):
             raise GateError(f"Question entry is missing an authorized field: {question.get('question_key', '?')}")
         key = question["question_key"]
+        scratch_real = Path(scratch_root).resolve()
+        pointers = {}
+        for field in ("evidence_pointer", "resolution_pointer"):
+            raw_pointer = question[field]
+            if Path(raw_pointer).is_absolute():
+                raise GateError(f"Question {key} {field} must be relative to the scratch root")
+            resolved_pointer = (scratch_real / raw_pointer).resolve()
+            try:
+                resolved_pointer.relative_to(scratch_real)
+            except ValueError as exc:
+                raise GateError(f"Question {key} {field} escapes the scratch root") from exc
+            pointers[field] = raw_pointer
         next_response = run_shark(["next", key, "--json"], scratch_root)
         block = next_response.get("question_block")
         if not isinstance(block, dict):
@@ -224,8 +241,8 @@ def route_questions(result, run_id, scratch_root):
         session = claim.get("session_id")
         if not session:
             raise GateError(f"Question {key} claim returned no session_id")
-        run_shark(["question", "respond", key, "--session", session, "--responder", question["current_responder"], "--summary", question["summary"], "--evidence-pointer", question["evidence_pointer"]], scratch_root)
-        run_shark(["question", "resolve", key, "--owner", question["owner"], "--resolution-kind", question["resolution_kind"], "--resolution-pointer", question["resolution_pointer"]], scratch_root)
+        run_shark(["question", "respond", key, "--session", session, "--responder", question["current_responder"], "--summary", question["summary"], "--evidence-pointer", pointers["evidence_pointer"]], scratch_root)
+        run_shark(["question", "resolve", key, "--owner", question["owner"], "--resolution-kind", question["resolution_kind"], "--resolution-pointer", pointers["resolution_pointer"]], scratch_root)
         routed.append({**question, "session_id": session, "terminal_result": question["resolution_kind"]})
     return routed
 

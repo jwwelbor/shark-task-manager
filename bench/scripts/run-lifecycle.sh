@@ -162,6 +162,35 @@ def run_command(shark, args, cwd):
     return load_json(completed.stdout, f"shark {' '.join(args)}")
 
 
+def pre_dispatch_gates(scenario_path, scenario, scratch):
+    fixture = scenario.get("fixture") or {}
+    fixture_root = Path(fixture.get("submodule_path", scenario_path.parent)).resolve()
+    evaluator_root = (scenario_path.parent / "evaluator").resolve()
+    replay_reference = scenario.get("replay_reference")
+    if scenario.get("entity_family") == "feature":
+        if not isinstance(replay_reference, str) or not replay_reference.strip():
+            raise RuntimeError("feature scenario is missing replay_reference")
+        package_root = scenario_path.parent.resolve()
+        bundle_path = (package_root / replay_reference).resolve()
+        try:
+            bundle_path.relative_to(package_root)
+        except ValueError as exc:
+            raise RuntimeError("replay_reference escapes the scenario package") from exc
+        if not bundle_path.is_file():
+            raise RuntimeError(f"replay bundle is missing: {bundle_path}")
+        bundle = load_json(bundle_path.read_text(encoding="utf-8"), "replay bundle")
+        binding = bundle.get("scenario_binding")
+        if not isinstance(binding, dict) or binding.get("scenario_id") != scenario.get("scenario_id"):
+            raise RuntimeError("replay bundle scenario_binding.scenario_id does not match the scenario")
+        if binding.get("scenario_version") != scenario.get("scenario_version"):
+            raise RuntimeError("replay bundle scenario_binding.scenario_version does not match the scenario")
+        guard = Path(os.environ["LIFECYCLE_BENCH_DIR"]) / "scripts" / "verify-replay-isolation.sh"
+        process = subprocess.run([str(guard), str(bundle_path), str(fixture_root), str(scratch)], text=True, capture_output=True, check=False)
+        if process.returncode != 0:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(f"replay isolation gate rejected the roots: {detail}")
+
+
 def write_partial(path, record):
     partial = path.with_suffix(path.suffix + ".partial")
     partial.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
@@ -374,7 +403,7 @@ def main(argv):
     identity["run_id"] = args["run_id"]
     identity["roots"]["scratch_shark_project"] = str(scratch)
     identity["shark_binary_digest"] = sha256_file(Path(resolved_shark))
-    candidate = candidate_identity(Path.cwd())
+    pre_dispatch_gates(scenario_path, scenario, scratch)
     record = make_record(identity, args["root"], scratch, limits)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
@@ -431,6 +460,7 @@ def main(argv):
                 raise RuntimeError(f"prompt digest or byte-count mismatch for {entity}")
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
+            candidate = candidate_identity(Path.cwd())
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
