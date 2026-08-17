@@ -506,11 +506,7 @@ test_g() {
 	local canary_stub="$STUBBIN/canary-runsurface.sh"
 
 	# (i) explicit override, canary exits 0 -> provisioning proceeds normally.
-	cat >"$canary_stub" <<'EOF'
-#!/usr/bin/env bash
-echo "invoked" >>"${STUB_CANARY_INVOCATIONS:?}"
-exit 0
-EOF
+	cp "$SCRIPTS_DIR/testdata/stubs/canary-pass.sh" "$canary_stub"
 	chmod +x "$canary_stub"
 
 	local out1="$WORKDIR/g1-out" inv1="$WORKDIR/g1-invocations"
@@ -528,12 +524,7 @@ EOF
 
 	# (ii) explicit override, canary exits 1 naming a field -> aborts BEFORE
 	# provisioning.
-	cat >"$canary_stub" <<'EOF'
-#!/usr/bin/env bash
-echo "invoked" >>"${STUB_CANARY_INVOCATIONS:?}"
-echo "canary: RunResult field 'stages_completed' is missing" >&2
-exit 1
-EOF
+	cp "$SCRIPTS_DIR/testdata/stubs/canary-fail.sh" "$canary_stub"
 	chmod +x "$canary_stub"
 
 	local out2="$WORKDIR/g2-out" inv2="$WORKDIR/g2-invocations"
