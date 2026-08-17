@@ -341,7 +341,7 @@ Shark state.
 retained as evidence; heartbeat at the TTL boundary fails closed; release is
 once-only on every path; a process exit code alone never becomes `complete`.
 
-**Executable boundary matrix:** `tc061_lifecycle_runner_loop_test.sh` sets
+**Planned executable boundary matrix:** `tc061_lifecycle_runner_loop_test.sh` is intended to set
 `LIFECYCLE_CLOCK_FILE=bench/scripts/testdata/lifecycle/clock/{before,equal,after}-ttl.ndjson`
 and `SHARK_CLAIM_TTL_SECONDS=3`. The file-backed clock records claim at
 `2026-08-17T12:00:00Z`, an allowed heartbeat at `12:00:00.999Z`, an equal
@@ -378,7 +378,7 @@ and one candidates are valid boundaries; duplicate/cyclic/changed sets fail
 validation. Every eligible descendant appears exactly once or the run is
 explicitly ineligible.
 
-**Executable fork canary:** `bench/scripts/testdata/lifecycle/bin/argv-canary`
+**Planned executable fork canary:** `bench/scripts/testdata/lifecycle/bin/argv-canary`
 is a real executable invoked by the adapter; the PATH stub replaces only the
 external `shark` binary. It writes JSON arrays, not a shell-joined string, to
 `bench/runs/tc004/canary-argv.ndjson`, including `argv`, `RUNNER_ID`,
@@ -415,7 +415,7 @@ non-positive/missing policy is rejected before provider work; a partial record
 never claims `complete`; unavailable observations are explicit invalid stops,
 not zero consumption.
 
-**Executable observation matrix:** `tc062_lifecycle_runner_limits_test.sh`
+**Planned executable observation matrix:** `tc062_lifecycle_runner_limits_test.sh`
 reads I-04 `resource_policy` from
 `bench/scripts/testdata/lifecycle/limits/{cost,wall,tasks,equality,first-exceed,
 simultaneous,overshoot,unavailable}.yaml`, usage from
@@ -452,7 +452,7 @@ unchanged and join to the exact candidate and workflow-policy identity.
 `zero_findings`; raw bytes remain unchanged and confirmation/deduplication is
 not performed by F08.
 
-**Executable invalidity matrix:** `tc063_review_finding_capture_test.sh` runs
+**Planned executable invalidity matrix:** `tc063_review_finding_capture_test.sh` is intended to run
 `review/{findings,zero-findings,collector-failure,unreached,duplicate-gate,
 missing-gate-id,malformed-finding,missing-candidate-ref,missing-policy-ref,
 multiple-rounds}.json` through the real collector file path and then
@@ -672,7 +672,7 @@ The retained run also exercises bounded resume: same-worker follow-up,
 immutable replacement-worker fallback, unsupported retirement, and refusal to
 advance after an unacknowledged background worker.
 
-**Executable X-11 decision table:** `tc061` runs four fixtures:
+**Planned executable X-11 decision table:** `tc061` is intended to run four fixtures:
 `resume/same-worker`, `resume/immutable-replacement`,
 `resume/unsupported-retirement`, and `resume/unacknowledged-background`.
 The first sends the same `worker_id` and immutable handoff to the documented
@@ -716,7 +716,7 @@ The exact command path is `shark next <question-key> --json`,
 **Negative case:** Transcript-only text or a worker recommendation cannot close
 the Question.
 
-**Executable X-13 assertions:** The authorized fixture must show the exact
+**Planned executable X-13 assertions:** The authorized fixture must show the exact
 `question_block.question_key`, `current_responder`, claim `session_id`,
 `--responder`, `--owner`, `--evidence-pointer`, `--resolution-kind`, and
 `--resolution-pointer` in `events.ndjson`, plus the post-resolution Question

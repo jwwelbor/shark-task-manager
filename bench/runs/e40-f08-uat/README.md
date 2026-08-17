@@ -18,5 +18,6 @@ bench/scripts/tests/tc065_prelude_question_isolation_test.sh
 
 The retained records below preserve selected terminal and publication predicates;
 they are evidence summaries, not authoritative Shark workflow state or a full
-UAT transcript. The originating test fixtures and run artifacts are the source
-for detailed dispatch, Question, and integrity evidence.
+UAT transcript. Detailed dispatch, Question, and integrity artifacts are not
+retained in this summary-only change; they must be supplied by the originating
+UAT run before this summary can serve as an independent UAT record.
