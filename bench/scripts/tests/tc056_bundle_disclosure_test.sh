@@ -68,7 +68,10 @@ fail() {
 [[ -f "$ROOTS_DIR/planted-scratch-project/archive/backup-notes.txt" ]] || fail "planted-scratch-project has no renamed bundle copy"
 
 WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
+cleanup() {
+	chmod -R u+rwX "$WORKDIR" 2>/dev/null || true
+	rm -rf "$WORKDIR"
+}
 trap cleanup EXIT
 
 # fresh_roots <case_name> <fixture_checkout_src> <scratch_project_src> --
@@ -83,6 +86,17 @@ fresh_roots() {
 	cp -r "$ROOTS_DIR/$fc_src/." "$fc_dst/"
 	cp -r "$ROOTS_DIR/$sp_src/." "$sp_dst/"
 	echo "$fc_dst" "$sp_dst"
+}
+
+# Permission failures must be exercised as an unprivileged reader when the
+# suite itself runs as root (where chmod 000 would otherwise remain readable).
+run_as_scan_user() {
+	if [[ "$(id -u)" -eq 0 ]] && command -v runuser >/dev/null 2>&1 && id nobody >/dev/null 2>&1; then
+		chmod 755 "$WORKDIR"
+		runuser -u nobody -- "$@"
+	else
+		"$@"
+	fi
 }
 
 # ---------------------------------------------------------------------------
@@ -263,5 +277,99 @@ set -e
 [[ "$(cat "$out")" == "CLEAN" ]] || fail "case (g): stdout was $(cat "$out"), want CLEAN"
 
 echo "TC-056(case g: self-referential symlinked directory -> guard terminates and reports CLEAN, no infinite loop) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (h): a bundle copy hidden below .git must still be found. The guard
+# scans the complete reachable tree; .git is not a trust boundary.
+# ---------------------------------------------------------------------------
+echo "TC-056: case (h) - bundle hidden below .git fails closed as disclosure"
+
+read -r FC_H SP_H < <(fresh_roots "case-h" "clean-fixture-checkout" "clean-scratch-project")
+mkdir -p "$FC_H/.git/objects/pack"
+PLANTED_H="$FC_H/.git/objects/pack/hidden-copy"
+cp "$BUNDLE" "$PLANTED_H"
+
+out="$WORKDIR/h.out"
+err="$WORKDIR/h.err"
+set +e
+"$VERIFY_ISOLATION" "$BUNDLE" "$FC_H" "$SP_H" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 1 ]] || fail "case (h): verifier exited $code with the bundle hidden below .git, want 1: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "bundle_bulk_disclosure" "$err" || fail "case (h): .git-hidden disclosure was not reported: $(cat "$err")"
+grep -qF "path=$PLANTED_H" "$err" || fail "case (h): failure did not name the .git-hidden copy $PLANTED_H: $(cat "$err")"
+
+echo "TC-056(case h: .git-hidden bundle copy -> bundle_bulk_disclosure naming exact path) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (i): a deep tree must be scanned iteratively and still find the same
+# planted copy. This protects the round-2 RecursionError follow-up.
+# ---------------------------------------------------------------------------
+echo "TC-056: case (i) - deep tree remains scannable without recursion failure"
+
+read -r FC_I SP_I < <(fresh_roots "case-i" "clean-fixture-checkout" "clean-scratch-project")
+DEEP_I="$FC_I"
+for _ in $(seq 1 1100); do
+	DEEP_I="$DEEP_I/d"
+	mkdir "$DEEP_I"
+done
+PLANTED_I="$DEEP_I/deep-copy"
+cp "$BUNDLE" "$PLANTED_I"
+
+out="$WORKDIR/i.out"
+err="$WORKDIR/i.err"
+set +e
+timeout 15 "$VERIFY_ISOLATION" "$BUNDLE" "$FC_I" "$SP_I" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -ne 124 ]] || fail "case (i): verifier timed out walking the deep tree"
+[[ "$code" -eq 1 ]] || fail "case (i): verifier exited $code on a deep planted copy, want 1: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "bundle_bulk_disclosure" "$err" || fail "case (i): deep-tree disclosure was not reported: $(cat "$err")"
+grep -qF "path=$PLANTED_I" "$err" || fail "case (i): failure did not name the deep planted copy: $(cat "$err")"
+
+echo "TC-056(case i: deep planted copy -> bundle_bulk_disclosure without RecursionError) PASS"
+
+# ---------------------------------------------------------------------------
+# Case (j)/(k): unreadable directories and files are scan errors, not CLEAN.
+# Run these as nobody when necessary so the permission denial is real even
+# when the test runner is root.
+# ---------------------------------------------------------------------------
+echo "TC-056: case (j) - unreadable directory fails closed instead of CLEAN"
+
+read -r FC_J SP_J < <(fresh_roots "case-j" "clean-fixture-checkout" "clean-scratch-project")
+mkdir -p "$FC_J/blocked"
+cp "$BUNDLE" "$FC_J/blocked/hidden-copy"
+chmod 000 "$FC_J/blocked"
+
+out="$WORKDIR/j.out"
+err="$WORKDIR/j.err"
+set +e
+run_as_scan_user "$VERIFY_ISOLATION" "$BUNDLE" "$FC_J" "$SP_J" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 2 ]] || fail "case (j): verifier exited $code for an unreadable directory, want 2: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "cannot list scan directory" "$err" || fail "case (j): unreadable directory did not produce a scan error: $(cat "$err")"
+[[ "$(cat "$out")" != "CLEAN" ]] || fail "case (j): unreadable directory was silently reported CLEAN"
+
+echo "TC-056(case j: unreadable directory -> scan error, never CLEAN) PASS"
+
+echo "TC-056: case (k) - unreadable file fails closed instead of CLEAN"
+
+read -r FC_K SP_K < <(fresh_roots "case-k" "clean-fixture-checkout" "clean-scratch-project")
+PLANTED_K="$FC_K/unreadable-copy"
+cp "$BUNDLE" "$PLANTED_K"
+chmod 000 "$PLANTED_K"
+
+out="$WORKDIR/k.out"
+err="$WORKDIR/k.err"
+set +e
+run_as_scan_user "$VERIFY_ISOLATION" "$BUNDLE" "$FC_K" "$SP_K" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 2 ]] || fail "case (k): verifier exited $code for an unreadable file, want 2: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "cannot read scan file" "$err" || fail "case (k): unreadable file did not produce a scan error: $(cat "$err")"
+[[ "$(cat "$out")" != "CLEAN" ]] || fail "case (k): unreadable file was silently reported CLEAN"
+
+echo "TC-056(case k: unreadable file -> scan error, never CLEAN) PASS"
 
 echo "TC-056: PASS"

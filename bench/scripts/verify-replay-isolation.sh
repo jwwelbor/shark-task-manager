@@ -153,7 +153,7 @@ def sha256_of_file(path):
 
 
 def walk_files(root):
-    """Deterministic, sorted, .git-excluding file walk (REQ-NF-004: byte-
+    """Deterministic, sorted file walk (REQ-NF-004: byte-
     identical verdicts across repeated runs over an unchanged root) that
     ALSO descends into symlinked subdirectories (Code Review Kickback
     Round 2, Finding A): a bare os.walk(root) (no followlinks=True) never
@@ -197,23 +197,25 @@ def walk_files(root):
         dirpath = stack.pop()
         try:
             key = _dir_key(dirpath)
-        except OSError:
-            continue
+        except OSError as exc:
+            raise ScriptError(f"cannot stat scan directory {dirpath}: {exc}") from exc
         if key in visited:
             continue
         visited.add(key)
         try:
             entries = sorted(os.listdir(dirpath))
-        except OSError:
-            continue
+        except OSError as exc:
+            raise ScriptError(f"cannot list scan directory {dirpath}: {exc}") from exc
         subdirs = []
         for name in entries:
             full = os.path.join(dirpath, name)
-            if os.path.isdir(full):  # follows symlinks
-                if name != ".git":  # mirrors the original's dirnames-only .git prune
+            try:
+                if os.path.isdir(full):  # follows symlinks
                     subdirs.append(full)
-            elif os.path.isfile(full):  # follows symlinks
-                yield full
+                elif os.path.isfile(full):  # follows symlinks
+                    yield full
+            except OSError as exc:
+                raise ScriptError(f"cannot inspect scan path {full}: {exc}") from exc
         # Push in reverse so the stack (LIFO) still visits subdirectories in
         # sorted order -- REQ-NF-004 determinism, matching the recursive
         # form this replaces.
@@ -235,8 +237,8 @@ def find_bulk_disclosure(root_name, root_path, bundle_digest):
         try:
             with open(path, "rb") as f:
                 file_bytes = f.read()
-        except OSError:
-            continue
+        except OSError as exc:
+            raise ScriptError(f"cannot read scan file {path}: {exc}") from exc
         if hashlib.sha256(file_bytes).hexdigest() == bundle_digest:
             return (root_name, path)
     return None
