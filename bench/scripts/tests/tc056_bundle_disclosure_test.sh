@@ -372,4 +372,24 @@ grep -q "cannot read scan file" "$err" || fail "case (k): unreadable file did no
 
 echo "TC-056(case k: unreadable file -> scan error, never CLEAN) PASS"
 
+echo "TC-056: case (l) - inaccessible symlink target fails closed instead of CLEAN"
+
+read -r FC_L SP_L < <(fresh_roots "case-l" "clean-fixture-checkout" "clean-scratch-project")
+TARGET_L="$WORKDIR/case-l/blocked-target"
+mkdir -p "$TARGET_L"
+ln -s "$TARGET_L" "$FC_L/inaccessible-target"
+chmod 000 "$TARGET_L"
+
+out="$WORKDIR/l.out"
+err="$WORKDIR/l.err"
+set +e
+run_as_scan_user "$VERIFY_ISOLATION" "$BUNDLE" "$FC_L" "$SP_L" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 2 ]] || fail "case (l): verifier exited $code for an inaccessible symlink target, want 2: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -Eq "cannot (inspect scan path|list scan directory)" "$err" || fail "case (l): inaccessible symlink target did not produce a scan error: $(cat "$err")"
+[[ "$(cat "$out")" != "CLEAN" ]] || fail "case (l): inaccessible symlink target was silently reported CLEAN"
+
+echo "TC-056(case l: inaccessible symlink target -> scan error, never CLEAN) PASS"
+
 echo "TC-056: PASS"

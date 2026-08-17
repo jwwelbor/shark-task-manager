@@ -116,6 +116,7 @@ if [[ $# -eq 3 ]]; then
 	python3 - "$bundle_path_abs" "$fixture_checkout_abs" "$scratch_project_abs" "$I05_SCHEMA" <<'PYEOF2'
 import hashlib
 import os
+import stat
 import sys
 
 import yaml
@@ -210,9 +211,10 @@ def walk_files(root):
         for name in entries:
             full = os.path.join(dirpath, name)
             try:
-                if os.path.isdir(full):  # follows symlinks
+                entry_stat = os.stat(full)  # follows symlinks and preserves OSError
+                if stat.S_ISDIR(entry_stat.st_mode):
                     subdirs.append(full)
-                elif os.path.isfile(full):  # follows symlinks
+                elif stat.S_ISREG(entry_stat.st_mode):
                     yield full
             except OSError as exc:
                 raise ScriptError(f"cannot inspect scan path {full}: {exc}") from exc
