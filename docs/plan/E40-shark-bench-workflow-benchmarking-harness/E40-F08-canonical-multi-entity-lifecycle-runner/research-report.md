@@ -151,4 +151,3 @@ second workflow engine, claim store, or Question store.
 - `internal/models/validation.go` and `internal/sharkdata/default_data/prompts/feature/{code_review,qa,approval}.md` (review-finding type and producer metadata).
 
 RECOMMENDED OUTCOME: pass
-
