@@ -1,4 +1,4 @@
-# E40-F08 retained UAT evidence
+# E40-F08 retained UAT evidence summaries
 
 Run date: 2026-08-17
 
@@ -16,5 +16,7 @@ bench/scripts/tests/tc064_lifecycle_runner_offline_determinism_test.sh
 bench/scripts/tests/tc065_prelude_question_isolation_test.sh
 ```
 
-The retained records below preserve the terminal and publication predicates;
-they are evidence summaries, not substitutes for Shark workflow state.
+The retained records below preserve selected terminal and publication predicates;
+they are evidence summaries, not authoritative Shark workflow state or a full
+UAT transcript. The originating test fixtures and run artifacts are the source
+for detailed dispatch, Question, and integrity evidence.

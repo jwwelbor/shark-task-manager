@@ -5,6 +5,7 @@
   "terminal_outcome": "resource_limit",
   "partial_evidence": true,
   "publication_eligible": false,
+  "summary_only": true,
   "completed_from_process_exit": false,
   "evidence": ["tc062_lifecycle_runner_limits_test.sh"]
 }

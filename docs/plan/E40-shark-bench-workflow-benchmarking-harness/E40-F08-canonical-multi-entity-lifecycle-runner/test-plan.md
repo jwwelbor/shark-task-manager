@@ -3,7 +3,7 @@
 **Created:** 2026-08-16
 **Feature PRD:** `docs/plan/E40-shark-bench-workflow-benchmarking-harness/E40-F08-canonical-multi-entity-lifecycle-runner/feature.md`
 **Task Spec:** `docs/plan/E40-shark-bench-workflow-benchmarking-harness/E40-F08-canonical-multi-entity-lifecycle-runner/spec.md`
-**Status:** APPROVED (fresh Codex red-team defect-class sweep complete)
+**Status:** APPROVED FOR IMPLEMENTATION PLANNING (not implementation completion)
 
 ## Spec Drift Analysis
 
@@ -626,7 +626,7 @@ security, maintainability, portability.
 
 **Input:** Run `make fmt && make lint && make test`, then
 `bench/scripts/tests/run-all.sh`; inspect the diff and registration for
-TC-060 through TC-064.
+TC-060 through TC-066.
 
 **Expected outcome:** All commands pass; new tests are registered; no
 `internal/`, `cmd/`, database, migration, workflow-engine, or second-store
@@ -889,11 +889,11 @@ owned by their existing epics.
 
 ## Recommendations
 
-- [x] Ready for development
+- [x] Ready for implementation planning
 - [ ] Needs BA refinement
 - [ ] Needs tech refinement
 
-**Final recommendation:** APPROVED. The named defect class was swept across
+**Final recommendation:** APPROVED FOR IMPLEMENTATION PLANNING. The named defect class was swept across
 all 12 categories and all relevant TCs; the structural guard is part of the
 planned acceptance surface. This approval is for the test plan only, not for
 implementation or shipped behavior.

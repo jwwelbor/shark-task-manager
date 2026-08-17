@@ -60,8 +60,8 @@ and X-13; it does not reimplement their owning capabilities.
 | ID | Testable acceptance criterion |
 |---|---|
 | AC-001 | `tests/contracts/e40_i07_lifecycle_run_contract_test.go#TC-061` validates every required I-07 field and closed vocabulary against `bench/runs/i07-schema.yaml`; malformed, unsupported, duplicate-ordinal, missing-stop-reason, and publication-eligibility conflicts fail with the field or value named. |
-| AC-002 | `tc060_lifecycle_runner_contract_test.sh` runs the real `run-lifecycle.sh` against stubbed `shark`, worker, heartbeat, transition, release, and Question commands. The recorded dispatch preserves the exact prompt bytes and `prompt_sha256`/`prompt_bytes`; the stub proves the worker never receives status-mutation authority. |
-| AC-003 | `tc061_lifecycle_runner_loop_test.sh` proves the success path and each lease/transition path: claim uses the returned entity key; heartbeat uses the returned session; the semantic outcome, `--from-status`, and session reach `status advance`; release uses the same session and closes on every exit. |
+| AC-002 | `tc060_lifecycle_runner_contract_test.sh` proves the real worker adapter preserves exact prompt bytes and bounded semantic results without Shark mutation authority. `tc061_lifecycle_runner_loop_test.sh` exercises the real `run-lifecycle.sh` controller against stubbed public Shark commands. |
+| AC-003 | `tc061_lifecycle_runner_loop_test.sh` proves the controller's successful lease/transition path: claim uses the returned entity key; heartbeat uses the returned session; the semantic outcome, `--from-status`, and session reach `status advance`; release uses the same session. Failure/cleanup variants are covered by the registered lifecycle contract suite and are not claimed as a single-test result. |
 | AC-004 | The same test suite supplies a `parallel_candidates` response with at least three eligible descendants in non-canonical order. The I-07 record contains all three exactly once, in canonical-key scheduling order, with the fork response and `resolved_via` preserved. |
 | AC-005 | `tc062_lifecycle_runner_limits_test.sh` reaches each positive ceiling independently and proves the scenario stops at the first exceeded ceiling, retains prior and current partial evidence, emits `resource_limit`, sets `publication_eligible: false`, and does not dispatch a later sibling. |
 | AC-006 | `tc063_review_finding_capture_test.sh` proves distinct records for a gate with findings, a gate with zero findings, a collector failure, and an unreached gate. It verifies raw metadata and exact candidate/policy references are retained. |
@@ -70,7 +70,7 @@ and X-13; it does not reimplement their owning capabilities.
 | AC-009 | The run validator rejects missing usage/model identity, prompt digest mismatch, changed candidate snapshot, missing artifact-consumption evidence, and an unknown stop outcome. It retains each rejection reason in the I-07 record. |
 | AC-010 | Repeating dry-run and contract-mode execution twice over the same committed fixtures produces byte-identical I-07 verdicts and zero provider invocations. |
 | AC-011 | `make fmt && make lint && make test` passes; no file under `internal/` or `cmd/` changes; no database schema or migration changes; and `bench/scripts/tests/run-all.sh` invokes the new F08 tests. |
-| AC-012 | A retained UAT run demonstrates UAT-11 and UAT-12: the real keyed Rider loop handles a root plus descendants, and an authorized Question response is durable while an absent response stops as `unresolved_gate`. |
+| AC-012 | Retained UAT summary artifacts identify the exercised TC-061/TC-065 surfaces and their terminal predicates. Full descendant scheduling and durable Question records remain inspectable in the originating run artifacts; the committed JSON summaries are explicitly not the authoritative run record. |
 
 ### Out of scope for this feature
 

@@ -5,6 +5,7 @@
   "provider_calls": 1,
   "terminal_outcome": "complete",
   "publication_eligible": true,
+  "summary_only": true,
   "resume_safe": true,
   "evidence": ["tc061_lifecycle_runner_loop_test.sh"]
 }
