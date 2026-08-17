@@ -150,6 +150,14 @@ def scratch_content_digest(root):
     return sha256_bytes(bytes(material))
 
 
+def refresh_candidate(candidate, scratch):
+    candidate["scratch_content_digest"] = scratch_content_digest(scratch)
+    candidate["identity_digest"] = canonical_digest(
+        {key: value for key, value in candidate.items() if key not in {"identity_digest", "snapshot_digest"}}
+    )
+    candidate["snapshot_digest"] = canonical_digest(candidate)
+
+
 def timestamp():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -486,9 +494,6 @@ def main(argv):
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
             candidate = candidate_identity(Path.cwd())
-            candidate["scratch_content_digest"] = scratch_content_digest(scratch)
-            candidate["identity_digest"] = canonical_digest({key: value for key, value in candidate.items() if key not in {"identity_digest", "snapshot_digest"}})
-            candidate["snapshot_digest"] = canonical_digest(candidate)
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
@@ -562,6 +567,7 @@ def main(argv):
             record["limits"]["observed_cost_usd"] += cost
             record["limits"]["observed_wall_clock_seconds"] = elapsed
             record["limits"]["observed_generated_tasks"] = generated
+            refresh_candidate(candidate, scratch)
             stage_candidate = dict(candidate)
             dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
             record["stages"].append(stage_record(dispatch, stage_candidate))
