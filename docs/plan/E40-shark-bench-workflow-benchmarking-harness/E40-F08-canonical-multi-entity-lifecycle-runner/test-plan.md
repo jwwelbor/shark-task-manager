@@ -878,7 +878,7 @@ then validates every I/X staged metadata row and every emitted I-07/event/
 metric/trace evidence file for required fields, pointers, digests, owner and
 closure slices, live status, gate/disposition metadata, redaction, ordering,
 and publication eligibility. `run-all.sh` must invoke this validator and all
-TC-060..TC-064; any schema addition without a corresponding generated attack
+TC-060..TC-066; any schema addition without a corresponding generated attack
 fixture fails the contract test.
 
 **No out-of-scope items:** This sweep changes only this test-plan document. It
