@@ -261,8 +261,8 @@ try:
     declared_content_root = (i05.get("content_root") or i05.get("shark_data_root") or identity.get("content_root")) if isinstance(i05, dict) else None
     if declared_content_root:
         derived_content_digest = content_digest(declared_content_root)
-        if derived_content_digest:
-            identity["shark_content_digest"] = derived_content_digest
+        if derived_content_digest and identity.get("shark_content_digest") != derived_content_digest:
+            reasons.append(reason("identity_mismatch", "/identity/shark_content_digest", "declared content digest disagrees with independently computed content"))
 
     # Producer-side identity validation is deliberately strict. The
     # comparator cannot repair an incomplete record after it has been emitted:

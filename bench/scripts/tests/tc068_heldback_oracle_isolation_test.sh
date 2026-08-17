@@ -4,6 +4,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+! rg -q 'events\[-1\]' "$SCRIPT_DIR/../run-heldback-oracle.sh" || {
+  echo "TC-068: oracle must not select provenance from an unrelated last event" >&2
+  exit 1
+}
+
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 ORACLE="$REPO_ROOT/bench/scripts/run-heldback-oracle.sh"
 

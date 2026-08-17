@@ -12,6 +12,10 @@ EVALUATOR="$REPO_ROOT/bench/scripts/evaluate-lifecycle.sh"
   echo "TC-067: evaluator must not fabricate workflow-policy identity" >&2
   exit 1
 }
+! rg -q 'identity\["shark_content_digest"\]\s*=' "$EVALUATOR" || {
+  echo "TC-067: evaluator must not overwrite producer content identity" >&2
+  exit 1
+}
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/i05"

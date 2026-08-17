@@ -68,7 +68,7 @@ backup_checkout = None
 def restore_checkout():
     global backup_root, backup_checkout
     if not backup_checkout or not os.path.isdir(backup_checkout):
-        return
+        return True
     restored = args.checkout + ".f09-restore"
     if os.path.lexists(restored):
         shutil.rmtree(restored)
@@ -80,7 +80,7 @@ def restore_checkout():
         shutil.rmtree(backup_root, ignore_errors=True)
         backup_root = backup_checkout = None
         return True
-    except OSError:
+    except (OSError, shutil.Error):
         shutil.rmtree(restored, ignore_errors=True)
         return False
 
@@ -163,12 +163,24 @@ try:
 
     access_path = os.path.join(args.stage_bundle, "access.jsonl")
     events = load_rows(access_path) if os.path.isfile(access_path) else []
+    requested_sources = set(sources)
+    source_events = {}
+    unrelated = []
+    for event in events:
+        if event.get("accessor") != "f09-heldback-oracle":
+            continue
+        source = event.get("artifact_path")
+        if source not in requested_sources or not event.get("destination"):
+            unrelated.append(event)
+            continue
+        source_events.setdefault(source, []).append(event)
+    if unrelated or set(source_events) != requested_sources or any(len(items) != 1 for items in source_events.values()):
+        finish(invalid("isolation_violation", "/execution_oracle/access_event", "access log must contain exactly one source-specific event for each requested oracle source and no unrelated oracle events"), 1)
     injected = []
     collisions = []
     checkout_root = os.path.realpath(args.checkout)
-    for event in events:
-        if event.get("accessor") != "f09-heldback-oracle" or not event.get("destination"):
-            continue
+    validated_events = [source_events[source][0] for source in sources]
+    for event in validated_events:
         destination = event["destination"]
         destination_abs = os.path.realpath(os.path.join(args.checkout, destination))
         if not destination_abs.startswith(checkout_root + os.sep):
@@ -278,7 +290,7 @@ try:
         reasons.append({"code": "evaluator_only_residue", "path": "/execution_oracle/cleanup", "detail": "post-cleanup root scan found: " + ",".join(sorted(residue)[:8])})
     reference = evaluator.get("reference_solution")
     reference_path = os.path.realpath(os.path.join(package_root, reference)) if isinstance(reference, str) else ""
-    result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": events[-1] if events else None, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
+    result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": validated_events, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
     finish(result, 0 if not reasons else 1)
 except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     finish(invalid("source_malformed", "/input", str(exc)), 2)
