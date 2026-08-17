@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "scenario_id": "py-feature-recurring-tasks",
+    "scenario_version": 1,
+    "entity_family": "feature"
+  },
+  "run_id": "run-invalid-0006",
+  "replay_bundle": {
+    "replay_reference": "evaluator/replay/reference-bundle.json",
+    "bundle_path": "bench/scenarios/packages/py-feature-recurring-tasks/evaluator/replay/reference-bundle.json",
+    "bundle_digest": "54bc5a91883d456ed243a42ddfc113968067eeb744f67a6c31d6a1ec820bc098",
+    "bundle_version": "1"
+  },
+  "preamble_digest": "892d185ce2a318a500a5d913c1a1b727834d8c1475c64b9ee7a81b4004d9a49a",
+  "artifact_root": {
+    "path": "/tmp/scratch-shark-project",
+    "identity_digest": "f2653f4c0c898ae26702f4905ce0c2af3b92748bd792d41ab9ff55037bc4c29c",
+    "root_kind": "scratch_shark_project"
+  },
+  "stages": [
+    { "stage": "D01", "applicable": true, "artifacts": [], "consumed_entries": [] },
+    { "stage": "D02", "applicable": true, "artifacts": [], "consumed_entries": [] },
+    {
+      "stage": "D03",
+      "applicable": false,
+      "reason": "stopped before D03: no unconsumed bundle entry remained for D03/research_query/competitor_scan",
+      "artifacts": [],
+      "consumed_entries": []
+    },
+    {
+      "stage": "D04",
+      "applicable": false,
+      "reason": "not reached -- prelude stopped at D03",
+      "artifacts": [],
+      "consumed_entries": []
+    },
+    {
+      "stage": "D05",
+      "applicable": false,
+      "reason": "not reached -- prelude stopped at D03",
+      "artifacts": [],
+      "consumed_entries": []
+    }
+  ],
+  "replayed_interaction_proxies": {
+    "measurement_kind": "replayed_interaction_proxy",
+    "authorized_request_count": 1,
+    "authorized_response_count": 1,
+    "request_bytes_total": 64,
+    "response_bytes_total": 128,
+    "revision_or_replacement_count": 0,
+    "replay_wait_ns": 900000,
+    "replay_wait_category": "replay_or_human_gate_wait",
+    "unresolved_gate_count": 0
+  },
+  "artifact_consumption_edges": [],
+  "terminal_outcome": "unresolved_gate",
+  "i07_stop_mapping": "unresolved_gate",
+  "publication_eligible": false,
+  "ineligibility_reasons": [
+    "unresolved_gate: D03/research_query/competitor_scan had no unconsumed bundle entry"
+  ]
+}

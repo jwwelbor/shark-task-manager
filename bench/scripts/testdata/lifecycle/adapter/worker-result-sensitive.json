@@ -1,0 +1,14 @@
+{
+  "worker_id": "worker-canary-001",
+  "session_id": "SID-002",
+  "kind": "final",
+  "recommended_outcome": "deep_verify",
+  "evidence": [
+    {"type": "artifact", "path": "runs/tc060/evidence.json", "size_bytes": 42, "transcript": "transcript-line-999"},
+    "credential-sentinel"
+  ],
+  "prompt": "run exact bytes\ncredential-sentinel\n",
+  "transcript": "transcript-line-999",
+  "authorization": "provider-secret-sentinel",
+  "status_advance": "shark status advance E40-F08-CHILD-001"
+}

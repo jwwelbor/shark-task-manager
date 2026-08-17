@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "run_id": "tc055-case-ii",
+  "terminal_outcome": "complete",
+  "stages": [
+    {
+      "stage": "D03",
+      "applicable": true,
+      "artifacts": [
+        {
+          "path": "docs/product/D03-market-research.md",
+          "artifact_type": "document",
+          "consumed_entries": []
+        }
+      ]
+    }
+  ]
+}

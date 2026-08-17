@@ -45,6 +45,20 @@ tests=(
 	"$SCRIPT_DIR/tc049_snapshot_replay_test.sh"
 	"$SCRIPT_DIR/tc050_partial_evidence_test.sh"
 	"$SCRIPT_DIR/tc051_evidence_offline_determinism_test.sh"
+	"$SCRIPT_DIR/tc053_live_egress_denial_test.sh"
+	"$SCRIPT_DIR/tc054_replay_resolver_test.sh"
+	"$SCRIPT_DIR/tc055_lineage_reconciliation_test.sh"
+	"$SCRIPT_DIR/tc056_bundle_disclosure_test.sh"
+	"$SCRIPT_DIR/tc057_non_applicable_record_test.sh"
+	"$SCRIPT_DIR/tc058_prelude_placement_test.sh"
+	"$SCRIPT_DIR/tc059_replay_offline_determinism_test.sh"
+	"$SCRIPT_DIR/tc060_lifecycle_runner_contract_test.sh"
+	"$SCRIPT_DIR/tc061_lifecycle_runner_loop_test.sh"
+	"$SCRIPT_DIR/tc062_lifecycle_runner_limits_test.sh"
+	"$SCRIPT_DIR/tc063_review_finding_capture_test.sh"
+	"$SCRIPT_DIR/tc064_lifecycle_runner_offline_determinism_test.sh"
+	"$SCRIPT_DIR/tc065_prelude_question_isolation_test.sh"
+	"$SCRIPT_DIR/tc066_lifecycle_worker_question_handoff_test.sh"
 )
 
 status=0

@@ -1,0 +1,13 @@
+{
+  "gates": [
+    {
+      "gate_id": "uat",
+      "reached": false,
+      "round": 1,
+      "collector_status": "not_started",
+      "candidate_ref": {"snapshot_digest": "candidate-a"},
+      "policy_ref": {"policy_digest": "policy-a"},
+      "findings": []
+    }
+  ]
+}

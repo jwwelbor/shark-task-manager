@@ -1,0 +1,297 @@
+# I-07 lifecycle run record contract.
+#
+# This file is the single machine-readable owner of the schema version,
+# required JSON pointers, closed vocabularies, and digest rules. The offline
+# validator and downstream E40 consumers must read these values here rather
+# than maintaining private copies.
+schema_version: "1.0"
+
+top_level_fields:
+  - identity
+  - entity_graph
+  - dispatches
+  - stages
+  - workflow_policy
+  - review_gates
+  - questions
+  - limits
+  - outcome
+
+required_fields:
+  - /identity/schema_version
+  - /identity/run_id
+  - /identity/scenario_id
+  - /identity/scenario_version
+  - /identity/fixture_id
+  - /identity/fixture_digest
+  - /identity/adapter_id
+  - /identity/adapter_version
+  - /identity/shark_binary_digest
+  - /identity/shark_content_digest
+  - /identity/roots
+  - /entity_graph/root_key
+  - /entity_graph/root_type
+  - /entity_graph/resolved_via
+  - /entity_graph/fork_candidates
+  - /entity_graph/selected_keys
+  - /entity_graph/selected_types
+  - /entity_graph/ordinals
+  - /entity_graph/ineligible
+  - /dispatches
+  - /dispatches[]/ordinal
+  - /dispatches[]/requested_key
+  - /dispatches[]/response/entity_key
+  - /dispatches[]/response/entity_type
+  - /dispatches[]/response/status
+  - /dispatches[]/response/action
+  - /dispatches[]/response/agent_type
+  - /dispatches[]/response/provider
+  - /dispatches[]/response/model
+  - /dispatches[]/response/effort
+  - /dispatches[]/response/prompt_sha256
+  - /dispatches[]/response/prompt_bytes
+  - /dispatches[]/response/resolved_via
+  - /dispatches[]/response/unresolved_placeholders
+  - /dispatches[]/claim/session_id
+  - /dispatches[]/worker/worker_id
+  - /dispatches[]/worker/session_id
+  - /dispatches[]/worker/kind
+  - /dispatches[]/worker/evidence
+  - /dispatches[]/heartbeats
+  - /dispatches[]/outcome
+  - /dispatches[]/transition
+  - /dispatches[]/release
+  - /dispatches[]/started_at
+  - /dispatches[]/ended_at
+  - /dispatches[]/evidence_refs
+  - /dispatches[]/evidence_refs/prompt_sha256
+  - /dispatches[]/evidence_refs/prompt_bytes
+  - /dispatches[]/evidence_refs/candidate_snapshot_digest
+  - /stages
+  - /stages[]/dispatch_ordinal
+  - /stages[]/stage
+  - /stages[]/category
+  - /stages[]/snapshot_digest
+  - /stages[]/prompt_digest
+  - /stages[]/input_lineage
+  - /stages[]/replay_lineage
+  - /stages[]/output_paths
+  - /stages[]/output_digests
+  - /stages[]/usage
+  - /stages[]/cost_usd
+  - /stages[]/elapsed_seconds
+  - /stages[]/errors
+  - /stages[]/rework
+  - /stages[]/intervals
+  - /stages[]/candidate
+  - /stages[]/candidate/base_commit
+  - /stages[]/candidate/tree_digest
+  - /stages[]/candidate/binary_diff_digest
+  - /stages[]/candidate/changed_path_digest
+  - /stages[]/candidate/dirty_untracked_manifest
+  - /stages[]/candidate/test_suite_digest
+  - /stages[]/candidate/identity_digest
+  - /stages[]/candidate/snapshot_digest
+  - /stages[]/artifacts
+  - /stages[]/artifacts[]/artifact_type
+  - /stages[]/artifacts[]/path
+  - /stages[]/artifacts[]/digest
+  - /stages[]/artifacts[]/size_bytes
+  - /stages[]/artifacts[]/producer_stage
+  - /stages[]/artifacts[]/consumers
+  - /stages[]/access_events
+  - /stages[]/evidence_refs
+  - /workflow_policy/reviewer/provider
+  - /workflow_policy/reviewer/model
+  - /workflow_policy/reviewer/effort
+  - /workflow_policy
+  - /workflow_policy/enabled_gates
+  - /workflow_policy/gate_order
+  - /workflow_policy/reviewer
+  - /workflow_policy/prompt_digest
+  - /workflow_policy/review_bundle_digest
+  - /workflow_policy/fixes_allowed_between_gates
+  - /review_gates
+  - /review_gates[]/gate_id
+  - /review_gates[]/state
+  - /review_gates[]/round
+  - /review_gates[]/findings
+  - /review_gates[]/candidate_ref
+  - /review_gates[]/policy_ref
+  - /review_gates[]/findings[]/gate
+  - /review_gates[]/findings[]/round
+  - /review_gates[]/findings[]/severity
+  - /review_gates[]/findings[]/defect_class
+  - /review_gates[]/findings[]/fingerprint
+  - /review_gates[]/findings[]/criterion
+  - /review_gates[]/findings[]/test
+  - /review_gates[]/findings[]/disposition
+  - /review_gates[]/findings[]/metadata
+  - /review_gates[]/findings[]/raw_bytes
+  - /questions
+  - /questions[]/question_key
+  - /questions[]/current_responder
+  - /questions[]/owner
+  - /questions[]/authorized_entry_digest
+  - /questions[]/request_digest
+  - /questions[]/response_digest
+  - /questions[]/evidence_pointer
+  - /questions[]/terminal_result
+  - /limits
+  - /limits/max_cost_usd
+  - /limits/max_wall_clock_seconds
+  - /limits/max_generated_tasks
+  - /limits/observed_cost_usd
+  - /limits/observed_wall_clock_seconds
+  - /limits/observed_generated_tasks
+  - /limits/first_exceeded
+  - /outcome
+  - /outcome/terminal
+  - /outcome/reason
+  - /outcome/partial_evidence
+  - /outcome/publication_eligible
+
+# These pointers are the fields whose JSON types are stable enough to check
+# before any cross-record join is attempted.
+properties:
+  /identity/schema_version: string
+  /identity/run_id: string
+  /identity/scenario_id: string
+  /identity/scenario_version: string
+  /identity/fixture_id: string
+  /identity/fixture_digest: digest
+  /identity/adapter_id: string
+  /identity/adapter_version: string
+  /identity/shark_binary_digest: digest
+  /identity/shark_content_digest: digest
+  /identity/roots: object
+  /entity_graph/root_key: string
+  /entity_graph/root_type: string
+  /entity_graph/resolved_via: string
+  /entity_graph/fork_candidates: array
+  /entity_graph/selected_keys: array
+  /entity_graph/selected_types: array
+  /entity_graph/ordinals: array
+  /entity_graph/ineligible: array
+  /dispatches: array
+  /stages: array
+  /workflow_policy/enabled_gates: array
+  /workflow_policy/gate_order: array
+  /workflow_policy/reviewer: object
+  /workflow_policy/prompt_digest: digest
+  /workflow_policy/review_bundle_digest: digest
+  /workflow_policy/fixes_allowed_between_gates: boolean
+  /review_gates: array
+  /questions: array
+  /limits/max_cost_usd: number
+  /limits/max_wall_clock_seconds: number
+  /limits/max_generated_tasks: integer
+  /limits/observed_cost_usd: number
+  /limits/observed_wall_clock_seconds: number
+  /limits/observed_generated_tasks: integer
+  /limits/first_exceeded: nullable_string
+  /outcome/terminal: string
+  /outcome/reason: string
+  /outcome/partial_evidence: boolean
+  /outcome/publication_eligible: boolean
+  /dispatches[]/ordinal: integer
+  /dispatches[]/response/prompt_sha256: digest
+  /dispatches[]/response/prompt_bytes: integer
+  /dispatches[]/evidence_refs/prompt_sha256: digest
+  /dispatches[]/evidence_refs/prompt_bytes: integer
+  /dispatches[]/evidence_refs/candidate_snapshot_digest: digest
+  /stages[]/dispatch_ordinal: integer
+  /stages[]/snapshot_digest: digest
+  /stages[]/prompt_digest: digest
+  /stages[]/cost_usd: number
+  /stages[]/elapsed_seconds: number
+  /stages[]/rework: boolean
+  /stages[]/candidate/tree_digest: digest
+  /stages[]/candidate/binary_diff_digest: digest
+  /stages[]/candidate/changed_path_digest: digest
+  /stages[]/candidate/test_suite_digest: digest
+  /stages[]/candidate/identity_digest: digest
+  /stages[]/candidate/snapshot_digest: digest
+  /stages[]/artifacts[]/digest: digest
+  /stages[]/artifacts[]/size_bytes: integer
+
+terminal_outcome:
+  - complete
+  - resource_limit
+  - lease_loss
+  - missing_outcome
+  - unresolved_gate
+  - pause
+  - archive
+  - error
+  - cancellation
+  - worker_failure
+  - timeout
+
+stop_outcome:
+  - resource_limit
+  - lease_loss
+  - missing_outcome
+  - unresolved_gate
+  - pause
+  - archive
+  - error
+  - cancellation
+  - worker_failure
+  - timeout
+
+dispatch_outcome:
+  - pass
+  - fail
+  - resource_limit
+  - lease_loss
+  - missing_outcome
+  - unresolved_gate
+  - pause
+  - archive
+  - error
+  - cancellation
+  - worker_failure
+  - timeout
+
+gate_state:
+  - findings
+  - zero_findings
+  - collection_failure
+  - not_reached
+
+resolved_via:
+  - keyed_dispatch
+  - fork_response
+  - scenario_root
+
+stage_category:
+  - discovery
+  - specification
+  - planning
+  - code
+  - review
+  - qa
+  - uat
+  - shipping
+
+digest_rules:
+  algorithm: sha256
+  encoding: lowercase_hex
+  canonicalization: compact_json_sorted_keys_utf8
+  file_encoding: sha256_raw_bytes
+
+# Values used by the validator when it reports a durable invalidity reason.
+error_kind:
+  - malformed_field
+  - unsupported_outcome
+  - duplicate_dispatch_ordinal
+  - non_monotonic_dispatch_ordinal
+  - missing_stop_reason
+  - publication_eligible_conflict
+  - identity_mismatch
+  - missing_usage_or_model
+  - prompt_digest_mismatch
+  - candidate_snapshot_mismatch
+  - artifact_consumption_record_missing
+  - unsupported_schema_version

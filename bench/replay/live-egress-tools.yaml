@@ -1,0 +1,36 @@
+# bench/replay/live-egress-tools.yaml
+#
+# REQ-F-004: the closed, machine-readable live-egress set a scored prelude
+# dispatch MUST NOT reach. Single owner file (REQ-F-018): both halves of the
+# two-half proof (spec.md "Live-egress set and its two-half proof") read
+# this file at call time rather than embedding a private copy of the tool
+# names, so adding, removing, or re-justifying a tool changes both
+# enforcement and detection with no script edit --
+#   - `bench/scripts/run-prelude.sh`          -- structural denial (belt-and-braces)
+#   - `bench/scripts/verify-replay-isolation.sh` -- observational transcript scan (the binding gate, ADR-F07-03)
+#
+# `WebFetch` is included even though the wrapped bundle's own "Tools Used"
+# section never names it: "a scored run cannot reach live research" is a
+# reachability property of the session, not a documentation property of the
+# bundle (ADR-F07-02) -- WebSearch denial alone would leave a live URL fetch
+# open.
+schema_version: "1.0"
+
+tools:
+  - name: AskUserQuestion
+    reason: >-
+      D01/D02/D05 human elicitation. internal/sharkdata/default_data/skills/product-design/SKILL.md:110
+      ("Elicit, don't invent ... Use AskUserQuestion") and :133 ("All elicitation, approvals, and human
+      decisions") mandate this tool for every human-facing question the wrapped bundle asks. A scored
+      run must resolve these requests through bench/scripts/replay-answer.sh instead of a live prompt.
+  - name: WebSearch
+    reason: >-
+      D03 market research / D04 technical research. SKILL.md:136 ("Market research (D03), technical
+      research (D04)") mandates this tool for the bundle's research stages. A scored run must resolve
+      research requests through bench/scripts/replay-answer.sh instead of a live search.
+  - name: WebFetch
+    reason: >-
+      Not named in the wrapped bundle's own "Tools Used" section, but included on the same
+      tool-name-scoped, session-wide reasoning that puts WebSearch in this set (ADR-F07-02): denying
+      WebSearch alone would leave a live URL fetch reachable, and "cannot reach live research" is a
+      property of what the session can reach, not of what the bundle documents.

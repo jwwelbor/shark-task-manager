@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "bundle_version": "1",
+  "scenario_binding": {
+    "scenario_id": "py-feature-recurring-tasks",
+    "scenario_version": 1
+  },
+  "entries": [
+    {
+      "entry_id": "d01-vision-01",
+      "stage": "D01",
+      "ordinal": 1,
+      "request_kind": "human_question",
+      "topic_key": "target_persona",
+      "required": true,
+      "response": 12345,
+      "response_digest": "c9ec3eee2926b9bf639dd4ec066297addf41c1986e18a447e3363c52bf992aec",
+      "entry_digest": "4161845429ab27aec9a79a4a099247e2cfe34ef1851e26362d5186ef7d1f6bf4"
+    }
+  ]
+}

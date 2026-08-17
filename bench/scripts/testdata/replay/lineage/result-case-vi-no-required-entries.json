@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "run_id": "tc055-case-vi",
+  "terminal_outcome": "complete",
+  "stages": [
+    {
+      "stage": "D05",
+      "applicable": true,
+      "artifacts": [
+        {
+          "path": "docs/product/D05-synthesis.md",
+          "artifact_type": "document",
+          "consumed_entries": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "run_id": "tc055-case-iii",
+  "terminal_outcome": "unresolved_gate",
+  "stages": [
+    {
+      "stage": "D02",
+      "applicable": true,
+      "artifacts": []
+    }
+  ]
+}

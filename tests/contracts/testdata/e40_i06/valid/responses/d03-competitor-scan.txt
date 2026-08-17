@@ -1,0 +1,1 @@
+Two direct competitors were surveyed: neither offers automatic next-occurrence generation on completion; both require manual re-creation of recurring tasks.

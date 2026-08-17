@@ -16,19 +16,29 @@
 # itself; it only returns the envelope shark's own dispatcher parses.
 #
 # Configuration:
-#   STUB_CLAUDE_LOG    optional path to a JSONL log of {"argv":[...]} lines
+#   STUB_CLAUDE_LOG    optional path to a JSONL log of {"argv":[...],"cwd":...} lines
 #   STUB_CLAUDE_EXIT    exit code to return (default 0)
+#
+# T-E40-F07-011: the logged "cwd" field (this process's own actual working
+# directory at invocation time, via os.getcwd() -- never a value passed in
+# by the caller) is what makes tc058's AC-T1 possible: proving
+# run-prelude.sh's REQ-F-015 working-directory pin from the OUTSIDE, the
+# same "observe, do not infer" discipline this feature already applies to
+# argv completeness. Purely additive to the existing {"argv":[...]} shape --
+# every earlier consumer of STUB_CLAUDE_LOG reads specific keys it already
+# expects and is unaffected by the new sibling key.
 set -euo pipefail
 
 if [[ -n "${STUB_CLAUDE_LOG:-}" ]]; then
 	python3 - "$STUB_CLAUDE_LOG" "$@" <<'PYEOF'
 import json
+import os
 import sys
 
 log_path = sys.argv[1]
 argv = sys.argv[2:]
 with open(log_path, "a") as f:
-    f.write(json.dumps({"argv": argv}) + "\n")
+    f.write(json.dumps({"argv": argv, "cwd": os.getcwd()}) + "\n")
 PYEOF
 fi
 
