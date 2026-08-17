@@ -1,0 +1,14 @@
+{
+  "gates": [
+    {
+      "gate_id": "deep_review",
+      "reached": true,
+      "round": 1,
+      "collector_status": "failure",
+      "collector_error": "review command exited 17",
+      "candidate_ref": {"snapshot_digest": "candidate-a"},
+      "policy_ref": {"policy_digest": "policy-a"},
+      "findings": []
+    }
+  ]
+}
