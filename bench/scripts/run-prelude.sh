@@ -412,6 +412,12 @@ def load_package(path):
     if not isinstance(data, dict):
         raise ScriptError(f"package is not a YAML mapping: {path}")
 
+    if (data.get("admission") or {}).get("status") != "admitted":
+        raise Violation(
+            "package_not_admitted",
+            f"scenario package {data.get('scenario_id', path)!r} is not admitted",
+        )
+
     scenario_id = data.get("scenario_id")
     if not scenario_id:
         raise ScriptError(f"package missing scenario_id: {path}")

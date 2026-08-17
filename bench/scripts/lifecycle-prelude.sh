@@ -19,6 +19,7 @@ command -v python3 >/dev/null 2>&1 || {
 
 LIFECYCLE_PRELUDE_BENCH_DIR="$BENCH_DIR" python3 - "$@" <<'PY'
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -135,8 +136,45 @@ def validate_replay(package, replay_path, expected_stages):
     if result.get("terminal_outcome") != "complete":
         raise GateError(f"I-06 replay terminal_outcome is not complete: {result.get('terminal_outcome')!r}")
     scenario = result.get("scenario") or {}
-    if scenario.get("scenario_id") not in (None, package.get("scenario_id")):
-        raise GateError("I-06 replay scenario_id does not match I-04 package")
+    replay_scenario_id = scenario.get("scenario_id")
+    package_scenario_id = package.get("scenario_id")
+    if not isinstance(replay_scenario_id, str) or not replay_scenario_id.strip():
+        raise GateError("I-06 replay is missing scenario.scenario_id")
+    if replay_scenario_id != package_scenario_id:
+        raise GateError(
+            f"I-06 replay scenario_id {replay_scenario_id!r} does not match I-04 package {package_scenario_id!r}"
+        )
+    replay_reference = package.get("replay_reference")
+    if not isinstance(replay_reference, str) or not replay_reference.strip():
+        raise GateError("I-04 package is missing replay_reference")
+    package_dir = Path(package["_package_path"]).parent.resolve()
+    authorized_bundle = (package_dir / replay_reference).resolve()
+    try:
+        authorized_bundle.relative_to(package_dir)
+    except ValueError as exc:
+        raise GateError("I-04 replay_reference escapes the package directory") from exc
+    if not authorized_bundle.is_file():
+        raise GateError(f"I-04 replay_reference bundle is missing: {authorized_bundle}")
+    replay_bundle = result.get("replay_bundle")
+    if not isinstance(replay_bundle, dict):
+        raise GateError("I-06 replay is missing replay_bundle provenance")
+    expected_digest = "sha256:" + hashlib.sha256(authorized_bundle.read_bytes()).hexdigest()
+    recorded_path = replay_bundle.get("bundle_path")
+    if not isinstance(recorded_path, str) or Path(recorded_path).resolve() != authorized_bundle:
+        raise GateError("I-06 replay bundle_path does not match the authorized I-04 replay_reference")
+    if replay_bundle.get("bundle_digest") != expected_digest:
+        raise GateError("I-06 replay bundle_digest does not match the authorized I-04 replay bundle")
+    try:
+        authorized_doc = json.loads(authorized_bundle.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GateError(f"I-04 replay bundle is not readable JSON: {exc}") from exc
+    if replay_bundle.get("bundle_version") != authorized_doc.get("bundle_version"):
+        raise GateError("I-06 replay bundle_version does not match the authorized I-04 replay bundle")
+    binding = authorized_doc.get("scenario_binding") if isinstance(authorized_doc, dict) else None
+    if not isinstance(binding, dict) or binding.get("scenario_id") != package_scenario_id:
+        raise GateError("authorized I-04 replay bundle scenario_binding.scenario_id does not match the package")
+    if binding.get("scenario_version") != package.get("scenario_version"):
+        raise GateError("authorized I-04 replay bundle scenario_binding.scenario_version does not match the package")
     stages = result.get("stages")
     if not isinstance(stages, list):
         raise GateError("I-06 replay result has no stages array")
@@ -181,16 +219,30 @@ def route_questions(result, run_id, scratch_root):
         if any(not str(question.get(field, "")).strip() for field in fields):
             raise GateError(f"Question entry is missing an authorized field: {question.get('question_key', '?')}")
         key = question["question_key"]
+        scratch_real = Path(scratch_root).resolve()
+        pointers = {}
+        for field in ("evidence_pointer", "resolution_pointer"):
+            raw_pointer = question[field]
+            if Path(raw_pointer).is_absolute():
+                raise GateError(f"Question {key} {field} must be relative to the scratch root")
+            resolved_pointer = (scratch_real / raw_pointer).resolve()
+            try:
+                resolved_pointer.relative_to(scratch_real)
+            except ValueError as exc:
+                raise GateError(f"Question {key} {field} escapes the scratch root") from exc
+            pointers[field] = raw_pointer
         next_response = run_shark(["next", key, "--json"], scratch_root)
-        block = next_response.get("question_block") or {}
-        if block.get("question_key") not in (None, key) or block.get("current_responder") not in (None, question["current_responder"]):
+        block = next_response.get("question_block")
+        if not isinstance(block, dict):
+            raise GateError(f"Question {key} next response omitted question_block")
+        if block.get("question_key") != key or block.get("current_responder") != question["current_responder"]:
             raise GateError(f"Question {key} does not match the authorized replay handoff")
         claim = run_shark(["claim", key, "--by", f"bench-{run_id}", "--json"], scratch_root)
         session = claim.get("session_id")
         if not session:
             raise GateError(f"Question {key} claim returned no session_id")
-        run_shark(["question", "respond", key, "--session", session, "--responder", question["current_responder"], "--summary", question["summary"], "--evidence-pointer", question["evidence_pointer"]], scratch_root)
-        run_shark(["question", "resolve", key, "--owner", question["owner"], "--resolution-kind", question["resolution_kind"], "--resolution-pointer", question["resolution_pointer"]], scratch_root)
+        run_shark(["question", "respond", key, "--session", session, "--responder", question["current_responder"], "--summary", question["summary"], "--evidence-pointer", pointers["evidence_pointer"]], scratch_root)
+        run_shark(["question", "resolve", key, "--owner", question["owner"], "--resolution-kind", question["resolution_kind"], "--resolution-pointer", pointers["resolution_pointer"]], scratch_root)
         routed.append({**question, "session_id": session, "terminal_result": question["resolution_kind"]})
     return routed
 
@@ -210,6 +262,7 @@ def main(argv):
     args = parse_args(argv)
     package_path = str(Path(args["scenario"]).resolve())
     package = read_yaml(package_path, "I-04 package")
+    package["_package_path"] = package_path
     if (package.get("admission") or {}).get("status") != "admitted":
         raise GateError("I-04 scenario package is not admitted")
     family = package.get("entity_family")

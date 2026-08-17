@@ -14,6 +14,10 @@ trap 'rm -rf "$WORKDIR"' EXIT
 mkdir -p "$WORKDIR/bin" "$WORKDIR/fixture" "$WORKDIR/scratch" "$WORKDIR/evaluator"
 mkdir -p "$WORKDIR/evaluator/evaluator"
 printf 'fixture reference\n' >"$WORKDIR/evaluator/evaluator/reference.patch"
+mkdir -p "$WORKDIR/evaluator/replay"
+cat >"$WORKDIR/evaluator/replay/bundle.json" <<'JSON'
+{"bundle_version":"1.0.0","scenario_binding":{"scenario_id":"tc065-feature","scenario_version":1},"entries":[]}
+JSON
 
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
@@ -25,6 +29,8 @@ with open(os.environ["SHARK_EVENTS"], "a", encoding="utf-8") as stream:
     stream.write(json.dumps({"argv": args}, separators=(",", ":")) + "\n")
 if args[:2] == ["next", "Q-E40-F08-001"]:
     print(json.dumps({"question_block": {"question_key": "Q-E40-F08-001", "current_responder": "responder-a"}}))
+elif args[:2] == ["next", "Q-E40-F08-002"]:
+    print(json.dumps({"question_block": None}))
 elif args[:2] == ["claim", "Q-E40-F08-001"]:
     print('{"session_id":"SID-Q"}')
 elif args[:2] == ["question", "respond"] or args[:2] == ["question", "resolve"]:
@@ -48,6 +54,7 @@ stage_matrix:
     D04: {applicable: true}
     D05: {applicable: true}
 admission: {status: admitted}
+replay_reference: evaluator/replay/bundle.json
 evaluator_only:
   reference_solution: evaluator/reference.patch
   oracle_tests: []
@@ -74,12 +81,36 @@ evaluator_only:
 YAML
 
 cat >"$WORKDIR/replay-complete.json" <<'JSON'
-{"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"run_id":"tc065","terminal_outcome":"complete","stages":[{"stage":"D01"},{"stage":"D02"},{"stage":"D03"},{"stage":"D04"},{"stage":"D05"}],"questions":[{"question_key":"Q-E40-F08-001","current_responder":"responder-a","owner":"owner-a","summary":"approved","evidence_pointer":"runs/tc065/answer.json","resolution_kind":"accepted","resolution_pointer":"runs/tc065/resolution.json"}]}
+{"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"run_id":"tc065","terminal_outcome":"complete","replay_bundle":{"bundle_path":"$WORKDIR/evaluator/replay/bundle.json","bundle_digest":"REPLACE","bundle_version":"1.0.0"},"stages":[{"stage":"D01"},{"stage":"D02"},{"stage":"D03"},{"stage":"D04"},{"stage":"D05"}],"questions":[{"question_key":"Q-E40-F08-001","current_responder":"responder-a","owner":"owner-a","summary":"approved","evidence_pointer":"runs/tc065/answer.json","resolution_kind":"accepted","resolution_pointer":"runs/tc065/resolution.json"}]}
 JSON
 
 cat >"$WORKDIR/replay-blocked.json" <<'JSON'
 {"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"terminal_outcome":"unresolved_gate","stages":[]}
 JSON
+
+cat >"$WORKDIR/replay-missing-scenario-id.json" <<'JSON'
+{"schema_version":"1.0","scenario":{},"run_id":"tc065","terminal_outcome":"complete","stages":[{"stage":"D01"},{"stage":"D02"},{"stage":"D03"},{"stage":"D04"},{"stage":"D05"}]}
+JSON
+
+cat >"$WORKDIR/replay-missing-question-block.json" <<'JSON'
+{"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"run_id":"tc065","terminal_outcome":"complete","stages":[{"stage":"D01"},{"stage":"D02"},{"stage":"D03"},{"stage":"D04"},{"stage":"D05"}],"questions":[{"question_key":"Q-E40-F08-002","current_responder":"responder-a","owner":"owner-a","summary":"approved","evidence_pointer":"runs/tc065/answer.json","resolution_kind":"accepted","resolution_pointer":"runs/tc065/resolution.json"}]}
+JSON
+
+python3 - "$WORKDIR" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+bundle = root / "evaluator/replay/bundle.json"
+provenance = {
+    "bundle_path": str(bundle.resolve()),
+    "bundle_digest": "sha256:" + hashlib.sha256(bundle.read_bytes()).hexdigest(),
+    "bundle_version": "1.0.0",
+}
+for name in ("replay-complete.json", "replay-missing-question-block.json"):
+    path = root / name
+    doc = json.loads(path.read_text())
+    doc["replay_bundle"] = provenance
+    path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
+PY
 
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   "$PRELUDE" --scenario "$WORKDIR/package-feature.yaml" --replay "$WORKDIR/replay-complete.json" \
@@ -95,6 +126,21 @@ if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   --run-id tc065-blocked --output "$WORKDIR/blocked.jsonl" >/dev/null 2>"$WORKDIR/blocked.err"; then
     fail "blocked replay unexpectedly passed"
 fi
+
+if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+  "$PRELUDE" --scenario "$WORKDIR/package-feature.yaml" --replay "$WORKDIR/replay-missing-scenario-id.json" \
+  --run-id tc065-missing-scenario --output "$WORKDIR/missing-scenario.jsonl" >/dev/null 2>"$WORKDIR/missing-scenario.err"; then
+    fail "replay missing scenario_id unexpectedly passed"
+fi
+grep -q "missing scenario.scenario_id" "$WORKDIR/missing-scenario.err" || fail "missing replay scenario_id was not named"
+
+if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+  "$PRELUDE" --scenario "$WORKDIR/package-feature.yaml" --replay "$WORKDIR/replay-missing-question-block.json" \
+  --run-id tc065-missing-question --output "$WORKDIR/missing-question.jsonl" --fixture-root "$WORKDIR/fixture" \
+  --scratch-root "$WORKDIR/scratch" --evaluator-root "$WORKDIR/evaluator" >/dev/null 2>"$WORKDIR/missing-question.err"; then
+    fail "missing question_block unexpectedly passed"
+fi
+grep -q "omitted question_block" "$WORKDIR/missing-question.err" || fail "missing question_block was not named"
 
 python3 - "$WORKDIR/feature.jsonl" "$WORKDIR/bug.jsonl" "$WORKDIR/blocked.jsonl" "$WORKDIR/events.ndjson" <<'PY'
 import json, sys

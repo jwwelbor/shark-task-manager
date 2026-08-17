@@ -89,6 +89,75 @@ def canonical_digest(value):
     return sha256_bytes(encoded)
 
 
+def git_bytes(repo_root, args):
+    try:
+        completed = subprocess.run(
+            ["git", *args], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"cannot derive candidate identity with git {' '.join(args)}: {exc}") from exc
+    return completed.stdout
+
+
+def candidate_identity(repo_root):
+    """Derive comparison identity from the actual committed and dirty state."""
+    base_commit = git_bytes(repo_root, ["merge-base", "HEAD", "main"]).decode().strip()
+    if not base_commit:
+        raise RuntimeError("git merge-base returned an empty base commit")
+    tracked_paths = git_bytes(repo_root, ["diff", "--name-only", "-z", "main...HEAD"])
+    binary_diff = git_bytes(repo_root, ["diff", "--binary", "main...HEAD"])
+    dirty_manifest = git_bytes(repo_root, ["status", "--porcelain=v1", "--untracked-files=all"])
+    test_paths = git_bytes(repo_root, ["ls-files", "-z", "--", "*_test.go", "**/*_test.go"])
+    test_material = bytearray()
+    for path in sorted(filter(None, test_paths.decode().split("\0"))):
+        test_material.extend(path.encode("utf-8"))
+        test_material.append(0)
+        test_material.extend((Path(repo_root) / path).read_bytes())
+        test_material.append(0)
+    components = {
+        "base_commit": base_commit,
+        "tree_digest": sha256_bytes(git_bytes(repo_root, ["rev-parse", "HEAD^{tree}"])),
+        "binary_diff_digest": sha256_bytes(binary_diff),
+        "changed_path_digest": sha256_bytes(tracked_paths),
+        "dirty_untracked_manifest": sha256_bytes(dirty_manifest),
+        "test_suite_digest": sha256_bytes(bytes(test_material)),
+    }
+    candidate = dict(components)
+    candidate["identity_digest"] = canonical_digest(components)
+    candidate["snapshot_digest"] = canonical_digest(candidate)
+    return candidate
+
+
+def scratch_content_digest(root):
+    """Digest the worker's actual scratch-project contents at stage end."""
+    root = Path(root).resolve()
+    material = bytearray()
+    if not root.exists():
+        return sha256_bytes(b"")
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        material.extend(relative)
+        material.append(0)
+        if path.is_symlink():
+            material.extend(b"symlink\0")
+            material.extend(os.readlink(path).encode("utf-8"))
+        elif path.is_file():
+            material.extend(b"file\0")
+            material.extend(path.read_bytes())
+        elif path.is_dir():
+            material.extend(b"directory\0")
+        material.append(0)
+    return sha256_bytes(bytes(material))
+
+
+def refresh_candidate(candidate, scratch):
+    candidate["scratch_content_digest"] = scratch_content_digest(scratch)
+    candidate["identity_digest"] = canonical_digest(
+        {key: value for key, value in candidate.items() if key not in {"identity_digest", "snapshot_digest"}}
+    )
+    candidate["snapshot_digest"] = canonical_digest(candidate)
+
+
 def timestamp():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -123,6 +192,38 @@ def run_command(shark, args, cwd):
     return load_json(completed.stdout, f"shark {' '.join(args)}")
 
 
+def pre_dispatch_gates(scenario_path, scenario, scratch):
+    fixture = scenario.get("fixture") or {}
+    fixture_root = Path(fixture.get("submodule_path", scenario_path.parent)).resolve()
+    evaluator_root = (scenario_path.parent / "evaluator").resolve()
+    replay_reference = scenario.get("replay_reference")
+    if scenario.get("entity_family") == "feature":
+        if not isinstance(replay_reference, str) or not replay_reference.strip():
+            raise RuntimeError("feature scenario is missing replay_reference")
+        package_root = scenario_path.parent.resolve()
+        bundle_path = (package_root / replay_reference).resolve()
+        try:
+            bundle_path.relative_to(package_root)
+        except ValueError as exc:
+            raise RuntimeError("replay_reference escapes the scenario package") from exc
+        if not bundle_path.is_file():
+            raise RuntimeError(f"replay bundle is missing: {bundle_path}")
+        bundle = load_json(bundle_path.read_text(encoding="utf-8"), "replay bundle")
+        binding = bundle.get("scenario_binding")
+        if not isinstance(binding, dict) or binding.get("scenario_id") != scenario.get("scenario_id"):
+            raise RuntimeError("replay bundle scenario_binding.scenario_id does not match the scenario")
+        if binding.get("scenario_version") != scenario.get("scenario_version"):
+            raise RuntimeError("replay bundle scenario_binding.scenario_version does not match the scenario")
+        bundle_version = bundle.get("bundle_version")
+        if not isinstance(bundle_version, str) or not bundle_version.strip():
+            raise RuntimeError("replay bundle is missing bundle_version")
+        guard = Path(os.environ["LIFECYCLE_BENCH_DIR"]) / "scripts" / "verify-replay-isolation.sh"
+        process = subprocess.run([str(guard), str(bundle_path), str(fixture_root), str(scratch)], text=True, capture_output=True, check=False)
+        if process.returncode != 0:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(f"replay isolation gate rejected the roots: {detail}")
+
+
 def write_partial(path, record):
     partial = path.with_suffix(path.suffix + ".partial")
     partial.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
@@ -142,7 +243,7 @@ def scenario_identity(scenario_path, scenario):
         "adapter_id": str(adapter.get("name", "unknown")),
         "adapter_version": str(adapter.get("version", "unknown")),
         "shark_binary_digest": "0" * 64,
-        "shark_content_digest": sha256_file(scenario_path),
+        "shark_content_digest": sha256_bytes(git_bytes(Path.cwd(), ["rev-parse", "HEAD^{tree}"])),
         "roots": {
             "agent_fixture_checkout": str(Path(fixture.get("submodule_path", scenario_path.parent)).resolve()),
             "scratch_shark_project": "",
@@ -152,22 +253,10 @@ def scenario_identity(scenario_path, scenario):
 
 
 def candidate_template():
-    components = {
-        "base_commit": "0" * 40,
-        "tree_digest": "0" * 64,
-        "binary_diff_digest": "0" * 64,
-        "changed_path_digest": "0" * 64,
-        "dirty_untracked_manifest": "0" * 64,
-        "test_suite_digest": "0" * 64,
-    }
-    candidate = dict(components)
-    candidate["identity_digest"] = canonical_digest(components)
-    candidate["snapshot_digest"] = canonical_digest(candidate)
-    return candidate
+    raise RuntimeError("candidate_template requires a derived candidate identity")
 
 
 def make_record(identity, root, scratch, limits):
-    candidate = candidate_template()
     return {
         "identity": identity,
         "entity_graph": {
@@ -294,6 +383,29 @@ def adapter_result(adapter, request, cwd, mode, shark):
     return load_json(stdout, "lifecycle adapter"), heartbeat_events
 
 
+def route_worker_question(worker_result, entity, session, runner_id, cwd, shark):
+    required = ("category", "question", "why_blocking", "recommendation")
+    if any(not isinstance(worker_result.get(field), str) or not worker_result[field].strip() for field in required):
+        raise RuntimeError(f"question worker result for {entity} omitted required handoff fields")
+    title = worker_result["question"][:200]
+    summary = f"{worker_result['why_blocking']} Recommendation: {worker_result['recommendation']}"
+    created = run_command(
+        shark,
+        ["question", "create", title, "--summary", summary, "--requester", runner_id, "--blocking"],
+        cwd,
+    )
+    question_key = str(created.get("key", ""))
+    if not question_key:
+        raise RuntimeError(f"question worker handoff for {entity} returned no question key")
+    run_command(
+        shark,
+        ["question", "configure-workflow", question_key, "--resolution-owner", runner_id, "--responder", runner_id],
+        cwd,
+    )
+    run_command(shark, ["link", question_key, entity, "--type", "question_blocks"], cwd)
+    return question_key
+
+
 def main(argv):
     args = parse_args(argv)
     scenario_path = Path(args["scenario"]).resolve()
@@ -303,7 +415,7 @@ def main(argv):
         scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise RuntimeError(f"cannot read scenario package {scenario_path}: {exc}") from exc
-    if (scenario.get("admission") or {}).get("status") not in {None, "admitted"}:
+    if (scenario.get("admission") or {}).get("status") != "admitted":
         raise RuntimeError("scenario package is not admitted")
 
     scratch = Path(args["scratch_root"]).resolve()
@@ -324,6 +436,7 @@ def main(argv):
     identity["run_id"] = args["run_id"]
     identity["roots"]["scratch_shark_project"] = str(scratch)
     identity["shark_binary_digest"] = sha256_file(Path(resolved_shark))
+    pre_dispatch_gates(scenario_path, scenario, scratch)
     record = make_record(identity, args["root"], scratch, limits)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
@@ -380,10 +493,11 @@ def main(argv):
                 raise RuntimeError(f"prompt digest or byte-count mismatch for {entity}")
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
+            candidate = candidate_identity(Path.cwd())
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
-            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": candidate_template()["snapshot_digest"]}}
+            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": candidate["snapshot_digest"]}}
             record["dispatches"].append(dispatch)
             record["entity_graph"]["ordinals"].append(dispatch["ordinal"])
             if requested != args["root"]:
@@ -407,11 +521,22 @@ def main(argv):
                     raise RuntimeError(f"worker session mismatch for {entity}")
                 dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {}))}
                 kind = worker_result.get("kind")
-                outcome = worker_result.get("recommended_outcome") if kind == "final" else None
+                if kind == "question":
+                    question_key = route_worker_question(
+                        worker_result, entity, session, request["runner_id"], scratch, shark
+                    )
+                    dispatch["worker"]["question_key"] = question_key
+                    dispatch["outcome"] = "pause"
+                    terminal = "pause"
+                    reason = f"worker question routed to {question_key}"
+                    outcome = None
+                else:
+                    outcome = worker_result.get("recommended_outcome") if kind == "final" else None
                 if not outcome:
-                    terminal = "missing_outcome"
-                    reason = f"worker for {entity} did not return a final recommended_outcome"
-                    dispatch["outcome"] = terminal
+                    if kind != "question":
+                        terminal = "missing_outcome"
+                        reason = f"worker for {entity} did not return a final recommended_outcome"
+                        dispatch["outcome"] = terminal
                 else:
                     dispatch["outcome"] = str(outcome)
                     run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}"], scratch)
@@ -442,9 +567,10 @@ def main(argv):
             record["limits"]["observed_cost_usd"] += cost
             record["limits"]["observed_wall_clock_seconds"] = elapsed
             record["limits"]["observed_generated_tasks"] = generated
-            candidate = candidate_template()
-            dispatch["evidence_refs"]["candidate_snapshot_digest"] = candidate["snapshot_digest"]
-            record["stages"].append(stage_record(dispatch, candidate))
+            refresh_candidate(candidate, scratch)
+            stage_candidate = dict(candidate)
+            dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
+            record["stages"].append(stage_record(dispatch, stage_candidate))
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":

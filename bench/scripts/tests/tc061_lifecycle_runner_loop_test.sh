@@ -82,6 +82,9 @@ assert record["dispatches"][0]["response"]["resolved_via"] == ["ROOT-001"]
 assert "prompt" not in record["dispatches"][0]["response"]
 assert record["outcome"]["terminal"] == "complete"
 assert record["outcome"]["publication_eligible"] is True
+candidate = record["stages"][0]["candidate"]
+assert candidate["base_commit"] != "0" * 40
+assert all(candidate[field] != "0" * 64 for field in ("tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "identity_digest", "snapshot_digest"))
 PY
 
 echo "TC-061: pass (canonical claim/heartbeat/transition/release and exact prompt handoff)"
