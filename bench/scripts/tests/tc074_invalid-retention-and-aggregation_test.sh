@@ -10,4 +10,18 @@ if "$VERIFIER" "$fixture" --schema "$REPO_ROOT/bench/evaluation/i08-schema.yaml"
 grep -q 'aggregate_eligible' "$tmp/error"
 grep -q 'failed_oracle' "$tmp/error"
 [[ -s "$fixture" ]]
+
+# TC-074 counter-factual: every nested schema-required eligibility field must
+# be enforced, not only aggregate_eligible.
+python3 - "$REPO_ROOT/bench/scripts/testdata/evaluation/eligible.jsonl" "$tmp/missing-publication.jsonl" <<'PY'
+import json, sys
+record = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+del record["eligibility"]["publication_eligible"]
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    json.dump(record, stream)
+    stream.write("\n")
+PY
+if "$VERIFIER" "$tmp/missing-publication.jsonl" --schema "$REPO_ROOT/bench/evaluation/i08-schema.yaml" >"$tmp/missing-out" 2>"$tmp/missing-error"; then exit 1; fi
+grep -q '/eligibility/publication_eligible' "$tmp/missing-error"
+
 echo "TC-074: invalid record retained and excluded from eligibility"

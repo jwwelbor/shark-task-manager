@@ -64,10 +64,20 @@ try:
     for key in record:
         if key not in allowed:
             errors.append(fail("malformed_record", f"/{key}", "unexpected top-level field"))
-    required = ["schema_version", "evaluation_id", "identity", "source_artifacts", "structural", "judge", "execution_oracle", "eligibility"]
-    for key in required:
-        if key not in record:
-            errors.append(fail("malformed_record", f"/{key}", "required field is missing"))
+    sentinel = object()
+    for required_path in schema.get("required_fields", []):
+        if not isinstance(required_path, str) or not required_path.startswith("/"):
+            errors.append(fail("malformed_record", "/required_fields", "schema required path must be absolute"))
+            continue
+        current = record
+        missing = False
+        for segment in required_path.strip("/").split("/"):
+            if not isinstance(current, dict) or segment not in current:
+                missing = True
+                break
+            current = current[segment]
+        if missing or current is sentinel:
+            errors.append(fail("malformed_record", required_path, "schema-required field is missing"))
     if record.get("schema_version") != schema["schema_version"]:
         errors.append(fail("unsupported_schema_version", "/schema_version", record.get("schema_version")))
     if not isinstance(record.get("evaluation_id"), str) or not record["evaluation_id"].strip():

@@ -9,8 +9,10 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import yaml
 
@@ -114,31 +116,94 @@ try:
     test_ids = list(predicate.get("acceptance_test_ids") or []) + list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
     if kind not in {"f2p_p2p", "acceptance_tests", "p2p_plus_rule_drop", "child_oracles_union"}:
         finish(invalid("source_malformed", "/final_predicate/kind", "unknown predicate kind"), 2)
+    if kind == "f2p_p2p":
+        test_ids = list(predicate.get("f2p_test_ids") or [])
     if kind != "p2p_plus_rule_drop" and not test_ids:
         finish(invalid("source_malformed", "/final_predicate", "predicate has no test IDs"), 2)
 
-    predicted_collisions = [os.path.join(args.checkout, "tests", os.path.basename(source)) for source in sources if os.path.lexists(os.path.join(args.checkout, "tests", os.path.basename(source)))]
-    if predicted_collisions:
-        finish(invalid("cleanup_failure", "/execution_oracle/cleanup", "refusing injection collision with pre-existing files: " + ",".join(predicted_collisions[:8])), 1)
+    # The adapter is the sole owner of destination resolution. Preserve a
+    # complete copy before granting access so an adapter-resolved collision
+    # can be restored byte-for-byte even though the broker reports the
+    # authoritative destination only after the adapter has run.
+    backup_root = tempfile.mkdtemp(prefix="f09-oracle-checkout-")
+    backup_checkout = os.path.join(backup_root, "checkout")
+    shutil.copytree(args.checkout, backup_checkout, symlinks=True)
     grant = subprocess.run([guard, args.stage_bundle, "--grant-access", "inject-tests", "--accessor", "f09-heldback-oracle", "--adapter", adapter, "--checkout", args.checkout, "--files", *sources], capture_output=True, text=True)
     if grant.returncode:
         code = "pre_terminal" if "pre_terminal" in grant.stderr else "isolation_violation"
+        shutil.rmtree(backup_root, ignore_errors=True)
         finish(invalid(code, "/execution_oracle/access_event", grant.stderr.strip() or "I-05 broker refused access"), 1)
 
     access_path = os.path.join(args.stage_bundle, "access.jsonl")
     events = load_rows(access_path) if os.path.isfile(access_path) else []
-    injected = [os.path.join(args.checkout, event["destination"]) for event in events if event.get("accessor") == "f09-heldback-oracle" and event.get("destination")]
+    injected = []
+    collisions = []
+    checkout_root = os.path.realpath(args.checkout)
+    for event in events:
+        if event.get("accessor") != "f09-heldback-oracle" or not event.get("destination"):
+            continue
+        destination = event["destination"]
+        destination_abs = os.path.realpath(os.path.join(args.checkout, destination))
+        if not destination_abs.startswith(checkout_root + os.sep):
+            finish(invalid("isolation_violation", "/execution_oracle/access_event/destination", "adapter returned a destination outside the checkout"), 1)
+        injected.append(destination_abs)
+        if os.path.lexists(os.path.join(backup_checkout, destination)):
+            collisions.append((destination, destination_abs))
     if len(injected) != len(sources):
         finish(invalid("isolation_violation", "/execution_oracle/access_event", "broker did not return an authoritative destination for every injected source"), 1)
+    if collisions:
+        for destination, destination_abs in collisions:
+            backup_path = os.path.join(backup_checkout, destination)
+            if os.path.islink(backup_path):
+                os.remove(destination_abs)
+                os.symlink(os.readlink(backup_path), destination_abs)
+            elif os.path.isfile(backup_path):
+                shutil.copy2(backup_path, destination_abs)
+        shutil.rmtree(backup_root, ignore_errors=True)
+        finish(invalid("cleanup_failure", "/execution_oracle/cleanup", "adapter-resolved destination collided with pre-existing files: " + ",".join(item[0] for item in collisions[:8])), 1)
+
     command = [adapter, "test", "--checkout", args.checkout]
-    command += ["--include", "tests"] if kind == "p2p_plus_rule_drop" else ["--only-id", *test_ids]
-    execution = subprocess.run(command, capture_output=True, text=True)
-    try:
-        test_result = json.loads(execution.stdout)
-    except json.JSONDecodeError:
-        test_result = {}
-    entries = test_result.get("entries") if isinstance(test_result, dict) else None
-    passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
+    if kind == "p2p_plus_rule_drop":
+        command += ["--include", "tests"]
+    elif kind == "f2p_p2p":
+        # Evaluate the named F2P repro and the shared P2P selection as two
+        # adapter calls, then let the established predicate evaluator own the
+        # arithmetic and its declared f2p_test_ids/p2p_selection semantics.
+        predicate_tmp = tempfile.mkdtemp(prefix="f09-predicate-")
+        p2p_command = [adapter, "test", "--checkout", args.checkout]
+        for include in (predicate.get("p2p_selection") or {}).get("include") or []:
+            p2p_command += ["--include", include]
+        for excluded in (predicate.get("p2p_selection") or {}).get("exclude_test_ids") or []:
+            p2p_command += ["--exclude-id", excluded]
+        named_command = [adapter, "test", "--checkout", args.checkout, "--only-id", *test_ids]
+        p2p_run = subprocess.run(p2p_command, capture_output=True, text=True)
+        named_run = subprocess.run(named_command, capture_output=True, text=True)
+        try:
+            p2p_doc = json.loads(p2p_run.stdout)
+            named_doc = json.loads(named_run.stdout)
+            merged = {"entries": (p2p_doc.get("entries") or []) + (named_doc.get("entries") or [])}
+            test_path = os.path.join(predicate_tmp, "tests.json")
+            lint_path = os.path.join(predicate_tmp, "lint.json")
+            with open(test_path, "w", encoding="utf-8") as stream:
+                json.dump(merged, stream)
+            with open(lint_path, "w", encoding="utf-8") as stream:
+                json.dump({"issues": []}, stream)
+            evaluated = subprocess.run([os.path.join(os.path.dirname(guard), "eval-predicate.sh"), args.scenario, test_path, lint_path], capture_output=True, text=True)
+            predicate_result = json.loads(evaluated.stdout)
+            passed = evaluated.returncode == 0 and predicate_result.get("result") is True
+        except (OSError, TypeError, json.JSONDecodeError):
+            passed = False
+        finally:
+            shutil.rmtree(predicate_tmp, ignore_errors=True)
+    else:
+        command += ["--only-id", *test_ids]
+        execution = subprocess.run(command, capture_output=True, text=True)
+        try:
+            test_result = json.loads(execution.stdout)
+        except json.JSONDecodeError:
+            test_result = {}
+        entries = test_result.get("entries") if isinstance(test_result, dict) else None
+        passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
     cleanup = True
     for path in injected:
         try:
@@ -173,6 +238,7 @@ try:
     if residue:
         cleanup = False
         reasons.append({"code": "evaluator_only_residue", "path": "/execution_oracle/cleanup", "detail": "post-cleanup root scan found: " + ",".join(sorted(residue)[:8])})
+    shutil.rmtree(backup_root, ignore_errors=True)
     reference = evaluator.get("reference_solution")
     reference_path = os.path.realpath(os.path.join(package_root, reference)) if isinstance(reference, str) else ""
     result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": 1, "access_event": events[-1] if events else None, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
