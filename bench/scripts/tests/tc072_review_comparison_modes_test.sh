@@ -43,11 +43,17 @@ sequential["review_findings"]["normalized_findings"].append(finding("f09-2","dee
 qa_only = copy.deepcopy(base); qa_only.update({"evaluation_id":"qa-only", "candidate_snapshots":[{"stage":"qa","candidate":candidate}]})
 def write(name, record):
     path = root / f"{name}.jsonl"; path.write_text(json.dumps(record)+"\n"); return path
-def run(left, right, mode, expect_accepted=True):
+def run(left, right, mode, expect_accepted=True, expected_reason=None):
     out = root / f"{mode}.json"; proc = subprocess.run([str(comparator), "--left", str(write("left", left)), "--right", str(write("right", right)), "--mode", mode, "--output", str(out)], capture_output=True, text=True)
     result = json.loads(out.read_text())
     assert result["accepted"] is expect_accepted, (proc.stderr, result)
-    assert (proc.returncode == 0) is expect_accepted, (proc.returncode, result)
+    if expect_accepted:
+        assert proc.returncode == 0, (proc.returncode, proc.stderr, result)
+    else:
+        assert proc.returncode != 0, (proc.returncode, proc.stderr, result)
+        assert "comparison_divergence" in proc.stderr, (proc.stderr, result)
+        if expected_reason is not None:
+            assert any(item["reason"] == expected_reason for item in result["divergences"]), result
     return result
 result = run(independent, independent, "independent_frozen_candidate")
 assert result["accepted"] is True and result["comparison"]["causal_claim"] is None, result
@@ -55,21 +61,21 @@ result = run(sequential, sequential, "sequential_delivery")
 assert result["accepted"] is True, result
 assert result["comparison"]["newly_confirmed_findings"] == [], result
 assert len(result["comparison"]["intervening_candidates"]) == 2, result
-result = run(qa_only, sequential, "sequential_delivery", expect_accepted=False)
+result = run(qa_only, sequential, "sequential_delivery", expect_accepted=False, expected_reason="candidate_lineage_missing")
 assert any(d["reason"] == "candidate_lineage_missing" for d in result["divergences"]), result
 bad = copy.deepcopy(sequential); bad["candidate_snapshots"] = [sequential["candidate_snapshots"][0]]
-result = run(sequential, bad, "sequential_delivery", expect_accepted=False)
+result = run(sequential, bad, "sequential_delivery", expect_accepted=False, expected_reason="candidate_lineage_missing")
 assert result["accepted"] is False and any(d["reason"] == "candidate_lineage_missing" for d in result["divergences"]), result
 stale = copy.deepcopy(sequential)
 stale["candidate_snapshots"][1]["candidate"]["tree_digest"] = "d" * 64
-result = run(sequential, stale, "sequential_delivery", expect_accepted=False)
+result = run(sequential, stale, "sequential_delivery", expect_accepted=False, expected_reason="identity_mismatch")
 assert result["accepted"] is False and any(d["reason"] == "identity_mismatch" for d in result["divergences"]), result
 # Two independently valid but different later snapshots must not be treated as
 # the same sequential lineage merely because the first snapshot matches.
 divergent = copy.deepcopy(sequential)
 divergent["candidate_snapshots"][1]["candidate"] = dict(changed_candidate, tree_digest="e" * 64)
 divergent["candidate_snapshots"][1]["candidate"]["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: divergent["candidate_snapshots"][1]["candidate"][key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-result = run(sequential, divergent, "sequential_delivery", expect_accepted=False)
+result = run(sequential, divergent, "sequential_delivery", expect_accepted=False, expected_reason="lineage_mismatch")
 assert result["accepted"] is False and any(d["reason"] == "lineage_mismatch" for d in result["divergences"]), result
 print("TC-072 PASS")
 PY
