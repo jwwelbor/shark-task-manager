@@ -1,5 +1,15 @@
 # shark-bench corpus
 
+## F08 lifecycle runner contract tier
+
+The canonical multi-entity lifecycle runner is `bench/scripts/run-lifecycle.sh`.
+Contract and dry-run modes keep provider execution out of the verification path,
+while `lifecycle-worker-adapter.sh`, `lifecycle-prelude.sh`, and
+`review-capture.sh` preserve prompt provenance, authorized prelude decisions,
+stage-policy identity, and review findings as bounded artifacts. The complete
+F08 contract tier is registered in `bench/scripts/tests/run-all.sh` as TC-060
+through TC-065; run that wrapper to verify the lifecycle seam locally.
+
 `bench/` is the E40-F01 benchmark corpus: a self-contained fixture repo
 (`bench/fixture-repo`, a git submodule) at a pinned base commit, a
 machine-readable manifest of admitted and negative items
