@@ -1,0 +1,13 @@
+{
+  "gates": [
+    {
+      "gate_id": "code_review",
+      "reached": true,
+      "round": 1,
+      "collector_status": "complete",
+      "candidate_ref": {"snapshot_digest": "candidate-a"},
+      "policy_ref": {"policy_digest": "policy-a"},
+      "findings": []
+    }
+  ]
+}
