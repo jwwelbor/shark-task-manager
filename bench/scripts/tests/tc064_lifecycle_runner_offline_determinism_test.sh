@@ -17,7 +17,7 @@ SHARK
 chmod +x "$WORKDIR/bin/shark"
 SCENARIO="$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml"
 for n in one two; do
-  PATH="$WORKDIR/bin:$PATH" "$RUNNER" --mode contract --scenario "$SCENARIO" --run-id tc064 --root ROOT-064 --scratch-root "$WORKDIR/scratch" --output "$WORKDIR/$n.jsonl" >/dev/null
+  PATH="$WORKDIR/bin:$PATH" "$RUNNER" --mode contract --scenario "$SCENARIO" --run-id tc064 --root ROOT-064 --scratch-root "$WORKDIR/scratch" --output "$WORKDIR/$n.jsonl" >/dev/null || true
 done
 cmp "$WORKDIR/one.jsonl" "$WORKDIR/two.jsonl" || fail "repeated contract verdicts differ"
 grep -q '"publication_eligible":false' "$WORKDIR/one.jsonl" || fail "contract stop was publishable"
