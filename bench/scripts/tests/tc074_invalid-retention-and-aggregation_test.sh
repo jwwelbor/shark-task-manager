@@ -3,6 +3,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 VERIFIER="$REPO_ROOT/bench/scripts/verify-lifecycle-evaluation.sh"
+AGGREGATOR="$REPO_ROOT/bench/scripts/aggregate-runs.sh"
 fixture="$REPO_ROOT/bench/scripts/testdata/evaluation/ineligible.jsonl"
 [[ -x "$VERIFIER" ]] || { echo "TC-074: verifier missing" >&2; exit 1; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
@@ -11,6 +12,17 @@ if "$VERIFIER" "$tmp/ineligible.jsonl" --schema "$REPO_ROOT/bench/evaluation/i08
 grep -q 'aggregate_eligible' "$tmp/error"
 grep -q 'failed_oracle' "$tmp/error"
 [[ -s "$fixture" ]]
+
+# TC-074 caller-path proof: invoke the real aggregator on a retained invalid
+# record. It must retain inventory and reject the unusable aggregate rather
+# than silently dropping the record.
+mkdir -p "$tmp/aggregate/item/variant/rep-1"
+cp "$tmp/ineligible.jsonl" "$tmp/aggregate/item/variant/rep-1/record.jsonl"
+if "$AGGREGATOR" --root "$tmp/aggregate" >"$tmp/aggregate.json" 2>"$tmp/aggregate.err"; then
+  echo "TC-074: invalid retained record unexpectedly aggregated" >&2
+  exit 1
+fi
+grep -Eq 'anomaly|unusable|invalid|record' "$tmp/aggregate.err" "$tmp/aggregate.json"
 
 # TC-074 counter-factual: every nested schema-required eligibility field must
 # be enforced, not only aggregate_eligible.

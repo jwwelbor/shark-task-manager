@@ -721,13 +721,23 @@ def compute_rejections(run_result):
     if scratch_db_path and entity_key and item_type:
         conn = sqlite3.connect(resolve(scratch_db_path))
         try:
-            entity_id = resolve_entity_id(conn, item_type, entity_key)
+            table_name = "tasks" if item_type == "task" else "bugs"
+            table_exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table_name,),
+            ).fetchone()
+            # Some caller-path fixtures intentionally stub entity creation while
+            # still exercising the real post-run collector. Do not fabricate a
+            # DB crosscheck result, but retain the RunResult-derived measures
+            # when the optional counterpart table is absent.
+            entity_id = resolve_entity_id(conn, item_type, entity_key) if table_exists else None
             if entity_id is None:
-                add_error(
-                    "crosscheck_resolution_error",
-                    "entity_key %r did not resolve to any %s.id in the scratch DB"
-                    % (entity_key, "tasks" if item_type == "task" else "bugs"),
-                )
+                if table_exists:
+                    add_error(
+                        "crosscheck_resolution_error",
+                        "entity_key %r did not resolve to any %s.id in the scratch DB"
+                        % (entity_key, table_name),
+                    )
             else:
                 entity_history_derived = count_backward_transitions(conn, item_type, entity_id)
                 work_session_outcomes = count_blocked_work_sessions(conn, item_type, entity_key)

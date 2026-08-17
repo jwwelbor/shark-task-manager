@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,6 +67,31 @@ func TestTC067_I08LifecycleEvaluationContract(t *testing.T) {
 	if schema.DigestRules["algorithm"] != "sha256" || schema.DigestRules["encoding"] != "lowercase_hex" {
 		t.Fatalf("I-08 schema must own lowercase SHA-256 digest rules: %#v", schema.DigestRules)
 	}
+
+	// TC-067 staged-edge proof: the shared contract test reads the committed
+	// map/test-plan metadata and live Shark counterpart status. This prevents a
+	// schema-only green result from hiding a drifted integration edge.
+	mapPath := filepath.Join(repoRoot, "docs", "plan", "E40-shark-bench-workflow-benchmarking-harness", "E40-interaction-map.md")
+	testPlanPath := filepath.Join(repoRoot, "docs", "plan", "E40-shark-bench-workflow-benchmarking-harness", "E40-F09-calibrated-evaluation-and-comparison-identity", "test-plan.md")
+	mapText := string(readContractFile(t, mapPath))
+	planText := string(readContractFile(t, testPlanPath))
+	for _, row := range []string{"I-05", "I-07", "I-08"} {
+		if !strings.Contains(mapText, row) || !strings.Contains(planText, row) {
+			t.Errorf("TC-067 staged edge %s missing from interaction map or test plan", row)
+		}
+	}
+	for _, field := range []string{"contract-only", "activation owners", "closure keys", "counterpart status", "review basis", "pending-integration"} {
+		if !strings.Contains(planText, field) {
+			t.Errorf("TC-067 staged edge metadata missing %q", field)
+		}
+	}
+	for _, key := range []string{"E40-F06", "E40-F08", "E40-F10"} {
+		cmd := exec.Command(filepath.Join(repoRoot, "bin", "shark"), "get", key, "--json")
+		cmd.Dir = repoRoot
+		if output, err := cmd.Output(); err != nil || len(output) == 0 {
+			t.Errorf("TC-067 live counterpart status read failed for %s: %v", key, err)
+		}
+	}
 	for name, values := range map[string][]string{
 		"truth_result":        schema.TruthResult,
 		"check_applicability": schema.CheckApplicability,
@@ -106,6 +132,15 @@ func TestTC067_I08LifecycleEvaluationContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+func readContractFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read staged contract metadata %s: %v", path, err)
+	}
+	return data
 }
 
 func readI08Record(t *testing.T, path string) map[string]any {
