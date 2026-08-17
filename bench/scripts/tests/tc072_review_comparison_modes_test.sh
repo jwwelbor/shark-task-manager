@@ -51,10 +51,12 @@ def run(left, right, mode, expect_accepted=True):
     return result
 result = run(independent, independent, "independent_frozen_candidate")
 assert result["accepted"] is True and result["comparison"]["causal_claim"] is None, result
-result = run(qa_only, sequential, "sequential_delivery")
+result = run(sequential, sequential, "sequential_delivery")
 assert result["accepted"] is True, result
-assert result["comparison"]["newly_confirmed_findings"] == ["f09-2"], result
+assert result["comparison"]["newly_confirmed_findings"] == [], result
 assert len(result["comparison"]["intervening_candidates"]) == 2, result
+result = run(qa_only, sequential, "sequential_delivery", expect_accepted=False)
+assert any(d["reason"] == "candidate_lineage_missing" for d in result["divergences"]), result
 bad = copy.deepcopy(sequential); bad["candidate_snapshots"] = [sequential["candidate_snapshots"][0]]
 result = run(sequential, bad, "sequential_delivery", expect_accepted=False)
 assert result["accepted"] is False and any(d["reason"] == "candidate_lineage_missing" for d in result["divergences"]), result
@@ -62,5 +64,12 @@ stale = copy.deepcopy(sequential)
 stale["candidate_snapshots"][1]["candidate"]["tree_digest"] = "d" * 64
 result = run(sequential, stale, "sequential_delivery", expect_accepted=False)
 assert result["accepted"] is False and any(d["reason"] == "identity_mismatch" for d in result["divergences"]), result
+# Two independently valid but different later snapshots must not be treated as
+# the same sequential lineage merely because the first snapshot matches.
+divergent = copy.deepcopy(sequential)
+divergent["candidate_snapshots"][1]["candidate"] = dict(changed_candidate, tree_digest="e" * 64)
+divergent["candidate_snapshots"][1]["candidate"]["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: divergent["candidate_snapshots"][1]["candidate"][key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+result = run(sequential, divergent, "sequential_delivery", expect_accepted=False)
+assert result["accepted"] is False and any(d["reason"] == "lineage_mismatch" for d in result["divergences"]), result
 print("TC-072 PASS")
 PY

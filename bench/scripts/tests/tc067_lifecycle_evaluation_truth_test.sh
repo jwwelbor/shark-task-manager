@@ -31,6 +31,23 @@ assert any(item["code"] == "missing_oracle" for item in record["eligibility"]["i
 assert any(item["code"] == "identity_missing" and item["path"] == "/identity/toolchain_identity" for item in record["eligibility"]["invalidity_reasons"])
 PY
 
+# Producer identity is not completed from the scenario package at the join.
+cat > "$tmp/missing-producer-identity-i07.jsonl" <<'JSON'
+{"identity":{"run_id":"missing-identity-run","scenario_id":"py-bug-due-date-boundary"},"dispatches":[],"stages":[],"outcome":{"terminal":"complete"}}
+JSON
+missing_identity_output="$tmp/missing-producer-identity-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/missing-producer-identity-i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$missing_identity_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: missing producer identity unexpectedly passed" >&2
+  exit 1
+fi
+python3 - "$missing_identity_output" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+reasons = record["eligibility"]["invalidity_reasons"]
+assert any(item["code"] == "missing_join" and item["path"] == "/identity/fixture_id" for item in reasons), reasons
+assert record["identity"].get("fixture_id") is None
+PY
+
 # Cross-artifact join counter-factual: matching-looking scenario labels must
 # not hide a contradictory I-05/I-07 run reference.
 mkdir -p "$tmp/join-i05"

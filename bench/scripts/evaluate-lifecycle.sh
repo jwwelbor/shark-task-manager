@@ -66,8 +66,30 @@ def derive_metrics(lifecycle, findings, judge):
     artifacts = [artifact for stage in stages if isinstance(stage, dict) for artifact in (stage.get("artifacts") if isinstance(stage.get("artifacts"), list) else []) if isinstance(artifact, dict)]
     consumed = sum(1 for artifact in artifacts if isinstance(artifact.get("consumers"), list) and artifact["consumers"])
     counts = findings.get("derived_counts", {}) if isinstance(findings, dict) else {}
+    normalized = findings.get("normalized_findings", []) if isinstance(findings, dict) else []
+    grouped = {}
+    for item in normalized if isinstance(normalized, list) else []:
+        if not isinstance(item, dict):
+            continue
+        raw = item.get("raw_finding") if isinstance(item.get("raw_finding"), dict) else {}
+        key = (item.get("raw_source_ref", {}).get("gate", "unknown"), raw.get("severity", "unknown"), raw.get("defect_class", "unknown"))
+        bucket = grouped.setdefault(key, {"emitted": 0, "normalized_unique": 0, "duplicate": 0, "recurrent": 0, "confirmed": 0, "unconfirmed": 0, "downstream_escape": 0})
+        bucket["emitted"] += 1
+        link = item.get("duplicate_or_recurrence")
+        if link == "duplicate":
+            bucket["duplicate"] += 1
+        else:
+            bucket["normalized_unique"] += 1
+            bucket["recurrent"] += link == "recurrent"
+            bucket[item.get("final_disposition", "unconfirmed")] += 1
+        bucket["downstream_escape"] += bool(raw.get("downstream_escape") is True)
+    grouped_metrics = [
+        {"gate": gate, "severity": severity, "defect_class": defect_class, "measures": {name: metric(value, True) for name, value in values.items()}}
+        for (gate, severity, defect_class), values in sorted(grouped.items())
+    ]
+    truth_available = bool(findings.get("truth_set", {}).get("available")) if isinstance(findings, dict) else False
     return {
-        "quality": {"confirmed_findings": metric(counts.get("confirmed"), isinstance(counts.get("confirmed"), int)), "unconfirmed_findings": metric(counts.get("unconfirmed"), isinstance(counts.get("unconfirmed"), int)), "aggregate_eligible": metric(None, False, "eligibility is reported separately")},
+        "quality": {"confirmed_findings": metric(counts.get("confirmed"), isinstance(counts.get("confirmed"), int)), "unconfirmed_findings": metric(counts.get("unconfirmed"), isinstance(counts.get("unconfirmed"), int)), "precision": metric(counts.get("precision"), truth_available), "recall": metric(counts.get("recall"), truth_available), "truth_set_status": "available" if truth_available else "truth-set-unavailable", "review_measures": grouped_metrics, "aggregate_eligible": metric(None, False, "eligibility is reported separately")},
         "elapsed_time": metric(sum(elapsed), bool(elapsed), "sum of retained stage elapsed_seconds"),
         "provider_cost": metric(sum(costs), bool(costs), "sum of retained stage and judge cost_usd"),
         "rework": metric(len(rework), bool(stages), "count of retained stages marked rework"),
@@ -174,13 +196,12 @@ try:
         reasons.append(reason("duplicate_join", "/i07", "exactly one I-07 lifecycle record is required"))
     scenario_id = package.get("scenario_id")
     identity = dict(lifecycle.get("identity") or {})
-    identity.setdefault("scenario_id", scenario_id)
-    identity.setdefault("scenario_version", str(package.get("scenario_version", "")))
-    identity.setdefault("fixture_id", (package.get("fixture") or {}).get("fixture_id"))
-    identity.setdefault("adapter_id", (package.get("adapter") or {}).get("name"))
-    identity.setdefault("adapter_version", (package.get("adapter") or {}).get("version"))
-    if lifecycle_rows and identity.get("scenario_id") not in {None, scenario_id}:
-        reasons.append(reason("contradictory_join", "/identity/scenario_id", "I-07/scenario package identity disagrees"))
+    expected_identity = {"scenario_id": scenario_id, "scenario_version": str(package.get("scenario_version", "")), "fixture_id": (package.get("fixture") or {}).get("fixture_id"), "adapter_id": (package.get("adapter") or {}).get("name"), "adapter_version": (package.get("adapter") or {}).get("version")}
+    for field, expected in expected_identity.items():
+        if identity.get(field) in (None, ""):
+            reasons.append(reason("missing_join", "/identity/" + field, "I-07 must retain producer identity; evaluator will not synthesize it"))
+        elif identity[field] != expected:
+            reasons.append(reason("contradictory_join", "/identity/" + field, "I-07/scenario package identity disagrees"))
 
     # I-05 and I-07 are a join, not two independently plausible inputs. Keep
     # the check schema-shaped and compare every reference the producers

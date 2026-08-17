@@ -156,10 +156,20 @@ def main():
         divergences.append({"field": "workflow_policy/workflow_policy_identity_digest", "left": left_policy_digest, "right": right_policy_digest, "reason": "identity_mismatch"})
 
     if args.mode == "sequential_delivery":
-        for side, record in (("left", left), ("right", right)):
-            lineage = record.get("candidate_snapshots")
-            if side == "right" and (not isinstance(lineage, list) or len(lineage) < 2):
-                divergences.append({"field": f"{side}/candidate_snapshots", "left": len(lineage) if isinstance(lineage, list) else None, "right": 2, "reason": "candidate_lineage_missing"})
+        left_lineage = left.get("candidate_snapshots") if isinstance(left.get("candidate_snapshots"), list) else []
+        right_lineage = right.get("candidate_snapshots") if isinstance(right.get("candidate_snapshots"), list) else []
+        if len(left_lineage) < 2 or len(right_lineage) < 2:
+            divergences.append({"field": "candidate_snapshots", "left": len(left_lineage), "right": len(right_lineage), "reason": "candidate_lineage_missing"})
+        if len(left_lineage) != len(right_lineage):
+            divergences.append({"field": "candidate_snapshots/length", "left": len(left_lineage), "right": len(right_lineage), "reason": "lineage_mismatch"})
+        for index, (left_snapshot, right_snapshot) in enumerate(zip(left_lineage, right_lineage)):
+            left_candidate = left_snapshot.get("candidate", {}) if isinstance(left_snapshot, dict) else {}
+            right_candidate = right_snapshot.get("candidate", {}) if isinstance(right_snapshot, dict) else {}
+            for field in ("stage", "gate"):
+                if left_snapshot.get(field) != right_snapshot.get(field):
+                    divergences.append({"field": f"candidate_snapshots[{index}]/{field}", "left": left_snapshot.get(field), "right": right_snapshot.get(field), "reason": "lineage_mismatch"})
+            if left_candidate.get("identity_digest") != right_candidate.get("identity_digest") or left_candidate.get("snapshot_digest") != right_candidate.get("snapshot_digest"):
+                divergences.append({"field": f"candidate_snapshots[{index}]/candidate", "left": left_candidate.get("identity_digest"), "right": right_candidate.get("identity_digest"), "reason": "lineage_mismatch"})
     elif args.mode == "independent_frozen_candidate":
         for side, record in (("left", left), ("right", right)):
             lineage = record.get("candidate_snapshots")
