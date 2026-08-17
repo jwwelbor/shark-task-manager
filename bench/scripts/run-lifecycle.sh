@@ -89,6 +89,45 @@ def canonical_digest(value):
     return sha256_bytes(encoded)
 
 
+def git_bytes(repo_root, args):
+    try:
+        completed = subprocess.run(
+            ["git", *args], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"cannot derive candidate identity with git {' '.join(args)}: {exc}") from exc
+    return completed.stdout
+
+
+def candidate_identity(repo_root):
+    """Derive comparison identity from the actual committed and dirty state."""
+    base_commit = git_bytes(repo_root, ["merge-base", "HEAD", "main"]).decode().strip()
+    if not base_commit:
+        raise RuntimeError("git merge-base returned an empty base commit")
+    tracked_paths = git_bytes(repo_root, ["diff", "--name-only", "-z", "main...HEAD"])
+    binary_diff = git_bytes(repo_root, ["diff", "--binary", "main...HEAD"])
+    dirty_manifest = git_bytes(repo_root, ["status", "--porcelain=v1", "--untracked-files=all"])
+    test_paths = git_bytes(repo_root, ["ls-files", "-z", "--", "*_test.go", "**/*_test.go"])
+    test_material = bytearray()
+    for path in sorted(filter(None, test_paths.decode().split("\0"))):
+        test_material.extend(path.encode("utf-8"))
+        test_material.append(0)
+        test_material.extend((Path(repo_root) / path).read_bytes())
+        test_material.append(0)
+    components = {
+        "base_commit": base_commit,
+        "tree_digest": sha256_bytes(git_bytes(repo_root, ["rev-parse", "HEAD^{tree}"])),
+        "binary_diff_digest": sha256_bytes(binary_diff),
+        "changed_path_digest": sha256_bytes(tracked_paths),
+        "dirty_untracked_manifest": sha256_bytes(dirty_manifest),
+        "test_suite_digest": sha256_bytes(bytes(test_material)),
+    }
+    candidate = dict(components)
+    candidate["identity_digest"] = canonical_digest(components)
+    candidate["snapshot_digest"] = canonical_digest(candidate)
+    return candidate
+
+
 def timestamp():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -152,22 +191,10 @@ def scenario_identity(scenario_path, scenario):
 
 
 def candidate_template():
-    components = {
-        "base_commit": "0" * 40,
-        "tree_digest": "0" * 64,
-        "binary_diff_digest": "0" * 64,
-        "changed_path_digest": "0" * 64,
-        "dirty_untracked_manifest": "0" * 64,
-        "test_suite_digest": "0" * 64,
-    }
-    candidate = dict(components)
-    candidate["identity_digest"] = canonical_digest(components)
-    candidate["snapshot_digest"] = canonical_digest(candidate)
-    return candidate
+    raise RuntimeError("candidate_template requires a derived candidate identity")
 
 
 def make_record(identity, root, scratch, limits):
-    candidate = candidate_template()
     return {
         "identity": identity,
         "entity_graph": {
@@ -303,7 +330,7 @@ def main(argv):
         scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise RuntimeError(f"cannot read scenario package {scenario_path}: {exc}") from exc
-    if (scenario.get("admission") or {}).get("status") not in {None, "admitted"}:
+    if (scenario.get("admission") or {}).get("status") != "admitted":
         raise RuntimeError("scenario package is not admitted")
 
     scratch = Path(args["scratch_root"]).resolve()
@@ -324,6 +351,7 @@ def main(argv):
     identity["run_id"] = args["run_id"]
     identity["roots"]["scratch_shark_project"] = str(scratch)
     identity["shark_binary_digest"] = sha256_file(Path(resolved_shark))
+    candidate = candidate_identity(Path.cwd())
     record = make_record(identity, args["root"], scratch, limits)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
@@ -383,7 +411,7 @@ def main(argv):
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
-            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": candidate_template()["snapshot_digest"]}}
+            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": candidate["snapshot_digest"]}}
             record["dispatches"].append(dispatch)
             record["entity_graph"]["ordinals"].append(dispatch["ordinal"])
             if requested != args["root"]:
@@ -442,9 +470,9 @@ def main(argv):
             record["limits"]["observed_cost_usd"] += cost
             record["limits"]["observed_wall_clock_seconds"] = elapsed
             record["limits"]["observed_generated_tasks"] = generated
-            candidate = candidate_template()
-            dispatch["evidence_refs"]["candidate_snapshot_digest"] = candidate["snapshot_digest"]
-            record["stages"].append(stage_record(dispatch, candidate))
+            stage_candidate = dict(candidate)
+            dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
+            record["stages"].append(stage_record(dispatch, stage_candidate))
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":

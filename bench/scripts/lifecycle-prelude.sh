@@ -135,8 +135,14 @@ def validate_replay(package, replay_path, expected_stages):
     if result.get("terminal_outcome") != "complete":
         raise GateError(f"I-06 replay terminal_outcome is not complete: {result.get('terminal_outcome')!r}")
     scenario = result.get("scenario") or {}
-    if scenario.get("scenario_id") not in (None, package.get("scenario_id")):
-        raise GateError("I-06 replay scenario_id does not match I-04 package")
+    replay_scenario_id = scenario.get("scenario_id")
+    package_scenario_id = package.get("scenario_id")
+    if not isinstance(replay_scenario_id, str) or not replay_scenario_id.strip():
+        raise GateError("I-06 replay is missing scenario.scenario_id")
+    if replay_scenario_id != package_scenario_id:
+        raise GateError(
+            f"I-06 replay scenario_id {replay_scenario_id!r} does not match I-04 package {package_scenario_id!r}"
+        )
     stages = result.get("stages")
     if not isinstance(stages, list):
         raise GateError("I-06 replay result has no stages array")
@@ -182,8 +188,10 @@ def route_questions(result, run_id, scratch_root):
             raise GateError(f"Question entry is missing an authorized field: {question.get('question_key', '?')}")
         key = question["question_key"]
         next_response = run_shark(["next", key, "--json"], scratch_root)
-        block = next_response.get("question_block") or {}
-        if block.get("question_key") not in (None, key) or block.get("current_responder") not in (None, question["current_responder"]):
+        block = next_response.get("question_block")
+        if not isinstance(block, dict):
+            raise GateError(f"Question {key} next response omitted question_block")
+        if block.get("question_key") != key or block.get("current_responder") != question["current_responder"]:
             raise GateError(f"Question {key} does not match the authorized replay handoff")
         claim = run_shark(["claim", key, "--by", f"bench-{run_id}", "--json"], scratch_root)
         session = claim.get("session_id")

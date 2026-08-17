@@ -871,6 +871,28 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 				t.Errorf("valid bundle baseline failed response-reference resolution, want zero errors:\n%s", strings.Join(errs, "\n"))
 			}
 		})
+
+		t.Run("response_reference_symlink_escape_rejected", func(t *testing.T) {
+			root := t.TempDir()
+			outside := t.TempDir()
+			payload := []byte("outside response")
+			outsidePath := filepath.Join(outside, "response.txt")
+			if err := os.WriteFile(outsidePath, payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outsidePath, filepath.Join(root, "response.txt")); err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(payload)
+			bundle := map[string]interface{}{"entries": []interface{}{map[string]interface{}{
+				"entry_id": "E-SYMLINK",
+				"response": map[string]interface{}{"path": "response.txt", "digest": hex.EncodeToString(sum[:])},
+			}}}
+			errs := e40I06ValidateResponseReferences(bundle, root)
+			if len(errs) == 0 || !strings.Contains(strings.Join(errs, "\n"), "escapes the bundle directory") {
+				t.Fatalf("symlink escape was accepted: %v", errs)
+			}
+		})
 	})
 
 	// AC-015/REQ-F-018 (T-E40-F07-009): single-owner vocabulary agreement
@@ -1900,7 +1922,17 @@ func e40I06ValidateResponseReferences(bundle map[string]interface{}, bundleDir s
 		}
 
 		resolved := filepath.Join(absBundleDir, relPath)
-		if resolved != absBundleDir && !strings.HasPrefix(resolved, absBundleDir+string(filepath.Separator)) {
+		realBundleDir, realErr := filepath.EvalSymlinks(absBundleDir)
+		if realErr != nil {
+			errs = append(errs, fmt.Sprintf("response_reference_unresolved: entries[%d] (entry_id=%s) bundle directory does not resolve: %v", i, entryID, realErr))
+			continue
+		}
+		realResolved, realErr := filepath.EvalSymlinks(resolved)
+		if realErr != nil {
+			// Preserve the normal missing/unresolvable diagnostic below.
+			realResolved = resolved
+		}
+		if realResolved != realBundleDir && !strings.HasPrefix(realResolved, realBundleDir+string(filepath.Separator)) {
 			errs = append(errs, fmt.Sprintf("response_reference_unresolved: entries[%d] (entry_id=%s) response.path %q escapes the bundle directory", i, entryID, relPath))
 			continue
 		}

@@ -55,6 +55,25 @@ python3 -c 'import json,sys; request=json.load(sys.stdin); cost=0.02 if request[
 ADAPTER
 chmod +x "$WORKDIR/adapter.sh"
 
+cp "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" "$WORKDIR/not-admitted.yaml"
+python3 - "$WORKDIR/not-admitted.yaml" <<'PY'
+import sys
+import yaml
+
+path = sys.argv[1]
+with open(path) as stream:
+    data = yaml.safe_load(stream)
+data.pop("admission", None)
+with open(path, "w") as stream:
+    yaml.safe_dump(data, stream, sort_keys=False)
+PY
+if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
+    --scenario "$WORKDIR/not-admitted.yaml" --run-id tc062-not-admitted --root ROOT-001 --scratch-root "$WORKDIR/scratch" \
+    --mode contract >/dev/null 2>"$WORKDIR/not-admitted.err"; then
+    fail "scenario without admission.status unexpectedly ran"
+fi
+grep -q "scenario package is not admitted" "$WORKDIR/not-admitted.err" || fail "missing admission status was not rejected"
+
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
     --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
