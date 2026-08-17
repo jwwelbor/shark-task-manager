@@ -32,18 +32,23 @@ assert any(item["duplicate_or_recurrence"] == "duplicate" for item in normalized
 assert any(item["duplicate_or_recurrence"] == "recurrent" for item in normalized)
 assert any(item["raw_finding"].get("disposition") == "open" and item["final_disposition"] == "confirmed" for item in normalized), "raw disposition was trusted instead of independently adjudicated"
 
-without_truth = dict(source)
-without_truth.pop("truth_set")
-path = pathlib.Path(sys.argv[1]).with_name("no-truth.json")
-path.write_text(json.dumps(without_truth))
+forged = json.loads(json.dumps(source))
+for gate in forged["review_gates"]:
+    for finding in gate["findings"]:
+        finding["truth_set_id"] = "f09-3987da435c531171"
+path = pathlib.Path(sys.argv[1]).with_name("forged-reviewer-truth.json")
+path.write_text(json.dumps(forged))
 PY
 
-"$NORMALIZER" --i07 "$WORKDIR/no-truth.json" --output "$WORKDIR/no-truth-out.json"
-python3 - "$WORKDIR/no-truth-out.json" <<'PY'
+"$NORMALIZER" --i07 "$WORKDIR/forged-reviewer-truth.json" --output "$WORKDIR/forged-out.json"
+python3 - "$WORKDIR/forged-out.json" <<'PY'
 import json, pathlib, sys
-counts = json.loads(pathlib.Path(sys.argv[1]).read_text())["derived_counts"]
-assert counts["truth_set_status"] == "truth-set-unavailable", counts
-assert "precision" not in counts and "recall" not in counts, counts
+out = json.loads(pathlib.Path(sys.argv[1]).read_text())
+counts = out["derived_counts"]
+assert counts["truth_set_status"] == "available", counts
+assert counts["confirmed"] == 2 and counts["unconfirmed"] == 1, counts
+clean = [item for item in out["normalized_findings"] if item["raw_finding"]["fingerprint"] == "clean"]
+assert clean and clean[0]["final_disposition"] == "unconfirmed", clean
 PY
 
 set +e

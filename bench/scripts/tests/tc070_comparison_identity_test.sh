@@ -26,7 +26,8 @@ candidate = {
     "dirty_untracked_manifest": "e" * 64, "test_suite_digest": "f" * 64,
     "scratch_content_digest": "0" * 64,
 }
-candidate["identity_digest"] = digest(candidate)
+candidate["snapshot_digest"] = "9" * 64
+candidate["identity_digest"] = digest({key: candidate[key] for key in ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest"]})
 policy = {
     "enabled_gates": ["qa", "deep_review"], "gate_order": ["qa", "deep_review"],
     "reviewer": {"provider": "fixture", "model": "judge-1", "effort": "low"},
@@ -35,7 +36,7 @@ policy = {
     "fix_policy": "none",
     "fixes_allowed_between_gates": False,
 }
-policy["identity_digest"] = digest(policy)
+policy["workflow_policy_identity_digest"] = digest(policy)
 identity = {
     "scenario_id": "scenario-a", "scenario_version": "1", "fixture_id": "fixture-a",
     "fixture_digest": "3" * 64, "adapter_id": "go", "adapter_version": "1",
@@ -84,5 +85,29 @@ for field in ["identity/scenario_id", "identity/rendered_prompt_digest", "candid
 branch_only = copy.deepcopy(right)
 branch_only["candidate_snapshots"][0]["candidate"] = {"base_commit": "a" * 40}
 run(left, branch_only, False, "candidate/tree_digest")
+
+# Counterfactuals: equal supplied digests are still rejected when they are not
+# the canonical digest of the fields they claim to identify.
+false_equal_left = copy.deepcopy(left)
+false_equal_right = copy.deepcopy(right)
+false_equal_left["candidate_snapshots"][0]["candidate"]["identity_digest"] = "0" * 64
+false_equal_right["candidate_snapshots"][0]["candidate"]["identity_digest"] = "0" * 64
+false_equal_left["workflow_policy"]["workflow_policy_identity_digest"] = "0" * 64
+false_equal_right["workflow_policy"]["workflow_policy_identity_digest"] = "0" * 64
+left_path = write("false-equal-left", false_equal_left)
+right_path = write("false-equal-right", false_equal_right)
+out = root / "false-equal.json"
+proc = subprocess.run([str(comparator), "--left", str(left_path), "--right", str(right_path), "--mode", "independent_frozen_candidate", "--output", str(out)], text=True, capture_output=True)
+result = json.loads(out.read_text())
+assert proc.returncode != 0 and result["accepted"] is False, result
+assert any(item["reason"] == "identity_mismatch" for item in result["divergences"]), result
+
+malformed = copy.deepcopy(left)
+malformed["candidate_snapshots"][0]["candidate"]["identity_digest"] = "not-a-digest"
+malformed_path = write("malformed", malformed)
+out = root / "malformed.json"
+proc = subprocess.run([str(comparator), "--left", str(malformed_path), "--right", str(right_path), "--mode", "independent_frozen_candidate", "--output", str(out)], text=True, capture_output=True)
+result = json.loads(out.read_text())
+assert proc.returncode != 0 and any(item["reason"] == "malformed_digest" for item in result["divergences"]), result
 print("TC-070 PASS")
 PY

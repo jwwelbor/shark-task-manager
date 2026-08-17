@@ -21,20 +21,24 @@ identity = {key: value for key, value in {
 }.items()}
 candidate = {"base_commit":"b"*40, "tree_digest":digest, "binary_diff_digest":digest,
              "changed_path_digest":digest, "dirty_untracked_manifest":digest,
-             "test_suite_digest":digest, "scratch_content_digest":digest, "identity_digest":digest}
+             "test_suite_digest":digest, "snapshot_digest":digest}
+candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 policy = {"enabled_gates":["qa","deep_review"], "gate_order":["qa","deep_review"],
           "reviewer":{"provider":"fixture","model":"m","effort":"low"},
           "prompt_digest":digest, "rendered_prompt_digest":digest,
           "review_bundle_digest":digest, "deep_review_bundle_digest":digest,
           "fixes_allowed_between_gates":False, "fix_policy":"none"}
+policy["workflow_policy_identity_digest"] = __import__("hashlib").sha256(json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 finding = lambda fid, gate, confirmed: {"f09_finding_id":fid, "gate":gate,
     "final_disposition":"confirmed" if confirmed else "unconfirmed", "confirmation_source":"seeded_truth_set" if confirmed else "none"}
 base = {"identity":identity, "workflow_policy":policy, "eligibility":{"aggregate_eligible":True},
         "review_findings":{"normalized_findings":[finding("f09-1","qa",True)], "derived_counts":{"confirmed":1}}}
 independent = copy.deepcopy(base); independent.update({"evaluation_id":"independent", "candidate_snapshots":[{"stage":"qa","candidate":candidate}]})
 independent["review_findings"]["normalized_findings"].append(finding("f09-1","deep_review",True))
-sequential = copy.deepcopy(base); sequential.update({"evaluation_id":"sequential", "candidate_snapshots":[
-    {"stage":"qa","candidate":candidate}, {"stage":"deep_review","candidate":dict(candidate, tree_digest="c"*64)}]})
+sequential = copy.deepcopy(base); changed_candidate = dict(candidate, tree_digest="c"*64)
+changed_candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: changed_candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+sequential.update({"evaluation_id":"sequential", "candidate_snapshots":[
+    {"stage":"qa","candidate":candidate}, {"stage":"deep_review","candidate":changed_candidate}]})
 sequential["review_findings"]["normalized_findings"].append(finding("f09-2","deep_review",True))
 qa_only = copy.deepcopy(base); qa_only.update({"evaluation_id":"qa-only", "candidate_snapshots":[{"stage":"qa","candidate":candidate}]})
 def write(name, record):
@@ -54,5 +58,9 @@ assert len(result["comparison"]["intervening_candidates"]) == 2, result
 bad = copy.deepcopy(sequential); bad["candidate_snapshots"] = [sequential["candidate_snapshots"][0]]
 result = run(sequential, bad, "sequential_delivery", expect_accepted=False)
 assert result["accepted"] is False and any(d["reason"] == "candidate_lineage_missing" for d in result["divergences"]), result
+stale = copy.deepcopy(sequential)
+stale["candidate_snapshots"][1]["candidate"]["tree_digest"] = "d" * 64
+result = run(sequential, stale, "sequential_delivery", expect_accepted=False)
+assert result["accepted"] is False and any(d["reason"] == "identity_mismatch" for d in result["divergences"]), result
 print("TC-072 PASS")
 PY

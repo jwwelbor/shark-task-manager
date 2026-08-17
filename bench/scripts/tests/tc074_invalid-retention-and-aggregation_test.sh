@@ -6,7 +6,8 @@ VERIFIER="$REPO_ROOT/bench/scripts/verify-lifecycle-evaluation.sh"
 fixture="$REPO_ROOT/bench/scripts/testdata/evaluation/ineligible.jsonl"
 [[ -x "$VERIFIER" ]] || { echo "TC-074: verifier missing" >&2; exit 1; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-if "$VERIFIER" "$fixture" --schema "$REPO_ROOT/bench/evaluation/i08-schema.yaml" >"$tmp/verdict" 2>"$tmp/error"; then exit 1; fi
+jq -c '.metrics={quality:{},elapsed_time:{},provider_cost:{},rework:{},artifact_use:{}}' "$fixture" >"$tmp/ineligible.jsonl"
+if "$VERIFIER" "$tmp/ineligible.jsonl" --schema "$REPO_ROOT/bench/evaluation/i08-schema.yaml" >"$tmp/verdict" 2>"$tmp/error"; then exit 1; fi
 grep -q 'aggregate_eligible' "$tmp/error"
 grep -q 'failed_oracle' "$tmp/error"
 [[ -s "$fixture" ]]
@@ -16,6 +17,7 @@ grep -q 'failed_oracle' "$tmp/error"
 python3 - "$REPO_ROOT/bench/scripts/testdata/evaluation/eligible.jsonl" "$tmp/missing-publication.jsonl" <<'PY'
 import json, sys
 record = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+record["metrics"] = {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}
 del record["eligibility"]["publication_eligible"]
 with open(sys.argv[2], "w", encoding="utf-8") as stream:
     json.dump(record, stream)

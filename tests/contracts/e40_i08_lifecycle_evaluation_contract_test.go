@@ -135,11 +135,11 @@ func validateI08Record(schema e40I08Schema, record map[string]any) []string {
 		}
 	}
 	for _, pointer := range schema.RequiredFields {
-		if pointer == "/schema_version" || pointer == "/evaluation_id" || strings.Contains(pointer, "/") && strings.Count(pointer, "/") > 1 {
+		if pointer == "/schema_version" || pointer == "/evaluation_id" {
 			continue
 		}
-		name := strings.TrimPrefix(pointer, "/")
-		if value, ok := record[name]; !ok || value == nil {
+		value, ok := e40I08Pointer(record, pointer)
+		if !ok || value == nil {
 			errs = append(errs, fmt.Sprintf("%s: required field missing", pointer))
 		}
 	}
@@ -189,6 +189,21 @@ func validateI08Record(schema e40I08Schema, record map[string]any) []string {
 		}
 	}
 	return errs
+}
+
+func e40I08Pointer(record map[string]any, pointer string) (any, bool) {
+	var current any = record
+	for _, segment := range strings.Split(strings.TrimPrefix(pointer, "/"), "/") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[segment]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 func isDigest(value string) bool {

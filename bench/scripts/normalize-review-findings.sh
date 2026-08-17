@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # TC-071: preserve I-07 review evidence and independently normalize findings.
 set -euo pipefail
-exec python3 - "$@" <<'PY'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+F09_SCRIPT_DIR="$SCRIPT_DIR" exec python3 - "$@" <<'PY'
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,9 +18,19 @@ args = parser.parse_args()
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
-def finding_id(gate, finding):
+def finding_id(finding):
     raw = {"fingerprint": finding["fingerprint"], "defect_class": finding["defect_class"]}
     return "f09-" + hashlib.sha256(canonical(raw).encode()).hexdigest()[:16]
+
+def load_seeded_truth():
+    path = Path(os.environ["F09_SCRIPT_DIR"]).parent / "evaluation" / "review-truth-set.json"
+    seeded = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(seeded, dict) or seeded.get("schema_version") != "1.0":
+        raise ValueError("seeded truth artifact has an unsupported schema")
+    finding_ids = seeded.get("finding_ids")
+    if not isinstance(finding_ids, list) or not finding_ids or any(not isinstance(item, str) or not item.startswith("f09-") for item in finding_ids):
+        raise ValueError("seeded truth artifact requires non-empty F09 finding IDs")
+    return seeded
 
 try:
     source = json.loads(Path(args.i07).read_text(encoding="utf-8"))
@@ -27,8 +39,9 @@ try:
     gates = source.get("review_gates")
     if not isinstance(gates, list):
         raise ValueError("review_gates must be an array")
-    truth = source.get("truth_set")
-    truth_ids = set(truth.get("finding_ids", [])) if isinstance(truth, dict) else set()
+    raw_truth = source.get("truth_set")
+    seeded_truth = load_seeded_truth()
+    truth_ids = set(seeded_truth["finding_ids"])
     raw = []
     normalized = []
     seen_by_fingerprint = {}
@@ -52,10 +65,11 @@ try:
             recurrence_key = (fingerprint, finding.get("defect_class"))
             previous = seen_by_fingerprint.get(recurrence_key)
             link = "recurrent" if previous and previous["raw_source_ref"]["candidate_ref"] != candidate else ("duplicate" if previous else None)
-            source_kind = "seeded_truth_set" if finding.get("truth_set_id") in truth_ids else "independent_adjudication"
-            confirmed = finding.get("truth_set_id") in truth_ids
+            normalized_id = finding_id(finding)
+            source_kind = "seeded_truth_set" if normalized_id in truth_ids else "independent_adjudication"
+            confirmed = normalized_id in truth_ids
             normalized.append({
-                "f09_finding_id": finding_id(gate, finding),
+                "f09_finding_id": normalized_id,
                 "raw_finding": finding,
                 "raw_source_ref": {"gate": gate, "candidate_ref": candidate},
                 "confirmation_source": source_kind,
@@ -70,14 +84,12 @@ try:
     confirmed_ids = {item["f09_finding_id"] for item in unique if item["final_disposition"] == "confirmed"}
     unconfirmed_ids = {item["f09_finding_id"] for item in unique if item["final_disposition"] == "unconfirmed"}
     counts = {"emitted": len(normalized), "normalized_unique": len(unique), "duplicate": sum(item["duplicate_or_recurrence"] == "duplicate" for item in normalized), "recurrent": sum(item["duplicate_or_recurrence"] == "recurrent" for item in normalized), "confirmed": len(confirmed_ids), "unconfirmed": len(unconfirmed_ids)}
-    if isinstance(truth, dict) and truth_ids:
+    if truth_ids:
         counts["truth_set_status"] = "available"
         seeded = len(truth_ids)
         counts["precision"] = counts["confirmed"] / counts["normalized_unique"] if counts["normalized_unique"] else 0
         counts["recall"] = counts["confirmed"] / seeded if seeded else 0
-    else:
-        counts["truth_set_status"] = "truth-set-unavailable"
-    result = {"schema_version": "1.0", "raw_review_gates": source["review_gates"], "raw_source": {"i07_path": str(Path(args.i07))}, "truth_set": {"available": bool(truth_ids), "digest": truth.get("digest") if isinstance(truth, dict) else None}, "normalized_findings": normalized, "derived_counts": counts}
+    result = {"schema_version": "1.0", "raw_review_gates": source["review_gates"], "raw_source": {"i07_path": str(Path(args.i07))}, "raw_truth_set": raw_truth, "truth_set": {"available": True, "source": "bench/evaluation/review-truth-set.json", "digest": hashlib.sha256((Path(os.environ["F09_SCRIPT_DIR"]).parent / "evaluation" / "review-truth-set.json").read_bytes()).hexdigest()}, "normalized_findings": normalized, "derived_counts": counts}
     destination = Path(args.output); destination.parent.mkdir(parents=True, exist_ok=True); destination.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
     print(f"finding_normalization_invalid: {exc}", file=sys.stderr)

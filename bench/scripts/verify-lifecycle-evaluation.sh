@@ -41,7 +41,8 @@ try:
         raise SystemExit(2)
     allowed = {"schema_version", "evaluation_id"} | set(schema.get("top_level_fields", []))
     reasons_allowed = set(schema.get("invalidity_reason", []))
-    records = []
+    record = None
+    record_count = 0
     with open(record_path, encoding="utf-8") as stream:
         for line_number, raw in enumerate(stream, 1):
             if not raw.strip():
@@ -54,12 +55,13 @@ try:
             if not isinstance(value, dict):
                 print(json.dumps({"path": f"line[{line_number}]", "code": "malformed_record", "detail": "record must be an object"}, sort_keys=True), file=sys.stderr)
                 raise SystemExit(1)
-            records.append(value)
-    if len(records) != 1:
-        code = "duplicate_record" if len(records) > 1 else "malformed_record"
-        print(json.dumps({"path": "/", "code": code, "detail": f"expected exactly one record, got {len(records)}"}, sort_keys=True), file=sys.stderr)
+            record_count += 1
+            if record_count == 1:
+                record = value
+    if record_count != 1:
+        code = "duplicate_record" if record_count > 1 else "malformed_record"
+        print(json.dumps({"path": "/", "code": code, "detail": f"expected exactly one record, got {record_count}"}, sort_keys=True), file=sys.stderr)
         raise SystemExit(1)
-    record = records[0]
     errors = []
     for key in record:
         if key not in allowed:

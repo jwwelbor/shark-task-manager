@@ -49,6 +49,32 @@ def canonical_digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def metric(value, available, detail=None):
+    result = {"value": value if available else None, "available": bool(available)}
+    if detail is not None:
+        result["detail"] = detail
+    return result
+
+
+def derive_metrics(lifecycle, findings, judge):
+    stages = lifecycle.get("stages") if isinstance(lifecycle.get("stages"), list) else []
+    elapsed = [stage.get("elapsed_seconds") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("elapsed_seconds"), (int, float))]
+    costs = [stage.get("cost_usd") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("cost_usd"), (int, float))]
+    if isinstance(judge, dict) and isinstance(judge.get("cost_usd"), (int, float)):
+        costs.append(judge["cost_usd"])
+    rework = [stage for stage in stages if isinstance(stage, dict) and stage.get("rework") is True]
+    artifacts = [artifact for stage in stages if isinstance(stage, dict) for artifact in (stage.get("artifacts") if isinstance(stage.get("artifacts"), list) else []) if isinstance(artifact, dict)]
+    consumed = sum(1 for artifact in artifacts if isinstance(artifact.get("consumers"), list) and artifact["consumers"])
+    counts = findings.get("derived_counts", {}) if isinstance(findings, dict) else {}
+    return {
+        "quality": {"confirmed_findings": metric(counts.get("confirmed"), isinstance(counts.get("confirmed"), int)), "unconfirmed_findings": metric(counts.get("unconfirmed"), isinstance(counts.get("unconfirmed"), int)), "aggregate_eligible": metric(None, False, "eligibility is reported separately")},
+        "elapsed_time": metric(sum(elapsed), bool(elapsed), "sum of retained stage elapsed_seconds"),
+        "provider_cost": metric(sum(costs), bool(costs), "sum of retained stage and judge cost_usd"),
+        "rework": metric(len(rework), bool(stages), "count of retained stages marked rework"),
+        "artifact_use": {"produced": metric(len(artifacts), True), "consumed": metric(consumed, True), "orphaned": metric(len(artifacts) - consumed, True)},
+    }
+
+
 def content_digest(root):
     root = os.path.abspath(root)
     if not os.path.isdir(root):
@@ -111,7 +137,7 @@ def write(record):
 
 
 def fail_input(detail):
-    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
+    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
 
 
 try:
@@ -383,7 +409,7 @@ try:
             unique.append(item)
             seen.add(key)
     aggregate = not unique and structural["observed_result"] == "pass" and judge["observed_result"] in {"pass", "not_applicable"} and oracle_result.get("observed_result") == "pass"
-    write({"schema_version": "1.0", "evaluation_id": evaluation_id, "identity": identity, "source_artifacts": sources, "structural": structural, "judge": judge, "execution_oracle": oracle_result, "review_findings": review_findings, "candidate_snapshots": candidate_snapshots, "workflow_policy": workflow_policy, "comparison": {"mode": None, "accepted": False, "quality_delta": None}, "eligibility": {"structural_valid": structural["observed_result"] == "pass", "judge_valid": judge["observed_result"] in {"pass", "not_applicable"}, "oracle_valid": oracle_result.get("observed_result") == "pass", "aggregate_eligible": aggregate, "publication_eligible": aggregate, "invalidity_reasons": unique}})
+    write({"schema_version": "1.0", "evaluation_id": evaluation_id, "identity": identity, "source_artifacts": sources, "structural": structural, "judge": judge, "execution_oracle": oracle_result, "review_findings": review_findings, "candidate_snapshots": candidate_snapshots, "workflow_policy": workflow_policy, "comparison": {"mode": None, "accepted": False, "quality_delta": None}, "metrics": derive_metrics(lifecycle, review_findings, judge), "eligibility": {"structural_valid": structural["observed_result"] == "pass", "judge_valid": judge["observed_result"] in {"pass", "not_applicable"}, "oracle_valid": oracle_result.get("observed_result") == "pass", "aggregate_eligible": aggregate, "publication_eligible": aggregate, "invalidity_reasons": unique}})
 except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     fail_input(str(exc))
 PYEOF

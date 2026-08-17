@@ -16,6 +16,7 @@ top_level_fields:
   - workflow_policy
   - comparison
   - review_findings
+  - metrics
 
 required_fields:
   - /schema_version
@@ -32,6 +33,7 @@ required_fields:
   - /candidate_snapshots
   - /workflow_policy
   - /comparison
+  - /metrics
 
 properties:
   /schema_version: string
@@ -48,6 +50,12 @@ properties:
   /candidate_snapshots: array
   /workflow_policy: object
   /comparison: object
+  /metrics: object
+  /metrics/quality: object
+  /metrics/elapsed_time: object
+  /metrics/provider_cost: object
+  /metrics/rework: object
+  /metrics/artifact_use: object
 
 truth_result:
   - pass

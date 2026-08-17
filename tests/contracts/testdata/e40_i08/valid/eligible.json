@@ -65,6 +65,13 @@
     "fixes_allowed_between_gates": false
   },
   "comparison": {"mode": null, "accepted": false, "quality_delta": null},
+  "metrics": {
+    "quality": {},
+    "elapsed_time": {},
+    "provider_cost": {},
+    "rework": {},
+    "artifact_use": {}
+  },
   "eligibility": {
     "structural_valid": true,
     "judge_valid": true,

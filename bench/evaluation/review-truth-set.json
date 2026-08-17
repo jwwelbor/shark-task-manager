@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "finding_ids": [
+    "f09-3987da435c531171",
+    "f09-9dea1d406068b9a7"
+  ],
+  "source": "repository-owned seeded F09 calibration defects"
+}
