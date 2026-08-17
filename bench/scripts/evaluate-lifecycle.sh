@@ -195,9 +195,6 @@ try:
                 reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its six fields"))
         candidate_snapshots.append({"stage": stage.get("stage"), "candidate": candidate})
     workflow_policy = dict(lifecycle.get("workflow_policy") or {})
-    if workflow_policy:
-        policy_without_digest = {key: value for key, value in workflow_policy.items() if key != "workflow_policy_identity_digest"}
-        workflow_policy.setdefault("workflow_policy_identity_digest", canonical_digest(policy_without_digest))
     declared_content_root = (i05.get("content_root") or i05.get("shark_data_root") or identity.get("content_root")) if isinstance(i05, dict) else None
     if declared_content_root:
         derived_content_digest = content_digest(declared_content_root)

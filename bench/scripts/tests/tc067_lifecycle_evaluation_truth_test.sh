@@ -8,6 +8,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 EVALUATOR="$REPO_ROOT/bench/scripts/evaluate-lifecycle.sh"
 
 [[ -x "$EVALUATOR" ]] || { echo "TC-067: evaluator missing or not executable" >&2; exit 1; }
+! rg -q 'workflow_policy\.setdefault' "$EVALUATOR" || {
+  echo "TC-067: evaluator must not fabricate workflow-policy identity" >&2
+  exit 1
+}
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/i05"
@@ -45,6 +49,25 @@ python3 - "$join_output" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
 assert any(item["code"] == "contradictory_join" and item["path"] == "/join/run_id" for item in record["eligibility"]["invalidity_reasons"]), record
+PY
+
+# Missing workflow-policy identity is a counter-factual invalid record, not a
+# digest the evaluator may reconstruct from the remaining fields.
+mkdir -p "$tmp/policy-i05"
+cp "$tmp/i05/bundle.json" "$tmp/policy-i05/bundle.json"
+cat > "$tmp/policy-i07.jsonl" <<'JSON'
+{"identity":{"run_id":"policy-run","scenario_id":"py-bug-due-date-boundary","scenario_version":1},"dispatches":[],"workflow_policy":{"enabled_gates":["qa"],"gate_order":["qa"],"reviewer":{"provider":"fixture","model":"reviewer","effort":"low"},"prompt_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rendered_prompt_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","deep_review_bundle_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","fixes_allowed_between_gates":false},"stages":[],"outcome":{"terminal":"complete"}}
+JSON
+policy_output="$tmp/policy-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/policy-i05" --i07 "$tmp/policy-i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$policy_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: missing workflow-policy identity unexpectedly eligible" >&2
+  exit 1
+fi
+python3 - "$policy_output" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+reasons = record["eligibility"]["invalidity_reasons"]
+assert any(item["code"] == "identity_missing" and item["path"] == "/workflow_policy/workflow_policy_identity_digest" for item in reasons), reasons
 PY
 
 echo "TC-067: truth blocks remain independent and missing oracle evidence is retained"
