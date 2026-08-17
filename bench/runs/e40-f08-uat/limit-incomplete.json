@@ -1,0 +1,10 @@
+{
+  "scenario_id": "py-bug-due-date-boundary",
+  "run_id": "tc062",
+  "first_exceeded": "max_cost_usd",
+  "terminal_outcome": "resource_limit",
+  "partial_evidence": true,
+  "publication_eligible": false,
+  "completed_from_process_exit": false,
+  "evidence": ["tc062_lifecycle_runner_limits_test.sh"]
+}
