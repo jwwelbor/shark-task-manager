@@ -44,6 +44,7 @@ cat >"$WORKDIR/adapter.sh" <<'ADAPTER'
 #!/usr/bin/env bash
 set -euo pipefail
 cat >/dev/null
+printf '%s\n' worker-output > worker-output.txt
 printf '%s\n' '{"worker_id":"worker-066","session_id":"SID-Q","kind":"question","category":"scope","question":"Which scope should be used?","why_blocking":"The scope is ambiguous.","recommendation":"Use the smallest scope.","evidence":{}}'
 ADAPTER
 chmod +x "$WORKDIR/adapter.sh"
@@ -70,6 +71,9 @@ assert worker["question_key"] == "Q001"
 assert record["dispatches"][0]["outcome"] == "pause"
 assert record["outcome"]["terminal"] == "pause"
 assert record["outcome"]["publication_eligible"] is False
+candidate = record["stages"][0]["candidate"]
+assert len(candidate["scratch_content_digest"]) == 64
+assert candidate["scratch_content_digest"] != "0" * 64
 PY
 
 echo "TC-066: pass (question worker result creates, configures, links, and pauses the parent-owned lifecycle)"

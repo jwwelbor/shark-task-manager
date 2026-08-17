@@ -128,6 +128,28 @@ def candidate_identity(repo_root):
     return candidate
 
 
+def scratch_content_digest(root):
+    """Digest the worker's actual scratch-project contents at stage end."""
+    root = Path(root).resolve()
+    material = bytearray()
+    if not root.exists():
+        return sha256_bytes(b"")
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        material.extend(relative)
+        material.append(0)
+        if path.is_symlink():
+            material.extend(b"symlink\0")
+            material.extend(os.readlink(path).encode("utf-8"))
+        elif path.is_file():
+            material.extend(b"file\0")
+            material.extend(path.read_bytes())
+        elif path.is_dir():
+            material.extend(b"directory\0")
+        material.append(0)
+    return sha256_bytes(bytes(material))
+
+
 def timestamp():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -184,6 +206,9 @@ def pre_dispatch_gates(scenario_path, scenario, scratch):
             raise RuntimeError("replay bundle scenario_binding.scenario_id does not match the scenario")
         if binding.get("scenario_version") != scenario.get("scenario_version"):
             raise RuntimeError("replay bundle scenario_binding.scenario_version does not match the scenario")
+        bundle_version = bundle.get("bundle_version")
+        if not isinstance(bundle_version, str) or not bundle_version.strip():
+            raise RuntimeError("replay bundle is missing bundle_version")
         guard = Path(os.environ["LIFECYCLE_BENCH_DIR"]) / "scripts" / "verify-replay-isolation.sh"
         process = subprocess.run([str(guard), str(bundle_path), str(fixture_root), str(scratch)], text=True, capture_output=True, check=False)
         if process.returncode != 0:
@@ -461,6 +486,9 @@ def main(argv):
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
             candidate = candidate_identity(Path.cwd())
+            candidate["scratch_content_digest"] = scratch_content_digest(scratch)
+            candidate["identity_digest"] = canonical_digest({key: value for key, value in candidate.items() if key not in {"identity_digest", "snapshot_digest"}})
+            candidate["snapshot_digest"] = canonical_digest(candidate)
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
