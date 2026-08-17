@@ -58,6 +58,7 @@ tests=(
 	"$SCRIPT_DIR/tc063_review_finding_capture_test.sh"
 	"$SCRIPT_DIR/tc064_lifecycle_runner_offline_determinism_test.sh"
 	"$SCRIPT_DIR/tc065_prelude_question_isolation_test.sh"
+	"$SCRIPT_DIR/tc066_lifecycle_worker_question_handoff_test.sh"
 )
 
 status=0

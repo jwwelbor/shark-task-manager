@@ -19,6 +19,7 @@ command -v python3 >/dev/null 2>&1 || {
 
 LIFECYCLE_PRELUDE_BENCH_DIR="$BENCH_DIR" python3 - "$@" <<'PY'
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -143,6 +144,32 @@ def validate_replay(package, replay_path, expected_stages):
         raise GateError(
             f"I-06 replay scenario_id {replay_scenario_id!r} does not match I-04 package {package_scenario_id!r}"
         )
+    replay_reference = package.get("replay_reference")
+    if not isinstance(replay_reference, str) or not replay_reference.strip():
+        raise GateError("I-04 package is missing replay_reference")
+    package_dir = Path(package["_package_path"]).parent.resolve()
+    authorized_bundle = (package_dir / replay_reference).resolve()
+    try:
+        authorized_bundle.relative_to(package_dir)
+    except ValueError as exc:
+        raise GateError("I-04 replay_reference escapes the package directory") from exc
+    if not authorized_bundle.is_file():
+        raise GateError(f"I-04 replay_reference bundle is missing: {authorized_bundle}")
+    replay_bundle = result.get("replay_bundle")
+    if not isinstance(replay_bundle, dict):
+        raise GateError("I-06 replay is missing replay_bundle provenance")
+    expected_digest = "sha256:" + hashlib.sha256(authorized_bundle.read_bytes()).hexdigest()
+    recorded_path = replay_bundle.get("bundle_path")
+    if not isinstance(recorded_path, str) or Path(recorded_path).resolve() != authorized_bundle:
+        raise GateError("I-06 replay bundle_path does not match the authorized I-04 replay_reference")
+    if replay_bundle.get("bundle_digest") != expected_digest:
+        raise GateError("I-06 replay bundle_digest does not match the authorized I-04 replay bundle")
+    try:
+        authorized_doc = json.loads(authorized_bundle.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GateError(f"I-04 replay bundle is not readable JSON: {exc}") from exc
+    if replay_bundle.get("bundle_version") != authorized_doc.get("bundle_version"):
+        raise GateError("I-06 replay bundle_version does not match the authorized I-04 replay bundle")
     stages = result.get("stages")
     if not isinstance(stages, list):
         raise GateError("I-06 replay result has no stages array")
@@ -218,6 +245,7 @@ def main(argv):
     args = parse_args(argv)
     package_path = str(Path(args["scenario"]).resolve())
     package = read_yaml(package_path, "I-04 package")
+    package["_package_path"] = package_path
     if (package.get("admission") or {}).get("status") != "admitted":
         raise GateError("I-04 scenario package is not admitted")
     family = package.get("entity_family")

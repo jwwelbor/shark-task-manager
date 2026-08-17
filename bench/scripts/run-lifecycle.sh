@@ -181,7 +181,7 @@ def scenario_identity(scenario_path, scenario):
         "adapter_id": str(adapter.get("name", "unknown")),
         "adapter_version": str(adapter.get("version", "unknown")),
         "shark_binary_digest": "0" * 64,
-        "shark_content_digest": sha256_file(scenario_path),
+        "shark_content_digest": sha256_bytes(git_bytes(Path.cwd(), ["rev-parse", "HEAD^{tree}"])),
         "roots": {
             "agent_fixture_checkout": str(Path(fixture.get("submodule_path", scenario_path.parent)).resolve()),
             "scratch_shark_project": "",
@@ -321,6 +321,29 @@ def adapter_result(adapter, request, cwd, mode, shark):
     return load_json(stdout, "lifecycle adapter"), heartbeat_events
 
 
+def route_worker_question(worker_result, entity, session, runner_id, cwd, shark):
+    required = ("category", "question", "why_blocking", "recommendation")
+    if any(not isinstance(worker_result.get(field), str) or not worker_result[field].strip() for field in required):
+        raise RuntimeError(f"question worker result for {entity} omitted required handoff fields")
+    title = worker_result["question"][:200]
+    summary = f"{worker_result['why_blocking']} Recommendation: {worker_result['recommendation']}"
+    created = run_command(
+        shark,
+        ["question", "create", title, "--summary", summary, "--requester", runner_id, "--blocking"],
+        cwd,
+    )
+    question_key = str(created.get("key", ""))
+    if not question_key:
+        raise RuntimeError(f"question worker handoff for {entity} returned no question key")
+    run_command(
+        shark,
+        ["question", "configure-workflow", question_key, "--resolution-owner", runner_id, "--responder", runner_id],
+        cwd,
+    )
+    run_command(shark, ["link", question_key, entity, "--type", "question_blocks"], cwd)
+    return question_key
+
+
 def main(argv):
     args = parse_args(argv)
     scenario_path = Path(args["scenario"]).resolve()
@@ -435,11 +458,22 @@ def main(argv):
                     raise RuntimeError(f"worker session mismatch for {entity}")
                 dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {}))}
                 kind = worker_result.get("kind")
-                outcome = worker_result.get("recommended_outcome") if kind == "final" else None
+                if kind == "question":
+                    question_key = route_worker_question(
+                        worker_result, entity, session, request["runner_id"], scratch, shark
+                    )
+                    dispatch["worker"]["question_key"] = question_key
+                    dispatch["outcome"] = "pause"
+                    terminal = "pause"
+                    reason = f"worker question routed to {question_key}"
+                    outcome = None
+                else:
+                    outcome = worker_result.get("recommended_outcome") if kind == "final" else None
                 if not outcome:
-                    terminal = "missing_outcome"
-                    reason = f"worker for {entity} did not return a final recommended_outcome"
-                    dispatch["outcome"] = terminal
+                    if kind != "question":
+                        terminal = "missing_outcome"
+                        reason = f"worker for {entity} did not return a final recommended_outcome"
+                        dispatch["outcome"] = terminal
                 else:
                     dispatch["outcome"] = str(outcome)
                     run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}"], scratch)
