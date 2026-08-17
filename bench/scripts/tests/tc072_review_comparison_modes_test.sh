@@ -39,10 +39,12 @@ sequential["review_findings"]["normalized_findings"].append(finding("f09-2","dee
 qa_only = copy.deepcopy(base); qa_only.update({"evaluation_id":"qa-only", "candidate_snapshots":[{"stage":"qa","candidate":candidate}]})
 def write(name, record):
     path = root / f"{name}.jsonl"; path.write_text(json.dumps(record)+"\n"); return path
-def run(left, right, mode):
+def run(left, right, mode, expect_accepted=True):
     out = root / f"{mode}.json"; proc = subprocess.run([str(comparator), "--left", str(write("left", left)), "--right", str(write("right", right)), "--mode", mode, "--output", str(out)], capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(out.read_text())
+    result = json.loads(out.read_text())
+    assert result["accepted"] is expect_accepted, (proc.stderr, result)
+    assert (proc.returncode == 0) is expect_accepted, (proc.returncode, result)
+    return result
 result = run(independent, independent, "independent_frozen_candidate")
 assert result["accepted"] is True and result["comparison"]["causal_claim"] is None, result
 result = run(qa_only, sequential, "sequential_delivery")
@@ -50,7 +52,7 @@ assert result["accepted"] is True, result
 assert result["comparison"]["newly_confirmed_findings"] == ["f09-2"], result
 assert len(result["comparison"]["intervening_candidates"]) == 2, result
 bad = copy.deepcopy(sequential); bad["candidate_snapshots"] = [sequential["candidate_snapshots"][0]]
-result = run(sequential, bad, "sequential_delivery")
+result = run(sequential, bad, "sequential_delivery", expect_accepted=False)
 assert result["accepted"] is False and any(d["reason"] == "candidate_lineage_missing" for d in result["divergences"]), result
 print("TC-072 PASS")
 PY
