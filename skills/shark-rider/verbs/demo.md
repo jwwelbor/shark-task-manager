@@ -3,7 +3,7 @@
 Usage:
 
 ```
-/shark-rider demo <epic-key|feature-key> [--draft]
+/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]
 ```
 
 This is an explicit host-local Mode-3 action. It prepares a truthful, portable
@@ -19,8 +19,9 @@ additional positional arguments, and a missing target. Resolve the target with:
 shark get <key> --json
 ```
 
-Only epic and feature targets are valid. If the resolved entity is another type,
-report the unsupported target and stop; do not guess from the key shape.
+Only epic, feature, and sprint targets are valid. If the resolved entity is
+another type, report the unsupported target and stop; do not guess from the key
+shape.
 Use the canonical entity key returned by `shark get` for every later command and
 artifact path. Reject a key containing a path separator or traversal segment,
 and confirm the resolved artifact path remains below `docs/demos/` before the
@@ -34,11 +35,23 @@ linked documents, notes, and child state using the existing Shark data plane:
 ```bash
 shark get <key> --json
 shark list <epic> [feature] --json
+# For a sprint target:
+shark sprint get <sprint-key> --json
+shark sprint backlog <sprint-key> --all --json
 # For an epic target:
 shark related-docs list --epic=<epic-key> --json
 # For a feature target:
 shark related-docs list --feature=<feature-key> --json
 ```
+
+For a sprint target, treat the ordered `shark sprint backlog --all --json`
+result as the sprint scope snapshot. Read each assigned item with `shark get
+<item-key> --json`, follow its documented parent requirements and linked
+guidance, and include completed work as candidate demo material. Keep assigned
+work that is incomplete, blocked, or lacks observable evidence visible as
+`Not demonstrated / pending integration`; do not silently expand the demo to
+unassigned or unrelated work. A completed status selects work for review but is
+not evidence that the behavior is demonstrable.
 
 Use only project-documented commands, environments, access, and capture methods
 found in that state and its linked guidance. Never infer credentials, endpoints,
@@ -99,11 +112,15 @@ scope:
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --epic=<epic-key>
 # For a feature target:
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --feature=<feature-key>
+# For a sprint target (sprints have no related-document parent option):
+shark create note <sprint-key> "Demo script: docs/demos/<sprint-key>/demo-script.md" --type=reference
 shark create note <key> "Demo script: docs/demos/<entity-key>/demo-script.md" --type=reference
 ```
 
-Run these two commands only after the script is successfully created. They are
-discovery links, not acceptance evidence or lifecycle changes.
+For epic and feature targets, run the related-document and note commands only
+after the script is successfully created. For sprint targets, run only the
+sprint reference-note command after successful creation. These are discovery
+links, not acceptance evidence or lifecycle changes.
 
 ## Boundaries
 

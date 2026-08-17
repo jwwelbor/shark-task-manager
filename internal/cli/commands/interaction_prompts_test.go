@@ -288,7 +288,7 @@ func TestE34F04QuestionManagementPromptReferences(t *testing.T) {
 	}
 }
 
-// TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008 guards the documented
+// TestE34F02DemoRiderProcedure guards the documented
 // content contract for the explicit, host-local demo action. It intentionally
 // checks shipped procedure text rather than inventing a runtime policy engine.
 func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
@@ -308,16 +308,16 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 
 	for name, want := range map[string][]string{
 		"rider router": {
-			"/shark-rider demo <epic-key|feature-key> [--draft]",
+			"/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]",
 			"`demo`",
 			"`verbs/demo.md`",
 		},
 		"static help": {
-			"demo <epic-key|feature-key> [--draft]",
+			"demo <epic-key|feature-key|sprint-key> [--draft]",
 			"`demo`",
 		},
 		"demo procedure": {
-			"Only epic and feature targets are valid",
+			"Only epic, feature, and sprint targets are valid",
 			"Use the canonical entity key returned by `shark get`",
 			"remains below `docs/demos/`",
 			"Accept exactly one target and the optional `--draft` flag.",
@@ -326,6 +326,9 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 			"shark skill get demo-script",
 			"shark related-docs list --epic=<epic-key> --json",
 			"shark related-docs list --feature=<feature-key> --json",
+			"shark sprint get <sprint-key> --json",
+			"shark sprint backlog <sprint-key> --all --json",
+			"A completed status selects work for review",
 			"Demonstrated now",
 			"Not demonstrated / pending integration",
 			"Accepted risks and overrides",
@@ -337,9 +340,10 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 			"shark related-docs add",
 			"--epic=<epic-key>",
 			"--feature=<feature-key>",
+			"sprint reference-note command",
 			"shark create note <key>",
 			"--type=reference",
-			"only after the script is successfully created",
+			"script is successfully created",
 			"normal deduplication and user confirmation",
 			"does not call claim, status-transition, approval, provisioning, or automatic triage commands",
 		},
