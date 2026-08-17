@@ -542,7 +542,7 @@ test_g() {
 	# (iii) --skip-canary -> canary never invoked, even though it would fail.
 	local out3="$WORKDIR/g3-out" inv3="$WORKDIR/g3-invocations"
 	: >"$inv3"
-	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv3" CANARY_BIN="$canary_stub" \
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_CANARY_INVOCATIONS="$inv3" CANARY_BIN=/usr/bin/false \
 		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
 		--timeout 60 --out "$out3" --corpus "$CORPUS_YAML" --skip-canary \
 		</dev/null >"$WORKDIR/g3.out" 2>"$WORKDIR/g3.err" ||
