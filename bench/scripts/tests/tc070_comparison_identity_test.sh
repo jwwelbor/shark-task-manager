@@ -64,6 +64,7 @@ def run(left_record, right_record, expected, field=None):
     proc = subprocess.run([str(comparator), "--left", str(left_path), "--right", str(right_path), "--mode", "independent_frozen_candidate", "--output", str(out)], text=True, capture_output=True)
     result = json.loads(out.read_text())
     assert result["accepted"] is expected, (field, result, proc.stderr)
+    assert (proc.returncode == 0) is expected, (field, proc.returncode, result)
     if field:
         assert any(item["field"] == field for item in result["divergences"]), (field, result)
 

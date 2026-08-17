@@ -8,6 +8,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 ORACLE="$REPO_ROOT/bench/scripts/run-heldback-oracle.sh"
 
 [[ -x "$ORACLE" ]] || { echo "TC-068: oracle missing or not executable" >&2; exit 1; }
+grep -q 'adapter_calls' "$ORACLE" || { echo "TC-068: oracle must retain adapter call accounting" >&2; exit 1; }
+grep -q 'restore_checkout' "$ORACLE" || { echo "TC-068: oracle must restore checkout on post-grant failure" >&2; exit 1; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bundle" "$tmp/checkout"

@@ -128,6 +128,11 @@ try:
     if any(not isinstance(row, dict) for row in lifecycle_rows):
         fail_input("every I-07 JSONL record must be an object")
     lifecycle = lifecycle_rows[0] if lifecycle_rows else {}
+    if not isinstance(lifecycle.get("identity"), (dict, type(None))):
+        fail_input("I-07 identity must be an object")
+    for key in ("fixture", "adapter"):
+        if key in package and not isinstance(package[key], (dict, type(None))):
+            fail_input(f"scenario {key} must be an object")
     run_id = ((lifecycle.get("identity") or {}).get("run_id")) or "unknown-run"
     evaluation_id = run_id + "-" + file_digest(args.i07)[:12]
     reasons = []
@@ -177,8 +182,13 @@ try:
 
     # Preserve the complete comparison surface from I-07.  These are copied
     # as evidence, never reduced to branch/HEAD labels or terminal status.
+    raw_workflow_policy = lifecycle.get("workflow_policy")
+    if raw_workflow_policy is not None and not isinstance(raw_workflow_policy, dict):
+        fail_input("I-07 workflow_policy must be an object")
     candidate_snapshots = []
     for stage_index, stage in enumerate(lifecycle.get("stages", []) if isinstance(lifecycle.get("stages"), list) else []):
+        if not isinstance(stage, dict) or (stage.get("candidate") is not None and not isinstance(stage.get("candidate"), dict)):
+            fail_input(f"I-07 stage {stage_index} and candidate must be objects")
         if not isinstance(stage, dict) or not isinstance(stage.get("candidate"), dict):
             reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate", "upstream I-07 candidate identity is required"))
             continue
@@ -194,7 +204,7 @@ try:
             if candidate.get("identity_digest") != expected_identity:
                 reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its six fields"))
         candidate_snapshots.append({"stage": stage.get("stage"), "candidate": candidate})
-    workflow_policy = dict(lifecycle.get("workflow_policy") or {})
+    workflow_policy = dict(raw_workflow_policy or {})
     declared_content_root = (i05.get("content_root") or i05.get("shark_data_root") or identity.get("content_root")) if isinstance(i05, dict) else None
     if declared_content_root:
         derived_content_digest = content_digest(declared_content_root)

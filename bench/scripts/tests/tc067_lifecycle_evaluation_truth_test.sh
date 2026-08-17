@@ -70,4 +70,19 @@ reasons = record["eligibility"]["invalidity_reasons"]
 assert any(item["code"] == "identity_missing" and item["path"] == "/workflow_policy/workflow_policy_identity_digest" for item in reasons), reasons
 PY
 
+# Parseable but malformed nested shape must remain a bounded invalid record.
+cat > "$tmp/malformed-nested-i07.jsonl" <<'JSON'
+{"identity":[],"stages":[],"outcome":{"terminal":"complete"}}
+JSON
+malformed_output="$tmp/malformed-nested-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/malformed-nested-i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$malformed_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: malformed nested identity unexpectedly eligible" >&2
+  exit 1
+fi
+python3 - "$malformed_output" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert any(item["code"] == "source_malformed" for item in record["eligibility"]["invalidity_reasons"])
+PY
+
 echo "TC-067: truth blocks remain independent and missing oracle evidence is retained"

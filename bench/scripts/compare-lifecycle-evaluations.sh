@@ -20,6 +20,8 @@ def load_record(path):
     rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
     if len(rows) != 1:
         raise ValueError(f"{path}: exactly one evaluation record is required")
+    if not isinstance(rows[0], dict):
+        raise ValueError(f"{path}: evaluation record must be an object")
     return rows[0]
 
 def value(record, path):
@@ -128,7 +130,7 @@ def main():
     Path(args.output).write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     if not accepted:
         print("comparison_divergence fields=" + ",".join(item["field"] for item in divergences), file=sys.stderr)
-    return 0
+    return 0 if accepted else 1
 
 try:
     raise SystemExit(main())

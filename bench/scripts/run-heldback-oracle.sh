@@ -61,7 +61,27 @@ def invalid(code, path, detail):
     return {"schema_version": "1.0", "predicate_kind": None, "adapter_id": None, "adapter_version": None, "adapter_calls": 0, "access_event": None, "test_digest": None, "reference_digest": None, "observed_result": "not_run", "cleanup": False, "summary": str(detail)[:240], "invalidity_reasons": [{"code": code, "path": path, "detail": str(detail)[:240]}]}
 
 
+backup_root = None
+backup_checkout = None
+
+
+def restore_checkout():
+    global backup_root, backup_checkout
+    if not backup_checkout or not os.path.isdir(backup_checkout):
+        return
+    restored = args.checkout + ".f09-restore"
+    if os.path.lexists(restored):
+        shutil.rmtree(restored)
+    shutil.copytree(backup_checkout, restored, symlinks=True)
+    if os.path.lexists(args.checkout):
+        shutil.rmtree(args.checkout)
+    os.replace(restored, args.checkout)
+    shutil.rmtree(backup_root, ignore_errors=True)
+    backup_root = backup_checkout = None
+
+
 def finish(result, status):
+    restore_checkout()
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as stream:
         json.dump(result, stream, sort_keys=True, separators=(",", ":"))
@@ -131,7 +151,6 @@ try:
     grant = subprocess.run([guard, args.stage_bundle, "--grant-access", "inject-tests", "--accessor", "f09-heldback-oracle", "--adapter", adapter, "--checkout", args.checkout, "--files", *sources], capture_output=True, text=True)
     if grant.returncode:
         code = "pre_terminal" if "pre_terminal" in grant.stderr else "isolation_violation"
-        shutil.rmtree(backup_root, ignore_errors=True)
         finish(invalid(code, "/execution_oracle/access_event", grant.stderr.strip() or "I-05 broker refused access"), 1)
 
     access_path = os.path.join(args.stage_bundle, "access.jsonl")
@@ -159,12 +178,20 @@ try:
                 os.symlink(os.readlink(backup_path), destination_abs)
             elif os.path.isfile(backup_path):
                 shutil.copy2(backup_path, destination_abs)
-        shutil.rmtree(backup_root, ignore_errors=True)
         finish(invalid("cleanup_failure", "/execution_oracle/cleanup", "adapter-resolved destination collided with pre-existing files: " + ",".join(item[0] for item in collisions[:8])), 1)
 
     command = [adapter, "test", "--checkout", args.checkout]
+    adapter_calls = 0
     if kind == "p2p_plus_rule_drop":
         command += ["--include", "tests"]
+        execution = subprocess.run(command, capture_output=True, text=True)
+        adapter_calls += 1
+        try:
+            test_result = json.loads(execution.stdout)
+        except json.JSONDecodeError:
+            test_result = {}
+        entries = test_result.get("entries") if isinstance(test_result, dict) else None
+        passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
     elif kind == "f2p_p2p":
         # Evaluate the named F2P repro and the shared P2P selection as two
         # adapter calls, then let the established predicate evaluator own the
@@ -177,7 +204,9 @@ try:
             p2p_command += ["--exclude-id", excluded]
         named_command = [adapter, "test", "--checkout", args.checkout, "--only-id", *test_ids]
         p2p_run = subprocess.run(p2p_command, capture_output=True, text=True)
+        adapter_calls += 1
         named_run = subprocess.run(named_command, capture_output=True, text=True)
+        adapter_calls += 1
         try:
             p2p_doc = json.loads(p2p_run.stdout)
             named_doc = json.loads(named_run.stdout)
@@ -198,6 +227,7 @@ try:
     else:
         command += ["--only-id", *test_ids]
         execution = subprocess.run(command, capture_output=True, text=True)
+        adapter_calls += 1
         try:
             test_result = json.loads(execution.stdout)
         except json.JSONDecodeError:
@@ -238,10 +268,9 @@ try:
     if residue:
         cleanup = False
         reasons.append({"code": "evaluator_only_residue", "path": "/execution_oracle/cleanup", "detail": "post-cleanup root scan found: " + ",".join(sorted(residue)[:8])})
-    shutil.rmtree(backup_root, ignore_errors=True)
     reference = evaluator.get("reference_solution")
     reference_path = os.path.realpath(os.path.join(package_root, reference)) if isinstance(reference, str) else ""
-    result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": 1, "access_event": events[-1] if events else None, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
+    result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": events[-1] if events else None, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
     finish(result, 0 if not reasons else 1)
 except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     finish(invalid("source_malformed", "/input", str(exc)), 2)
