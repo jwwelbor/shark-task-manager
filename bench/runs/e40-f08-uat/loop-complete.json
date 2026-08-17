@@ -1,0 +1,11 @@
+{
+  "scenario_id": "py-bug-due-date-boundary",
+  "run_id": "tc061",
+  "public_commands": ["next", "claim", "heartbeat", "status advance", "release"],
+  "provider_calls": 1,
+  "terminal_outcome": "complete",
+  "publication_eligible": true,
+  "summary_only": true,
+  "resume_safe": true,
+  "evidence": ["tc061_lifecycle_runner_loop_test.sh"]
+}
