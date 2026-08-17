@@ -124,6 +124,10 @@ try:
         i05 = json.load(stream)
     if not isinstance(i05, dict):
         fail_input("I-05 bundle must be a JSON object")
+    if i05.get("roots") is not None and not isinstance(i05.get("roots"), dict):
+        fail_input("I-05 roots must be an object")
+    if package.get("stage_matrix") is not None and not isinstance(package.get("stage_matrix"), dict):
+        fail_input("scenario stage_matrix must be an object")
     lifecycle_rows = jsonl(args.i07)
     if any(not isinstance(row, dict) for row in lifecycle_rows):
         fail_input("every I-07 JSONL record must be an object")
@@ -133,6 +137,8 @@ try:
     for key in ("fixture", "adapter"):
         if key in package and not isinstance(package[key], (dict, type(None))):
             fail_input(f"scenario {key} must be an object")
+    if lifecycle.get("stages") is not None and not isinstance(lifecycle.get("stages"), list):
+        fail_input("I-07 stages must be an array")
     run_id = ((lifecycle.get("identity") or {}).get("run_id")) or "unknown-run"
     evaluation_id = run_id + "-" + file_digest(args.i07)[:12]
     reasons = []
@@ -283,7 +289,10 @@ try:
     if not structural_pass:
         reasons.append(reason("structural_failure", "/structural/checks", "one or more deterministic structural checks failed"))
 
-    prelude = (package.get("stage_matrix") or {}).get("prelude") or {}
+    raw_prelude = (package.get("stage_matrix") or {}).get("prelude")
+    if raw_prelude is not None and not isinstance(raw_prelude, dict):
+        fail_input("scenario stage_matrix.prelude must be an object")
+    prelude = raw_prelude or {}
     judge_applicable = any(isinstance(value, dict) and value.get("applicable") is True for value in prelude.values())
     judge = {"applicability": "applicable" if judge_applicable else "not_applicable", "observed_result": "fail" if judge_applicable else "not_applicable", "invalidity_reasons": []}
     if judge_applicable and not args.judge_result:
@@ -324,6 +333,8 @@ try:
         reasons.extend(judge_reasons)
 
     checkout = (i05.get("roots") or {}).get("agent_fixture_checkout")
+    if checkout is not None and not isinstance(checkout, str):
+        fail_input("I-05 roots.agent_fixture_checkout must be a path string")
     if not checkout or not os.path.isdir(checkout):
         oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable")]}
         reasons.append(reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable"))
@@ -335,6 +346,8 @@ try:
                 oracle_result = json.load(stream)
         except (OSError, json.JSONDecodeError):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "oracle did not produce a result")]}
+        if not isinstance(oracle_result, dict):
+            oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("source_malformed", "/execution_oracle", "oracle result must be an object")]}
         if process.returncode or oracle_result.get("observed_result") != "pass":
             reasons.extend(oracle_result.get("invalidity_reasons") or [reason("oracle_failure", "/execution_oracle", "held-back oracle failed")])
 
@@ -372,5 +385,7 @@ try:
     aggregate = not unique and structural["observed_result"] == "pass" and judge["observed_result"] in {"pass", "not_applicable"} and oracle_result.get("observed_result") == "pass"
     write({"schema_version": "1.0", "evaluation_id": evaluation_id, "identity": identity, "source_artifacts": sources, "structural": structural, "judge": judge, "execution_oracle": oracle_result, "review_findings": review_findings, "candidate_snapshots": candidate_snapshots, "workflow_policy": workflow_policy, "comparison": {"mode": None, "accepted": False, "quality_delta": None}, "eligibility": {"structural_valid": structural["observed_result"] == "pass", "judge_valid": judge["observed_result"] in {"pass", "not_applicable"}, "oracle_valid": oracle_result.get("observed_result") == "pass", "aggregate_eligible": aggregate, "publication_eligible": aggregate, "invalidity_reasons": unique}})
 except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
+    fail_input(str(exc))
+except Exception as exc:
     fail_input(str(exc))
 PYEOF

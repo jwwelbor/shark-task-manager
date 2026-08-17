@@ -72,16 +72,24 @@ def restore_checkout():
     restored = args.checkout + ".f09-restore"
     if os.path.lexists(restored):
         shutil.rmtree(restored)
-    shutil.copytree(backup_checkout, restored, symlinks=True)
-    if os.path.lexists(args.checkout):
-        shutil.rmtree(args.checkout)
-    os.replace(restored, args.checkout)
-    shutil.rmtree(backup_root, ignore_errors=True)
-    backup_root = backup_checkout = None
+    try:
+        shutil.copytree(backup_checkout, restored, symlinks=True)
+        if os.path.lexists(args.checkout):
+            shutil.rmtree(args.checkout)
+        os.replace(restored, args.checkout)
+        shutil.rmtree(backup_root, ignore_errors=True)
+        backup_root = backup_checkout = None
+        return True
+    except OSError:
+        shutil.rmtree(restored, ignore_errors=True)
+        return False
 
 
 def finish(result, status):
-    restore_checkout()
+    if not restore_checkout():
+        result.setdefault("invalidity_reasons", []).append(invalid("cleanup_failure", "/execution_oracle/cleanup", "complete checkout restoration failed")["invalidity_reasons"][0])
+        result["cleanup"] = False
+        status = 1
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as stream:
         json.dump(result, stream, sort_keys=True, separators=(",", ":"))
@@ -273,5 +281,7 @@ try:
     result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": events[-1] if events else None, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
     finish(result, 0 if not reasons else 1)
 except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
+    finish(invalid("source_malformed", "/input", str(exc)), 2)
+except Exception as exc:
     finish(invalid("source_malformed", "/input", str(exc)), 2)
 PYEOF
