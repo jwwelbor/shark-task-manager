@@ -280,8 +280,6 @@ try:
     reference_path = os.path.realpath(os.path.join(package_root, reference)) if isinstance(reference, str) else ""
     result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": events[-1] if events else None, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
     finish(result, 0 if not reasons else 1)
-except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
-    finish(invalid("source_malformed", "/input", str(exc)), 2)
-except Exception as exc:
+except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     finish(invalid("source_malformed", "/input", str(exc)), 2)
 PYEOF
