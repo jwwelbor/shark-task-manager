@@ -40,8 +40,11 @@ try:
     if not isinstance(gates, list):
         raise ValueError("review_gates must be an array")
     raw_truth = source.get("truth_set")
-    seeded_truth = load_seeded_truth()
-    truth_ids = set(seeded_truth["finding_ids"])
+    # truth_set.available reflects whether THIS run declares a truth set is
+    # in scope (the I-07 truth_set field), never the permanently-committed
+    # calibration fixture's mere existence on disk -- that fixture backs the
+    # seeded-defect calibration experiment only, not every production run.
+    truth_ids = set(load_seeded_truth()["finding_ids"]) if raw_truth is not None else set()
     raw = []
     normalized = []
     seen_by_fingerprint = {}
@@ -84,12 +87,18 @@ try:
     confirmed_ids = {item["f09_finding_id"] for item in unique if item["final_disposition"] == "confirmed"}
     unconfirmed_ids = {item["f09_finding_id"] for item in unique if item["final_disposition"] == "unconfirmed"}
     counts = {"emitted": len(normalized), "normalized_unique": len(unique), "duplicate": sum(item["duplicate_or_recurrence"] == "duplicate" for item in normalized), "recurrent": sum(item["duplicate_or_recurrence"] == "recurrent" for item in normalized), "confirmed": len(confirmed_ids), "unconfirmed": len(unconfirmed_ids)}
-    if truth_ids:
+    truth_set_available = raw_truth is not None
+    if truth_set_available:
         counts["truth_set_status"] = "available"
         seeded = len(truth_ids)
         counts["precision"] = counts["confirmed"] / counts["normalized_unique"] if counts["normalized_unique"] else 0
         counts["recall"] = counts["confirmed"] / seeded if seeded else 0
-    result = {"schema_version": "1.0", "raw_review_gates": source["review_gates"], "raw_source": {"i07_path": str(Path(args.i07))}, "raw_truth_set": raw_truth, "truth_set": {"available": True, "source": "bench/evaluation/review-truth-set.json", "digest": hashlib.sha256((Path(os.environ["F09_SCRIPT_DIR"]).parent / "evaluation" / "review-truth-set.json").read_bytes()).hexdigest()}, "normalized_findings": normalized, "derived_counts": counts}
+        fixture_path = Path(os.environ["F09_SCRIPT_DIR"]).parent / "evaluation" / "review-truth-set.json"
+        truth_set_descriptor = {"available": True, "source": "bench/evaluation/review-truth-set.json", "digest": hashlib.sha256(fixture_path.read_bytes()).hexdigest()}
+    else:
+        counts["truth_set_status"] = "truth-set-unavailable"
+        truth_set_descriptor = {"available": False, "source": None, "digest": None}
+    result = {"schema_version": "1.0", "raw_review_gates": source["review_gates"], "raw_source": {"i07_path": str(Path(args.i07))}, "raw_truth_set": raw_truth, "truth_set": truth_set_descriptor, "normalized_findings": normalized, "derived_counts": counts}
     destination = Path(args.output); destination.parent.mkdir(parents=True, exist_ok=True); destination.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
     print(f"finding_normalization_invalid: {exc}", file=sys.stderr)

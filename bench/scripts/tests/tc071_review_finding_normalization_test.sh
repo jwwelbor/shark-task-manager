@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 NORMALIZER="$SCRIPT_DIR/../normalize-review-findings.sh"
 FIXTURE="$SCRIPT_DIR/../../../tests/contracts/testdata/e40_i08/valid/review-findings.json"
+NO_TRUTH_SET="$SCRIPT_DIR/../../../tests/contracts/testdata/e40_i08/valid/review-findings-no-truth-set.json"
 INVALID="$SCRIPT_DIR/../../../tests/contracts/testdata/e40_i08/invalid/malformed-review-findings.json"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/shark-tc071.XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -51,6 +52,25 @@ clean = [item for item in out["normalized_findings"] if item["raw_finding"]["fin
 assert clean and clean[0]["final_disposition"] == "unconfirmed", clean
 PY
 
+# Missing-truth-set partition (test-plan.md TC-071): a run whose I-07 source
+# never declares a truth_set must not report truth_set.available or invent
+# precision/recall -- the permanently-committed calibration fixture must not
+# be treated as universally authoritative for every run.
+"$NORMALIZER" --i07 "$NO_TRUTH_SET" --output "$WORKDIR/no-truth-set-out.json"
+python3 - "$WORKDIR/no-truth-set-out.json" <<'PY'
+import json, pathlib, sys
+out = json.loads(pathlib.Path(sys.argv[1]).read_text())
+counts = out["derived_counts"]
+assert out["truth_set"]["available"] is False, out
+assert counts["truth_set_status"] == "truth-set-unavailable", counts
+assert "precision" not in counts and "recall" not in counts, counts
+assert counts["emitted"] == 5 and counts["normalized_unique"] == 4, counts
+assert counts["duplicate"] == 1 and counts["recurrent"] == 1, counts
+assert counts["confirmed"] == 0, "a run with no truth set must not fabricate confirmations"
+assert counts["unconfirmed"] == 3, counts
+assert all(item["final_disposition"] == "unconfirmed" for item in out["normalized_findings"]), out["normalized_findings"]
+PY
+
 set +e
 "$NORMALIZER" --i07 "$INVALID" --output "$WORKDIR/invalid.json" 2>"$WORKDIR/invalid.err"
 code=$?
@@ -78,6 +98,27 @@ assert findings["raw_source_ref"]["i07_digest"], findings
 assert findings["raw_review_gates"] == source["review_gates"], "evaluator did not retain raw I-07 review gates"
 assert len(findings["normalized_findings"]) == 5, findings
 assert not any(item["code"] == "review_findings_bypass" for item in evaluation["eligibility"]["invalidity_reasons"]), evaluation
+quality = evaluation["metrics"]["quality"]
+assert quality["truth_set_status"] == "available" and quality["precision"]["available"] is True, quality
+PY
+
+# Production integration, missing-truth-set partition: the I-08 evaluation
+# record's metrics.quality must also report truth-set-unavailable end to
+# end, not just the intermediate normalizer artifact.
+python3 - "$NO_TRUTH_SET" "$WORKDIR/i07-no-truth.jsonl" <<'PY'
+import json, pathlib, sys
+pathlib.Path(sys.argv[2]).write_text(json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_text())) + "\n")
+PY
+set +e
+"$evaluator" --i05 "$WORKDIR/i05" --i07 "$WORKDIR/i07-no-truth.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$WORKDIR/evaluation-no-truth.jsonl" >/dev/null 2>/dev/null
+set -e
+python3 - "$WORKDIR/evaluation-no-truth.jsonl" <<'PY'
+import json, pathlib, sys
+evaluation = json.loads(pathlib.Path(sys.argv[1]).read_text())
+quality = evaluation["metrics"]["quality"]
+assert quality["truth_set_status"] == "truth-set-unavailable", quality
+assert quality["precision"]["available"] is False and quality["precision"]["value"] is None, quality
+assert quality["recall"]["available"] is False and quality["recall"]["value"] is None, quality
 PY
 
 echo "TC-071 PASS"

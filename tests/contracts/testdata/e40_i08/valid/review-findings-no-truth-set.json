@@ -1,0 +1,6 @@
+{
+  "review_gates": [
+    {"gate_id":"qa","candidate_ref":{"snapshot_digest":"candidate-a"},"findings":[{"fingerprint":"same","severity":"high","defect_class":"boundary","disposition":"open"},{"fingerprint":"same","severity":"low","defect_class":"boundary","disposition":"confirmed"}]},
+    {"gate_id":"deep_review","candidate_ref":{"snapshot_digest":"candidate-b"},"findings":[{"fingerprint":"same","severity":"medium","defect_class":"boundary","disposition":"confirmed"},{"fingerprint":"new","severity":"medium","defect_class":"oracle","disposition":"open"},{"fingerprint":"clean","severity":"low","defect_class":"style","disposition":"open"}]}
+  ]
+}
