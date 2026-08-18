@@ -162,7 +162,8 @@ def fail_input(detail):
     write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
 
 
-try:
+def load_inputs():
+    """Load and shape-validate the scenario package, I-05 bundle, and I-07 rows."""
     with open(args.scenario, encoding="utf-8") as stream:
         package = yaml.safe_load(stream)
     if not isinstance(package, dict):
@@ -187,9 +188,11 @@ try:
             fail_input(f"scenario {key} must be an object")
     if lifecycle.get("stages") is not None and not isinstance(lifecycle.get("stages"), list):
         fail_input("I-07 stages must be an array")
-    run_id = ((lifecycle.get("identity") or {}).get("run_id")) or "unknown-run"
-    evaluation_id = run_id + "-" + file_digest(args.i07)[:12]
-    reasons = []
+    return package, i05, i05_json, lifecycle_rows, lifecycle
+
+
+def validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons):
+    """Validate I-07 row cardinality and the I-05/I-07 identity join."""
     if len(lifecycle_rows) == 0:
         reasons.append(reason("missing_join", "/i07", "I-07 lifecycle record is missing"))
     elif len(lifecycle_rows) != 1:
@@ -232,9 +235,15 @@ try:
         reasons.append(reason("missing_join", "/join/dispatches", "both I-05 and I-07 must retain dispatch references"))
     elif canonical_digest(i07_dispatches) != canonical_digest(i05_dispatches):
         reasons.append(reason("contradictory_join", "/join/dispatches", "I-05 and I-07 dispatch references disagree"))
+    return identity
 
-    # Preserve the complete comparison surface from I-07.  These are copied
-    # as evidence, never reduced to branch/HEAD labels or terminal status.
+
+def validate_candidate_snapshots(i05, lifecycle, identity, reasons):
+    """Validate I-07 workflow_policy shape and per-stage candidate identity.
+
+    Preserve the complete comparison surface from I-07.  These are copied
+    as evidence, never reduced to branch/HEAD labels or terminal status.
+    """
     raw_workflow_policy = lifecycle.get("workflow_policy")
     if raw_workflow_policy is not None and not isinstance(raw_workflow_policy, dict):
         fail_input("I-07 workflow_policy must be an object")
@@ -263,11 +272,17 @@ try:
         derived_content_digest = content_digest(declared_content_root)
         if derived_content_digest and identity.get("shark_content_digest") != derived_content_digest:
             reasons.append(reason("identity_mismatch", "/identity/shark_content_digest", "declared content digest disagrees with independently computed content"))
+    return candidate_snapshots, workflow_policy
 
-    # Producer-side identity validation is deliberately strict. The
-    # comparator cannot repair an incomplete record after it has been emitted:
-    # a single evaluation with partial policy/content identity must already be
-    # ineligible for aggregation.
+
+def validate_producer_identity(identity, reasons):
+    """Validate the producer-retained I-08 identity surface.
+
+    Producer-side identity validation is deliberately strict. The
+    comparator cannot repair an incomplete record after it has been emitted:
+    a single evaluation with partial policy/content identity must already be
+    ineligible for aggregation.
+    """
     required_identity = (
         "run_id", "scenario_id", "scenario_version", "fixture_id",
         "fixture_digest", "adapter_id", "adapter_version", "toolchain_identity",
@@ -295,6 +310,9 @@ try:
     if not isinstance(identity.get("judge_identity"), dict) or not identity["judge_identity"].get("model") or not identity["judge_identity"].get("configuration"):
         reasons.append(reason("identity_missing", "/identity/judge_identity", "judge model and configuration identity are required even when the judge is not applicable"))
 
+
+def validate_workflow_policy_identity(workflow_policy, reasons):
+    """Validate the producer-retained workflow-policy identity surface."""
     required_policy = (
         "enabled_gates", "gate_order", "reviewer", "prompt_digest",
         "rendered_prompt_digest", "deep_review_bundle_digest",
@@ -319,8 +337,12 @@ try:
     elif workflow_policy.get("deep_review_bundle_digest") != expected_bundle_digest:
         reasons.append(reason("identity_mismatch", "/workflow_policy/deep_review_bundle_digest", "deep-review bundle digest disagrees with repository-owned files"))
 
-    # Deterministic structural checks are separate from status and worker
-    # claims. A missing check remains a failure rather than an inferred pass.
+
+def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
+    """Run deterministic structural checks, independent of status/worker claims.
+
+    A missing check remains a failure rather than an inferred pass.
+    """
     checks = {
         "required_artifacts": bool(i05.get("stages") or i05.get("artifacts")),
         "ownership": bool(i05.get("roots")),
@@ -335,7 +357,11 @@ try:
     structural = {"applicability": "applicable", "checks": structural_checks, "observed_result": "pass" if structural_pass else "fail"}
     if not structural_pass:
         reasons.append(reason("structural_failure", "/structural/checks", "one or more deterministic structural checks failed"))
+    return structural
 
+
+def run_judge(package, reasons):
+    """Validate calibrated-judge evidence when planning/decomposition artifacts are applicable."""
     raw_prelude = (package.get("stage_matrix") or {}).get("prelude")
     if raw_prelude is not None and not isinstance(raw_prelude, dict):
         fail_input("scenario stage_matrix.prelude must be an object")
@@ -378,7 +404,11 @@ try:
         judge["observed_result"] = "pass" if not judge_reasons else "fail"
         judge["invalidity_reasons"] = judge_reasons
         reasons.extend(judge_reasons)
+    return judge
 
+
+def run_oracle(i05, reasons):
+    """Invoke the held-back oracle when an agent fixture checkout is available."""
     checkout = (i05.get("roots") or {}).get("agent_fixture_checkout")
     if checkout is not None and not isinstance(checkout, str):
         fail_input("I-05 roots.agent_fixture_checkout must be a path string")
@@ -397,11 +427,21 @@ try:
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("source_malformed", "/execution_oracle", "oracle result must be an object")]}
         if process.returncode or oracle_result.get("observed_result") != "pass":
             reasons.extend(oracle_result.get("invalidity_reasons") or [reason("oracle_failure", "/execution_oracle", "held-back oracle failed")])
+    return oracle_result
 
-    sources = {"i05_path": args.i05, "i05_digest": file_digest(i05_json), "i07_path": args.i07, "i07_digest": file_digest(args.i07), "replay_lineage": [item.get("snapshot_digest") for item in lifecycle.get("stages", []) if isinstance(item, dict) and item.get("snapshot_digest")]}
-    # Normalization is an evaluator-owned boundary. A caller may not inject a
-    # pre-adjudicated normalized artifact and thereby bypass raw I-07 review
-    # evidence and the seeded truth-set adjudication.
+
+def build_source_artifacts(i05_json, lifecycle):
+    """Record the exact source artifact paths, digests, and replay lineage used."""
+    return {"i05_path": args.i05, "i05_digest": file_digest(i05_json), "i07_path": args.i07, "i07_digest": file_digest(args.i07), "replay_lineage": [item.get("snapshot_digest") for item in lifecycle.get("stages", []) if isinstance(item, dict) and item.get("snapshot_digest")]}
+
+
+def normalize_findings(reasons):
+    """Normalize review findings through the evaluator-owned normalizer.
+
+    Normalization is an evaluator-owned boundary. A caller may not inject a
+    pre-adjudicated normalized artifact and thereby bypass raw I-07 review
+    evidence and the seeded truth-set adjudication.
+    """
     review_findings = {"raw_source_ref": None, "normalized_findings": [], "derived_counts": {"truth_set_status": "truth-set-unavailable"}}
     if args.review_findings:
         reasons.append(reason("review_findings_bypass", "/review_findings", "caller-supplied normalized findings are not accepted; evaluator owns normalization"))
@@ -421,6 +461,11 @@ try:
                 review_findings = normalized
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 reasons.append(reason("review_findings_malformed", "/review_findings", str(exc)))
+    return review_findings
+
+
+def build_record(evaluation_id, identity, sources, structural, judge, oracle_result, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons):
+    """Assemble and emit the final I-08 record."""
     identity["source_identity_digest"] = canonical_digest(identity)
     unique = []
     seen = set()
@@ -431,6 +476,23 @@ try:
             seen.add(key)
     aggregate = not unique and structural["observed_result"] == "pass" and judge["observed_result"] in {"pass", "not_applicable"} and oracle_result.get("observed_result") == "pass"
     write({"schema_version": "1.0", "evaluation_id": evaluation_id, "identity": identity, "source_artifacts": sources, "structural": structural, "judge": judge, "execution_oracle": oracle_result, "review_findings": review_findings, "candidate_snapshots": candidate_snapshots, "workflow_policy": workflow_policy, "comparison": {"mode": None, "accepted": False, "quality_delta": None}, "metrics": derive_metrics(lifecycle, review_findings, judge), "eligibility": {"structural_valid": structural["observed_result"] == "pass", "judge_valid": judge["observed_result"] in {"pass", "not_applicable"}, "oracle_valid": oracle_result.get("observed_result") == "pass", "aggregate_eligible": aggregate, "publication_eligible": aggregate, "invalidity_reasons": unique}})
+
+
+try:
+    package, i05, i05_json, lifecycle_rows, lifecycle = load_inputs()
+    run_id = ((lifecycle.get("identity") or {}).get("run_id")) or "unknown-run"
+    evaluation_id = run_id + "-" + file_digest(args.i07)[:12]
+    reasons = []
+    identity = validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons)
+    candidate_snapshots, workflow_policy = validate_candidate_snapshots(i05, lifecycle, identity, reasons)
+    validate_producer_identity(identity, reasons)
+    validate_workflow_policy_identity(workflow_policy, reasons)
+    structural = run_structural_checks(i05, lifecycle, lifecycle_rows, reasons)
+    judge = run_judge(package, reasons)
+    oracle_result = run_oracle(i05, reasons)
+    sources = build_source_artifacts(i05_json, lifecycle)
+    review_findings = normalize_findings(reasons)
+    build_record(evaluation_id, identity, sources, structural, judge, oracle_result, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons)
 except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     fail_input(str(exc))
 PYEOF

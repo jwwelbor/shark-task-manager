@@ -57,6 +57,14 @@ def snapshot_root(root):
     return snapshot
 
 
+def capture_roots(evaluator_root):
+    """Snapshot both agent-visible roots (agent fixture checkout, evaluator-only)."""
+    return {
+        "agent_fixture_checkout": snapshot_root(args.checkout),
+        "evaluator_only": snapshot_root(evaluator_root),
+    }
+
+
 def invalid(code, path, detail):
     return {"schema_version": "1.0", "predicate_kind": None, "adapter_id": None, "adapter_version": None, "adapter_calls": 0, "access_event": None, "test_digest": None, "reference_digest": None, "observed_result": "not_run", "cleanup": False, "summary": str(detail)[:240], "invalidity_reasons": [{"code": code, "path": path, "detail": str(detail)[:240]}]}
 
@@ -99,7 +107,8 @@ def finish(result, status):
     raise SystemExit(status)
 
 
-try:
+def validate_scenario_and_lifecycle():
+    """Load the scenario package and the single-row I-07 lifecycle record, and confirm terminality."""
     with open(args.scenario, encoding="utf-8") as stream:
         package = yaml.safe_load(stream)
     if not isinstance(package, dict):
@@ -110,7 +119,11 @@ try:
     terminal = (lifecycle[0].get("outcome") or {}).get("terminal")
     if terminal not in {"complete", "resource_limit", "lease_loss", "unresolved_gate", "pause", "archive", "error", "cancellation", "worker_failure", "timeout"}:
         finish(invalid("pre_terminal", "/outcome/terminal", "lifecycle is not terminal; adapter was not invoked"), 1)
+    return package
 
+
+def resolve_adapter(package):
+    """Resolve and validate the registered, executable adapter for this scenario."""
     with open(scenarios_path, encoding="utf-8") as stream:
         adapters = (yaml.safe_load(stream) or {}).get("adapters", {})
     adapter_name = (package.get("adapter") or {}).get("name")
@@ -120,14 +133,11 @@ try:
     adapter = os.path.join(repo_root, entry["path"], "adapter.sh")
     if not os.access(adapter, os.X_OK):
         finish(invalid("source_missing", "/adapter", "registered adapter is not executable"), 2)
+    return adapter, adapter_name
 
-    package_root = os.path.dirname(os.path.realpath(args.scenario))
-    evaluator_root = os.path.realpath(os.path.join(package_root, "evaluator"))
-    roots_before = {
-        "agent_fixture_checkout": snapshot_root(args.checkout),
-        "evaluator_only": snapshot_root(evaluator_root),
-    }
-    evaluator = package.get("evaluator_only") or {}
+
+def resolve_oracle_sources(evaluator, package_root, evaluator_root):
+    """Resolve declared held-back oracle test sources, enforcing evaluator-root isolation."""
     sources = []
     for relative in evaluator.get("oracle_tests") or []:
         if not isinstance(relative, str) or os.path.isabs(relative):
@@ -138,7 +148,11 @@ try:
         sources.append(source)
     if not sources:
         finish(invalid("source_missing", "/evaluator_only/oracle_tests", "no held-back tests declared"), 1)
+    return sources
 
+
+def resolve_predicate(package):
+    """Resolve and validate the final predicate kind and its test IDs."""
     predicate = package.get("final_predicate") or {}
     kind = predicate.get("kind")
     test_ids = list(predicate.get("acceptance_test_ids") or []) + list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
@@ -148,14 +162,26 @@ try:
         test_ids = list(predicate.get("f2p_test_ids") or [])
     if kind != "p2p_plus_rule_drop" and not test_ids:
         finish(invalid("source_malformed", "/final_predicate", "predicate has no test IDs"), 2)
+    return predicate, kind, test_ids
 
-    # The adapter is the sole owner of destination resolution. Preserve a
-    # complete copy before granting access so an adapter-resolved collision
-    # can be restored byte-for-byte even though the broker reports the
-    # authoritative destination only after the adapter has run.
+
+def snapshot_and_backup():
+    """Preserve a complete pre-grant copy of the checkout for later restoration.
+
+    The adapter is the sole owner of destination resolution. Preserve a
+    complete copy before granting access so an adapter-resolved collision
+    can be restored byte-for-byte even though the broker reports the
+    authoritative destination only after the adapter has run.
+    """
+    global backup_root, backup_checkout
     backup_root = tempfile.mkdtemp(prefix="f09-oracle-checkout-")
     backup_checkout = os.path.join(backup_root, "checkout")
     shutil.copytree(args.checkout, backup_checkout, symlinks=True)
+
+
+def grant_and_validate_access(adapter, sources):
+    """Request I-05-brokered access for the held-back sources and validate the
+    resulting access log and adapter-resolved injection destinations."""
     grant = subprocess.run([guard, args.stage_bundle, "--grant-access", "inject-tests", "--accessor", "f09-heldback-oracle", "--adapter", adapter, "--checkout", args.checkout, "--files", *sources], capture_output=True, text=True)
     if grant.returncode:
         code = "pre_terminal" if "pre_terminal" in grant.stderr else "isolation_violation"
@@ -199,24 +225,28 @@ try:
             elif os.path.isfile(backup_path):
                 shutil.copy2(backup_path, destination_abs)
         finish(invalid("cleanup_failure", "/execution_oracle/cleanup", "adapter-resolved destination collided with pre-existing files: " + ",".join(item[0] for item in collisions[:8])), 1)
+    return validated_events, injected
 
-    command = [adapter, "test", "--checkout", args.checkout]
+
+def run_predicate_rule_drop(adapter):
+    command = [adapter, "test", "--checkout", args.checkout, "--include", "tests"]
+    execution = subprocess.run(command, capture_output=True, text=True)
+    try:
+        test_result = json.loads(execution.stdout)
+    except json.JSONDecodeError:
+        test_result = {}
+    entries = test_result.get("entries") if isinstance(test_result, dict) else None
+    passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
+    return passed, 1
+
+
+def run_predicate_f2p_p2p(adapter, predicate, test_ids):
+    """Evaluate the named F2P repro and the shared P2P selection as two
+    adapter calls, then let the established predicate evaluator own the
+    arithmetic and its declared f2p_test_ids/p2p_selection semantics."""
+    predicate_tmp = tempfile.mkdtemp(prefix="f09-predicate-")
     adapter_calls = 0
-    if kind == "p2p_plus_rule_drop":
-        command += ["--include", "tests"]
-        execution = subprocess.run(command, capture_output=True, text=True)
-        adapter_calls += 1
-        try:
-            test_result = json.loads(execution.stdout)
-        except json.JSONDecodeError:
-            test_result = {}
-        entries = test_result.get("entries") if isinstance(test_result, dict) else None
-        passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
-    elif kind == "f2p_p2p":
-        # Evaluate the named F2P repro and the shared P2P selection as two
-        # adapter calls, then let the established predicate evaluator own the
-        # arithmetic and its declared f2p_test_ids/p2p_selection semantics.
-        predicate_tmp = tempfile.mkdtemp(prefix="f09-predicate-")
+    try:
         p2p_command = [adapter, "test", "--checkout", args.checkout]
         for include in (predicate.get("p2p_selection") or {}).get("include") or []:
             p2p_command += ["--include", include]
@@ -242,18 +272,34 @@ try:
             passed = evaluated.returncode == 0 and predicate_result.get("result") is True
         except (OSError, TypeError, json.JSONDecodeError):
             passed = False
-        finally:
-            shutil.rmtree(predicate_tmp, ignore_errors=True)
-    else:
-        command += ["--only-id", *test_ids]
-        execution = subprocess.run(command, capture_output=True, text=True)
-        adapter_calls += 1
-        try:
-            test_result = json.loads(execution.stdout)
-        except json.JSONDecodeError:
-            test_result = {}
-        entries = test_result.get("entries") if isinstance(test_result, dict) else None
-        passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
+    finally:
+        shutil.rmtree(predicate_tmp, ignore_errors=True)
+    return passed, adapter_calls
+
+
+def run_predicate_named(adapter, test_ids):
+    command = [adapter, "test", "--checkout", args.checkout, "--only-id", *test_ids]
+    execution = subprocess.run(command, capture_output=True, text=True)
+    try:
+        test_result = json.loads(execution.stdout)
+    except json.JSONDecodeError:
+        test_result = {}
+    entries = test_result.get("entries") if isinstance(test_result, dict) else None
+    passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
+    return passed, 1
+
+
+def run_predicate(kind, adapter, predicate, test_ids):
+    """Dispatch to the adapter-invocation strategy for the resolved predicate kind."""
+    if kind == "p2p_plus_rule_drop":
+        return run_predicate_rule_drop(adapter)
+    if kind == "f2p_p2p":
+        return run_predicate_f2p_p2p(adapter, predicate, test_ids)
+    return run_predicate_named(adapter, test_ids)
+
+
+def cleanup_injected_files(injected, roots_before):
+    """Remove injected oracle files and any oracle-created tests/ directory."""
     cleanup = True
     for path in injected:
         try:
@@ -270,16 +316,23 @@ try:
             os.rmdir(tests_dir)
         except OSError:
             cleanup = False
-    roots_after = {
-        "agent_fixture_checkout": snapshot_root(args.checkout),
-        "evaluator_only": snapshot_root(evaluator_root),
-    }
+    return cleanup
+
+
+def scan_residue(evaluator_root, roots_before):
+    """Diff pre/post snapshots of both agent-visible roots for leaked residue."""
+    roots_after = capture_roots(evaluator_root)
     residue = []
     for root_name in roots_before:
         before, after = roots_before[root_name], roots_after[root_name]
         for relative, value in after.items():
             if relative not in before or before[relative] != value:
                 residue.append(root_name + ":" + relative)
+    return residue
+
+
+def build_result(kind, adapter_name, package, adapter_calls, validated_events, sources, passed, cleanup, residue, evaluator, package_root):
+    """Assemble the final held-back oracle result, folding in cleanup/residue reasons."""
     reasons = []
     if not passed:
         reasons.append({"code": "oracle_failure", "path": "/execution_oracle/observed_result", "detail": "held-back predicate did not pass"})
@@ -291,6 +344,30 @@ try:
     reference = evaluator.get("reference_solution")
     reference_path = os.path.realpath(os.path.join(package_root, reference)) if isinstance(reference, str) else ""
     result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": validated_events, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path and os.path.isfile(reference_path) else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
+    return result, reasons
+
+
+try:
+    package = validate_scenario_and_lifecycle()
+    adapter, adapter_name = resolve_adapter(package)
+
+    package_root = os.path.dirname(os.path.realpath(args.scenario))
+    evaluator_root = os.path.realpath(os.path.join(package_root, "evaluator"))
+    roots_before = capture_roots(evaluator_root)
+    evaluator = package.get("evaluator_only") or {}
+    sources = resolve_oracle_sources(evaluator, package_root, evaluator_root)
+
+    predicate, kind, test_ids = resolve_predicate(package)
+
+    snapshot_and_backup()
+    validated_events, injected = grant_and_validate_access(adapter, sources)
+
+    passed, adapter_calls = run_predicate(kind, adapter, predicate, test_ids)
+
+    cleanup = cleanup_injected_files(injected, roots_before)
+    residue = scan_residue(evaluator_root, roots_before)
+
+    result, reasons = build_result(kind, adapter_name, package, adapter_calls, validated_events, sources, passed, cleanup, residue, evaluator, package_root)
     finish(result, 0 if not reasons else 1)
 except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     finish(invalid("source_malformed", "/input", str(exc)), 2)
