@@ -732,17 +732,12 @@ def compute_rejections(run_result):
             # when the optional counterpart table is absent.
             entity_id = resolve_entity_id(conn, item_type, entity_key) if table_exists else None
             if entity_id is None:
-                # A caller-path fixture may stub the create command and still
-                # provide a valid RunResult. Retain the absence explicitly;
-                # never invent DB-derived counts or fail the independent
-                # RunResult collection solely because its optional crosscheck
-                # counterpart was not persisted.
-                rejections["crosscheck"] = {
-                    "available": False,
-                    "reason": "entity_not_persisted",
-                    "table": table_name,
-                    "entity_key": entity_key,
-                }
+                if table_exists:
+                    add_error(
+                        "crosscheck_resolution_error",
+                        "entity_key %r did not resolve to any %s.id in the scratch DB"
+                        % (entity_key, table_name),
+                    )
             else:
                 entity_history_derived = count_backward_transitions(conn, item_type, entity_id)
                 work_session_outcomes = count_blocked_work_sessions(conn, item_type, entity_key)
