@@ -137,18 +137,26 @@ def resolve_adapter(package):
 
 
 def resolve_oracle_sources(evaluator, package_root, evaluator_root):
-    """Resolve declared held-back oracle test sources, enforcing evaluator-root isolation."""
+    """Resolve declared held-back oracle test sources, enforcing evaluator-root
+    isolation, and digest each source immediately after its containment check
+    passes (F09-UAT3-001): hashing here -- adjacent to the check, before any
+    later step (adapter grant, predicate run) can race a symlink swap onto the
+    resolved path -- means callers consume the pinned digest instead of
+    re-opening the path later in program flow."""
     sources = []
+    hasher = hashlib.sha256()
     for relative in evaluator.get("oracle_tests") or []:
         if not isinstance(relative, str) or os.path.isabs(relative):
             finish(invalid("isolation_violation", "/evaluator_only/oracle_tests", "oracle path must be relative"), 1)
         source = os.path.realpath(os.path.join(package_root, relative))
         if not source.startswith(evaluator_root + os.sep) or not os.path.isfile(source):
             finish(invalid("isolation_violation", relative, "oracle path is outside evaluator root or missing"), 1)
+        with open(source, "rb") as stream:
+            hasher.update(stream.read())
         sources.append(source)
     if not sources:
         finish(invalid("source_missing", "/evaluator_only/oracle_tests", "no held-back tests declared"), 1)
-    return sources
+    return sources, hasher.hexdigest()
 
 
 def resolve_reference_path(evaluator, package_root, evaluator_root):
@@ -156,16 +164,19 @@ def resolve_reference_path(evaluator, package_root, evaluator_root):
     same evaluator-root containment guarantee as resolve_oracle_sources
     (F09-UAT2-001): an absolute path, a `../` traversal, or a symlink that
     escapes evaluator_root must be refused before it is ever opened and
-    hashed, not silently resolved into reference_digest."""
+    hashed, not silently resolved into reference_digest. The digest is taken
+    immediately after the containment check passes (F09-UAT3-001), not later
+    in build_result(), so no window exists for a post-check symlink swap to
+    defeat the check."""
     reference = evaluator.get("reference_solution")
     if reference is None:
-        return None
+        return None, None
     if not isinstance(reference, str) or os.path.isabs(reference):
         finish(invalid("isolation_violation", "/evaluator_only/reference_solution", "reference_solution path must be relative"), 1)
     resolved = os.path.realpath(os.path.join(package_root, reference))
     if not resolved.startswith(evaluator_root + os.sep) or not os.path.isfile(resolved):
         finish(invalid("isolation_violation", "/evaluator_only/reference_solution", "reference_solution path is outside evaluator root or missing"), 1)
-    return resolved
+    return resolved, digest_file(resolved)
 
 
 def resolve_predicate(package):
@@ -364,8 +375,11 @@ def scan_residue(evaluator_root, roots_before):
     return residue
 
 
-def build_result(kind, adapter_name, package, adapter_calls, validated_events, sources, passed, cleanup, residue, reference_path):
-    """Assemble the final held-back oracle result, folding in cleanup/residue reasons."""
+def build_result(kind, adapter_name, package, adapter_calls, validated_events, test_digest, passed, cleanup, residue, reference_digest):
+    """Assemble the final held-back oracle result, folding in cleanup/residue
+    reasons. test_digest and reference_digest are pinned by the resolver
+    functions at containment-check time (F09-UAT3-001) -- this function does
+    not itself open or re-read the oracle source/reference paths."""
     reasons = []
     if not passed:
         reasons.append({"code": "oracle_failure", "path": "/execution_oracle/observed_result", "detail": "held-back predicate did not pass"})
@@ -374,7 +388,7 @@ def build_result(kind, adapter_name, package, adapter_calls, validated_events, s
     if residue:
         cleanup = False
         reasons.append({"code": "evaluator_only_residue", "path": "/execution_oracle/cleanup", "detail": "post-cleanup root scan found: " + ",".join(sorted(residue)[:8])})
-    result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": validated_events, "test_digest": hashlib.sha256(b"".join(open(source, "rb").read() for source in sources)).hexdigest(), "reference_digest": digest_file(reference_path) if reference_path else None, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
+    result = {"schema_version": "1.0", "predicate_kind": kind, "adapter_id": adapter_name, "adapter_version": (package.get("adapter") or {}).get("version"), "adapter_calls": adapter_calls, "access_event": validated_events, "test_digest": test_digest, "reference_digest": reference_digest, "observed_result": "pass" if passed and cleanup else "fail", "cleanup": cleanup, "summary": "held-back predicate completed; output is bounded", "invalidity_reasons": reasons}
     return result, reasons
 
 
@@ -386,8 +400,8 @@ try:
     evaluator_root = os.path.realpath(os.path.join(package_root, "evaluator"))
     roots_before = capture_roots(evaluator_root)
     evaluator = package.get("evaluator_only") or {}
-    sources = resolve_oracle_sources(evaluator, package_root, evaluator_root)
-    reference_path = resolve_reference_path(evaluator, package_root, evaluator_root)
+    sources, test_digest = resolve_oracle_sources(evaluator, package_root, evaluator_root)
+    _reference_path, reference_digest = resolve_reference_path(evaluator, package_root, evaluator_root)
 
     predicate, kind, test_ids = resolve_predicate(package)
 
@@ -400,7 +414,7 @@ try:
     cleanup = cleanup_toolchain_artifacts() and cleanup
     residue = scan_residue(evaluator_root, roots_before)
 
-    result, reasons = build_result(kind, adapter_name, package, adapter_calls, validated_events, sources, passed, cleanup, residue, reference_path)
+    result, reasons = build_result(kind, adapter_name, package, adapter_calls, validated_events, test_digest, passed, cleanup, residue, reference_digest)
     finish(result, 0 if not reasons else 1)
 except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     finish(invalid("source_malformed", "/input", str(exc)), 2)
