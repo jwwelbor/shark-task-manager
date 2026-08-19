@@ -319,6 +319,22 @@ def cleanup_injected_files(injected, roots_before):
     return cleanup
 
 
+def cleanup_toolchain_artifacts():
+    """Remove git-ignored paths the adapter's own predicate invocations left
+    behind (e.g. pytest/ruff caches). These are ordinary toolchain byproducts
+    of running the final predicate, not evaluator-only material -- REQ-F-004
+    only requires no evaluator-only file survive in an agent-visible root,
+    and REQ-F-007 forbids this script from branching on adapter/toolchain
+    identity to know their names. `git clean -ffdX` (capital X: ignored
+    paths only) reads the checkout's own .gitignore rather than a private
+    per-language list, so this stays adapter-agnostic. A checkout that is
+    not a git working tree has nothing to clean here."""
+    if not os.path.exists(os.path.join(args.checkout, ".git")):
+        return True
+    result = subprocess.run(["git", "clean", "-ffdX"], cwd=args.checkout, capture_output=True, text=True)
+    return result.returncode == 0
+
+
 def scan_residue(evaluator_root, roots_before):
     """Diff pre/post snapshots of both agent-visible roots for leaked residue."""
     roots_after = capture_roots(evaluator_root)
@@ -365,6 +381,7 @@ try:
     passed, adapter_calls = run_predicate(kind, adapter, predicate, test_ids)
 
     cleanup = cleanup_injected_files(injected, roots_before)
+    cleanup = cleanup_toolchain_artifacts() and cleanup
     residue = scan_residue(evaluator_root, roots_before)
 
     result, reasons = build_result(kind, adapter_name, package, adapter_calls, validated_events, sources, passed, cleanup, residue, evaluator, package_root)

@@ -151,4 +151,149 @@ assert quality["precision"]["available"] is False and quality["precision"]["valu
 assert quality["recall"]["available"] is False and quality["recall"]["value"] is None, quality
 PY
 
+# Production integration, complete decision-table row (QA1-002): TC-067's
+# truth decision table requires an explicit "structural-pass/judge-pass/
+# oracle-pass (eligible)" row, but every place `aggregate_eligible: true` was
+# previously asserted (TC-070/072/075) fed a hand-built JSONL straight to
+# compare-lifecycle-evaluations.sh -- never derived from a real
+# evaluate-lifecycle.sh run. Build a genuinely complete identity/policy/
+# oracle input (real fixture-py checkout, real reference patch, real
+# adapter-backed held-back oracle, real repo-computed deep-review bundle
+# digest) and assert the terminal eligibility flag through the real
+# evaluator entrypoint, closing that row for real.
+CHECKOUT_SCRIPT="$SCRIPT_DIR/../checkout-scenario-fixture.sh"
+mkdir -p "$WORKDIR/eligible/i05"
+"$CHECKOUT_SCRIPT" py 964fa68e4c9e0c4e0f3756d9efd78b888c558fd9 "$WORKDIR/eligible/checkout" >/dev/null
+git -C "$WORKDIR/eligible/checkout" apply "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/evaluator/reference.patch"
+
+python3 - "$REPO_ROOT" "$WORKDIR/eligible" <<'PY'
+import hashlib, json, os, sys
+
+repo_root, out_dir = sys.argv[1:3]
+
+
+def sha(label):
+    return hashlib.sha256(label.encode()).hexdigest()
+
+
+def canonical_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+# Mirrors evaluate-lifecycle.sh's own DEEP_REVIEW_FILES/deep_review_digest so
+# the fixture's deep_review_bundle_digest is independently, really computed
+# from the repository's own files rather than copied from the evaluator.
+DEEP_REVIEW_FILES = (
+    "skills/shark-rider/skills/deep-review/SKILL.md",
+    "skills/shark-rider/skills/deep-review/references/angle-a-bugs.md",
+    "skills/shark-rider/skills/deep-review/references/angle-b-behavior.md",
+    "skills/shark-rider/skills/deep-review/references/angle-c-sibling.md",
+    "skills/shark-rider/skills/deep-review/references/angle-d-cleanup.md",
+    "skills/shark-rider/skills/deep-review/references/angle-e-tests.md",
+    "skills/shark-rider/skills/deep-review/references/angle-f-standards.md",
+    "skills/shark-rider/skills/deep-review/references/consolidator.md",
+    "skills/shark-rider/skills/deep-review/scripts/get_diff.sh",
+)
+
+
+def deep_review_digest(root):
+    hasher = hashlib.sha256()
+    for relative in DEEP_REVIEW_FILES:
+        path = os.path.join(root, relative)
+        if not os.path.isfile(path):
+            return None
+        hasher.update(relative.encode("utf-8"))
+        hasher.update(b"\0")
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+bundle_digest = deep_review_digest(repo_root)
+assert bundle_digest, "repository deep-review bundle is incomplete; cannot build an eligible fixture"
+
+candidate_fields = {
+    "base_commit": sha("base_commit"),
+    "tree_digest": sha("tree_digest"),
+    "binary_diff_digest": sha("binary_diff_digest"),
+    "changed_path_digest": sha("changed_path_digest"),
+    "test_suite_digest": sha("test_suite_digest"),
+}
+candidate = dict(candidate_fields)
+candidate["dirty_untracked_manifest"] = []
+candidate["identity_digest"] = canonical_digest({**candidate_fields, "dirty_untracked_manifest": []})
+candidate["snapshot_digest"] = sha("snapshot_digest")
+
+workflow_policy = {
+    "enabled_gates": ["code", "review"],
+    "gate_order": ["code", "review"],
+    "reviewer": {"provider": "anthropic", "model": "claude-sonnet", "effort": "high"},
+    "prompt_digest": sha("prompt_digest"),
+    "rendered_prompt_digest": sha("rendered_prompt_digest"),
+    "deep_review_bundle_digest": bundle_digest,
+    "fixes_allowed_between_gates": True,
+}
+workflow_policy["workflow_policy_identity_digest"] = canonical_digest(workflow_policy)
+
+identity = {
+    "run_id": "tc071-eligible-run",
+    "scenario_id": "py-bug-due-date-boundary",
+    "scenario_version": "1",
+    "fixture_id": "py",
+    "fixture_digest": sha("fixture_digest"),
+    "adapter_id": "python",
+    "adapter_version": "1.0.0",
+    "dispatch_id": "dispatch-1",
+    "dispatch_ordinal": 1,
+    "toolchain_identity": [{"key": "python_version", "value": "3.12.3"}],
+    "shark_binary_digest": sha("shark_binary_digest"),
+    "shark_content_digest": sha("shark_content_digest"),
+    "rendered_prompt_digests": [sha("rendered_prompt_1")],
+    "provider_identity": [{"stage": "code", "provider": "anthropic", "model": "claude-sonnet", "effort": "high"}],
+    "judge_identity": {"model": "not-applicable", "configuration": "not-applicable"},
+    "reference_digests": [sha("reference_digest_1")],
+    "resource_policy_digest": sha("resource_policy_digest"),
+}
+
+dispatches = [{"dispatch_id": "dispatch-1", "dispatch_ordinal": 1, "transition": "advance"}]
+
+lifecycle = {
+    "identity": identity,
+    "outcome": {"terminal": "complete"},
+    "entity_graph": {"nodes": ["run"]},
+    "dispatches": dispatches,
+    "workflow_policy": workflow_policy,
+    "review_gates": [],
+    "stages": [{"stage": "code", "category": "code", "candidate": candidate, "input_lineage": []}],
+}
+
+with open(os.path.join(out_dir, "i07.jsonl"), "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(lifecycle))
+    stream.write("\n")
+
+i05 = {
+    "identity": {"run_id": "tc071-eligible-run", "scenario_id": "py-bug-due-date-boundary", "scenario_version": "1", "dispatch_id": "dispatch-1", "dispatch_ordinal": 1},
+    "roots": {"agent_fixture_checkout": os.path.join(out_dir, "checkout")},
+    "terminal_status": {"reached": True, "reached_at": "2020-01-01T00:00:00Z"},
+    "stages": [{"stage_path": "stages/code.json"}],
+    "dispatches": dispatches,
+}
+with open(os.path.join(out_dir, "i05", "bundle.json"), "w", encoding="utf-8") as stream:
+    json.dump(i05, stream)
+PY
+
+"$evaluator" --i05 "$WORKDIR/eligible/i05" --i07 "$WORKDIR/eligible/i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$WORKDIR/eligible/evaluation.jsonl"
+python3 - "$WORKDIR/eligible/evaluation.jsonl" <<'PY'
+import json, sys
+evaluation = json.load(open(sys.argv[1], encoding="utf-8"))
+assert evaluation["eligibility"]["aggregate_eligible"] is True, evaluation["eligibility"]
+assert evaluation["eligibility"]["invalidity_reasons"] == [], evaluation["eligibility"]
+assert evaluation["structural"]["observed_result"] == "pass", evaluation["structural"]
+assert evaluation["judge"]["observed_result"] == "not_applicable", evaluation["judge"]
+assert evaluation["execution_oracle"]["observed_result"] == "pass", evaluation["execution_oracle"]
+PY
+echo "TC-071: a genuinely complete real-evaluator run reaches eligibility.aggregate_eligible: true (QA1-002)"
+
 echo "TC-071 PASS"
