@@ -140,6 +140,7 @@ assert record["cleanup"] is True, record
 assert record["invalidity_reasons"] == [], record
 assert record["adapter_calls"] == 2, record
 assert record["access_event"] and len(record["access_event"]) == 1, record
+assert record["reference_digest"], record
 leftover = sorted(set(os.listdir(sys.argv[2])) - {".git", ".gitignore", "pyproject.toml", "README.md", "taskmanager", "tests"})
 assert leftover == [], f"unexpected residue left in the checkout after an authorized run: {leftover}"
 PY
@@ -320,5 +321,61 @@ echo "content" >"$attack_dir/evaluator-renamed/test_x.py"
 write_attack_package "$attack_dir" "evaluator/test_x.py"
 run_attack_case renamed-root "$attack_dir"
 echo "TC-068: renamed evaluator root refused as missing, not silently substituted"
+
+# ---------------------------------------------------------------------------
+# F09-UAT2-001: reference_solution must be contained the same way oracle_tests
+# already is -- an absolute path, a `..` traversal, or a symlink declared in
+# evaluator_only.reference_solution must be refused before any adapter call,
+# never silently resolved and hashed into reference_digest. oracle_tests is
+# kept valid in each package so the attack is isolated to reference_solution.
+write_attack_package_reference() {
+	# write_attack_package_reference <dir> <reference_relative_path>
+	local dir="$1" reference_rel="$2"
+	python3 - "$dir/package.yaml" "$reference_rel" <<'PY'
+import sys
+import yaml
+path, reference_rel = sys.argv[1:3]
+package = {
+    "schema_version": "1.0",
+    "scenario_id": "tc068-attack-reference",
+    "scenario_version": 1,
+    "entity_family": "bug",
+    "fixture": {"fixture_id": "py", "submodule_path": "bench/fixture-py", "base_sha": "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"},
+    "adapter": {"name": "python", "version": "1.0.0"},
+    "final_predicate": {"kind": "f2p_p2p", "f2p_test_ids": ["tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today"], "p2p_selection": {"include": ["tests"]}},
+    "evaluator_only": {"reference_solution": reference_rel, "oracle_tests": ["evaluator/oracle_test_valid.py"]},
+}
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump(package, stream)
+PY
+}
+
+echo "TC-068: reference_solution absolute path -- an absolute reference_solution path is refused with zero adapter calls"
+attack_dir="$tmp/attack-reference-absolute"
+mkdir -p "$attack_dir/evaluator"
+echo "valid oracle test" >"$attack_dir/evaluator/oracle_test_valid.py"
+echo "outside secret" >"$attack_dir/outside_secret.patch"
+write_attack_package_reference "$attack_dir" "$attack_dir/outside_secret.patch"
+run_attack_case reference-absolute "$attack_dir"
+echo "TC-068: reference_solution absolute path escape refused"
+
+echo "TC-068: reference_solution traversal -- a declared reference_solution path that escapes the evaluator root via .. is refused with zero adapter calls"
+attack_dir="$tmp/attack-reference-traversal"
+mkdir -p "$attack_dir/evaluator"
+echo "valid oracle test" >"$attack_dir/evaluator/oracle_test_valid.py"
+echo "outside secret" >"$attack_dir/outside_secret.patch"
+write_attack_package_reference "$attack_dir" "evaluator/../outside_secret.patch"
+run_attack_case reference-traversal "$attack_dir"
+echo "TC-068: reference_solution traversal escape refused"
+
+echo "TC-068: reference_solution symlink -- a symlink declared as reference_solution that escapes to outside content is refused with zero adapter calls"
+attack_dir="$tmp/attack-reference-symlink"
+mkdir -p "$attack_dir/evaluator"
+echo "valid oracle test" >"$attack_dir/evaluator/oracle_test_valid.py"
+echo "outside secret" >"$attack_dir/outside_secret.patch"
+ln -s ../outside_secret.patch "$attack_dir/evaluator/evil_reference_link.patch"
+write_attack_package_reference "$attack_dir" "evaluator/evil_reference_link.patch"
+run_attack_case reference-symlink "$attack_dir"
+echo "TC-068: reference_solution symlink escape refused"
 
 echo "TC-068: PASS"
