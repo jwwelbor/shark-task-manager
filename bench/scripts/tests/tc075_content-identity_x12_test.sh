@@ -9,16 +9,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 EVALUATOR="$SCRIPT_DIR/../evaluate-lifecycle.sh"
+COMPARATOR="$SCRIPT_DIR/../compare-lifecycle-evaluations.sh"
 SCENARIO="$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml"
 CANONICAL_TREE="$REPO_ROOT/internal/sharkdata/default_data"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shark-tc075.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 [[ -x "$EVALUATOR" ]] || { echo "TC-075 FAIL: evaluator missing" >&2; exit 1; }
+[[ -x "$COMPARATOR" ]] || { echo "TC-075 FAIL: comparator missing" >&2; exit 1; }
 [[ -f "$SCENARIO" ]] || { echo "TC-075 FAIL: scenario fixture missing" >&2; exit 1; }
 [[ -d "$CANONICAL_TREE" ]] || { echo "TC-075 FAIL: canonical Shark-data tree missing" >&2; exit 1; }
 
-python3 - "$TMP_DIR" "$EVALUATOR" "$SCENARIO" "$CANONICAL_TREE" <<'PY'
+python3 - "$TMP_DIR" "$EVALUATOR" "$SCENARIO" "$CANONICAL_TREE" "$COMPARATOR" <<'PY'
 import copy
 import json
 import os
@@ -28,8 +30,8 @@ import shutil
 import subprocess
 import sys
 
-root, evaluator, scenario, canonical_tree = (
-    pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4]),
+root, evaluator, scenario, canonical_tree, comparator = (
+    pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4]), sys.argv[5],
 )
 
 # Extract the REAL content_digest() source out of evaluate-lifecycle.sh so
@@ -38,13 +40,47 @@ root, evaluator, scenario, canonical_tree = (
 # test was rejected for). The pass/fail DETERMINATION for every case below is
 # always made by invoking the real `evaluate-lifecycle.sh` subprocess, never
 # by this helper; the helper only pins the "declared" digest used to set up a
-# genuinely matching baseline fixture.
+# genuinely matching baseline fixture. Anchored on the next top-level
+# (non-indented) line rather than a fixed blank-line count, so it survives
+# reformatting of the surrounding script.
 source_text = pathlib.Path(evaluator).read_text(encoding="utf-8")
-match = re.search(r"\ndef content_digest\(root\):.*?\n\n\n", source_text, re.S)
+match = re.search(r"\ndef content_digest\(root\):.*?\n(?=\S)", source_text, re.S)
 assert match, "content_digest() source not found in evaluate-lifecycle.sh"
 namespace = {"os": os, "hashlib": __import__("hashlib")}
 exec(compile(match.group(0), "evaluate-lifecycle.sh::content_digest", "exec"), namespace)  # noqa: S102
 reference_content_digest = namespace["content_digest"]
+
+
+def canonical_digest(value):
+    return __import__("hashlib").sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def comparator_record(evaluation_id, content_digest_value):
+    """A fully valid I-08 record (candidate + workflow_policy + eligibility
+    all complete) so that, when paired against another record built the same
+    way, `identity/shark_content_digest` is the ONLY possible divergence --
+    stronger evidence than "rejected among many divergences"."""
+    candidate = {
+        "base_commit": "a" * 40, "tree_digest": "b" * 64, "binary_diff_digest": "c" * 64,
+        "changed_path_digest": "d" * 64, "dirty_untracked_manifest": "e" * 64, "test_suite_digest": "f" * 64,
+    }
+    candidate["identity_digest"] = canonical_digest(dict(candidate))
+    candidate["snapshot_digest"] = "9" * 64
+    policy = {
+        "enabled_gates": ["qa"], "gate_order": ["qa"],
+        "reviewer": {"provider": "p", "model": "m", "effort": "e"},
+        "prompt_digest": "1" * 64, "rendered_prompt_digest": "1" * 64,
+        "review_bundle_digest": "2" * 64, "deep_review_bundle_digest": "2" * 64,
+        "fixes_allowed_between_gates": False, "fix_policy": "none",
+    }
+    policy["workflow_policy_identity_digest"] = canonical_digest(dict(policy))
+    return {
+        "evaluation_id": evaluation_id,
+        "identity": identity(content_digest_value),
+        "candidate_snapshots": [{"candidate": candidate}],
+        "workflow_policy": policy,
+        "eligibility": {"aggregate_eligible": True},
+    }
 
 
 def identity(content_digest_value):
@@ -86,6 +122,22 @@ def has_content_mismatch(record):
     )
 
 
+def run_comparator(left_record, right_record):
+    CASE_COUNTER[0] += 1
+    case_dir = root / f"cmp-{CASE_COUNTER[0]}"
+    case_dir.mkdir(parents=True)
+    left_path = case_dir / "left.jsonl"
+    right_path = case_dir / "right.jsonl"
+    output_path = case_dir / "comparison.json"
+    left_path.write_text(json.dumps(left_record) + "\n")
+    right_path.write_text(json.dumps(right_record) + "\n")
+    subprocess.run(
+        [comparator, "--left", str(left_path), "--right", str(right_path), "--mode", "independent_frozen_candidate", "--output", str(output_path)],
+        capture_output=True, text=True, check=False,
+    )
+    return json.loads(output_path.read_text())
+
+
 # --- AC-010 core: real installed canonical tree, one mutation per declared
 # class (workflow, prompt, skill, agent). Each case drives evaluate-
 # lifecycle.sh's real content_digest() twice: once establishing a genuinely
@@ -113,9 +165,23 @@ for source_class, relative_path in MUTATION_TARGETS.items():
     target.write_bytes(target.read_bytes() + f"\nTC-075 mutation ({source_class})\n".encode())
     result = run_evaluator(mutated, base_digest)
     assert has_content_mismatch(result), (source_class, result)
-    left = {"evaluation_id": "left", "identity": identity(base_digest)}
-    right = {"evaluation_id": "right", "identity": identity(reference_content_digest(str(mutated)))}
-    assert left["identity"]["shark_content_digest"] != right["identity"]["shark_content_digest"], source_class
+
+    # X-12's own required shape (map row + AC-010): "a mismatch must retain
+    # both digests without reporting a quality delta." Drive this through the
+    # real comparator too -- not by re-comparing two test-computed strings --
+    # so both the evaluator's and the comparator's independent enforcement of
+    # the same contract are exercised.
+    mutated_digest = reference_content_digest(str(mutated))
+    assert mutated_digest and mutated_digest != base_digest, source_class
+    comparison = run_comparator(
+        comparator_record("left", base_digest),
+        comparator_record("right", mutated_digest),
+    )
+    assert comparison["accepted"] is False, (source_class, comparison)
+    content_divergence = next((item for item in comparison["divergences"] if item["field"] == "identity/shark_content_digest"), None)
+    assert content_divergence is not None, (source_class, comparison)
+    assert content_divergence["left"] and content_divergence["right"] and content_divergence["left"] != content_divergence["right"], (source_class, content_divergence)
+    assert comparison["comparison"]["quality_delta"] is None, (source_class, comparison)
 
 print("TC-075 AC-010 core PASS")
 
