@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -32,6 +33,30 @@ def load_seeded_truth():
         raise ValueError("seeded truth artifact requires non-empty F09 finding IDs")
     return seeded
 
+def validate_truth_set_declaration(raw_truth):
+    """Validate the SHAPE of the I-07-declared truth_set descriptor. This
+    is a presence-vs-validity boundary, not a source-of-truth switch: the
+    calibration fixture (load_seeded_truth) remains the sole confirmation
+    source, and a per-finding truth_set_id claim is still never trusted
+    (see the forged-reviewer-truth partition). A run declares truth_set
+    is None (out of scope), a well-formed descriptor (in scope), or an
+    ill-formed value (a producer bug -- fail closed with an error rather
+    than silently degrading to "unavailable")."""
+    if raw_truth is None:
+        return None
+    if not isinstance(raw_truth, dict):
+        raise ValueError("truth_set, when present, must be an object")
+    extra = set(raw_truth) - {"digest", "finding_ids"}
+    if extra:
+        raise ValueError(f"truth_set contains unknown fields: {sorted(extra)}")
+    digest = raw_truth.get("digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("truth_set.digest must be a 64-character hex sha256 digest")
+    ids = raw_truth.get("finding_ids")
+    if not isinstance(ids, list) or not ids or any(not isinstance(item, str) or not item.strip() for item in ids):
+        raise ValueError("truth_set.finding_ids must be a non-empty list of non-empty strings")
+    return raw_truth
+
 try:
     source = json.loads(Path(args.i07).read_text(encoding="utf-8"))
     if not isinstance(source, dict):
@@ -39,11 +64,14 @@ try:
     gates = source.get("review_gates")
     if not isinstance(gates, list):
         raise ValueError("review_gates must be an array")
-    raw_truth = source.get("truth_set")
-    # truth_set.available reflects whether THIS run declares a truth set is
-    # in scope (the I-07 truth_set field), never the permanently-committed
-    # calibration fixture's mere existence on disk -- that fixture backs the
-    # seeded-defect calibration experiment only, not every production run.
+    # truth_set.available reflects whether THIS run declares a validly-shaped
+    # truth set is in scope (the I-07 truth_set field), never the
+    # permanently-committed calibration fixture's mere existence on disk --
+    # that fixture backs the seeded-defect calibration experiment only, not
+    # every production run. A present-but-malformed declaration is a
+    # producer-side contract error and fails closed with an error, not a
+    # silent "unavailable" (see validate_truth_set_declaration).
+    raw_truth = validate_truth_set_declaration(source.get("truth_set"))
     truth_ids = set(load_seeded_truth()["finding_ids"]) if raw_truth is not None else set()
     raw = []
     normalized = []

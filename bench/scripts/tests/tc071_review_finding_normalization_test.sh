@@ -78,6 +78,36 @@ set -e
 [[ "$code" -eq 2 ]] || { echo "TC-071 FAIL: malformed finding accepted with exit $code" >&2; exit 1; }
 grep -q "every review finding must be an object" "$WORKDIR/invalid.err" || { echo "TC-071 FAIL: malformed finding diagnostic missing" >&2; exit 1; }
 
+# Present-but-malformed truth_set partition (round-15 repro): a truth_set
+# value that is merely non-null but does not satisfy the shape contract must
+# fail closed with an error, never silently report available:true nor
+# silently degrade to unavailable.
+for case in empty-object empty-list wrong-type bad-digest unknown-field; do
+  variant="$(python3 - "$FIXTURE" "$case" <<'PY'
+import json, sys
+source = json.loads(open(sys.argv[1]).read())
+case = sys.argv[2]
+bad = {
+    "empty-object": {},
+    "empty-list": [],
+    "wrong-type": "seed-1",
+    "bad-digest": {"digest": "not-hex", "finding_ids": ["seed-1"]},
+    "unknown-field": {"digest": "1" * 64, "finding_ids": ["seed-1"], "extra": "x"},
+}[case]
+source["truth_set"] = bad
+print(json.dumps(source))
+PY
+)"
+  echo "$variant" > "$WORKDIR/malformed-truth-$case.json"
+  set +e
+  "$NORMALIZER" --i07 "$WORKDIR/malformed-truth-$case.json" --output "$WORKDIR/malformed-truth-$case-out.json" 2>"$WORKDIR/malformed-truth-$case.err"
+  code=$?
+  set -e
+  [[ "$code" -eq 2 ]] || { echo "TC-071 FAIL: malformed-but-present truth_set ($case) accepted with exit $code" >&2; exit 1; }
+  [[ ! -f "$WORKDIR/malformed-truth-$case-out.json" ]] || { echo "TC-071 FAIL: malformed-but-present truth_set ($case) still produced output" >&2; exit 1; }
+  grep -q "truth_set" "$WORKDIR/malformed-truth-$case.err" || { echo "TC-071 FAIL: malformed truth_set ($case) diagnostic missing" >&2; exit 1; }
+done
+
 # Production integration: evaluate-lifecycle.sh must own normalization.
 mkdir -p "$WORKDIR/i05"
 printf '%s\n' '{"roots":{"agent_fixture_checkout":"/does/not/exist"},"stages":[{"stage_path":"stages/code.json"}]}' > "$WORKDIR/i05/bundle.json"
