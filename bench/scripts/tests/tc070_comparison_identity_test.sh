@@ -69,17 +69,51 @@ def run(left_record, right_record, expected, field=None):
     if field:
         assert any(item["field"] == field for item in result["divergences"]), (field, result)
 
+def mutate(value):
+    """Type-generic one-factor mutation: flip a bool, extend a string, append
+    a list entry, or perturb a dict's first nested value -- so every declared
+    field (not just the string/digest-shaped ones) gets a real, distinct
+    mutation rather than being special-cased or skipped."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, dict):
+        mutated_dict = copy.deepcopy(value)
+        first_key = next(iter(mutated_dict))
+        nested = mutated_dict[first_key]
+        mutated_dict[first_key] = mutate(nested) if not isinstance(nested, (dict, list)) else "changed"
+        return mutated_dict
+    if isinstance(value, list):
+        return list(value) + [value[-1] if value else "changed-item"]
+    if isinstance(value, str):
+        return value + "-changed"
+    return value
+
+# The full declared one-factor mutation matrix (test-plan.md TC-070): every
+# `identity` field the comparator enumerates, every candidate identity field,
+# and every workflow-policy field -- not a representative sample. A field
+# silently dropped from (or misspelled in) the comparator's field lists would
+# go uncaught by a partial matrix; this loop is parameterized by the exact
+# same field lists the comparator itself uses.
+IDENTITY_MUTATION_FIELDS = [
+    "scenario_id", "scenario_version", "fixture_id", "fixture_digest", "adapter_id", "adapter_version",
+    "toolchain_identity", "shark_binary_digest", "shark_content_digest", "rendered_prompt_digest",
+    "rendered_prompt_digests", "provider", "model", "effort", "provider_identity", "judge_digest",
+    "judge_identity", "reference_digest", "reference_digests", "resource_policy_digest",
+]
+CANDIDATE_MUTATION_FIELDS = ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest"]
+POLICY_MUTATION_FIELDS = ["enabled_gates", "gate_order", "reviewer", "prompt_digest", "rendered_prompt_digest", "review_bundle_digest", "deep_review_bundle_digest", "fixes_allowed_between_gates", "fix_policy"]
+
 run(left, right, True)
-for field in ["identity/scenario_id", "identity/rendered_prompt_digest", "candidate/tree_digest", "candidate/test_suite_digest", "workflow_policy/gate_order", "workflow_policy/review_bundle_digest", "workflow_policy/fixes_allowed_between_gates"]:
+for field in [f"identity/{f}" for f in IDENTITY_MUTATION_FIELDS] + [f"candidate/{f}" for f in CANDIDATE_MUTATION_FIELDS] + [f"workflow_policy/{f}" for f in POLICY_MUTATION_FIELDS]:
     mutated = copy.deepcopy(right)
     target = mutated
+    key = field.split("/", 1)[1]
     if field.startswith("identity/"):
-        target["identity"][field.split("/", 1)[1]] += "-changed"
+        target["identity"][key] = mutate(target["identity"][key])
     elif field.startswith("candidate/"):
-        target["candidate_snapshots"][0]["candidate"][field.split("/", 1)[1]] = "z" * (40 if field.endswith("base_commit") else 64)
+        target["candidate_snapshots"][0]["candidate"][key] = "z" * (40 if key == "base_commit" else 64)
     else:
-        key = field.split("/", 1)[1]
-        target["workflow_policy"][key] = ["deep_review", "qa"] if key == "gate_order" else (not target["workflow_policy"][key] if isinstance(target["workflow_policy"][key], bool) else "z" * 64)
+        target["workflow_policy"][key] = mutate(target["workflow_policy"][key])
     run(left, mutated, False, field)
 
 branch_only = copy.deepcopy(right)
