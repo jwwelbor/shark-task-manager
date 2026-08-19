@@ -399,8 +399,8 @@ subprocess.run(
     capture_output=True, text=True, check=False,
 )
 overlap_record = json.loads(overlap_output.read_text())
-assert overlap_record["judge"]["observed_result"] == "fail", overlap_record["judge"]
-assert any(item["code"] == "calibration_overlap" for item in overlap_record["judge"]["invalidity_reasons"]), overlap_record["judge"]
+assert_judge("contrast_pair_calibration_overlap", overlap_record,
+             [("calibration_overlap", "/judge/evaluation_set_ids")])
 assert overlap_record["eligibility"]["aggregate_eligible"] is False, overlap_record["eligibility"]
 assert any(item["code"] == "calibration_overlap" for item in overlap_record["eligibility"]["invalidity_reasons"]), overlap_record["eligibility"]
 print("TC-069: the same otherwise-eligible fixture becomes ineligible on a calibration-overlap judge mutation")

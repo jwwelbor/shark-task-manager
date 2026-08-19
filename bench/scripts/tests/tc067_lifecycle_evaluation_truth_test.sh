@@ -106,4 +106,24 @@ record = json.load(open(sys.argv[1], encoding="utf-8"))
 assert any(item["code"] == "source_malformed" for item in record["eligibility"]["invalidity_reasons"])
 PY
 
+# QA round-2 minor observation (docs/review/.../qa-20260819T033417Z-E40-F09.md,
+# same defect class as QA2-001): evaluate-lifecycle.sh:446-447 rejects any
+# caller-supplied --review-findings with review_findings_bypass ("evaluator
+# owns normalization"), but no committed test ever passed that flag, so the
+# rejection branch was never invoked. The flag's value is never opened before
+# the rejection check, so a nonexistent path is sufficient to prove it.
+bypass_output="$tmp/review-findings-bypass-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$bypass_output" --review-findings "$tmp/does-not-exist.json" >/dev/null 2>/dev/null; then
+  echo "TC-067: caller-supplied --review-findings unexpectedly accepted" >&2
+  exit 1
+fi
+python3 - "$bypass_output" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+reasons = record["eligibility"]["invalidity_reasons"]
+assert any(item["code"] == "review_findings_bypass" and item["path"] == "/review_findings" for item in reasons), reasons
+assert record["eligibility"]["aggregate_eligible"] is False
+PY
+echo "TC-067: caller-supplied --review-findings is rejected as review_findings_bypass"
+
 echo "TC-067: truth blocks remain independent and missing oracle evidence is retained"
