@@ -58,9 +58,9 @@ def metric(value, available, detail=None):
 
 def derive_metrics(lifecycle, findings, judge):
     stages = lifecycle.get("stages") if isinstance(lifecycle.get("stages"), list) else []
-    elapsed = [stage.get("elapsed_seconds") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("elapsed_seconds"), (int, float))]
-    costs = [stage.get("cost_usd") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("cost_usd"), (int, float))]
-    if isinstance(judge, dict) and isinstance(judge.get("cost_usd"), (int, float)):
+    elapsed = [stage.get("elapsed_seconds") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("elapsed_seconds"), (int, float)) and not isinstance(stage.get("elapsed_seconds"), bool)]
+    costs = [stage.get("cost_usd") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("cost_usd"), (int, float)) and not isinstance(stage.get("cost_usd"), bool)]
+    if isinstance(judge, dict) and isinstance(judge.get("cost_usd"), (int, float)) and not isinstance(judge.get("cost_usd"), bool):
         costs.append(judge["cost_usd"])
     rework = [stage for stage in stages if isinstance(stage, dict) and stage.get("rework") is True]
     artifacts = [artifact for stage in stages if isinstance(stage, dict) for artifact in (stage.get("artifacts") if isinstance(stage.get("artifacts"), list) else []) if isinstance(artifact, dict)]
@@ -89,7 +89,7 @@ def derive_metrics(lifecycle, findings, judge):
     ]
     truth_available = bool(findings.get("truth_set", {}).get("available")) if isinstance(findings, dict) else False
     return {
-        "quality": {"confirmed_findings": metric(counts.get("confirmed"), isinstance(counts.get("confirmed"), int)), "unconfirmed_findings": metric(counts.get("unconfirmed"), isinstance(counts.get("unconfirmed"), int)), "precision": metric(counts.get("precision"), truth_available), "recall": metric(counts.get("recall"), truth_available), "truth_set_status": "available" if truth_available else "truth-set-unavailable", "review_measures": grouped_metrics, "aggregate_eligible": metric(None, False, "eligibility is reported separately")},
+        "quality": {"confirmed_findings": metric(counts.get("confirmed"), isinstance(counts.get("confirmed"), int) and not isinstance(counts.get("confirmed"), bool)), "unconfirmed_findings": metric(counts.get("unconfirmed"), isinstance(counts.get("unconfirmed"), int) and not isinstance(counts.get("unconfirmed"), bool)), "precision": metric(counts.get("precision"), truth_available), "recall": metric(counts.get("recall"), truth_available), "truth_set_status": "available" if truth_available else "truth-set-unavailable", "review_measures": grouped_metrics, "aggregate_eligible": metric(None, False, "eligibility is reported separately")},
         "elapsed_time": metric(sum(elapsed), bool(elapsed), "sum of retained stage elapsed_seconds"),
         "provider_cost": metric(sum(costs), bool(costs), "sum of retained stage and judge cost_usd"),
         "rework": metric(len(rework), bool(stages), "count of retained stages marked rework"),
@@ -394,12 +394,12 @@ def run_judge(package, reasons):
             judge_reasons.append(reason("calibration_overlap", "/judge/evaluation_set_ids", "calibration and evaluation sets overlap"))
         if not isinstance(supplied.get("rationale"), str) or not supplied["rationale"].strip():
             judge_reasons.append(reason("judge_score_invalid", "/judge/rationale", "rationale is required"))
-        if not isinstance(supplied.get("score"), (int, float)) or not 0 <= supplied["score"] <= 1:
+        if not isinstance(supplied.get("score"), (int, float)) or isinstance(supplied.get("score"), bool) or not 0 <= supplied["score"] <= 1:
             judge_reasons.append(reason("judge_score_invalid", "/judge/score", "score must be between 0 and 1"))
         usage = supplied.get("usage")
-        if not isinstance(usage, dict) or any(not isinstance(usage.get(key), int) or usage.get(key) < 0 for key in ["input_tokens", "output_tokens"]):
+        if not isinstance(usage, dict) or any(not isinstance(usage.get(key), int) or isinstance(usage.get(key), bool) or usage.get(key) < 0 for key in ["input_tokens", "output_tokens"]):
             judge_reasons.append(reason("judge_usage_invalid", "/judge/usage", "usage token counts must be non-negative integers"))
-        if not isinstance(supplied.get("cost_usd"), (int, float)) or supplied["cost_usd"] < 0:
+        if not isinstance(supplied.get("cost_usd"), (int, float)) or isinstance(supplied.get("cost_usd"), bool) or supplied["cost_usd"] < 0:
             judge_reasons.append(reason("judge_usage_invalid", "/judge/cost_usd", "cost must be non-negative"))
         judge["observed_result"] = "pass" if not judge_reasons else "fail"
         judge["invalidity_reasons"] = judge_reasons

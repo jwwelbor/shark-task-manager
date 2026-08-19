@@ -195,6 +195,20 @@ CASES = [
     ("malformed_reference_set_membership_missing_ids", lambda d: {**d, "calibration_examples": [
         {"label": 1}, {"label": 0}]},
      [("duplicate_calibration_example", "/judge/calibration_examples")]),
+    # F09-CR19-001: Python bool is an int subtype (isinstance(True, int) is
+    # True), so a bare isinstance(x, (int, float))/isinstance(x, int) check
+    # on a numeric field silently accepts a JSON boolean as a valid number.
+    # These four cases prove run_judge() rejects a caller-supplied boolean
+    # for score/usage.input_tokens/usage.output_tokens/cost_usd instead of
+    # fabricating a "pass" result with score: true / usage: {...: true}.
+    ("score_boolean", lambda d: {**d, "score": True},
+     [("judge_score_invalid", "/judge/score")]),
+    ("usage_input_tokens_boolean", lambda d: {**d, "usage": {"input_tokens": True, "output_tokens": 310}},
+     [("judge_usage_invalid", "/judge/usage")]),
+    ("usage_output_tokens_boolean", lambda d: {**d, "usage": {"input_tokens": 1450, "output_tokens": True}},
+     [("judge_usage_invalid", "/judge/usage")]),
+    ("cost_usd_boolean", lambda d: {**d, "cost_usd": True},
+     [("judge_usage_invalid", "/judge/cost_usd")]),
 ]
 
 for name, mutate, expected in CASES:
