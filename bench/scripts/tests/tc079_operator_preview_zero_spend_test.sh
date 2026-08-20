@@ -295,7 +295,128 @@ QUARANTINED_DIGEST="$(sha256sum "$QUARANTINED_FILE" | awk '{print $1}')"
 
 echo "TC-079(AC-T2 part 3: --reclaim-incomplete quarantines via move, never deletes, then reruns) PASS"
 
-echo "TC-079: pass (batch driver half: zero-spend preview, --dry-run alias, no third flag convention, AC-T2 classification/reclaim)"
+# ---------------------------------------------------------------------------
+# T-E40-F10-004 rework (code-review-2026-08-20T1731-E40-F10.md finding 1,
+# REQ-F-004/AC-005/AC-006): retain_pair() must copy REAL byte content from
+# i05_bundle_dir into evidence/ and transcripts/, and real oracle.json
+# content when evaluate-lifecycle.sh produces one -- not empty placeholder
+# directories/files that satisfy every downstream presence/digest check
+# without holding any real content. Reuses the same
+# RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN stub-override precedent as AC-T2
+# above, since this proves retain_pair's own copying behavior, not the real
+# dispatch pipeline TC-079/TC-080 already cover.
+# ---------------------------------------------------------------------------
+I05_BUNDLE="$WORKDIR/i05-bundle"
+mkdir -p "$I05_BUNDLE/stages" "$I05_BUNDLE/transcripts"
+echo '{"schema_version":"1.0","stages":[{"stage_key":"develop"}]}' >"$I05_BUNDLE/bundle.json"
+echo '{"stage_key":"develop"}' >"$I05_BUNDLE/stages/1-develop.json"
+echo "tc079-fixture-transcript-bytes" >"$I05_BUNDLE/transcripts/develop.log"
+
+cat >"$WORKDIR/stubbin/evaluate-lifecycle-oracle-stub.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+done
+echo '{"eligibility":{"aggregate_eligible":true}}' >"$out"
+echo '{"held_back":true,"observed_result":"pass"}' >"${out}.oracle.json"
+exit 0
+EOF
+chmod +x "$WORKDIR/stubbin/evaluate-lifecycle-oracle-stub.sh"
+
+RETAIN_ROOT="$WORKDIR/retain-content-check"
+mkdir -p "$RETAIN_ROOT"
+cat >"$WORKDIR/retain-content-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenarios:
+  py-bug-due-date-boundary:
+    root_key: "ROOT-001"
+    scratch_root: "$WORKDIR/scratch-template"
+    i05_bundle_dir: "$I05_BUNDLE"
+EOF
+
+set +e
+RUN_LIFECYCLE_BIN="$WORKDIR/stubbin/run-lifecycle-stub.sh" \
+	EVALUATE_LIFECYCLE_BIN="$WORKDIR/stubbin/evaluate-lifecycle-oracle-stub.sh" \
+	"$BATCH" --batch "$WORKDIR/retain-content-policy.yaml" --retention-root "$RETAIN_ROOT" \
+	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--scenarios py-bug-due-date-boundary --reps 1 >"$WORKDIR/retain-content.out" 2>&1
+retain_content_rc=$?
+set -e
+[[ "$retain_content_rc" -eq 0 ]] || fail "retention-content dispatch exited $retain_content_rc, want 0: $(cat "$WORKDIR/retain-content.out")"
+
+REP_DIR="$RETAIN_ROOT/scenarios/py-bug-due-date-boundary/1"
+[[ -f "$REP_DIR/evidence/bundle.json" ]] || fail "retain_pair did not copy bundle.json into evidence/"
+diff -q "$I05_BUNDLE/bundle.json" "$REP_DIR/evidence/bundle.json" >/dev/null || fail "evidence/bundle.json bytes do not match i05_bundle_dir source"
+[[ -f "$REP_DIR/evidence/stages/1-develop.json" ]] || fail "retain_pair did not copy stages/1-develop.json into evidence/"
+diff -q "$I05_BUNDLE/stages/1-develop.json" "$REP_DIR/evidence/stages/1-develop.json" >/dev/null || fail "evidence/stages/1-develop.json bytes do not match source"
+[[ -f "$REP_DIR/transcripts/develop.log" ]] || fail "retain_pair did not copy transcripts/develop.log into transcripts/"
+diff -q "$I05_BUNDLE/transcripts/develop.log" "$REP_DIR/transcripts/develop.log" >/dev/null || fail "transcripts/develop.log bytes do not match source"
+[[ ! -e "$REP_DIR/evidence/transcripts" ]] || fail "evidence/ must not duplicate the transcripts/ subtree"
+
+[[ -s "$REP_DIR/oracle.json" ]] || fail "retain_pair did not copy real oracle.json content when evaluate-lifecycle.sh produced one"
+grep -q '"held_back":true' "$REP_DIR/oracle.json" || fail "oracle.json content is not the real evaluator output"
+
+# manifest.json must record real, non-placeholder digests for evidence/
+# transcripts/oracle.json -- recomputed independently here (not reusing
+# retain_pair's own digest function) so a passing assertion actually
+# proves byte preservation, not merely that SOME digest was written.
+set +e
+python3 - "$REP_DIR" <<'PY'
+import hashlib, json, os, sys
+
+rep_dir = sys.argv[1]
+
+
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+with open(os.path.join(rep_dir, "manifest.json")) as f:
+    manifest = json.load(f)
+artifacts = manifest["artifacts"]
+empty_dir_digest = hashlib.sha256(b"[]").hexdigest()
+for name in ("evidence", "transcripts", "oracle.json"):
+    if name not in artifacts:
+        print(f"manifest.json missing artifacts.{name}", file=sys.stderr)
+        raise SystemExit(1)
+    recorded = artifacts[name]["sha256"]
+    actual = digest_of_path(os.path.join(rep_dir, name))
+    if recorded != actual:
+        print(f"manifest.json artifacts.{name}.sha256={recorded!r} does not match freshly recomputed digest {actual!r}", file=sys.stderr)
+        raise SystemExit(1)
+    if not artifacts[name]["source_path"]:
+        print(f"manifest.json artifacts.{name}.source_path is empty despite real source content", file=sys.stderr)
+        raise SystemExit(1)
+    if recorded == empty_dir_digest:
+        print(f"manifest.json artifacts.{name}.sha256 is the empty-directory placeholder digest, not real content", file=sys.stderr)
+        raise SystemExit(1)
+print("manifest digests verified real")
+PY
+manifest_check_rc=$?
+set -e
+[[ "$manifest_check_rc" -eq 0 ]] || fail "manifest.json digest verification failed for evidence/transcripts/oracle.json"
+
+echo "TC-079(rework: retain_pair copies real evidence/transcripts/oracle.json content, digests verified) PASS"
+
+echo "TC-079: pass (batch driver half: zero-spend preview, --dry-run alias, no third flag convention, AC-T2 classification/reclaim, real evidence/transcripts/oracle.json retention)"
 
 # ===========================================================================
 # TC-079 (comparison half) / T-E40-F10-005: zero-provider-call operator
