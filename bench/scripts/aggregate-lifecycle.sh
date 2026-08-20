@@ -9,13 +9,13 @@
 # subprocess/provider/network, and touches nothing outside the named
 # `--retention-root`.
 #
-# THIS TASK'S SLICE ONLY (component-changes row, this task's Scope): the
-# `identity`, `scenarios[]`, `time`, and `cost` blocks. `quality`,
-# `review_value`, and `artifact_use` are T-E40-F10-009's; `noise_bands`,
-# `comparisons`, and `invalid` are T-E40-F10-010's. This script's
-# `aggregate.json` therefore carries only four of the ten top-level blocks
-# `bench/reports/lifecycle-baseline-schema.yaml` eventually requires --
-# later tasks extend this same document, they do not replace it.
+# SLICE OWNERSHIP (component-changes row, this task's Scope): T-E40-F10-008
+# built `identity`, `scenarios[]`, `time`, and `cost`. T-E40-F10-009 (this
+# extension) adds `quality`, `review_value`, and `artifact_use`.
+# `noise_bands`, `comparisons`, and `invalid` remain T-E40-F10-010's. This
+# script's `aggregate.json` therefore carries seven of the ten top-level
+# blocks `bench/reports/lifecycle-baseline-schema.yaml` eventually requires
+# -- T-010 extends this same document, it does not replace it.
 #
 # ---------------------------------------------------------------------------
 # Design decisions made by this task (documented here because spec.md does
@@ -113,6 +113,130 @@
 # `/identity/min_reps` (a field owned by THIS task) had no retained source
 # to read from `--retention-root` alone. Fixed by re-parsing the same
 # `batch_policy_path` that writer already opens for `batch_policy_digest`.
+#
+# ---------------------------------------------------------------------------
+# T-E40-F10-009 design decisions (quality, review_value, artifact_use).
+# spec.md REQ-F-012, REQ-F-013, ADR-F10-04, ADR-F10-10; test-plan.md TC-085,
+# TC-086 (aggregator half); AC-T1, AC-T2, AC-T3.
+#
+#   7. `quality.by_scenario[].{structural,judge,execution_oracle}` are each
+#      pair's I-08 block copied verbatim, presence-checked only -- their
+#      interior is I-08's own vocabulary (ADR-F10-04); this script never
+#      inspects `observed_result` or any nested field.
+#      `quality.first_pass_yield` is the one DERIVED value the blocks table
+#      names ("derived from the retained gate rounds"): among gates that
+#      were reached (I-07 `review_gates[].state != not_reached`), the
+#      fraction whose highest observed `round` is exactly 1. Zero reached
+#      gates renders `unavailable`, never a `0/0` division or a bare `0`
+#      (ADR-F10-10).
+#
+#   8. `review_value.gates[]` gate identity and `state` come from I-07
+#      `review_gates[]` (byte-preserved, closed `gate_state` vocabulary:
+#      findings / zero_findings / collection_failure / not_reached,
+#      `bench/runs/i07-schema.yaml`) -- NEVER inferred from whether I-08
+#      `metrics.quality.review_measures` happens to contain entries for that
+#      gate, because a `zero_findings` gate is, by construction, absent from
+#      `review_measures` (grouping is per finding) and inferring its state
+#      from that absence would collapse it with `collection_failure` -- the
+#      exact confusion AC-T2/ADR-F10-10 forbid. The seven finding measures
+#      themselves (`review_value.gates[].counts`/`counts_by_severity`/
+#      `counts_by_defect_class`) are read verbatim from I-08
+#      `metrics.quality.review_measures[]`, joined to a gate on `gate`, using
+#      I-08's OWN measure-key names (`normalized_unique`, not "unique" --
+#      test-plan.md TC-085's ISO matrix: "keeps finding-measure vocabulary
+#      I-08-owned").
+#
+#      `truth_set_available`/`precision`/`recall` are declared once PER
+#      EVALUATION RECORD in I-08 (`metrics.quality.truth_set_status` /
+#      `.precision` / `.recall`), not per gate -- `normalize-review-findings.sh`
+#      computes them from the whole run's `truth_set`/`finding_ids`, with no
+#      per-gate decomposition anywhere upstream. This script therefore
+#      applies one pair's verbatim truth/precision/recall to every gate that
+#      pair's `review_gates[]` contributed. This is the correct verbatim
+#      reading of I-08's actual (not aspirational) shape, not an invented
+#      per-gate rule -- documented here because a future reader may expect
+#      per-gate precision and should know why it is not synthesized. Never
+#      `0`; the metric's own `available` flag decides `unavailable`.
+#
+#      `elapsed_seconds`/`provider_cost_usd`/`resolution_cost_usd` per gate
+#      render `unavailable` unconditionally: neither I-07 `review_gates[]`
+#      (gate_id, state, round, findings, candidate_ref, policy_ref -- no
+#      time/cost field) nor I-08 `metrics` carries a gate-level time/cost
+#      figure, and `review_gates[].candidate_ref` is an opaque reference, not
+#      a join key into `stages[].candidate` -- checked and confirmed absent
+#      (grep across `bench/scripts/*.sh` and `i07-schema.yaml`). Attributing
+#      a `review`/`qa`/`uat` stage's cost to "the" gate would invent a
+#      one-to-one mapping I-07 does not assert (a run may carry several
+#      review-category stages and several gates with no declared
+#      correspondence), which ADR-F10-04 forbids. ADR-F10-10's rule --
+#      absent measures render `unavailable`, never zero -- is stated
+#      generally, not scoped to precision/recall alone, and applies here.
+#
+#   9. `artifact_use` produced/consumed/reused/orphan counts and typed
+#      producer/consumer `edges` are computed directly from every pair's
+#      retained I-07 `stages[].artifacts[]` (mirroring design decision 2's
+#      pattern for time/cost: a verbatim I-08 scalar total, reconciled
+#      against a finer breakdown this script computes from retained I-07
+#      data). `artifact_type`/`edges[].edge_kind` are validated against
+#      `bench/evidence/i05-schema.yaml`'s closed vocabularies (I-07 artifact
+#      records reuse I-05's sets). Per `bench/README.md`'s stage-snapshot
+#      field reference, an artifact's `consumers` key has THREE distinct,
+#      never-coerced states this script keeps distinct: `consumers: []`
+#      (a true orphan -- produced, no consumer observed), an ABSENT
+#      `consumers` key (consumption evidence not collected -- neither
+#      consumed nor a proven orphan), and a non-empty `consumers[]`
+#      (consumed; `reused` when it names more than one DISTINCT
+#      `consuming_stage`, since two edges from the very same consuming stage
+#      is not reuse). I-08's own `metrics.artifact_use.orphaned` value
+#      (`derive_metrics()`: `len(artifacts) - consumed`) CONFLATES the first
+#      two states into one number -- this script's reconciliation therefore
+#      compares I-08's verbatim `orphaned` value against
+#      `(this script's orphan_count + evidence_missing_count)`, never against
+#      `orphan_count` alone, so a real F09 gap is reported, never masked as
+#      a mismatch. A genuine value MISMATCH is a non-fatal upstream contract
+#      defect printed to stderr, exactly like design decision 2's
+#      rework-mismatch precedent -- never a refusal. `metrics.artifact_use`
+#      is OPTIONAL, unlike `elapsed_time`/`provider_cost`/`rework`
+#      (verbatim_metric() hard-requires those); its mere absence -- true of
+#      every T-E40-F10-008 fixture, which predates this task -- is silent,
+#      matching TC-084's established "no stderr on a clean run" contract,
+#      and the computed I-07-derived counts stand alone.
+#
+#  10. `artifact_use.replayed_interaction_proxy` (REQ-F-013's D01-D05 proxy
+#      counts) is read, when present, from
+#      `metrics.artifact_use.replayed_interaction_proxies` -- the shape
+#      spec.md describes ("from the I-05/I-06 lineage carried in I-08
+#      metrics.artifact_use") but the CURRENT `evaluate-lifecycle.sh` does
+#      not yet populate (checked: no `replayed_interaction_proxies` key is
+#      written anywhere in that script today). This is a genuine, checked
+#      upstream gap, not a misreading on this script's part -- spec.md line
+#      371-375 forbids F10 from reading I-06 directly, so there is no other
+#      reachable source. Per ADR-F10-10, an unpopulated proxy block renders
+#      every numeric field `unavailable` (never `0` or a synthesized
+#      figure); its universal absence is silent, matching TC-084's
+#      established "no stderr on a clean run" contract (a non-fatal
+#      diagnostic fires only for PARTIAL coverage -- some retained pairs
+#      carry the sub-object and others do not, an actual inconsistency, not
+#      a uniform gap), while still emitting the schema-required single
+#      `label` field so the block shape is always present (AC-T3). When the
+#      sub-object IS present, this
+#      script maps I-06's OWN field names 1:1 onto F10's schema names --
+#      `authorized_request_count` -> `request_count`,
+#      `authorized_response_count` -> `response_count`,
+#      `revision_or_replacement_count` -> `revision_count`,
+#      `unresolved_gate_count` -> `unresolved_gate_count` -- and derives
+#      `payload_size_bytes` as `request_bytes_total + response_bytes_total`
+#      (I-06 tracks the two directions separately; F10's schema names one
+#      combined byte figure, so this script states the sum rule here rather
+#      than leaving it to a reader to guess). Every field's replayed-proxy
+#      identity is carried by the single container-level `label` field the
+#      schema defines (`/artifact_use/replayed_interaction_proxy/label`) --
+#      one label for the block, not one per numeric field, matching the
+#      schema's own field inventory. This script never phrases any of this
+#      as an observed-human measurement (`forbidden_effort_language`,
+#      REQ-F-013): every count here is a replayed-interaction count, never
+#      an observed-interaction measurement.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -120,6 +244,7 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 LIFECYCLE_SCHEMA="${LIFECYCLE_SCHEMA:-$BENCH_DIR/reports/lifecycle-baseline-schema.yaml}"
 I05_SCHEMA="${I05_SCHEMA:-$BENCH_DIR/evidence/i05-schema.yaml}"
+I07_SCHEMA="${I07_SCHEMA:-$BENCH_DIR/runs/i07-schema.yaml}"
 
 usage() {
 	echo "usage: aggregate-lifecycle.sh --retention-root <retention_root>" >&2
@@ -156,6 +281,10 @@ done
 	echo "aggregate-lifecycle: i05 schema not found: $I05_SCHEMA" >&2
 	exit 2
 }
+[[ -f "$I07_SCHEMA" ]] || {
+	echo "aggregate-lifecycle: i07 schema not found: $I07_SCHEMA" >&2
+	exit 2
+}
 command -v python3 >/dev/null 2>&1 || {
 	echo "aggregate-lifecycle: python3 not found on PATH" >&2
 	exit 2
@@ -163,7 +292,7 @@ command -v python3 >/dev/null 2>&1 || {
 
 RETENTION_ROOT_CANON="$(cd "$retention_root" && pwd)"
 
-python3 - "$RETENTION_ROOT_CANON" "$LIFECYCLE_SCHEMA" "$I05_SCHEMA" <<'PYEOF'
+python3 - "$RETENTION_ROOT_CANON" "$LIFECYCLE_SCHEMA" "$I05_SCHEMA" "$I07_SCHEMA" <<'PYEOF'
 import hashlib
 import json
 import os
@@ -171,7 +300,7 @@ import sys
 
 import yaml
 
-retention_root, schema_path, i05_schema_path = sys.argv[1:4]
+retention_root, schema_path, i05_schema_path, i07_schema_path = sys.argv[1:5]
 
 
 def fail(msg):
@@ -212,6 +341,8 @@ with open(schema_path, encoding="utf-8") as f:
     schema = yaml.safe_load(f) or {}
 with open(i05_schema_path, encoding="utf-8") as f:
     i05_schema = yaml.safe_load(f) or {}
+with open(i07_schema_path, encoding="utf-8") as f:
+    i07_schema = yaml.safe_load(f) or {}
 
 SCHEMA_VERSION = schema.get("schema_version")
 if not SCHEMA_VERSION:
@@ -228,6 +359,38 @@ SHARE_CELLS = schema.get("share_partition_cell") or []
 UNATTRIBUTED = schema.get("share_partition_residual", "unattributed")
 if not STAGE_CATEGORIES or not INTERVAL_CATEGORIES or not SHARE_CELLS:
     usage_fail("schema vocabularies (stage_category/interval_category/share_partition_cell) are empty or missing")
+
+# T-E40-F10-009: artifact/edge vocabularies (design decision 9) and the gate
+# state vocabulary (design decision 8), all read from their single owners
+# rather than duplicated (REQ-F-018).
+ARTIFACT_TYPES = i05_schema.get("artifact_type") or []
+EDGE_KINDS = i05_schema.get("edge_kind") or []
+GATE_STATES = i07_schema.get("gate_state") or []
+if not ARTIFACT_TYPES or not EDGE_KINDS or not GATE_STATES:
+    usage_fail("schema vocabularies (artifact_type/edge_kind/gate_state) are empty or missing")
+
+# REQ-F-012: the seven per-gate finding measures, using I-08's OWN measure
+# key names verbatim (design decision 8) -- `evaluate-lifecycle.sh`'s
+# `derive_metrics()` bucket keys, never a private renaming.
+MEASURE_KEYS = (
+    "emitted",
+    "normalized_unique",
+    "duplicate",
+    "recurrent",
+    "confirmed",
+    "unconfirmed",
+    "downstream_escape",
+)
+
+
+def zero_measures():
+    return {key: 0 for key in MEASURE_KEYS}
+
+
+REPLAYED_PROXY_LABEL = (
+    "replayed_interaction_proxy: a replayed D01-D05 product-design "
+    "interaction count, never an observed-interaction measurement (REQ-F-013)"
+)
 
 # REQ-F-011's exact share-assignment rule.
 WAIT_INTERVALS = {"queue_or_claim_wait", "replay_or_human_gate_wait", "retry_or_backoff"}
@@ -373,6 +536,30 @@ total_observed_ceiling_cost = 0.0
 scenarios_list = []
 manifest_digest_entries = []
 
+# T-E40-F10-009 accumulators (design decisions 7-10).
+quality_by_scenario = []
+gate_records = {}  # gate_id -> {state, round, truth_set_available, precision, recall}
+review_measures_by_gate = {}  # gate_id -> list of {severity, defect_class, measures}
+gate_rounds_seen = set()  # (gate_id,) with state != not_reached, tracked via gate_records
+
+artifact_produced_count = 0
+artifact_consumed_count = 0
+artifact_orphan_count = 0
+artifact_evidence_missing_count = 0
+artifact_reused_count = 0
+artifact_edges = []
+
+proxy_totals = {
+    "authorized_request_count": 0,
+    "authorized_response_count": 0,
+    "request_bytes_total": 0,
+    "response_bytes_total": 0,
+    "revision_or_replacement_count": 0,
+    "unresolved_gate_count": 0,
+}
+proxy_pairs_with_data = 0
+proxy_pairs_total = 0
+
 for scenario_id, rep, rep_dir in pair_dirs:
     pair_label = f"{scenario_id}/{rep}"
 
@@ -448,10 +635,122 @@ for scenario_id, rep, rep_dir in pair_dirs:
     )
 
     # -----------------------------------------------------------------
+    # /quality.by_scenario[] -- verbatim I-08 structural/judge/
+    # execution_oracle verdicts (design decision 7). Presence-checked
+    # only; interior vocabulary belongs to I-08.
+    # -----------------------------------------------------------------
+    structural = require(ev, "structural", f"{pair_label} evaluation.jsonl")
+    judge = require(ev, "judge", f"{pair_label} evaluation.jsonl")
+    execution_oracle = require(ev, "execution_oracle", f"{pair_label} evaluation.jsonl")
+    quality_by_scenario.append(
+        {
+            "scenario_id": scenario_id,
+            "rep": rep_int,
+            "structural": structural,
+            "judge": judge,
+            "execution_oracle": execution_oracle,
+        }
+    )
+
+    # -----------------------------------------------------------------
+    # /review_value.gates[] gate identity/state -- verbatim I-07
+    # review_gates[] (design decision 8), never inferred from I-08's
+    # per-finding grouping (AC-T2).
+    # -----------------------------------------------------------------
+    review_gates = lc.get("review_gates")
+    if not isinstance(review_gates, list):
+        fail(f"{pair_label}: lifecycle.jsonl review_gates is not a list")
+
+    metrics = ev.get("metrics") or {}
+    quality_metrics = metrics.get("quality")
+    if isinstance(quality_metrics, dict):
+        truth_set_available = quality_metrics.get("truth_set_status") == "available"
+
+        def quality_metric_value(name):
+            entry = quality_metrics.get(name)
+            if isinstance(entry, dict) and entry.get("available", False):
+                return entry.get("value")
+            return "unavailable"
+
+        pair_precision = quality_metric_value("precision")
+        pair_recall = quality_metric_value("recall")
+    else:
+        truth_set_available = False
+        pair_precision = "unavailable"
+        pair_recall = "unavailable"
+
+    for g_idx, gate in enumerate(review_gates):
+        if not isinstance(gate, dict):
+            fail(f"{pair_label}: review_gates[{g_idx}] is not an object")
+        gate_id = require(gate, "gate_id", f"{pair_label} review_gates[{g_idx}]")
+        gate_state = gate.get("state")
+        if gate_state not in GATE_STATES:
+            fail(f"{pair_label}: review_gates[{g_idx}].state {gate_state!r} not in closed gate_state vocabulary")
+        gate_round = gate.get("round")
+        if gate_state != "not_reached":
+            if not isinstance(gate_round, int) or isinstance(gate_round, bool) or gate_round < 1:
+                fail(f"{pair_label}: review_gates[{g_idx}] (gate {gate_id!r}) round must be a positive integer for a reached gate, got {gate_round!r}")
+
+        existing = gate_records.get(gate_id)
+        if existing is not None:
+            # A gate_id spanning more than one retained pair is a re-dispatch
+            # across reps; keep the highest observed round (most recent
+            # attempt) and report the merge, never silently pick one side.
+            print(
+                f"aggregate-lifecycle: NOTE: gate_id {gate_id!r} appears in more than one "
+                f"retained pair ({existing['pair_label']!r} and {pair_label!r}); "
+                f"keeping the higher-round entry for /review_value/gates[]",
+                file=sys.stderr,
+            )
+            keep_new = (gate_round or 0) >= (existing["round"] or 0)
+        else:
+            keep_new = True
+        if keep_new:
+            gate_records[gate_id] = {
+                "state": gate_state,
+                "round": gate_round,
+                "pair_label": pair_label,
+                "truth_set_available": truth_set_available,
+                "precision": pair_precision,
+                "recall": pair_recall,
+            }
+
+    review_measures = quality_metrics.get("review_measures") if isinstance(quality_metrics, dict) else None
+    for m_idx, entry in enumerate(review_measures or []):
+        if not isinstance(entry, dict):
+            fail(f"{pair_label}: metrics.quality.review_measures[{m_idx}] is not an object")
+        measure_gate_id = require(entry, "gate", f"{pair_label} metrics.quality.review_measures[{m_idx}]")
+        severity = require(entry, "severity", f"{pair_label} metrics.quality.review_measures[{m_idx}]")
+        defect_class = require(entry, "defect_class", f"{pair_label} metrics.quality.review_measures[{m_idx}]")
+        raw_measures = require(entry, "measures", f"{pair_label} metrics.quality.review_measures[{m_idx}]")
+        counted = {}
+        for key in MEASURE_KEYS:
+            measure_entry = raw_measures.get(key) if isinstance(raw_measures, dict) else None
+            if not isinstance(measure_entry, dict) or not measure_entry.get("available", False):
+                fail(
+                    f"{pair_label}: metrics.quality.review_measures[{m_idx}].measures.{key} "
+                    f"unavailable -- cannot build review_value.gates (REQ-F-012)"
+                )
+            value = measure_entry.get("value")
+            if not isinstance(value, int) or isinstance(value, bool):
+                fail(f"{pair_label}: metrics.quality.review_measures[{m_idx}].measures.{key}.value is not an integer")
+            counted[key] = value
+        if measure_gate_id not in gate_records:
+            print(
+                f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): {pair_label}: "
+                f"metrics.quality.review_measures references gate {measure_gate_id!r} which is "
+                f"absent from lifecycle.jsonl review_gates[]; measures skipped, not resolved locally",
+                file=sys.stderr,
+            )
+            continue
+        review_measures_by_gate.setdefault(measure_gate_id, []).append(
+            {"severity": severity, "defect_class": defect_class, "measures": counted}
+        )
+
+    # -----------------------------------------------------------------
     # /time, /cost -- verbatim I-08 totals (ADR-F10-04) reconciled
     # against per-cell sums computed here from retained I-07 stages.
     # -----------------------------------------------------------------
-    metrics = ev.get("metrics") or {}
 
     def verbatim_metric(name):
         entry = metrics.get(name)
@@ -486,6 +785,11 @@ for scenario_id, rep, rep_dir in pair_dirs:
         fail(f"{pair_label}: lifecycle.jsonl stages is not a list")
 
     pair_rework_stage_count = 0
+    pair_produced_count = 0
+    pair_consumed_count = 0
+    pair_orphan_count = 0
+    pair_evidence_missing_count = 0
+    pair_reused_count = 0
     for idx, stage in enumerate(stages):
         if not isinstance(stage, dict):
             fail(f"{pair_label}: stages[{idx}] is not an object")
@@ -540,6 +844,68 @@ for scenario_id, rep, rep_dir in pair_dirs:
         if cost_share is not None:
             share_cost_totals[cost_share] += cost_usd
 
+        # -------------------------------------------------------------
+        # /artifact_use -- produced/consumed/reused/orphan counts and
+        # typed producer/consumer edges, computed from retained I-07
+        # artifacts (design decision 9). Three never-coerced consumer
+        # states, per bench/README.md's stage-snapshot field reference:
+        # `consumers` absent (evidence not collected), `consumers: []`
+        # (a true orphan), and a non-empty `consumers[]` (consumed).
+        # -------------------------------------------------------------
+        artifacts = stage.get("artifacts")
+        if not isinstance(artifacts, list):
+            fail(f"{pair_label}: stages[{idx}].artifacts is not a list")
+        producer_stage_name = stage.get("stage")
+        for a_idx, artifact in enumerate(artifacts):
+            if not isinstance(artifact, dict):
+                fail(f"{pair_label}: stages[{idx}].artifacts[{a_idx}] is not an object")
+            artifact_type = artifact.get("artifact_type")
+            if artifact_type not in ARTIFACT_TYPES:
+                fail(
+                    f"{pair_label}: stages[{idx}].artifacts[{a_idx}].artifact_type "
+                    f"{artifact_type!r} not in closed artifact_type vocabulary"
+                )
+            artifact_path = require(artifact, "path", f"{pair_label} stages[{idx}].artifacts[{a_idx}]")
+            producer_stage = artifact.get("producer_stage", producer_stage_name)
+            pair_produced_count += 1
+
+            if "consumers" not in artifact:
+                pair_evidence_missing_count += 1
+                continue
+            consumers = artifact["consumers"]
+            if not isinstance(consumers, list):
+                fail(f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers is not a list")
+            if not consumers:
+                pair_orphan_count += 1
+                continue
+
+            pair_consumed_count += 1
+            distinct_consuming_stages = set()
+            for c_idx, consumer in enumerate(consumers):
+                if not isinstance(consumer, dict):
+                    fail(f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}] is not an object")
+                consuming_stage = require(
+                    consumer, "consuming_stage", f"{pair_label} stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}]"
+                )
+                edge_kind = consumer.get("edge_kind")
+                if edge_kind not in EDGE_KINDS:
+                    fail(
+                        f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}].edge_kind "
+                        f"{edge_kind!r} not in closed edge_kind vocabulary"
+                    )
+                distinct_consuming_stages.add(consuming_stage)
+                artifact_edges.append(
+                    {
+                        "producer_stage": producer_stage,
+                        "artifact_path": artifact_path,
+                        "artifact_type": artifact_type,
+                        "consuming_stage": consuming_stage,
+                        "edge_kind": edge_kind,
+                    }
+                )
+            if len(distinct_consuming_stages) > 1:
+                pair_reused_count += 1
+
     # REQ-F-011 / REQ-F-008: the rework share's contributing-stage count
     # must reconcile against I-08's metrics.rework rollup for THIS pair.
     # A mismatch is an upstream contract defect -- reported loudly, never
@@ -554,8 +920,77 @@ for scenario_id, rep, rep_dir in pair_dirs:
             file=sys.stderr,
         )
 
+    # REQ-F-013: reconcile the produced/consumed/(orphan+evidence_missing)
+    # counts computed from retained I-07 artifacts against I-08's verbatim
+    # metrics.artifact_use scalars for this pair (design decision 9).
+    # I-08's own `orphaned` value conflates the true-orphan and
+    # evidence-missing states, so it is compared against their SUM, never
+    # against orphan_count alone. A missing metrics.artifact_use block
+    # (every T-E40-F10-008 fixture) skips reconciliation with a diagnostic
+    # rather than failing -- the computed I-07-derived counts stand alone.
+    artifact_use_metric = metrics.get("artifact_use")
+    if isinstance(artifact_use_metric, dict):
+        def artifact_use_value(name):
+            entry = artifact_use_metric.get(name)
+            if isinstance(entry, dict) and entry.get("available", False):
+                return entry.get("value")
+            return None
+
+        i08_produced = artifact_use_value("produced")
+        i08_consumed = artifact_use_value("consumed")
+        i08_orphaned = artifact_use_value("orphaned")
+        mismatches = []
+        if i08_produced is not None and i08_produced != pair_produced_count:
+            mismatches.append(f"produced computed={pair_produced_count} i08={i08_produced}")
+        if i08_consumed is not None and i08_consumed != pair_consumed_count:
+            mismatches.append(f"consumed computed={pair_consumed_count} i08={i08_consumed}")
+        pair_orphan_and_missing = pair_orphan_count + pair_evidence_missing_count
+        if i08_orphaned is not None and i08_orphaned != pair_orphan_and_missing:
+            mismatches.append(f"orphaned computed={pair_orphan_and_missing} i08={i08_orphaned}")
+        if mismatches:
+            print(
+                f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-013): {pair_label}: "
+                f"artifact_use reconciliation mismatch: {'; '.join(mismatches)}; reported, not resolved locally",
+                file=sys.stderr,
+            )
+    # else: metrics.artifact_use is OPTIONAL (unlike elapsed_time/
+    # provider_cost/rework, which verbatim_metric() hard-requires above) --
+    # every T-E40-F10-008 fixture predates this task and carries no
+    # metrics.artifact_use at all, so its mere absence is silent, matching
+    # those fixtures' "no stderr on a clean run" contract (TC-084). Only a
+    # genuine VALUE MISMATCH (both sides present, disagreeing) is loud,
+    # exactly like design decision 2's rework-mismatch precedent.
+
+    artifact_produced_count += pair_produced_count
+    artifact_consumed_count += pair_consumed_count
+    artifact_orphan_count += pair_orphan_count
+    artifact_evidence_missing_count += pair_evidence_missing_count
+    artifact_reused_count += pair_reused_count
+
+    # -------------------------------------------------------------------
+    # /artifact_use/replayed_interaction_proxy -- design decision 10. Read
+    # only when I-08 actually carries the sub-object; absent for every
+    # pair today (checked: evaluate-lifecycle.sh does not yet populate
+    # it), so the block renders `unavailable` unless a fixture (or a
+    # future evaluate-lifecycle.sh) supplies it.
+    # -------------------------------------------------------------------
+    proxy_pairs_total += 1
+    proxy_source = artifact_use_metric.get("replayed_interaction_proxies") if isinstance(artifact_use_metric, dict) else None
+    if isinstance(proxy_source, dict):
+        proxy_pairs_with_data += 1
+        for key in proxy_totals:
+            value = proxy_source.get(key)
+            if not isinstance(value, int) or isinstance(value, bool):
+                fail(
+                    f"{pair_label}: metrics.artifact_use.replayed_interaction_proxies.{key} "
+                    f"is not an integer, got {value!r}"
+                )
+            proxy_totals[key] += value
+
 scenarios_list.sort(key=lambda s: (s["scenario_id"], s["rep"]))
 manifest_digest_entries.sort(key=lambda e: (e["scenario_id"], e["rep"]))
+quality_by_scenario.sort(key=lambda q: (q["scenario_id"], q["rep"]))
+artifact_edges.sort(key=lambda e: (e["producer_stage"], e["artifact_path"], e["consuming_stage"], e["edge_kind"]))
 
 
 def build_partition(totals, categories, total_value):
@@ -580,6 +1015,114 @@ cost_block = {
         "observed_cost_usd": round(total_observed_ceiling_cost, 6),
         "max_cost_usd": ceilings["max_cost_usd"],
     },
+}
+
+# ---------------------------------------------------------------------------
+# /quality -- design decision 7. first_pass_yield: among gates that were
+# reached (state != not_reached), the fraction whose highest observed round
+# is exactly 1. No reached gates -> "unavailable", never a 0/0 division or a
+# bare 0 (ADR-F10-10).
+# ---------------------------------------------------------------------------
+reached_gates = [g for g in gate_records.values() if g["state"] != "not_reached"]
+if reached_gates:
+    first_pass_count = sum(1 for g in reached_gates if g["round"] == 1)
+    first_pass_yield = round(first_pass_count / len(reached_gates), 6)
+else:
+    first_pass_yield = "unavailable"
+
+quality_block = {
+    "by_scenario": quality_by_scenario,
+    "first_pass_yield": first_pass_yield,
+}
+
+if gate_records:
+    print(
+        "aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): "
+        "review_value.gates[].elapsed_seconds/provider_cost_usd/resolution_cost_usd have no "
+        "upstream join key in I-07 review_gates[] or I-08 metrics -- rendered as unavailable, "
+        "never zero (ADR-F10-10)",
+        file=sys.stderr,
+    )
+
+# ---------------------------------------------------------------------------
+# /review_value -- design decision 8. Gate identity/state verbatim from
+# I-07 review_gates[]; the seven finding measures, broken out by severity
+# and defect class, verbatim from I-08 metrics.quality.review_measures[].
+# ---------------------------------------------------------------------------
+review_value_gates = []
+for gate_id in sorted(gate_records):
+    record = gate_records[gate_id]
+    measures_for_gate = review_measures_by_gate.get(gate_id, [])
+    counts = zero_measures()
+    counts_by_severity = {}
+    counts_by_defect_class = {}
+    for entry in measures_for_gate:
+        for key in MEASURE_KEYS:
+            value = entry["measures"][key]
+            counts[key] += value
+            counts_by_severity.setdefault(entry["severity"], zero_measures())[key] += value
+            counts_by_defect_class.setdefault(entry["defect_class"], zero_measures())[key] += value
+    review_value_gates.append(
+        {
+            "gate_id": gate_id,
+            "state": record["state"],
+            "counts": counts,
+            "counts_by_severity": counts_by_severity,
+            "counts_by_defect_class": counts_by_defect_class,
+            "elapsed_seconds": "unavailable",
+            "provider_cost_usd": "unavailable",
+            "resolution_cost_usd": "unavailable",
+            "truth_set_available": record["truth_set_available"],
+            "precision": record["precision"],
+            "recall": record["recall"],
+        }
+    )
+
+review_value_block = {"gates": review_value_gates}
+
+# ---------------------------------------------------------------------------
+# /artifact_use -- design decision 9/10.
+# ---------------------------------------------------------------------------
+if proxy_pairs_with_data == 0:
+    replayed_interaction_proxy = {
+        "label": REPLAYED_PROXY_LABEL,
+        "request_count": "unavailable",
+        "response_count": "unavailable",
+        "payload_size_bytes": "unavailable",
+        "revision_count": "unavailable",
+        "unresolved_gate_count": "unavailable",
+    }
+    # No diagnostic when zero pairs carry replayed_interaction_proxies: this
+    # sub-object is OPTIONAL (design decision 10 -- evaluate-lifecycle.sh
+    # does not populate it today), so its universal absence is silent,
+    # matching every T-E40-F10-008 fixture's "no stderr on a clean run"
+    # contract (TC-084). Only PARTIAL coverage (some pairs have it, some do
+    # not) is loud, below.
+else:
+    if proxy_pairs_with_data != proxy_pairs_total:
+        print(
+            f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-013): only "
+            f"{proxy_pairs_with_data}/{proxy_pairs_total} retained pairs carry "
+            f"metrics.artifact_use.replayed_interaction_proxies -- summing the pairs that have "
+            f"it, not rendered as a complete total",
+            file=sys.stderr,
+        )
+    replayed_interaction_proxy = {
+        "label": REPLAYED_PROXY_LABEL,
+        "request_count": proxy_totals["authorized_request_count"],
+        "response_count": proxy_totals["authorized_response_count"],
+        "payload_size_bytes": proxy_totals["request_bytes_total"] + proxy_totals["response_bytes_total"],
+        "revision_count": proxy_totals["revision_or_replacement_count"],
+        "unresolved_gate_count": proxy_totals["unresolved_gate_count"],
+    }
+
+artifact_use_block = {
+    "produced_count": artifact_produced_count,
+    "consumed_count": artifact_consumed_count,
+    "reused_count": artifact_reused_count,
+    "orphan_count": artifact_orphan_count,
+    "edges": artifact_edges,
+    "replayed_interaction_proxy": replayed_interaction_proxy,
 }
 
 # /identity.retention_root_digest -- digest of digests (design decision 5).
@@ -607,6 +1150,9 @@ aggregate = {
     "scenarios": scenarios_list,
     "time": time_block,
     "cost": cost_block,
+    "quality": quality_block,
+    "review_value": review_value_block,
+    "artifact_use": artifact_use_block,
 }
 
 print(json.dumps(aggregate, indent=2, sort_keys=True))
