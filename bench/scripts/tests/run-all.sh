@@ -74,7 +74,9 @@ tests=(
 	"$SCRIPT_DIR/tc080_spend_gate_refusal_test.sh"
 	"$SCRIPT_DIR/tc081_pilot_ledger_gate_test.sh"
 	"$SCRIPT_DIR/tc082_retention_layout_test.sh"
+	"$SCRIPT_DIR/tc084_time_reconciliation_test.sh"
 	"$SCRIPT_DIR/tc087_review_comparison_operator_test.sh"
+	"$SCRIPT_DIR/tc089_phase_separation_test.sh"
 )
 
 status=0

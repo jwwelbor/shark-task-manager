@@ -757,6 +757,8 @@ import json
 import sys
 import time
 
+import yaml
+
 summary_path, invalid_path, mode, retention_root, batch_policy_path, reclaim, argv_joined = sys.argv[1:8]
 
 
@@ -787,7 +789,29 @@ for p in pairs:
     counts[p["classification"]] = counts.get(p["classification"], 0) + 1
 
 with open(batch_policy_path, "rb") as f:
-    policy_digest = hashlib.sha256(f.read()).hexdigest()
+    policy_bytes = f.read()
+    policy_digest = hashlib.sha256(policy_bytes).hexdigest()
+
+# T-E40-F10-008 fix: batch.json is the ONLY retained identity source
+# aggregate-lifecycle.sh reads (its API contract takes just
+# --retention-root, REQ-NF-003 pure-function-of-the-root), but this
+# writer previously never echoed the batch policy's declared `min_reps`
+# into batch.json even though it already re-reads batch_policy_path here
+# for the policy digest -- aggregate.json's required `/identity/min_reps`
+# (spec.md "aggregate.json blocks" table) had no retained source to read
+# it from. Re-parsing the same policy file already opened above for its
+# digest, mirroring the earlier min_reps extraction/validation in this
+# script's preview-matrix step, closes that gap without adding a new
+# operator input.
+policy_for_min_reps = yaml.safe_load(policy_bytes) or {}
+min_reps_raw = policy_for_min_reps.get("min_reps", 1) if isinstance(policy_for_min_reps, dict) else 1
+try:
+    min_reps = int(min_reps_raw)
+    if min_reps < 1:
+        raise ValueError
+except (TypeError, ValueError):
+    print(f"run-lifecycle-batch: batch policy min_reps must be a positive integer, got {min_reps_raw!r}", file=sys.stderr)
+    raise SystemExit(1)
 
 batch = {
     "phase": "lifecycle_v2",
@@ -795,6 +819,7 @@ batch = {
     "mode": mode,
     "retention_root": retention_root,
     "batch_policy_digest": policy_digest,
+    "min_reps": min_reps,
     "ceilings": {
         "max_cost_usd": flag_value(argv_joined, "--max-cost-usd"),
         "max_wall_clock_seconds": flag_value(argv_joined, "--max-wall-clock-seconds"),
