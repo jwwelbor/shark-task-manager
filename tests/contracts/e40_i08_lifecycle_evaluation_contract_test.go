@@ -85,11 +85,24 @@ func TestTC067_I08LifecycleEvaluationContract(t *testing.T) {
 			t.Errorf("TC-067 staged edge metadata missing %q", field)
 		}
 	}
-	for _, key := range []string{"E40-F06", "E40-F08", "E40-F10"} {
-		cmd := exec.Command(filepath.Join(repoRoot, "bin", "shark"), "get", key, "--json")
-		cmd.Dir = repoRoot
-		if output, err := cmd.Output(); err != nil || len(output) == 0 {
-			t.Errorf("TC-067 live counterpart status read failed for %s: %v", key, err)
+	// The live counterpart probe below reads this repository's own gitignored
+	// shark-tasks.db through a built bin/shark binary -- developer-machine
+	// state that a clean CI checkout never has (no built binary, no database
+	// file, and .sharkconfig.json's $SHARK_DB_* placeholders are unexpanded).
+	// The committed-metadata assertions above already prove the I-05/I-07/I-08
+	// edge is documented; this probe adds a live cross-check when that
+	// developer state happens to be present, and is skipped (not failed)
+	// otherwise so TC-067 stays a reproducible, checkout-only contract proof.
+	sharkBin := filepath.Join(repoRoot, "bin", "shark")
+	if _, statErr := os.Stat(sharkBin); statErr != nil {
+		t.Logf("TC-067 live counterpart probe skipped: %s not built", sharkBin)
+	} else {
+		for _, key := range []string{"E40-F06", "E40-F08", "E40-F10"} {
+			cmd := exec.Command(sharkBin, "get", key, "--json")
+			cmd.Dir = repoRoot
+			if output, err := cmd.Output(); err != nil || len(output) == 0 {
+				t.Errorf("TC-067 live counterpart status read failed for %s: %v", key, err)
+			}
 		}
 	}
 	for name, values := range map[string][]string{
