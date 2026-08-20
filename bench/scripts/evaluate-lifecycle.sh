@@ -210,7 +210,10 @@ def validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons):
     # the check schema-shaped and compare every reference the producers
     # record; never infer a relationship from the filename or terminal state.
     i05_identity = dict(i05.get("identity") or {}) if isinstance(i05, dict) else {}
-    i05_records = i05.get("records") or i05.get("runs") if isinstance(i05, dict) else None
+    if isinstance(i05, dict):
+        i05_records = i05["records"] if "records" in i05 else i05.get("runs")
+    else:
+        i05_records = None
     if isinstance(i05_records, list) and len(i05_records) != 1:
         reasons.append(reason("duplicate_join", "/i05/records", "I-05 must contain exactly one joined evidence record"))
     join_fields = ("run_id", "scenario_id", "scenario_version", "dispatch_id", "dispatch_ordinal")

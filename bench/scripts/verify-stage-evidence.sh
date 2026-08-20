@@ -446,7 +446,10 @@ def grant_inject_tests(bundle_dir, accessor, adapter_path, checkout, files):
         destination_rel = entry.get("destination")
         if not source or not destination_rel:
             raise ScriptError(f"adapter.sh inject-tests entry missing source/destination: {entry!r}")
-        destination_abs = os.path.join(checkout, destination_rel)
+        checkout_real = os.path.realpath(checkout)
+        destination_abs = os.path.realpath(os.path.join(checkout, destination_rel))
+        if destination_abs != checkout_real and not destination_abs.startswith(checkout_real + os.sep):
+            raise ScriptError(f"adapter.sh inject-tests destination escapes --checkout: {destination_rel!r}")
         # Observe the REAL effect on disk -- digest the file the adapter
         # actually placed, never the adapter's own stdout claim alone (task
         # Notes for Agent: "observes the real adapter invocation's effect,

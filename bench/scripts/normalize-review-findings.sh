@@ -128,7 +128,7 @@ try:
         truth_set_descriptor = {"available": False, "source": None, "digest": None}
     result = {"schema_version": "1.0", "raw_review_gates": source["review_gates"], "raw_source": {"i07_path": str(Path(args.i07))}, "raw_truth_set": raw_truth, "truth_set": truth_set_descriptor, "normalized_findings": normalized, "derived_counts": counts}
     destination = Path(args.output); destination.parent.mkdir(parents=True, exist_ok=True); destination.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
     print(f"finding_normalization_invalid: {exc}", file=sys.stderr)
     raise SystemExit(2)
 PY

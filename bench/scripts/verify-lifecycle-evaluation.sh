@@ -95,8 +95,13 @@ try:
             if isinstance(value, dict):
                 for key, child in value.items():
                     child_path = f"{path}/{key}"
-                    if "digest" in key.lower() and child is not None and isinstance(child, str) and not digest_re.fullmatch(child):
-                        errors.append(fail("malformed_digest", child_path, "lowercase SHA-256 digest required"))
+                    if "digest" in key.lower() and child is not None:
+                        if isinstance(child, str) and not digest_re.fullmatch(child):
+                            errors.append(fail("malformed_digest", child_path, "lowercase SHA-256 digest required"))
+                        elif isinstance(child, list):
+                            for index, item in enumerate(child):
+                                if isinstance(item, str) and not digest_re.fullmatch(item):
+                                    errors.append(fail("malformed_digest", f"{child_path}[{index}]", "lowercase SHA-256 digest required"))
                     walk(child, child_path)
             elif isinstance(value, list):
                 for index, child in enumerate(value):

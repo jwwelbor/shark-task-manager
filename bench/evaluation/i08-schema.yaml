@@ -95,12 +95,15 @@ invalidity_reason:
   - evaluator_only_residue
   - cleanup_failure
   - identity_missing
+  - identity_mismatch
   - malformed_digest
   - unsupported_schema_version
   - failed_oracle
   - aggregate_ineligible
   - malformed_record
   - duplicate_record
+  - review_findings_bypass
+  - review_findings_malformed
 
 structural_check:
   - required_artifacts
