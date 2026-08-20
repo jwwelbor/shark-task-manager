@@ -153,12 +153,33 @@ PY
 # Pre-populates the exact retention path run-review-comparison.sh's own
 # skipped_complete classification looks for -- so dispatch is never
 # reached and RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN are never invoked.
+#
+# T-E40-F10-005 rework (code-review-2026-08-20T2138-E40-F10.md finding 2):
+# the driver's retention layout is now the SAME (scenario_id, rep) pair
+# shape run-lifecycle-batch.sh uses -- scenarios/<scenario_id>/<rep>/ with
+# a manifest.json carrying scenario_id/rep/gate -- not a gate-named
+# directory. gate_rep() in run-review-comparison.sh fixes qa=rep 1,
+# deep_review=rep 2. The fixture below writes minimal-but-real
+# manifest.json files at those two paths so gate_dest_provenance_ok()'s
+# provenance check (manifest.json's "gate" field) accepts them as
+# already-retained by THIS driver for THIS gate, not an unrelated batch
+# pair -- proving the skip path against the real provenance check, not
+# just against a bare evaluation.jsonl existence check.
 # ---------------------------------------------------------------------------
 retain_pair_fixtures() {
 	local root="$1" qa_fixture="$2" dr_fixture="$3"
-	mkdir -p "$root/scenarios/$SCENARIO_ID/qa" "$root/scenarios/$SCENARIO_ID/deep_review"
-	cp "$WORKDIR/${qa_fixture}.jsonl" "$root/scenarios/$SCENARIO_ID/qa/evaluation.jsonl"
-	cp "$WORKDIR/${dr_fixture}.jsonl" "$root/scenarios/$SCENARIO_ID/deep_review/evaluation.jsonl"
+	local qa_dir="$root/scenarios/$SCENARIO_ID/1" dr_dir="$root/scenarios/$SCENARIO_ID/2"
+	mkdir -p "$qa_dir" "$dr_dir"
+	cp "$WORKDIR/${qa_fixture}.jsonl" "$qa_dir/evaluation.jsonl"
+	cp "$WORKDIR/${dr_fixture}.jsonl" "$dr_dir/evaluation.jsonl"
+	python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" 1 qa "$qa_dir/manifest.json"
+	python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" 2 deep_review "$dr_dir/manifest.json"
 }
 
 CANDIDATE_YAML="$WORKDIR/candidate.yaml"
@@ -202,17 +223,17 @@ ROOT_A="$WORKDIR/root-a"
 mkdir -p "$ROOT_A"
 retain_pair_fixtures "$ROOT_A" "indep-compatible-qa" "indep-compatible-dr"
 DIRECT_A="$ROOT_A/direct-comparator-output.json"
-"$COMPARATOR" --left "$ROOT_A/scenarios/$SCENARIO_ID/qa/evaluation.jsonl" \
-	--right "$ROOT_A/scenarios/$SCENARIO_ID/deep_review/evaluation.jsonl" \
+"$COMPARATOR" --left "$ROOT_A/scenarios/$SCENARIO_ID/1/evaluation.jsonl" \
+	--right "$ROOT_A/scenarios/$SCENARIO_ID/2/evaluation.jsonl" \
 	--mode independent_frozen_candidate --output "$DIRECT_A" \
 	|| fail "case A: direct comparator invocation itself failed (fixture is not actually compatible)"
 
 RC_A="$(run_case "case-a" "$ROOT_A" "independent_frozen_candidate")"
 [[ "$RC_A" -eq 0 ]] || fail "case A: expected exit 0 (accepted+published), got $RC_A: $(cat "$ROOT_A.out")"
-[[ -f "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case A: accepted comparison was not published"
-diff -u "$DIRECT_A" "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json" >/dev/null \
-	|| fail "case A: published comparison.json is not byte-identical to the direct comparator's own output: $(diff -u "$DIRECT_A" "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json")"
-grep -q '"accepted":true' "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json" \
+[[ -f "$ROOT_A/scenarios/$SCENARIO_ID/2/comparison.json" ]] || fail "case A: accepted comparison was not published"
+diff -u "$DIRECT_A" "$ROOT_A/scenarios/$SCENARIO_ID/2/comparison.json" >/dev/null \
+	|| fail "case A: published comparison.json is not byte-identical to the direct comparator's own output: $(diff -u "$DIRECT_A" "$ROOT_A/scenarios/$SCENARIO_ID/2/comparison.json")"
+grep -q '"accepted":true' "$ROOT_A/scenarios/$SCENARIO_ID/2/comparison.json" \
 	|| fail "case A: published comparison.json does not report accepted:true"
 
 echo "TC-087(case A, AC-010): identity-compatible independent pair accepted and published, byte-identical to the real comparator's own output -- PASS"
@@ -226,8 +247,8 @@ mkdir -p "$ROOT_B"
 retain_pair_fixtures "$ROOT_B" "indep-divergent-qa" "indep-divergent-dr"
 DIRECT_B="$ROOT_B/direct-comparator-output.json"
 set +e
-"$COMPARATOR" --left "$ROOT_B/scenarios/$SCENARIO_ID/qa/evaluation.jsonl" \
-	--right "$ROOT_B/scenarios/$SCENARIO_ID/deep_review/evaluation.jsonl" \
+"$COMPARATOR" --left "$ROOT_B/scenarios/$SCENARIO_ID/1/evaluation.jsonl" \
+	--right "$ROOT_B/scenarios/$SCENARIO_ID/2/evaluation.jsonl" \
 	--mode independent_frozen_candidate --output "$DIRECT_B"
 direct_b_rc=$?
 set -e
@@ -235,7 +256,7 @@ set -e
 
 RC_B="$(run_case "case-b" "$ROOT_B" "independent_frozen_candidate")"
 [[ "$RC_B" -eq 4 ]] || fail "case B: expected exit 4 (rejected, not published), got $RC_B: $(cat "$ROOT_B.out")"
-[[ ! -f "$ROOT_B/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case B: a REJECTED comparison must never be published"
+[[ ! -f "$ROOT_B/scenarios/$SCENARIO_ID/2/comparison.json" ]] || fail "case B: a REJECTED comparison must never be published"
 grep -q "identity_mismatch" "$ROOT_B.out" || fail "case B: driver output did not preserve the comparator's identity_mismatch divergence reason: $(cat "$ROOT_B.out")"
 
 # Byte-for-byte verbatim cross-check: the driver's stdout (the published
@@ -257,7 +278,7 @@ mkdir -p "$ROOT_C"
 retain_pair_fixtures "$ROOT_C" "indep-branch-qa" "indep-branch-dr"
 RC_C="$(run_case "case-c" "$ROOT_C" "independent_frozen_candidate")"
 [[ "$RC_C" -eq 4 ]] || fail "case C: expected exit 4 (branch/HEAD candidate identity rejected), got $RC_C: $(cat "$ROOT_C.out")"
-[[ ! -f "$ROOT_C/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case C: a branch/HEAD-identity comparison must never be published"
+[[ ! -f "$ROOT_C/scenarios/$SCENARIO_ID/2/comparison.json" ]] || fail "case C: a branch/HEAD-identity comparison must never be published"
 grep -q "malformed_digest" "$ROOT_C.out" || fail "case C: expected the comparator's own malformed_digest rejection for a HEAD-only candidate identity: $(cat "$ROOT_C.out")"
 
 echo "TC-087(case C, REQ-F-015 Negative Case): a HEAD-only candidate identity is rejected by the delegated comparator, not a local F10 special-case -- PASS"
@@ -291,12 +312,12 @@ mkdir -p "$ROOT_E"
 retain_pair_fixtures "$ROOT_E" "seq-chain-qa" "seq-chain-dr"
 RC_E="$(run_case "case-e" "$ROOT_E" "sequential_delivery")"
 [[ "$RC_E" -eq 0 ]] || fail "case E: expected exit 0 (accepted+published sequential chain), got $RC_E: $(cat "$ROOT_E.out")"
-[[ -f "$ROOT_E/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case E: accepted sequential comparison was not published"
+[[ -f "$ROOT_E/scenarios/$SCENARIO_ID/2/comparison.json" ]] || fail "case E: accepted sequential comparison was not published"
 
-INTERVENING_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["comparison"]["intervening_candidates"]))' "$ROOT_E/scenarios/$SCENARIO_ID/comparison.json")"
+INTERVENING_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["comparison"]["intervening_candidates"]))' "$ROOT_E/scenarios/$SCENARIO_ID/2/comparison.json")"
 [[ "$INTERVENING_COUNT" -eq 3 ]] || fail "case E: expected all 3 intervening candidates to be exercised (not just first-and-last), got $INTERVENING_COUNT"
 
-INDEPENDENT_INTERVENING_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["comparison"]["intervening_candidates"]))' "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json")"
+INDEPENDENT_INTERVENING_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["comparison"]["intervening_candidates"]))' "$ROOT_A/scenarios/$SCENARIO_ID/2/comparison.json")"
 [[ "$INDEPENDENT_INTERVENING_COUNT" -eq 0 ]] || fail "case A/E cross-check: independent_frozen_candidate mode must render an empty candidate lineage, distinct from sequential_delivery's chain"
 [[ "$INTERVENING_COUNT" -gt "$INDEPENDENT_INTERVENING_COUNT" ]] || fail "case E: sequential_delivery must render a distinct (non-empty) candidate lineage vs. independent_frozen_candidate's frozen pair"
 

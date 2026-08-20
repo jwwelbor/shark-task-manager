@@ -547,127 +547,24 @@ print(json.dumps({"scenario_id": sid, "rep": int(rep), "retention_path": f"scena
 
 retain_pair() {
 	# retain_pair <scenario_id> <rep> <package_path> <lifecycle_jsonl> <evaluation_jsonl> <i05_bundle_dir>
-	# Byte-preserving copy (ADR-F10-05): every artifact below is copied with
+	# Byte-preserving copy (ADR-F10-05): every artifact is copied with
 	# shutil.copyfile/a real directory walk (no re-serialization) and
 	# digested for manifest.json, per the schema's digest_rules
 	# (bench/reports/lifecycle-baseline-schema.yaml: file_encoding
 	# sha256_raw_bytes for a file, compact_json_sorted_keys_utf8 over the
-	# sorted {path, sha256} file list for a directory -- the SAME algorithm
-	# pilot-ledger.sh's/verify-retention-root.sh's digest_of_path() already
-	# use, reused here byte-for-byte so their independent digest
-	# recomputation validates these entries with no changes on their side).
+	# sorted {path, sha256} file list for a directory, PLUS
+	# digest_rules.empty_artifact_semantics for the "artifact exists but is
+	# empty" case). The manifest builder itself now lives in ONE shared
+	# script, `lib/retain_pair` (code-review-2026-08-20T2138-E40-F10.md
+	# findings 1/2/7: four near-identical reimplementations of this same
+	# digest/manifest logic is exactly the drift that let two blockers
+	# ship) -- run-review-comparison.sh's retain_gate() calls the same
+	# script, never a second copy.
 	local scenario_id="$1" rep="$2" package_path="$3" lifecycle_jsonl="$4" evaluation_jsonl="$5" i05_bundle_dir="$6"
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
 	mkdir -p "$dest"
-	python3 - "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$i05_bundle_dir" "$dest" <<'PYEOF'
-import hashlib
-import json
-import os
-import shutil
-import sys
-from pathlib import Path
-
-scenario_id, rep, package_path, lifecycle_jsonl, evaluation_jsonl, i05_bundle_dir, dest = sys.argv[1:8]
-dest = Path(dest)
-
-artifacts = {}
-
-
-def digest_of_path(path: Path):
-    # Mirrors pilot-ledger.sh's/verify-retention-root.sh's digest_of_path
-    # exactly (schema digest_rules) so their independent recomputation
-    # agrees with what this producer records, with no changes on their
-    # side.
-    if path.is_dir():
-        entries = []
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            for fname in sorted(files):
-                fpath = Path(root) / fname
-                relpath = fpath.relative_to(path).as_posix()
-                entries.append({"path": relpath, "sha256": hashlib.sha256(fpath.read_bytes()).hexdigest()})
-        entries.sort(key=lambda e: e["path"])
-        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return hashlib.sha256(canonical).hexdigest()
-    if path.is_file():
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    return None
-
-
-def copy_artifact(name, source):
-    source_path = Path(source)
-    target = dest / name
-    if source_path.is_file():
-        shutil.copyfile(source_path, target)
-        digest = hashlib.sha256(target.read_bytes()).hexdigest()
-        artifacts[name] = {"source_path": str(source_path), "sha256": digest}
-    else:
-        # Not yet available from this driver's own inputs (e.g.
-        # entity-history export not wired -- no producer exists anywhere in
-        # this codebase today; oracle.json genuinely not produced by
-        # evaluate-lifecycle.sh when no agent fixture checkout is
-        # configured) -- an honest placeholder, never a fabricated
-        # byte-identical claim.
-        target.write_text("", encoding="utf-8")
-        artifacts[name] = {"source_path": "", "sha256": hashlib.sha256(b"").hexdigest()}
-
-
-def copy_dir_artifact(name, source_dir, exclude_top_level=()):
-    # Real recursive byte-for-byte copy of a directory artifact (evidence/
-    # I-05 stage-evidence bundle, transcripts/ its transcripts subtree),
-    # digested with the SAME directory-digest rule copy_artifact's siblings
-    # and pilot-ledger.sh/verify-retention-root.sh use -- never an
-    # unconditionally-empty mkdir standing in for real content while still
-    # claiming a manifest entry.
-    target = dest / name
-    target.mkdir(parents=True, exist_ok=True)
-    source_path = Path(source_dir) if source_dir else None
-    if source_path is not None and source_path.is_dir():
-        for root, dirs, files in os.walk(source_path):
-            if Path(root) == source_path:
-                dirs[:] = [d for d in dirs if d not in exclude_top_level]
-            for fname in files:
-                fpath = Path(root) / fname
-                rel = fpath.relative_to(source_path)
-                dest_file = target / rel
-                dest_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(fpath, dest_file)
-        artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
-    else:
-        # i05_bundle_dir has no transcripts/ subtree today (no committed
-        # scenario package or bundle fixture uses one yet) -- a real,
-        # checked-for absence, not a defect: the copy was actually
-        # attempted against the real source, unlike the pre-fix code which
-        # never looked at all. Loud, not silent (CLAUDE.md Rule 12): name
-        # the artifact and the path checked so an empty retained directory
-        # is traceable to "upstream doesn't emit this yet", not mistaken
-        # for another unconditional placeholder.
-        print(f"run-lifecycle-batch: retain_pair: {name} not found under {source_dir!r}; retained as empty (checked, not fabricated)", file=sys.stderr)
-        artifacts[name] = {"source_path": "", "sha256": digest_of_path(target)}
-
-
-copy_artifact("package.yaml", package_path)
-copy_artifact("lifecycle.jsonl", lifecycle_jsonl)
-copy_artifact("evaluation.jsonl", evaluation_jsonl)
-copy_artifact("entity-history.json", "")
-# ".oracle.json" is evaluate-lifecycle.sh's own naming convention for the
-# held-back oracle result it writes alongside --output (run_oracle():
-# `oracle_output = args.output + ".oracle.json"`) -- this driver only
-# reuses that name, never invents or re-derives it (ADR-F10-04). The file
-# genuinely does not exist when no agent fixture checkout is configured
-# for this pair; copy_artifact's honest-placeholder branch handles that.
-copy_artifact("oracle.json", evaluation_jsonl + ".oracle.json")
-copy_dir_artifact("evidence", i05_bundle_dir, exclude_top_level=("transcripts",))
-copy_dir_artifact("transcripts", os.path.join(i05_bundle_dir, "transcripts") if i05_bundle_dir else "")
-
-manifest = {
-    "scenario_id": scenario_id,
-    "rep": int(rep),
-    "artifacts": artifacts,
-}
-(dest / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-PYEOF
+	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$i05_bundle_dir" "$dest"
 }
 
 dispatch_pair() {

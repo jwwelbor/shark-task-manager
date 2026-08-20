@@ -440,49 +440,77 @@ fi
 # the comparator directly -- this is also what lets an operator re-run a
 # comparison after only one gate's evidence changed without re-spending
 # the other gate.
+#
+# Retention layout (code-review-2026-08-20T2138-E40-F10.md finding 2): a
+# gate's retained output is a FULL (scenario, rep) pair --
+# `scenarios/<scenario_id>/<rep>/` with all eight artifacts -- the SAME
+# shape and the SAME shared manifest builder (`lib/retain_pair`)
+# run-lifecycle-batch.sh's retain_pair() uses, per spec.md's Data model
+# table. `scenario_id` is the real, shared I-04 scenario id (candidate.yaml
+# declares it explicitly shared by both gates) -- never a synthesized id.
+# `rep` is a fixed, documented per-gate mapping (gate_rep() below): the two
+# gates of one candidate are not repeated identical runs, they are two
+# distinct retained pairs of the SAME scenario_id, and REQ-F-004 already
+# treats "for each (scenario, rep): ... any review-comparison record" as
+# one retention model shared by both drivers.
 # ---------------------------------------------------------------------------
+gate_rep() {
+	# gate_rep <gate> -- fixed, documented mapping (never operator-supplied):
+	# qa=1 (feature-QA gate, REQ-F-014's "left" side), deep_review=2
+	# (finish-feature deep-review gate, the "right"/terminal side).
+	case "$1" in
+	qa) echo 1 ;;
+	deep_review) echo 2 ;;
+	*)
+		echo "run-review-comparison: internal error: unknown gate '$1'" >&2
+		return 1
+		;;
+	esac
+}
+
 retain_gate() {
-	# retain_gate <scenario_id> <gate> <package_path> <lifecycle_jsonl> <evaluation_jsonl>
-	local scenario_id="$1" gate="$2" package_path="$3" lifecycle_jsonl="$4" evaluation_jsonl="$5"
-	local dest="$out_root_canon/scenarios/$scenario_id/$gate"
+	# retain_gate <scenario_id> <rep> <gate> <package_path> <lifecycle_jsonl> <evaluation_jsonl> <i05_bundle_dir>
+	local scenario_id="$1" rep="$2" gate="$3" package_path="$4" lifecycle_jsonl="$5" evaluation_jsonl="$6" i05_bundle_dir="$7"
+	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
 	mkdir -p "$dest"
-	python3 - "$gate" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$dest" <<'PYEOF'
-import hashlib
-import json
-import shutil
-import sys
-from pathlib import Path
+	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$i05_bundle_dir" "$dest" "$gate"
+}
 
-gate, package_path, lifecycle_jsonl, evaluation_jsonl, dest = sys.argv[1:6]
-dest = Path(dest)
-artifacts = {}
-
-
-def copy_artifact(name, source):
-    source_path = Path(source)
-    target = dest / name
-    shutil.copyfile(source_path, target)
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    artifacts[name] = {"source_path": str(source_path), "sha256": digest}
-
-
-copy_artifact("package.yaml", package_path)
-copy_artifact("lifecycle.jsonl", lifecycle_jsonl)
-copy_artifact("evaluation.jsonl", evaluation_jsonl)
-
-manifest = {"gate": gate, "artifacts": artifacts}
-(dest / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-PYEOF
+gate_dest_provenance_ok() {
+	# gate_dest_provenance_ok <dest> <gate> -- REQ-NF-007 (append-and-verify,
+	# never a silent overwrite/reuse): a bare "evaluation.jsonl exists"
+	# check is not proof THIS gate retained it -- the same (scenario_id,
+	# rep) path could be occupied by an unrelated run-lifecycle-batch.sh
+	# pair, or by the OTHER gate if gate_rep() were ever misconfigured.
+	# manifest.json's additive `gate` field (lib/retain_pair) is the
+	# provenance check; a mismatch or absence refuses loudly instead of
+	# silently adopting someone else's retained evaluation.jsonl as this
+	# gate's comparator input.
+	local dest="$1" gate="$2"
+	[[ -f "$dest/manifest.json" ]] || return 1
+	local recorded_gate
+	recorded_gate="$(python3 -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[1])).get("gate",""))
+except Exception:
+    print("")' "$dest/manifest.json" 2>/dev/null || true)"
+	[[ "$recorded_gate" == "$gate" ]]
 }
 
 dispatch_gate() {
 	# dispatch_gate <scenario_id> <gate> <package_path> <root_key> <scratch_root> <i05_bundle_dir>
 	# Prints the resolved evaluation.jsonl path on success (stdout).
 	local scenario_id="$1" gate="$2" package_path="$3" root_key="$4" scratch_root="$5" i05_bundle_dir="$6"
-	local dest="$out_root_canon/scenarios/$scenario_id/$gate"
+	local rep
+	rep="$(gate_rep "$gate")" || return 1
+	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 
 	if [[ -f "$dest/evaluation.jsonl" ]]; then
+		if ! gate_dest_provenance_ok "$dest" "$gate"; then
+			echo "run-review-comparison: $gate gate: retention path $dest is already occupied by a retained pair this driver did not produce for gate '$gate' (missing/mismatched manifest.json 'gate' field) -- refusing to reuse or overwrite" >&2
+			return 1
+		fi
 		echo "run-review-comparison: $gate gate already retained under $dest; skipped_complete" >&2
 		printf '%s\n' "$dest/evaluation.jsonl"
 		return 0
@@ -537,7 +565,7 @@ dispatch_gate() {
 		return 1
 	fi
 
-	if ! retain_gate "$scenario_id" "$gate" "$package_path" "$lifecycle_out" "$evaluation_out"; then
+	if ! retain_gate "$scenario_id" "$rep" "$gate" "$package_path" "$lifecycle_out" "$evaluation_out" "$i05_bundle_dir"; then
 		rm -rf "$pair_work"
 		return 1
 	fi
@@ -560,7 +588,12 @@ for row_json in "${GATE_ROWS[@]}"; do
 	package_path="$(row_field "$row_json" package_path)"
 	scenario_id_global="$scenario_id"
 
-	dest="$out_root_canon/scenarios/$scenario_id/$gate"
+	rep=""
+	if ! rep="$(gate_rep "$gate")"; then
+		dispatch_failed="true"
+		continue
+	fi
+	dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	if ! assert_within_out_root "$dest"; then
 		dispatch_failed="true"
 		continue
@@ -597,7 +630,18 @@ set -e
 
 case "$comparator_rc" in
 0)
-	comparison_dest="$out_root_canon/scenarios/$scenario_id_global/comparison.json"
+	# Published under the deep_review pair's retained rep directory (the
+	# terminal/"right" side of REQ-F-014's "feature-QA gate versus the
+	# finish-feature deep-review gate" ordering) as the 9th, optional
+	# per-pair artifact -- exactly the shape spec.md's Data model table
+	# documents and aggregate-lifecycle.sh's pair loop already reads
+	# (comparison_path = os.path.join(rep_dir, "comparison.json")). Never
+	# duplicated into the qa pair's directory too: aggregate-lifecycle.sh
+	# appends one /comparisons row per rep_dir it finds a comparison.json
+	# in, so publishing to one location keeps one comparator verdict as
+	# exactly one row.
+	comparison_rep="$(gate_rep "deep_review")"
+	comparison_dest="$out_root_canon/scenarios/$scenario_id_global/$comparison_rep/comparison.json"
 	assert_within_out_root "$comparison_dest" || exit 1
 	cp -- "$COMPARISON_ATTEMPT" "$comparison_dest"
 	echo "run-review-comparison: comparison ACCEPTED and published: $comparison_dest" >&2

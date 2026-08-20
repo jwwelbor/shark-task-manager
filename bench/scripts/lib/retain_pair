@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""bench/scripts/lib/retain_pair
+
+Shared retention-manifest builder (code-review-2026-08-20T2138-E40-F10.md
+findings 1, 2, and 7): the SINGLE owner of "how one (scenario, rep) pair's
+eight required artifacts get byte-preserved-copied and digested into
+manifest.json", per bench/reports/lifecycle-baseline-schema.yaml's
+digest_rules (algorithm/encoding/canonicalization/file_encoding) and
+digest_rules.empty_artifact_semantics.
+
+Previously this logic was embedded twice as near-identical bash heredocs:
+run-lifecycle-batch.sh's retain_pair() (real batch pairs) and
+run-review-comparison.sh's retain_gate() (a gate-named, 3-artifact, no-rep
+layout finding 2 diagnosed as structurally incompatible with every real
+consumer: aggregate-lifecycle.sh's int(rep) pair loop and
+verify-retention-root.sh's eight-artifact layout check). Both callers now
+invoke this ONE script so a future change to the digest/manifest rule
+cannot diverge between them again (Section C's reuse-opportunity note,
+"digest_of_path() -- 4 near-identical copies... no existing shared
+library").
+
+Usage:
+    retain_pair <scenario_id> <rep> <package_path> <lifecycle_jsonl> \
+        <evaluation_jsonl> <i05_bundle_dir> <dest> [producer_gate]
+
+<dest> MUST already exist (callers create it via `mkdir -p` after their own
+`assert_within_out_root` containment check -- this script performs no path
+containment of its own, matching the prior heredocs' division of
+responsibility).
+
+<producer_gate> is OPTIONAL and additive only: when non-empty (T-E40-F10-005
+review-comparison usage), it is recorded as manifest.json's `gate` field --
+a provenance tag `run-review-comparison.sh` uses to refuse silently reusing
+a retention path a real batch run (or the OTHER gate) already populated,
+rather than treating bare "evaluation.jsonl exists" as sufficient proof of
+"this exact gate already retained here" (REQ-NF-007: append-and-verify,
+never a silent overwrite/reuse of someone else's retained pair). When
+omitted or empty (run-lifecycle-batch.sh's own batch-pair usage), no `gate`
+key is written at all -- manifest.json's byte content for a batch pair is
+therefore UNCHANGED from before this extraction (retention_manifest_required_fields
+does not name `gate`; it is not one of the required keys any consumer
+demands).
+"""
+import hashlib
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+scenario_id, rep, package_path, lifecycle_jsonl, evaluation_jsonl, i05_bundle_dir, dest = sys.argv[1:8]
+producer_gate = sys.argv[8] if len(sys.argv) > 8 else ""
+dest = Path(dest)
+
+artifacts = {}
+
+
+def digest_of_path(path: Path):
+    # Implements bench/reports/lifecycle-baseline-schema.yaml's digest_rules
+    # (algorithm/encoding/canonicalization/file_encoding) AND
+    # digest_rules.empty_artifact_semantics: an existing-but-empty directory
+    # (zero files) still digests to a real, deterministic value (sha256 of
+    # the canonicalized empty list `[]`) rather than being treated as
+    # missing -- None is reserved for "path does not exist at all". Every
+    # other digest_of_path() in this codebase (pilot-ledger.sh,
+    # verify-retention-root.sh) MUST implement the same schema-owned rule.
+    if path.is_dir():
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = Path(root) / fname
+                relpath = fpath.relative_to(path).as_posix()
+                entries.append({"path": relpath, "sha256": hashlib.sha256(fpath.read_bytes()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    return None
+
+
+def copy_artifact(name, source):
+    source_path = Path(source)
+    target = dest / name
+    if source_path.is_file():
+        shutil.copyfile(source_path, target)
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        artifacts[name] = {"source_path": str(source_path), "sha256": digest}
+    else:
+        # Not yet available from this driver's own inputs (e.g.
+        # entity-history export not wired -- no producer exists anywhere in
+        # this codebase today; oracle.json genuinely not produced by
+        # evaluate-lifecycle.sh when no agent fixture checkout is
+        # configured) -- an honest placeholder, never a fabricated
+        # byte-identical claim. The zero-byte file's digest is real, per
+        # digest_rules.empty_artifact_semantics (schema): a present-but-empty
+        # artifact is never "missing" -- only source_path == "" marks it as
+        # not yet wired.
+        target.write_text("", encoding="utf-8")
+        artifacts[name] = {"source_path": "", "sha256": hashlib.sha256(b"").hexdigest()}
+
+
+def copy_dir_artifact(name, source_dir, exclude_top_level=()):
+    # Real recursive byte-for-byte copy of a directory artifact (evidence/
+    # I-05 stage-evidence bundle, transcripts/ its transcripts subtree),
+    # digested with digest_of_path() above -- the schema-owned digest_rules
+    # (and digest_rules.empty_artifact_semantics for the honestly-empty
+    # case below). Never an unconditionally-empty mkdir standing in for
+    # real content while still claiming a manifest entry.
+    target = dest / name
+    target.mkdir(parents=True, exist_ok=True)
+    source_path = Path(source_dir) if source_dir else None
+    if source_path is not None and source_path.is_dir():
+        for root, dirs, files in os.walk(source_path):
+            if Path(root) == source_path:
+                dirs[:] = [d for d in dirs if d not in exclude_top_level]
+            for fname in files:
+                fpath = Path(root) / fname
+                rel = fpath.relative_to(source_path)
+                dest_file = target / rel
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(fpath, dest_file)
+        artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
+    else:
+        # No source directory configured/found for this artifact -- a real,
+        # checked-for absence, not a defect: the copy was actually
+        # attempted against the real source. Loud, not silent (CLAUDE.md
+        # Rule 12): name the artifact and the path checked so an empty
+        # retained directory is traceable to "upstream doesn't emit this
+        # yet", not mistaken for another unconditional placeholder.
+        # digest_of_path(target) here returns the real, non-None
+        # empty-directory digest per digest_rules.empty_artifact_semantics
+        # -- this artifact is present (empty), never "missing".
+        print(f"retain_pair: {name} not found under {source_dir!r}; retained as empty (checked, not fabricated)", file=sys.stderr)
+        artifacts[name] = {"source_path": "", "sha256": digest_of_path(target)}
+
+
+copy_artifact("package.yaml", package_path)
+copy_artifact("lifecycle.jsonl", lifecycle_jsonl)
+copy_artifact("evaluation.jsonl", evaluation_jsonl)
+copy_artifact("entity-history.json", "")
+# ".oracle.json" is evaluate-lifecycle.sh's own naming convention for the
+# held-back oracle result it writes alongside --output (run_oracle():
+# `oracle_output = args.output + ".oracle.json"`) -- reused here, never
+# invented or re-derived (ADR-F10-04). The file genuinely does not exist
+# when no agent fixture checkout is configured for this pair;
+# copy_artifact's honest-placeholder branch handles that.
+copy_artifact("oracle.json", evaluation_jsonl + ".oracle.json")
+copy_dir_artifact("evidence", i05_bundle_dir, exclude_top_level=("transcripts",))
+copy_dir_artifact("transcripts", os.path.join(i05_bundle_dir, "transcripts") if i05_bundle_dir else "")
+
+manifest = {
+    "scenario_id": scenario_id,
+    "rep": int(rep),
+    "artifacts": artifacts,
+}
+if producer_gate:
+    manifest["gate"] = producer_gate
+(dest / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
