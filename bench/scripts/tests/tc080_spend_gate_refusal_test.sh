@@ -263,3 +263,84 @@ EOF
 done
 
 echo "TC-080: pass (spend-gate.sh refuses on every missing/non-positive condition before any subprocess, ack is CLI-flag-only, ceiling positivity matches run-lifecycle.sh's own authority)"
+
+# ---------------------------------------------------------------------------
+# TC-080 driver-level half (T-E40-F10-004): the same conditions, run through
+# the REAL run-lifecycle-batch.sh CLI end to end -- real argv parsing, real
+# spend-gate.sh sourcing, real pre-dispatch short-circuit -- not the sourced
+# library called directly as above. Header comment above flags this section
+# as T-E40-F10-004's own addition (run-review-comparison.sh's comparison
+# half is T-E40-F10-005's, not added here).
+# ---------------------------------------------------------------------------
+BATCH="$SCRIPTS_DIR/run-lifecycle-batch.sh"
+[[ -x "$BATCH" ]] || fail "bench/scripts/run-lifecycle-batch.sh missing or not executable"
+
+DRIVER_WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$DRIVER_WORKDIR"' EXIT
+
+DRIVER_SPY_LOG="$DRIVER_WORKDIR/spy.log"
+: >"$DRIVER_SPY_LOG"
+mkdir -p "$DRIVER_WORKDIR/spybin"
+for bin in shark run-lifecycle.sh evaluate-lifecycle.sh git; do
+	cat >"$DRIVER_WORKDIR/spybin/$bin" <<SPY
+#!/usr/bin/env bash
+echo "$bin \$*" >>"$DRIVER_SPY_LOG"
+exit 1
+SPY
+	chmod +x "$DRIVER_WORKDIR/spybin/$bin"
+done
+
+DRIVER_ROOT="$DRIVER_WORKDIR/retention"
+cat >"$DRIVER_WORKDIR/batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+EOF
+
+assert_driver_refusal() {
+	# assert_driver_refusal <label> <expected_reason_substring> <argv...>
+	local label="$1" reason="$2"
+	shift 2
+	local out rc=0
+	out="$(PATH="$DRIVER_WORKDIR/spybin:$PATH" "$BATCH" "$@" 2>&1)" || rc=$?
+	[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] || fail "driver:$label: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $rc: $out"
+	echo "$out" | grep -q "$reason" || fail "driver:$label: expected refusal reason '$reason' in output: $out"
+	if [[ -s "$DRIVER_SPY_LOG" ]]; then
+		fail "driver:$label: unexpected subprocess/checkout/Shark call recorded: $(cat "$DRIVER_SPY_LOG")"
+	fi
+}
+
+assert_driver_refusal "no-ack" "missing_acknowledgement" \
+	--batch "$DRIVER_WORKDIR/batch-policy.yaml" --retention-root "$DRIVER_ROOT" --mode pilot \
+	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10
+
+assert_driver_refusal "zero-cost" "non_positive_max_cost_usd" \
+	--batch "$DRIVER_WORKDIR/batch-policy.yaml" --retention-root "$DRIVER_ROOT" --mode pilot \
+	--acknowledge-provider-spend --max-cost-usd 0 --max-wall-clock-seconds 600 --max-generated-tasks 10
+
+assert_driver_refusal "no-retention-root" "missing_retention_root" \
+	--batch "$DRIVER_WORKDIR/batch-policy.yaml" --mode pilot \
+	--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10
+
+: >"$DRIVER_SPY_LOG"
+DRIVER_ACK_ENV_OUT="$(PATH="$DRIVER_WORKDIR/spybin:$PATH" SHARK_BENCH_ACK=1 "$BATCH" \
+	--batch "$DRIVER_WORKDIR/batch-policy.yaml" --retention-root "$DRIVER_ROOT" --mode pilot \
+	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 2>&1)" && DRIVER_ACK_ENV_RC=0 || DRIVER_ACK_ENV_RC=$?
+[[ "$DRIVER_ACK_ENV_RC" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] || fail "driver:ack-via-env-var: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $DRIVER_ACK_ENV_RC: $DRIVER_ACK_ENV_OUT"
+echo "$DRIVER_ACK_ENV_OUT" | grep -q "missing_acknowledgement" || fail "driver:ack-via-env-var: expected missing_acknowledgement: $DRIVER_ACK_ENV_OUT"
+
+echo "TC-080(driver half, T-E40-F10-004): run-lifecycle-batch.sh's real CLI refuses every missing/non-positive/env-only-ack condition before any subprocess -- PASS"
+
+# Fully-satisfied invocation proceeds past the gate (proven by reaching
+# dispatch logic, not by exit 0 -- an unconfigured scenario's pair is
+# correctly classified `failed` per run-lifecycle-batch.sh's own honest
+# fallback, giving batch_partial_failure (4), which is only reachable once
+# the spend gate has already passed).
+DRIVER_PASS_OUT="$(PATH="$DRIVER_WORKDIR/spybin:$PATH" "$BATCH" \
+	--batch "$DRIVER_WORKDIR/batch-policy.yaml" --retention-root "$DRIVER_ROOT" --mode pilot \
+	--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 2>&1)" && DRIVER_PASS_RC=0 || DRIVER_PASS_RC=$?
+[[ "$DRIVER_PASS_RC" -eq 4 ]] || fail "driver:fully-satisfied: expected batch_partial_failure exit 4 (gate passed, dispatch reached, pair unconfigured), got $DRIVER_PASS_RC: $DRIVER_PASS_OUT"
+echo "$DRIVER_PASS_OUT" | grep -q '"classification": "failed"' || fail "driver:fully-satisfied: expected dispatch to be reached and classify the unconfigured scenario pairs as failed: $DRIVER_PASS_OUT"
+grep -q "root_key_or_scratch_root_not_configured" "$DRIVER_ROOT/invalid/index.jsonl" \
+	|| fail "driver:fully-satisfied: invalid/index.jsonl did not name the unconfigured-scenario reason: $(cat "$DRIVER_ROOT/invalid/index.jsonl" 2>/dev/null)"
+
+echo "TC-080(driver half, T-E40-F10-004): fully-satisfied invocation proceeds past the spend gate to real dispatch classification -- PASS"
