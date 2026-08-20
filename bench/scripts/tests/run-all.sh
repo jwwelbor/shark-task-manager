@@ -74,6 +74,7 @@ tests=(
 	"$SCRIPT_DIR/tc080_spend_gate_refusal_test.sh"
 	"$SCRIPT_DIR/tc081_pilot_ledger_gate_test.sh"
 	"$SCRIPT_DIR/tc082_retention_layout_test.sh"
+	"$SCRIPT_DIR/tc083_failed_oracle_diagnosis_test.sh"
 	"$SCRIPT_DIR/tc084_time_reconciliation_test.sh"
 	"$SCRIPT_DIR/tc085_review_value_report_test.sh"
 	"$SCRIPT_DIR/tc086_artifact_use_and_replay_proxy_test.sh"

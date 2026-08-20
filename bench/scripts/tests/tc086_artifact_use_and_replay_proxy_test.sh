@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCH_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 AGGREGATOR="$SCRIPTS_DIR/aggregate-lifecycle.sh"
+REPORTER="$SCRIPTS_DIR/report-lifecycle.sh"
 
 fail() {
 	echo "TC-086 FAIL: $1" >&2
@@ -31,6 +32,7 @@ fail() {
 }
 
 [[ -x "$AGGREGATOR" ]] || fail "bench/scripts/aggregate-lifecycle.sh missing or not executable"
+[[ -x "$REPORTER" ]] || fail "bench/scripts/report-lifecycle.sh missing or not executable"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found on PATH"
 
 WORKDIR="$(mktemp -d)"
@@ -211,8 +213,10 @@ ROOT_A="$WORKDIR/root-a"
 mkdir -p "$ROOT_A"
 build_root "$ROOT_A" "1"
 
-OUT_A="$("$AGGREGATOR" --retention-root "$ROOT_A" 2>"$WORKDIR/a.err")" || fail "(a) populated path: aggregator exited non-zero; stderr: $(cat "$WORKDIR/a.err")"
+AGG_OUT_A="$WORKDIR/aggregate-a.json"
+"$AGGREGATOR" --retention-root "$ROOT_A" >"$AGG_OUT_A" 2>"$WORKDIR/a.err" || fail "(a) populated path: aggregator exited non-zero; stderr: $(cat "$WORKDIR/a.err")"
 [[ ! -s "$WORKDIR/a.err" ]] || fail "(a) populated path: expected no stderr diagnostics, got: $(cat "$WORKDIR/a.err")"
+OUT_A="$(cat "$AGG_OUT_A")"
 
 python3 - "$OUT_A" <<'PYEOF'
 import json
@@ -325,3 +329,152 @@ print("TC-086(b): absent replayed_interaction_proxies renders every proxy field 
 PYEOF
 
 echo "TC-086 (aggregator half): PASS"
+
+# ===========================================================================
+# T-E40-F10-011 (report half): report-lifecycle.sh --view headline over
+# root A's aggregate, artifact_use block (TC-086 full body, Input).
+# ===========================================================================
+REPORT_OUT="$WORKDIR/headline.md"
+"$REPORTER" --aggregate "$AGG_OUT_A" --view headline >"$REPORT_OUT" 2>"$WORKDIR/report.err" || fail "reporter exited non-zero; stderr: $(cat "$WORKDIR/report.err")"
+
+python3 - "$REPORT_OUT" <<'PYEOF'
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    report = f.read()
+
+
+def fail(msg):
+    print(f"TC-086 FAIL (report-half python check): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+if "## Artifact use" not in report:
+    fail("headline report has no '## Artifact use' section")
+section = report[report.index("## Artifact use"):]
+
+# --- consumed artifact (design.md) and the orphan (orphan.md) are
+# distinguished with typed producer/consumer edges; no-evidence.md must
+# never appear in an edge row (it has no consumption evidence at all).
+if "- Produced: 4" not in section:
+    fail("headline does not print produced_count=4")
+if "- Consumed: 2" not in section:
+    fail("headline does not print consumed_count=2")
+if "- Reused: 1" not in section:
+    fail("headline does not print reused_count=1")
+if "- Orphan: 1" not in section:
+    fail("headline does not print orphan_count=1 (true orphan only)")
+if "artifacts/design.md" not in section:
+    fail("headline edges table is missing the consumed artifact design.md")
+if "artifacts/patch.diff" not in section:
+    fail("headline edges table is missing the consumed artifact patch.diff")
+if "artifacts/orphan.md" in section:
+    fail("headline edges table must not list the orphan artifact as a typed edge")
+if "artifacts/no-evidence.md" in section:
+    fail("headline edges table must not list the evidence-missing artifact as a typed edge")
+
+# --- replay proxies render with counts/sizes/revisions/unresolved gates,
+# every field under a visible replayed-proxy label.
+if "Replayed interaction proxy" not in section:
+    fail("headline does not print the 'Replayed interaction proxy' heading")
+if "Replayed request count: 7" not in section:
+    fail("headline does not print the replayed request count (7)")
+if "Replayed response count: 7" not in section:
+    fail("headline does not print the replayed response count (7)")
+if "Replayed payload size (bytes): 4600" not in section:
+    fail("headline does not print the replayed payload size (4600 bytes)")
+if "Replayed revision count: 2" not in section:
+    fail("headline does not print the replayed revision count (2)")
+if "Replayed unresolved-gate count: 0" not in section:
+    fail("headline does not print the replayed unresolved-gate count (0)")
+
+print(
+    "TC-086 (report half): artifact_use block distinguishes the consumed "
+    "artifact and the true orphan with typed producer/consumer edges, and "
+    "renders replayed-interaction-proxy counts/sizes/revisions/unresolved "
+    "gates under a visible replayed-proxy label"
+)
+PYEOF
+
+echo "TC-086 (report half): PASS"
+
+# ===========================================================================
+# Static scan: the closed, schema-owned forbidden_effort_language list
+# (REQ-F-018) applied to the enumerated F10 script/template file set
+# (TC-086 Input). Multi-word phrases are safe to match as plain
+# case-insensitive substrings; the single acronym term (FTE) is matched on
+# a word boundary -- a plain substring scan for "fte" false-positives on
+# ordinary English words ("after", "shifted", "lifted", "drafted") that
+# have nothing to do with the forbidden concept.
+# ===========================================================================
+python3 - "$BENCH_DIR" <<'PYEOF'
+import re
+import sys
+
+import yaml
+
+bench_dir = sys.argv[1]
+schema_path = f"{bench_dir}/reports/lifecycle-baseline-schema.yaml"
+with open(schema_path, encoding="utf-8") as f:
+    schema = yaml.safe_load(f)
+
+
+def fail(msg):
+    print(f"TC-086 FAIL (static scan): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+forbidden = schema.get("forbidden_effort_language")
+if not forbidden:
+    fail("schema forbidden_effort_language list is empty or missing")
+
+# TC-086 Input: the enumerated F10 script/template file set. bench/reports/
+# templates/* does not exist (report-lifecycle.sh renders inline, by
+# design -- T-E40-F10-011's Scope), and no bench/reports/*.md file has been
+# committed yet; both globs contribute zero files today, which is a valid,
+# vacuously-passing scan target, not a scan that silently skipped anything.
+import glob
+
+files = [
+    f"{bench_dir}/scripts/run-lifecycle-batch.sh",
+    f"{bench_dir}/scripts/run-review-comparison.sh",
+    f"{bench_dir}/scripts/pilot-ledger.sh",
+    f"{bench_dir}/scripts/verify-retention-root.sh",
+    f"{bench_dir}/scripts/aggregate-lifecycle.sh",
+    f"{bench_dir}/scripts/report-lifecycle.sh",
+    f"{bench_dir}/scripts/lib/spend-gate.sh",
+]
+files += sorted(glob.glob(f"{bench_dir}/reports/*.md"))
+files += sorted(glob.glob(f"{bench_dir}/reports/templates/*"))
+
+for f in files:
+    if not f.endswith("*") and not __import__("os").path.isfile(f):
+        fail(f"enumerated file missing: {f}")
+
+violations = []
+for file_path in files:
+    with open(file_path, encoding="utf-8") as fh:
+        text = fh.read()
+    lowered = text.lower()
+    for term in forbidden:
+        term_lower = term.lower()
+        if len(term_lower) <= 4 and " " not in term_lower and "-" not in term_lower:
+            # Short, single-token acronym term (e.g. "FTE") -- word-boundary
+            # match only, to avoid false positives on ordinary English
+            # substrings.
+            if re.search(r"\b" + re.escape(term_lower) + r"\b", lowered):
+                violations.append((file_path, term))
+        else:
+            if term_lower in lowered:
+                violations.append((file_path, term))
+
+if violations:
+    fail(f"forbidden_effort_language matches found: {violations}")
+
+print(
+    f"TC-086 (static scan): zero forbidden_effort_language matches across "
+    f"{len(files)} enumerated F10 files against {len(forbidden)} closed terms"
+)
+PYEOF
+
+echo "TC-086 (static scan): PASS"

@@ -458,3 +458,229 @@ print(
 PYEOF
 
 echo "TC-088 (aggregator half): PASS"
+
+# ---------------------------------------------------------------------------
+# T-E40-F10-011 (report half), target (ii): static scan of the enumerated
+# F10 report-template file set (same list as TC-086's Input) for
+# forbidden_composite_fields matches, ANYWHERE in the file, with NO
+# exclusion (unlike target (i)'s schema-declaration exclusion). The single
+# short single-token term (`roi`) is matched on a word boundary -- a plain
+# substring scan for "roi" false-positives on ordinary English words with
+# no connection to the forbidden concept (e.g. a prose sentence using
+# "prior"); the remaining terms are distinctive multi-character identifiers
+# safe to match as plain case-insensitive substrings.
+# ---------------------------------------------------------------------------
+BENCH_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+python3 - "$BENCH_DIR" "$SCHEMA" <<'PYEOF'
+import glob
+import os
+import re
+import sys
+
+import yaml
+
+bench_dir, schema_path = sys.argv[1], sys.argv[2]
+with open(schema_path, encoding="utf-8") as f:
+    schema = yaml.safe_load(f)
+
+
+def fail(msg):
+    print(f"TC-088 FAIL (report-template static scan, target ii): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+forbidden = schema.get("forbidden_composite_fields")
+if not forbidden:
+    fail("schema forbidden_composite_fields list is empty or missing")
+
+# Same enumerated file set as TC-086's Input. bench/reports/templates/* and
+# bench/reports/*.md both contribute zero files today (report-lifecycle.sh
+# renders inline, T-E40-F10-011's Scope; no bench/reports/*.md is committed
+# yet) -- a valid, vacuously-passing scan target, not a silently-skipped one.
+files = [
+    f"{bench_dir}/scripts/run-lifecycle-batch.sh",
+    f"{bench_dir}/scripts/run-review-comparison.sh",
+    f"{bench_dir}/scripts/pilot-ledger.sh",
+    f"{bench_dir}/scripts/verify-retention-root.sh",
+    f"{bench_dir}/scripts/aggregate-lifecycle.sh",
+    f"{bench_dir}/scripts/report-lifecycle.sh",
+    f"{bench_dir}/scripts/lib/spend-gate.sh",
+]
+files += sorted(glob.glob(f"{bench_dir}/reports/*.md"))
+files += sorted(glob.glob(f"{bench_dir}/reports/templates/*"))
+
+for f in files:
+    if not os.path.isfile(f):
+        fail(f"enumerated file missing: {f}")
+
+violations = []
+for file_path in files:
+    with open(file_path, encoding="utf-8") as fh:
+        lowered = fh.read().lower()
+    for term in forbidden:
+        term_lower = term.lower()
+        if len(term_lower) <= 4 and " " not in term_lower and "_" not in term_lower and "-" not in term_lower:
+            if re.search(r"\b" + re.escape(term_lower) + r"\b", lowered):
+                violations.append((file_path, term))
+        else:
+            if term_lower in lowered:
+                violations.append((file_path, term))
+
+if violations:
+    fail(f"forbidden_composite_fields matches found (no exclusion, target ii): {violations}")
+
+print(
+    f"TC-088 (report-template static scan, target ii): zero "
+    f"forbidden_composite_fields matches across {len(files)} enumerated F10 "
+    f"files (no exclusion) against {len(forbidden)} closed terms"
+)
+PYEOF
+
+echo "TC-088 (report half, target ii): PASS"
+
+# ---------------------------------------------------------------------------
+# T-E40-F10-011 (report half): "no detectable effect" paired-delta
+# rendering (task Goal, REQ-F-016). report-lifecycle.sh is a pure function
+# of one aggregate.json (ADR-F10-06), so a hand-built aggregate is a
+# legitimate input to prove this rendering branch -- upstream
+# compare-lifecycle-evaluations.sh hardcodes quality_delta to null today
+# (checked: line 191), so a real aggregator run can never exercise the
+# inside/outside-band classification; this is the only way to prove the
+# branch live rather than leaving it dead code.
+# ---------------------------------------------------------------------------
+REPORTER="$SCRIPTS_DIR/report-lifecycle.sh"
+[[ -x "$REPORTER" ]] || fail "bench/scripts/report-lifecycle.sh missing or not executable"
+
+HANDBUILT="$WORKDIR/handbuilt-aggregate.json"
+python3 - "$HANDBUILT" <<'PYEOF'
+import json
+import sys
+
+
+def band(scenario_id, metric, lo, hi):
+    return {
+        "scenario_id": scenario_id, "metric": metric,
+        "min": lo, "median": (lo + hi) / 2, "max": hi, "spread_abs": hi - lo,
+        "acceptance_interval": {"lower_bound": lo, "upper_bound": hi},
+        "derivation_rule": "min_median_max_spread_accept_interval",
+        "rep_count": 2, "insufficient_reps": False,
+    }
+
+
+def scenario(scenario_id):
+    return {
+        "scenario_id": scenario_id, "scenario_version": "1", "family": f"family-{scenario_id}",
+        "rep": 1, "retention_path": f"scenarios/{scenario_id}/1",
+        "eligibility": {"aggregate_eligible": True, "publication_eligible": True, "invalidity_reasons": []},
+        "outcome": {"terminal": "complete"}, "source_digests": {},
+    }
+
+
+def comparison(scenario_id, quality_delta):
+    return {
+        "scenario_id": scenario_id, "rep": 1, "retention_path": f"scenarios/{scenario_id}/1",
+        "mode": "independent_frozen_candidate",
+        "left_evaluation_id": f"eval-{scenario_id}-left", "right_evaluation_id": f"eval-{scenario_id}-right",
+        "accepted": True,
+        "comparison": {"accepted": True, "quality_delta": quality_delta, "causal_claim": None,
+                       "newly_confirmed_findings": [], "intervening_candidates": []},
+        "divergences": [],
+    }
+
+
+agg = {
+    "identity": {
+        "schema_version": "1.0", "batch_id": "batch-tc088-handbuilt", "phase": "lifecycle_v2",
+        "retention_root_digest": "a" * 64, "batch_policy_digest": "b" * 64,
+        "ceilings": {"max_cost_usd": 100, "max_wall_clock_seconds": 3600, "max_generated_tasks": 20},
+        "acknowledgement_ref": {"flag": "--acknowledge-provider-spend", "present": True},
+        "min_reps": 2,
+    },
+    "scenarios": [scenario("scenario-inside-band"), scenario("scenario-outside-band")],
+    "time": {"lifecycle_wall_seconds": 0, "stage_category": {"unattributed": 0}, "interval_category": {"unattributed": 0}, "share_partition": {"unattributed": 0}},
+    "cost": {"stage_category": {"unattributed": 0}, "interval_category": {"unattributed": 0}, "share_partition": {"unattributed": 0}, "ceiling_consumption": {"observed_cost_usd": 0, "max_cost_usd": 100}},
+    "quality": {"by_scenario": [], "first_pass_yield": "unavailable"},
+    "review_value": {"gates": []},
+    "artifact_use": {"produced_count": 0, "consumed_count": 0, "reused_count": 0, "orphan_count": 0, "edges": [],
+                      "replayed_interaction_proxy": {"label": "replayed_interaction_proxy: a replayed proxy",
+                                                      "request_count": "unavailable", "response_count": "unavailable",
+                                                      "payload_size_bytes": "unavailable", "revision_count": "unavailable",
+                                                      "unresolved_gate_count": "unavailable"}},
+    "noise_bands": [
+        band("scenario-inside-band", "confirmed_findings", 1, 5),
+        band("scenario-inside-band", "elapsed_time", 1, 5),
+        band("scenario-inside-band", "provider_cost", 1, 5),
+        band("scenario-outside-band", "confirmed_findings", 1, 5),
+        band("scenario-outside-band", "elapsed_time", 1, 5),
+        band("scenario-outside-band", "provider_cost", 1, 5),
+    ],
+    # scenario-inside-band's quality_delta (3) is INSIDE [1, 5] -> "no
+    # detectable effect". scenario-outside-band's quality_delta (9) is
+    # OUTSIDE [1, 5] -> reported as clearing the band, never "no detectable
+    # effect" and never an unstated improvement/regression claim.
+    "comparisons": [comparison("scenario-inside-band", 3), comparison("scenario-outside-band", 9)],
+    "invalid": [],
+}
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(agg, f, sort_keys=True)
+PYEOF
+
+REPORT_OUT="$WORKDIR/handbuilt-headline.md"
+"$REPORTER" --aggregate "$HANDBUILT" --view headline >"$REPORT_OUT" 2>"$WORKDIR/handbuilt.err" || fail "reporter exited non-zero on hand-built aggregate; stderr: $(cat "$WORKDIR/handbuilt.err")"
+
+python3 - "$REPORT_OUT" <<'PYEOF'
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    report = f.read()
+
+
+def fail(msg):
+    print(f"TC-088 FAIL (no-detectable-effect python check): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+dimension_heading = "## Dimension separation and paired deltas"
+if dimension_heading not in report:
+    fail("headline report has no 'Dimension separation and paired deltas' section")
+dimension_block = report[report.index(dimension_heading):]
+
+
+def section_for(scenario_id):
+    marker = f"### `{scenario_id}`"
+    if marker not in dimension_block:
+        fail(f"dimension-separation section has no sub-section for {scenario_id!r}")
+    start = dimension_block.index(marker)
+    rest = dimension_block[start + len(marker):]
+    next_marker = rest.find("\n### `")
+    return rest if next_marker == -1 else rest[:next_marker]
+
+
+inside = section_for("scenario-inside-band")
+if "Paired delta: 3 -- no detectable effect" not in inside:
+    fail("scenario-inside-band: in-band quality delta did not render exactly 'no detectable effect'")
+
+outside = section_for("scenario-outside-band")
+if "no detectable effect" in outside:
+    fail("scenario-outside-band: an out-of-band delta must never render 'no detectable effect'")
+if "Paired delta: 9" not in outside:
+    fail("scenario-outside-band: the out-of-band delta value (9) is not printed")
+if "outside this scenario's published confirmed_findings noise band" not in outside:
+    fail("scenario-outside-band: headline does not name the delta as clearing the published noise band")
+
+# Time/cost dimensions carry no upstream per-dimension delta field --
+# rendered "unavailable", never a value this script derives itself.
+for section in (inside, outside):
+    if section.count("Paired delta: unavailable") != 2:
+        fail("time and cost dimensions must both render 'Paired delta: unavailable' (no upstream delta field)")
+
+print(
+    "TC-088 (no-detectable-effect check): an in-band quality paired delta "
+    "renders exactly 'no detectable effect'; an out-of-band delta renders "
+    "its value without that phrase and without an improvement/regression "
+    "claim; time and cost dimensions render 'unavailable' (no upstream "
+    "per-dimension delta field)"
+)
+PYEOF
+
+echo "TC-088 (no-detectable-effect check): PASS"

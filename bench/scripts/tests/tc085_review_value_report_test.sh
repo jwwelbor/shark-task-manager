@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGGREGATOR="$SCRIPTS_DIR/aggregate-lifecycle.sh"
+REPORTER="$SCRIPTS_DIR/report-lifecycle.sh"
 
 fail() {
 	echo "TC-085 FAIL: $1" >&2
@@ -24,6 +25,7 @@ fail() {
 }
 
 [[ -x "$AGGREGATOR" ]] || fail "bench/scripts/aggregate-lifecycle.sh missing or not executable"
+[[ -x "$REPORTER" ]] || fail "bench/scripts/report-lifecycle.sh missing or not executable"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found on PATH"
 
 WORKDIR="$(mktemp -d)"
@@ -186,7 +188,9 @@ batch = {
 write_json(os.path.join(dest_root, "batch.json"), batch)
 PYEOF
 
-OUT="$("$AGGREGATOR" --retention-root "$ROOT" 2>"$WORKDIR/err.log")" || fail "aggregator exited non-zero; stderr: $(cat "$WORKDIR/err.log")"
+AGG_OUT="$WORKDIR/aggregate.json"
+"$AGGREGATOR" --retention-root "$ROOT" >"$AGG_OUT" 2>"$WORKDIR/err.log" || fail "aggregator exited non-zero; stderr: $(cat "$WORKDIR/err.log")"
+OUT="$(cat "$AGG_OUT")"
 
 python3 - "$OUT" <<'PYEOF'
 import json
@@ -295,3 +299,104 @@ print("TC-085: all seven finding measures render correctly broken out by severit
 PYEOF
 
 echo "TC-085 (aggregator half): PASS"
+
+# ===========================================================================
+# T-E40-F10-011 (report half): report-lifecycle.sh --view headline over the
+# SAME aggregate, review_value block only (TC-085 full body, Input).
+# ===========================================================================
+REPORT_OUT="$WORKDIR/headline.md"
+"$REPORTER" --aggregate "$AGG_OUT" --view headline >"$REPORT_OUT" 2>"$WORKDIR/report.err" || fail "reporter exited non-zero; stderr: $(cat "$WORKDIR/report.err")"
+
+python3 - "$REPORT_OUT" <<'PYEOF'
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    report = f.read()
+
+
+def fail(msg):
+    print(f"TC-085 FAIL (report-half python check): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def section_for(gate_id):
+    marker = f"### Gate `{gate_id}`"
+    if marker not in report:
+        fail(f"headline report has no section for gate {gate_id!r}")
+    start = report.index(marker)
+    rest = report[start + len(marker):]
+    next_marker = rest.find("\n### Gate `")
+    return rest if next_marker == -1 else rest[:next_marker]
+
+
+# --- AC-T2: no seeded truth set (pair B gates) -> precision/recall render
+# EXACTLY "precision: unavailable" / "recall: unavailable", never 0, an
+# empty value, or an inferred substitute (asserted by exact string match,
+# not absence-of-output, per TC-085 Observability Evidence).
+for gate_id in ("qa_zero", "qa_failed", "uat_gate"):
+    section = section_for(gate_id)
+    if "precision: unavailable" not in section:
+        fail(f"{gate_id}: headline does not print the literal 'precision: unavailable'")
+    if "recall: unavailable" not in section:
+        fail(f"{gate_id}: headline does not print the literal 'recall: unavailable'")
+
+# --- Pair A: seeded truth set -> numeric precision/recall, never
+# "unavailable", rendered on every gate that pair contributed.
+for gate_id in ("code_review", "second_pass_review"):
+    section = section_for(gate_id)
+    if "precision: 0.5" not in section:
+        fail(f"{gate_id}: headline does not print numeric precision 0.5")
+    if "recall: 0.4" not in section:
+        fail(f"{gate_id}: headline does not print numeric recall 0.4")
+    if "precision: unavailable" in section or "recall: unavailable" in section:
+        fail(f"{gate_id}: headline must not print 'unavailable' for a gate with a seeded truth set")
+
+# --- Zero-finding and collection-failure gates must render VISIBLY DISTINCT
+# from each other -- never both collapsing into "zero findings" or any
+# other single shared rendering (TC-085 Negative Cases: a collection
+# failure must not silently render as a clean zero-finding pass).
+zero_section = section_for("qa_zero")
+failed_section = section_for("qa_failed")
+if "reported zero findings" not in zero_section:
+    fail("qa_zero: headline does not name this as a clean zero-finding pass")
+if "COLLECTION FAILURE" not in failed_section:
+    fail("qa_failed: headline does not flag this as a collection failure")
+if "COLLECTION FAILURE" in zero_section:
+    fail("qa_zero must not be flagged as a collection failure")
+if "reported zero findings" in failed_section:
+    fail("qa_failed must not render as a clean zero-finding pass")
+
+# Edge case: qa_zero must show BOTH "zero findings" and "precision
+# unavailable" simultaneously, not conflated into one ambiguous line.
+if "reported zero findings" not in zero_section or "precision: unavailable" not in zero_section:
+    fail("qa_zero must show zero findings AND precision unavailable simultaneously, not conflated")
+
+# --- All seven finding measures, broken out by severity and defect class,
+# render using I-08's own measure-key names verbatim (normalized_unique).
+code_review_section = section_for("code_review")
+for key in ("emitted=4", "normalized_unique=3", "duplicate=1", "recurrent=1", "confirmed=1", "unconfirmed=2", "downstream_escape=1"):
+    if key not in code_review_section:
+        fail(f"code_review: headline total counts missing {key!r}")
+if "`high`:" not in code_review_section or "`low`:" not in code_review_section:
+    fail("code_review: headline does not break counts out by severity (high/low)")
+if "`correctness`:" not in code_review_section or "`style`:" not in code_review_section or "`security`:" not in code_review_section:
+    fail("code_review: headline does not break counts out by defect class (correctness/style/security)")
+
+# --- elapsed/cost per gate: no upstream join key exists -> "unavailable"
+# printed for every gate.
+for gate_id in ("code_review", "second_pass_review", "qa_zero", "qa_failed", "uat_gate"):
+    section = section_for(gate_id)
+    for field in ("elapsed_seconds: unavailable", "provider_cost_usd: unavailable", "resolution_cost_usd: unavailable"):
+        if field not in section:
+            fail(f"{gate_id}: headline missing {field!r}")
+
+print(
+    "TC-085 (report half): review_value block renders all seven finding "
+    "measures broken out by severity/defect class; zero_findings and "
+    "collection_failure render visibly distinct; precision/recall render "
+    "exactly 'unavailable' without a seeded truth set and numeric with one; "
+    "per-gate elapsed/cost render 'unavailable'"
+)
+PYEOF
+
+echo "TC-085 (report half): PASS"
