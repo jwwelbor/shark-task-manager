@@ -133,9 +133,35 @@ command -v python3 >/dev/null 2>&1 || {
 RETENTION_ROOT_CANON="$(cd "$retention_root" && pwd)"
 LEDGER_PATH="$RETENTION_ROOT_CANON/pilot-ledger.jsonl"
 
+# T-E40-F10-006 rework (code-review-2026-08-20T1731-E40-F10.md finding 13):
+# assert_within_out_root is the SAME containment guard run-lifecycle-batch.sh
+# and run-review-comparison.sh already use for their own retention paths
+# (bench/scripts/lib/path-safety.sh). Its caller contract requires
+# out_root_canon to be set via `realpath -m` (not the `cd && pwd` form used
+# for RETENTION_ROOT_CANON above, which can preserve a symlink component) --
+# followed here exactly so the two canonicalizations can never disagree.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+out_root_canon="$(realpath -m -- "$RETENTION_ROOT_CANON")"
+# shellcheck source=lib/path-safety.sh
+source "$SCRIPT_DIR/lib/path-safety.sh"
+
+# REQ-F-002's scenario_id grammar (bench/scenarios/packages/<scenario_id>/
+# package.yaml identity block: "unique lowercase-kebab identity"), the same
+# closed grammar the I-04 scenario contract test (tests/contracts,
+# e40I04ScenarioIDPattern) enforces for I-04 admission. --scenario is interpolated
+# into a retention-relative path below; validating it against this grammar
+# up front means it can never contain '/', '.', or an absolute-path prefix,
+# so a traversal escape is structurally impossible before any file is
+# touched.
+SCENARIO_ID_GRAMMAR='^[a-z0-9]+(-[a-z0-9]+)*$'
+
 case "$action" in
 record)
 	[[ -n "$scenario" ]] || usage
+	[[ "$scenario" =~ $SCENARIO_ID_GRAMMAR ]] || {
+		echo "pilot-ledger: --scenario must be a lowercase-kebab scenario_id (REQ-F-002 grammar: ^[a-z0-9]+(-[a-z0-9]+)*\$), got '$scenario'" >&2
+		exit 2
+	}
 	[[ -n "$rep" ]] || usage
 	[[ "$rep" =~ ^[0-9]+$ ]] || {
 		echo "pilot-ledger: --rep must be a non-negative integer, got '$rep'" >&2
@@ -147,6 +173,15 @@ record)
 		echo "pilot-ledger: checklist file not found: $checklist" >&2
 		exit 2
 	}
+
+	# Containment check on the constructed retention-relative path, BEFORE
+	# any read or write against it -- defense in depth alongside the
+	# grammar check above (finding 13's fix instruction: validate the
+	# grammar AND containment-check the constructed path, exactly as
+	# run-lifecycle-batch.sh/run-review-comparison.sh already do for their
+	# own retention paths).
+	scenario_dir_precheck="$RETENTION_ROOT_CANON/scenarios/$scenario/$rep"
+	assert_within_out_root "$scenario_dir_precheck" || exit 2
 
 	python3 - "$RETENTION_ROOT_CANON" "$scenario" "$rep" "$operator" "$checklist" "$LEDGER_PATH" <<'PYEOF'
 import hashlib
@@ -181,6 +216,17 @@ def digest_of_path(path):
     # digested as canonicalization: compact_json_sorted_keys_utf8 over the
     # sorted {path, sha256} list of every file it contains -- both under
     # the shared digest_rules algorithm/encoding (sha256, lowercase hex).
+    #
+    # code-review-2026-08-20T1731-E40-F10.md finding 3: an empty directory
+    # (os.walk() yields zero files) previously still produced a real,
+    # non-None digest -- sha256 of the canonicalized empty list `[]` -- so
+    # a required directory artifact (evidence/, transcripts/) that was
+    # never actually populated satisfied the `digest is None` missing-check
+    # below. A directory with zero files is therefore treated exactly like
+    # a directory that doesn't exist: both return None. This mirrors
+    # run-lifecycle-batch.sh's own retain_pair() fix (commit 759fd7c9),
+    # which stopped treating an unconditionally-empty mkdir as real
+    # content.
     if os.path.isdir(path):
         entries = []
         for root, dirs, files in os.walk(path):
@@ -190,6 +236,8 @@ def digest_of_path(path):
                 relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
                 with open(fpath, "rb") as fh:
                     entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
+        if not entries:
+            return None
         entries.sort(key=lambda e: e["path"])
         canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return sha256_bytes(canonical)
@@ -199,7 +247,25 @@ def digest_of_path(path):
     return None
 
 
+# T-E40-F10-006 rework finding 13: --scenario is already validated against
+# REQ-F-002's lowercase-kebab grammar and containment-checked by the caller
+# (assert_within_out_root) before this subprocess is even started -- both
+# BEFORE any read or write, per the finding's fix instruction. This
+# realpath-based re-check is belt-and-suspenders against this exact
+# subprocess someday being invoked directly with an unvalidated argv,
+# independent of the bash-side guard.
+RETENTION_ROOT_REAL = os.path.realpath(retention_root)
+
+
+def within_retention_root(path):
+    real = os.path.realpath(path)
+    return real == RETENTION_ROOT_REAL or real.startswith(RETENTION_ROOT_REAL + os.sep)
+
+
 scenario_dir = os.path.join(retention_root, "scenarios", scenario_id, str(rep))
+if not within_retention_root(scenario_dir):
+    print(f"pilot-ledger: refusing --scenario '{scenario_id}': resolves outside retention root", file=sys.stderr)
+    raise SystemExit(2)
 if not os.path.isdir(scenario_dir):
     print(f"pilot-ledger: no retained scenario directory found: {scenario_dir}", file=sys.stderr)
     raise SystemExit(2)
@@ -256,6 +322,7 @@ verify)
 import hashlib
 import json
 import os
+import re
 import sys
 
 retention_root, ledger_path, family_filter = sys.argv[1:4]
@@ -265,12 +332,34 @@ RETAINED_ARTIFACTS = [
     "lifecycle.jsonl", "evaluation.jsonl", "oracle.json", "manifest.json",
 ]
 
+# REQ-F-002 lowercase-kebab scenario_id grammar -- the same closed grammar
+# --record validates argv against and the I-04 scenario contract test
+# (tests/contracts, e40I04ScenarioIDPattern) enforces for I-04 admission.
+# Applied here too because
+# `ref.get("scenario_id")` below comes from the (append-only, hand-editable)
+# ledger file, not a freshly-validated argv -- a row written before this fix
+# landed, or a hand-edited ledger, could still carry an unsafe value.
+SCENARIO_ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+RETENTION_ROOT_REAL = os.path.realpath(retention_root)
+
+
+def within_retention_root(path):
+    real = os.path.realpath(path)
+    return real == RETENTION_ROOT_REAL or real.startswith(RETENTION_ROOT_REAL + os.sep)
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 def digest_of_path(path):
+    # code-review-2026-08-20T1731-E40-F10.md finding 3: an empty directory
+    # must be treated as missing, exactly like --record's digest_of_path
+    # (see that heredoc's comment) -- otherwise a required directory
+    # artifact that lost its content after attestation (or was never
+    # populated because a pre-fix --record recorded it empty) would compare
+    # None == None and be silently reported "verified" instead of stale.
     if os.path.isdir(path):
         entries = []
         for root, dirs, files in os.walk(path):
@@ -280,6 +369,8 @@ def digest_of_path(path):
                 relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
                 with open(fpath, "rb") as fh:
                     entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
+        if not entries:
+            return None
         entries.sort(key=lambda e: e["path"])
         canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return sha256_bytes(canonical)
@@ -318,8 +409,45 @@ for fam in targets:
     ref = entry.get("run_reference") or {}
     scenario_id = ref.get("scenario_id")
     rep = ref.get("rep")
-    scenario_dir = os.path.join(retention_root, "scenarios", str(scenario_id), str(rep))
+    # Finding 13's fix, applied on the read side: validate the grammar AND
+    # containment-check the constructed path BEFORE any read, exactly as
+    # --record now does -- a ledger row is data, not a trusted argv, so a
+    # malformed/unsafe scenario_id here must fail the family's verification
+    # rather than being dereferenced.
+    if (
+        not isinstance(scenario_id, str)
+        or not SCENARIO_ID_PATTERN.match(scenario_id)
+        or not isinstance(rep, int)
+        or rep < 0
+    ):
+        print(f"family={fam}: FAILED (unsafe_scenario_reference)")
+        any_fail = True
+        continue
+    scenario_dir = os.path.join(retention_root, "scenarios", scenario_id, str(rep))
+    if not within_retention_root(scenario_dir):
+        print(f"family={fam}: FAILED (unsafe_scenario_reference)")
+        any_fail = True
+        continue
     recorded_digests = entry.get("inspected_artifact_digests") or {}
+    # Advisor review of T-E40-F10-006's rework (this file's own comment on
+    # digest_of_path already names the failure mode): a recorded digest that
+    # is missing or not a non-empty string -- a forged/hand-edited row, or a
+    # pre-fix --record that never wrote a key for an artifact -- makes
+    # `current != recorded_digests.get(name)` compare None == None when the
+    # artifact is ALSO currently missing on disk, which is not a staleness
+    # mismatch and would wrongly report "verified" with zero digests
+    # actually inspected. Every recorded digest must be a real non-empty
+    # string BEFORE the staleness comparison runs, so None can never match
+    # None.
+    incomplete = [
+        name
+        for name in RETAINED_ARTIFACTS
+        if not isinstance(recorded_digests.get(name), str) or not recorded_digests[name]
+    ]
+    if incomplete:
+        print(f"family={fam}: FAILED (incomplete_attestation: {', '.join(incomplete)})")
+        any_fail = True
+        continue
     stale = []
     for name in RETAINED_ARTIFACTS:
         current = digest_of_path(os.path.join(scenario_dir, name))

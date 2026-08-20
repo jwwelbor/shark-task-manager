@@ -250,3 +250,206 @@ BATCH_JSON_DIGEST_AFTER_4="$(sha256sum "$ROOT/batch.json" | awk '{print $1}')"
 [[ "$BATCH_JSON_DIGEST_AFTER_4" == "$BATCH_JSON_DIGEST_AFTER_3" ]] || fail "invocation(4): batch.json changed after the multi-family invocation, proving the post-dispatch summary step ran -- this was per-family filtering, not a whole-command refusal"
 
 echo "TC-081: pass (pilot-ledger attestation gate refuses --mode baseline as a whole command naming every failing family, verified digest-current attestations proceed, and a post-attestation mutation invalidates a previously-verified attestation)"
+
+# ===========================================================================
+# T-E40-F10-006 rework (code-review-2026-08-20T1731-E40-F10.md, defects 1
+# and 13): re-tests exercising the REAL pilot-ledger.sh binary again, same
+# Caller-Path Contract as the rest of this file (no mocking of digest
+# computation, grammar validation, or containment checking).
+# ===========================================================================
+
+LEDGER_LINES_BEFORE_REWORK="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
+
+# ---------------------------------------------------------------------------
+# Defect 1 (finding 3): a required directory artifact (evidence/,
+# transcripts/) that exists but holds zero files must be treated as MISSING
+# by --record's check, not recorded with a valid "empty" digest. Two cases:
+# both directories empty, and only one empty (proving the check is
+# per-artifact, not an all-or-nothing directory presence check).
+# ---------------------------------------------------------------------------
+retain_fixture_dirs() {
+	# retain_fixture_dirs <scenario_id> <family> <evidence_has_content> <transcripts_has_content>
+	local scenario_id="$1" family="$2" evidence_has_content="$3" transcripts_has_content="$4"
+	local dest="$ROOT/scenarios/$scenario_id/1"
+	mkdir -p "$dest/evidence" "$dest/transcripts"
+	cat >"$dest/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$scenario_id"
+scenario_version: "1"
+entity_family: "$family"
+EOF
+	[[ "$evidence_has_content" != "1" ]] || echo '{"stage": "code", "note": "fixture evidence"}' >"$dest/evidence/stage.json"
+	[[ "$transcripts_has_content" != "1" ]] || echo "fixture transcript for $scenario_id" >"$dest/transcripts/stage.txt"
+	echo '{"root_key": "ROOT-001", "entries": []}' >"$dest/entity-history.json"
+	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/lifecycle.jsonl"
+	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/evaluation.jsonl"
+	echo '{"held_back": true}' >"$dest/oracle.json"
+	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1, \"artifacts\": {}}" >"$dest/manifest.json"
+}
+
+# Case (i): both evidence/ and transcripts/ genuinely empty (the T-004-fixed
+# producer's own honest "checked, not fabricated" state when no I-05 bundle
+# content was available -- not a defect in the producer, but --record must
+# still refuse to attest it as if it were real, digestible content).
+retain_fixture_dirs scenario-empty-both family-empty-both 0 0
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-empty-both --rep 1 \
+	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
+[[ "$rc" -eq 2 ]] || fail "defect 1 (both empty): recording over zero-file evidence/transcripts should be refused (exit 2), got rc=$rc: $out"
+echo "$out" | grep -q "evidence" || fail "defect 1 (both empty): missing-artifact message did not name 'evidence': $out"
+echo "$out" | grep -q "transcripts" || fail "defect 1 (both empty): missing-artifact message did not name 'transcripts': $out"
+
+# Case (ii): only evidence/ empty, transcripts/ has real content -- proves
+# the fix is per-artifact (names ONLY the genuinely-empty one), not a
+# directory-presence check that would also wrongly flag the populated one.
+retain_fixture_dirs scenario-empty-evidence family-empty-evidence 0 1
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-empty-evidence --rep 1 \
+	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
+[[ "$rc" -eq 2 ]] || fail "defect 1 (evidence only empty): recording over a zero-file evidence/ should be refused (exit 2), got rc=$rc: $out"
+echo "$out" | grep -q "evidence" || fail "defect 1 (evidence only empty): missing-artifact message did not name 'evidence': $out"
+echo "$out" | grep -q "transcripts" && fail "defect 1 (evidence only empty): message wrongly named 'transcripts' (which has real content): $out"
+
+# Neither refused --record call above should have appended anything to the
+# ledger -- a refusal must be a genuine no-op on shared state.
+LEDGER_LINES_AFTER_DEFECT1="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
+[[ "$LEDGER_LINES_AFTER_DEFECT1" -eq "$LEDGER_LINES_BEFORE_REWORK" ]] || fail "defect 1: a refused --record appended to pilot-ledger.jsonl anyway (before=$LEDGER_LINES_BEFORE_REWORK, after=$LEDGER_LINES_AFTER_DEFECT1)"
+
+echo "TC-081 (rework, defect 1): pass (a required directory artifact with zero files is treated as missing, per-artifact, and a refusal never mutates the ledger)"
+
+# ---------------------------------------------------------------------------
+# Defect 13 (codex red-team finding 13): --scenario must be validated
+# against REQ-F-002's closed lowercase-kebab grammar (the same grammar
+# tests/contracts/e40_i04_scenario_contract_test.go enforces for I-04
+# admission) before any read or write, for --record; and the retention-
+# relative path built from a scenario_id -- whether a freshly-validated
+# argv or one read back out of the (hand-editable) ledger for --verify --
+# must be containment-checked before any read or write.
+# ---------------------------------------------------------------------------
+
+# (a) Grammar rejection for --record: uppercase, underscore, and an
+# embedded path separator are all outside the closed lowercase-kebab
+# grammar and must be refused before pilot-ledger.sh even looks at the
+# filesystem for that scenario.
+for bad_scenario in "Scenario-A" "scenario_a" "scenario/a" "../scenario-a" "/etc"; do
+	rc=0
+	out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario "$bad_scenario" --rep 1 \
+		--operator "operator-4@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
+	[[ "$rc" -eq 2 ]] || fail "defect 13: --scenario '$bad_scenario' should be refused (exit 2) by the grammar check, got rc=$rc: $out"
+	echo "$out" | grep -qi "grammar\|lowercase-kebab" || fail "defect 13: --scenario '$bad_scenario' refusal did not name the grammar/lowercase-kebab reason: $out"
+done
+LEDGER_LINES_AFTER_GRAMMAR="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
+[[ "$LEDGER_LINES_AFTER_GRAMMAR" -eq "$LEDGER_LINES_AFTER_DEFECT1" ]] || fail "defect 13: a grammar-refused --record appended to pilot-ledger.jsonl anyway"
+
+# (b) Containment check catches what the grammar check structurally cannot:
+# a scenario_id that IS valid lowercase-kebab but whose retention-relative
+# path resolves outside the retention root via a symlinked path component
+# (a real path-traversal primitive a lexical grammar check is blind to,
+# which is exactly why assert_within_out_root canonicalizes with realpath
+# before comparing -- the same guard run-lifecycle-batch.sh and
+# run-review-comparison.sh already use for their own retention paths).
+OUTSIDE_ROOT="$WORKDIR/secret-outside"
+mkdir -p "$OUTSIDE_ROOT/1/evidence" "$OUTSIDE_ROOT/1/transcripts"
+cat >"$OUTSIDE_ROOT/1/package.yaml" <<'EOF'
+schema_version: "1.0"
+scenario_id: "escape-link"
+scenario_version: "1"
+entity_family: "leaked-family"
+EOF
+echo '{"stage": "code"}' >"$OUTSIDE_ROOT/1/evidence/stage.json"
+echo "leaked transcript" >"$OUTSIDE_ROOT/1/transcripts/stage.txt"
+echo '{"root_key": "ROOT-001", "entries": []}' >"$OUTSIDE_ROOT/1/entity-history.json"
+echo '{"scenario_id": "escape-link", "rep": 1}' >"$OUTSIDE_ROOT/1/lifecycle.jsonl"
+echo '{"scenario_id": "escape-link", "rep": 1}' >"$OUTSIDE_ROOT/1/evaluation.jsonl"
+echo '{"held_back": true}' >"$OUTSIDE_ROOT/1/oracle.json"
+echo '{"scenario_id": "escape-link", "rep": 1, "artifacts": {}}' >"$OUTSIDE_ROOT/1/manifest.json"
+
+mkdir -p "$ROOT/scenarios"
+ln -s "$OUTSIDE_ROOT" "$ROOT/scenarios/escape-link"
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario escape-link --rep 1 \
+	--operator "operator-5@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
+[[ "$rc" -eq 2 ]] || fail "defect 13 (symlink escape): recording through a scenario dir symlinked outside the retention root should be refused (exit 2), got rc=$rc: $out"
+echo "$out" | grep -qi "outside\|refusing" || fail "defect 13 (symlink escape): refusal did not name a containment reason: $out"
+grep -q "leaked-family" "$ROOT/pilot-ledger.jsonl" && fail "defect 13 (symlink escape): the ledger was poisoned with the outside-root scenario's family -- containment check did not prevent the read"
+LEDGER_LINES_AFTER_SYMLINK_RECORD="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
+[[ "$LEDGER_LINES_AFTER_SYMLINK_RECORD" -eq "$LEDGER_LINES_AFTER_GRAMMAR" ]] || fail "defect 13 (symlink escape): a refused --record appended to pilot-ledger.jsonl anyway"
+
+# (c) The same containment check applies on the --verify read side against
+# a ledger entry (append-only, hand-editable -- not a freshly-validated
+# argv) that names the same symlinked scenario_id. Hand-append a forged row
+# for a family --record never legitimately wrote, mirroring what a pre-fix
+# --record (or direct hand-editing) could have produced.
+python3 - "$ROOT/pilot-ledger.jsonl" <<'PYEOF'
+import json
+import sys
+
+path = sys.argv[1]
+row = {
+    "family": "leaked-family",
+    "run_reference": {"scenario_id": "escape-link", "rep": 1, "retention_path": "scenarios/escape-link/1"},
+    "operator_identity": "attacker@example.com",
+    "checklist_results": {"items": []},
+    "inspected_artifact_digests": {},
+    "recorded_at": "2026-08-20T00:00:00Z",
+}
+with open(path, "a", encoding="utf-8") as f:
+    f.write(json.dumps(row, sort_keys=True) + "\n")
+PYEOF
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family leaked-family 2>&1)" || rc=$?
+[[ "$rc" -ne 0 ]] || fail "defect 13 (verify symlink escape): verifying a family whose ledger entry points outside the retention root should fail, got rc=0: $out"
+echo "$out" | grep -q "family=leaked-family: FAILED" || fail "defect 13 (verify symlink escape): expected a FAILED verdict for leaked-family: $out"
+echo "$out" | grep -q "unsafe_scenario_reference" || fail "defect 13 (verify symlink escape): expected the unsafe_scenario_reference reason, got: $out"
+
+rm -f "$ROOT/scenarios/escape-link"
+
+echo "TC-081 (rework, defect 13): pass (--scenario is refused before any read/write for both an out-of-grammar value and a grammar-valid value whose path escapes the retention root via a symlink, on both --record and --verify)"
+
+# ---------------------------------------------------------------------------
+# Defect 3 (advisor review of this rework, code-review-2026-08-20T1731-E40-F10.md
+# finding 3's own stated failure mode): --verify's own comment says a missing
+# artifact must never compare None == None against a recorded digest and be
+# reported "verified" -- but the empty-dir fix alone does not close this for
+# a ledger row whose inspected_artifact_digests is missing keys entirely (a
+# forged/hand-edited row, or one from a pre-fix --record that never wrote a
+# key for a since-deleted artifact). digest_of_path(missing_path) is None,
+# and dict.get() on an absent key is also None -- None == None passes the
+# staleness check with zero real evidence inspected.
+# ---------------------------------------------------------------------------
+scenario_id="scenario-incomplete-attestation"
+family="family-incomplete-attestation"
+# Deliberately no retained scenario directory created under $ROOT/scenarios
+# for this scenario_id/rep -- digest_of_path() over a nonexistent path
+# returns None for every one of the eight required artifacts, exactly
+# mirroring recorded_digests.get(name) on a row with an empty digests map.
+# If the verify loop ever compares None == None as a pass, this is the
+# fixture that catches it.
+python3 - "$ROOT/pilot-ledger.jsonl" "$scenario_id" "$family" <<'PYEOF'
+import json
+import sys
+
+path, scenario_id, family = sys.argv[1:4]
+row = {
+    "family": family,
+    "run_reference": {"scenario_id": scenario_id, "rep": 1, "retention_path": f"scenarios/{scenario_id}/1"},
+    "operator_identity": "attacker@example.com",
+    "checklist_results": {"items": []},
+    # Deliberately empty -- no digests recorded for any of the eight
+    # required artifacts, simulating a forged or pre-fix row.
+    "inspected_artifact_digests": {},
+    "recorded_at": "2026-08-20T00:00:00Z",
+}
+with open(path, "a", encoding="utf-8") as f:
+    f.write(json.dumps(row, sort_keys=True) + "\n")
+PYEOF
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family "$family" 2>&1)" || rc=$?
+[[ "$rc" -ne 0 ]] || fail "defect 3 (incomplete attestation): verifying a family whose recorded digests are missing entirely should fail, got rc=0: $out"
+echo "$out" | grep -q "family=$family: FAILED" || fail "defect 3 (incomplete attestation): expected a FAILED verdict for $family: $out"
+echo "$out" | grep -q "incomplete_attestation" || fail "defect 3 (incomplete attestation): expected the incomplete_attestation reason, got: $out"
+
+echo "TC-081 (rework, defect 3): pass (a ledger row missing recorded digests for required artifacts is never treated as verified via a None == None comparison)"
