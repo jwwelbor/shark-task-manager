@@ -16,12 +16,25 @@
 #     never re-derives per-run ceiling *semantics*, only presence/positivity
 #     *shape*);
 #   - the --retention-root presence check;
-#   - the pilot-ledger gate hook for --mode baseline (REQ-F-005). This task
-#     (T-E40-F10-003) provides presence-only gating (does a
-#     pilot-ledger.jsonl exist under the retention root); T-E40-F10-006
-#     (pilot-ledger.sh) extends spend_gate_check_pilot_ledger with
-#     per-family digest verification once the ledger format and retained
-#     artifacts it verifies against exist.
+#   - the pilot-ledger gate hook for --mode baseline (REQ-F-005).
+#     spend_gate_check_pilot_ledger (T-E40-F10-003) is presence-only (does
+#     a pilot-ledger.jsonl exist under the retention root) and is called
+#     unconditionally from spend_gate_check_all, unchanged, so every
+#     existing caller keeps its exact prior behavior (including
+#     tc080_spend_gate_refusal_test.sh's direct spend_gate_check_all
+#     assertions). spend_gate_check_pilot_ledger_families (T-E40-F10-006)
+#     is the REAL per-family, digest-current verification ADR-F10-09
+#     requires; it is layered on top, also called unconditionally from
+#     spend_gate_check_all, but only ACTS when the caller's argv contains
+#     a --batch flag (run-lifecycle-batch.sh's own signature) -- it
+#     derives the requested scenario matrix's family set independently
+#     from that --batch policy + scenario index (mirroring, but never
+#     calling into, run-lifecycle-batch.sh's own matrix enumeration) so
+#     REQ-F-005's whole-command refusal runs at this file's existing
+#     pre-matrix call site with no change to run-lifecycle-batch.sh
+#     itself. A caller with no --batch flag (e.g. run-review-comparison.sh)
+#     falls through unchanged -- still gated by the presence-only check
+#     above only, per that driver's own scope.
 #
 # Refusal-reason strings and exit statuses mirror
 # bench/reports/lifecycle-baseline-schema.yaml `refusal_reason` /
@@ -42,6 +55,15 @@
 
 SPEND_GATE_EXIT_USAGE_ERROR=2
 SPEND_GATE_EXIT_REFUSAL=3
+
+# Resolved once at source time via the SIBLING path (TD-077 defect-class
+# precedent, matched by run-lifecycle-batch.sh's own RUN_LIFECYCLE_BIN /
+# EVALUATE_LIFECYCLE_BIN), never a bare PATH-resolved name -- so a
+# self-test can substitute a stub through one overridable variable without
+# touching PATH resolution for anything else spend-gate.sh's callers do.
+SPEND_GATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PILOT_LEDGER_BIN="${PILOT_LEDGER_BIN:-$SPEND_GATE_LIB_DIR/../pilot-ledger.sh}"
+SPEND_GATE_BENCH_DIR="${SPEND_GATE_BENCH_DIR:-$(cd "$SPEND_GATE_LIB_DIR/../.." && pwd)}"
 
 # Set by the last spend_gate_check_* call that refused; empty after a
 # passing check or a usage error (a usage error is not a refusal reason).
@@ -177,6 +199,169 @@ spend_gate_check_pilot_ledger() {
 	return 0
 }
 
+# _spend_gate_families_from_batch <batch_policy_path> <scenarios_filter>
+# Prints one family name per line: the entity_family (per admitted I-04
+# package.yaml) of every scenario the batch policy's matrix would request,
+# filtered by <scenarios_filter> (a comma-separated --scenarios value, or
+# empty for "every scenario in the index") -- this MIRRORS, but does not
+# call into, run-lifecycle-batch.sh's own matrix-enumeration Python (family
+# derivation only; reps/root_key/scratch_root are irrelevant here). Kept
+# independent so REQ-F-005's whole-command refusal can run at this file's
+# existing pre-matrix call site with no change to run-lifecycle-batch.sh.
+#
+# Deliberately fails OPEN (prints nothing, never a hard error) on any
+# parse problem: a malformed batch policy or scenario index is
+# run-lifecycle-batch.sh's own matrix-enumeration step's failure to
+# report (it re-parses the same file moments later), not this library's.
+_spend_gate_families_from_batch() {
+	local batch_policy_path="$1" scenarios_filter="$2"
+	[[ -f "$batch_policy_path" ]] || return 0
+	command -v python3 >/dev/null 2>&1 || return 0
+	python3 - "$SPEND_GATE_BENCH_DIR" "$batch_policy_path" "$scenarios_filter" <<'PYEOF' 2>/dev/null || true
+import os
+import sys
+
+try:
+    import yaml
+except ImportError:
+    raise SystemExit(0)
+
+bench_dir, batch_policy_path, scenarios_filter = sys.argv[1:4]
+
+try:
+    with open(batch_policy_path) as f:
+        policy = yaml.safe_load(f) or {}
+except Exception:
+    raise SystemExit(0)
+if not isinstance(policy, dict):
+    raise SystemExit(0)
+
+scenario_index_field = policy.get("scenario_index") or "scenarios/scenarios.yaml"
+scenario_index_path = (
+    scenario_index_field if os.path.isabs(scenario_index_field) else os.path.join(bench_dir, scenario_index_field)
+)
+if not os.path.isfile(scenario_index_path):
+    raise SystemExit(0)
+
+try:
+    with open(scenario_index_path) as f:
+        index = yaml.safe_load(f) or {}
+except Exception:
+    raise SystemExit(0)
+scenario_dirs = index.get("scenarios") or []
+index_dir = os.path.dirname(scenario_index_path)
+
+requested_ids = [s for s in scenarios_filter.split(",") if s] if scenarios_filter else []
+
+families = set()
+for rel in scenario_dirs:
+    pkg_path = os.path.join(index_dir, rel, "package.yaml")
+    if not os.path.isfile(pkg_path):
+        continue
+    try:
+        with open(pkg_path) as f:
+            pkg = yaml.safe_load(f) or {}
+    except Exception:
+        continue
+    scenario_id = str(pkg.get("scenario_id", ""))
+    if not scenario_id:
+        continue
+    if requested_ids and scenario_id not in requested_ids:
+        continue
+    family = str(pkg.get("entity_family") or "")
+    if family:
+        families.add(family)
+
+for fam in sorted(families):
+    print(fam)
+PYEOF
+}
+
+# spend_gate_check_pilot_ledger_families <mode> <argv...>
+# REQ-F-005 whole-command refusal (AC-T1), ADR-F10-09: for --mode baseline
+# invocations whose argv contains --batch (run-lifecycle-batch.sh's own
+# signature), derive the requested matrix's family set and ask the single
+# digest-verification authority (pilot-ledger.sh --verify --family) once
+# per family. ANY failing family fails the WHOLE command -- this runs
+# before matrix enumeration/dispatch, never as a per-family dispatch
+# filter -- and the refusal names every failing family with its specific
+# per-family condition (no_attestation vs. stale_digest), even though the
+# single schema-owned SPEND_GATE_REFUSAL_REASON code can only carry one of
+# the two (missing_pilot_attestation takes precedence when ANY family has
+# no attestation at all; stale_pilot_attestation_digest otherwise).
+#
+# A caller whose argv has no --batch flag (e.g. run-review-comparison.sh)
+# is a no-op pass here -- gated only by the presence-only check above,
+# which remains this file's sole owner of that driver's baseline gate.
+spend_gate_check_pilot_ledger_families() {
+	local mode="$1"
+	shift
+	local argv=("$@")
+
+	if [[ "$mode" != "baseline" ]]; then
+		SPEND_GATE_REFUSAL_REASON=""
+		return 0
+	fi
+
+	local batch_policy
+	batch_policy="$(_spend_gate_flag_value "--batch" "${argv[@]}")" || batch_policy=""
+	if [[ -z "$batch_policy" ]]; then
+		SPEND_GATE_REFUSAL_REASON=""
+		return 0
+	fi
+
+	local retention_root
+	retention_root="$(_spend_gate_flag_value "--retention-root" "${argv[@]}")" || retention_root=""
+	if [[ -z "$retention_root" ]]; then
+		SPEND_GATE_REFUSAL_REASON=""
+		return 0
+	fi
+
+	local scenarios_filter
+	scenarios_filter="$(_spend_gate_flag_value "--scenarios" "${argv[@]}")" || scenarios_filter=""
+
+	local families=()
+	local fam
+	while IFS= read -r fam; do
+		[[ -n "$fam" ]] && families+=("$fam")
+	done < <(_spend_gate_families_from_batch "$batch_policy" "$scenarios_filter")
+
+	if [[ "${#families[@]}" -eq 0 ]]; then
+		SPEND_GATE_REFUSAL_REASON=""
+		return 0
+	fi
+
+	if [[ ! -x "$PILOT_LEDGER_BIN" ]]; then
+		SPEND_GATE_REFUSAL_REASON=""
+		return 0
+	fi
+
+	local failing=() any_missing="false"
+	local out rc condition
+	for fam in "${families[@]}"; do
+		rc=0
+		out="$("$PILOT_LEDGER_BIN" --retention-root "$retention_root" --verify --family "$fam" 2>&1)" || rc=$?
+		if [[ "$rc" -ne 0 ]]; then
+			condition="unknown"
+			[[ "$out" =~ FAILED\ \(([a-z_]+) ]] && condition="${BASH_REMATCH[1]}"
+			[[ "$condition" == "no_attestation" ]] && any_missing="true"
+			failing+=("$fam ($condition)")
+		fi
+	done
+
+	if [[ "${#failing[@]}" -eq 0 ]]; then
+		SPEND_GATE_REFUSAL_REASON=""
+		return 0
+	fi
+
+	local reason="stale_pilot_attestation_digest"
+	[[ "$any_missing" == "true" ]] && reason="missing_pilot_attestation"
+
+	spend_gate_refuse "$reason" \
+		"pilot attestation gate failed for the following families: ${failing[*]}"
+	return $?
+}
+
 # spend_gate_check_all <mode> <argv...>
 # Single entrypoint both provider-backed drivers call for --mode
 # pilot|baseline, before any subprocess/checkout/Shark call. <argv...> MUST
@@ -198,6 +383,7 @@ spend_gate_check_all() {
 	local retention_root
 	retention_root="$(_spend_gate_flag_value "--retention-root" "${argv[@]}")"
 	spend_gate_check_pilot_ledger "$mode" "$retention_root" || return $?
+	spend_gate_check_pilot_ledger_families "$mode" "${argv[@]}" || return $?
 
 	SPEND_GATE_REFUSAL_REASON=""
 	return 0
