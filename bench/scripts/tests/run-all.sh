@@ -81,6 +81,7 @@ tests=(
 	"$SCRIPT_DIR/tc087_review_comparison_operator_test.sh"
 	"$SCRIPT_DIR/tc088_dimension_separation_and_noise_band_test.sh"
 	"$SCRIPT_DIR/tc089_phase_separation_test.sh"
+	"$SCRIPT_DIR/tc090_offline_determinism_and_scale_test.sh"
 )
 
 status=0
