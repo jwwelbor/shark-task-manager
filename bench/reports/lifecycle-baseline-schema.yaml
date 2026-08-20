@@ -1,0 +1,444 @@
+# bench/reports/lifecycle-baseline-schema.yaml
+#
+# F10's single machine-readable owner (REQ-F-018) of the closed vocabulary
+# consumed by the operator batch/comparison drivers, the retention layout,
+# the pilot-inspection attestation, the lifecycle aggregate (`aggregate.json`),
+# and the two report views. Operator tooling and tests (TC-078 onward) read
+# this vocabulary rather than maintaining private copies.
+#
+# F10 REFERENCES, and deliberately does NOT restate, two upstream
+# vocabularies (component-changes table, REQ-F-018):
+#   - bench/evidence/i05-schema.yaml: `stage_category` (8 values) and
+#     `interval_category` (6 values). This file intentionally carries no
+#     `stage_category:`/`interval_category:` list of its own -- an aggregate
+#     or report that names a stage/interval category value not present in
+#     i05-schema.yaml is invalid (TC-078 negative case), which is enforced
+#     by reading i05-schema.yaml directly rather than duplicating its list
+#     here.
+#   - bench/evaluation/i08-schema.yaml: `invalidity_reason`. F10 copies
+#     `eligibility.invalidity_reasons` entries verbatim (ADR-F10-04) and
+#     never invents its own invalidity code.
+#
+# Everything below IS owned here: the aggregate.json field inventory, the
+# retention-layout artifact inventory, the pilot-attestation field
+# inventory, the refusal-reason vocabulary and exit statuses, the
+# noise-band derivation-rule names (including the boundary-inclusivity
+# rule, REQ-F-018/AC-T1), the REQ-F-011 share-partition cell names, the
+# report view names, the phase-label values, F10's own digest rules, the
+# forbidden_effort_language and forbidden_composite_fields closed lists
+# (REQ-F-013, REQ-F-016), and the enumerated provider/network binary list
+# reused by the PATH-shim denial harness (AC-002, AC-003, AC-013).
+
+schema_version: "1.0"
+
+# ---------------------------------------------------------------------------
+# aggregate.json (REQ-F-007, REQ-F-008; spec.md "Data model changes" blocks
+# table). One row per required top-level block.
+# ---------------------------------------------------------------------------
+
+aggregate_top_level_fields:
+  - identity
+  - scenarios
+  - time
+  - cost
+  - quality
+  - review_value
+  - artifact_use
+  - noise_bands
+  - comparisons
+  - invalid
+
+# JSON-Pointer required-field list. A segment suffixed `[]` denotes "for
+# every element of this array" (mirrors the i07-schema.yaml/i06 contract
+# test convention already used by this repository's Go contract validators).
+aggregate_required_fields:
+  # identity: F10 schema version, batch id, phase label, retention-root
+  # digest, batch-policy digest, ceilings, acknowledgement record
+  # reference, declared minimum reps.
+  - /identity
+  - /identity/schema_version
+  - /identity/batch_id
+  - /identity/phase
+  - /identity/retention_root_digest
+  - /identity/batch_policy_digest
+  - /identity/ceilings
+  - /identity/ceilings/max_cost_usd
+  - /identity/ceilings/max_wall_clock_seconds
+  - /identity/ceilings/max_generated_tasks
+  - /identity/acknowledgement_ref
+  - /identity/min_reps
+
+  # scenarios[]: scenario id/version/family, rep, retention path, verbatim
+  # I-08 eligibility, verbatim I-07 outcome, source-artifact digests.
+  - /scenarios
+  - /scenarios[]/scenario_id
+  - /scenarios[]/scenario_version
+  - /scenarios[]/family
+  - /scenarios[]/rep
+  - /scenarios[]/retention_path
+  - /scenarios[]/eligibility
+  - /scenarios[]/eligibility/aggregate_eligible
+  - /scenarios[]/eligibility/publication_eligible
+  - /scenarios[]/eligibility/invalidity_reasons
+  - /scenarios[]/outcome
+  - /scenarios[]/source_digests
+
+  # time: lifecycle wall time; stage_category/interval_category/
+  # share_partition partitions, each with its own unattributed residual.
+  - /time
+  - /time/lifecycle_wall_seconds
+  - /time/stage_category
+  - /time/interval_category
+  - /time/share_partition
+  - /time/stage_category/unattributed
+  - /time/interval_category/unattributed
+  - /time/share_partition/unattributed
+
+  # cost: the same three partitions in provider cost, plus
+  # observed-versus-ceiling consumption.
+  - /cost
+  - /cost/stage_category
+  - /cost/interval_category
+  - /cost/share_partition
+  - /cost/stage_category/unattributed
+  - /cost/interval_category/unattributed
+  - /cost/share_partition/unattributed
+  - /cost/ceiling_consumption
+  - /cost/ceiling_consumption/observed_cost_usd
+  - /cost/ceiling_consumption/max_cost_usd
+
+  # quality: verbatim I-08 structural/judge/execution_oracle verdicts per
+  # scenario; first-pass yield derived from retained gate rounds.
+  - /quality
+  - /quality/by_scenario
+  - /quality/by_scenario[]/scenario_id
+  - /quality/by_scenario[]/structural
+  - /quality/by_scenario[]/judge
+  - /quality/by_scenario[]/execution_oracle
+  - /quality/first_pass_yield
+
+  # review_value: per-gate finding measures, cost, and truth-set
+  # availability (ADR-F10-10: precision/recall render `unavailable`, never
+  # `0`, when no truth set exists).
+  - /review_value
+  - /review_value/gates
+  - /review_value/gates[]/gate_id
+  - /review_value/gates[]/state
+  - /review_value/gates[]/counts
+  - /review_value/gates[]/counts_by_severity
+  - /review_value/gates[]/counts_by_defect_class
+  - /review_value/gates[]/elapsed_seconds
+  - /review_value/gates[]/provider_cost_usd
+  - /review_value/gates[]/resolution_cost_usd
+  - /review_value/gates[]/truth_set_available
+  - /review_value/gates[]/precision
+  - /review_value/gates[]/recall
+
+  # artifact_use: production/consumption/reuse/orphan counts and the
+  # replayed-interaction proxy block (REQ-F-013 -- every field here MUST
+  # carry the replayed-proxy label and MUST NOT be expressed as observed
+  # human effort).
+  - /artifact_use
+  - /artifact_use/produced_count
+  - /artifact_use/consumed_count
+  - /artifact_use/reused_count
+  - /artifact_use/orphan_count
+  - /artifact_use/edges
+  - /artifact_use/replayed_interaction_proxy
+  - /artifact_use/replayed_interaction_proxy/label
+  - /artifact_use/replayed_interaction_proxy/request_count
+  - /artifact_use/replayed_interaction_proxy/response_count
+  - /artifact_use/replayed_interaction_proxy/payload_size_bytes
+  - /artifact_use/replayed_interaction_proxy/revision_count
+  - /artifact_use/replayed_interaction_proxy/unresolved_gate_count
+
+  # noise_bands[]: per (scenario, metric) band.
+  - /noise_bands
+  - /noise_bands[]/scenario_id
+  - /noise_bands[]/metric
+  - /noise_bands[]/min
+  - /noise_bands[]/median
+  - /noise_bands[]/max
+  - /noise_bands[]/spread_abs
+  - /noise_bands[]/acceptance_interval
+  - /noise_bands[]/acceptance_interval/lower_bound
+  - /noise_bands[]/acceptance_interval/upper_bound
+  - /noise_bands[]/derivation_rule
+  - /noise_bands[]/rep_count
+  - /noise_bands[]/insufficient_reps
+
+  # comparisons and invalid are required arrays (REQ-F-007, REQ-F-015) but
+  # MAY be legitimately empty (no comparison requested; no ineligible run),
+  # so only their presence-as-array is required here, not non-emptiness.
+  - /comparisons
+  - /invalid
+
+# Non-exhaustive JSON-type hints for the pointers a validator most needs to
+# discriminate (object/array vs. scalar, and the digest/boolean fields named
+# explicitly by TC-078's "Required field enumeration").
+aggregate_properties:
+  /identity: object
+  /identity/schema_version: string
+  /identity/phase: string
+  /identity/retention_root_digest: digest
+  /identity/batch_policy_digest: digest
+  /identity/ceilings: object
+  /identity/min_reps: integer
+  /scenarios: array
+  /scenarios[]/eligibility/aggregate_eligible: boolean
+  /scenarios[]/eligibility/publication_eligible: boolean
+  /scenarios[]/eligibility/invalidity_reasons: array
+  /time: object
+  /cost: object
+  /quality: object
+  /quality/by_scenario: array
+  /review_value: object
+  /review_value/gates: array
+  /review_value/gates[]/truth_set_available: boolean
+  /artifact_use: object
+  /artifact_use/replayed_interaction_proxy/label: string
+  /noise_bands: array
+  /noise_bands[]/insufficient_reps: boolean
+  /comparisons: array
+  /invalid: array
+
+# ---------------------------------------------------------------------------
+# Retention layout (REQ-F-004, REQ-NF-007; spec.md "Data model changes").
+# The eight retained artifacts TC-082's retention-root verifier exercises
+# one-deleted-at-a-time, and TC-078's retention-manifest fixture matrix
+# covers the same eight-item list. `comparison.json` is retained only when
+# a review-comparison was run for that (scenario, rep) and is therefore
+# optional, never part of the required eight.
+# ---------------------------------------------------------------------------
+
+retention_required_artifacts:
+  - package.yaml
+  - evidence
+  - transcripts
+  - entity-history.json
+  - lifecycle.jsonl
+  - evaluation.jsonl
+  - oracle.json
+  - manifest.json
+
+retention_optional_artifacts:
+  - comparison.json
+
+# manifest.json's own content: source path + sha256 for every retained
+# artifact except itself (a manifest cannot digest its own not-yet-written
+# bytes). Required keys are the seven non-manifest retention artifacts.
+retention_manifest_required_fields:
+  - /scenario_id
+  - /rep
+  - /artifacts
+  - /artifacts/package.yaml
+  - /artifacts/package.yaml/source_path
+  - /artifacts/package.yaml/sha256
+  - /artifacts/evidence
+  - /artifacts/evidence/source_path
+  - /artifacts/evidence/sha256
+  - /artifacts/transcripts
+  - /artifacts/transcripts/source_path
+  - /artifacts/transcripts/sha256
+  - /artifacts/entity-history.json
+  - /artifacts/entity-history.json/source_path
+  - /artifacts/entity-history.json/sha256
+  - /artifacts/lifecycle.jsonl
+  - /artifacts/lifecycle.jsonl/source_path
+  - /artifacts/lifecycle.jsonl/sha256
+  - /artifacts/evaluation.jsonl
+  - /artifacts/evaluation.jsonl/source_path
+  - /artifacts/evaluation.jsonl/sha256
+  - /artifacts/oracle.json
+  - /artifacts/oracle.json/source_path
+  - /artifacts/oracle.json/sha256
+
+# ---------------------------------------------------------------------------
+# Pilot-inspection attestation (REQ-F-005, ADR-F10-09).
+# ---------------------------------------------------------------------------
+
+pilot_attestation_required_fields:
+  - /run_reference
+  - /checklist_results
+  - /operator_identity
+  - /inspected_artifact_digests
+
+# ---------------------------------------------------------------------------
+# Refusal-reason vocabulary (REQ-F-002, REQ-F-003, REQ-F-005, REQ-F-017).
+# Every F10 refusal MUST report exactly one of these codes -- never a
+# private string a script or test invents locally (REQ-F-018).
+# ---------------------------------------------------------------------------
+
+refusal_reason:
+  - missing_acknowledgement
+  - missing_max_cost_usd
+  - non_positive_max_cost_usd
+  - missing_max_wall_clock_seconds
+  - non_positive_max_wall_clock_seconds
+  - missing_max_generated_tasks
+  - non_positive_max_generated_tasks
+  - missing_retention_root
+  - missing_pilot_attestation
+  - stale_pilot_attestation_digest
+  - phase1_record_input_refused
+
+# API/interface exit statuses (spec.md "API / interface contracts"). Owned
+# here so a refusal test asserts against the schema rather than a
+# hard-coded literal.
+refusal_exit_status:
+  success: 0
+  usage_error: 2
+  spend_gate_refusal: 3
+  batch_partial_failure: 4
+
+# ---------------------------------------------------------------------------
+# Noise-band derivation (REQ-F-007, REQ-F-012, ADR-F10-12). Reuses
+# aggregate-runs.sh's existing min/median/max/spread/insufficient_reps
+# flag semantics (research-report.md pattern precedent) rather than
+# inventing a second statistic.
+# ---------------------------------------------------------------------------
+
+noise_band_derivation_rule:
+  - min_median_max_spread_accept_interval
+
+# AC-T1 / TC-088's deferred open question: F10 states the boundary rule
+# explicitly here so TC-078 can lock it down and TC-088 (a later task) has
+# an authorized oracle rather than inventing one inside a test.
+noise_band_boundary_inclusivity: >-
+  closed_interval_inclusive_of_boundary: the published acceptance interval
+  is closed on both bounds ([lower_bound, upper_bound]). A paired delta
+  landing exactly on lower_bound or upper_bound is INSIDE the band and
+  MUST render as "no detectable effect"; only a delta strictly less than
+  lower_bound or strictly greater than upper_bound MAY be reported as a
+  detected regression or improvement. Chosen because REQ-F-016 forbids
+  overclaiming a quality/time/cost effect from noise, and a delta that
+  lands exactly on the boundary is the case most likely to be sampling
+  noise rather than a real effect.
+
+# ---------------------------------------------------------------------------
+# REQ-F-011 share partition. Six disjoint cells over the (stage_category,
+# interval_category) product (ADR-F10-08); `unattributed` is the required
+# residual line for any cell the partition does not cover, not itself a
+# share.
+# ---------------------------------------------------------------------------
+
+share_partition_cell:
+  - pre_code
+  - review
+  - rework
+  - first_pass_code
+  - wait
+  - shipping
+
+share_partition_residual: unattributed
+
+# ---------------------------------------------------------------------------
+# Report views (REQ-F-009, ADR-F10-07). `stage_diagnostic` is structurally
+# subordinate to `headline` and MUST NOT be published standalone.
+# ---------------------------------------------------------------------------
+
+report_view:
+  - headline
+  - stage_diagnostic
+
+# ---------------------------------------------------------------------------
+# Phase labels (REQ-F-017, ADR-F10-11). Every F10 artifact and report
+# carries `lifecycle_v2`; a Phase 1 (v1) artifact MUST NOT carry it.
+# ---------------------------------------------------------------------------
+
+phase_label:
+  - lifecycle_v2
+
+# ---------------------------------------------------------------------------
+# F10's own digest rules (its retained artifacts, manifests, and identity
+# digests -- distinct from, but numerically identical in convention to,
+# the I-05/I-07/I-08 digest_rules blocks they were modeled on).
+# ---------------------------------------------------------------------------
+
+digest_rules:
+  algorithm: sha256
+  encoding: lowercase_hex
+  canonicalization: compact_json_sorted_keys_utf8
+  file_encoding: sha256_raw_bytes
+
+# ---------------------------------------------------------------------------
+# REQ-F-013: no artifact-use/replay-proxy field may be expressed as
+# observed human effort. Closed, versioned list (v1) a static scanner reads
+# rather than reimplementing.
+# ---------------------------------------------------------------------------
+
+forbidden_effort_language_version: 1
+forbidden_effort_language:
+  # Required literal terms (test-plan.md TC-086 Input/Negative Cases,
+  # including the four "non-obvious ones" the test explicitly names).
+  - human minute
+  - human hour
+  - human effort
+  - effort saved
+  - time equivalent
+  - time saved
+  - person-hour
+  - FTE
+  # Additional coverage terms (same closed-list discipline; a future
+  # human-effort synonym is a schema-maintenance addition here, not a
+  # scan-logic change, per TC-086's Negative Cases note).
+  - human minutes
+  - human hours
+  - man hours
+  - man-hours
+  - person hours
+  - person-hours
+  - developer hours
+  - engineer hours
+  - engineering hours
+  - manual hours
+  - hours saved
+  - time saved by a human
+  - human time saved
+
+# ---------------------------------------------------------------------------
+# REQ-F-016: no composite, weighted, or blended efficiency/value/ROI score
+# anywhere in the schema or in report output. Closed, versioned list (v1).
+# ---------------------------------------------------------------------------
+
+forbidden_composite_fields_version: 1
+forbidden_composite_fields:
+  # Required literal terms (test-plan.md TC-088 Input: "literal terms:
+  # efficiency, value_score, roi, composite, weighted_score, blended").
+  - efficiency
+  - value_score
+  - roi
+  - composite
+  - weighted_score
+  - blended
+  # Additional coverage terms.
+  - efficiency_score
+  - return_on_investment
+  - composite_score
+  - blended_score
+  - overall_score
+  - productivity_score
+  - effectiveness_score
+
+# ---------------------------------------------------------------------------
+# AC-T2: the enumerated provider/network binary list reused by the
+# PATH-shim zero-spend denial harness (TC-079, TC-080, TC-090; component
+# changes for T-004/T-005/T-013). This is every provider CLI or network
+# tool reachable from run-lifecycle-batch.sh, run-review-comparison.sh, or
+# the scripts they delegate to: run-lifecycle.sh, evaluate-lifecycle.sh,
+# lifecycle-worker-adapter.sh (provider dispatch table),
+# compare-lifecycle-evaluations.sh, run-heldback-oracle.sh,
+# review-capture.sh, normalize-review-findings.sh, lifecycle-prelude.sh,
+# run-prelude.sh, and bench/scripts/lib/*.sh. As of this schema version
+# (verified by a literal grep for claude|codex|curl|wget|ssh|scp|turso|nc|
+# rsync across that full file set) no network tool (curl, wget, ssh, scp,
+# turso, nc, rsync) is reachable from that call chain; if a future change
+# introduces one it MUST be added here before the PATH-shim harness can
+# deny it -- an unenumerated wildcard shim is explicitly rejected (Test
+# Infrastructure, "New fixtures/helpers
+# required").
+# ---------------------------------------------------------------------------
+
+provider_and_network_binaries:
+  - claude
+  - codex
