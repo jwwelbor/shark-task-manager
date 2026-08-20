@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# TC-084 / T-E40-F10-008: stage-category / interval-category time
-# reconciliation and the REQ-F-011 six-share partition (spec.md
-# REQ-F-009, REQ-F-010, REQ-F-011; test-plan.md TC-084 full body; AC-007,
-# AC-T2).
+# TC-084 / T-E40-F10-008 (aggregator half) + T-E40-F10-012 (report half):
+# stage-category / interval-category time reconciliation and the REQ-F-011
+# six-share partition (spec.md REQ-F-009, REQ-F-010, REQ-F-011, ADR-F10-07;
+# test-plan.md TC-084 full body; AC-007, AC-T1, AC-T2).
 #
-# Exercises the REAL aggregate-lifecycle.sh binary over a hand-built
-# retention root covering the full 8 stage_category x 6 interval_category
-# matrix (TC-084 Preconditions: "a full 8x6 fixture matrix, not a handful
-# of representative cells"), including two `code` stages -- one
-# `rework: true`, one `rework: false` -- so the REQ-F-011 rework/
-# first_pass_code split is exercised on real data, never a stub.
+# Exercises the REAL aggregate-lifecycle.sh and report-lifecycle.sh binaries
+# over a hand-built retention root covering the full 8 stage_category x 6
+# interval_category matrix (TC-084 Preconditions: "a full 8x6 fixture
+# matrix, not a handful of representative cells"), including two `code`
+# stages -- one `rework: true`, one `rework: false` -- so the REQ-F-011
+# rework/first_pass_code split is exercised on real data, never a stub.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGGREGATOR="$SCRIPTS_DIR/aggregate-lifecycle.sh"
+REPORTER="$SCRIPTS_DIR/report-lifecycle.sh"
 
 fail() {
 	echo "TC-084 FAIL: $1" >&2
@@ -22,6 +23,7 @@ fail() {
 }
 
 [[ -x "$AGGREGATOR" ]] || fail "bench/scripts/aggregate-lifecycle.sh missing or not executable"
+[[ -x "$REPORTER" ]] || fail "bench/scripts/report-lifecycle.sh missing or not executable"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found on PATH"
 
 WORKDIR="$(mktemp -d)"
@@ -379,4 +381,150 @@ set -e
 grep -q "rework" "$WORKDIR/c.err" || fail "(c) missing rework flag: stderr did not mention the missing rework field: $(cat "$WORKDIR/c.err")"
 echo "TC-084(c): a code stage with the rework flag entirely absent fails loudly, never silently defaulted"
 
-echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, and both negative cases pass"
+# ===========================================================================
+# (d) Report half / T-E40-F10-012: report-lifecycle.sh --view stage_diagnostic
+# (spec.md REQ-F-009, REQ-F-010, ADR-F10-07; AC-T1, AC-T2). Reuses ROOT_A's
+# aggregate.json -- the exact same full 8x6 fixture already reconciled by
+# the aggregator-half checks above -- so the report half is checked against
+# numbers already independently verified, never a second fixture.
+# ===========================================================================
+AGG_A="$WORKDIR/aggregate-a.json"
+printf '%s' "$OUT_A" >"$AGG_A"
+
+HEADLINE_A="$WORKDIR/headline-a.md"
+"$REPORTER" --aggregate "$AGG_A" --view headline >"$HEADLINE_A" 2>"$WORKDIR/headline-a.err" ||
+	fail "(d) headline view over ROOT_A: reporter exited non-zero; stderr: $(cat "$WORKDIR/headline-a.err")"
+
+STAGE_DIAG_A="$WORKDIR/stage-diagnostic-a.md"
+"$REPORTER" --aggregate "$AGG_A" --view stage_diagnostic >"$STAGE_DIAG_A" 2>"$WORKDIR/stage-diagnostic-a.err" ||
+	fail "(d) stage_diagnostic view over ROOT_A: reporter exited non-zero; stderr: $(cat "$WORKDIR/stage-diagnostic-a.err")"
+
+python3 - "$HEADLINE_A" "$STAGE_DIAG_A" <<'PYEOF'
+import sys
+
+headline_path, stage_path = sys.argv[1:3]
+
+with open(headline_path, encoding="utf-8") as f:
+    headline = f.read()
+with open(stage_path, encoding="utf-8") as f:
+    stage = f.read()
+
+
+def fail(msg):
+    print(f"TC-084 FAIL (python check, report half): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+# AC-T1: the stage_diagnostic view carries the SAME headline verdict text in
+# its own header (ADR-F10-07 "structurally subordinate"), never re-derived.
+if "VERDICT: correct" not in headline:
+    fail("headline view: expected scenario-tc084 to render VERDICT: correct (fixture eligibility is publication_eligible=True)")
+if "VERDICT: correct" not in stage:
+    fail("stage_diagnostic view: did not carry the headline VERDICT: correct in its own header")
+if "carried from the headline view" not in stage:
+    fail("stage_diagnostic view: verdict line does not say it was carried from the headline view, not re-derived")
+
+# The verdict must appear within the document's HEADER block -- before the
+# first "##" section heading -- so it is genuinely "in its header"
+# (AC-T1), not buried in a body section.
+title_idx = stage.index("# Shark Bench Lifecycle Stage Diagnostic Report")
+first_section_idx = stage.index("\n## ")
+verdict_idx = stage.index("VERDICT: correct")
+if not (title_idx < verdict_idx < first_section_idx):
+    fail("stage_diagnostic view: verdict is not printed within the document header block (before the first ## section)")
+
+# AC-T2: both stage-category and interval-category partitions print an
+# explicit `unattributed` line even at zero. This fixture's TIME partitions
+# reconcile to EXACTLY zero unattributed (see this file's build_root header
+# comment), so this is the true zero-value assertion AC-T2 requires.
+unattributed_zero_count = stage.count("`unattributed`: 0")
+if unattributed_zero_count < 2:
+    fail(
+        "stage_diagnostic view: expected at least 2 '`unattributed`: 0' lines "
+        f"(time stage-category + interval-category), got {unattributed_zero_count}\n---\n{stage}"
+    )
+
+# stage_diagnostic is explicitly scoped to stage-category/interval-category
+# only (task Goal) -- it must NOT duplicate the headline view's own
+# REQ-F-011 share_partition block.
+if "REQ-F-011 share partition" in stage:
+    fail("stage_diagnostic view: must not duplicate the headline view's REQ-F-011 share partition block")
+
+# Every stage_category/interval_category value already verified by the
+# aggregator-half check above must appear verbatim in the stage_diagnostic
+# report too -- same numbers, no new computation (pure formatting).
+for needle in ("`code`: 50", "`discovery`: 25", "`provider_active`: 90", "`unclassified`: 36"):
+    if needle not in stage:
+        fail(f"stage_diagnostic view: expected time partition value {needle!r} not found\n---\n{stage}")
+
+print("TC-084(d): stage_diagnostic view carries the headline verdict in its own header and prints stage/interval time-cost partitions with explicit unattributed lines")
+PYEOF
+echo "TC-084(d): report half (stage_diagnostic view happy path) PASS"
+
+# ===========================================================================
+# (e) AC-T1 negative case: the headline eligibility verdict is UNAVAILABLE
+# (I-08 eligibility.publication_eligible is entirely ABSENT from the
+# scenario, not merely false) -- stage_diagnostic MUST refuse to render,
+# printing nothing to stdout. The headline view is unaffected by the same
+# input, proving the extra gate is stage_diagnostic-specific.
+# ===========================================================================
+AGG_NO_VERDICT="$WORKDIR/aggregate-a-no-verdict.json"
+python3 - "$AGG_A" "$AGG_NO_VERDICT" <<'PYEOF'
+import json
+import sys
+
+src, dst = sys.argv[1:3]
+with open(src, encoding="utf-8") as f:
+    agg = json.load(f)
+for s in agg["scenarios"]:
+    del s["eligibility"]["publication_eligible"]
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(agg, f, sort_keys=True, separators=(",", ":"))
+PYEOF
+
+set +e
+STAGE_DIAG_NO_VERDICT_OUT="$("$REPORTER" --aggregate "$AGG_NO_VERDICT" --view stage_diagnostic 2>"$WORKDIR/no-verdict.err")"
+RC_NO_VERDICT=$?
+set -e
+[[ "$RC_NO_VERDICT" -ne 0 ]] || fail "(e) stage_diagnostic must refuse when the headline eligibility verdict is unavailable, got exit 0"
+[[ -z "$STAGE_DIAG_NO_VERDICT_OUT" ]] || fail "(e) stage_diagnostic must print nothing to stdout on refusal, got: $STAGE_DIAG_NO_VERDICT_OUT"
+grep -qi "eligibility" "$WORKDIR/no-verdict.err" || fail "(e) refusal reason did not mention eligibility: $(cat "$WORKDIR/no-verdict.err")"
+grep -q "scenario-tc084" "$WORKDIR/no-verdict.err" || fail "(e) refusal reason did not name the affected scenario: $(cat "$WORKDIR/no-verdict.err")"
+
+"$REPORTER" --aggregate "$AGG_NO_VERDICT" --view headline >"$WORKDIR/headline-no-verdict.md" 2>"$WORKDIR/headline-no-verdict.err" ||
+	fail "(e) headline view must still render when only stage_diagnostic's own extra gate would refuse; stderr: $(cat "$WORKDIR/headline-no-verdict.err")"
+
+echo "TC-084(e): stage_diagnostic refuses to render (empty stdout) when the headline eligibility verdict is unavailable for a scenario; headline view is unaffected"
+
+# ===========================================================================
+# (f) AC-T1 edge case: an aggregate with zero scenarios has no headline
+# verdict to carry at all -- stage_diagnostic must refuse this too.
+# ===========================================================================
+EMPTY_AGG="$WORKDIR/aggregate-empty.json"
+python3 - "$EMPTY_AGG" <<'PYEOF'
+import json
+import sys
+
+dst = sys.argv[1]
+agg = {
+    "identity": {
+        "schema_version": "1.0", "batch_id": "batch-empty", "phase": "lifecycle_v2",
+        "retention_root_digest": "x" * 64, "batch_policy_digest": "y" * 64, "min_reps": 1,
+    },
+    "scenarios": [],
+    "time": {}, "cost": {}, "quality": {}, "review_value": {}, "artifact_use": {},
+    "noise_bands": [], "comparisons": [], "invalid": {},
+}
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(agg, f, sort_keys=True, separators=(",", ":"))
+PYEOF
+
+set +e
+EMPTY_OUT="$("$REPORTER" --aggregate "$EMPTY_AGG" --view stage_diagnostic 2>"$WORKDIR/empty.err")"
+RC_EMPTY=$?
+set -e
+[[ "$RC_EMPTY" -ne 0 ]] || fail "(f) stage_diagnostic must refuse when the aggregate has no scenarios at all (no headline verdict to carry), got exit 0"
+[[ -z "$EMPTY_OUT" ]] || fail "(f) stage_diagnostic must print nothing to stdout on refusal, got: $EMPTY_OUT"
+echo "TC-084(f): stage_diagnostic refuses when the aggregate has zero scenarios (nothing to carry a headline verdict for)"
+
+echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), and both AC-T1 refusal cases pass"

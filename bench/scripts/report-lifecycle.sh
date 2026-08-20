@@ -3,18 +3,22 @@
 #
 # T-E40-F10-011 (spec.md REQ-F-006, REQ-F-009, REQ-F-012, REQ-F-013,
 # REQ-F-016, ADR-F10-06, ADR-F10-10; test-plan.md TC-083, TC-085/TC-086/
-# TC-088 report halves; AC-006, AC-008, AC-009, AC-011, AC-T1, AC-T2). A
-# pure function of one `aggregate.json` document (ADR-F10-06, modelled on
-# `report-baseline.sh`'s own purity contract): reads exactly the file named
-# by `--aggregate`, consults no clock, invokes no subprocess, and prints one
-# markdown document to stdout, diagnostics to stderr. Every value in the
-# report traces to a field already present in the aggregate -- this script
-# computes no new statistic; a gap in `aggregate-lifecycle.sh`'s own output
-# is that script's bug, never patched around here.
-#
-# THIS TASK builds `--view headline` only (the primary product result,
-# REQ-F-009). `--view stage_diagnostic` is T-E40-F10-012's explicitly
-# subordinate view (ADR-F10-07) and refuses cleanly below.
+# TC-088 report halves; AC-006, AC-008, AC-009, AC-011, AC-T1, AC-T2) built
+# `--view headline`. T-E40-F10-012 (spec.md REQ-F-009, REQ-F-010, ADR-F10-07;
+# test-plan.md TC-084 report half; AC-T1, AC-T2) added `--view
+# stage_diagnostic`, the explicitly subordinate stage-category/
+# interval-category time-cost view: it refuses to render (nothing printed to
+# stdout) unless the headline eligibility verdict is available for every
+# scenario, and carries that exact verdict in its own header when it does
+# render, so a stage report can never circulate as a standalone product
+# baseline. Both views are pure functions of one `aggregate.json` document
+# (ADR-F10-06, modelled on `report-baseline.sh`'s own purity contract): each
+# reads exactly the file named by `--aggregate`, consults no clock, invokes
+# no subprocess, and prints one markdown document to stdout, diagnostics to
+# stderr. Every value in either report traces to a field already present in
+# the aggregate -- this script computes no new statistic; a gap in
+# `aggregate-lifecycle.sh`'s own output is that script's bug, never patched
+# around here.
 #
 # Rendered inline from this file's own heredoc/template strings -- no
 # separate `bench/reports/templates/*` files -- so a later static scan
@@ -219,23 +223,136 @@ if schema_version not in AGGREGATE_SCHEMA_VERSIONS_SUPPORTED:
         % (path, schema_version, sorted(AGGREGATE_SCHEMA_VERSIONS_SUPPORTED))
     )
 
-if view == "stage_diagnostic":
-    # ADR-F10-07: the stage view is explicitly subordinate and is
-    # T-E40-F10-012's own slice -- refused cleanly here, never a traceback,
-    # and worded so this refusal is never confused with the DIFFERENT
-    # "no headline verdict available" refusal T-E40-F10-012 will add.
-    fail(
-        "--view stage_diagnostic is not implemented by this build of "
-        "report-lifecycle.sh yet (T-E40-F10-012 adds it); only "
-        "--view headline renders today"
-    )
-
 lines = []
 
 
 def emit(text=""):
     lines.append(text)
 
+
+def emit_partition(title, block):
+    """Print every key already present in an upstream partition dict
+    (report-baseline.sh's own no-restated-vocabulary discipline) -- shared
+    by both views so the stage_diagnostic view (T-E40-F10-012) prints the
+    exact same numbers the headline view does for the same keys, never a
+    second computation."""
+    emit("#### %s" % title)
+    if not isinstance(block, dict) or not block:
+        emit("_not present in this aggregate_")
+        emit()
+        return
+    for key in sorted(block):
+        emit("- `%s`: %s" % (key, fmt(block[key])))
+    emit()
+
+
+if view == "stage_diagnostic":
+    # T-E40-F10-012 (spec.md REQ-F-009, REQ-F-010, ADR-F10-07; test-plan.md
+    # TC-084 report half; AC-T1, AC-T2). ADR-F10-07: this view is
+    # explicitly SUBORDINATE to the headline view -- it MUST refuse to
+    # render (nothing printed to stdout) unless the headline eligibility
+    # verdict (I-08 verbatim eligibility.publication_eligible) is
+    # available for every scenario in this aggregate, and it MUST carry
+    # that exact verdict in its own header when it does render. This is
+    # what makes "a stage report can never circulate as a standalone
+    # product baseline" a structural property of this script, not a
+    # documentation convention: validation runs to completion BEFORE any
+    # line is appended to `lines`, so a refusal here -- like every other
+    # refusal in this script -- leaves stdout completely empty.
+    scenarios = agg.get("scenarios") or []
+    if not scenarios:
+        fail(
+            "--view stage_diagnostic refuses to render: aggregate has no "
+            "/scenarios[] entries, so no headline eligibility verdict is "
+            "available to carry in this view's header (ADR-F10-07)"
+        )
+
+    verdicts = []
+    for s in sorted(scenarios, key=lambda s: (s.get("scenario_id") or "", s.get("rep") or 0)):
+        sid, rep = s.get("scenario_id"), s.get("rep")
+        elig = s.get("eligibility")
+        if not isinstance(elig, dict) or "publication_eligible" not in elig:
+            # AC-T1: "unavailable" means the verbatim I-08 verdict field
+            # itself is missing -- distinct from a verdict that is
+            # PRESENT but negative (False), which is a valid verdict this
+            # view is free to carry below.
+            fail(
+                "--view stage_diagnostic refuses to render: no headline "
+                "eligibility verdict (I-08 eligibility.publication_eligible) "
+                "is available for scenario %r rep %r -- the stage view is "
+                "structurally subordinate to the headline view (ADR-F10-07) "
+                "and cannot render without it" % (sid, rep)
+            )
+        publication_eligible = elig.get("publication_eligible")
+        # Verdict wording matches the headline view's own VERDICT lines
+        # (see the "headline" branch below) so the SAME fact reads
+        # identically in both documents -- carried, never re-derived.
+        if publication_eligible is True:
+            verdict_line = "**VERDICT: correct** -- publication-eligible per its verbatim I-08 eligibility."
+        else:
+            verdict_line = (
+                "**VERDICT: NOT CORRECT** -- publication-ineligible per its verbatim I-08 "
+                "eligibility, never inferred from I-07 outcome.terminal alone."
+            )
+        verdicts.append((sid, rep, verdict_line))
+
+    # -------------------------------------------------------------------
+    # Header (mirrors the headline view's own identity bullets, plus the
+    # carried verdict lines -- AC-T1 requires the verdict appear IN this
+    # view's header, so it is emitted here, before any "##" section).
+    # -------------------------------------------------------------------
+    emit("# Shark Bench Lifecycle Stage Diagnostic Report")
+    emit()
+    emit(
+        "_Explicitly subordinate to the lifecycle headline view (ADR-F10-07); "
+        "never a standalone product baseline._"
+    )
+    emit()
+    emit("- Phase: `%s`" % fmt(identity.get("phase")))
+    emit("- Batch id: `%s`" % fmt(identity.get("batch_id")))
+    emit("- Retention root digest: `%s`" % fmt(identity.get("retention_root_digest")))
+    emit("- Batch policy digest: `%s`" % fmt(identity.get("batch_policy_digest")))
+    emit("- Declared minimum reps: %s" % fmt(identity.get("min_reps")))
+    for sid, rep, verdict_line in verdicts:
+        emit(
+            "- Headline verdict for `%s` rep %s (carried from the headline view, not re-derived): %s"
+            % (sid, rep, verdict_line)
+        )
+    emit()
+
+    # -------------------------------------------------------------------
+    # Time and cost partitions (REQ-F-010): stage-category and
+    # interval-category ONLY -- the REQ-F-011 share partition is the
+    # headline view's own territory (already rendered there) and is
+    # deliberately NOT duplicated here. Every key printed below is a key
+    # already present in aggregate-lifecycle.sh's own partition dict
+    # (including its own `unattributed` residual key, AC-T2) -- this view
+    # computes no new statistic, matching report-baseline.sh's purity
+    # precedent.
+    # -------------------------------------------------------------------
+    time_block = agg.get("time") or {}
+    cost_block = agg.get("cost") or {}
+
+    emit("## Time and cost partitions (stage-category / interval-category)")
+    emit()
+    emit(
+        "- Lifecycle wall time (seconds, rolled up across every retained pair): %s"
+        % fmt(time_block.get("lifecycle_wall_seconds"))
+    )
+    emit()
+
+    emit("### Time")
+    emit()
+    emit_partition("Stage-category partition", time_block.get("stage_category"))
+    emit_partition("Interval-category partition", time_block.get("interval_category"))
+
+    emit("### Cost")
+    emit()
+    emit_partition("Stage-category partition", cost_block.get("stage_category"))
+    emit_partition("Interval-category partition", cost_block.get("interval_category"))
+
+    print("\n".join(lines))
+    sys.exit(0)
 
 # ---------------------------------------------------------------------------
 # Header (REQ-F-017/AC-012: every F10 report carries its phase label).
@@ -350,18 +467,6 @@ cost_block = agg.get("cost") or {}
 
 emit("- Lifecycle wall time (seconds, rolled up across every retained pair): %s" % fmt(time_block.get("lifecycle_wall_seconds")))
 emit()
-
-
-def emit_partition(title, block):
-    emit("#### %s" % title)
-    if not isinstance(block, dict) or not block:
-        emit("_not present in this aggregate_")
-        emit()
-        return
-    for key in sorted(block):
-        emit("- `%s`: %s" % (key, fmt(block[key])))
-    emit()
-
 
 emit("### Time")
 emit()
