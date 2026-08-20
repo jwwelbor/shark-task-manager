@@ -83,6 +83,7 @@ tests=(
 	"$SCRIPT_DIR/tc089_phase_separation_test.sh"
 	"$SCRIPT_DIR/tc090_offline_determinism_and_scale_test.sh"
 	"$SCRIPT_DIR/tc091_static_safety_language_neutrality_test.sh"
+	"$SCRIPT_DIR/tc092_full-regression-registration_test.sh"
 )
 
 status=0

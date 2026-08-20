@@ -1658,3 +1658,284 @@ bench/scripts/tests/run-all.sh
 
 The F09 cases are TC-067 through TC-077. The full quality gate remains:
 `make fmt && make lint && make test`.
+
+## E40-F10 operator workflow and retained lifecycle baseline
+
+E40-F10 is the operator-facing layer over F08's I-07 lifecycle records and
+F09's I-08 evaluation records: an explicit spend gate, byte-preserving
+retention under an operator-declared root, a pilot-inspection ledger gating
+publication, a pure offline aggregator and reporter, and an operator
+review-comparison driver. F10 adds no Shark database table, workflow engine,
+or product service (REQ-NF-001) — every artifact below lives under the
+`--retention-root` the operator names on the command line. It reuses I-05,
+I-07, and I-08 strictly read-only (ADR-F10-04): eligibility, comparison
+verdicts, and finding data are copied verbatim, never recomputed.
+
+`bench/reports/lifecycle-baseline-schema.yaml` is the single schema-owning
+file for every closed vocabulary term used below (REQ-F-018) — refusal
+reasons, exit statuses, the retention layout, noise-band derivation rules,
+the six-share partition cells, report view names, and phase labels. Treat
+this section as a reader's map to that schema and to
+`tests/contracts/e40_f10_operator_baseline_contract_test.go` (TC-078), not a
+substitute for either.
+
+### Operator command set
+
+| Script | Signature |
+|---|---|
+| `run-lifecycle-batch.sh` | `--batch <policy.yaml> --retention-root <root> --mode preview\|pilot\|baseline [--dry-run] [--acknowledge-provider-spend] [--max-cost-usd <n>] [--max-wall-clock-seconds <n>] [--max-generated-tasks <n>] [--reps <n>] [--scenarios <id[,id...]>] [--reclaim-incomplete]` |
+| `run-review-comparison.sh` | `--candidate <candidate.yaml> --retention-root <root> --mode preview\|pilot\|baseline --comparison-mode independent_frozen_candidate\|sequential_delivery [--acknowledge-provider-spend] [ceiling flags]` |
+| `pilot-ledger.sh` | `--retention-root <root> --record --scenario <id> --rep <n> --operator <identity> --checklist <checklist.json>` or `--retention-root <root> --verify [--family <f>]` |
+| `verify-retention-root.sh` | `--retention-root <root> --schema bench/reports/lifecycle-baseline-schema.yaml` |
+| `aggregate-lifecycle.sh` | `--retention-root <root>` — prints `aggregate.json` to stdout |
+| `report-lifecycle.sh` | `--aggregate <aggregate.json> --view headline\|stage_diagnostic` — prints one markdown document to stdout |
+
+`run-lifecycle-batch.sh` and `run-review-comparison.sh` share one three-mode
+convention (ADR-F10-01): `--mode preview` makes zero provider or network
+calls and prints the scenario/candidate matrix, applicable stages, the
+planned provider-call inventory, the resolved retention root, the declared
+ceilings, and the current pilot-ledger state (plus, for the comparison
+driver, candidate and workflow-policy identity resolved from a real
+`run-lifecycle.sh --mode dry-run` record, truth-set availability, and the
+fix rule `fixes_allowed_between_gates` read from the workflow policy) —
+`--dry-run` is retained as the sole alias for `--mode preview`, never a
+second convention. `--mode pilot` and `--mode baseline` are both
+provider-backed and both pass through the spend gate below; `baseline`
+additionally requires a verified pilot attestation per scenario family.
+`run-lifecycle-batch.sh` enumerates the (scenario, rep) matrix and, per
+pair, classifies it exactly the way `run-batch.sh` classifies a corpus pair
+(REQ-NF-007): `skipped_complete` (already retained, left alone),
+`incomplete_prior_attempt` (a prior partial directory — quarantined via a
+move, never deleted, only when `--reclaim-incomplete` is given, then
+rerun as `quarantined_and_rerun`; otherwise left in place and reported),
+`pending_run` (no prior directory — dispatched), or `failed`. Exit codes
+match `bench/reports/lifecycle-baseline-schema.yaml`'s `refusal_exit_status`
+block: `0` success, `2` usage error, `3` spend-gate refusal, `4` the batch
+completed with at least one failed pair.
+
+### Refusal behavior (spend-gate.sh)
+
+`bench/scripts/lib/spend-gate.sh` is the single sourced owner of refusal
+semantics for both provider-backed drivers (REQ-F-002, REQ-F-003). Before
+any subprocess, checkout, or Shark call, it checks, in order: the
+`--acknowledge-provider-spend` flag is present (never satisfiable by an
+environment variable or a config default); `--max-cost-usd`,
+`--max-wall-clock-seconds`, and `--max-generated-tasks` are all supplied and
+strictly positive (presence/positivity only — `run-lifecycle.sh
+parse_limits()` remains the sole authority for per-run ceiling semantics,
+REQ-F-003); `--retention-root` is supplied; and, for `--mode baseline` only,
+every scenario family in the requested matrix has a **currently verified**
+pilot attestation (see "Publication gate" below). The first failing check
+short-circuits with exit `3` and exactly one of the following schema-owned
+refusal reasons (`refusal_reason` in the schema — never a private string):
+
+```
+missing_acknowledgement
+missing_max_cost_usd            non_positive_max_cost_usd
+missing_max_wall_clock_seconds  non_positive_max_wall_clock_seconds
+missing_max_generated_tasks     non_positive_max_generated_tasks
+missing_retention_root
+missing_pilot_attestation       stale_pilot_attestation_digest
+phase1_record_input_refused
+```
+
+The last reason is emitted by `aggregate-lifecycle.sh`, not the spend gate
+(see "Phase-label rules" below) but shares the same closed vocabulary.
+
+### Retention layout (REQ-F-004)
+
+Every `--retention-root` an operator declares has this shape; F10 never
+deletes, overwrites, or rewrites a previously retained `scenarios/<id>/<rep>/`
+directory (REQ-NF-007):
+
+```
+<retention_root>/
+  batch.json                        # batch id, phase label, policy digest, ceilings,
+                                     #   acknowledgement record, matrix, provenance
+  pilot-ledger.jsonl                # one attestation row per scenario family (append-only)
+  scenarios/<scenario_id>/<rep>/
+    package.yaml                    # I-04 admitted package, byte-preserved
+    evidence/                       # I-05 stage evidence bundle, byte-preserved
+    transcripts/                    # stage transcripts, byte-preserved
+    entity-history.json             # scratch-project entity history export
+    lifecycle.jsonl                 # I-07 record, byte-preserved
+    evaluation.jsonl                # I-08 record, byte-preserved
+    oracle.json                     # held-back oracle result, byte-preserved
+    comparison.json                 # optional review-comparison record, byte-preserved
+    manifest.json                   # source path + sha256 for every artifact above
+  invalid/index.jsonl               # one row per ineligible run: scenario, rep,
+                                     #   verbatim I-08 invalidity_reasons, retention path
+  aggregate.json                    # machine-readable lifecycle aggregate
+  reports/headline.md
+  reports/stage-diagnostic.md
+```
+
+The eight artifacts named per (scenario, rep) — `package.yaml`, `evidence`,
+`transcripts`, `entity-history.json`, `lifecycle.jsonl`, `evaluation.jsonl`,
+`oracle.json`, and `manifest.json` — are exactly the schema's
+`retention_required_artifacts` list; `comparison.json` is the schema's sole
+`retention_optional_artifacts` entry. Retained artifacts are byte-preserving
+copies (ADR-F10-05): a file digests as raw bytes (`sha256_raw_bytes`); the
+two directory artifacts (`evidence/`, `transcripts/`) digest as the sha256
+of a compact sorted-key JSON list of `{path, sha256}` for every file they
+contain. `manifest.json` records `source_path` + `sha256` for each of the
+seven non-manifest artifacts (it cannot digest its own not-yet-written
+bytes).
+
+`verify-retention-root.sh --retention-root <root> --schema
+bench/reports/lifecycle-baseline-schema.yaml` is the offline, read-only,
+never-repairing validator over that layout (REQ-NF-002: zero provider,
+network, database, or live-tree access). Per (scenario, rep) pair it runs
+layout completeness, manifest-vs-directory lineage, per-artifact digest
+equality, and delegates upstream schema validity to the existing
+`verify-lifecycle-run.sh` / `verify-lifecycle-evaluation.sh` (never
+duplicating either). It prints one bounded JSON verdict line per pair —
+`{"scenario_id":..., "rep":..., "verdict":"pass"|"fail", "failures":[
+{"artifact":..., "reason":..., "detail":...}, ...]}` — plus one
+human-readable `<scenario_id>/<rep>: <artifact>: <reason>: <detail>` line
+per failure on stderr. Its own damage-class reasons (local to this
+validator; the retention layout itself is schema-owned, its pass/fail
+reasons are not) are `missing` (required artifact absent), `lineage_mismatch`
+(`manifest.json`'s own `/scenario_id` or `/rep` disagrees with its
+directory), `source_path_missing` (a digest mismatch whose recorded
+`source_path` no longer exists, so it cannot be re-verified against
+source), `digest_mismatch` (recomputed digest disagrees and no
+canonicalization rescues it), `re_serialized` (the raw digest disagrees but
+a re-canonicalized content digest matches — the bytes were re-encoded, not
+mutated, and ADR-F10-05 forbids that too), `upstream_lifecycle_invalid`, and
+`upstream_evaluation_invalid` (the delegated validator rejected a malformed
+— not merely ineligible — record). Exit `0` every pair passes, `1` at least
+one pair fails, `2` usage error.
+
+### Pilot inspection checklist (REQ-F-005, ADR-F10-09)
+
+`pilot-ledger.sh` is the offline pilot-inspection attestation ledger — one
+row per scenario **family** (`feature`/`bug`/`change_card`/`tech_debt`),
+appended to `<retention_root>/pilot-ledger.jsonl`:
+
+```bash
+# Record one attestation after an operator has actually inspected a pilot
+# run's retained evidence:
+bench/scripts/pilot-ledger.sh --retention-root <root> --record \
+  --scenario <scenario_id> --rep <n> --operator <identity> \
+  --checklist <checklist.json>
+
+# Re-verify every (or one --family's) latest attestation against the
+# CURRENTLY retained artifacts:
+bench/scripts/pilot-ledger.sh --retention-root <root> --verify [--family <f>]
+```
+
+The attestation is an artifact-**digest** attestation, not a boolean flag
+or a bare run-id reference (ADR-F10-09) — a later change to the retained
+evidence invalidates it. Each row carries the schema's
+`pilot_attestation_required_fields`: `run_reference` (the inspected
+`scenarios/<id>/<rep>` pointer), `checklist_results` (the operator-supplied
+`--checklist <checklist.json>` file's parsed content, copied through
+verbatim — `pilot-ledger.sh` requires only that it be valid JSON; it defines
+no fixed item/result shape of its own), `operator_identity`, and
+`inspected_artifact_digests` (the recomputed
+digest of every one of the eight retained artifacts, keyed by filename,
+using the same digest rule `verify-retention-root.sh` uses). `--verify`
+groups the append-only ledger by family and checks the **latest** row per
+family — a re-attestation supersedes an earlier one without needing
+deletion — printing `family=<f>: verified`, `family=<f>: FAILED
+(no_attestation)`, or `family=<f>: FAILED (stale_digest: <artifact,...>)`
+per family. Exit `0` record success / verify all-requested-families pass,
+`1` verify found at least one failing family, `2` usage error.
+
+### Publication gate
+
+`--mode baseline` (both operator drivers) refuses to start — before any
+subprocess — when any scenario family in the requested matrix lacks a
+**currently verified** attestation: `missing_pilot_attestation` when the
+family has never been recorded, `stale_pilot_attestation_digest` when a
+recorded attestation's digests no longer match the retained artifacts
+(catches a mutated artifact, and — with no special-case code — a
+`--reclaim-incomplete`-quarantined-and-rerun pair, since the regenerated
+bytes at the same path simply recompute to a different digest). Only a
+matrix whose every family carries a verified attestation may proceed to
+`--mode baseline`. This is the mechanism REQ-F-005 requires: "one inspected
+pilot per family" is meaningful only because it is tied, by digest, to the
+exact evidence an operator actually looked at.
+
+### Report views (REQ-F-009, ADR-F10-07)
+
+`report-lifecycle.sh --aggregate <aggregate.json> --view
+headline|stage_diagnostic` prints one markdown document to stdout, computing
+no new statistic — every printed value traces to a field already present in
+the aggregate (ADR-F10-06). `headline` is the primary product result:
+verbatim per-scenario I-08 eligibility, the stage-category and
+interval-category time/cost partitions plus the REQ-F-011 six-share
+partition (`pre_code`, `review`, `rework`, `first_pass_code`, `wait`,
+`shipping`, each cell disjoint over `(stage_category, interval_category)`,
+with an explicit `unattributed` residual line even at zero), review-value,
+and artifact-use/replay-proxy rollups. `stage_diagnostic` is **structurally
+subordinate** — it refuses to render (nothing at all printed to stdout)
+unless every scenario in the aggregate already carries a headline
+`eligibility.publication_eligible` verdict, and it carries that exact
+verdict, worded identically to the headline view's own VERDICT lines,
+verbatim in its own header. This is what makes "a stage view can never
+circulate as a standalone product baseline" a structural property enforced
+by the script, not a documentation convention. Both views are pure
+functions of the named `--aggregate` file alone: no clock, no subprocess,
+byte-identical output across repeated runs at an unchanged input
+(REQ-NF-003).
+
+Paired deltas (both views, wherever a comparison applies) render against
+the noise band's `noise_band_derivation_rule`
+(`min_median_max_spread_accept_interval`, reusing `aggregate-runs.sh`'s
+existing min/median/max/spread/`insufficient_reps` semantics) and its
+closed-interval boundary rule: a delta landing exactly on either bound is
+**inside** the band and renders as `"no detectable effect"`; only a delta
+strictly outside the interval may render as a detected regression or
+improvement. Quality, elapsed time, and provider cost always render as
+three separate blocks (REQ-F-016) — there is no composite, weighted, or
+blended efficiency/value/ROI field anywhere in the schema or the output.
+
+### Phase-label rules (REQ-F-017, ADR-F10-11)
+
+The completed Phase 1 surfaces (`run-batch.sh`, `aggregate-runs.sh`,
+`report-baseline.sh`) remain reachable and byte-unmodified low-cost
+regression tooling; F10 neither invokes nor modifies them, and each phase
+keeps its own aggregator rather than teaching one about the other's record
+shape. Every F10 artifact and report carries the phase label
+`lifecycle_v2` (the schema's sole `phase_label` value, e.g.
+`aggregate.json`'s `/identity/phase`). `aggregate-lifecycle.sh` refuses the
+**whole** retention root — never a partial aggregate of just the valid
+pairs — the moment it finds a Phase 1 `record.jsonl` anywhere under the
+root (Phase 1's own fixed record filename, which F10 never retains under
+that name), with the schema-owned reason `phase1_record_input_refused`,
+before any other read. A v1 output is never relabelled `lifecycle_v2`, and
+a v2 aggregate is never silently coerced from v1 input.
+
+### Full regression verification (TC-092, AC-T2/AC-T3)
+
+`bench/scripts/tests/testdata/pre-f10-registration.txt` is the literal,
+ordered `run-all.sh` test-name list committed once at F10
+task-decomposition time — a fixed baseline, never regenerated. TC-092
+(`tc092_full-regression-registration_test.sh`) is itself one of
+`run-all.sh`'s own registered tests, so it cannot invoke `run-all.sh`
+without recursing. Its AC-T2 half (every pre-F10 name still present, in
+unchanged relative order) and its structural pass-marker-presence half
+always run, every time `run-all.sh` runs. Its AC-T3 half — that every
+pre-F10 test's own documented pass-marker string, and `run-all.sh`'s own
+`PASS: <name>` wrapper line, are actually present in a real captured
+full-suite run's output, not merely inferred from source — is opt-in via
+`TC092_RUN_LOG`, checked in a second pass over a log a first pass already
+captured:
+
+```bash
+# 1. Run the full suite once, capturing its combined stdout+stderr.
+bench/scripts/tests/run-all.sh > /tmp/run-all.log 2>&1
+
+# 2. Re-run TC-092 alone against that captured log to verify AC-T3.
+TC092_RUN_LOG=/tmp/run-all.log bench/scripts/tests/tc092_full-regression-registration_test.sh
+```
+
+Without `TC092_RUN_LOG`, TC-092 prints an explicit "AC-T3 NOT EXERCISED"
+notice rather than a silent, unqualified pass — so a plain `run-all.sh`
+invocation is never mistaken for having proven AC-T3's runtime claim. The
+F10 cases are TC-078 (Go contract test, `make test`) through TC-092. The
+full quality gate remains `make fmt && make lint && make test`, and this
+task's own exit gate additionally requires the two-step sequence above to
+pass with zero pre-F10 marker or wrapper-line misses.
