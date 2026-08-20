@@ -78,6 +78,7 @@ tests=(
 	"$SCRIPT_DIR/tc085_review_value_report_test.sh"
 	"$SCRIPT_DIR/tc086_artifact_use_and_replay_proxy_test.sh"
 	"$SCRIPT_DIR/tc087_review_comparison_operator_test.sh"
+	"$SCRIPT_DIR/tc088_dimension_separation_and_noise_band_test.sh"
 	"$SCRIPT_DIR/tc089_phase_separation_test.sh"
 )
 

@@ -10,12 +10,11 @@
 # `--retention-root`.
 #
 # SLICE OWNERSHIP (component-changes row, this task's Scope): T-E40-F10-008
-# built `identity`, `scenarios[]`, `time`, and `cost`. T-E40-F10-009 (this
-# extension) adds `quality`, `review_value`, and `artifact_use`.
-# `noise_bands`, `comparisons`, and `invalid` remain T-E40-F10-010's. This
-# script's `aggregate.json` therefore carries seven of the ten top-level
-# blocks `bench/reports/lifecycle-baseline-schema.yaml` eventually requires
-# -- T-010 extends this same document, it does not replace it.
+# built `identity`, `scenarios[]`, `time`, and `cost`. T-E40-F10-009 added
+# `quality`, `review_value`, and `artifact_use`. T-E40-F10-010 (this
+# extension) adds the final three blocks -- `noise_bands`, `comparisons`,
+# and `invalid` -- completing all ten top-level blocks
+# `bench/reports/lifecycle-baseline-schema.yaml` requires.
 #
 # ---------------------------------------------------------------------------
 # Design decisions made by this task (documented here because spec.md does
@@ -237,6 +236,82 @@
 #      REQ-F-013): every count here is a replayed-interaction count, never
 #      an observed-interaction measurement.
 # ---------------------------------------------------------------------------
+# T-E40-F10-010 design decisions (noise_bands, comparisons, invalid).
+# spec.md REQ-F-007, REQ-F-008, REQ-F-016, ADR-F10-12; test-plan.md TC-088
+# (aggregator half); AC-T1, AC-T2.
+#
+#  11. `noise_bands[]` metric set. REQ-F-007 requires "per-(scenario,
+#      metric) noise bands" without naming which metrics; report-lifecycle.sh
+#      (T-E40-F10-011) "computes no new statistic" -- every value it renders
+#      for its three-dimension (quality/time/cost) paired-delta view must
+#      already exist here. This script therefore publishes a band for
+#      exactly three metrics, one per REQ-F-016 dimension, each read from an
+#      ALREADY-VERBATIM I-08 metric value used elsewhere in this same
+#      script -- never a second read or a different semantics:
+#      `elapsed_time` (time) and `provider_cost` (cost) are `pair_elapsed`/
+#      `pair_cost`, the same verbatim `metrics.elapsed_time`/
+#      `metrics.provider_cost` values contributing to `/time`/`/cost`;
+#      `confirmed_findings` (quality) is I-08's own
+#      `metrics.quality.confirmed_findings` (design decision 8's
+#      `quality_metric_value()` helper, same pattern as precision/recall) --
+#      a genuine numeric, already-retained, direction-consistent (fewer
+#      confirmed findings is better, same as less time/cost) quality proxy,
+#      not an invented statistic. The metric identifiers are I-08's own
+#      metric-key names verbatim (REQ-F-018), never a private rename.
+#
+#  12. Noise-band formula: reused verbatim from `aggregate-runs.sh`'s Class C
+#      `compute_stats` (min/median/max/spread_abs, then an acceptance radius
+#      equal to the observed spread when non-zero, else 10% of |median| when
+#      the median itself is non-zero, else exactly zero) -- ADR-F10-12
+#      explicitly reuses this "existing flag semantics" rather than
+#      inventing a second statistic. What ADR-F10-12 does NOT reuse is
+#      `aggregate-runs.sh`'s own hard-coded `n < 2` threshold: F10's
+#      `insufficient_reps` (AC-T1) compares each band's contributing rep
+#      count against the BATCH-declared `/identity/min_reps` (already read
+#      for `/identity` above), because ADR-F10-12 fixes the mechanism, not
+#      the number -- the number is operator batch policy. A metric whose
+#      contributing pairs are all excluded (n=0 -- only reachable for
+#      `confirmed_findings`, since `elapsed_time`/`provider_cost` are
+#      hard-required by `verbatim_metric()` above) renders `min`/`median`/
+#      `max`/`spread_abs`/`acceptance_interval` as `unavailable`, never a
+#      fabricated zero-width band (ADR-F10-10), while still carrying
+#      `rep_count: 0` and `insufficient_reps: true` so the gap is visible,
+#      not silent.
+#
+#  13. `/comparisons` republishes each pair's OPTIONAL retained
+#      `comparison.json` (`retention_optional_artifacts`,
+#      `compare-lifecycle-evaluations.sh`'s own output shape) verbatim and
+#      in full -- mode, both evaluation ids, the accept/reject verdict, the
+#      `comparison` sub-object, and every `divergences[]` entry (REQ-F-015).
+#      This script never re-derives `accepted` or filters divergences: the
+#      comparator's own `candidate/*` and `workflow_policy/*` divergence
+#      field-paths ARE the "candidate identity references, and policy
+#      identity references" the blocks table names, so no second
+#      identity-reference computation is needed or performed here
+#      (ADR-F10-04).
+#
+#      `/invalid` has TWO sources, because `run-lifecycle-batch.sh` never
+#      inspects I-08 eligibility (checked: no reference to
+#      `aggregate_eligible`/`eligibility` anywhere in that script), so its
+#      own `invalid/index.jsonl` ledger (source a) covers ONLY pairs that
+#      never reached a retained `evaluation.jsonl` at all (dispatch/run/
+#      eval failures) -- mirrored verbatim, per the blocks table ("mirroring
+#      `invalid/index.jsonl`"), adding no reason code of this script's own.
+#      A pair that DID dispatch successfully but that I-08 itself flagged
+#      ineligible would otherwise be invisible to `/invalid` entirely, which
+#      REQ-F-007's "an explicit invalid-run inventory carrying every
+#      `invalidity_reasons` entry" (emphasis on EVERY) forbids. Source (b)
+#      therefore adds one row per `scenarios[]` entry whose I-08
+#      `eligibility.invalidity_reasons` is non-empty, reusing the SAME
+#      `eligibility` object already read verbatim for `/scenarios` earlier
+#      in this script (AC-T2: no recomputation, override, or softening --
+#      not a second read of `evaluation.jsonl`). The two sources are
+#      distinguished by a `source` field (`batch_dispatch_failure` /
+#      `i08_eligibility`) rather than merged into one ambiguous shape,
+#      because they carry genuinely different upstream provenance and the
+#      dispatch-failure rows have no I-08 `eligibility` object to nest at
+#      all.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -296,6 +371,7 @@ python3 - "$RETENTION_ROOT_CANON" "$LIFECYCLE_SCHEMA" "$I05_SCHEMA" "$I07_SCHEMA
 import hashlib
 import json
 import os
+import statistics
 import sys
 
 import yaml
@@ -386,6 +462,16 @@ MEASURE_KEYS = (
 def zero_measures():
     return {key: 0 for key in MEASURE_KEYS}
 
+
+# T-E40-F10-010, design decision 11: the three per-(scenario, metric) noise
+# bands this aggregator publishes, one per REQ-F-016 dimension, each named
+# with I-08's own metric-key name (REQ-F-018).
+NOISE_BAND_METRICS = ("elapsed_time", "provider_cost", "confirmed_findings")
+
+NOISE_BAND_DERIVATION_RULES = schema.get("noise_band_derivation_rule") or []
+if not NOISE_BAND_DERIVATION_RULES:
+    usage_fail("schema noise_band_derivation_rule is empty or missing")
+NOISE_BAND_DERIVATION_RULE = NOISE_BAND_DERIVATION_RULES[0]
 
 REPLAYED_PROXY_LABEL = (
     "replayed_interaction_proxy: a replayed D01-D05 product-design "
@@ -560,6 +646,10 @@ proxy_totals = {
 proxy_pairs_with_data = 0
 proxy_pairs_total = 0
 
+# T-E40-F10-010 accumulators (design decisions 11-13).
+noise_metric_values = {}  # (scenario_id, metric_name) -> [contributing numeric values]
+comparisons_list = []
+
 for scenario_id, rep, rep_dir in pair_dirs:
     pair_label = f"{scenario_id}/{rep}"
 
@@ -674,10 +764,20 @@ for scenario_id, rep, rep_dir in pair_dirs:
 
         pair_precision = quality_metric_value("precision")
         pair_recall = quality_metric_value("recall")
+        pair_confirmed_findings = quality_metric_value("confirmed_findings")
     else:
         truth_set_available = False
         pair_precision = "unavailable"
         pair_recall = "unavailable"
+        pair_confirmed_findings = "unavailable"
+
+    # T-E40-F10-010, design decision 11: the quality noise-band contribution
+    # for this pair -- only a genuine retained integer contributes (mirrors
+    # aggregate-runs.sh's "excluded reps never enter compute_stats" rule);
+    # an "unavailable" pair_confirmed_findings is silently excluded, never
+    # coerced to 0.
+    if isinstance(pair_confirmed_findings, int) and not isinstance(pair_confirmed_findings, bool):
+        noise_metric_values.setdefault((scenario_id, "confirmed_findings"), []).append(pair_confirmed_findings)
 
     pair_gate_ids = set()
     for g_idx, gate in enumerate(review_gates):
@@ -771,6 +871,11 @@ for scenario_id, rep, rep_dir in pair_dirs:
 
     total_lifecycle_wall_seconds += pair_elapsed
     total_provider_cost_usd += pair_cost
+
+    # T-E40-F10-010, design decision 11: elapsed_time/provider_cost noise-
+    # band contributions -- the SAME verbatim values feeding /time, /cost.
+    noise_metric_values.setdefault((scenario_id, "elapsed_time"), []).append(pair_elapsed)
+    noise_metric_values.setdefault((scenario_id, "provider_cost"), []).append(pair_cost)
 
     limits = lc.get("limits") or {}
     observed_cost = limits.get("observed_cost_usd")
@@ -985,10 +1090,44 @@ for scenario_id, rep, rep_dir in pair_dirs:
                 )
             proxy_totals[key] += value
 
+    # -------------------------------------------------------------------
+    # /comparisons -- design decision 13. comparison.json is OPTIONAL per
+    # pair (retention_optional_artifacts); present only when
+    # run-review-comparison.sh actually compared this (scenario, rep).
+    # Republished verbatim and in full -- this script never re-derives
+    # `accepted` or filters `divergences` (REQ-F-015, ADR-F10-04).
+    # -------------------------------------------------------------------
+    comparison_path = os.path.join(rep_dir, "comparison.json")
+    if os.path.isfile(comparison_path):
+        try:
+            with open(comparison_path, encoding="utf-8") as fh:
+                comparison_record = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"{pair_label}: comparison.json is not valid JSON: {exc}")
+        if not isinstance(comparison_record, dict):
+            fail(f"{pair_label}: comparison.json is not a JSON object")
+        for key in ("mode", "left_evaluation_id", "right_evaluation_id", "accepted", "comparison", "divergences"):
+            if key not in comparison_record:
+                fail(f"{pair_label}: comparison.json missing required field {key!r}")
+        comparisons_list.append(
+            {
+                "scenario_id": scenario_id,
+                "rep": rep_int,
+                "retention_path": f"scenarios/{scenario_id}/{rep}",
+                "mode": comparison_record["mode"],
+                "left_evaluation_id": comparison_record["left_evaluation_id"],
+                "right_evaluation_id": comparison_record["right_evaluation_id"],
+                "accepted": comparison_record["accepted"],
+                "comparison": comparison_record["comparison"],
+                "divergences": comparison_record["divergences"],
+            }
+        )
+
 scenarios_list.sort(key=lambda s: (s["scenario_id"], s["rep"]))
 manifest_digest_entries.sort(key=lambda e: (e["scenario_id"], e["rep"]))
 quality_by_scenario.sort(key=lambda q: (q["scenario_id"], q["rep"]))
 artifact_edges.sort(key=lambda e: (e["producer_stage"], e["artifact_path"], e["consuming_stage"], e["edge_kind"]))
+comparisons_list.sort(key=lambda c: (c["scenario_id"], c["rep"]))
 
 # ---------------------------------------------------------------------------
 # /review_value gate resolution (design decision 8 continued). A gate_id
@@ -1196,6 +1335,133 @@ artifact_use_block = {
     "replayed_interaction_proxy": replayed_interaction_proxy,
 }
 
+
+# ---------------------------------------------------------------------------
+# /noise_bands -- design decision 11/12. Reuses aggregate-runs.sh's Class C
+# min/median/max/spread_abs/accept-interval formula verbatim (ADR-F10-12) --
+# NOT its own private `n < 2` threshold; F10's threshold is the batch-
+# declared /identity/min_reps (AC-T1). Every contributing value is the SAME
+# already-verbatim I-08 metric value used to build /time, /cost, and
+# /quality elsewhere in this script -- no metric is read a second time or
+# with different semantics.
+# ---------------------------------------------------------------------------
+def compute_noise_band(band_scenario_id, metric_name, values, declared_min_reps):
+    n = len(values)
+    if n == 0:
+        # ADR-F10-10: absent measures render `unavailable`, never zero or a
+        # fabricated band. Only reachable for `confirmed_findings` --
+        # `elapsed_time`/`provider_cost` are hard-required by
+        # verbatim_metric() above and can never reach n==0 here.
+        return {
+            "scenario_id": band_scenario_id,
+            "metric": metric_name,
+            "min": "unavailable",
+            "median": "unavailable",
+            "max": "unavailable",
+            "spread_abs": "unavailable",
+            "acceptance_interval": {"lower_bound": "unavailable", "upper_bound": "unavailable"},
+            "derivation_rule": NOISE_BAND_DERIVATION_RULE,
+            "rep_count": 0,
+            "insufficient_reps": True,
+        }
+
+    mn = min(values)
+    mx = max(values)
+    median = statistics.median(values)
+    spread_abs = mx - mn
+    if spread_abs > 0:
+        r_eff = spread_abs
+    elif median != 0:
+        r_eff = 0.10 * abs(median)
+    else:
+        # Identically the same value across every contributing rep --
+        # the documented exact rule (aggregate-runs.sh precedent), not a
+        # coincidence of the 0.10*median formula.
+        r_eff = 0
+    lower_bound = max(0, mn - r_eff)
+    upper_bound = mx + r_eff
+
+    return {
+        "scenario_id": band_scenario_id,
+        "metric": metric_name,
+        "min": round(mn, 6),
+        "median": round(median, 6),
+        "max": round(mx, 6),
+        "spread_abs": round(spread_abs, 6),
+        "acceptance_interval": {
+            "lower_bound": round(lower_bound, 6),
+            "upper_bound": round(upper_bound, 6),
+        },
+        "derivation_rule": NOISE_BAND_DERIVATION_RULE,
+        "rep_count": n,
+        # AC-T1: compared against the declared BATCH minimum, never a
+        # private threshold -- ADR-F10-12 fixes the mechanism, the batch
+        # policy fixes the number.
+        "insufficient_reps": n < declared_min_reps,
+    }
+
+
+noise_bands_list = [
+    compute_noise_band(sid, metric_name, noise_metric_values.get((sid, metric_name), []), min_reps)
+    for sid in sorted({s["scenario_id"] for s in scenarios_list})
+    for metric_name in NOISE_BAND_METRICS
+]
+
+# ---------------------------------------------------------------------------
+# /invalid -- design decision 13. Two sources, both loud never silent
+# (REQ-F-007's "every invalidity_reasons entry"):
+#   (a) retention_root/invalid/index.jsonl -- run-lifecycle-batch.sh's own
+#       dispatch-failure ledger for pairs that never reached a retained
+#       evaluation.jsonl at all. Mirrored verbatim (spec.md blocks table:
+#       "mirroring invalid/index.jsonl").
+#   (b) retained-but-ineligible pairs -- every scenarios_list[] entry whose
+#       I-08 eligibility.invalidity_reasons is non-empty, reusing the SAME
+#       eligibility object already read verbatim for /scenarios (AC-T2: no
+#       recomputation, override, or softening).
+# ---------------------------------------------------------------------------
+invalid_list = []
+
+invalid_index_path = os.path.join(retention_root, "invalid", "index.jsonl")
+if os.path.isfile(invalid_index_path):
+    with open(invalid_index_path, encoding="utf-8") as fh:
+        for line_no, raw_line in enumerate(fh, start=1):
+            stripped_line = raw_line.strip()
+            if not stripped_line:
+                continue
+            try:
+                invalid_row = json.loads(stripped_line)
+            except json.JSONDecodeError as exc:
+                fail(f"invalid/index.jsonl:{line_no}: unparseable JSON: {exc}")
+            if not isinstance(invalid_row, dict):
+                fail(f"invalid/index.jsonl:{line_no}: row is not a JSON object")
+            for key in ("scenario_id", "rep", "retention_path", "invalidity_reasons"):
+                if key not in invalid_row:
+                    fail(f"invalid/index.jsonl:{line_no}: missing required field {key!r}")
+            invalid_list.append(
+                {
+                    "scenario_id": invalid_row["scenario_id"],
+                    "rep": invalid_row["rep"],
+                    "retention_path": invalid_row["retention_path"],
+                    "source": "batch_dispatch_failure",
+                    "invalidity_reasons": invalid_row["invalidity_reasons"],
+                }
+            )
+
+for scenario_entry in scenarios_list:
+    entry_reasons = scenario_entry["eligibility"].get("invalidity_reasons")
+    if entry_reasons:
+        invalid_list.append(
+            {
+                "scenario_id": scenario_entry["scenario_id"],
+                "rep": scenario_entry["rep"],
+                "retention_path": scenario_entry["retention_path"],
+                "source": "i08_eligibility",
+                "eligibility": scenario_entry["eligibility"],
+            }
+        )
+
+invalid_list.sort(key=lambda r: (r["scenario_id"], r["rep"], r["source"]))
+
 # /identity.retention_root_digest -- digest of digests (design decision 5).
 retention_root_digest = sha256_bytes(
     json.dumps(
@@ -1224,6 +1490,9 @@ aggregate = {
     "quality": quality_block,
     "review_value": review_value_block,
     "artifact_use": artifact_use_block,
+    "noise_bands": noise_bands_list,
+    "comparisons": comparisons_list,
+    "invalid": invalid_list,
 }
 
 print(json.dumps(aggregate, indent=2, sort_keys=True))
