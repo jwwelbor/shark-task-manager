@@ -296,3 +296,146 @@ QUARANTINED_DIGEST="$(sha256sum "$QUARANTINED_FILE" | awk '{print $1}')"
 echo "TC-079(AC-T2 part 3: --reclaim-incomplete quarantines via move, never deletes, then reruns) PASS"
 
 echo "TC-079: pass (batch driver half: zero-spend preview, --dry-run alias, no third flag convention, AC-T2 classification/reclaim)"
+
+# ===========================================================================
+# TC-079 (comparison half) / T-E40-F10-005: zero-provider-call operator
+# preview for run-review-comparison.sh (spec.md REQ-F-001, REQ-F-014,
+# REQ-NF-002; test-plan.md TC-079). Caller-Path Contract: only the
+# enumerated PATH-shim provider/network denial process is a stub; the
+# `run-lifecycle.sh --mode dry-run` invocation itself is real (same
+# precedent as the batch half above -- the `shark` executable it calls is
+# stubbed, not the preview-content assembly, stage resolution, or the
+# dry-run delegation call).
+# ===========================================================================
+COMPARISON="$SCRIPTS_DIR/run-review-comparison.sh"
+[[ -x "$COMPARISON" ]] || fail "bench/scripts/run-review-comparison.sh missing or not executable"
+
+CMP_WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$CMP_WORKDIR"' EXIT
+
+path_shim_denial_setup "$CMP_WORKDIR" || fail "path-shim-denial setup failed (comparison half)"
+
+mkdir -p "$CMP_WORKDIR/bin"
+CMP_SHARK_CALLS_LOG="$CMP_WORKDIR/shark-calls.log"
+: >"$CMP_SHARK_CALLS_LOG"
+cat >"$CMP_WORKDIR/bin/shark" <<SHARK
+#!/usr/bin/env bash
+set -euo pipefail
+echo "\$*" >>"$CMP_SHARK_CALLS_LOG"
+python3 - "\$@" <<'PY'
+import json, os, sys
+args = sys.argv[1:]
+if args[:2] == ["next", "ROOT-001"]:
+    response = json.load(open(os.environ["SHARK_RESPONSE"]))
+    path = args[args.index("--prompt-out") + 1]
+    open(path, "wb").write(response["prompt"].encode())
+    print(json.dumps(response, separators=(",", ":")))
+elif args[:2] == ["claim", "TASK-002"]:
+    print('{"session_id":"SID-002"}')
+elif args and args[0] == "heartbeat":
+    print('{"ok":true}')
+elif args[:2] == ["status", "advance"]:
+    print('{"advanced":true}')
+elif args and args[0] == "release":
+    print('{"released":true}')
+else:
+    raise SystemExit("unexpected shark argv: " + repr(args))
+PY
+SHARK
+chmod +x "$CMP_WORKDIR/bin/shark"
+
+export PATH="$CMP_WORKDIR/bin:$PATH_SHIM_DENIAL_BIN_DIR:$PATH"
+export SHARK_RESPONSE="$NEXT_RESPONSE"
+
+mkdir -p "$CMP_WORKDIR/scratch-template" "$CMP_WORKDIR/truth-set" "$CMP_WORKDIR/retention"
+echo "seeded truth-set marker" >"$CMP_WORKDIR/truth-set/marker.txt"
+
+cat >"$CMP_WORKDIR/candidate.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "py-bug-due-date-boundary"
+gates:
+  qa:
+    root_key: "ROOT-001"
+    scratch_root: "$CMP_WORKDIR/scratch-template"
+  deep_review:
+    root_key: "ROOT-001"
+    scratch_root: "$CMP_WORKDIR/scratch-template"
+    i05_bundle_dir: "$CMP_WORKDIR/truth-set"
+EOF
+
+run_comparison_preview() {
+	# run_comparison_preview <comparison-mode> <out-file>
+	local cmode="$1" out="$2"
+	set +e
+	"$COMPARISON" --candidate "$CMP_WORKDIR/candidate.yaml" --retention-root "$CMP_WORKDIR/retention" \
+		--mode preview --comparison-mode "$cmode" >"$out" 2>&1
+	local rc=$?
+	set -e
+	return "$rc"
+}
+
+# AC-002 / AC-T1: both comparison-mode previews exit 0, deny zero
+# provider/network calls, and print candidate identities, workflow-policy
+# identities, expected provider-call inventory, truth-set availability,
+# and fix rules -- before any spend.
+CMP_PREVIEW_OUT="$CMP_WORKDIR/preview-independent.out"
+set +e
+run_comparison_preview "independent_frozen_candidate" "$CMP_PREVIEW_OUT"
+cmp_preview_rc=$?
+set -e
+[[ "$cmp_preview_rc" -eq 0 ]] || fail "comparison preview (independent_frozen_candidate) exited $cmp_preview_rc, want 0: $(cat "$CMP_PREVIEW_OUT")"
+
+path_shim_denial_assert_empty "comparison preview (independent_frozen_candidate)" || fail "provider/network invocation during comparison preview"
+
+grep -q "comparison mode: independent_frozen_candidate" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print the comparison mode: $(cat "$CMP_PREVIEW_OUT")"
+grep -q "^gate: qa" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print the qa gate"
+grep -q "^gate: deep_review" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print the deep_review gate"
+grep -q "expected provider-call inventory" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print the expected provider-call inventory"
+grep -q "truth-set availability: False" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print truth-set availability: False for the qa gate (no i05_bundle_dir configured)"
+grep -q "truth-set availability: True" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print truth-set availability: True for the deep_review gate (i05_bundle_dir configured and non-empty)"
+grep -q "candidate identity" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print candidate identities"
+grep -q "workflow-policy identity:" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print workflow-policy identities"
+grep -q "fix rules: fixes_allowed_between_gates=" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print fix rules (whether fixes are permitted between gates)"
+grep -q "identity:" "$CMP_PREVIEW_OUT" || fail "comparison preview did not print an identity block"
+
+[[ -s "$CMP_SHARK_CALLS_LOG" ]] || fail "expected the real run-lifecycle.sh --mode dry-run call to invoke the stub shark at least once"
+cmp_next_calls="$(grep -c "^next ROOT-001" "$CMP_SHARK_CALLS_LOG")"
+[[ "$cmp_next_calls" -eq 2 ]] || fail "expected exactly 2 real dry-run resolutions (one per gate), got $cmp_next_calls: $(cat "$CMP_SHARK_CALLS_LOG")"
+
+echo "TC-079(comparison half AC-002/AC-T1, independent_frozen_candidate): preview exits 0, zero provider/network calls, real dry-run delegation per gate, candidates/policies/provider-call-inventory/truth-set/fix-rules all printed -- PASS"
+
+# Same assertions again with --comparison-mode sequential_delivery: the
+# preview content and zero-spend guarantee do not depend on comparison
+# mode (REQ-F-014 requires preview support for both architecture modes).
+: >"$CMP_SHARK_CALLS_LOG"
+: >"$PATH_SHIM_DENIAL_LOG"
+CMP_PREVIEW_SEQ_OUT="$CMP_WORKDIR/preview-sequential.out"
+set +e
+run_comparison_preview "sequential_delivery" "$CMP_PREVIEW_SEQ_OUT"
+cmp_preview_seq_rc=$?
+set -e
+[[ "$cmp_preview_seq_rc" -eq 0 ]] || fail "comparison preview (sequential_delivery) exited $cmp_preview_seq_rc, want 0: $(cat "$CMP_PREVIEW_SEQ_OUT")"
+path_shim_denial_assert_empty "comparison preview (sequential_delivery)" || fail "provider/network invocation during comparison preview (sequential_delivery)"
+grep -q "comparison mode: sequential_delivery" "$CMP_PREVIEW_SEQ_OUT" || fail "comparison preview did not print the sequential_delivery comparison mode: $(cat "$CMP_PREVIEW_SEQ_OUT")"
+
+echo "TC-079(comparison half, sequential_delivery): identical zero-spend preview behavior -- PASS"
+
+# ---------------------------------------------------------------------------
+# AC-T3 (this task's own local AC, T-E40-F10-014's future static-grep
+# target): run-review-comparison.sh must contain no field-by-field
+# candidate/policy identity comparison logic of its own -- proven here by
+# asserting the comparator's own candidate/policy digest field-name
+# vocabulary never appears in this driver's source at all.
+# ---------------------------------------------------------------------------
+for forbidden_field in base_commit tree_digest binary_diff_digest changed_path_digest \
+	dirty_untracked_manifest test_suite_digest identity_digest prompt_digest \
+	rendered_prompt_digest review_bundle_digest deep_review_bundle_digest \
+	workflow_policy_identity_digest; do
+	if grep -q -- "$forbidden_field" "$COMPARISON"; then
+		fail "AC-T3: run-review-comparison.sh contains the comparator's own identity field name '$forbidden_field' (must delegate identity adjudication entirely, never re-implement it)"
+	fi
+done
+
+echo "TC-079(AC-T3): run-review-comparison.sh contains no comparator identity field-name vocabulary -- PASS"
+
+echo "TC-079: pass (comparison driver half: zero-spend preview in both comparison modes, candidates/policies/provider-call-inventory/truth-set/fix-rules printed, no local identity vocabulary)"

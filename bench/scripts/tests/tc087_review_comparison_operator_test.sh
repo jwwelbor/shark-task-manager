@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+# TC-087 / T-E40-F10-005: operator review-comparison operation (both
+# architecture modes) (spec.md REQ-F-014, REQ-F-015; test-plan.md TC-087
+# full body). AC-010, AC-T2, AC-T3.
+#
+# Caller-Path Contract (test-plan.md table): `run-review-comparison.sh`,
+# invoked with its real CLI, which internally invokes the REAL, unstubbed
+# `compare-lifecycle-evaluations.sh --left <e1> --right <e2> --mode <mode>
+# --output <comparison.json>`. Do not mock the comparator call, its
+# accept/reject verdict, or divergence-reason preservation.
+#
+# This test proves that contract with ZERO stub seams anywhere in the
+# gate-dispatch path: the two I-08 evaluation records TC-087's Preconditions
+# call "retained" are pre-populated directly at the exact retention path
+# run-review-comparison.sh's own skipped_complete classification looks for
+# (mirroring run-lifecycle-batch.sh's classify_pair/skipped_complete reuse,
+# T-E40-F10-004 precedent) -- dispatch is never reached, RUN_LIFECYCLE_BIN
+# and EVALUATE_LIFECYCLE_BIN are never invoked, and the ONLY real subprocess
+# this test exercises is the real, unmodified comparator itself.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPARISON="$SCRIPTS_DIR/run-review-comparison.sh"
+COMPARATOR="$SCRIPTS_DIR/compare-lifecycle-evaluations.sh"
+SCENARIO_ID="py-bug-due-date-boundary"
+
+fail() {
+	echo "TC-087 FAIL: $1" >&2
+	exit 1
+}
+
+[[ -x "$COMPARISON" ]] || fail "bench/scripts/run-review-comparison.sh missing or not executable"
+[[ -x "$COMPARATOR" ]] || fail "bench/scripts/compare-lifecycle-evaluations.sh missing or not executable"
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+# ---------------------------------------------------------------------------
+# Fixture builder: writes independent/sequential/divergent I-08 evaluation
+# record pairs (same shape tc072_review_comparison_modes_test.sh already
+# uses to exercise compare-lifecycle-evaluations.sh directly), one JSON file
+# per side, under $1.
+# ---------------------------------------------------------------------------
+python3 - "$WORKDIR" <<'PY'
+import copy, hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+digest = "a" * 64
+
+def candidate_digest_fields(candidate):
+    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}
+
+def with_identity_digest(candidate):
+    candidate = dict(candidate)
+    candidate["identity_digest"] = hashlib.sha256(json.dumps(candidate_digest_fields(candidate), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return candidate
+
+identity = {key: value for key, value in {
+    "scenario_id": "s", "scenario_version": "1", "fixture_id": "f", "fixture_digest": digest,
+    "adapter_id": "a", "adapter_version": "1", "toolchain_identity": [{"key": "go", "value": "1"}],
+    "shark_binary_digest": digest, "shark_content_digest": digest, "rendered_prompt_digest": digest,
+    "rendered_prompt_digests": [digest], "provider": "fixture", "model": "m", "effort": "low",
+    "provider_identity": [{"stage": "qa", "provider": "fixture", "model": "m", "effort": "low"}],
+    "judge_digest": digest, "judge_identity": {"model": "j", "configuration": "c"},
+    "reference_digest": digest, "reference_digests": [digest], "resource_policy_digest": digest,
+}.items()}
+
+base_candidate = with_identity_digest({
+    "base_commit": "b" * 40, "tree_digest": digest, "binary_diff_digest": digest,
+    "changed_path_digest": digest, "dirty_untracked_manifest": digest,
+    "test_suite_digest": digest, "snapshot_digest": digest,
+})
+
+def make_policy(**overrides):
+    policy = {
+        "enabled_gates": ["qa", "deep_review"], "gate_order": ["qa", "deep_review"],
+        "reviewer": {"provider": "fixture", "model": "m", "effort": "low"},
+        "prompt_digest": digest, "rendered_prompt_digest": digest,
+        "review_bundle_digest": digest, "deep_review_bundle_digest": digest,
+        "fixes_allowed_between_gates": False, "fix_policy": "none",
+    }
+    policy.update(overrides)
+    policy["workflow_policy_identity_digest"] = hashlib.sha256(json.dumps({k: v for k, v in policy.items() if k != "workflow_policy_identity_digest"}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return policy
+
+base_policy = make_policy()
+
+def finding(fid, gate, confirmed=True):
+    return {"f09_finding_id": fid, "gate": gate, "final_disposition": "confirmed" if confirmed else "unconfirmed", "confirmation_source": "seeded_truth_set" if confirmed else "none"}
+
+def base_record(evaluation_id, candidate_snapshots, policy=None, findings=None):
+    return {
+        "evaluation_id": evaluation_id,
+        "identity": identity,
+        "workflow_policy": policy or base_policy,
+        "eligibility": {"aggregate_eligible": True},
+        "candidate_snapshots": candidate_snapshots,
+        "review_findings": {"normalized_findings": findings or [finding("f09-1", "qa")], "derived_counts": {"confirmed": 1}},
+    }
+
+def write(name, record):
+    path = root / f"{name}.jsonl"
+    path.write_text(json.dumps(record) + "\n")
+    return path
+
+# --- Pair A: identity-compatible independent_frozen_candidate pair -------
+qa_compatible = base_record("qa-compatible", [{"stage": "qa", "candidate": base_candidate}])
+dr_compatible = base_record("dr-compatible", [{"stage": "deep_review", "candidate": base_candidate}])
+write("indep-compatible-qa", qa_compatible)
+write("indep-compatible-dr", dr_compatible)
+
+# --- Pair B: one-field-divergent independent_frozen_candidate pair -------
+divergent_candidate = with_identity_digest(dict(base_candidate, tree_digest="c" * 64))
+dr_divergent = base_record("dr-divergent", [{"stage": "deep_review", "candidate": divergent_candidate}])
+write("indep-divergent-qa", qa_compatible)
+write("indep-divergent-dr", dr_divergent)
+
+# --- Pair C: branch-name/HEAD-only candidate identity (must be rejected
+#     by the DELEGATED comparator's own malformed-digest check, never a
+#     local F10 special-case) ------------------------------------------
+branch_candidate = with_identity_digest(dict(base_candidate, base_commit="HEAD"))
+dr_branch = base_record("dr-branch", [{"stage": "deep_review", "candidate": branch_candidate}])
+write("indep-branch-qa", qa_compatible)
+write("indep-branch-dr", dr_branch)
+
+# --- Pair D: workflow-policy-only divergence (candidate identical) -------
+policy_divergent = make_policy(fixes_allowed_between_gates=True)
+dr_policy_divergent = base_record("dr-policy-divergent", [{"stage": "deep_review", "candidate": base_candidate}], policy=policy_divergent)
+write("indep-policy-divergent-qa", qa_compatible)
+write("indep-policy-divergent-dr", dr_policy_divergent)
+
+# --- Pair E: three-candidate sequential_delivery chain, exercised on
+#     both sides (qa view of the chain vs deep_review view of the SAME
+#     chain) -- every intervening candidate is present on both sides. ---
+chain_candidates = [with_identity_digest(dict(base_candidate, tree_digest=c * 64)) for c in ("1", "2", "3")]
+chain_snapshots = [
+    {"stage": "qa", "gate": "qa", "candidate": chain_candidates[0]},
+    {"stage": "qa", "gate": "qa", "candidate": chain_candidates[1]},
+    {"stage": "deep_review", "gate": "deep_review", "candidate": chain_candidates[2]},
+]
+qa_chain = base_record("qa-chain", chain_snapshots, findings=[finding("f09-1", "qa"), finding("f09-2", "qa")])
+dr_chain = base_record("dr-chain", chain_snapshots, findings=[finding("f09-1", "qa"), finding("f09-2", "qa"), finding("f09-3", "deep_review")])
+write("seq-chain-qa", qa_chain)
+write("seq-chain-dr", dr_chain)
+
+print("fixtures written")
+PY
+
+[[ $? -eq 0 ]] || fail "fixture builder failed"
+
+# ---------------------------------------------------------------------------
+# retain_pair_fixtures <root> <qa_fixture> <dr_fixture>
+# Pre-populates the exact retention path run-review-comparison.sh's own
+# skipped_complete classification looks for -- so dispatch is never
+# reached and RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN are never invoked.
+# ---------------------------------------------------------------------------
+retain_pair_fixtures() {
+	local root="$1" qa_fixture="$2" dr_fixture="$3"
+	mkdir -p "$root/scenarios/$SCENARIO_ID/qa" "$root/scenarios/$SCENARIO_ID/deep_review"
+	cp "$WORKDIR/${qa_fixture}.jsonl" "$root/scenarios/$SCENARIO_ID/qa/evaluation.jsonl"
+	cp "$WORKDIR/${dr_fixture}.jsonl" "$root/scenarios/$SCENARIO_ID/deep_review/evaluation.jsonl"
+}
+
+CANDIDATE_YAML="$WORKDIR/candidate.yaml"
+cat >"$CANDIDATE_YAML" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCENARIO_ID"
+gates:
+  qa:
+    root_key: ""
+    scratch_root: ""
+  deep_review:
+    root_key: ""
+    scratch_root: ""
+EOF
+
+ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
+
+run_case() {
+	# run_case <label> <root> <comparison_mode>
+	# Writes stdout to <root>.stdout (the driver's published/verbatim JSON
+	# output only) and stderr to <root>.stderr (diagnostic banners), and
+	# a combined <root>.out for convenience greps. Prints the exit code.
+	local label="$1" root="$2" cmode="$3"
+	local stdout_file="$root.stdout" stderr_file="$root.stderr" out="$root.out"
+	set +e
+	"$COMPARISON" --candidate "$CANDIDATE_YAML" --retention-root "$root" \
+		--mode pilot --comparison-mode "$cmode" "${ACK_FLAGS[@]}" >"$stdout_file" 2>"$stderr_file"
+	local rc=$?
+	set -e
+	cat "$stderr_file" "$stdout_file" >"$out"
+	echo "$rc"
+}
+
+# ===========================================================================
+# Case A: identity-compatible pair, independent_frozen_candidate -> ACCEPT
+# and PUBLISH. Cross-checked against a direct, real comparator invocation
+# on the identical two files so the driver's stdout is proven byte-for-byte
+# identical to the comparator's own output (not just "similar").
+# ===========================================================================
+ROOT_A="$WORKDIR/root-a"
+mkdir -p "$ROOT_A"
+retain_pair_fixtures "$ROOT_A" "indep-compatible-qa" "indep-compatible-dr"
+DIRECT_A="$ROOT_A/direct-comparator-output.json"
+"$COMPARATOR" --left "$ROOT_A/scenarios/$SCENARIO_ID/qa/evaluation.jsonl" \
+	--right "$ROOT_A/scenarios/$SCENARIO_ID/deep_review/evaluation.jsonl" \
+	--mode independent_frozen_candidate --output "$DIRECT_A" \
+	|| fail "case A: direct comparator invocation itself failed (fixture is not actually compatible)"
+
+RC_A="$(run_case "case-a" "$ROOT_A" "independent_frozen_candidate")"
+[[ "$RC_A" -eq 0 ]] || fail "case A: expected exit 0 (accepted+published), got $RC_A: $(cat "$ROOT_A.out")"
+[[ -f "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case A: accepted comparison was not published"
+diff -u "$DIRECT_A" "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json" >/dev/null \
+	|| fail "case A: published comparison.json is not byte-identical to the direct comparator's own output: $(diff -u "$DIRECT_A" "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json")"
+grep -q '"accepted":true' "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json" \
+	|| fail "case A: published comparison.json does not report accepted:true"
+
+echo "TC-087(case A, AC-010): identity-compatible independent pair accepted and published, byte-identical to the real comparator's own output -- PASS"
+
+# ===========================================================================
+# Case B: one-field-divergent pair, independent_frozen_candidate -> REJECT,
+# NEVER PUBLISHED, divergence reason preserved verbatim.
+# ===========================================================================
+ROOT_B="$WORKDIR/root-b"
+mkdir -p "$ROOT_B"
+retain_pair_fixtures "$ROOT_B" "indep-divergent-qa" "indep-divergent-dr"
+DIRECT_B="$ROOT_B/direct-comparator-output.json"
+set +e
+"$COMPARATOR" --left "$ROOT_B/scenarios/$SCENARIO_ID/qa/evaluation.jsonl" \
+	--right "$ROOT_B/scenarios/$SCENARIO_ID/deep_review/evaluation.jsonl" \
+	--mode independent_frozen_candidate --output "$DIRECT_B"
+direct_b_rc=$?
+set -e
+[[ "$direct_b_rc" -ne 0 ]] || fail "case B: direct comparator invocation unexpectedly accepted the divergent fixture"
+
+RC_B="$(run_case "case-b" "$ROOT_B" "independent_frozen_candidate")"
+[[ "$RC_B" -eq 4 ]] || fail "case B: expected exit 4 (rejected, not published), got $RC_B: $(cat "$ROOT_B.out")"
+[[ ! -f "$ROOT_B/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case B: a REJECTED comparison must never be published"
+grep -q "identity_mismatch" "$ROOT_B.out" || fail "case B: driver output did not preserve the comparator's identity_mismatch divergence reason: $(cat "$ROOT_B.out")"
+
+# Byte-for-byte verbatim cross-check: the driver's stdout (the published
+# JSON only, diagnostic banners are on stderr, checked separately above)
+# must reproduce the exact bytes of the direct comparator's own --output
+# file.
+diff -u "$DIRECT_B" "$ROOT_B.stdout" >/dev/null \
+	|| fail "case B: driver's printed divergence output is not byte-identical to the direct comparator's own output: $(diff -u "$DIRECT_B" "$ROOT_B.stdout")"
+
+echo "TC-087(case B, AC-010/AC-T2): one-field-divergent independent pair rejected, never published, divergence reason preserved verbatim -- PASS"
+
+# ===========================================================================
+# Case C: branch-name/HEAD-only candidate identity -> REJECTED by the
+# DELEGATED comparator's own malformed-digest check (never an F10 special
+# case for the literal string "HEAD" or a branch name).
+# ===========================================================================
+ROOT_C="$WORKDIR/root-c"
+mkdir -p "$ROOT_C"
+retain_pair_fixtures "$ROOT_C" "indep-branch-qa" "indep-branch-dr"
+RC_C="$(run_case "case-c" "$ROOT_C" "independent_frozen_candidate")"
+[[ "$RC_C" -eq 4 ]] || fail "case C: expected exit 4 (branch/HEAD candidate identity rejected), got $RC_C: $(cat "$ROOT_C.out")"
+[[ ! -f "$ROOT_C/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case C: a branch/HEAD-identity comparison must never be published"
+grep -q "malformed_digest" "$ROOT_C.out" || fail "case C: expected the comparator's own malformed_digest rejection for a HEAD-only candidate identity: $(cat "$ROOT_C.out")"
+
+echo "TC-087(case C, REQ-F-015 Negative Case): a HEAD-only candidate identity is rejected by the delegated comparator, not a local F10 special-case -- PASS"
+
+# ===========================================================================
+# Case D: workflow-policy-only divergence (candidate identical) -> REJECT
+# with a reason distinguishing policy divergence from candidate divergence
+# (test-plan.md TC-087 Edge Cases).
+# ===========================================================================
+ROOT_D="$WORKDIR/root-d"
+mkdir -p "$ROOT_D"
+retain_pair_fixtures "$ROOT_D" "indep-policy-divergent-qa" "indep-policy-divergent-dr"
+RC_D="$(run_case "case-d" "$ROOT_D" "independent_frozen_candidate")"
+[[ "$RC_D" -eq 4 ]] || fail "case D: expected exit 4 (policy-only divergence rejected), got $RC_D: $(cat "$ROOT_D.out")"
+grep -q '"field": *"workflow_policy/' "$ROOT_D.out" || grep -q '"field":"workflow_policy/' "$ROOT_D.out" \
+	|| fail "case D: divergence reason did not name a workflow_policy/* field (must distinguish policy divergence from candidate divergence): $(cat "$ROOT_D.out")"
+if grep -q '"field": *"candidate/' "$ROOT_D.out" || grep -q '"field":"candidate/' "$ROOT_D.out"; then
+	fail "case D: a candidate/* divergence must not appear when only the workflow policy diverges: $(cat "$ROOT_D.out")"
+fi
+
+echo "TC-087(case D, Edge Case): workflow-policy-only divergence rejected with a policy-specific reason, distinct from a candidate divergence -- PASS"
+
+# ===========================================================================
+# Case E: three-candidate sequential_delivery chain -> ACCEPT, every
+# intervening candidate exercised (not just first-and-last), and the
+# comparison output renders a distinct (longer) candidate lineage than the
+# independent-mode case A above.
+# ===========================================================================
+ROOT_E="$WORKDIR/root-e"
+mkdir -p "$ROOT_E"
+retain_pair_fixtures "$ROOT_E" "seq-chain-qa" "seq-chain-dr"
+RC_E="$(run_case "case-e" "$ROOT_E" "sequential_delivery")"
+[[ "$RC_E" -eq 0 ]] || fail "case E: expected exit 0 (accepted+published sequential chain), got $RC_E: $(cat "$ROOT_E.out")"
+[[ -f "$ROOT_E/scenarios/$SCENARIO_ID/comparison.json" ]] || fail "case E: accepted sequential comparison was not published"
+
+INTERVENING_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["comparison"]["intervening_candidates"]))' "$ROOT_E/scenarios/$SCENARIO_ID/comparison.json")"
+[[ "$INTERVENING_COUNT" -eq 3 ]] || fail "case E: expected all 3 intervening candidates to be exercised (not just first-and-last), got $INTERVENING_COUNT"
+
+INDEPENDENT_INTERVENING_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["comparison"]["intervening_candidates"]))' "$ROOT_A/scenarios/$SCENARIO_ID/comparison.json")"
+[[ "$INDEPENDENT_INTERVENING_COUNT" -eq 0 ]] || fail "case A/E cross-check: independent_frozen_candidate mode must render an empty candidate lineage, distinct from sequential_delivery's chain"
+[[ "$INTERVENING_COUNT" -gt "$INDEPENDENT_INTERVENING_COUNT" ]] || fail "case E: sequential_delivery must render a distinct (non-empty) candidate lineage vs. independent_frozen_candidate's frozen pair"
+
+echo "TC-087(case E, AC-010): three-candidate sequential_delivery chain accepted and published; every intervening candidate exercised; lineage rendering is distinct from independent_frozen_candidate mode -- PASS"
+
+# ---------------------------------------------------------------------------
+# AC-T3 (T-E40-F10-014's future static-grep target, proven here too):
+# run-review-comparison.sh contains none of the comparator's own
+# candidate/policy digest field names -- delegates identity adjudication
+# entirely, never re-implements it.
+# ---------------------------------------------------------------------------
+for forbidden_field in base_commit tree_digest binary_diff_digest changed_path_digest \
+	dirty_untracked_manifest test_suite_digest identity_digest prompt_digest \
+	rendered_prompt_digest review_bundle_digest deep_review_bundle_digest \
+	workflow_policy_identity_digest; do
+	if grep -q -- "$forbidden_field" "$COMPARISON"; then
+		fail "AC-T3: run-review-comparison.sh contains the comparator's own identity field name '$forbidden_field'"
+	fi
+done
+
+echo "TC-087(AC-T3): run-review-comparison.sh contains no comparator identity field-name vocabulary -- PASS"
+
+echo "TC-087: pass (identity-compatible pair published byte-identical to the real comparator; divergent/branch-identity/policy-only pairs rejected and never published with verbatim reasons; sequential chain exercises every intervening candidate with a lineage distinct from independent mode)"

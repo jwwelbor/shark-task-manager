@@ -344,3 +344,91 @@ grep -q "root_key_or_scratch_root_not_configured" "$DRIVER_ROOT/invalid/index.js
 	|| fail "driver:fully-satisfied: invalid/index.jsonl did not name the unconfigured-scenario reason: $(cat "$DRIVER_ROOT/invalid/index.jsonl" 2>/dev/null)"
 
 echo "TC-080(driver half, T-E40-F10-004): fully-satisfied invocation proceeds past the spend gate to real dispatch classification -- PASS"
+
+# ---------------------------------------------------------------------------
+# TC-080 comparison-driver half (T-E40-F10-005): the same conditions, run
+# through the REAL run-review-comparison.sh CLI end to end -- real argv
+# parsing, real spend-gate.sh sourcing, real pre-dispatch short-circuit.
+# ---------------------------------------------------------------------------
+COMPARISON="$SCRIPTS_DIR/run-review-comparison.sh"
+[[ -x "$COMPARISON" ]] || fail "bench/scripts/run-review-comparison.sh missing or not executable"
+
+CMP_DRIVER_WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$DRIVER_WORKDIR" "$CMP_DRIVER_WORKDIR"' EXIT
+
+CMP_DRIVER_SPY_LOG="$CMP_DRIVER_WORKDIR/spy.log"
+: >"$CMP_DRIVER_SPY_LOG"
+mkdir -p "$CMP_DRIVER_WORKDIR/spybin"
+for bin in shark run-lifecycle.sh evaluate-lifecycle.sh compare-lifecycle-evaluations.sh git; do
+	cat >"$CMP_DRIVER_WORKDIR/spybin/$bin" <<SPY
+#!/usr/bin/env bash
+echo "$bin \$*" >>"$CMP_DRIVER_SPY_LOG"
+exit 1
+SPY
+	chmod +x "$CMP_DRIVER_WORKDIR/spybin/$bin"
+done
+
+CMP_DRIVER_ROOT="$CMP_DRIVER_WORKDIR/retention"
+cat >"$CMP_DRIVER_WORKDIR/candidate.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "py-bug-due-date-boundary"
+gates:
+  qa:
+    root_key: "ROOT-001"
+    scratch_root: "$CMP_DRIVER_WORKDIR/scratch-template"
+  deep_review:
+    root_key: "ROOT-001"
+    scratch_root: "$CMP_DRIVER_WORKDIR/scratch-template"
+EOF
+
+assert_cmp_driver_refusal() {
+	# assert_cmp_driver_refusal <label> <expected_reason_substring> <argv...>
+	local label="$1" reason="$2"
+	shift 2
+	local out rc=0
+	out="$(PATH="$CMP_DRIVER_WORKDIR/spybin:$PATH" "$COMPARISON" "$@" 2>&1)" || rc=$?
+	[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] || fail "cmp-driver:$label: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $rc: $out"
+	echo "$out" | grep -q "$reason" || fail "cmp-driver:$label: expected refusal reason '$reason' in output: $out"
+	if [[ -s "$CMP_DRIVER_SPY_LOG" ]]; then
+		fail "cmp-driver:$label: unexpected subprocess/checkout/Shark/comparator call recorded: $(cat "$CMP_DRIVER_SPY_LOG")"
+	fi
+}
+
+assert_cmp_driver_refusal "no-ack" "missing_acknowledgement" \
+	--candidate "$CMP_DRIVER_WORKDIR/candidate.yaml" --retention-root "$CMP_DRIVER_ROOT" \
+	--mode pilot --comparison-mode independent_frozen_candidate \
+	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10
+
+assert_cmp_driver_refusal "zero-cost" "non_positive_max_cost_usd" \
+	--candidate "$CMP_DRIVER_WORKDIR/candidate.yaml" --retention-root "$CMP_DRIVER_ROOT" \
+	--mode pilot --comparison-mode independent_frozen_candidate \
+	--acknowledge-provider-spend --max-cost-usd 0 --max-wall-clock-seconds 600 --max-generated-tasks 10
+
+assert_cmp_driver_refusal "no-retention-root" "missing_retention_root" \
+	--candidate "$CMP_DRIVER_WORKDIR/candidate.yaml" \
+	--mode pilot --comparison-mode independent_frozen_candidate \
+	--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10
+
+: >"$CMP_DRIVER_SPY_LOG"
+CMP_DRIVER_ACK_ENV_OUT="$(PATH="$CMP_DRIVER_WORKDIR/spybin:$PATH" SHARK_BENCH_ACK=1 "$COMPARISON" \
+	--candidate "$CMP_DRIVER_WORKDIR/candidate.yaml" --retention-root "$CMP_DRIVER_ROOT" \
+	--mode pilot --comparison-mode independent_frozen_candidate \
+	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 2>&1)" && CMP_DRIVER_ACK_ENV_RC=0 || CMP_DRIVER_ACK_ENV_RC=$?
+[[ "$CMP_DRIVER_ACK_ENV_RC" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] || fail "cmp-driver:ack-via-env-var: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $CMP_DRIVER_ACK_ENV_RC: $CMP_DRIVER_ACK_ENV_OUT"
+echo "$CMP_DRIVER_ACK_ENV_OUT" | grep -q "missing_acknowledgement" || fail "cmp-driver:ack-via-env-var: expected missing_acknowledgement: $CMP_DRIVER_ACK_ENV_OUT"
+
+echo "TC-080(comparison driver half, T-E40-F10-005): run-review-comparison.sh's real CLI refuses every missing/non-positive/env-only-ack/no-retention-root condition before any subprocess -- PASS"
+
+# Fully-satisfied invocation proceeds past the gate (proven by reaching
+# real gate dispatch: the unconfigured scratch_root -- it does not exist on
+# disk -- causes an honest per-gate dispatch failure, giving exit 4 "ran,
+# comparison not attempted/published", which is only reachable once the
+# spend gate has already passed).
+CMP_DRIVER_PASS_OUT="$(PATH="$CMP_DRIVER_WORKDIR/spybin:$PATH" "$COMPARISON" \
+	--candidate "$CMP_DRIVER_WORKDIR/candidate.yaml" --retention-root "$CMP_DRIVER_ROOT" \
+	--mode pilot --comparison-mode independent_frozen_candidate \
+	--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 2>&1)" && CMP_DRIVER_PASS_RC=0 || CMP_DRIVER_PASS_RC=$?
+[[ "$CMP_DRIVER_PASS_RC" -eq 4 ]] || fail "cmp-driver:fully-satisfied: expected exit 4 (gate passed, dispatch reached, gate scratch_root missing), got $CMP_DRIVER_PASS_RC: $CMP_DRIVER_PASS_OUT"
+echo "$CMP_DRIVER_PASS_OUT" | grep -q "one or both gates failed to dispatch/evaluate" || fail "cmp-driver:fully-satisfied: expected dispatch to be reached and fail on the unconfigured scratch_root: $CMP_DRIVER_PASS_OUT"
+
+echo "TC-080(comparison driver half, T-E40-F10-005): fully-satisfied invocation proceeds past the spend gate to real gate dispatch -- PASS"
