@@ -188,9 +188,9 @@ SCENARIOS_DIR="$RETENTION_ROOT_CANON/scenarios"
 # Phase 1+2: layout completeness and manifest presence, driven by the
 # schema's own retention_required_artifacts list (REQ-F-018). Emits one
 # "<scenario_id> <rep>" pending-pair line per discovered (scenario, rep)
-# directory to a temp file for the phase-2/3 python step below, and prints
+# directory to a temp file for the phase-2/3 python3 step below, and prints
 # any layout failures immediately (so AC-T2's ordering is structural: phase
-# 2/3 python is never invoked for a pair whose layout failed).
+# 2/3 python3 is never invoked for a pair whose layout failed).
 overall_status=0
 PENDING="$(mktemp)"
 trap 'rm -f "$PENDING"' EXIT
