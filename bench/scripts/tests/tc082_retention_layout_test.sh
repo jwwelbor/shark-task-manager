@@ -308,6 +308,64 @@ for later_reason in digest_mismatch re_serialized source_path_missing lineage_mi
 	echo "$out_neg" | grep -q "$later_reason" && fail "negative case: output contains a phase-2/3 reason ('$later_reason') despite manifest.json being absent: $out_neg"
 done
 
+# ===========================================================================
+# Phase 4 (delegated upstream schema validity): a retained artifact whose
+# manifest-recorded digest matches its (malformed) bytes exactly -- so phase
+# 3's digest check passes and does NOT short-circuit -- but whose content is
+# not valid JSON must still fail, via delegation to the real
+# verify-lifecycle-run.sh / verify-lifecycle-evaluation.sh, naming
+# upstream_lifecycle_invalid / upstream_evaluation_invalid respectively. This
+# is not one of TC-082's lettered cases, but it is the only way to exercise
+# the Integration-with-existing-code delegation path (spec.md; Brownfield
+# Context: "Delegates upstream schema validity ... rather than duplicating
+# either validator") -- a digest-mismatch case alone (j) never reaches phase
+# 4, since verify-retention-root.sh reports digest_mismatch and moves on
+# without invoking either delegate for that artifact.
+# ===========================================================================
+corrupt_but_digest_matching() {
+	# Overwrites $2 (an artifact path) with $3 (malformed content), then
+	# patches $1's manifest.json so the recorded sha256 for that artifact
+	# equals the new (malformed) bytes' digest -- keeping phase 3 (digest
+	# equality) green so phase 4 (upstream delegation) is what fires.
+	local dir="$1" artifact="$2" content="$3"
+	printf '%s' "$content" >"$dir/$artifact"
+	local new_digest
+	new_digest="$(sha256sum "$dir/$artifact" | awk '{print $1}')"
+	python3 -c '
+import json
+path, artifact, digest = __import__("sys").argv[1:4]
+manifest = json.load(open(path, encoding="utf-8"))
+manifest["artifacts"][artifact]["sha256"] = digest
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+    f.write("\n")
+' "$dir/manifest.json" "$artifact" "$new_digest"
+}
+
+root_l="$(damaged_root "upstream-lifecycle-invalid")"
+dir_l="$(pair_dir "$root_l")"
+corrupt_but_digest_matching "$dir_l" "lifecycle.jsonl" 'not-valid-json-at-all'
+out_l=""
+rc_l=0
+out_l="$("$VERIFIER" --retention-root "$root_l" --schema "$SCHEMA" 2>"$WORKDIR/l.err")" || rc_l=$?
+[[ "$rc_l" -ne 0 ]] || fail "(l) upstream_lifecycle_invalid: expected nonzero exit, got 0"
+grep -q "lifecycle.jsonl: upstream_lifecycle_invalid" "$WORKDIR/l.err" || fail "(l) upstream_lifecycle_invalid: stderr did not name lifecycle.jsonl and upstream_lifecycle_invalid: $(cat "$WORKDIR/l.err")"
+echo "$out_l" | grep -q '"reason":"upstream_lifecycle_invalid"' || fail "(l) upstream_lifecycle_invalid: stdout verdict missing upstream_lifecycle_invalid reason: $out_l"
+echo "$out_l" | grep -q '"reason":"digest_mismatch"' && fail "(l) upstream_lifecycle_invalid: expected no digest_mismatch entry (digest was made to match), got: $out_l"
+
+root_m="$(damaged_root "upstream-evaluation-invalid")"
+dir_m="$(pair_dir "$root_m")"
+corrupt_but_digest_matching "$dir_m" "evaluation.jsonl" 'not-valid-json-at-all'
+out_m=""
+rc_m=0
+out_m="$("$VERIFIER" --retention-root "$root_m" --schema "$SCHEMA" 2>"$WORKDIR/m.err")" || rc_m=$?
+[[ "$rc_m" -ne 0 ]] || fail "(m) upstream_evaluation_invalid: expected nonzero exit, got 0"
+grep -q "evaluation.jsonl: upstream_evaluation_invalid" "$WORKDIR/m.err" || fail "(m) upstream_evaluation_invalid: stderr did not name evaluation.jsonl and upstream_evaluation_invalid: $(cat "$WORKDIR/m.err")"
+echo "$out_m" | grep -q '"reason":"upstream_evaluation_invalid"' || fail "(m) upstream_evaluation_invalid: stdout verdict missing upstream_evaluation_invalid reason: $out_m"
+echo "$out_m" | grep -q '"reason":"digest_mismatch"' && fail "(m) upstream_evaluation_invalid: expected no digest_mismatch entry (digest was made to match), got: $out_m"
+
+echo "TC-082: upstream schema-validity delegation (lifecycle + evaluation) fails distinctly on malformed-but-digest-matching content"
+
 echo "TC-082: layout completeness, digest equality, re-serialization detection, source-path/lineage checks, and AC-T2 ordering all pass"
 
 # ===========================================================================
