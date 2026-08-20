@@ -1631,3 +1631,30 @@ session, only through the preamble's routing instruction — no test in this
 feature calls it as a substitute for a live dispatch except tc054, which
 drives it directly as the resolver itself (there is no caller above it to
 substitute).
+
+## E40-F09 calibrated evaluation and comparison identity
+
+E40-F09 evaluates retained I-05/I-07 evidence offline. The evaluator does
+not call providers or a database; it consumes file-backed artifacts, validates
+their run and dispatch identity, retains malformed or ineligible evidence, and
+emits an I-08 result with publication eligibility and machine-readable reasons.
+Review findings are normalized by the evaluator-owned path so callers cannot
+replace the normalization boundary with pre-shaped findings.
+
+The held-back oracle uses the broker's authoritative injected destinations,
+rejects pre-existing destination collisions, and verifies both the fixture
+checkout and evaluator roots are restored before reporting success. The
+comparison identity includes the scenario, fixture, adapter, toolchain,
+provider/judge, reference, resource-policy, workflow-policy, and deep-review
+bundle digests; it must be identical before candidate and baseline results are
+compared.
+
+Run the scoped verifier and registered F09 tests with:
+
+```bash
+bench/scripts/verify-lifecycle-evaluation.sh
+bench/scripts/tests/run-all.sh
+```
+
+The F09 cases are TC-067 through TC-077. The full quality gate remains:
+`make fmt && make lint && make test`.

@@ -196,7 +196,6 @@ func (s *TechDebtService) generateMarkdown(td *models.TechDebt) string {
 	sb.WriteString("---\n")
 	sb.WriteString(fmt.Sprintf("tech_debt_key: %s\n", td.Key))
 	sb.WriteString(fmt.Sprintf("title: %s\n", td.Title))
-	sb.WriteString(fmt.Sprintf("status: %s\n", td.Status))
 	sb.WriteString(fmt.Sprintf("category: %s\n", td.Category))
 	sb.WriteString(fmt.Sprintf("severity: %s\n", td.Severity))
 	if td.EffortEstimate != nil {

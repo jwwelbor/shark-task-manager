@@ -158,15 +158,25 @@ def validate_replay(package, replay_path, expected_stages):
     replay_bundle = result.get("replay_bundle")
     if not isinstance(replay_bundle, dict):
         raise GateError("I-06 replay is missing replay_bundle provenance")
-    expected_digest = "sha256:" + hashlib.sha256(authorized_bundle.read_bytes()).hexdigest()
+    # Read the bundle ONCE and reuse the same bytes for both the digest
+    # assertion below and the JSON parse that follows (F09-UAT3-001): a
+    # second, independent read here would let the digest-verified bytes and
+    # the parsed/asserted bytes silently diverge (a symlink swap between the
+    # two reads, or even an unrelated concurrent write) -- the digest check
+    # would then be authenticating content nothing downstream actually reads.
+    try:
+        bundle_bytes = authorized_bundle.read_bytes()
+    except OSError as exc:
+        raise GateError(f"I-04 replay bundle is not readable: {exc}") from exc
+    expected_digest = "sha256:" + hashlib.sha256(bundle_bytes).hexdigest()
     recorded_path = replay_bundle.get("bundle_path")
     if not isinstance(recorded_path, str) or Path(recorded_path).resolve() != authorized_bundle:
         raise GateError("I-06 replay bundle_path does not match the authorized I-04 replay_reference")
     if replay_bundle.get("bundle_digest") != expected_digest:
         raise GateError("I-06 replay bundle_digest does not match the authorized I-04 replay bundle")
     try:
-        authorized_doc = json.loads(authorized_bundle.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        authorized_doc = json.loads(bundle_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GateError(f"I-04 replay bundle is not readable JSON: {exc}") from exc
     if replay_bundle.get("bundle_version") != authorized_doc.get("bundle_version"):
         raise GateError("I-06 replay bundle_version does not match the authorized I-04 replay bundle")

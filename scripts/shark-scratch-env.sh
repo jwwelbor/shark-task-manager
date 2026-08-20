@@ -35,7 +35,11 @@ scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/shark-scratch-${name}-XXXXXX")"
 
 (
   cd "$scratch_dir"
-  "$binary" admin init --non-interactive >&2
+  # Pin the database inside this scratch root. Project-root auto-detection can
+  # otherwise discover a stale /tmp/shark-tasks.db shared by concurrent
+  # harness runs, which breaks isolation and makes sequential tests order-
+  # dependent.
+  "$binary" admin init --non-interactive --db "$scratch_dir/shark-tasks.db" >&2
 )
 
 cp "$binary" "$scratch_dir/shark"
