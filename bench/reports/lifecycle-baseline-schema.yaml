@@ -202,6 +202,19 @@ aggregate_properties:
   /comparisons: array
   /invalid: array
 
+# T-E40-F10-002 schema gap found while building the exhaustive invalid-fixture
+# matrix (TC-078): a required top-level array can be present-but-empty and
+# pass every pointer/type check above (an empty array has no elements to
+# walk). `/comparisons` and `/invalid` are the two blocks this file already
+# documents as legitimately empty (no comparison requested; no ineligible
+# run -- see their required_fields comment above); every other required
+# top-level array block (`/scenarios`, `/noise_bands`) MUST be non-empty. A
+# validator MUST treat presence-as-empty-array as invalid for any required
+# array pointer not named here.
+aggregate_required_arrays_may_be_empty:
+  - /comparisons
+  - /invalid
+
 # ---------------------------------------------------------------------------
 # Retention layout (REQ-F-004, REQ-NF-007; spec.md "Data model changes").
 # The eight retained artifacts TC-082's retention-root verifier exercises

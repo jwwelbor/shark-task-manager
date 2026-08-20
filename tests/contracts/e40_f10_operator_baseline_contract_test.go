@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -29,9 +30,10 @@ import (
 type e40F10Schema struct {
 	SchemaVersion string `yaml:"schema_version"`
 
-	AggregateTopLevelFields []string          `yaml:"aggregate_top_level_fields"`
-	AggregateRequiredFields []string          `yaml:"aggregate_required_fields"`
-	AggregateProperties     map[string]string `yaml:"aggregate_properties"`
+	AggregateTopLevelFields           []string          `yaml:"aggregate_top_level_fields"`
+	AggregateRequiredFields           []string          `yaml:"aggregate_required_fields"`
+	AggregateProperties               map[string]string `yaml:"aggregate_properties"`
+	AggregateRequiredArraysMayBeEmpty []string          `yaml:"aggregate_required_arrays_may_be_empty"`
 
 	RetentionRequiredArtifacts      []string `yaml:"retention_required_artifacts"`
 	RetentionOptionalArtifacts      []string `yaml:"retention_optional_artifacts"`
@@ -73,9 +75,11 @@ func TestTC078_F10OperatorBaselineContract(t *testing.T) {
 	testdataRoot := filepath.Join(repoRoot, "tests", "contracts", "testdata", "e40_f10")
 
 	schema := e40F10ReadSchema(t, schemaPath)
+	i05Vocab, i08Vocab := e40F10ReadUpstreamVocab(t, repoRoot)
 
 	t.Run("schema_owns_required_vocabulary", func(t *testing.T) {
 		e40F10AssertSchemaShape(t, schema)
+		e40F10AssertSchemaReferencesNeverRestates(t, schemaPath)
 	})
 
 	t.Run("valid_aggregate_fixture", func(t *testing.T) {
@@ -88,6 +92,13 @@ func TestTC078_F10OperatorBaselineContract(t *testing.T) {
 		}
 		e40F10AssertAggregateSemantics(t, schema, record)
 		e40F10AssertReferencesUpstreamVocabularies(t, repoRoot, record)
+
+		// T-E40-F10-002: the combined validator every invalid-fixture case
+		// below is also run through must accept the valid fixture cleanly,
+		// or the invalid-fixture matrix would be proving nothing.
+		if errs := e40F10ValidateAggregateRecord(schema, i05Vocab, i08Vocab, record); len(errs) > 0 {
+			t.Fatalf("valid aggregate fixture fails the T-E40-F10-002 combined validator:\n%s", strings.Join(errs, "\n"))
+		}
 	})
 
 	t.Run("valid_retention_manifest_fixture", func(t *testing.T) {
@@ -113,6 +124,10 @@ func TestTC078_F10OperatorBaselineContract(t *testing.T) {
 				t.Errorf("retention-manifest fixture artifact %q has malformed sha256 %q", name, digest)
 			}
 		}
+
+		if errs := e40F10ValidateRetentionManifestRecord(schema, record); len(errs) > 0 {
+			t.Fatalf("valid retention-manifest fixture fails the T-E40-F10-002 combined validator:\n%s", strings.Join(errs, "\n"))
+		}
 	})
 
 	t.Run("valid_pilot_attestation_fixture", func(t *testing.T) {
@@ -130,14 +145,72 @@ func TestTC078_F10OperatorBaselineContract(t *testing.T) {
 				t.Errorf("pilot-attestation fixture digest for %q is malformed: %v", artifact, value)
 			}
 		}
+
+		if errs := e40F10ValidatePilotAttestationRecord(schema, record); len(errs) > 0 {
+			t.Fatalf("valid pilot-attestation fixture fails the T-E40-F10-002 combined validator:\n%s", strings.Join(errs, "\n"))
+		}
 	})
 
-	// T-E40-F10-002 appends the invalid-fixture matrix here (missing
-	// required field, wrong type, unknown refusal reason, malformed
-	// noise-band derivation-rule name, malformed share-partition cell name,
-	// unrecognized view name, wrong phase-label value, malformed digest),
-	// walking tests/contracts/testdata/e40_f10/invalid/*.json the same way
-	// TestTC067_I08LifecycleEvaluationContract walks testdata/e40_i08/invalid.
+	// T-E40-F10-002: a minimal refusal-reason vocabulary fixture. This is
+	// NOT the full batch.json refusal-record shape (that driver is out of
+	// scope for T-002 -- see spec.md's run-lifecycle-batch.sh /
+	// spend-gate.sh component rows); it exists solely to prove
+	// refusal_reason is schema-owned and closed (REQ-F-002/003/005/017,
+	// AC-001), matching the Architecture component-changes row's explicit
+	// "share partition, and refusal-reason cases" testdata note.
+	t.Run("valid_refusal_reason_fixture", func(t *testing.T) {
+		record := e40F10ReadJSONFixture(t, filepath.Join(testdataRoot, "valid", "refusal.json"))
+		if errs := e40F10ValidateRefusalRecord(schema, record); len(errs) > 0 {
+			t.Fatalf("valid refusal-reason fixture violates schema:\n%s", strings.Join(errs, "\n"))
+		}
+	})
+
+	// T-E40-F10-002 AC-T1/AC-T2 and TC-078's exhaustive invalid-fixture
+	// matrix. Each map below was generated once from the valid base
+	// fixtures (one mutation per entry) and is walked here the same way
+	// TestTC067_I08LifecycleEvaluationContract walks testdata/e40_i08/invalid,
+	// except every entry also asserts the *specific* failing JSON path
+	// named in test-plan.md's TC-078 "Notes for Agent" requirement, not
+	// just a nonzero error count.
+	t.Run("invalid_aggregate_fixtures", func(t *testing.T) {
+		e40F10RunInvalidFixtureMatrix(t, filepath.Join(testdataRoot, "invalid"), e40F10InvalidAggregateWantPath,
+			func(record map[string]any) []string {
+				return e40F10ValidateAggregateRecord(schema, i05Vocab, i08Vocab, record)
+			})
+	})
+
+	t.Run("invalid_retention_manifest_fixtures", func(t *testing.T) {
+		e40F10RunInvalidFixtureMatrix(t, filepath.Join(testdataRoot, "invalid"), e40F10InvalidRetentionManifestWantPath,
+			func(record map[string]any) []string {
+				return e40F10ValidateRetentionManifestRecord(schema, record)
+			})
+	})
+
+	t.Run("invalid_pilot_attestation_fixtures", func(t *testing.T) {
+		e40F10RunInvalidFixtureMatrix(t, filepath.Join(testdataRoot, "invalid"), e40F10InvalidPilotAttestationWantPath,
+			func(record map[string]any) []string {
+				return e40F10ValidatePilotAttestationRecord(schema, record)
+			})
+	})
+
+	t.Run("invalid_refusal_reason_fixtures", func(t *testing.T) {
+		e40F10RunInvalidFixtureMatrix(t, filepath.Join(testdataRoot, "invalid"), e40F10InvalidRefusalWantPath,
+			func(record map[string]any) []string {
+				return e40F10ValidateRefusalRecord(schema, record)
+			})
+	})
+
+	// Coverage check: every *.json committed under invalid/ must be
+	// exercised by exactly one of the four want-path tables above, and
+	// every table entry must name a file that actually exists on disk --
+	// otherwise a fixture could silently stop being tested (or a table
+	// entry could silently reference a deleted file) without any test
+	// failing.
+	t.Run("invalid_fixture_directory_matches_tables", func(t *testing.T) {
+		e40F10AssertInvalidDirectoryCoverage(t, filepath.Join(testdataRoot, "invalid"),
+			e40F10InvalidAggregateWantPath, e40F10InvalidRetentionManifestWantPath,
+			e40F10InvalidPilotAttestationWantPath, e40F10InvalidRefusalWantPath)
+	})
 }
 
 func e40F10ReadSchema(t *testing.T, path string) e40F10Schema {
@@ -285,6 +358,49 @@ func e40F10AssertSchemaShape(t *testing.T, schema e40F10Schema) {
 			t.Errorf("F10 schema provider_and_network_binaries missing %q", binary)
 		}
 	}
+
+	// T-E40-F10-002 schema gap: a required top-level array (e.g. /scenarios)
+	// can be present-but-empty and pass every other pointer/type check,
+	// since an empty array has no elements to walk. /comparisons and
+	// /invalid are the only two blocks this schema documents as
+	// legitimately empty; every other required array MUST be enforced
+	// non-empty by a validator, and this list is how a validator knows
+	// which two are exempt rather than hard-coding the exemption.
+	if len(schema.AggregateRequiredArraysMayBeEmpty) == 0 {
+		t.Fatal("F10 schema aggregate_required_arrays_may_be_empty must not be empty")
+	}
+	for _, exempt := range []string{"/comparisons", "/invalid"} {
+		if !e40F10ContainsString(schema.AggregateRequiredArraysMayBeEmpty, exempt) {
+			t.Errorf("F10 schema aggregate_required_arrays_may_be_empty missing %q", exempt)
+		}
+	}
+	for _, mustNotBeExempt := range []string{"/scenarios", "/noise_bands"} {
+		if e40F10ContainsString(schema.AggregateRequiredArraysMayBeEmpty, mustNotBeExempt) {
+			t.Errorf("F10 schema aggregate_required_arrays_may_be_empty must not exempt %q (REQ-F-007)", mustNotBeExempt)
+		}
+	}
+}
+
+// e40F10AssertSchemaReferencesNeverRestates proves the schema header's
+// "references, and deliberately does NOT restate" claim structurally: the
+// committed YAML file itself must carry no top-level stage_category,
+// interval_category, or invalidity_reason key of its own (those belong to
+// i05-schema.yaml / i08-schema.yaml only, per REQ-F-018).
+func e40F10AssertSchemaReferencesNeverRestates(t *testing.T, schemaPath string) {
+	t.Helper()
+	data, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read F10 schema: %v", err)
+	}
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parse F10 schema: %v", err)
+	}
+	for _, restatedKey := range []string{"stage_category", "interval_category", "invalidity_reason"} {
+		if _, present := raw[restatedKey]; present {
+			t.Errorf("F10 schema must not restate upstream vocabulary key %q (REQ-F-018: reference i05/i08, never restate)", restatedKey)
+		}
+	}
 }
 
 // e40F10AssertAggregateSemantics checks the small set of cross-field rules
@@ -357,17 +473,13 @@ type e40F10I08VocabSchema struct {
 	OracleResult []string `yaml:"oracle_result"`
 }
 
-// e40F10AssertReferencesUpstreamVocabularies proves the schema header's
-// claim -- "an aggregate or report that names a stage/interval category
-// value not present in i05-schema.yaml is invalid... enforced by reading
-// i05-schema.yaml directly rather than duplicating its list here"
-// (REQ-F-018) -- by actually reading bench/evidence/i05-schema.yaml and
-// bench/evaluation/i08-schema.yaml and checking the valid fixture's
-// stage_category/interval_category/structural/judge/execution_oracle
-// values against them. The negative half (a bogus category must fail) is
-// T-E40-F10-002's invalid-fixture matrix; this is the positive half T-001
-// owns: the reference must actually resolve to real upstream members.
-func e40F10AssertReferencesUpstreamVocabularies(t *testing.T, repoRoot string, record map[string]any) {
+// e40F10ReadUpstreamVocab reads bench/evidence/i05-schema.yaml and
+// bench/evaluation/i08-schema.yaml -- the two upstream vocabularies F10's
+// own schema deliberately references and never restates (REQ-F-018). Shared
+// by T-001's positive-path assertion and T-002's invalid-fixture matrix so
+// both read the same real files through the same seam rather than each
+// re-implementing the read.
+func e40F10ReadUpstreamVocab(t *testing.T, repoRoot string) (e40F10I05VocabSchema, e40F10I08VocabSchema) {
 	t.Helper()
 
 	i05Path := filepath.Join(repoRoot, "bench", "evidence", "i05-schema.yaml")
@@ -395,12 +507,45 @@ func e40F10AssertReferencesUpstreamVocabularies(t *testing.T, repoRoot string, r
 	if len(i08.TruthResult) == 0 || len(i08.OracleResult) == 0 {
 		t.Fatal("I-08 schema truth_result/oracle_result must not be empty")
 	}
+	return i05, i08
+}
 
-	timeBlock, _ := record["time"].(map[string]any)
-	costBlock, _ := record["cost"].(map[string]any)
-	for _, block := range []map[string]any{timeBlock, costBlock} {
-		e40F10AssertCategoryKeysKnown(t, block, "stage_category", i05.StageCategory)
-		e40F10AssertCategoryKeysKnown(t, block, "interval_category", i05.IntervalCategory)
+// e40F10AssertReferencesUpstreamVocabularies proves the schema header's
+// claim -- "an aggregate or report that names a stage/interval category
+// value not present in i05-schema.yaml is invalid... enforced by reading
+// i05-schema.yaml directly rather than duplicating its list here"
+// (REQ-F-018) -- against the valid fixture. This is the positive half T-001
+// owns: the reference must actually resolve to real upstream members. The
+// negative half (a bogus category must fail) is T-E40-F10-002's
+// invalid_aggregate_fixtures matrix, which calls the same pure
+// e40F10UpstreamVocabViolations this wraps.
+func e40F10AssertReferencesUpstreamVocabularies(t *testing.T, repoRoot string, record map[string]any) {
+	t.Helper()
+	i05, i08 := e40F10ReadUpstreamVocab(t, repoRoot)
+	for _, msg := range e40F10UpstreamVocabViolations(i05, i08, record) {
+		t.Error(msg)
+	}
+}
+
+// e40F10UpstreamVocabViolations is the pure check both
+// e40F10AssertReferencesUpstreamVocabularies (valid fixture, expects zero
+// results) and T-E40-F10-002's AC-T2 invalid-fixture cases (expect a
+// specific named path) drive. Every returned string starts with the exact
+// failing JSON pointer, per TC-078's "Notes for Agent" requirement.
+func e40F10UpstreamVocabViolations(i05 e40F10I05VocabSchema, i08 e40F10I08VocabSchema, record map[string]any) []string {
+	var errs []string
+
+	for _, base := range []string{"time", "cost"} {
+		block, _ := record[base].(map[string]any)
+		if block == nil {
+			continue
+		}
+		if stageCategory, ok := block["stage_category"].(map[string]any); ok {
+			errs = append(errs, e40F10CategoryKeyViolations("/"+base+"/stage_category", stageCategory, i05.StageCategory)...)
+		}
+		if intervalCategory, ok := block["interval_category"].(map[string]any); ok {
+			errs = append(errs, e40F10CategoryKeyViolations("/"+base+"/interval_category", intervalCategory, i05.IntervalCategory)...)
+		}
 	}
 
 	quality, _ := record["quality"].(map[string]any)
@@ -412,31 +557,41 @@ func e40F10AssertReferencesUpstreamVocabularies(t *testing.T, repoRoot string, r
 		}
 		for _, field := range []string{"structural", "judge"} {
 			value, _ := scenario[field].(string)
+			if value == "" {
+				continue // absence is a required-field concern, not a vocabulary one
+			}
 			if !e40F10ContainsString(i08.TruthResult, value) {
-				t.Errorf("quality/by_scenario[%d]/%s value %q is not a member of I-08 truth_result %v", i, field, value, i08.TruthResult)
+				errs = append(errs, fmt.Sprintf("/quality/by_scenario[%d]/%s: %q is not a member of I-08 truth_result %v", i, field, value, i08.TruthResult))
 			}
 		}
 		oracle, _ := scenario["execution_oracle"].(string)
-		if !e40F10ContainsString(i08.OracleResult, oracle) {
-			t.Errorf("quality/by_scenario[%d]/execution_oracle value %q is not a member of I-08 oracle_result %v", i, oracle, i08.OracleResult)
+		if oracle != "" && !e40F10ContainsString(i08.OracleResult, oracle) {
+			errs = append(errs, fmt.Sprintf("/quality/by_scenario[%d]/execution_oracle: %q is not a member of I-08 oracle_result %v", i, oracle, i08.OracleResult))
 		}
 	}
+	return errs
 }
 
-func e40F10AssertCategoryKeysKnown(t *testing.T, block map[string]any, partitionName string, known []string) {
-	t.Helper()
-	partition, ok := block[partitionName].(map[string]any)
-	if !ok {
-		return
-	}
+// e40F10CategoryKeyViolations checks that every key of partition (an I-05
+// stage_category or interval_category partition object) is a member of
+// known, except the required "unattributed" residual line which is F10's
+// own vocabulary, not an I-05 category member.
+func e40F10CategoryKeyViolations(basePointer string, partition map[string]any, known []string) []string {
+	keys := make([]string, 0, len(partition))
 	for key := range partition {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var errs []string
+	for _, key := range keys {
 		if key == "unattributed" {
-			continue // the required residual line, not a category member
+			continue
 		}
 		if !e40F10ContainsString(known, key) {
-			t.Errorf("%s cell %q is not a member of the referenced I-05 vocabulary %v (REQ-F-018: F10 references, never restates)", partitionName, key, known)
+			errs = append(errs, fmt.Sprintf("%s/%s: not a member of the referenced I-05 vocabulary %v (REQ-F-018: F10 references, never restates)", basePointer, key, known))
 		}
 	}
+	return errs
 }
 
 // e40F10ValidateAggregateTypes applies the discriminating type hints the
@@ -645,4 +800,455 @@ func e40F10ContainsCaseInsensitive(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// T-E40-F10-002: additional validators the invalid-fixture matrix requires.
+// Each returns a []string of "<failing JSON pointer>: <reason>" messages so
+// callers can assert the specific failing path named, per TC-078's "Notes
+// for Agent" requirement, rather than a generic "invalid" result.
+// ---------------------------------------------------------------------------
+
+// e40F10UnknownTopLevelFieldViolations is AC-T1: an unknown/extra field
+// beyond the schema's aggregate_top_level_fields must fail validation.
+func e40F10UnknownTopLevelFieldViolations(schema e40F10Schema, record map[string]any) []string {
+	allowed := make(map[string]bool, len(schema.AggregateTopLevelFields))
+	for _, field := range schema.AggregateTopLevelFields {
+		allowed[field] = true
+	}
+	keys := make([]string, 0, len(record))
+	for key := range record {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var errs []string
+	for _, key := range keys {
+		if !allowed[key] {
+			errs = append(errs, fmt.Sprintf("/%s: unknown field not present in schema aggregate_top_level_fields (AC-T1)", key))
+		}
+	}
+	return errs
+}
+
+// e40F10RequiredArrayNonEmptyViolations closes the schema gap
+// aggregate_required_arrays_may_be_empty documents: a required top-level
+// array pointer (declared "array" in aggregate_properties, one path segment
+// deep -- i.e. one of the ten aggregate.json blocks, not a nested array
+// like /quality/by_scenario) must not be present-but-empty unless the
+// schema explicitly exempts it.
+func e40F10RequiredArrayNonEmptyViolations(schema e40F10Schema, record map[string]any) []string {
+	mayBeEmpty := make(map[string]bool, len(schema.AggregateRequiredArraysMayBeEmpty))
+	for _, pointer := range schema.AggregateRequiredArraysMayBeEmpty {
+		mayBeEmpty[pointer] = true
+	}
+	pointers := make([]string, 0, len(schema.AggregateProperties))
+	for pointer := range schema.AggregateProperties {
+		pointers = append(pointers, pointer)
+	}
+	sort.Strings(pointers)
+	var errs []string
+	for _, pointer := range pointers {
+		if schema.AggregateProperties[pointer] != "array" || strings.Contains(pointer, "[]") {
+			continue
+		}
+		if len(e40F10SplitPointer(pointer)) != 1 {
+			continue // only the ten top-level required blocks carry this rule
+		}
+		if mayBeEmpty[pointer] {
+			continue
+		}
+		for _, match := range e40F10ResolvePointerValues(record, e40F10SplitPointer(pointer), "") {
+			if list, ok := match.Value.([]any); ok && len(list) == 0 {
+				errs = append(errs, fmt.Sprintf("%s: required array must not be empty", match.Path))
+			}
+		}
+	}
+	return errs
+}
+
+// e40F10PhaseLabelViolations checks /identity/phase, when present, is a
+// member of the schema-owned phase_label vocabulary (REQ-F-017). Presence
+// is a separate concern already owned by the required-pointer walk.
+func e40F10PhaseLabelViolations(schema e40F10Schema, record map[string]any) []string {
+	identity, ok := record["identity"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	phase, ok := identity["phase"].(string)
+	if !ok || phase == "" {
+		return nil
+	}
+	if !e40F10ContainsString(schema.PhaseLabel, phase) {
+		return []string{fmt.Sprintf("/identity/phase: not a member of the schema-owned phase_label vocabulary %v", schema.PhaseLabel)}
+	}
+	return nil
+}
+
+// e40F10SourceDigestViolations checks every /scenarios[]/source_digests
+// entry is a well-formed lowercase sha256 hex digest. Dynamic map keys
+// (lifecycle_jsonl, evaluation_jsonl, ...) fall outside aggregate_properties'
+// static pointer hints, so this is a dedicated walk.
+func e40F10SourceDigestViolations(record map[string]any) []string {
+	scenarios, _ := record["scenarios"].([]any)
+	var errs []string
+	for i, raw := range scenarios {
+		scenario, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		digests, ok := scenario["source_digests"].(map[string]any)
+		if !ok {
+			continue
+		}
+		keys := make([]string, 0, len(digests))
+		for key := range digests {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			value, _ := digests[key].(string)
+			if !isDigest(value) {
+				errs = append(errs, fmt.Sprintf("/scenarios[%d]/source_digests/%s: malformed digest", i, key))
+			}
+		}
+	}
+	return errs
+}
+
+// e40F10SharePartitionViolations checks that /time/share_partition and
+// /cost/share_partition carry no key beyond the REQ-F-011 six named shares
+// plus the required "unattributed" residual -- a malformed share-partition
+// cell name (spec.md "Data model changes" / share_partition_cell) must fail.
+func e40F10SharePartitionViolations(schema e40F10Schema, record map[string]any) []string {
+	allowed := make(map[string]bool, len(schema.SharePartitionCell)+1)
+	for _, cell := range schema.SharePartitionCell {
+		allowed[cell] = true
+	}
+	allowed[schema.SharePartitionResidual] = true
+
+	var errs []string
+	for _, base := range []string{"time", "cost"} {
+		block, _ := record[base].(map[string]any)
+		partition, ok := block["share_partition"].(map[string]any)
+		if !ok {
+			continue
+		}
+		keys := make([]string, 0, len(partition))
+		for key := range partition {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if !allowed[key] {
+				errs = append(errs, fmt.Sprintf("/%s/share_partition/%s: not a member of the schema-owned share_partition_cell vocabulary %v", base, key, schema.SharePartitionCell))
+			}
+		}
+	}
+	return errs
+}
+
+// e40F10NoiseBandDerivationRuleViolations checks every /noise_bands[]
+// entry's derivation_rule is a member of the schema-owned
+// noise_band_derivation_rule vocabulary.
+func e40F10NoiseBandDerivationRuleViolations(schema e40F10Schema, record map[string]any) []string {
+	bands, _ := record["noise_bands"].([]any)
+	var errs []string
+	for i, raw := range bands {
+		band, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rule, ok := band["derivation_rule"].(string)
+		if !ok || rule == "" {
+			continue // presence is a separate, required-pointer concern
+		}
+		if !e40F10ContainsString(schema.NoiseBandDerivationRule, rule) {
+			errs = append(errs, fmt.Sprintf("/noise_bands[%d]/derivation_rule: not a member of the schema-owned noise_band_derivation_rule vocabulary %v", i, schema.NoiseBandDerivationRule))
+		}
+	}
+	return errs
+}
+
+// e40F10ValidateAggregateRecord is the single combined aggregate.json
+// validator: every invalid_aggregate_fixtures case below, and the valid
+// aggregate fixture, are run through exactly this function so the
+// invalid-fixture matrix proves something about the same code path the
+// valid fixture proves clean.
+func e40F10ValidateAggregateRecord(schema e40F10Schema, i05 e40F10I05VocabSchema, i08 e40F10I08VocabSchema, record map[string]any) []string {
+	var errs []string
+	errs = append(errs, e40F10UnknownTopLevelFieldViolations(schema, record)...)
+	errs = append(errs, e40F10ValidateRequiredPointers(record, schema.AggregateRequiredFields)...)
+	errs = append(errs, e40F10RequiredArrayNonEmptyViolations(schema, record)...)
+	errs = append(errs, e40F10ValidateAggregateTypes(schema, record)...)
+	errs = append(errs, e40F10PhaseLabelViolations(schema, record)...)
+	errs = append(errs, e40F10SourceDigestViolations(record)...)
+	errs = append(errs, e40F10SharePartitionViolations(schema, record)...)
+	errs = append(errs, e40F10NoiseBandDerivationRuleViolations(schema, record)...)
+	errs = append(errs, e40F10UpstreamVocabViolations(i05, i08, record)...)
+	return errs
+}
+
+// e40F10ValidateRetentionManifestRecord combines the required-pointer walk
+// with a digest-format check per retained artifact (missing/wrong-type is
+// already caught by the pointer walk; malformed-format needs its own check
+// since a present, non-empty string still isn't necessarily a valid digest).
+func e40F10ValidateRetentionManifestRecord(schema e40F10Schema, record map[string]any) []string {
+	errs := e40F10ValidateRequiredPointers(record, schema.RetentionManifestRequiredFields)
+	artifacts, ok := record["artifacts"].(map[string]any)
+	if !ok {
+		return errs
+	}
+	for _, name := range schema.RetentionRequiredArtifacts {
+		if name == "manifest.json" {
+			continue // the manifest never digests its own not-yet-written bytes
+		}
+		entry, ok := artifacts[name].(map[string]any)
+		if !ok {
+			continue // presence already enforced by the required-pointer walk
+		}
+		digest, hasDigest := entry["sha256"].(string)
+		if hasDigest && digest != "" && !isDigest(digest) {
+			errs = append(errs, fmt.Sprintf("/artifacts/%s/sha256: malformed digest", name))
+		}
+	}
+	return errs
+}
+
+// e40F10ValidatePilotAttestationRecord combines the required-pointer walk
+// with the type/non-emptiness/digest-format checks REQ-F-005's four named
+// fields need and no static aggregate_properties-style hint table covers.
+func e40F10ValidatePilotAttestationRecord(schema e40F10Schema, record map[string]any) []string {
+	errs := e40F10ValidateRequiredPointers(record, schema.PilotAttestationRequiredFields)
+
+	if value, present := record["run_reference"]; present && value != nil {
+		if _, ok := value.(string); !ok {
+			errs = append(errs, "/run_reference: expected string")
+		}
+	}
+	if value, present := record["operator_identity"]; present && value != nil {
+		if _, ok := value.(string); !ok {
+			errs = append(errs, "/operator_identity: expected string")
+		}
+	}
+	if value, present := record["checklist_results"]; present && value != nil {
+		switch list := value.(type) {
+		case []any:
+			if len(list) == 0 {
+				errs = append(errs, "/checklist_results: required array must not be empty")
+			}
+		default:
+			errs = append(errs, "/checklist_results: expected array")
+		}
+	}
+	if value, present := record["inspected_artifact_digests"]; present && value != nil {
+		digests, ok := value.(map[string]any)
+		if !ok {
+			errs = append(errs, "/inspected_artifact_digests: expected object")
+		} else if len(digests) == 0 {
+			errs = append(errs, "/inspected_artifact_digests: required object must not be empty")
+		} else {
+			keys := make([]string, 0, len(digests))
+			for key := range digests {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				digest, _ := digests[key].(string)
+				if !isDigest(digest) {
+					errs = append(errs, fmt.Sprintf("/inspected_artifact_digests/%s: malformed digest", key))
+				}
+			}
+		}
+	}
+	return errs
+}
+
+// e40F10ValidateRefusalRecord validates the minimal refusal-reason
+// vocabulary fixture (see valid_refusal_reason_fixture's doc comment for
+// why this is a dedicated, deliberately small record shape rather than the
+// full batch.json refusal-record shape).
+func e40F10ValidateRefusalRecord(schema e40F10Schema, record map[string]any) []string {
+	reason, ok := record["refusal_reason"].(string)
+	if !ok || reason == "" {
+		return []string{"/refusal_reason: required field missing"}
+	}
+	if !e40F10ContainsString(schema.RefusalReason, reason) {
+		return []string{fmt.Sprintf("/refusal_reason: not a member of the schema-owned refusal_reason vocabulary %v", schema.RefusalReason)}
+	}
+	return nil
+}
+
+// e40F10RunInvalidFixtureMatrix walks wantPath (fixture filename -> the
+// specific failing JSON pointer substring its diagnostic must name),
+// reads each fixture from invalidDir, runs validate, and asserts both that
+// validation failed and that one of the returned messages names the
+// expected path -- never accepting a bare nonzero error count as proof.
+func e40F10RunInvalidFixtureMatrix(t *testing.T, invalidDir string, wantPath map[string]string, validate func(record map[string]any) []string) {
+	t.Helper()
+	names := make([]string, 0, len(wantPath))
+	for name := range wantPath {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		name, want := name, wantPath[name]
+		t.Run(name, func(t *testing.T) {
+			record := e40F10ReadJSONFixture(t, filepath.Join(invalidDir, name))
+			errs := validate(record)
+			if len(errs) == 0 {
+				t.Fatalf("invalid fixture %s unexpectedly passed validation", name)
+			}
+			joined := strings.Join(errs, "\n")
+			if !strings.Contains(joined, want) {
+				t.Fatalf("invalid fixture %s: diagnostic did not name the expected failing path %q; got:\n%s", name, want, joined)
+			}
+		})
+	}
+}
+
+// e40F10AssertInvalidDirectoryCoverage proves the want-path tables and the
+// committed invalid/ directory agree in both directions: every *.json file
+// on disk is exercised by exactly one table, and every table entry names a
+// file that still exists. Without this, a fixture could be added without a
+// table entry (silently untested) or a table entry could survive a deleted
+// fixture (silently untested the other way).
+func e40F10AssertInvalidDirectoryCoverage(t *testing.T, invalidDir string, tables ...map[string]string) {
+	t.Helper()
+	entries, err := os.ReadDir(invalidDir)
+	if err != nil {
+		t.Fatalf("read invalid fixture directory: %v", err)
+	}
+	onDisk := make(map[string]int)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		onDisk[entry.Name()] = 0
+	}
+	tabled := make(map[string]int)
+	for _, table := range tables {
+		for name := range table {
+			tabled[name]++
+		}
+	}
+	for name := range onDisk {
+		if tabled[name] == 0 {
+			t.Errorf("invalid fixture %s exists on disk but is not exercised by any want-path table", name)
+		}
+	}
+	for name, count := range tabled {
+		if count > 1 {
+			t.Errorf("invalid fixture %s is exercised by more than one want-path table", name)
+		}
+		if _, present := onDisk[name]; !present {
+			t.Errorf("want-path table names %s but no such file exists under %s", name, invalidDir)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-E40-F10-002 want-path tables: filename (under
+// tests/contracts/testdata/e40_f10/invalid/) -> the specific failing JSON
+// pointer substring e40F10RunInvalidFixtureMatrix requires the validator's
+// diagnostic to contain. Generated once from the T-E40-F10-001 valid base
+// fixtures (one mutation per entry); e40F10AssertInvalidDirectoryCoverage
+// proves this list and the committed fixture directory stay in sync.
+// ---------------------------------------------------------------------------
+
+var e40F10InvalidAggregateWantPath = map[string]string{
+	"aggregate-block-artifact_use-empty.json":                   "/artifact_use/produced_count: required field missing",
+	"aggregate-block-artifact_use-missing.json":                 "/artifact_use: required field missing",
+	"aggregate-block-artifact_use-null.json":                    "/artifact_use: required field missing",
+	"aggregate-block-artifact_use-wrong-type.json":              "/artifact_use: expected object",
+	"aggregate-block-comparisons-missing.json":                  "/comparisons: required field missing",
+	"aggregate-block-comparisons-null.json":                     "/comparisons: required field missing",
+	"aggregate-block-comparisons-wrong-type.json":               "/comparisons: expected array",
+	"aggregate-block-cost-empty.json":                           "/cost/stage_category: required field missing",
+	"aggregate-block-cost-missing.json":                         "/cost: required field missing",
+	"aggregate-block-cost-null.json":                            "/cost: required field missing",
+	"aggregate-block-cost-wrong-type.json":                      "/cost: expected object",
+	"aggregate-block-identity-empty.json":                       "/identity/schema_version: required field missing",
+	"aggregate-block-identity-missing.json":                     "/identity: required field missing",
+	"aggregate-block-identity-null.json":                        "/identity: required field missing",
+	"aggregate-block-identity-wrong-type.json":                  "/identity: expected object",
+	"aggregate-block-invalid-missing.json":                      "/invalid: required field missing",
+	"aggregate-block-invalid-null.json":                         "/invalid: required field missing",
+	"aggregate-block-invalid-wrong-type.json":                   "/invalid: expected array",
+	"aggregate-block-noise_bands-empty.json":                    "/noise_bands: required array must not be empty",
+	"aggregate-block-noise_bands-missing.json":                  "/noise_bands: required field missing",
+	"aggregate-block-noise_bands-null.json":                     "/noise_bands: required field missing",
+	"aggregate-block-noise_bands-wrong-type.json":               "/noise_bands: expected array",
+	"aggregate-block-quality-empty.json":                        "/quality/by_scenario: required field missing",
+	"aggregate-block-quality-missing.json":                      "/quality: required field missing",
+	"aggregate-block-quality-null.json":                         "/quality: required field missing",
+	"aggregate-block-quality-wrong-type.json":                   "/quality: expected object",
+	"aggregate-block-review_value-empty.json":                   "/review_value/gates: required field missing",
+	"aggregate-block-review_value-missing.json":                 "/review_value: required field missing",
+	"aggregate-block-review_value-null.json":                    "/review_value: required field missing",
+	"aggregate-block-review_value-wrong-type.json":              "/review_value: expected object",
+	"aggregate-block-scenarios-empty.json":                      "/scenarios: required array must not be empty",
+	"aggregate-block-scenarios-missing.json":                    "/scenarios: required field missing",
+	"aggregate-block-scenarios-null.json":                       "/scenarios: required field missing",
+	"aggregate-block-scenarios-wrong-type.json":                 "/scenarios: expected array",
+	"aggregate-block-time-empty.json":                           "/time/lifecycle_wall_seconds: required field missing",
+	"aggregate-block-time-missing.json":                         "/time: required field missing",
+	"aggregate-block-time-null.json":                            "/time: required field missing",
+	"aggregate-block-time-wrong-type.json":                      "/time: expected object",
+	"digest-batch-policy-digest-malformed.json":                 "/identity/batch_policy_digest: expected lowercase sha256 hex digest",
+	"digest-retention-root-digest-malformed.json":               "/identity/retention_root_digest: expected lowercase sha256 hex digest",
+	"digest-source-digest-malformed.json":                       "/scenarios[0]/source_digests/lifecycle_jsonl: malformed digest",
+	"noise-band-derivation-rule-malformed.json":                 "/noise_bands[0]/derivation_rule: not a member of the schema-owned noise_band_derivation_rule vocabulary",
+	"share-partition-unknown-cell-cost.json":                    "/cost/share_partition/extra_cell: not a member of the schema-owned share_partition_cell vocabulary",
+	"share-partition-unknown-cell-time.json":                    "/time/share_partition/extra_cell: not a member of the schema-owned share_partition_cell vocabulary",
+	"subfield-eligibility-aggregate-eligible-missing.json":      "/scenarios[0]/eligibility/aggregate_eligible: required field missing",
+	"subfield-eligibility-aggregate-eligible-wrong-type.json":   "/scenarios[0]/eligibility/aggregate_eligible: expected boolean",
+	"subfield-eligibility-invalidity-reasons-missing.json":      "/scenarios[0]/eligibility/invalidity_reasons: required field missing",
+	"subfield-eligibility-invalidity-reasons-wrong-type.json":   "/scenarios[0]/eligibility/invalidity_reasons: expected array",
+	"subfield-eligibility-publication-eligible-missing.json":    "/scenarios[0]/eligibility/publication_eligible: required field missing",
+	"subfield-eligibility-publication-eligible-wrong-type.json": "/scenarios[0]/eligibility/publication_eligible: expected boolean",
+	"subfield-insufficient-reps-missing.json":                   "/noise_bands[0]/insufficient_reps: required field missing",
+	"subfield-insufficient-reps-wrong-type.json":                "/noise_bands[0]/insufficient_reps: expected boolean",
+	"subfield-phase-wrong-value.json":                           "/identity/phase: not a member of the schema-owned phase_label vocabulary",
+	"unknown-top-level-field.json":                              "/_unexpected_field: unknown field",
+	"vocab-stage-category-restated.json":                        "/time/stage_category/coding: not a member of the referenced I-05 vocabulary",
+	"vocab-truth-result-restated.json":                          "/quality/by_scenario[0]/structural: \"success\" is not a member of I-08 truth_result",
+}
+
+var e40F10InvalidRetentionManifestWantPath = map[string]string{
+	"retention-manifest-artifacts-missing.json":                    "/artifacts: required field missing",
+	"retention-manifest-entity-history-json-entry-missing.json":    "/artifacts/entity-history.json: required field missing",
+	"retention-manifest-entity-history-json-sha256-malformed.json": "/artifacts/entity-history.json/sha256: malformed digest",
+	"retention-manifest-evaluation-jsonl-entry-missing.json":       "/artifacts/evaluation.jsonl: required field missing",
+	"retention-manifest-evaluation-jsonl-sha256-malformed.json":    "/artifacts/evaluation.jsonl/sha256: malformed digest",
+	"retention-manifest-evidence-entry-missing.json":               "/artifacts/evidence: required field missing",
+	"retention-manifest-evidence-sha256-malformed.json":            "/artifacts/evidence/sha256: malformed digest",
+	"retention-manifest-lifecycle-jsonl-entry-missing.json":        "/artifacts/lifecycle.jsonl: required field missing",
+	"retention-manifest-lifecycle-jsonl-sha256-malformed.json":     "/artifacts/lifecycle.jsonl/sha256: malformed digest",
+	"retention-manifest-oracle-json-entry-missing.json":            "/artifacts/oracle.json: required field missing",
+	"retention-manifest-oracle-json-sha256-malformed.json":         "/artifacts/oracle.json/sha256: malformed digest",
+	"retention-manifest-package-yaml-entry-missing.json":           "/artifacts/package.yaml: required field missing",
+	"retention-manifest-package-yaml-sha256-malformed.json":        "/artifacts/package.yaml/sha256: malformed digest",
+	"retention-manifest-package-yaml-sha256-missing.json":          "/artifacts/package.yaml/sha256: required field missing",
+	"retention-manifest-package-yaml-source-path-missing.json":     "/artifacts/package.yaml/source_path: required field missing",
+	"retention-manifest-rep-missing.json":                          "/rep: required field missing",
+	"retention-manifest-scenario-id-missing.json":                  "/scenario_id: required field missing",
+	"retention-manifest-transcripts-entry-missing.json":            "/artifacts/transcripts: required field missing",
+	"retention-manifest-transcripts-sha256-malformed.json":         "/artifacts/transcripts/sha256: malformed digest",
+}
+
+var e40F10InvalidPilotAttestationWantPath = map[string]string{
+	"pilot-checklist-results-empty.json":                     "/checklist_results: required array must not be empty",
+	"pilot-checklist-results-missing.json":                   "/checklist_results: required field missing",
+	"pilot-checklist-results-wrong-type.json":                "/checklist_results: expected array",
+	"pilot-inspected-artifact-digests-empty.json":            "/inspected_artifact_digests: required object must not be empty",
+	"pilot-inspected-artifact-digests-malformed-digest.json": "/inspected_artifact_digests/lifecycle.jsonl: malformed digest",
+	"pilot-inspected-artifact-digests-missing.json":          "/inspected_artifact_digests: required field missing",
+	"pilot-operator-identity-missing.json":                   "/operator_identity: required field missing",
+	"pilot-operator-identity-wrong-type.json":                "/operator_identity: expected string",
+	"pilot-run-reference-missing.json":                       "/run_reference: required field missing",
+	"pilot-run-reference-wrong-type.json":                    "/run_reference: expected string",
+}
+
+var e40F10InvalidRefusalWantPath = map[string]string{
+	"refusal-unknown-reason.json": "/refusal_reason: not a member of the schema-owned refusal_reason vocabulary",
 }

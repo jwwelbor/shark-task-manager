@@ -1,0 +1,154 @@
+{
+  "identity": {
+    "schema_version": "1.0",
+    "batch_id": "batch-2026-08-20-crud-api-pilot-001",
+    "phase": "lifecycle_v2",
+    "retention_root_digest": "df58f9d352a3248f3f364fcab99ba9477281442f737fb864feb57856b52ec368",
+    "batch_policy_digest": "4f49fefbf30648718c713abe8d4f59aa12e4b576489d038560448e9bb38b85d8",
+    "ceilings": {
+      "max_cost_usd": 5.0,
+      "max_wall_clock_seconds": 600,
+      "max_generated_tasks": 10
+    },
+    "acknowledgement_ref": "batch.json#acknowledgement",
+    "min_reps": 3
+  },
+  "scenarios": [
+    {
+      "scenario_id": "lifecycle-e01-crud-api",
+      "scenario_version": "1.0.0",
+      "family": "crud-api",
+      "rep": 1,
+      "retention_path": "scenarios/lifecycle-e01-crud-api/1",
+      "eligibility": {
+        "aggregate_eligible": true,
+        "publication_eligible": true,
+        "invalidity_reasons": []
+      },
+      "outcome": "completed",
+      "source_digests": {
+        "lifecycle_jsonl": "54e74303718a149e7a3b00b978f9f07fab941ac6e689ac8378050bc8c688bf64",
+        "evaluation_jsonl": "8d9abbf1a9e9e4f13f12141949a5974b743f30e44c6605a52b206a220a30ec50"
+      }
+    }
+  ],
+  "time": {},
+  "cost": {
+    "stage_category": {
+      "discovery": 0.05,
+      "specification": 0.08,
+      "planning": 0.1,
+      "code": 1.2,
+      "review": 0.35,
+      "qa": 0.2,
+      "uat": 0.1,
+      "shipping": 0.05,
+      "unattributed": 0.02
+    },
+    "interval_category": {
+      "provider_active": 1.8,
+      "tool_and_test": 0.1,
+      "queue_or_claim_wait": 0.0,
+      "replay_or_human_gate_wait": 0.0,
+      "retry_or_backoff": 0.03,
+      "unclassified": 0.02,
+      "unattributed": 0.02
+    },
+    "share_partition": {
+      "pre_code": 0.23,
+      "review": 0.35,
+      "rework": 0.18,
+      "first_pass_code": 1.02,
+      "wait": 0.03,
+      "shipping": 0.05,
+      "unattributed": 0.02
+    },
+    "ceiling_consumption": {
+      "observed_cost_usd": 2.35,
+      "max_cost_usd": 5.0
+    }
+  },
+  "quality": {
+    "by_scenario": [
+      {
+        "scenario_id": "lifecycle-e01-crud-api",
+        "structural": "pass",
+        "judge": "pass",
+        "execution_oracle": "pass"
+      }
+    ],
+    "first_pass_yield": 0.8
+  },
+  "review_value": {
+    "gates": [
+      {
+        "gate_id": "feature-qa",
+        "state": "collected",
+        "counts": {
+          "emitted": 4,
+          "unique": 3,
+          "duplicate": 1,
+          "recurrent": 0,
+          "confirmed": 2,
+          "unconfirmed": 1,
+          "downstream_escape": 0
+        },
+        "counts_by_severity": {
+          "high": 1,
+          "medium": 2,
+          "low": 1
+        },
+        "counts_by_defect_class": {
+          "logic": 2,
+          "style": 2
+        },
+        "elapsed_seconds": 300,
+        "provider_cost_usd": 0.42,
+        "resolution_cost_usd": 0.1,
+        "truth_set_available": true,
+        "precision": 0.66,
+        "recall": 0.5
+      }
+    ]
+  },
+  "artifact_use": {
+    "produced_count": 5,
+    "consumed_count": 3,
+    "reused_count": 1,
+    "orphan_count": 1,
+    "edges": [
+      {
+        "producer": "stage-code-01",
+        "consumer": "stage-review-01",
+        "artifact_type": "code_diff"
+      }
+    ],
+    "replayed_interaction_proxy": {
+      "label": "replayed_proxy",
+      "request_count": 4,
+      "response_count": 4,
+      "payload_size_bytes": 20480,
+      "revision_count": 2,
+      "unresolved_gate_count": 0
+    }
+  },
+  "noise_bands": [
+    {
+      "scenario_id": "lifecycle-e01-crud-api",
+      "metric": "lifecycle_wall_seconds",
+      "min": 3400,
+      "median": 3600,
+      "max": 3900,
+      "spread_abs": 500,
+      "acceptance_interval": {
+        "lower_bound": 3350,
+        "upper_bound": 3950
+      },
+      "derivation_rule": "min_median_max_spread_accept_interval",
+      "rep_count": 3,
+      "insufficient_reps": false
+    }
+  ],
+  "comparisons": [],
+  "invalid": []
+}
