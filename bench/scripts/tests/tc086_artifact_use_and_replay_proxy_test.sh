@@ -74,7 +74,7 @@ planning_stage = {
     "usage": {"provider": "fixture", "model": "fixture-model"},
     "cost_usd": 1.0, "elapsed_seconds": 1.0, "errors": [], "rework": False,
     "intervals": base_interval(),
-    "candidate": {}, "access_events": {} if False else [], "evidence_refs": {},
+    "candidate": {}, "access_events": [], "evidence_refs": {},
     "artifacts": [
         {
             "artifact_type": "document", "path": "artifacts/design.md",

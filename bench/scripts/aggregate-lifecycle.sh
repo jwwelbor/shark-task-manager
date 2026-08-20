@@ -538,9 +538,9 @@ manifest_digest_entries = []
 
 # T-E40-F10-009 accumulators (design decisions 7-10).
 quality_by_scenario = []
-gate_records = {}  # gate_id -> {state, round, truth_set_available, precision, recall}
+gate_records = {}  # gate_id -> {state, round, truth_set_available, precision, recall} (resolved after the pair loop)
+gate_occurrences = {}  # gate_id -> list of per-pair occurrences, resolved after the pair loop
 review_measures_by_gate = {}  # gate_id -> list of {severity, defect_class, measures}
-gate_rounds_seen = set()  # (gate_id,) with state != not_reached, tracked via gate_records
 
 artifact_produced_count = 0
 artifact_consumed_count = 0
@@ -679,10 +679,12 @@ for scenario_id, rep, rep_dir in pair_dirs:
         pair_precision = "unavailable"
         pair_recall = "unavailable"
 
+    pair_gate_ids = set()
     for g_idx, gate in enumerate(review_gates):
         if not isinstance(gate, dict):
             fail(f"{pair_label}: review_gates[{g_idx}] is not an object")
         gate_id = require(gate, "gate_id", f"{pair_label} review_gates[{g_idx}]")
+        pair_gate_ids.add(gate_id)
         gate_state = gate.get("state")
         if gate_state not in GATE_STATES:
             fail(f"{pair_label}: review_gates[{g_idx}].state {gate_state!r} not in closed gate_state vocabulary")
@@ -691,29 +693,24 @@ for scenario_id, rep, rep_dir in pair_dirs:
             if not isinstance(gate_round, int) or isinstance(gate_round, bool) or gate_round < 1:
                 fail(f"{pair_label}: review_gates[{g_idx}] (gate {gate_id!r}) round must be a positive integer for a reached gate, got {gate_round!r}")
 
-        existing = gate_records.get(gate_id)
-        if existing is not None:
-            # A gate_id spanning more than one retained pair is a re-dispatch
-            # across reps; keep the highest observed round (most recent
-            # attempt) and report the merge, never silently pick one side.
-            print(
-                f"aggregate-lifecycle: NOTE: gate_id {gate_id!r} appears in more than one "
-                f"retained pair ({existing['pair_label']!r} and {pair_label!r}); "
-                f"keeping the higher-round entry for /review_value/gates[]",
-                file=sys.stderr,
-            )
-            keep_new = (gate_round or 0) >= (existing["round"] or 0)
-        else:
-            keep_new = True
-        if keep_new:
-            gate_records[gate_id] = {
+        # A gate_id repeating across pairs is the NORMAL case for a
+        # multi-rep batch (min_reps > 1 dispatches the same scenario's same
+        # gates repeatedly) -- collected here, not merged in place, so
+        # resolution after the full loop can tell an ordinary same-scenario
+        # repetition apart from a genuine cross-scenario gate_id clash, and
+        # can detect actual disagreement rather than diagnosing on mere
+        # repetition (see resolution below, after the pair loop).
+        gate_occurrences.setdefault(gate_id, []).append(
+            {
+                "scenario_id": scenario_id,
+                "pair_label": pair_label,
                 "state": gate_state,
                 "round": gate_round,
-                "pair_label": pair_label,
                 "truth_set_available": truth_set_available,
                 "precision": pair_precision,
                 "recall": pair_recall,
             }
+        )
 
     review_measures = quality_metrics.get("review_measures") if isinstance(quality_metrics, dict) else None
     for m_idx, entry in enumerate(review_measures or []):
@@ -735,11 +732,12 @@ for scenario_id, rep, rep_dir in pair_dirs:
             if not isinstance(value, int) or isinstance(value, bool):
                 fail(f"{pair_label}: metrics.quality.review_measures[{m_idx}].measures.{key}.value is not an integer")
             counted[key] = value
-        if measure_gate_id not in gate_records:
+        if measure_gate_id not in pair_gate_ids:
             print(
                 f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): {pair_label}: "
                 f"metrics.quality.review_measures references gate {measure_gate_id!r} which is "
-                f"absent from lifecycle.jsonl review_gates[]; measures skipped, not resolved locally",
+                f"absent from THIS pair's lifecycle.jsonl review_gates[]; measures skipped, not "
+                f"resolved locally",
                 file=sys.stderr,
             )
             continue
@@ -991,6 +989,79 @@ scenarios_list.sort(key=lambda s: (s["scenario_id"], s["rep"]))
 manifest_digest_entries.sort(key=lambda e: (e["scenario_id"], e["rep"]))
 quality_by_scenario.sort(key=lambda q: (q["scenario_id"], q["rep"]))
 artifact_edges.sort(key=lambda e: (e["producer_stage"], e["artifact_path"], e["consuming_stage"], e["edge_kind"]))
+
+# ---------------------------------------------------------------------------
+# /review_value gate resolution (design decision 8 continued). A gate_id
+# repeating across pairs is the NORMAL case for a multi-rep batch --
+# `min_reps` (a required /identity field) dispatches the SAME scenario's
+# SAME gates repeatedly, so every gate_id collides across reps on every
+# real baseline root. This resolves each gate_id's occurrences (collected
+# above, one per contributing pair) into a single row, distinguishing an
+# ordinary same-scenario repetition (silent) from a genuine cross-scenario
+# gate_id clash or an actual value DISAGREEMENT across reps (both loud,
+# non-fatal diagnostics -- never a refusal, never a silently-picked side).
+# ---------------------------------------------------------------------------
+GATE_STATE_SEVERITY = {"collection_failure": 0, "findings": 1, "zero_findings": 2, "not_reached": 3}
+
+for gate_id in sorted(gate_occurrences):
+    occurrences = gate_occurrences[gate_id]
+    scenario_ids = {o["scenario_id"] for o in occurrences}
+    if len(scenario_ids) > 1:
+        print(
+            f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): gate_id {gate_id!r} "
+            f"appears under more than one scenario ({sorted(scenario_ids)}) -- gate_id is expected "
+            f"to be scoped to one scenario's workflow_policy.enabled_gates; rows merged, not "
+            f"resolved locally",
+            file=sys.stderr,
+        )
+
+    states = {o["state"] for o in occurrences}
+    if len(states) == 1:
+        resolved_state = next(iter(states))
+    else:
+        # Reps of the same gate genuinely disagree on state -- pick the
+        # most severe (most informative-of-a-problem) state deterministically
+        # rather than an arbitrary "last one wins", and report the
+        # disagreement; never silently average or hide it.
+        resolved_state = min(states, key=lambda s: GATE_STATE_SEVERITY[s])
+        print(
+            f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): gate_id {gate_id!r} "
+            f"reports disagreeing states across reps ({sorted(states)}); rendering the most "
+            f"severe ({resolved_state!r}), not resolved locally",
+            file=sys.stderr,
+        )
+
+    reached_rounds = [o["round"] for o in occurrences if o["state"] != "not_reached" and isinstance(o["round"], int)]
+    resolved_round = max(reached_rounds) if reached_rounds else None
+
+    truth_flags = {o["truth_set_available"] for o in occurrences}
+    precisions = {o["precision"] for o in occurrences}
+    recalls = {o["recall"] for o in occurrences}
+    if len(truth_flags) == 1 and len(precisions) == 1 and len(recalls) == 1:
+        resolved_truth_available = next(iter(truth_flags))
+        resolved_precision = next(iter(precisions))
+        resolved_recall = next(iter(recalls))
+    else:
+        # ADR-F10-10: never assert a value the contributing reps cannot
+        # jointly support -- disagreement renders unavailable, exactly like
+        # a genuinely absent truth set, rather than picking one rep's side.
+        resolved_truth_available = False
+        resolved_precision = "unavailable"
+        resolved_recall = "unavailable"
+        print(
+            f"aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): gate_id {gate_id!r} "
+            f"reports disagreeing truth_set_available/precision/recall across reps; rendering "
+            f"unavailable rather than asserting an unsupportable value, not resolved locally",
+            file=sys.stderr,
+        )
+
+    gate_records[gate_id] = {
+        "state": resolved_state,
+        "round": resolved_round,
+        "truth_set_available": resolved_truth_available,
+        "precision": resolved_precision,
+        "recall": resolved_recall,
+    }
 
 
 def build_partition(totals, categories, total_value):
