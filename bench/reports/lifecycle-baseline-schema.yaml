@@ -373,6 +373,53 @@ digest_rules:
   encoding: lowercase_hex
   canonicalization: compact_json_sorted_keys_utf8
   file_encoding: sha256_raw_bytes
+  # code-review-2026-08-20T2138-E40-F10.md findings 1 and 7: three
+  # independent digest_of_path() reimplementations (run-lifecycle-batch.sh
+  # retain_pair, pilot-ledger.sh --record/--verify x2, verify-retention-root.sh)
+  # diverged on whether a required artifact that exists but is empty (a
+  # zero-file directory, or a zero-byte file) is "present" or "missing".
+  # This is the single canonical rule; every digest_of_path
+  # (re)implementation MUST follow it -- a locally-invented alternative is a
+  # defect, not an independent design choice.
+  empty_artifact_semantics: >-
+    digest_of_path MUST return a real, deterministic digest for any artifact
+    that exists on disk -- file or directory -- REGARDLESS of whether it is
+    empty. A zero-byte file digests as file_encoding (sha256_raw_bytes) of
+    the empty byte string. A directory containing zero files digests as
+    canonicalization applied to the empty file list, i.e. sha256 of the
+    literal bytes `[]`. digest_of_path MUST return None (the codebase's
+    "missing" signal) ONLY when the path does not exist on disk at all --
+    never as a way of flagging that a present artifact happens to hold no
+    content yet, and no caller may derive missingness from an empty-content
+    digest value. This is the ONLY rule digest_of_path itself owns; it does
+    not by itself decide whether an empty artifact is fine to attest.
+    That decision needs a second axis digest_of_path cannot see --
+    manifest.json's own `source_path` field for the artifact -- because
+    "empty" covers two different real-world states that a bare digest
+    cannot tell apart:
+      (a) source_path == "" -- retain_pair had no source path to check at
+          all for this pair (run-lifecycle-batch.sh copy_artifact/
+          copy_dir_artifact's not-found branch: e.g. transcripts/ before
+          any I-05 bundle ships a transcripts subtree, or
+          entity-history.json before its producer exists anywhere in this
+          codebase). This is an honest, accepted "not yet wired by any
+          producer" gap, not a defect -- a consumer performing
+          attestation-completeness checks (REQ-F-005, e.g. pilot-ledger.sh
+          --record) MUST treat this as present, not missing.
+      (b) source_path != "" (a real, checked path) but the artifact is
+          still empty -- the producer's declared source genuinely existed
+          and was inspected, and held nothing (round-1 finding 3's original
+          concern: a required directory artifact that was never actually
+          populated). This is the one case worth a consumer refusing or
+          flagging at the attestation layer: unlike (a), there IS a real
+          source that yielded no content, which is a legitimate signal of
+          an upstream producer defect worth surfacing to the operator
+          rather than silently accepting.
+    digest_of_path's own return value is identical in both cases (a real,
+    non-None digest) -- distinguishing (a) from (b) is manifest.json's
+    source_path field's job, not digest_of_path's, and belongs in whichever
+    consumer performs attestation-completeness checks, not in the shared
+    digest helper (code-review-2026-08-20T2138-E40-F10.md findings 1 and 7).
 
 # ---------------------------------------------------------------------------
 # REQ-F-013: no artifact-use/replay-proxy field may be expressed as

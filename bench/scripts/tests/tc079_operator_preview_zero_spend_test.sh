@@ -252,6 +252,107 @@ set -e
 [[ -f "$AC_T2_ROOT/scenarios/py-bug-due-date-boundary/1/evaluation.jsonl" ]] || fail "AC-T2 first dispatch did not retain evaluation.jsonl"
 grep -q '"classification": "pending_run"' "$AC_T2_ROOT/batch.json" || fail "AC-T2 first dispatch not classified pending_run: $(cat "$AC_T2_ROOT/batch.json")"
 
+# ---------------------------------------------------------------------------
+# T-E40-F10-004 rework (code-review-2026-08-20T2138-E40-F10.md findings 1
+# and 7, bench/reports/lifecycle-baseline-schema.yaml
+# digest_rules.empty_artifact_semantics): AC_T2_ROOT's i05_bundle_dir
+# ($WORKDIR/scratch-template) has no transcripts/ subtree and
+# evaluate-lifecycle-stub.sh never writes a ".oracle.json" sidecar --
+# exactly the "honest empty" shape the live repro in finding 1 exercises.
+# retain_pair's manifest.json MUST record a REAL, non-null digest for each
+# of these (never treat "artifact exists but is empty" as "missing"), with
+# source_path=="" as the one honesty marker -- for both the directory case
+# (transcripts/) and the file case (entity-history.json, oracle.json).
+# This locks in the schema-documented rule as a regression guard: any
+# caller (this file's own digest_of_path included) that reintroduces an
+# "empty means None/missing" special case fails this assertion.
+# ---------------------------------------------------------------------------
+AC_T2_REP_DIR="$AC_T2_ROOT/scenarios/py-bug-due-date-boundary/1"
+set +e
+python3 - "$AC_T2_REP_DIR" "$REPO_ROOT/bench/reports/lifecycle-baseline-schema.yaml" <<'PY'
+import hashlib
+import json
+import sys
+
+import yaml
+
+rep_dir, schema_path = sys.argv[1:3]
+
+with open(schema_path, encoding="utf-8") as f:
+    schema = yaml.safe_load(f) or {}
+rule = (schema.get("digest_rules") or {}).get("empty_artifact_semantics") or ""
+if not rule.strip():
+    print("schema digest_rules.empty_artifact_semantics is missing or empty", file=sys.stderr)
+    raise SystemExit(1)
+
+with open(f"{rep_dir}/manifest.json", encoding="utf-8") as f:
+    manifest = json.load(f)
+artifacts = manifest["artifacts"]
+
+EMPTY_DIR_DIGEST = hashlib.sha256(b"[]").hexdigest()
+EMPTY_FILE_DIGEST = hashlib.sha256(b"").hexdigest()
+
+# transcripts/: honestly-empty directory (i05_bundle_dir has no transcripts
+# subtree) -- must be a real digest, never null/None, and source_path=="".
+transcripts = artifacts.get("transcripts")
+if transcripts is None or transcripts.get("sha256") is None:
+    print("manifest.json artifacts.transcripts.sha256 is null/None -- an existing-but-empty directory must never digest as missing", file=sys.stderr)
+    raise SystemExit(1)
+if transcripts["sha256"] != EMPTY_DIR_DIGEST:
+    print(f"manifest.json artifacts.transcripts.sha256={transcripts['sha256']!r} does not match the canonical empty-directory digest {EMPTY_DIR_DIGEST!r}", file=sys.stderr)
+    raise SystemExit(1)
+if transcripts["source_path"] != "":
+    print(f"manifest.json artifacts.transcripts.source_path={transcripts['source_path']!r}, want empty string (honest-not-wired marker)", file=sys.stderr)
+    raise SystemExit(1)
+
+# entity-history.json / oracle.json: honestly-empty files (no producer
+# wired) -- must be a real digest, never null/None, and source_path=="".
+for name in ("entity-history.json", "oracle.json"):
+    entry = artifacts.get(name)
+    if entry is None or entry.get("sha256") is None:
+        print(f"manifest.json artifacts.{name}.sha256 is null/None -- an existing-but-empty file must never digest as missing", file=sys.stderr)
+        raise SystemExit(1)
+    if entry["sha256"] != EMPTY_FILE_DIGEST:
+        print(f"manifest.json artifacts.{name}.sha256={entry['sha256']!r} does not match the canonical empty-file digest {EMPTY_FILE_DIGEST!r}", file=sys.stderr)
+        raise SystemExit(1)
+    if entry["source_path"] != "":
+        print(f"manifest.json artifacts.{name}.source_path={entry['source_path']!r}, want empty string (honest-not-wired marker)", file=sys.stderr)
+        raise SystemExit(1)
+
+# evidence/: the schema's THIRD state -- i05_bundle_dir ($WORKDIR/scratch-
+# template) is itself a real, checked, existing directory (copy_dir_artifact's
+# FOUND branch, not the not-found branch transcripts/ hit above), but it
+# holds zero files. digest_of_path returns the SAME empty-directory digest
+# as transcripts/ above -- digest_of_path cannot and must not distinguish
+# these two states -- but source_path here MUST be the real, non-empty
+# checked path, never "", because a real source WAS inspected and found
+# empty (round-1 finding 3's original concern: a required artifact that
+# was never actually populated). This is what makes state (a) [source_path
+# == "", accepted] and state (b) [source_path != "", a producer-defect
+# signal worth flagging] distinguishable downstream even though their
+# digests are identical.
+evidence = artifacts.get("evidence")
+if evidence is None or evidence.get("sha256") is None:
+    print("manifest.json artifacts.evidence.sha256 is null/None -- an existing-but-empty directory must never digest as missing", file=sys.stderr)
+    raise SystemExit(1)
+if evidence["sha256"] != EMPTY_DIR_DIGEST:
+    print(f"manifest.json artifacts.evidence.sha256={evidence['sha256']!r} does not match the canonical empty-directory digest {EMPTY_DIR_DIGEST!r}", file=sys.stderr)
+    raise SystemExit(1)
+if not evidence["source_path"]:
+    print("manifest.json artifacts.evidence.source_path is empty, want the real checked i05_bundle_dir path (a real source was inspected and found empty, distinct from transcripts/'s honest not-found case)", file=sys.stderr)
+    raise SystemExit(1)
+if evidence["source_path"] == transcripts["source_path"]:
+    print("manifest.json artifacts.evidence.source_path must differ from transcripts/'s empty source_path -- the two empty states are not the same state", file=sys.stderr)
+    raise SystemExit(1)
+
+print("honest-empty artifact digests verified real, non-null, schema-documented; found-but-empty (evidence/) distinguishable from not-found-empty (transcripts/) via source_path")
+PY
+honest_empty_rc=$?
+set -e
+[[ "$honest_empty_rc" -eq 0 ]] || fail "honest-empty artifact digest verification failed (findings 1/7)"
+
+echo "TC-079(rework: honest-empty transcripts/entity-history.json/oracle.json digest as real, non-missing, per schema digest_rules.empty_artifact_semantics) PASS"
+
 set +e
 run_ac_t2_batch >"$WORKDIR/ac-t2-second.out" 2>&1
 second_rc=$?
