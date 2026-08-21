@@ -257,14 +257,23 @@ EOF
 chmod +x "$DRIVER_EVAL_STUB"
 
 DRIVER_ROOT="$WORKDIR/driver-retention-root"
+driver_batch_rc=0
 RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" \
 	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$DRIVER_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
-	>"$WORKDIR/driver-batch.out" 2>"$WORKDIR/driver-batch.err"
-driver_batch_rc=$?
-[[ "$driver_batch_rc" -eq 0 ]] || fail "(a2) driver-path: real run-lifecycle-batch.sh --mode pilot invocation failed: exit $driver_batch_rc; stderr: $(cat "$WORKDIR/driver-batch.err")"
+	>"$WORKDIR/driver-batch.out" 2>"$WORKDIR/driver-batch.err" || driver_batch_rc=$?
+[[ "$driver_batch_rc" -eq 0 ]] || fail "(a2) driver-path: real run-lifecycle-batch.sh --mode pilot invocation failed: exit $driver_batch_rc; stdout: $(cat "$WORKDIR/driver-batch.out"); stderr: $(cat "$WORKDIR/driver-batch.err")"
 [[ -f "$DRIVER_ROOT/scenarios/$DRIVER_SCENARIO_ID/1/manifest.json" ]] || fail "(a2) driver-path: real driver did not retain the expected pair directory"
+# invalid/index.jsonl is always created (even on a clean run) but must stay
+# EMPTY here -- a non-empty entry would mean the driver itself classified
+# this pair invalid (root_key_or_scratch_root_not_configured/
+# lifecycle_run_failed/evaluation_failed/i05_bundle_not_configured), which
+# would make this "driver-path" test pass verify-retention-root.sh against a
+# pair the driver itself never considers successfully retained -- not a
+# genuine Caller-Path Contract satisfaction.
+[[ -f "$DRIVER_ROOT/invalid/index.jsonl" ]] || fail "(a2) driver-path: expected invalid/index.jsonl to exist (even if empty)"
+[[ ! -s "$DRIVER_ROOT/invalid/index.jsonl" ]] || fail "(a2) driver-path: driver classified the pair invalid -- not a genuine success: $(cat "$DRIVER_ROOT/invalid/index.jsonl")"
 
 out_a2=""
 rc_a2=0
