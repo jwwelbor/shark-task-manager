@@ -536,18 +536,21 @@ grep -qi "symlink" "$ROOT_J.out" || fail "case J (round-5 finding 1): expected a
 echo "TC-087(case J, round-5 finding 1): dispatch_gate now refuses when scenarios/<scenario_id> itself (an ANCESTOR of the rep-level directory, not the rep directory itself) is a pre-existing symlink -- structurally closed via assert_no_symlink_in_chain"
 
 # ---------------------------------------------------------------------------
-# Case K (round-5 finding 2): a symlinked scratch_root must be refused
-# BEFORE `cp -a`, not silently copied -- GNU `cp -a` implies
-# --no-dereference for a TOP-LEVEL symlink source argument, so a symlinked
-# scratch_root would previously have produced an "ephemeral" copy that is
-# itself a symlink to the SAME real template. The qa gate is pre-retained
-# (skip path, mirroring every other case's fixture discipline) so only the
-# deep_review gate actually dispatches; its scratch_root is a symlink to a
-# real template directory. RUN_LIFECYCLE_BIN is overridden with a stub that
-# would write into its own --scratch-root argument if it were EVER invoked
-# (mirroring tc082's identical discipline) -- proving both that dispatch is
-# refused before cp -a AND that the real template is untouched, not merely
-# that the exit code is nonzero.
+# Case K (round-5 finding 2, superseded by round-6's generalized fix -- see
+# path-safety.sh's scope-freeze paragraph, invariant 2): a TOP-LEVEL
+# symlinked scratch_root is now handled the SAME way as case L's nested
+# symlink -- copy_tree_dereferenced dereferences it into a genuinely
+# independent ephemeral copy and dispatch PROCEEDS, rather than being
+# refused outright by a dedicated `assert_source_not_symlink` hard-refusal
+# (removed as redundant once dereference-on-copy was confirmed safe for the
+# top-level shape too). The qa gate is pre-retained (skip path, mirroring
+# every other case's fixture discipline) so only the deep_review gate
+# actually dispatches; its scratch_root is ITSELF a symlink to a real
+# template directory. i05_bundle_dir is left unconfigured so the gate fails
+# AFTER the copy+dispatch step (same minimal-plumbing discipline as case L)
+# -- the point of this case is proving the stub WAS invoked (dispatch
+# proceeded) and that its write through the top-level-symlinked scratch_root
+# never reached the real template, not proving a full successful publish.
 # ---------------------------------------------------------------------------
 ROOT_K="$WORKDIR/root-k"
 mkdir -p "$ROOT_K"
@@ -579,18 +582,24 @@ gates:
     scratch_root: "$SCRATCH_SYMLINK_K"
 EOF
 
+# The stub touches a sentinel OUTSIDE its own --scratch-root argument (a
+# fixed WORKDIR path, not under pair_work, which gets rm -rf'd once
+# dispatch_gate's later i05_bundle_dir check fails) to prove it was
+# genuinely invoked -- proving dispatch proceeded rather than being refused.
+STUB_INVOKED_SENTINEL_K="$WORKDIR/stub-invoked-sentinel-k"
 SCRATCH_SYMLINK_STUB_K="$WORKDIR/scratch-symlink-stub-k.sh"
-cat >"$SCRATCH_SYMLINK_STUB_K" <<'EOF'
+cat >"$SCRATCH_SYMLINK_STUB_K" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 scratch_root=""
-while [[ $# -gt 0 ]]; do
-	case "$1" in
-	--scratch-root) scratch_root="$2"; shift 2 ;;
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--scratch-root) scratch_root="\$2"; shift 2 ;;
 	*) shift ;;
 	esac
 done
-echo "WRITTEN BY STUB (should never run)" >>"$scratch_root/marker.txt"
+touch "$STUB_INVOKED_SENTINEL_K"
+echo "WRITTEN BY STUB THROUGH TOP-LEVEL SYMLINK SCRATCH_ROOT" >>"\$scratch_root/marker.txt"
 exit 0
 EOF
 chmod +x "$SCRATCH_SYMLINK_STUB_K"
@@ -600,15 +609,15 @@ RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB_K" \
 	"$COMPARISON" --candidate "$CANDIDATE_K_YAML" --retention-root "$ROOT_K" \
 	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
 	>"$ROOT_K.out" 2>&1 || rc_k=$?
-[[ "$rc_k" -eq 4 ]] || fail "case K (round-5 finding 2): expected exit 4 (dispatch refused, comparison never attempted) for a symlinked scratch_root, got $rc_k: $(cat "$ROOT_K.out")"
-grep -qi "symlink" "$ROOT_K.out" || fail "case K (round-5 finding 2): expected a diagnostic naming the symlink: $(cat "$ROOT_K.out")"
+[[ "$rc_k" -eq 4 ]] || fail "case K (round-6 generalization): expected exit 4 (deep_review gate fails after dispatch, since i05_bundle_dir is deliberately unconfigured; comparison never attempted), got $rc_k: $(cat "$ROOT_K.out")"
+[[ -f "$STUB_INVOKED_SENTINEL_K" ]] || fail "case K (round-6 generalization): the stub lifecycle worker was never invoked -- a TOP-LEVEL symlinked scratch_root must now be dereferenced and dispatched, not refused"
 SCRATCH_TEMPLATE_K_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE_K/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_TEMPLATE_K_AFTER" == "$SCRATCH_TEMPLATE_K_BEFORE" ]] \
-	|| fail "case K (round-5 finding 2): the real template's content was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_REAL_TEMPLATE_K/marker.txt")"
-[[ -L "$SCRATCH_SYMLINK_K" ]] || fail "case K (round-5 finding 2): the scratch_root symlink itself was unexpectedly removed/replaced"
-[[ ! -f "$ROOT_K/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case K (round-5 finding 2): a comparison must never be published when the deep_review gate's dispatch was refused"
+	|| fail "case K (round-6 generalization): the real template's content was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_REAL_TEMPLATE_K/marker.txt")"
+[[ -L "$SCRATCH_SYMLINK_K" ]] || fail "case K (round-6 generalization): the scratch_root symlink itself was unexpectedly removed/replaced"
+[[ ! -f "$ROOT_K/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case K (round-6 generalization): a comparison must never be published when the deep_review gate's evaluation failed"
 
-echo "TC-087(case K, round-5 finding 2): dispatch_gate refuses a symlinked scratch_root before cp -a -- the real template is provably untouched, the stub lifecycle worker is never invoked"
+echo "TC-087(case K, round-6 generalization): dispatch_gate dereferences (copy_tree_dereferenced) a TOP-LEVEL symlinked scratch_root and dispatches successfully rather than refusing -- the stub's write through the ephemeral copy lands only there, the real template is provably untouched"
 
 # ---------------------------------------------------------------------------
 # Case L (round-6 finding 1, code-review-2026-08-21T1141-E40-F10.md): a REAL

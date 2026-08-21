@@ -1069,19 +1069,21 @@ grep -q "pre_existing_symlink_at_rep_directory" "$SYMLINK_ANCESTOR_ROOT/invalid/
 echo "TC-082(classify_pair ancestor-level symlink, round-5 finding 1): classify_pair now refuses to treat a scenario reached through an ANCESTOR-level symlink (scenarios/<scenario_id> itself, one level above the rep directory) as skipped_complete -- structurally closed via assert_no_symlink_in_chain"
 
 # ---------------------------------------------------------------------------
-# (round-5 finding 2) dispatch_pair: a symlinked scratch_root must be
-# refused BEFORE `cp -a`, not silently copied. GNU `cp -a` implies
-# --no-dereference for a TOP-LEVEL symlink source argument, so a symlinked
-# scratch_root would previously have produced an "ephemeral" copy that is
-# itself a symlink to the SAME real template -- any write a worker makes
-# into what it believes is an isolated copy mutates the operator's real
-# template. This drives the REAL dispatch_pair() path (stubbed
+# (round-5 finding 2, superseded by round-6's generalized fix -- see
+# path-safety.sh's scope-freeze paragraph, invariant 2): a TOP-LEVEL
+# symlinked scratch_root is now handled the SAME way as a nested one
+# (the "dispatch_pair scratch_root NESTED symlink" case above):
+# copy_tree_dereferenced dereferences it into a genuinely independent
+# ephemeral copy and dispatch PROCEEDS -- it is no longer refused outright
+# by a dedicated `assert_source_not_symlink` hard-refusal (removed as
+# redundant once dereference-on-copy was confirmed safe for the top-level
+# shape too). This drives the REAL dispatch_pair() path (stubbed
 # RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN, same TD-077 substitution
-# convention as (a2) above) with a scratch_root that is a symlink to a real
-# template directory, and proves: the batch refuses the pair (never
-# silently proceeds), the stub is never invoked (no lifecycle/evaluation
-# output is produced), and the real template's own content is provably
-# untouched.
+# convention as (a2) above) with a scratch_root that is ITSELF a symlink to
+# a real template directory, and proves: the batch dispatches successfully
+# (exit 0), the stub's write through its own --scratch-root argument lands
+# only in the dereferenced ephemeral copy, and the real template's own
+# content is provably untouched.
 # ---------------------------------------------------------------------------
 SCRATCH_SYMLINK_ROOT="$WORKDIR/scratch-symlink-root"
 mkdir -p "$SCRATCH_SYMLINK_ROOT"
@@ -1093,6 +1095,14 @@ SCRATCH_TEMPLATE_BEFORE="$(sha256sum "$SCRATCH_REAL_TEMPLATE/marker.txt" | awk '
 
 SCRATCH_SYMLINK="$WORKDIR/scratch-symlink"
 ln -s "$SCRATCH_REAL_TEMPLATE" "$SCRATCH_SYMLINK"
+
+# i05_bundle_dir must be configured for dispatch_pair to reach a genuine
+# exit-0 success (not "i05_bundle_not_configured") -- mirrors (a2)'s
+# DRIVER_I05_BUNDLE and the NESTED-symlink case above.
+SCRATCH_SYMLINK_I05_BUNDLE="$WORKDIR/scratch-symlink-i05-bundle"
+mkdir -p "$SCRATCH_SYMLINK_I05_BUNDLE/transcripts"
+echo '{"stage": "code", "note": "tc082 top-level-symlink evidence"}' >"$SCRATCH_SYMLINK_I05_BUNDLE/stage.json"
+echo "tc082 top-level-symlink transcript" >"$SCRATCH_SYMLINK_I05_BUNDLE/transcripts/stage.txt"
 
 SCRATCH_SYMLINK_SCENARIO="scenario-tc082-scratch-symlink"
 SCRATCH_SYMLINK_INDEX="$WORKDIR/scratch-symlink-index"
@@ -1116,47 +1126,62 @@ scenarios:
   $SCRATCH_SYMLINK_SCENARIO:
     root_key: "ROOT-TC082-SCRATCH-SYMLINK"
     scratch_root: "$SCRATCH_SYMLINK"
+    i05_bundle_dir: "$SCRATCH_SYMLINK_I05_BUNDLE"
     reps: 1
 EOF
 
-# A stub that, if it were EVER invoked, proves this test would have caught a
-# regression: it writes into its own --scratch-root argument (mirroring what
-# a real lifecycle worker does) so a mutation would be observable on the
-# real template if isolation were broken. Never expected to run at all
-# (dispatch is refused before cp -a), but present so a future regression
-# that removed the refusal (rather than merely making it non-loud) would
-# still be caught by the digest assertion below, not just by an exit-code
-# check.
+# A stub that writes into its own --scratch-root argument (mirroring what a
+# real lifecycle worker does) and produces valid I-07/I-08 fixture content,
+# so this run reaches retain_pair and a full, real success path -- proving
+# isolation holds all the way through a genuine dispatch, not merely up to
+# a refusal (there is no refusal to reach any more for this shape).
 SCRATCH_SYMLINK_STUB="$WORKDIR/scratch-symlink-stub.sh"
-cat >"$SCRATCH_SYMLINK_STUB" <<'EOF'
+cat >"$SCRATCH_SYMLINK_STUB" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 scratch_root=""
-while [[ $# -gt 0 ]]; do
-	case "$1" in
-	--scratch-root) scratch_root="$2"; shift 2 ;;
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--scratch-root) scratch_root="\$2"; shift 2 ;;
+	--output) output="\$2"; shift 2 ;;
 	*) shift ;;
 	esac
 done
-echo "WRITTEN BY STUB (should never run)" >>"$scratch_root/marker.txt"
+echo "WRITTEN BY STUB THROUGH TOP-LEVEL SYMLINK SCRATCH_ROOT" >>"\$scratch_root/marker.txt"
+cp "$I07_FIXTURE" "\$output"
 exit 0
 EOF
 chmod +x "$SCRATCH_SYMLINK_STUB"
 
+SCRATCH_SYMLINK_EVAL_STUB="$WORKDIR/scratch-symlink-eval-stub.sh"
+cat >"$SCRATCH_SYMLINK_EVAL_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+cp "$I08_FIXTURE" "\$output"
+touch "\$output.oracle.json"
+exit 0
+EOF
+chmod +x "$SCRATCH_SYMLINK_EVAL_STUB"
+
 scratch_symlink_rc=0
-RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB" \
+RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_SYMLINK_EVAL_STUB" \
 	"$BATCH" --batch "$WORKDIR/scratch-symlink-batch-policy.yaml" --retention-root "$SCRATCH_SYMLINK_ROOT" \
 	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-symlink.out" 2>&1 || scratch_symlink_rc=$?
-[[ "$scratch_symlink_rc" -eq 4 ]] || fail "dispatch_pair scratch_root symlink (round-5 finding 2): expected exit 4 (pair recorded failed, batch proceeds), got $scratch_symlink_rc: $(cat "$WORKDIR/scratch-symlink.out")"
-grep -qi "symlink" "$WORKDIR/scratch-symlink.out" || fail "dispatch_pair scratch_root symlink (round-5 finding 2): expected a diagnostic naming the symlink: $(cat "$WORKDIR/scratch-symlink.out")"
-grep -q "scratch_root_is_symlink" "$SCRATCH_SYMLINK_ROOT/invalid/index.jsonl" \
-	|| fail "dispatch_pair scratch_root symlink (round-5 finding 2): invalid/index.jsonl did not record the scratch_root_is_symlink reason: $(cat "$SCRATCH_SYMLINK_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+[[ "$scratch_symlink_rc" -eq 0 ]] || fail "dispatch_pair scratch_root TOP-LEVEL symlink (round-6 generalization): expected exit 0 (a symlinked scratch_root is now dereferenced and dispatched, not refused), got $scratch_symlink_rc: $(cat "$WORKDIR/scratch-symlink.out")"
 SCRATCH_TEMPLATE_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_TEMPLATE_AFTER" == "$SCRATCH_TEMPLATE_BEFORE" ]] \
-	|| fail "dispatch_pair scratch_root symlink (round-5 finding 2): the real template's content was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_REAL_TEMPLATE/marker.txt")"
-[[ -L "$SCRATCH_SYMLINK" ]] || fail "dispatch_pair scratch_root symlink (round-5 finding 2): the scratch_root symlink itself was unexpectedly removed/replaced"
+	|| fail "dispatch_pair scratch_root TOP-LEVEL symlink (round-6 generalization): the real template's content was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_REAL_TEMPLATE/marker.txt")"
+[[ -L "$SCRATCH_SYMLINK" ]] || fail "dispatch_pair scratch_root TOP-LEVEL symlink (round-6 generalization): the scratch_root symlink itself was unexpectedly removed/replaced"
 
-echo "TC-082(dispatch_pair scratch_root symlink, round-5 finding 2): a symlinked scratch_root is refused before cp -a -- the real template is provably untouched, the stub lifecycle worker is never invoked"
+echo "TC-082(dispatch_pair scratch_root TOP-LEVEL symlink, round-6 generalization): a symlinked scratch_root is now dereferenced (copy_tree_dereferenced) and dispatched successfully rather than refused -- the stub's write through the ephemeral copy lands only there, the real template is provably untouched"
 
 # ---------------------------------------------------------------------------
 # dispatch_pair scratch_root NESTED symlink (round-6 finding 1,
@@ -1284,6 +1309,142 @@ SCRATCH_NESTED_EXTERNAL_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL/marker.txt"
 [[ -L "$SCRATCH_NESTED_ROOT/prompts" ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): the original scratch_root's own nested symlink was unexpectedly removed/replaced"
 
 echo "TC-082(dispatch_pair scratch_root NESTED symlink, round-6 finding 1): a real scratch_root containing a nested symlink is dispatched successfully (not refused), the worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+
+# ---------------------------------------------------------------------------
+# dispatch_pair scratch_root DANGLING nested symlink (advisor-caught
+# regression on round-6's own fix, closed same pass): unlike `cp -a` (which
+# silently succeeds on a DANGLING nested symlink, preserving it as-is),
+# shutil.copytree(..., symlinks=False) -- copy_tree_dereferenced's own
+# primitive -- raises a shutil.Error when it tries to dereference a nested
+# symlink whose target does not exist. A stale template symlink (e.g. a
+# shared prompts/ directory that was removed but the link left behind) is
+# at least as operationally plausible as the healthy-nested-symlink case
+# above. Proves: this failure is caught and classified per-pair
+# (scratch_root_copy_failed via record_invalid), NOT a bare, unguarded
+# Python traceback that aborts the ENTIRE batch under this script's own
+# `set -euo pipefail` -- a two-scenario batch where only the FIRST
+# scenario's scratch_root has the dangling nested symlink must still reach
+# and classify the SECOND scenario, proving the loop was never abandoned.
+# ---------------------------------------------------------------------------
+SCRATCH_DANGLING_ROOT="$WORKDIR/scratch-dangling-root"
+mkdir -p "$SCRATCH_DANGLING_ROOT"
+echo "real readme, not a symlink" >"$SCRATCH_DANGLING_ROOT/readme.txt"
+ln -s "$WORKDIR/scratch-dangling-nonexistent-target" "$SCRATCH_DANGLING_ROOT/dangling-link"
+
+SCRATCH_DANGLING_SCENARIO_A="scenario-tc082-scratch-dangling-a"
+SCRATCH_DANGLING_SCENARIO_B="scenario-tc082-scratch-dangling-b"
+SCRATCH_DANGLING_INDEX="$WORKDIR/scratch-dangling-index"
+mkdir -p "$SCRATCH_DANGLING_INDEX/packages/$SCRATCH_DANGLING_SCENARIO_A" "$SCRATCH_DANGLING_INDEX/packages/$SCRATCH_DANGLING_SCENARIO_B"
+cat >"$SCRATCH_DANGLING_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCRATCH_DANGLING_SCENARIO_A
+  - packages/$SCRATCH_DANGLING_SCENARIO_B
+EOF
+cat >"$SCRATCH_DANGLING_INDEX/packages/$SCRATCH_DANGLING_SCENARIO_A/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCRATCH_DANGLING_SCENARIO_A"
+scenario_version: "1"
+entity_family: "family-tc082-scratch-dangling-a"
+EOF
+cat >"$SCRATCH_DANGLING_INDEX/packages/$SCRATCH_DANGLING_SCENARIO_B/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCRATCH_DANGLING_SCENARIO_B"
+scenario_version: "1"
+entity_family: "family-tc082-scratch-dangling-b"
+EOF
+cat >"$WORKDIR/scratch-dangling-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SCRATCH_DANGLING_INDEX/scenarios.yaml"
+scenarios:
+  $SCRATCH_DANGLING_SCENARIO_A:
+    root_key: "ROOT-TC082-SCRATCH-DANGLING-A"
+    scratch_root: "$SCRATCH_DANGLING_ROOT"
+    reps: 1
+  $SCRATCH_DANGLING_SCENARIO_B:
+    root_key: "ROOT-TC082-SCRATCH-DANGLING-B"
+    scratch_root: "$SCRATCH_DANGLING_ROOT"
+    reps: 1
+EOF
+
+SCRATCH_DANGLING_ROOT_OUT="$WORKDIR/scratch-dangling-root-out"
+mkdir -p "$SCRATCH_DANGLING_ROOT_OUT"
+
+# No RUN_LIFECYCLE_BIN override needed -- copy_tree_dereferenced must fail
+# before the lifecycle worker is ever invoked for EITHER scenario (both
+# share the same dangling-symlink scratch_root), so the real
+# run-lifecycle.sh binary is never reached.
+scratch_dangling_rc=0
+"$BATCH" --batch "$WORKDIR/scratch-dangling-batch-policy.yaml" --retention-root "$SCRATCH_DANGLING_ROOT_OUT" \
+	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-dangling.out" 2>&1 || scratch_dangling_rc=$?
+[[ "$scratch_dangling_rc" -eq 4 ]] || fail "dispatch_pair scratch_root DANGLING nested symlink (advisor-caught round-6 regression): expected exit 4 (both pairs recorded failed, batch proceeds to completion), got $scratch_dangling_rc: $(cat "$WORKDIR/scratch-dangling.out")"
+grep -q "\"scenario_id\": \"$SCRATCH_DANGLING_SCENARIO_A\"" "$SCRATCH_DANGLING_ROOT_OUT/invalid/index.jsonl" \
+	|| fail "dispatch_pair scratch_root DANGLING nested symlink: scenario A was not recorded invalid: $(cat "$SCRATCH_DANGLING_ROOT_OUT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+grep -q "\"scenario_id\": \"$SCRATCH_DANGLING_SCENARIO_B\"" "$SCRATCH_DANGLING_ROOT_OUT/invalid/index.jsonl" \
+	|| fail "dispatch_pair scratch_root DANGLING nested symlink: scenario B was NOT reached -- the batch loop was abandoned after scenario A's copy failure instead of proceeding to the next pair: $(cat "$SCRATCH_DANGLING_ROOT_OUT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+grep -q "scratch_root_copy_failed" "$SCRATCH_DANGLING_ROOT_OUT/invalid/index.jsonl" \
+	|| fail "dispatch_pair scratch_root DANGLING nested symlink: invalid/index.jsonl did not record the scratch_root_copy_failed reason: $(cat "$SCRATCH_DANGLING_ROOT_OUT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+
+echo "TC-082(dispatch_pair scratch_root DANGLING nested symlink, advisor-caught round-6 regression): a scratch_root with a dangling nested symlink is recorded invalid per-pair (scratch_root_copy_failed), and the batch loop proceeds to the next scenario rather than aborting on an unguarded Python traceback"
+
+# ---------------------------------------------------------------------------
+# Chokepoint enforcement (fable-advisor policy, adopted alongside round-6's
+# fix; path-safety.sh's scope-freeze paragraph, invariant 2): a static scan
+# proving the source-side defect class this round closed (a symlink-
+# preserving copy of an operator-declared scratch_root) cannot silently
+# reappear as a future one-line edit to either driver this task owns
+# (run-lifecycle-batch.sh, run-review-comparison.sh) without a test
+# failure, rather than waiting for a future review round to notice by
+# inspection. Scoped to the two files T-E40-F10-004/005 own (NOT a blanket
+# audit of bench/scripts/ -- deliberately narrower: a from-scratch sweep of
+# unrelated scripts elsewhere in bench/scripts/ is out of THIS task's scope
+# per the round-6 kickback's own explicit instruction not to re-open the
+# broader symlink-chain audit; any such finding belongs in a separate
+# tech-debt item, not a silent fix or a silent skip here).
+#
+# Full-line comments (this codebase's own convention: no trailing inline
+# comments after code in these two files, verified) are stripped before
+# matching, so this test's OWN explanatory prose above (which necessarily
+# names "cp -a" when describing the historical defect) is not itself a
+# false positive. Forbidden: a `cp` invocation with -a/-r/-R/--archive/
+# --recursive, any `rsync` invocation, or a `shutil.copytree(...,
+# symlinks=True)` call (the only symlinks= setting that PRESERVES rather
+# than dereferences). A bare `shutil.copytree(src, dst)` with no symlinks=
+# kwarg is NOT forbidden -- Python's own default is symlinks=False, the
+# safe behavior, and both drivers' own preview-mode copy already uses this
+# exact bare form (already independently verified safe by construction in
+# prior review rounds).
+# ---------------------------------------------------------------------------
+CHOKEPOINT_FILES=("$SCRIPTS_DIR/run-lifecycle-batch.sh" "$SCRIPTS_DIR/run-review-comparison.sh")
+chokepoint_violations="$(python3 -c '
+import re
+import sys
+
+forbidden = [
+    (re.compile(r"(?<![\w./-])cp\s+(-\S*[arR]\S*|--archive|--recursive)\b"), "cp -a/-r/-R/--archive/--recursive"),
+    (re.compile(r"\brsync\b"), "rsync"),
+    (re.compile(r"shutil\.copytree\([^)]*symlinks\s*=\s*True"), "shutil.copytree(..., symlinks=True)"),
+]
+
+violations = []
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            for pattern, label in forbidden:
+                if pattern.search(line):
+                    violations.append(f"{path}:{lineno}: forbidden pattern ({label}): {line.strip()}")
+
+for v in violations:
+    print(v)
+' "${CHOKEPOINT_FILES[@]}")"
+[[ -z "$chokepoint_violations" ]] || fail "chokepoint enforcement (fable-advisor policy): a symlink-preserving copy primitive was reintroduced in a file this task owns -- use copy_tree_dereferenced (lib/path-safety.sh) instead:
+$chokepoint_violations"
+
+echo "TC-082(chokepoint enforcement, fable-advisor policy): run-lifecycle-batch.sh and run-review-comparison.sh contain no raw cp -a/-r/-R, rsync, or shutil.copytree(..., symlinks=True) invocation -- the source-side symlink-preserving-copy defect class cannot silently reappear in these two files without a test failure"
 
 # ---------------------------------------------------------------------------
 # Unit-level proof (round-5 report, Section E "Missing boundary cases" and

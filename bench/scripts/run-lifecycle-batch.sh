@@ -646,30 +646,42 @@ dispatch_pair() {
 		overall_bad="true"
 		return 0
 	fi
-	# Source-side symlink policy (code-review-2026-08-21T1335-E40-F10.md
-	# round-5 finding 2): `[[ -d "$scratch_root" ]]` above follows a symlink
-	# and reports true for a symlink-to-directory. A TOP-LEVEL symlinked
-	# scratch_root would otherwise silently defeat template isolation.
-	# Refuse before any copy ever runs, never dereference-and-proceed.
-	if ! assert_source_not_symlink "$scratch_root" "scratch_root"; then
-		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
-		record_invalid "$scenario_id" "$rep" "scratch_root_is_symlink"
-		overall_bad="true"
-		return 0
-	fi
-
 	local pair_work
 	pair_work="$(mktemp -d)"
 	local ephemeral="$pair_work/scratch"
-	# Nested-symlink source safety (code-review-2026-08-21T1141-E40-F10.md
-	# round-6 finding 1): `assert_source_not_symlink` above only refuses a
-	# top-level symlinked scratch_root; a real scratch_root directory
-	# containing a NESTED symlink survives `cp -a` as a live symlink at the
-	# same relative path in "ephemeral", and a worker write through it
-	# silently mutates whatever that nested symlink targets.
+	# Source-side symlink policy, invariant 2 (path-safety.sh scope-freeze
+	# paragraph): a symlinked scratch_root -- top-level (code-review-2026-08-
+	# 21T1335-E40-F10.md round-5 finding 2) or NESTED anywhere inside a real
+	# scratch_root directory tree (code-review-2026-08-21T1141-E40-F10.md
+	# round-6 finding 1) -- is closed BY CONSTRUCTION here: copy_tree_
+	# dereferenced (lib/path-safety.sh) dereferences every symlink it
+	# encounters, top-level source argument included, producing a genuinely
+	# independent ephemeral copy in every case. This replaces the former
+	# `assert_source_not_symlink` hard-refusal (fail-loud on a top-level
+	# symlink) -- now redundant, since dereference-on-copy makes a top-level
+	# symlinked scratch_root just as safe as a nested one, with no separate
+	# guard needed.
 	# copy_tree_dereferenced (lib/path-safety.sh) dereferences every symlink
 	# in the copied tree, producing a genuinely independent ephemeral copy.
-	copy_tree_dereferenced "$scratch_root" "$ephemeral"
+	#
+	# Unlike `cp -a` (which silently succeeds on a DANGLING nested symlink,
+	# preserving it as-is), shutil.copytree(..., symlinks=False) raises when
+	# it tries to dereference a nested symlink whose target does not exist
+	# (post-fix empirical verification: a `shutil.Error` traceback, not a
+	# clean nonzero exit). Guarded here -- matching every other scratch_root
+	# failure mode dispatch_pair already handles (scratch_root_not_found,
+	# scratch_root_is_symlink) -- so a single scenario's stale template
+	# symlink is recorded invalid and the batch proceeds to the next pair,
+	# instead of a bare Python traceback aborting the entire batch under
+	# this script's own `set -euo pipefail`.
+	if ! copy_tree_dereferenced "$scratch_root" "$ephemeral"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: failed to copy scratch_root into an ephemeral working directory (a nested symlink may be dangling)" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "scratch_root_copy_failed"
+		overall_bad="true"
+		rm -rf "$pair_work"
+		return 0
+	fi
 	local lifecycle_out="$pair_work/lifecycle.jsonl"
 
 	echo "run-lifecycle-batch: dispatching $scenario_id rep $rep" >&2

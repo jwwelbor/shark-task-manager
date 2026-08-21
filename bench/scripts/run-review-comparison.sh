@@ -614,26 +614,21 @@ dispatch_gate() {
 		echo "run-review-comparison: $gate gate: configured scratch_root does not exist: $scratch_root" >&2
 		return 1
 	fi
-	# Source-side symlink policy (code-review-2026-08-21T1335-E40-F10.md
-	# round-5 finding 2): `[[ -d "$scratch_root" ]]` above follows a symlink
-	# and reports true for a symlink-to-directory. A TOP-LEVEL symlinked
-	# scratch_root would otherwise silently defeat template isolation.
-	# Refuse before any copy ever runs.
-	if ! assert_source_not_symlink "$scratch_root" "scratch_root"; then
-		return 1
-	fi
-
 	local pair_work
 	pair_work="$(mktemp -d)"
 	local ephemeral="$pair_work/scratch"
-	# Nested-symlink source safety (code-review-2026-08-21T1141-E40-F10.md
-	# round-6 finding 1): `assert_source_not_symlink` above only refuses a
-	# top-level symlinked scratch_root; a real scratch_root directory
-	# containing a NESTED symlink survives `cp -a` as a live symlink at the
-	# same relative path in "ephemeral", and a worker write through it
-	# silently mutates whatever that nested symlink targets.
-	# copy_tree_dereferenced (lib/path-safety.sh) dereferences every symlink
-	# in the copied tree, producing a genuinely independent ephemeral copy.
+	# Source-side symlink policy, invariant 2 (path-safety.sh scope-freeze
+	# paragraph): a symlinked scratch_root -- top-level (code-review-2026-08-
+	# 21T1335-E40-F10.md round-5 finding 2) or NESTED anywhere inside a real
+	# scratch_root directory tree (code-review-2026-08-21T1141-E40-F10.md
+	# round-6 finding 1) -- is closed BY CONSTRUCTION here: copy_tree_
+	# dereferenced (lib/path-safety.sh) dereferences every symlink it
+	# encounters, top-level source argument included, producing a genuinely
+	# independent ephemeral copy in every case. This replaces the former
+	# `assert_source_not_symlink` hard-refusal (fail-loud on a top-level
+	# symlink) -- now redundant, since dereference-on-copy makes a top-level
+	# symlinked scratch_root just as safe as a nested one, with no separate
+	# guard needed.
 	if ! copy_tree_dereferenced "$scratch_root" "$ephemeral"; then
 		echo "run-review-comparison: $gate gate: failed to copy scratch_root into an ephemeral working directory" >&2
 		rm -rf "$pair_work"

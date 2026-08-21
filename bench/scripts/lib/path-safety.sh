@@ -2,6 +2,40 @@
 # lib/path-safety.sh -- shared containment guard, sourced by both
 # run-batch.sh and replay-manifest.sh.
 #
+# ---------------------------------------------------------------------------
+# SCOPE FREEZE (de-facto ADR for bench/'s symlink policy, settled after six
+# code-review rounds of narrowing instance patches -- code-review-2026-08-
+# 21T1141-E40-F10.md round 6, adopted as final policy): the symlink-safety
+# surface for bench/ is CLOSED at exactly two invariants:
+#
+#   invariant 1 -- chain-walk on retention-root WRITES/reuse-decisions:
+#     assert_no_symlink_in_chain(root, leaf), used by every write and every
+#     "is this already retained?" read under out_root_canon.
+#   invariant 2 -- dereference-on-copy for operator-declared SOURCES:
+#     copy_tree_dereferenced(src, dst), used by every driver copy of an
+#     operator-supplied scratch_root (or any other source-side template
+#     directory) into an ephemeral, worker-visible location. This closes the
+#     source-side class BY CONSTRUCTION: every symlink encountered anywhere
+#     in the copied tree, top-level source argument included, is
+#     dereferenced into a real, independent copy -- there is no narrower
+#     "top-level only" vs. "nested" shape left to find, which is why the
+#     former `assert_source_not_symlink` hard-refusal (fail-loud on a
+#     top-level symlinked source) was removed as redundant once this
+#     primitive was in place at every scratch_root/source-copy call site.
+#   override -- SHARK_BENCH_ALLOW_SYMLINKS=1: when set, invariant 1's hard
+#     refusal (and any other still-present hard-refuse symlink guard in this
+#     file) prints a warning and proceeds instead of refusing. Unset (the
+#     default) stays hard-refuse -- this is "refuse by default, explicit
+#     opt-out," never "warn and always proceed." Invariant 2 has no override:
+#     dereferencing is already safe-by-default, so there is nothing to opt
+#     out of.
+#
+# A finding proposing a NEW symlink guard beyond these two invariants is out
+# of scope for this feature unless it demonstrates a concrete bypass of
+# invariant 1 or invariant 2 above -- not merely a new named shape of the
+# same already-closed class.
+# ---------------------------------------------------------------------------
+#
 # NEW-1 (UAT round 3, uat-20260809-013000-E40-F03.md): run-batch.sh's own
 # R2-F-13 fix (assert_within_out_root) canonicalized BOTH sides of its
 # containment comparison with `realpath -m`, but replay-manifest.sh
@@ -50,6 +84,10 @@ assert_within_out_root() {
 # "reclassify, don't dispatch" outcome -- this helper only answers the
 # yes/no filesystem question.
 symlink_dest() {
+	if [[ -L "$1" && "${SHARK_BENCH_ALLOW_SYMLINKS:-}" == "1" ]]; then
+		echo "$(basename "$0"): WARNING (SHARK_BENCH_ALLOW_SYMLINKS=1): '$1' is a symlink in the trusted chain -- this operation may read/write a location outside the retention layout you think you're using. Proceeding because you overrode the guard." >&2
+		return 1
+	fi
 	[[ -L "$1" ]]
 }
 
@@ -126,6 +164,13 @@ assert_no_symlink_in_chain() {
 		[[ -n "$part" ]] || continue
 		cur="$cur/$part"
 		if [[ -L "$cur" ]]; then
+			# SHARK_BENCH_ALLOW_SYMLINKS=1 override (scope-freeze paragraph
+			# above): explicit opt-out, warn-and-proceed instead of refuse.
+			# Default (unset) stays hard-refuse.
+			if [[ "${SHARK_BENCH_ALLOW_SYMLINKS:-}" == "1" ]]; then
+				echo "$(basename "$0"): WARNING (SHARK_BENCH_ALLOW_SYMLINKS=1): '$cur' is a symlink in the trusted chain -- this operation may read/write a location outside the retention layout you think you're using. Proceeding because you overrode the guard." >&2
+				continue
+			fi
 			echo "$(basename "$0"): refusing filesystem operation -- '$cur' is a pre-existing symlink, found while walking the trusted chain from '$root' down to '$leaf'; a symlink ANYWHERE in this chain, not just at the final path, can silently redirect this operation to a different, unrelated location" >&2
 			return 1
 		fi
@@ -133,65 +178,35 @@ assert_no_symlink_in_chain() {
 	return 0
 }
 
-# assert_source_not_symlink <path> <label> -- STRUCTURAL FIX,
-# code-review-2026-08-21T1335-E40-F10.md (round 5) finding 2. Refuses
-# (nonzero, loud diagnostic) if <path> itself exists as a symlink.
+# copy_tree_dereferenced <src> <dst> -- STRUCTURAL FIX, invariant 2 of the
+# scope-freeze paragraph above. Originally landed as code-review-2026-08-
+# 21T1141-E40-F10.md (round 6) finding 1's fix for a NESTED symlink inside
+# an otherwise-real scratch_root; subsequently generalized to be the SOLE
+# source-side guard (round-5 finding 2's `assert_source_not_symlink`
+# hard-refusal removed as redundant once this was in place at every call
+# site) once it was confirmed to also safely dereference a TOP-LEVEL
+# symlinked source. Copies <src> to <dst>, dereferencing EVERY symlink
+# encountered anywhere in the copied tree -- top-level source argument
+# included -- so there is no narrower "top-level only" vs. "nested" shape
+# of this defect class left to find.
 #
-# Different in KIND from assert_no_symlink_in_chain above, not just in
-# scope: that function protects a DESTINATION reached by walking down from
-# a trusted retention root from being redirected by an ancestor symlink.
-# This function protects a standalone, operator-declared SOURCE directory
-# (scratch_root; any other directory a driver copies FROM into a fresh
-# ephemeral/worker-visible location) from being an alias in the first
-# place -- there is no "root" to walk here, scratch_root is not nested
-# under the retention root at all, and the caller does not yet have
-# anything worth calling a "leaf".
+# Why a hard-refusal guard was not needed here: `cp -a` preserves every
+# symlink it walks during a recursive copy (top-level source argument or
+# nested, `--no-dereference` either way), so a worker write through the
+# believed-isolated "ephemeral" copy's corresponding path could silently
+# reach whatever a preserved symlink targeted, violating both drivers' own
+# "this driver never mutates the template" guarantee.
+# shutil.copytree(..., symlinks=False) closes this BY CONSTRUCTION instead
+# of by refusal: it lists the resolved directory's entries and dereferences
+# every symlink it encounters (empirically verified for both the top-level
+# and nested shapes), producing a genuinely independent tree in every case
+# -- reusing the exact primitive already proven safe by this codebase in
+# the preview-mode scratch_root copy (both drivers' own preview print
+# loops), rather than inventing a third copy strategy (e.g. `cp -aL`).
 #
-# round 5 finding 2: `[[ -d "$scratch_root" ]]` (both drivers, before this
-# fix) follows a symlink and reports true for a symlink-to-directory. GNU
-# `cp -a` then implies --no-dereference specifically for a TOP-LEVEL
-# symlink SOURCE argument (verified empirically for this fix), so the
-# "ephemeral" copy the caller believes is an isolated, independent
-# directory is actually a NEW symlink to the SAME real target -- every
-# write a worker makes into the believed-isolated "ephemeral" copy
-# silently mutates the operator's real template. Refusing outright here
-# (rather than dereferencing on copy, e.g. `cp -aL`) matches this feature's
-# established fail-loud posture for every other symlink finding in this
-# file: the caller never has a legitimate reason to expect a symlinked
-# scratch_root to be silently made independent on its behalf.
-assert_source_not_symlink() {
-	local path="$1" label="${2:-source}"
-	if [[ -L "$path" ]]; then
-		echo "$(basename "$0"): refusing to use $label -- '$path' is a symlink, not a real directory; a symlinked source would be preserved AS a symlink by 'cp -a' at the copy destination, silently defeating template isolation" >&2
-		return 1
-	fi
-	return 0
-}
-
-# copy_tree_dereferenced <src> <dst> -- STRUCTURAL FIX,
-# code-review-2026-08-21T1141-E40-F10.md (round 6) finding 1. Copies <src>
-# to <dst>, dereferencing EVERY symlink encountered anywhere in the copied
-# tree, not just a top-level symlink source argument.
-#
-# Why assert_source_not_symlink above was not enough: it correctly refuses a
-# top-level symlinked scratch_root (round-5 finding 2), but the two drivers'
-# own `cp -a "$scratch_root" "$ephemeral"` call preserves any symlink NESTED
-# inside an otherwise-real scratch_root directory tree as-is -- `cp -a`'s
-# --no-dereference behavior applies to every symlink it walks during a
-# recursive copy, not just a top-level source argument. A worker write
-# through the believed-isolated "ephemeral" copy's corresponding path (e.g.
-# a nested `prompts/` symlink) would silently reach whatever that nested
-# symlink targets, violating both drivers' own "this driver never mutates
-# the template" guarantee -- the identical defect class as finding 2, one
-# symlink position deeper, that `assert_source_not_symlink` alone cannot
-# close by refusing only the top-level path.
-#
-# Reuses shutil.copytree(..., symlinks=False) -- the exact primitive already
-# proven safe by this codebase in the preview-mode scratch_root copy (both
-# drivers' own preview print loops), which lists the resolved directory's
-# entries and dereferences every symlink it encounters, producing a
-# genuinely independent tree -- rather than inventing a third copy strategy
-# (e.g. `cp -aL`).
+# No SHARK_BENCH_ALLOW_SYMLINKS override here (unlike invariant 1's
+# hard-refuse guards): dereferencing is already safe-by-default, so there
+# is nothing to opt out of.
 #
 # Caller contract: <dst> MUST NOT already exist (shutil.copytree's own
 # contract) -- every current caller passes a fresh path under a
