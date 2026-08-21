@@ -684,3 +684,404 @@ print(
 PYEOF
 
 echo "TC-088 (no-detectable-effect check): PASS"
+
+# ===========================================================================
+# T-E40-F10-010 rework (code-review-2026-08-20T2138-E40-F10.md findings 2
+# and 8; kickback on this task): chains a REAL `run-review-comparison.sh
+# --mode pilot` run into a REAL `aggregate-lifecycle.sh` run, end to end.
+#
+# Finding 2's original defect: run-review-comparison.sh retained gate
+# evidence under gate-named directories (`scenarios/<id>/qa/`,
+# `scenarios/<id>/deep_review/`) and a scenario-level comparison.json, which
+# aggregate-lifecycle.sh's `int(rep)` pair loop could never find and, worse,
+# crashed on ("rep 'qa' is not an integer") whenever a comparison shared a
+# retention root with a batch run. Finding 8: no committed test chained a
+# real run-review-comparison.sh retention output into a real
+# aggregate-lifecycle.sh run, which is exactly how findings 1 and 2 shipped
+# undetected through two rework rounds.
+#
+# T-E40-F10-005's rework (commit 63a7605a, `bench/scripts/lib/retain_pair`)
+# fixed the producer: `retain_gate()` now writes through the SAME shared
+# manifest builder `run-lifecycle-batch.sh`'s `retain_pair()` uses, at the
+# SAME (scenario_id, rep) layout -- qa=rep 1, deep_review=rep 2
+# (`gate_rep()`), both real integers. This section proves the fixed
+# producer's real output is correctly consumed by the aggregator:
+#   1. `run-review-comparison.sh` is driven for REAL (real retain_gate()/
+#      lib/retain_pair path -- both gates dispatch from scratch, never the
+#      skipped_complete shortcut, so retain_gate() actually executes; real,
+#      unstubbed compare-lifecycle-evaluations.sh). Only
+#      RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN are stubbed, matching this
+#      suite's existing convention (tc082's (a2), tc087).
+#   2. The resulting retention root also carries a hand-built batch pair
+#      (rep 3) of the SAME scenario_id -- reproducing finding 2's exact
+#      co-location scenario ("if a comparison is ever run against the same
+#      --retention-root as a batch").
+#   3. `aggregate-lifecycle.sh` runs for real, unstubbed, over the combined
+#      root and must not crash; its `/comparisons` block must carry the
+#      real published comparison.json verbatim.
+# ===========================================================================
+COMPARISON="$SCRIPTS_DIR/run-review-comparison.sh"
+[[ -x "$COMPARISON" ]] || fail "bench/scripts/run-review-comparison.sh missing or not executable"
+
+E2E_WORKDIR="$WORKDIR/e2e-comparison-chain"
+E2E_ROOT="$E2E_WORKDIR/root"
+mkdir -p "$E2E_ROOT"
+E2E_SCENARIO_ID="scenario-e2e-comparison"
+
+# --- candidate.yaml resolution inputs: a real scenario index/package -------
+E2E_INDEX_DIR="$E2E_WORKDIR/index"
+mkdir -p "$E2E_INDEX_DIR/packages/$E2E_SCENARIO_ID"
+cat >"$E2E_INDEX_DIR/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$E2E_SCENARIO_ID
+EOF
+cat >"$E2E_INDEX_DIR/packages/$E2E_SCENARIO_ID/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$E2E_SCENARIO_ID"
+scenario_version: "1"
+entity_family: "family-e2e-comparison"
+EOF
+
+E2E_SCRATCH="$E2E_WORKDIR/scratch-template"
+mkdir -p "$E2E_SCRATCH"
+echo "placeholder scratch project (never mutated -- the driver copies it)" >"$E2E_SCRATCH/marker.txt"
+
+E2E_I05_BUNDLE="$E2E_WORKDIR/i05-bundle"
+mkdir -p "$E2E_I05_BUNDLE/transcripts"
+echo '{"stage": "code", "note": "tc088 e2e comparison-chain evidence"}' >"$E2E_I05_BUNDLE/stage.json"
+echo "tc088 e2e comparison-chain transcript" >"$E2E_I05_BUNDLE/transcripts/stage.txt"
+
+cat >"$E2E_WORKDIR/candidate.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$E2E_SCENARIO_ID"
+scenario_index: "$E2E_INDEX_DIR/scenarios.yaml"
+gates:
+  qa:
+    root_key: "ROOT-E2E"
+    scratch_root: "$E2E_SCRATCH"
+    i05_bundle_dir: "$E2E_I05_BUNDLE"
+  deep_review:
+    root_key: "ROOT-E2E"
+    scratch_root: "$E2E_SCRATCH"
+    i05_bundle_dir: "$E2E_I05_BUNDLE"
+EOF
+
+# --- Fixture content the RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN stubs
+# write to whatever --output path the real dispatch_gate() hands them.
+# Identical evaluation content on both gates (same candidate identity, same
+# workflow_policy) so the REAL compare-lifecycle-evaluations.sh genuinely
+# ACCEPTS the pair -- an accepted comparison is the only kind ever
+# published, and publication is exactly the path finding 2 broke.
+E2E_LC_FIXTURE="$E2E_WORKDIR/lifecycle-fixture.jsonl"
+E2E_EV_FIXTURE="$E2E_WORKDIR/evaluation-fixture.jsonl"
+python3 - "$E2E_SCENARIO_ID" "$E2E_LC_FIXTURE" "$E2E_EV_FIXTURE" <<'PYEOF'
+import hashlib
+import json
+import sys
+
+scenario_id, lc_path, ev_path = sys.argv[1:4]
+digest = "a" * 64
+
+base_stage = {
+    "dispatch_ordinal": 1, "stage": "code", "category": "code",
+    "snapshot_digest": "a" * 64, "prompt_digest": "b" * 64,
+    "input_lineage": [], "replay_lineage": [], "output_paths": [], "output_digests": [],
+    "usage": {"provider": "fixture", "model": "fixture-model"},
+    "cost_usd": 1.0, "elapsed_seconds": 1.0, "errors": [], "rework": False,
+    "intervals": [{"category": "provider_active", "start": 0, "end": 1}],
+    "candidate": {}, "artifacts": [], "access_events": [], "evidence_refs": {},
+}
+lc = {
+    "identity": {
+        "schema_version": "1.0", "run_id": "run-e2e", "scenario_id": scenario_id,
+        "scenario_version": "1", "fixture_id": "fixture-e2e", "fixture_digest": digest,
+        "adapter_id": "fixture-adapter", "adapter_version": "1",
+        "shark_binary_digest": digest, "shark_content_digest": digest, "roots": {},
+    },
+    "entity_graph": {}, "dispatches": [], "stages": [base_stage],
+    "workflow_policy": {}, "review_gates": [], "questions": [],
+    "limits": {
+        "max_cost_usd": 5.0, "max_wall_clock_seconds": 60, "max_generated_tasks": 5,
+        "observed_cost_usd": 1.0, "observed_wall_clock_seconds": 10.0,
+        "observed_generated_tasks": 1, "first_exceeded": None,
+    },
+    "outcome": {"terminal": "complete", "reason": "e2e comparison-chain fixture", "partial_evidence": False, "publication_eligible": True},
+}
+with open(lc_path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(lc, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def candidate_digest_fields(candidate):
+    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}
+
+
+def with_identity_digest(candidate):
+    candidate = dict(candidate)
+    candidate["identity_digest"] = hashlib.sha256(json.dumps(candidate_digest_fields(candidate), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return candidate
+
+
+base_candidate = with_identity_digest({
+    "base_commit": "b" * 40, "tree_digest": digest, "binary_diff_digest": digest,
+    "changed_path_digest": digest, "dirty_untracked_manifest": digest,
+    "test_suite_digest": digest, "snapshot_digest": digest,
+})
+
+identity = {
+    "scenario_id": scenario_id, "scenario_version": "1", "fixture_id": "f", "fixture_digest": digest,
+    "adapter_id": "a", "adapter_version": "1", "toolchain_identity": [{"key": "go", "value": "1"}],
+    "shark_binary_digest": digest, "shark_content_digest": digest, "rendered_prompt_digest": digest,
+    "rendered_prompt_digests": [digest], "provider": "fixture", "model": "m", "effort": "low",
+    "provider_identity": [{"stage": "qa", "provider": "fixture", "model": "m", "effort": "low"}],
+    "judge_digest": digest, "judge_identity": {"model": "j", "configuration": "c"},
+    "reference_digest": digest, "reference_digests": [digest], "resource_policy_digest": digest,
+}
+
+policy = {
+    "enabled_gates": ["qa", "deep_review"], "gate_order": ["qa", "deep_review"],
+    "reviewer": {"provider": "fixture", "model": "m", "effort": "low"},
+    "prompt_digest": digest, "rendered_prompt_digest": digest,
+    "review_bundle_digest": digest, "deep_review_bundle_digest": digest,
+    "fixes_allowed_between_gates": False, "fix_policy": "none",
+}
+policy["workflow_policy_identity_digest"] = hashlib.sha256(
+    json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()
+).hexdigest()
+
+ev = {
+    "schema_version": "1.0",
+    "evaluation_id": "eval-e2e",
+    "identity": identity,
+    "workflow_policy": policy,
+    "eligibility": {"aggregate_eligible": True, "publication_eligible": True, "invalidity_reasons": []},
+    "candidate_snapshots": [{"stage": "qa", "candidate": base_candidate}],
+    "review_findings": {"normalized_findings": [], "derived_counts": {}},
+    "structural": {"applicability": "applicable", "checks": [], "observed_result": "pass"},
+    "judge": {"applicability": "not_applicable", "observed_result": "not_applicable", "invalidity_reasons": []},
+    "execution_oracle": {"predicate_kind": "acceptance_tests", "observed_result": "pass"},
+    "source_artifacts": {},
+    "comparison": {},
+    "metrics": {
+        "elapsed_time": {"value": 10.0, "available": True},
+        "provider_cost": {"value": 1.0, "available": True},
+        "rework": {"value": 0, "available": True},
+    },
+}
+with open(ev_path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(ev, sort_keys=True, separators=(",", ":")) + "\n")
+PYEOF
+
+E2E_RUN_STUB="$E2E_WORKDIR/run-lifecycle-stub.sh"
+cat >"$E2E_RUN_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+cp "$E2E_LC_FIXTURE" "\$output"
+EOF
+chmod +x "$E2E_RUN_STUB"
+
+E2E_EVAL_STUB="$E2E_WORKDIR/evaluate-lifecycle-stub.sh"
+cat >"$E2E_EVAL_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+cp "$E2E_EV_FIXTURE" "\$output"
+EOF
+chmod +x "$E2E_EVAL_STUB"
+
+# --- Co-located batch pair (rep 3), hand-built (this task's own file
+# already hand-builds batch pairs above; batch.json's real writer is
+# T-E40-F10-008's scope, not this driver's) -- SAME scenario_id as the
+# comparison gates, reproducing finding 2's "comparison co-located with a
+# batch run in the same retention root" scenario literally.
+# ---------------------------------------------------------------------------
+python3 - "$E2E_ROOT" "$E2E_SCENARIO_ID" <<'PYEOF'
+import hashlib
+import json
+import os
+import sys
+
+dest_root, scenario_id = sys.argv[1:3]
+rep = 3
+pair_dir = os.path.join(dest_root, "scenarios", scenario_id, str(rep))
+os.makedirs(pair_dir, exist_ok=True)
+
+
+def sha(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def write_json(path, obj):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+package_yaml = os.path.join(pair_dir, "package.yaml")
+with open(package_yaml, "w", encoding="utf-8") as f:
+    f.write(
+        'schema_version: "1.0"\n'
+        f'scenario_id: "{scenario_id}"\n'
+        'scenario_version: "1"\n'
+        'entity_family: "family-e2e-comparison"\n'
+    )
+
+base_stage = {
+    "dispatch_ordinal": 1, "stage": "code", "category": "code",
+    "snapshot_digest": "a" * 64, "prompt_digest": "b" * 64,
+    "input_lineage": [], "replay_lineage": [], "output_paths": [], "output_digests": [],
+    "usage": {"provider": "fixture", "model": "fixture-model"},
+    "cost_usd": 1.0, "elapsed_seconds": 1.0, "errors": [], "rework": False,
+    "intervals": [{"category": "provider_active", "start": 0, "end": 1}],
+    "candidate": {}, "artifacts": [], "access_events": [], "evidence_refs": {},
+}
+lc = {
+    "identity": {
+        "schema_version": "1.0", "run_id": f"run-{scenario_id}-{rep}", "scenario_id": scenario_id,
+        "scenario_version": "1", "fixture_id": f"fixture-{scenario_id}", "fixture_digest": "c" * 64,
+        "adapter_id": "fixture-adapter", "adapter_version": "1",
+        "shark_binary_digest": "d" * 64, "shark_content_digest": "e" * 64, "roots": {},
+    },
+    "entity_graph": {}, "dispatches": [], "stages": [base_stage],
+    "workflow_policy": {}, "review_gates": [], "questions": [],
+    "limits": {
+        "max_cost_usd": 5.0, "max_wall_clock_seconds": 60, "max_generated_tasks": 5,
+        "observed_cost_usd": 0.9, "observed_wall_clock_seconds": 9.0,
+        "observed_generated_tasks": 1, "first_exceeded": None,
+    },
+    "outcome": {"terminal": "complete", "reason": "batch co-location fixture", "partial_evidence": False, "publication_eligible": True},
+}
+write_json(os.path.join(pair_dir, "lifecycle.jsonl"), lc)
+
+ev = {
+    "schema_version": "1.0", "evaluation_id": f"eval-{scenario_id}-{rep}", "identity": {}, "source_artifacts": {},
+    "structural": {}, "judge": {}, "execution_oracle": {},
+    "eligibility": {"aggregate_eligible": True, "publication_eligible": True, "invalidity_reasons": []},
+    "candidate_snapshots": [], "workflow_policy": {}, "comparison": {},
+    "metrics": {
+        "elapsed_time": {"value": 9.0, "available": True},
+        "provider_cost": {"value": 0.9, "available": True},
+        "rework": {"value": 0, "available": True},
+    },
+}
+write_json(os.path.join(pair_dir, "evaluation.jsonl"), ev)
+
+manifest = {
+    "scenario_id": scenario_id, "rep": rep,
+    "artifacts": {
+        "package.yaml": {"source_path": package_yaml, "sha256": sha(package_yaml)},
+        "lifecycle.jsonl": {"source_path": os.path.join(pair_dir, "lifecycle.jsonl"), "sha256": sha(os.path.join(pair_dir, "lifecycle.jsonl"))},
+        "evaluation.jsonl": {"source_path": os.path.join(pair_dir, "evaluation.jsonl"), "sha256": sha(os.path.join(pair_dir, "evaluation.jsonl"))},
+    },
+}
+write_json(os.path.join(pair_dir, "manifest.json"), manifest)
+print("rep-3 batch-co-location pair written", file=sys.stderr)
+PYEOF
+
+python3 - "$E2E_ROOT" <<'PYEOF'
+import json
+import sys
+
+dest_root = sys.argv[1]
+batch = {
+    "phase": "lifecycle_v2", "batch_id": "batch-tc088-e2e", "mode": "baseline", "min_reps": 1,
+    "batch_policy_digest": "f" * 64,
+    "ceilings": {"max_cost_usd": "100", "max_wall_clock_seconds": "3600", "max_generated_tasks": "20"},
+    "acknowledgement_ref": {"flag": "--acknowledge-provider-spend", "present": True},
+}
+with open(f"{dest_root}/batch.json", "w", encoding="utf-8") as f:
+    f.write(json.dumps(batch, sort_keys=True, separators=(",", ":")) + "\n")
+PYEOF
+
+# --- Drive the REAL run-review-comparison.sh --mode pilot. Neither gate's
+# evaluation.jsonl exists yet under $E2E_ROOT, so this is the real dispatch
+# path -- retain_gate()/lib/retain_pair genuinely executes for both gates,
+# not the skipped_complete shortcut. ---------------------------------------
+E2E_ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
+e2e_comparison_rc=0
+RUN_LIFECYCLE_BIN="$E2E_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$E2E_EVAL_STUB" \
+	"$COMPARISON" --candidate "$E2E_WORKDIR/candidate.yaml" --retention-root "$E2E_ROOT" \
+	--mode pilot --comparison-mode independent_frozen_candidate "${E2E_ACK_FLAGS[@]}" \
+	>"$E2E_WORKDIR/comparison.stdout" 2>"$E2E_WORKDIR/comparison.stderr" || e2e_comparison_rc=$?
+[[ "$e2e_comparison_rc" -eq 0 ]] || fail "T-E40-F10-010 rework: real run-review-comparison.sh dispatch/accept failed: exit $e2e_comparison_rc; stdout: $(cat "$E2E_WORKDIR/comparison.stdout"); stderr: $(cat "$E2E_WORKDIR/comparison.stderr")"
+
+E2E_QA_MANIFEST="$E2E_ROOT/scenarios/$E2E_SCENARIO_ID/1/manifest.json"
+E2E_DR_MANIFEST="$E2E_ROOT/scenarios/$E2E_SCENARIO_ID/2/manifest.json"
+[[ -f "$E2E_QA_MANIFEST" ]] || fail "T-E40-F10-010 rework: qa gate's real retain_gate()/lib/retain_pair path did not retain rep 1"
+[[ -f "$E2E_DR_MANIFEST" ]] || fail "T-E40-F10-010 rework: deep_review gate's real retain_gate()/lib/retain_pair path did not retain rep 2"
+
+E2E_COMPARISON_JSON="$E2E_ROOT/scenarios/$E2E_SCENARIO_ID/2/comparison.json"
+[[ -f "$E2E_COMPARISON_JSON" ]] || fail "T-E40-F10-010 rework: run-review-comparison.sh did not publish comparison.json at the real (scenario, rep) pair path scenarios/$E2E_SCENARIO_ID/2/comparison.json"
+
+# --- Chain into a REAL, unstubbed aggregate-lifecycle.sh run over the
+# combined root (2 real comparison-driven pairs + 1 hand-built batch pair,
+# same scenario_id). Before the T-E40-F10-005 fix this crashed with
+# "retention directory rep 'qa' is not an integer"; it must not crash now.
+E2E_AGG_OUT="$("$AGGREGATOR" --retention-root "$E2E_ROOT" 2>"$E2E_WORKDIR/aggregate.stderr")" \
+	|| fail "T-E40-F10-010 rework: real aggregate-lifecycle.sh crashed over a retention root co-locating a real run-review-comparison.sh output with a batch pair of the SAME scenario_id (finding 2's exact scenario); stderr: $(cat "$E2E_WORKDIR/aggregate.stderr")"
+[[ ! -s "$E2E_WORKDIR/aggregate.stderr" ]] || fail "T-E40-F10-010 rework: aggregate-lifecycle.sh produced unexpected stderr diagnostics over the chained root: $(cat "$E2E_WORKDIR/aggregate.stderr")"
+
+python3 - "$E2E_AGG_OUT" "$E2E_SCENARIO_ID" "$E2E_COMPARISON_JSON" <<'PYEOF'
+import json
+import sys
+
+agg_json, scenario_id, comparison_json_path = sys.argv[1:4]
+agg = json.loads(agg_json)
+
+
+def fail(msg):
+    print(f"TC-088 FAIL (e2e comparison-chain check): {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+# scenarios[]: rep 1 (qa), rep 2 (deep_review), rep 3 (co-located batch
+# pair) all present for the SAME scenario_id -- proves the now-real
+# integer reps a real run-review-comparison.sh writes coexist with an
+# ordinary batch pair under one scenario without the pair loop's
+# int(rep) check (aggregate-lifecycle.sh:709-712) ever firing.
+reps = sorted(s["rep"] for s in agg["scenarios"] if s["scenario_id"] == scenario_id)
+if reps != [1, 2, 3]:
+    fail(f"scenario {scenario_id!r} reps = {reps}, expected [1, 2, 3] (qa, deep_review, co-located batch pair)")
+
+# comparisons[]: exactly the ONE real comparison.json run-review-comparison.sh
+# published, republished verbatim -- read directly off disk and compared,
+# not assumed equal by construction.
+with open(comparison_json_path, encoding="utf-8") as fh:
+    on_disk = json.load(fh)
+
+matches = [c for c in agg["comparisons"] if c["scenario_id"] == scenario_id]
+if len(matches) != 1:
+    fail(f"comparisons[] has {len(matches)} entries for {scenario_id!r}, expected exactly 1")
+entry = matches[0]
+if entry["rep"] != 2:
+    fail(f"comparisons[0].rep = {entry['rep']!r}, expected 2 (deep_review, per gate_rep())")
+for key in ("mode", "left_evaluation_id", "right_evaluation_id", "accepted", "comparison", "divergences"):
+    if entry[key] != on_disk[key]:
+        fail(f"comparisons[0].{key} = {entry[key]!r} != the real published comparison.json's {key} = {on_disk[key]!r} (not republished verbatim)")
+if entry["accepted"] is not True:
+    fail(f"comparisons[0].accepted = {entry['accepted']!r}, expected True (the real comparator accepted the identity-compatible pair)")
+
+print(
+    "TC-088 (T-E40-F10-010 rework, real comparison-chain end-to-end): a "
+    "real run-review-comparison.sh --mode pilot run (real retain_gate()/"
+    "lib/retain_pair dispatch path, real compare-lifecycle-evaluations.sh) "
+    "co-located with a batch-produced pair of the SAME scenario_id chains "
+    "cleanly into a real aggregate-lifecycle.sh run -- no crash, and the "
+    "published comparison.json reaches /comparisons verbatim"
+)
+PYEOF
+
+echo "TC-088 (T-E40-F10-010 rework, real comparison-chain end-to-end): PASS"
