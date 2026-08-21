@@ -7,6 +7,26 @@
 # the REAL verify-lifecycle-run.sh / verify-lifecycle-evaluation.sh) over a
 # real retained-artifact fixture built with real sha256 digests, mirroring
 # tc081's own "do not mock digest comparison" discipline.
+#
+# Caller-Path Contract (test-plan.md TC-082): "a root produced by one real
+# run-lifecycle-batch.sh --mode pilot retention." Round-1 finding 2615
+# (recurring into round-2's loop-guard, code-review-2026-08-20T2138-E40-F10.md
+# Section I): this file's build_golden() used to hand-roll the retained
+# directory and manifest.json with its own from-scratch digest_of_path/
+# python inline script, never invoking any real production code path -- the
+# exact gap that hid the empty-artifact digest divergence (finding 1) from
+# this suite for two rework rounds. build_golden() now drives
+# `bench/scripts/lib/retain_pair` directly -- the SAME shared manifest
+# builder run-lifecycle-batch.sh's own retain_pair() (and
+# run-review-comparison.sh's retain_gate()) call, byte-for-byte, since its
+# extraction in commit 63a7605a. This satisfies the contract's real-retention
+# requirement without re-driving the full batch orchestrator (spend gate,
+# scenario-matrix dispatch, RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN
+# provider calls) that produces retain_pair's lifecycle.jsonl/evaluation.jsonl
+# inputs in the first place -- those inputs are themselves real, committed
+# I-07/I-08 fixtures here, exactly as before. The bottom of this file
+# separately drives "$BATCH" for real for the reclaim-incomplete assertions,
+# which do require the driver's own classify_pair/quarantine_pair logic.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,6 +34,7 @@ SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 VERIFIER="$SCRIPTS_DIR/verify-retention-root.sh"
 BATCH="$SCRIPTS_DIR/run-lifecycle-batch.sh"
+RETAIN_PAIR="$SCRIPTS_DIR/lib/retain_pair"
 SCHEMA="$REPO_ROOT/bench/reports/lifecycle-baseline-schema.yaml"
 I07_FIXTURE="$REPO_ROOT/tests/contracts/testdata/e40_i07/valid/complete.jsonl"
 I08_FIXTURE="$REPO_ROOT/bench/scripts/testdata/evaluation/eligible.jsonl"
@@ -25,6 +46,7 @@ fail() {
 
 [[ -x "$VERIFIER" ]] || fail "bench/scripts/verify-retention-root.sh missing or not executable"
 [[ -x "$BATCH" ]] || fail "bench/scripts/run-lifecycle-batch.sh missing or not executable"
+[[ -x "$RETAIN_PAIR" ]] || fail "bench/scripts/lib/retain_pair missing or not executable"
 [[ -f "$SCHEMA" ]] || fail "bench/reports/lifecycle-baseline-schema.yaml missing"
 [[ -f "$I07_FIXTURE" ]] || fail "committed valid I-07 fixture missing: $I07_FIXTURE"
 [[ -f "$I08_FIXTURE" ]] || fail "committed valid I-08 fixture missing: $I08_FIXTURE"
@@ -40,13 +62,23 @@ REP="1"
 # Persistent "sources" staging area -- the pre-retention originals a real
 # producer would digest against. Deliberately NOT ephemeral (unlike
 # run-lifecycle-batch.sh's own pair_work, which it rm -rf's immediately
-# after retention -- a known upstream gap this task's summary reports
-# separately, see Notes below) so the golden root's manifest.json records
-# source_path values that genuinely resolve, and the Edge Case fixture
-# (source_path_missing) can delete exactly one of them on purpose.
+# after retention) so the golden root's manifest.json records source_path
+# values that genuinely resolve, and the Edge Case fixture
+# (source_path_missing) can delete exactly one of them on purpose. Laid out
+# to match lib/retain_pair's own positional-argument shape exactly: a
+# package.yaml, a lifecycle.jsonl, an evaluation.jsonl, an
+# "<evaluation.jsonl>.oracle.json" sidecar (evaluate-lifecycle.sh's own
+# naming convention retain_pair reuses, never re-derived), and an I-05
+# bundle directory holding evidence content plus a transcripts/ subtree.
+# entity-history.json has no source parameter in lib/retain_pair (no
+# producer exists anywhere in this codebase today -- retain_pair always
+# retains it as an honest empty placeholder, source_path=""); that is real
+# production behavior, not a fixture gap, so this golden root reproduces it
+# exactly rather than fabricating a source for it.
 # ---------------------------------------------------------------------------
 SOURCES="$WORKDIR/sources"
-mkdir -p "$SOURCES/evidence" "$SOURCES/transcripts"
+I05_BUNDLE="$SOURCES/i05-bundle"
+mkdir -p "$I05_BUNDLE/transcripts"
 
 cat >"$SOURCES/package.yaml" <<EOF
 schema_version: "1.0"
@@ -54,86 +86,47 @@ scenario_id: "$SCENARIO_ID"
 scenario_version: "1"
 entity_family: "family-tc082"
 EOF
-echo '{"stage": "code", "note": "tc082 fixture evidence"}' >"$SOURCES/evidence/stage.json"
-echo "tc082 fixture transcript" >"$SOURCES/transcripts/stage.txt"
-python3 -c '
-import json
-obj = {"root_key": "ROOT-001", "entries": [{"key": "T-001", "event": "created"}]}
-with open("'"$SOURCES"'/entity-history.json", "w", encoding="utf-8") as f:
-    f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
-'
+echo '{"stage": "code", "note": "tc082 fixture evidence"}' >"$I05_BUNDLE/stage.json"
+echo "tc082 fixture transcript" >"$I05_BUNDLE/transcripts/stage.txt"
 cp "$I07_FIXTURE" "$SOURCES/lifecycle.jsonl"
 jq -c '.metrics={quality:{},elapsed_time:{},provider_cost:{},rework:{},artifact_use:{}}' "$I08_FIXTURE" >"$SOURCES/evaluation.jsonl"
+# jq's `-c` output is compact but NOT necessarily sorted-key -- re-canonicalize
+# so the RETAINED raw bytes are already this repository's canonical form
+# (compact, sorted keys, trailing newline). Case (k) below re-serializes this
+# same content differently (pretty-printed) and needs the ORIGINAL retained
+# bytes' recorded digest to equal the canonical-content digest for the
+# re_serialized (not digest_mismatch) reason to fire correctly.
+python3 -c '
+import json
+path = "'"$SOURCES"'/evaluation.jsonl"
+obj = json.load(open(path, encoding="utf-8"))
+with open(path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
+'
+ORACLE_SOURCE="$SOURCES/evaluation.jsonl.oracle.json"
 python3 -c '
 import json
 obj = {"held_back": True, "observed_result": "pass"}
-with open("'"$SOURCES"'/oracle.json", "w", encoding="utf-8") as f:
+with open("'"$ORACLE_SOURCE"'", "w", encoding="utf-8") as f:
     f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
 '
 
 # ---------------------------------------------------------------------------
-# Golden retention root: byte-preserving copies of every source artifact
-# under scenarios/<scenario_id>/<rep>/, plus a manifest.json built the same
-# way retain_pair builds one (source_path + sha256 per artifact), except
-# this fixture covers all SEVEN non-manifest artifacts the schema's
-# retention_manifest_required_fields lists -- run-lifecycle-batch.sh's own
-# retain_pair currently only populates five (no evidence/transcripts
-# entries), a gap this task reports as an upstream finding rather than
-# fixing here (out of this task's scope; no unrelated changes).
+# Golden retention root, built by driving the REAL bench/scripts/lib/
+# retain_pair (T-E40-F10-007 rework, code-review-2026-08-20T2138-E40-F10.md
+# Section I / round-1 finding 2615): the exact same shared manifest builder
+# run-lifecycle-batch.sh's own retain_pair() calls -- byte-preserving copies
+# plus a manifest.json built the same way a real `run-lifecycle-batch.sh
+# --mode pilot` retention builds one, not a second hand-rolled digest
+# implementation that can silently drift from the production one (the gap
+# that hid finding 1's empty-artifact divergence from this suite).
 # ---------------------------------------------------------------------------
 build_golden() {
 	local root="$1"
 	local dest="$root/scenarios/$SCENARIO_ID/$REP"
 	mkdir -p "$dest"
-	cp "$SOURCES/package.yaml" "$dest/package.yaml"
-	cp -a "$SOURCES/evidence" "$dest/evidence"
-	cp -a "$SOURCES/transcripts" "$dest/transcripts"
-	cp "$SOURCES/entity-history.json" "$dest/entity-history.json"
-	cp "$SOURCES/lifecycle.jsonl" "$dest/lifecycle.jsonl"
-	cp "$SOURCES/evaluation.jsonl" "$dest/evaluation.jsonl"
-	cp "$SOURCES/oracle.json" "$dest/oracle.json"
-
-	python3 - "$SOURCES" "$dest" "$SCENARIO_ID" "$REP" <<'PYEOF'
-import hashlib
-import json
-import os
-import sys
-
-sources, dest, scenario_id, rep = sys.argv[1:5]
-
-
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def digest_of_path(path):
-    if os.path.isdir(path):
-        entries = []
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            for fname in sorted(files):
-                fpath = os.path.join(root, fname)
-                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
-                with open(fpath, "rb") as fh:
-                    entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
-        entries.sort(key=lambda e: e["path"])
-        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return sha256_bytes(canonical)
-    with open(path, "rb") as fh:
-        return sha256_bytes(fh.read())
-
-
-names = ["package.yaml", "evidence", "transcripts", "entity-history.json",
-         "lifecycle.jsonl", "evaluation.jsonl", "oracle.json"]
-artifacts = {}
-for name in names:
-    source_path = os.path.join(sources, name)
-    artifacts[name] = {"source_path": source_path, "sha256": digest_of_path(source_path)}
-
-manifest = {"scenario_id": scenario_id, "rep": int(rep), "artifacts": artifacts}
-with open(os.path.join(dest, "manifest.json"), "w", encoding="utf-8") as f:
-    f.write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
-PYEOF
+	python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$REP" "$SOURCES/package.yaml" \
+		"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$dest"
 }
 
 GOLDEN_ROOT="$WORKDIR/golden"
@@ -213,25 +206,32 @@ echo "$out_j" | grep -q '"reason":"digest_mismatch"' || fail "(j) digest-mismatc
 # the discriminator is a canonical-content recompute that still matches the
 # manifest-recorded digest even though the raw bytes differ.
 # ===========================================================================
+# evaluation.jsonl, not entity-history.json: lib/retain_pair always retains
+# entity-history.json as an honest empty placeholder (no producer exists for
+# it anywhere in this codebase -- digest_rules.empty_artifact_semantics), so
+# it has no real re-serializable content to mutate. evaluation.jsonl is a
+# real, JSON-shaped retained artifact (JSON_ARTIFACTS in
+# verify-retention-root.sh) copied byte-for-byte from a real I-08 fixture by
+# retain_pair, giving this case genuine content to re-encode.
 root_k="$(damaged_root "re-serialized")"
 dir_k="$(pair_dir "$root_k")"
-ORIGINAL_DIGEST_K="$(sha256sum "$SOURCES/entity-history.json" | awk '{print $1}')"
+ORIGINAL_DIGEST_K="$(sha256sum "$SOURCES/evaluation.jsonl" | awk '{print $1}')"
 python3 -c '
 import json
-obj = json.load(open("'"$SOURCES"'/entity-history.json", encoding="utf-8"))
-with open("'"$dir_k"'/entity-history.json", "w", encoding="utf-8") as f:
+obj = json.load(open("'"$SOURCES"'/evaluation.jsonl", encoding="utf-8"))
+with open("'"$dir_k"'/evaluation.jsonl", "w", encoding="utf-8") as f:
     json.dump(obj, f, indent=2, sort_keys=False)
     f.write("\n")
 '
-RESERIALIZED_DIGEST_K="$(sha256sum "$dir_k/entity-history.json" | awk '{print $1}')"
+RESERIALIZED_DIGEST_K="$(sha256sum "$dir_k/evaluation.jsonl" | awk '{print $1}')"
 [[ "$ORIGINAL_DIGEST_K" != "$RESERIALIZED_DIGEST_K" ]] || fail "(k) re-serialized: fixture setup produced byte-identical content; test is not exercising re-serialization"
 out_k=""
 rc_k=0
 out_k="$("$VERIFIER" --retention-root "$root_k" --schema "$SCHEMA" 2>"$WORKDIR/k.err")" || rc_k=$?
 [[ "$rc_k" -ne 0 ]] || fail "(k) re-serialized: expected nonzero exit, got 0"
-grep -q "entity-history.json: re_serialized" "$WORKDIR/k.err" || fail "(k) re-serialized: stderr did not name entity-history.json and re_serialized: $(cat "$WORKDIR/k.err")"
+grep -q "evaluation.jsonl: re_serialized" "$WORKDIR/k.err" || fail "(k) re-serialized: stderr did not name evaluation.jsonl and re_serialized: $(cat "$WORKDIR/k.err")"
 echo "$out_k" | grep -q '"reason":"re_serialized"' || fail "(k) re-serialized: stdout verdict missing re_serialized reason: $out_k"
-echo "$out_k" | grep -q 'digest_mismatch' && fail "(k) re-serialized: expected re_serialized only, not also digest_mismatch, for entity-history.json: $out_k"
+echo "$out_k" | grep -q 'digest_mismatch' && fail "(k) re-serialized: expected re_serialized only, not also digest_mismatch, for evaluation.jsonl: $out_k"
 
 # ===========================================================================
 # Edge Case: a manifest listing a source path that no longer exists on disk
@@ -246,7 +246,6 @@ echo "$out_k" | grep -q 'digest_mismatch' && fail "(k) re-serialized: expected r
 root_edge="$(damaged_root "source-path-missing")"
 dir_edge="$(pair_dir "$root_edge")"
 printf '\x00not-json-garbage\x00' >>"$dir_edge/oracle.json"
-ORACLE_SOURCE="$SOURCES/oracle.json"
 mv "$ORACLE_SOURCE" "$ORACLE_SOURCE.moved"
 out_edge=""
 rc_edge=0
@@ -367,6 +366,57 @@ echo "$out_m" | grep -q '"reason":"digest_mismatch"' && fail "(m) upstream_evalu
 echo "TC-082: upstream schema-validity delegation (lifecycle + evaluation) fails distinctly on malformed-but-digest-matching content"
 
 echo "TC-082: layout completeness, digest equality, re-serialization detection, source-path/lineage checks, and AC-T2 ordering all pass"
+
+# ===========================================================================
+# Comparison-driven coexistence (code-review-2026-08-20T2138-E40-F10.md
+# finding 2 / this task's rework item 2): a comparison-driven (gate) pair
+# retained in the SAME root as a real batch pair must not be misread as a
+# broken/incomplete lifecycle pair. run-review-comparison.sh's retain_gate()
+# (T-E40-F10-005, commit 63a7605a) retains through the exact SAME
+# (scenario, rep) eight-artifact pair layout retain_pair() uses --
+# gate_rep() maps qa -> rep 1, deep_review -> rep 2 -- plus an ADDITIVE
+# manifest.json `gate` field (not one of the schema's
+# retention_manifest_required_fields, so verify-retention-root.sh must
+# ignore it, not reject it as an unexpected key) and, on an accepted
+# comparator verdict, a 9th OPTIONAL comparison.json artifact dropped
+# directly into the deep_review rep's directory (retention_optional_
+# artifacts; never recorded in manifest.json's `artifacts` map, matching
+# run-review-comparison.sh's exact comparison_dest write -- verify-
+# retention-root.sh's phase 1 only checks retention_required_artifacts, and
+# phase 3 only walks manifest.json's own `artifacts` map, so comparison.json
+# is correctly neither required nor digest-checked here). This builds that
+# exact shape with the SAME lib/retain_pair a real run-review-comparison.sh
+# --mode baseline invocation drives (the `producer_gate` positional arg),
+# for a scenario distinct from the batch pair's scenario_id, coexisting in
+# one retention root, then verifies the WHOLE root passes cleanly.
+# ===========================================================================
+COEXIST_ROOT="$WORKDIR/coexist"
+cp -a "$GOLDEN_ROOT" "$COEXIST_ROOT"
+
+CMP_SCENARIO_ID="scenario-tc082-cmp"
+QA_DEST="$COEXIST_ROOT/scenarios/$CMP_SCENARIO_ID/1"
+DEEP_REVIEW_DEST="$COEXIST_ROOT/scenarios/$CMP_SCENARIO_ID/2"
+mkdir -p "$QA_DEST" "$DEEP_REVIEW_DEST"
+python3 "$RETAIN_PAIR" "$CMP_SCENARIO_ID" 1 "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$QA_DEST" "qa"
+python3 "$RETAIN_PAIR" "$CMP_SCENARIO_ID" 2 "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$DEEP_REVIEW_DEST" "deep_review"
+echo '{"verdict":"accepted","divergences":[]}' >"$DEEP_REVIEW_DEST/comparison.json"
+
+grep -q '"gate":"qa"' "$QA_DEST/manifest.json" || fail "coexistence: fixture setup did not record the qa gate field -- test is not exercising the additive gate key"
+grep -q '"gate":"deep_review"' "$DEEP_REVIEW_DEST/manifest.json" || fail "coexistence: fixture setup did not record the deep_review gate field -- test is not exercising the additive gate key"
+
+out_cmp=""
+rc_cmp=0
+out_cmp="$("$VERIFIER" --retention-root "$COEXIST_ROOT" --schema "$SCHEMA" 2>"$WORKDIR/coexist.err")" || rc_cmp=$?
+[[ "$rc_cmp" -eq 0 ]] || fail "coexistence: a comparison-driven qa/deep_review pair alongside a real batch pair unexpectedly failed verification: exit $rc_cmp; stderr: $(cat "$WORKDIR/coexist.err")"
+[[ ! -s "$WORKDIR/coexist.err" ]] || fail "coexistence: expected no stderr diagnostics for an all-clean root, got: $(cat "$WORKDIR/coexist.err")"
+cmp_pass_count="$(echo "$out_cmp" | grep -c '"verdict":"pass"')"
+[[ "$cmp_pass_count" -eq 3 ]] || fail "coexistence: expected 3 passing pairs (1 batch pair + qa gate + deep_review gate), got $cmp_pass_count in: $out_cmp"
+echo "$out_cmp" | grep -q '"scenario_id":"'"$CMP_SCENARIO_ID"'","verdict":"pass"' || fail "coexistence: qa/deep_review gate pairs were not both reported as passing: $out_cmp"
+echo "$out_cmp" | grep -q '"verdict":"fail"' && fail "coexistence: expected zero failing pairs, got: $out_cmp"
+
+echo "TC-082: comparison-driven qa/deep_review pairs (with an additive manifest.json 'gate' field and an unrecorded comparison.json) coexisting with a real batch pair in the same retention root verify cleanly, not misread as broken lifecycle pairs"
 
 # ===========================================================================
 # TC-082 Input tail: "repeat retention of the same (scenario, rep) against

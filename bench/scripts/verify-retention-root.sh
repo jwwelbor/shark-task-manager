@@ -255,10 +255,23 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def digest_of_path(path):
-    # Mirrors pilot-ledger.sh's digest_of_path exactly (T-E40-F10-006
-    # pattern reuse): file_encoding: sha256_raw_bytes for a single file;
-    # canonicalization: compact_json_sorted_keys_utf8 over the sorted
-    # {path, sha256} list of every file for a directory.
+    # Implements bench/reports/lifecycle-baseline-schema.yaml's digest_rules
+    # (algorithm/encoding/canonicalization/file_encoding) AND
+    # digest_rules.empty_artifact_semantics (code-review-2026-08-20T2138-
+    # E40-F10.md findings 1 and 7 -- the schema's `digest_rules
+    # .empty_artifact_semantics` field is the single canonical rule; every
+    # digest_of_path re-implementation in this codebase, including this one,
+    # MUST follow it, not merely "mirror" another file's copy by convention):
+    # file_encoding: sha256_raw_bytes for a single file; canonicalization:
+    # compact_json_sorted_keys_utf8 over the sorted {path, sha256} list of
+    # every file for a directory. An existing-but-empty directory (zero
+    # files) still digests to a real, deterministic value -- the
+    # canonicalization of an empty list -- rather than being treated as
+    # missing; None is reserved for "path does not exist on disk at all".
+    # This function already implemented that correctly; only the "mirrors
+    # pilot-ledger.sh" phrasing here was stale (pilot-ledger.sh's round-1
+    # fix for finding 3 temporarily diverged from this rule, then was
+    # corrected back to it in its own T-E40-F10-004/006 rework).
     if os.path.isdir(path):
         entries = []
         for root, dirs, files in os.walk(path):
