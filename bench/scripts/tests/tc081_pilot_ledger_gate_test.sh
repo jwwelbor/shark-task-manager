@@ -89,7 +89,58 @@ retain_fixture() {
 	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/lifecycle.jsonl"
 	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/evaluation.jsonl"
 	echo '{"held_back": true}' >"$dest/oracle.json"
-	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1, \"artifacts\": {}}" >"$dest/manifest.json"
+	# UAT-R3-01 rework: manifest.json's `artifacts` map now needs a real,
+	# non-empty `source_path` per required artifact (pilot-ledger.sh
+	# --record/--verify both refuse a required artifact with no source
+	# provenance, regardless of digest agreement) -- a bare
+	# "artifacts": {} manifest (what --record legitimately produced before
+	# this fixture never called the real retain_pair) is no longer
+	# accepted. The source_path VALUES here do not need to resolve on disk
+	# (pilot-ledger.sh's own check is non-emptiness, not existence -- that
+	# stricter existence check belongs to verify-retention-root.sh's
+	# digest-mismatch path only); they only need to be real, non-empty
+	# strings, matching what a real retain_pair would have recorded.
+	python3 - "$dest" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+dest = sys.argv[1]
+
+
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+artifacts = {}
+for name in ("package.yaml", "evidence", "transcripts", "entity-history.json", "lifecycle.jsonl", "evaluation.jsonl", "oracle.json"):
+    artifacts[name] = {
+        "source_path": f"/fixture-source/{name}",
+        "sha256": digest_of_path(os.path.join(dest, name)),
+    }
+
+manifest = {
+    "scenario_id": os.path.basename(os.path.dirname(dest)),
+    "rep": 1,
+    "artifacts": artifacts,
+}
+with open(os.path.join(dest, "manifest.json"), "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+PY
 }
 retain_fixture scenario-a
 retain_fixture scenario-b
@@ -263,18 +314,16 @@ LEDGER_LINES_BEFORE_REWORK="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
 # ---------------------------------------------------------------------------
 # Findings 1 and 7 (code-review-2026-08-20T2138-E40-F10.md;
 # bench/reports/lifecycle-baseline-schema.yaml digest_rules.
-# empty_artifact_semantics): this section REPLACES the round-1 "defect 1"
-# assertions that used to live here. Round-1's finding-3 fix (refusing to
-# record over a genuinely empty, but real and present, directory artifact)
-# turned out to be the WRONG rule -- finding 1's live repro showed it made
-# --record unconditionally refuse every real `run-lifecycle-batch.sh
-# --mode pilot` retention (no committed I-05 bundle populates
-# transcripts/). The canonical rule going forward: an existing-but-empty
-# artifact is ALWAYS present, never missing; only manifest.json's
-# source_path field distinguishes an honest "not yet wired" gap
-# (source_path=="") from a real source that was checked and found empty
-# (source_path!="", a genuine defect signal) -- and only --verify's
-# cross-check (not --record) surfaces the latter.
+# empty_artifact_semantics), CORRECTED by UAT-R3-01 (round 3): this section
+# used to assert that an empty artifact with manifest.json source_path==""
+# was an "honest, accepted gap" that both --record and --verify accepted.
+# UAT-R3-01 found that acceptance is exactly the fabrication defect: a
+# required artifact with no real source must NEVER be attestable, regardless
+# of whether its (real, present) empty-content digest happens to be
+# internally consistent. The one case that remains legitimate and
+# UNCHANGED by this fix is case (ii) below: a real, non-empty source_path
+# whose content happens to be empty (a genuine upstream producer defect,
+# distinct from "no source was ever available").
 # ---------------------------------------------------------------------------
 retain_fixture_dirs() {
 	# retain_fixture_dirs <scenario_id> <family> <evidence_has_content> <transcripts_has_content> [<evidence_source_path> <transcripts_source_path>]
@@ -294,42 +343,52 @@ EOF
 	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/lifecycle.jsonl"
 	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/evaluation.jsonl"
 	echo '{"held_back": true}' >"$dest/oracle.json"
+	# package.yaml/entity-history.json/lifecycle.jsonl/evaluation.jsonl/
+	# oracle.json carry a real non-empty source_path unconditionally --
+	# these cases are specifically about evidence/transcripts, not about
+	# re-testing the other five artifacts' source provenance.
 	cat >"$dest/manifest.json" <<EOF
-{"scenario_id": "$scenario_id", "rep": 1, "artifacts": {"evidence": {"source_path": "$evidence_source_path", "sha256": "placeholder"}, "transcripts": {"source_path": "$transcripts_source_path", "sha256": "placeholder"}}}
+{"scenario_id": "$scenario_id", "rep": 1, "artifacts": {"package.yaml": {"source_path": "/fixture-source/package.yaml", "sha256": "placeholder"}, "entity-history.json": {"source_path": "/fixture-source/entity-history.json", "sha256": "placeholder"}, "lifecycle.jsonl": {"source_path": "/fixture-source/lifecycle.jsonl", "sha256": "placeholder"}, "evaluation.jsonl": {"source_path": "/fixture-source/evaluation.jsonl", "sha256": "placeholder"}, "oracle.json": {"source_path": "/fixture-source/oracle.json", "sha256": "placeholder"}, "evidence": {"source_path": "$evidence_source_path", "sha256": "placeholder"}, "transcripts": {"source_path": "$transcripts_source_path", "sha256": "placeholder"}}}
 EOF
 }
 
-# Case (i): both evidence/ and transcripts/ genuinely empty, with
-# manifest.json honestly recording source_path=="" for both (state (a):
-# retain_pair's own "not found" branch -- no source was ever available to
-# check). --record must SUCCEED: an existing-but-empty directory digests
-# to a real, non-None value and is never treated as missing. --verify must
-# then report the family as cleanly verified -- an honest gap is accepted,
-# not flagged.
+# Case (i), UAT-R3-01 counterfactual (was "honest gap" before this fix):
+# both evidence/ and transcripts/ genuinely empty, with manifest.json
+# recording source_path=="" for both -- exactly retain_pair's pre-fix
+# fabrication shape. --record MUST now refuse (never attest over a
+# required artifact with no source provenance), naming both artifacts and
+# the schema-owned required_artifact_source_unavailable reason. This test
+# fails against the pre-fix "honest gap, --record succeeds" behavior and
+# passes only now that --record checks source_path before ever computing a
+# ledger row.
 retain_fixture_dirs scenario-empty-both family-empty-both 0 0 "" ""
 rc=0
 out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-empty-both --rep 1 \
 	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
-[[ "$rc" -eq 0 ]] || fail "findings 1/7 (both empty, honest gap): recording over zero-file evidence/transcripts with source_path=='' should succeed, got rc=$rc: $out"
+[[ "$rc" -eq 2 ]] || fail "UAT-R3-01 (both empty, no source provenance): expected --record to refuse with exit 2, got rc=$rc: $out"
+echo "$out" | grep -q "required_artifact_source_unavailable" || fail "UAT-R3-01 (both empty, no source provenance): refusal did not name required_artifact_source_unavailable: $out"
+echo "$out" | grep -q "evidence" || fail "UAT-R3-01 (both empty, no source provenance): refusal did not name evidence: $out"
+echo "$out" | grep -q "transcripts" || fail "UAT-R3-01 (both empty, no source provenance): refusal did not name transcripts: $out"
 
 rc=0
 out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-empty-both 2>&1)" || rc=$?
-[[ "$rc" -eq 0 ]] || fail "findings 1/7 (both empty, honest gap): --verify should accept an honest source_path=='' empty artifact as verified, got rc=$rc: $out"
-echo "$out" | grep -q "family=family-empty-both: verified" || fail "findings 1/7 (both empty, honest gap): expected verified, got: $out"
+[[ "$rc" -ne 0 ]] || fail "UAT-R3-01 (both empty, no source provenance): --verify unexpectedly succeeded for a family that was never attestable, got: $out"
+echo "$out" | grep -q "no_attestation" || fail "UAT-R3-01 (both empty, no source provenance): expected no_attestation (the refused --record above wrote no ledger row), got: $out"
 
-# Case (ii): evidence/ is empty but manifest.json records a REAL,
-# non-empty source_path for it (state (b): a real source WAS checked and
-# found empty -- round-1 finding 3's original concern, now caught via a
-# different axis than digest_of_path). transcripts/ has real content, so
-# its emptiness check never applies regardless of its own source_path.
-# --record still succeeds (present, non-None digest is never a --record
-# refusal); --verify must FAIL, naming evidence with a reason distinct
-# from stale_digest/no_attestation/incomplete_attestation.
-retain_fixture_dirs scenario-empty-evidence family-empty-evidence 0 1 "$WORKDIR/checked-i05-bundle" ""
+# Case (ii), UNCHANGED by UAT-R3-01: evidence/ is empty but manifest.json
+# records a REAL, non-empty source_path for it (state (b): a real source
+# WAS checked and found empty -- round-1 finding 3's original concern, now
+# caught via a different axis than digest_of_path). transcripts/ has real
+# content, so its emptiness check never applies regardless of its own
+# source_path. --record still succeeds (present, non-None digest, AND real
+# source provenance for every required artifact); --verify must FAIL,
+# naming evidence with a reason distinct from stale_digest/no_attestation/
+# incomplete_attestation/missing_source_provenance.
+retain_fixture_dirs scenario-empty-evidence family-empty-evidence 0 1 "$WORKDIR/checked-i05-bundle" "/fixture-source/transcripts"
 rc=0
 out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-empty-evidence --rep 1 \
 	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
-[[ "$rc" -eq 0 ]] || fail "findings 1/7 (evidence empty, real source checked): recording should succeed (present, not missing), got rc=$rc: $out"
+[[ "$rc" -eq 0 ]] || fail "findings 1/7 (evidence empty, real source checked): recording should succeed (present, not missing, real source provenance), got rc=$rc: $out"
 
 rc=0
 out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-empty-evidence 2>&1)" || rc=$?
@@ -338,11 +397,61 @@ echo "$out" | grep -q "family=family-empty-evidence: FAILED" || fail "findings 1
 echo "$out" | grep -q "empty_source_artifact" || fail "findings 1/7 (evidence empty, real source checked): expected the empty_source_artifact reason, got: $out"
 echo "$out" | grep -q "evidence" || fail "findings 1/7 (evidence empty, real source checked): reason did not name 'evidence', got: $out"
 echo "$out" | grep -q "stale_digest" && fail "findings 1/7 (evidence empty, real source checked): should not ALSO report stale_digest (digest matches; the defect is source_path-based, not staleness): $out"
+echo "$out" | grep -q "missing_source_provenance" && fail "findings 1/7 (evidence empty, real source checked): should not ALSO report missing_source_provenance (source_path IS real and non-empty): $out"
 
+# Only case (ii)'s --record call above succeeded and appended a ledger row
+# -- case (i)'s --record now refuses (UAT-R3-01) and appends nothing.
 LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
-[[ "$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES" -eq "$((LEDGER_LINES_BEFORE_REWORK + 2))" ]] || fail "findings 1/7: expected exactly 2 new ledger rows (both --record calls above succeeded and appended once each), before=$LEDGER_LINES_BEFORE_REWORK after=$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES"
+[[ "$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES" -eq "$((LEDGER_LINES_BEFORE_REWORK + 1))" ]] || fail "findings 1/7: expected exactly 1 new ledger row (only case (ii)'s --record succeeded), before=$LEDGER_LINES_BEFORE_REWORK after=$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES"
 
-echo "TC-081 (rework, findings 1/7): pass (an existing-but-empty artifact records and verifies cleanly when its source_path is honestly empty; a real-source-checked-but-empty artifact is a --verify defect, distinct from staleness)"
+echo "TC-081 (rework, findings 1/7, corrected by UAT-R3-01): pass (a required artifact with no real source provenance now refuses --record and --verify, never an accepted honest gap; a real-source-checked-but-empty artifact remains a --verify defect, distinct from staleness and from missing provenance)"
+
+# ---------------------------------------------------------------------------
+# UAT-R3-01 (round 3) counterfactual: a family with a PREVIOUSLY VERIFIED,
+# digest-current attestation is invalidated when its retained manifest.json
+# is later mutated to carry an empty source_path for a required artifact --
+# the same "mutation after attestation invalidates a previously-verified
+# attestation" discipline ADR-F10-09 already requires for byte mutation
+# (tested above via family-b's lifecycle.jsonl append), now proven for
+# provenance mutation too. This exercises --verify's missing_source_provenance
+# check independently of --record's own refusal (case (i) above), against a
+# family that DID successfully attest before the mutation.
+# ---------------------------------------------------------------------------
+mkdir -p "$INDEX_DIR/packages/scenario-provenance-mutated"
+write_package "$INDEX_DIR/packages/scenario-provenance-mutated" "scenario-provenance-mutated" "family-provenance-mutated"
+retain_fixture scenario-provenance-mutated
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-provenance-mutated --rep 1 \
+	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
+[[ "$rc" -eq 0 ]] || fail "UAT-R3-01 (provenance mutated after attestation): precondition --record failed, got rc=$rc: $out"
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-provenance-mutated 2>&1)" || rc=$?
+[[ "$rc" -eq 0 ]] || fail "UAT-R3-01 (provenance mutated after attestation): --verify should accept the fresh, real-provenance attestation, got rc=$rc: $out"
+echo "$out" | grep -q "family=family-provenance-mutated: verified" || fail "UAT-R3-01 (provenance mutated after attestation): expected verified before mutation, got: $out"
+
+python3 -c '
+import json
+manifest_path = "'"$ROOT"'/scenarios/scenario-provenance-mutated/1/manifest.json"
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+manifest["artifacts"]["entity-history.json"]["source_path"] = ""
+json.dump(manifest, open(manifest_path, "w", encoding="utf-8"), sort_keys=True, separators=(",", ":"))
+'
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-provenance-mutated 2>&1)" || rc=$?
+[[ "$rc" -ne 0 ]] || fail "UAT-R3-01 (provenance mutated after attestation): --verify should fail once source_path is emptied post-attestation, got rc=0: $out"
+echo "$out" | grep -q "family=family-provenance-mutated: FAILED" || fail "UAT-R3-01 (provenance mutated after attestation): expected a FAILED verdict, got: $out"
+echo "$out" | grep -q "missing_source_provenance" || fail "UAT-R3-01 (provenance mutated after attestation): expected missing_source_provenance, got: $out"
+echo "$out" | grep -q "entity-history.json" || fail "UAT-R3-01 (provenance mutated after attestation): reason did not name entity-history.json, got: $out"
+
+echo "TC-081 (UAT-R3-01 counterfactual): pass (a previously-verified attestation is invalidated by a post-attestation source_path mutation, distinctly as missing_source_provenance)"
+
+# Re-checkpoint the ledger line count (this block's one successful --record,
+# scenario-provenance-mutated, appended one more row) so the defect-13
+# "a refused --record appended nothing" comparisons below still hold.
+LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
 
 # ---------------------------------------------------------------------------
 # Defect 13 (codex red-team finding 13): --scenario must be validated

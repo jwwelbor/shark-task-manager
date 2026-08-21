@@ -30,21 +30,26 @@
 #      sorted-key JSON list of {path, sha256} for every file it contains
 #      (compact_json_sorted_keys_utf8) -- both per
 #      bench/reports/lifecycle-baseline-schema.yaml `digest_rules`.
-#        - Digest equality is the authoritative byte-preservation proof; a
-#          digest MATCH always passes regardless of source_path, because a
-#          recorded source_path is provenance metadata that is EXPECTED to
-#          go stale once byte preservation is already confirmed (a real
-#          producer's ephemeral pair_work path is deleted right after
-#          retention -- run-lifecycle-batch.sh retain_pair). Only when a
-#          digest MISMATCHES is source_path consulted, to give that
-#          mismatch a more specific reason: a non-empty recorded
-#          `source_path` that no longer exists on disk is reported as
-#          `source_path_missing` (TC-082 Edge Case) rather than
-#          `digest_mismatch`/`re_serialized`, since the mismatch can no
-#          longer be re-verified against its source at all. An empty
-#          `source_path` is this codebase's existing placeholder
-#          convention for an artifact not yet wired by its producer and is
-#          never treated as "missing" either way.
+#        - A required artifact (schema `retention_required_artifacts`, minus
+#          manifest.json) with an empty/missing `source_path` fails as
+#          `missing_source_provenance` BEFORE digest equality is even
+#          consulted (UAT-R3-01, round 3): a digest MATCH is never
+#          sufficient on its own, because retain_pair's pre-fix fabrication
+#          produced exactly that -- a real, deterministic empty-content
+#          digest with source_path == "". This is not the same case as a
+#          non-empty source_path going stale (below).
+#        - For an artifact WITH real source provenance, digest equality is
+#          the authoritative byte-preservation proof; a digest MATCH passes
+#          regardless of whether that non-empty `source_path` still resolves
+#          on disk, because it is provenance metadata EXPECTED to go stale
+#          once byte preservation is already confirmed (a real producer's
+#          ephemeral pair_work path is deleted right after retention --
+#          run-lifecycle-batch.sh retain_pair). Only when a digest MISMATCHES
+#          is source_path consulted, to give that mismatch a more specific
+#          reason: a non-empty recorded `source_path` that no longer exists
+#          on disk is reported as `source_path_missing` (TC-082 Edge Case)
+#          rather than `digest_mismatch`/`re_serialized`, since the mismatch
+#          can no longer be re-verified against its source at all.
 #        - On a raw-byte mismatch for a JSON/JSONL artifact
 #          (entity-history.json, lifecycle.jsonl, evaluation.jsonl,
 #          oracle.json), a second check is attempted: parse the CURRENT
@@ -83,6 +88,10 @@
 #   missing                    -- required artifact absent (phase 1)
 #   lineage_mismatch           -- manifest.json /scenario_id or /rep
 #                                 disagrees with its own directory location
+#   missing_source_provenance  -- (UAT-R3-01) a required artifact's manifest
+#                                 entry has an empty/missing source_path --
+#                                 never accepted, regardless of digest
+#                                 agreement; checked before digest equality
 #   source_path_missing        -- digest already mismatched AND the
 #                                 recorded non-empty source_path no longer
 #                                 exists (so the mismatch cannot be
@@ -238,16 +247,30 @@ done
 # pair-level lineage, then delegated upstream schema validity.
 if [[ -s "$PENDING" ]]; then
 	set +e
-	python3 - "$PENDING" "$I07_SCHEMA" "$I08_SCHEMA" "$VERIFY_LIFECYCLE_RUN_BIN" "$VERIFY_LIFECYCLE_EVALUATION_BIN" <<'PYEOF'
+	python3 - "$PENDING" "$I07_SCHEMA" "$I08_SCHEMA" "$VERIFY_LIFECYCLE_RUN_BIN" "$VERIFY_LIFECYCLE_EVALUATION_BIN" "$schema_path" <<'PYEOF'
 import hashlib
 import json
 import os
 import subprocess
 import sys
 
-pending_path, i07_schema, i08_schema, verify_run_bin, verify_eval_bin = sys.argv[1:6]
+import yaml
+
+pending_path, i07_schema, i08_schema, verify_run_bin, verify_eval_bin, f10_schema_path = sys.argv[1:7]
 
 JSON_ARTIFACTS = {"entity-history.json", "lifecycle.jsonl", "evaluation.jsonl", "oracle.json"}
+
+# UAT-R3-01 (round 3), T-E40-F10-007 fix requirement 1/2 ("sweep every
+# required-artifact validation branch, including matching-digest fast
+# paths"; "fail a retention root when a required artifact lacks source
+# provenance, regardless of the placeholder digest"): required_artifacts is
+# read from the schema itself (REQ-F-018), never a private local copy of
+# the eight-item layout list.
+with open(f10_schema_path, encoding="utf-8") as f:
+    F10_SCHEMA = yaml.safe_load(f) or {}
+REQUIRED_ARTIFACTS_WITH_SOURCE = [
+    name for name in (F10_SCHEMA.get("retention_required_artifacts") or []) if name != "manifest.json"
+]
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -375,15 +398,33 @@ for scenario_id, rep, rep_dir in pairs:
             if current_digest is None:
                 failures.append({"artifact": name, "reason": "missing", "detail": "artifact listed in manifest is absent from the retained directory"})
                 continue
+
+            # UAT-R3-01 (round 3): a required artifact with an empty/missing
+            # source_path is NEVER accepted, even when its digest matches
+            # the manifest-recorded value -- a matching digest is exactly
+            # what retain_pair's pre-fix fabrication produced (a real,
+            # deterministic empty-content digest with source_path == "").
+            # This check runs BEFORE the digest-equality fast path below so
+            # a fabricated placeholder can never take it.
+            if name in REQUIRED_ARTIFACTS_WITH_SOURCE and not source_path:
+                failures.append({
+                    "artifact": name,
+                    "reason": "missing_source_provenance",
+                    "detail": "required retained artifact has no source_path recorded in manifest.json -- never a byte-preserved copy of a real upstream source",
+                })
+                continue
+
             if current_digest == recorded_digest:
                 # Digest equality is the authoritative byte-preservation
-                # proof (REQ-F-004). A recorded source_path that no longer
-                # resolves is expected provenance staleness for an already
-                # digest-confirmed artifact (e.g. an ephemeral pair_work
-                # path a real producer deletes right after retention) --
-                # NOT a preservation defect -- so source_path is only
-                # consulted below, once a digest mismatch has already been
-                # found, to give that mismatch a more specific reason.
+                # proof (REQ-F-004) for an artifact that DOES carry real
+                # source provenance (checked above). A recorded source_path
+                # that no longer resolves is expected provenance staleness
+                # for an already digest-confirmed artifact (e.g. an
+                # ephemeral pair_work path a real producer deletes right
+                # after retention) -- NOT a preservation defect -- so a
+                # non-empty source_path's own existence is only consulted
+                # below, once a digest mismatch has already been found, to
+                # give that mismatch a more specific reason.
                 continue
 
             if source_path and not os.path.exists(source_path):

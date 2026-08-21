@@ -21,7 +21,8 @@ library").
 
 Usage:
     retain_pair <scenario_id> <rep> <package_path> <lifecycle_jsonl> \
-        <evaluation_jsonl> <i05_bundle_dir> <dest> [producer_gate]
+        <evaluation_jsonl> <entity_history_json> <i05_bundle_dir> <dest> \
+        [producer_gate]
 
 <dest> MUST already exist (callers create it via `mkdir -p` after their own
 `assert_within_out_root` containment check -- this script performs no path
@@ -40,6 +41,24 @@ key is written at all -- manifest.json's byte content for a batch pair is
 therefore UNCHANGED from before this extraction (retention_manifest_required_fields
 does not name `gate`; it is not one of the required keys any consumer
 demands).
+
+UAT-R3-01 (round 3) fail-closed contract: every one of the seven
+non-manifest retention_required_artifacts (package.yaml, lifecycle.jsonl,
+evaluation.jsonl, entity-history.json, oracle.json, evidence/, transcripts/)
+MUST have a real, checked source on disk. When a required artifact's source
+does not exist, this script refuses to write ANY of the pair's artifacts
+that have not already been installed, prints a diagnostic naming the
+artifact and the schema-owned `required_artifact_source_unavailable`
+reason (bench/reports/lifecycle-baseline-schema.yaml
+retention_invalidity_reason), and exits nonzero WITHOUT ever writing
+manifest.json -- so a partially-written destination directory can never be
+mistaken for a completed retention (run-lifecycle-batch.sh's own
+pair_provenance_ok()/classify_pair() already treat a manifest.json-less
+directory as non-complete: incomplete_prior_attempt or provenance_mismatch
+on the next pass, never skipped_complete). This script previously
+fabricated a zero-byte/empty placeholder and recorded source_path == "" in
+that case, which UAT-R3-01 identified as a required artifact silently
+represented as retained when it never existed.
 """
 import hashlib
 import json
@@ -49,11 +68,35 @@ import sys
 import tempfile
 from pathlib import Path
 
-scenario_id, rep, package_path, lifecycle_jsonl, evaluation_jsonl, i05_bundle_dir, dest = sys.argv[1:8]
-producer_gate = sys.argv[8] if len(sys.argv) > 8 else ""
+REQUIRED_ARTIFACT_SOURCE_UNAVAILABLE = "required_artifact_source_unavailable"
+
+(
+    scenario_id,
+    rep,
+    package_path,
+    lifecycle_jsonl,
+    evaluation_jsonl,
+    entity_history_json,
+    i05_bundle_dir,
+    dest,
+) = sys.argv[1:9]
+producer_gate = sys.argv[9] if len(sys.argv) > 9 else ""
 dest = Path(dest)
 
 artifacts = {}
+
+
+def refuse_missing_source(name, source_desc):
+    # UAT-R3-01: never fabricate a placeholder for a required artifact with
+    # no real source. Named diagnostic on stderr (artifact + the schema-owned
+    # reason), loud nonzero exit, and manifest.json is never written -- see
+    # module docstring for why a partially-populated `dest` is still safe.
+    print(
+        f"retain_pair: refusing to retain {name} -- no real source found "
+        f"({source_desc}); reason={REQUIRED_ARTIFACT_SOURCE_UNAVAILABLE}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -147,40 +190,39 @@ def digest_of_path(path: Path):
 
 
 def copy_artifact(name, source):
-    source_path = Path(source)
+    # UAT-R3-01 (round 3): every artifact retain_pair writes is required
+    # (retention_required_artifacts, schema), so a source that does not
+    # resolve to a real file is refused, never fabricated as an empty
+    # placeholder claiming success. `source` empty/blank is treated
+    # identically to a non-existent path -- both mean "no real source was
+    # ever supplied for this required artifact".
+    source_path = Path(source) if source else None
     target = dest / name
-    if source_path.is_file():
+    if source_path is not None and source_path.is_file():
         data = source_path.read_bytes()
         install_atomic_file(target, data)
         digest = hashlib.sha256(data).hexdigest()
         artifacts[name] = {"source_path": str(source_path), "sha256": digest}
     else:
-        # Not yet available from this driver's own inputs (e.g.
-        # entity-history export not wired -- no producer exists anywhere in
-        # this codebase today; oracle.json genuinely not produced by
-        # evaluate-lifecycle.sh when no agent fixture checkout is
-        # configured) -- an honest placeholder, never a fabricated
-        # byte-identical claim. The zero-byte file's digest is real, per
-        # digest_rules.empty_artifact_semantics (schema): a present-but-empty
-        # artifact is never "missing" -- only source_path == "" marks it as
-        # not yet wired.
-        install_atomic_file(target, b"")
-        artifacts[name] = {"source_path": "", "sha256": hashlib.sha256(b"").hexdigest()}
+        refuse_missing_source(name, repr(source))
 
 
 def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     # Real recursive byte-for-byte copy of a directory artifact (evidence/
     # I-05 stage-evidence bundle, transcripts/ its transcripts subtree),
-    # digested with digest_of_path() above -- the schema-owned digest_rules
-    # (and digest_rules.empty_artifact_semantics for the honestly-empty
-    # case below). Never an unconditionally-empty mkdir standing in for
-    # real content while still claiming a manifest entry. Built entirely in
-    # a fresh temp sibling and atomically installed (install_atomic_dir) so
-    # a pre-existing symlink or stale content at `target` is never opened
-    # for writing (finding 2).
+    # digested with digest_of_path() above -- the schema-owned digest_rules.
+    # UAT-R3-01 (round 3): a source directory that does not exist is
+    # refused, never fabricated as an empty directory claiming success (an
+    # unconditional `mkdir` standing in for real content while still
+    # claiming a manifest entry). Built entirely in a fresh temp sibling and
+    # atomically installed (install_atomic_dir) so a pre-existing symlink or
+    # stale content at `target` is never opened for writing (finding 2).
     target = dest / name
     source_path = Path(source_dir) if source_dir else None
     has_source = source_path is not None and source_path.is_dir()
+
+    if not has_source:
+        refuse_missing_source(name, repr(source_dir))
 
     # Source-side symlink safety (round-5 sweep, code-review-2026-08-21T1335-
     # E40-F10.md finding 2, "any other source-side directory a driver copies
@@ -194,8 +236,6 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     # afterward does not touch the source. Different, already-safe
     # primitive -- no additional guard needed.
     def populate(temp_dir: Path):
-        if not has_source:
-            return
         for root, dirs, files in os.walk(source_path):
             if Path(root) == source_path:
                 dirs[:] = [d for d in dirs if d not in exclude_top_level]
@@ -207,33 +247,26 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
                 shutil.copyfile(fpath, dest_file)
 
     install_atomic_dir(target, populate)
-
-    if has_source:
-        artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
-    else:
-        # No source directory configured/found for this artifact -- a real,
-        # checked-for absence, not a defect: the copy was actually
-        # attempted against the real source. Loud, not silent (CLAUDE.md
-        # Rule 12): name the artifact and the path checked so an empty
-        # retained directory is traceable to "upstream doesn't emit this
-        # yet", not mistaken for another unconditional placeholder.
-        # digest_of_path(target) here returns the real, non-None
-        # empty-directory digest per digest_rules.empty_artifact_semantics
-        # -- this artifact is present (empty), never "missing".
-        print(f"retain_pair: {name} not found under {source_dir!r}; retained as empty (checked, not fabricated)", file=sys.stderr)
-        artifacts[name] = {"source_path": "", "sha256": digest_of_path(target)}
+    artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
 
 
 copy_artifact("package.yaml", package_path)
 copy_artifact("lifecycle.jsonl", lifecycle_jsonl)
 copy_artifact("evaluation.jsonl", evaluation_jsonl)
-copy_artifact("entity-history.json", "")
+# entity-history.json (UAT-R3-01 fix): the real producer is the caller's own
+# export of the ephemeral scratch project's entity_history -- see
+# bench/scripts/export-entity-history.sh, invoked by both drivers
+# (run-lifecycle-batch.sh dispatch_pair, run-review-comparison.sh
+# dispatch_gate) before this script is called, never hardcoded to "" here
+# anymore.
+copy_artifact("entity-history.json", entity_history_json)
 # ".oracle.json" is evaluate-lifecycle.sh's own naming convention for the
 # held-back oracle result it writes alongside --output (run_oracle():
 # `oracle_output = args.output + ".oracle.json"`) -- reused here, never
-# invented or re-derived (ADR-F10-04). The file genuinely does not exist
-# when no agent fixture checkout is configured for this pair;
-# copy_artifact's honest-placeholder branch handles that.
+# invented or re-derived (ADR-F10-04). When no agent fixture checkout is
+# configured for this pair, evaluate-lifecycle.sh never writes this sidecar
+# at all (run_oracle()'s own "missing_oracle" branch), and this call
+# refuses closed (UAT-R3-01) rather than fabricating a placeholder.
 copy_artifact("oracle.json", evaluation_jsonl + ".oracle.json")
 copy_dir_artifact("evidence", i05_bundle_dir, exclude_top_level=("transcripts",))
 copy_dir_artifact("transcripts", os.path.join(i05_bundle_dir, "transcripts") if i05_bundle_dir else "")

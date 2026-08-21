@@ -1010,6 +1010,16 @@ func e40F10ValidateRetentionManifestRecord(schema e40F10Schema, record map[strin
 		if hasDigest && digest != "" && !isDigest(digest) {
 			errs = append(errs, fmt.Sprintf("/artifacts/%s/sha256: malformed digest", name))
 		}
+		// UAT-R3-01 (round 3), T-E40-F10-001 fix requirement 1/3: a required
+		// artifact's source_path being merely PRESENT (the required-pointer
+		// walk above) is not enough -- it must also be non-empty. An empty
+		// string is exactly retain_pair's pre-fix fabrication shape (a real,
+		// present, digestible placeholder with source_path=="" claiming a
+		// required artifact was retained when it never had a real source).
+		sourcePath, hasSourcePath := entry["source_path"].(string)
+		if hasSourcePath && sourcePath == "" {
+			errs = append(errs, fmt.Sprintf("/artifacts/%s/source_path: empty -- a required artifact must carry a real source", name))
+		}
 	}
 	return errs
 }
@@ -1234,6 +1244,21 @@ var e40F10InvalidRetentionManifestWantPath = map[string]string{
 	"retention-manifest-scenario-id-missing.json":                  "/scenario_id: required field missing",
 	"retention-manifest-transcripts-entry-missing.json":            "/artifacts/transcripts: required field missing",
 	"retention-manifest-transcripts-sha256-malformed.json":         "/artifacts/transcripts/sha256: malformed digest",
+
+	// UAT-R3-01 (round 3), T-E40-F10-001 fix requirement 3 ("add contract
+	// fixtures proving each required artifact with absent provenance
+	// fails"): source_path PRESENT but empty is distinct from source_path
+	// entirely absent (the pre-existing "-source-path-missing" case above)
+	// -- both must fail, but retain_pair's pre-fix fabrication produced the
+	// PRESENT-but-empty shape specifically, so this is the exhaustive
+	// seven-artifact form of exactly that regression.
+	"retention-manifest-package-yaml-source-path-empty.json":        "/artifacts/package.yaml/source_path: empty",
+	"retention-manifest-evidence-source-path-empty.json":            "/artifacts/evidence/source_path: empty",
+	"retention-manifest-transcripts-source-path-empty.json":         "/artifacts/transcripts/source_path: empty",
+	"retention-manifest-entity-history-json-source-path-empty.json": "/artifacts/entity-history.json/source_path: empty",
+	"retention-manifest-lifecycle-jsonl-source-path-empty.json":     "/artifacts/lifecycle.jsonl/source_path: empty",
+	"retention-manifest-evaluation-jsonl-source-path-empty.json":    "/artifacts/evaluation.jsonl/source_path: empty",
+	"retention-manifest-oracle-json-source-path-empty.json":         "/artifacts/oracle.json/source_path: empty",
 }
 
 var e40F10InvalidPilotAttestationWantPath = map[string]string{

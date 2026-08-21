@@ -397,29 +397,52 @@ digest_rules:
     manifest.json's own `source_path` field for the artifact -- because
     "empty" covers two different real-world states that a bare digest
     cannot tell apart:
-      (a) source_path == "" -- retain_pair had no source path to check at
-          all for this pair (run-lifecycle-batch.sh copy_artifact/
-          copy_dir_artifact's not-found branch: e.g. transcripts/ before
-          any I-05 bundle ships a transcripts subtree, or
-          entity-history.json before its producer exists anywhere in this
-          codebase). This is an honest, accepted "not yet wired by any
-          producer" gap, not a defect -- a consumer performing
-          attestation-completeness checks (REQ-F-005, e.g. pilot-ledger.sh
-          --record) MUST treat this as present, not missing.
+      (a) source_path == "" (or absent) on a RETENTION-REQUIRED artifact
+          (retention_required_artifacts, minus manifest.json, which has no
+          source_path of its own) -- UAT-R3-01 (round 3): this is NOT an
+          accepted "not yet wired" gap. retain_pair MUST NOT write a
+          required artifact at all when it has no real, checked source for
+          it; it aborts before manifest.json is ever written and reports
+          `required_artifact_source_unavailable` (retention_invalidity_reason
+          below) instead. A manifest.json that nonetheless carries
+          source_path == "" for a required artifact -- e.g. hand-edited, or
+          retained by a version of retain_pair predating this fix -- MUST be
+          treated as a hard failure by every consumer that performs
+          retention-completeness, attestation, or baseline-gating checks
+          (verify-retention-root.sh, pilot-ledger.sh --record and --verify):
+          never accepted, regardless of whether the artifact's digest
+          happens to match some other recorded value. A digest MATCH alone
+          is never sufficient to accept a required artifact; source_path
+          must also be a real, non-empty provenance string.
       (b) source_path != "" (a real, checked path) but the artifact is
           still empty -- the producer's declared source genuinely existed
           and was inspected, and held nothing (round-1 finding 3's original
           concern: a required directory artifact that was never actually
-          populated). This is the one case worth a consumer refusing or
-          flagging at the attestation layer: unlike (a), there IS a real
-          source that yielded no content, which is a legitimate signal of
-          an upstream producer defect worth surfacing to the operator
-          rather than silently accepting.
+          populated). This remains a case worth a consumer flagging at the
+          attestation layer (pilot-ledger.sh's `empty_source_artifact`):
+          unlike (a), there IS a real source that yielded no content, which
+          is a signal of an upstream producer defect distinct from (a)'s
+          "no source was ever available to check."
     digest_of_path's own return value is identical in both cases (a real,
     non-None digest) -- distinguishing (a) from (b) is manifest.json's
     source_path field's job, not digest_of_path's, and belongs in whichever
     consumer performs attestation-completeness checks, not in the shared
     digest helper (code-review-2026-08-20T2138-E40-F10.md findings 1 and 7).
+
+# ---------------------------------------------------------------------------
+# Retention invalidity vocabulary (REQ-F-004, REQ-F-005, REQ-F-018;
+# UAT-R3-01 fix, T-E40-F10-001 fix requirement 2: "a schema-owned
+# invalidity/refusal for absent required sources"). Used by retain_pair's
+# own fail-closed abort (never fabricates a placeholder for a required
+# artifact with no real source) and by the calling driver's
+# `invalid/index.jsonl` entry for that (scenario, rep) pair -- the same
+# dispatch-level invalidity channel run-lifecycle-batch.sh's record_invalid
+# already uses for scratch_root_not_found/lifecycle_run_failed/etc., now
+# with a schema-owned member for this specific condition rather than a
+# private ad hoc string.
+# ---------------------------------------------------------------------------
+retention_invalidity_reason:
+  - required_artifact_source_unavailable
 
 # ---------------------------------------------------------------------------
 # REQ-F-013: no artifact-use/replay-proxy field may be expressed as

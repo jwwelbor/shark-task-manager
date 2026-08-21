@@ -1797,12 +1797,17 @@ per failure on stderr. Its own damage-class reasons (local to this
 validator; the retention layout itself is schema-owned, its pass/fail
 reasons are not) are `missing` (required artifact absent), `lineage_mismatch`
 (`manifest.json`'s own `/scenario_id` or `/rep` disagrees with its
-directory), `source_path_missing` (a digest mismatch whose recorded
-`source_path` no longer exists, so it cannot be re-verified against
-source), `digest_mismatch` (recomputed digest disagrees and no
-canonicalization rescues it), `re_serialized` (the raw digest disagrees but
-a re-canonicalized content digest matches — the bytes were re-encoded, not
-mutated, and ADR-F10-05 forbids that too), `upstream_lifecycle_invalid`, and
+directory), `missing_source_provenance` (a required artifact's manifest
+entry has an empty/missing `source_path` — never accepted, checked BEFORE
+digest equality, regardless of whether the digest happens to agree; a
+required artifact with no real source is a retention defect, never an
+accepted "not yet wired" gap), `source_path_missing` (a digest mismatch on
+an artifact WITH real source provenance whose recorded `source_path` no
+longer exists, so it cannot be re-verified against source), `digest_mismatch`
+(recomputed digest disagrees and no canonicalization rescues it),
+`re_serialized` (the raw digest disagrees but a re-canonicalized content
+digest matches — the bytes were re-encoded, not mutated, and ADR-F10-05
+forbids that too), `upstream_lifecycle_invalid`, and
 `upstream_evaluation_invalid` (the delegated validator rejected a malformed
 — not merely ineligible — record). Exit `0` every pair passes, `1` at least
 one pair fails, `2` usage error.
@@ -1835,13 +1840,23 @@ verbatim — `pilot-ledger.sh` requires only that it be valid JSON; it defines
 no fixed item/result shape of its own), `operator_identity`, and
 `inspected_artifact_digests` (the recomputed
 digest of every one of the eight retained artifacts, keyed by filename,
-using the same digest rule `verify-retention-root.sh` uses). `--verify`
-groups the append-only ledger by family and checks the **latest** row per
-family — a re-attestation supersedes an earlier one without needing
-deletion — printing `family=<f>: verified`, `family=<f>: FAILED
-(no_attestation)`, or `family=<f>: FAILED (stale_digest: <artifact,...>)`
-per family. Exit `0` record success / verify all-requested-families pass,
-`1` verify found at least one failing family, `2` usage error.
+using the same digest rule `verify-retention-root.sh` uses). Both `--record`
+and `--verify` refuse a required artifact that has no real source
+provenance (an empty/missing `manifest.json` `source_path`) — never an
+accepted "not yet wired" gap, regardless of digest agreement:
+`--record` refuses to attest at all (`required_artifact_source_unavailable`),
+and `--verify` fails a family whose retained manifest shows one
+(`missing_source_provenance`, naming the artifact). `--verify` groups the
+append-only ledger by family and checks the **latest** row per family — a
+re-attestation supersedes an earlier one without needing deletion —
+printing `family=<f>: verified`, `family=<f>: FAILED (no_attestation)`,
+`family=<f>: FAILED (stale_digest: <artifact,...>)`,
+`family=<f>: FAILED (missing_source_provenance: <artifact,...>)`, or
+`family=<f>: FAILED (empty_source_artifact: <artifact,...>)` (a real,
+non-empty source_path whose content is nonetheless empty — a genuine
+upstream producer defect, distinct from missing provenance) per family.
+Exit `0` record success / verify all-requested-families pass, `1` verify
+found at least one failing family, `2` usage error.
 
 ### Publication gate
 

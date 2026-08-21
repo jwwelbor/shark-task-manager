@@ -210,6 +210,13 @@ echo '{"outcome":{"terminal":"complete"}}' >"$out"
 exit 0
 EOF
 chmod +x "$WORKDIR/stubbin/run-lifecycle-stub.sh"
+# UAT-R3-01 rework: writes a real ".oracle.json" sidecar unconditionally
+# (evaluate-lifecycle.sh's own naming convention, args.output + ".oracle.json"),
+# matching the shape a real evaluate-lifecycle.sh writes when an agent
+# fixture checkout IS configured -- AC-T2 below is about classification/
+# reclaim mechanics, not about the missing-oracle-source case (that has its
+# own dedicated counterfactual block further down), so its happy-path first
+# dispatch must retain successfully with genuine sources for everything.
 cat >"$WORKDIR/stubbin/evaluate-lifecycle-stub.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -219,12 +226,46 @@ for ((i = 0; i < ${#args[@]}; i++)); do
 	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
 done
 echo '{"eligibility":{"aggregate_eligible":true}}' >"$out"
+echo '{"held_back":true,"observed_result":"pass"}' >"${out}.oracle.json"
 exit 0
 EOF
 chmod +x "$WORKDIR/stubbin/evaluate-lifecycle-stub.sh"
 
+# UAT-R3-01 (T-E40-F10-004 rework): retain_pair's entity-history.json now
+# requires a REAL source -- the real producer is export-entity-history.sh
+# (shark history <root-key> --json against the ephemeral scratch project),
+# stubbed here via the SAME ENTITY_HISTORY_EXPORT_BIN sibling-path override
+# convention as RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN, writing real
+# (non-empty, deterministic) JSON content -- never an empty placeholder --
+# so this stub-driven dispatch retains a genuine entity-history.json rather
+# than exercising the real `shark` CLI/DB stack this file's own tests are
+# not about.
+cat >"$WORKDIR/stubbin/entity-history-stub.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+root_key=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+	if [[ "${args[$i]}" == "--root-key" ]]; then root_key="${args[$((i + 1))]}"; fi
+done
+python3 -c 'import json,sys; obj={"entity_type":"task","entity_key":sys.argv[1],"history":[{"timestamp":"2026-01-01T00:00:00Z","old_status":"todo","new_status":"in_progress","agent":"stub"}],"total":1}; open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "$root_key" "$out"
+EOF
+chmod +x "$WORKDIR/stubbin/entity-history-stub.sh"
+
 AC_T2_ROOT="$WORKDIR/ac-t2-retention"
 mkdir -p "$AC_T2_ROOT"
+# UAT-R3-01 rework: a real i05_bundle_dir (evidence content plus a genuine
+# transcripts/ subtree) -- AC-T2 below is about classification/reclaim
+# mechanics and must retain successfully on its happy-path first dispatch,
+# so every required artifact needs a real source (retain_pair refuses
+# closed otherwise). The missing-source case gets its own dedicated
+# counterfactual block further down using a thin bundle deliberately.
+AC_T2_I05_BUNDLE="$WORKDIR/ac-t2-i05-bundle"
+mkdir -p "$AC_T2_I05_BUNDLE/transcripts"
+echo '{"stage":"develop"}' >"$AC_T2_I05_BUNDLE/bundle.json"
+echo "ac-t2 fixture transcript" >"$AC_T2_I05_BUNDLE/transcripts/develop.log"
 cat >"$WORKDIR/ac-t2-policy.yaml" <<EOF
 schema_version: "1.0"
 min_reps: 1
@@ -232,12 +273,13 @@ scenarios:
   py-bug-due-date-boundary:
     root_key: "ROOT-001"
     scratch_root: "$WORKDIR/scratch-template"
-    i05_bundle_dir: "$WORKDIR/scratch-template"
+    i05_bundle_dir: "$AC_T2_I05_BUNDLE"
 EOF
 
 run_ac_t2_batch() {
 	RUN_LIFECYCLE_BIN="$WORKDIR/stubbin/run-lifecycle-stub.sh" \
 		EVALUATE_LIFECYCLE_BIN="$WORKDIR/stubbin/evaluate-lifecycle-stub.sh" \
+		ENTITY_HISTORY_EXPORT_BIN="$WORKDIR/stubbin/entity-history-stub.sh" \
 		"$BATCH" --batch "$WORKDIR/ac-t2-policy.yaml" --retention-root "$AC_T2_ROOT" \
 		--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 		--max-wall-clock-seconds 600 --max-generated-tasks 10 \
@@ -253,25 +295,20 @@ set -e
 grep -q '"classification": "pending_run"' "$AC_T2_ROOT/batch.json" || fail "AC-T2 first dispatch not classified pending_run: $(cat "$AC_T2_ROOT/batch.json")"
 
 # ---------------------------------------------------------------------------
-# T-E40-F10-004 rework (code-review-2026-08-20T2138-E40-F10.md findings 1
-# and 7, bench/reports/lifecycle-baseline-schema.yaml
-# digest_rules.empty_artifact_semantics): AC_T2_ROOT's i05_bundle_dir
-# ($WORKDIR/scratch-template) has no transcripts/ subtree and
-# evaluate-lifecycle-stub.sh never writes a ".oracle.json" sidecar --
-# exactly the "honest empty" shape the live repro in finding 1 exercises.
-# retain_pair's manifest.json MUST record a REAL, non-null digest for each
-# of these (never treat "artifact exists but is empty" as "missing"), with
-# source_path=="" as the one honesty marker -- for both the directory case
-# (transcripts/) and the file case (entity-history.json, oracle.json).
-# This locks in the schema-documented rule as a regression guard: any
-# caller (this file's own digest_of_path included) that reintroduces an
-# "empty means None/missing" special case fails this assertion.
+# UAT-R3-01 (round 3) positive check: every required artifact AC-T2's
+# happy-path first dispatch retained above has a REAL, non-empty
+# source_path and a digest that matches a fresh recompute -- superseding
+# the pre-fix "honest-empty digest" assertion this block used to make
+# (fabricated placeholders with source_path=="" are no longer produced or
+# accepted anywhere in this codebase; see the missing-source counterfactual
+# immediately below for the refusal half of this fix).
 # ---------------------------------------------------------------------------
 AC_T2_REP_DIR="$AC_T2_ROOT/scenarios/py-bug-due-date-boundary/1"
 set +e
 python3 - "$AC_T2_REP_DIR" "$REPO_ROOT/bench/reports/lifecycle-baseline-schema.yaml" <<'PY'
 import hashlib
 import json
+import os
 import sys
 
 import yaml
@@ -280,78 +317,107 @@ rep_dir, schema_path = sys.argv[1:3]
 
 with open(schema_path, encoding="utf-8") as f:
     schema = yaml.safe_load(f) or {}
-rule = (schema.get("digest_rules") or {}).get("empty_artifact_semantics") or ""
-if not rule.strip():
-    print("schema digest_rules.empty_artifact_semantics is missing or empty", file=sys.stderr)
+required = [n for n in (schema.get("retention_required_artifacts") or []) if n != "manifest.json"]
+if not required:
+    print("schema retention_required_artifacts is missing or empty", file=sys.stderr)
     raise SystemExit(1)
 
 with open(f"{rep_dir}/manifest.json", encoding="utf-8") as f:
     manifest = json.load(f)
 artifacts = manifest["artifacts"]
 
-EMPTY_DIR_DIGEST = hashlib.sha256(b"[]").hexdigest()
-EMPTY_FILE_DIGEST = hashlib.sha256(b"").hexdigest()
 
-# transcripts/: honestly-empty directory (i05_bundle_dir has no transcripts
-# subtree) -- must be a real digest, never null/None, and source_path=="".
-transcripts = artifacts.get("transcripts")
-if transcripts is None or transcripts.get("sha256") is None:
-    print("manifest.json artifacts.transcripts.sha256 is null/None -- an existing-but-empty directory must never digest as missing", file=sys.stderr)
-    raise SystemExit(1)
-if transcripts["sha256"] != EMPTY_DIR_DIGEST:
-    print(f"manifest.json artifacts.transcripts.sha256={transcripts['sha256']!r} does not match the canonical empty-directory digest {EMPTY_DIR_DIGEST!r}", file=sys.stderr)
-    raise SystemExit(1)
-if transcripts["source_path"] != "":
-    print(f"manifest.json artifacts.transcripts.source_path={transcripts['source_path']!r}, want empty string (honest-not-wired marker)", file=sys.stderr)
-    raise SystemExit(1)
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
 
-# entity-history.json / oracle.json: honestly-empty files (no producer
-# wired) -- must be a real digest, never null/None, and source_path=="".
-for name in ("entity-history.json", "oracle.json"):
+
+for name in required:
     entry = artifacts.get(name)
-    if entry is None or entry.get("sha256") is None:
-        print(f"manifest.json artifacts.{name}.sha256 is null/None -- an existing-but-empty file must never digest as missing", file=sys.stderr)
+    if entry is None:
+        print(f"manifest.json missing artifacts.{name}", file=sys.stderr)
         raise SystemExit(1)
-    if entry["sha256"] != EMPTY_FILE_DIGEST:
-        print(f"manifest.json artifacts.{name}.sha256={entry['sha256']!r} does not match the canonical empty-file digest {EMPTY_FILE_DIGEST!r}", file=sys.stderr)
+    if not entry.get("source_path"):
+        print(f"manifest.json artifacts.{name}.source_path is empty -- UAT-R3-01: a successfully retained required artifact must always carry a real source", file=sys.stderr)
         raise SystemExit(1)
-    if entry["source_path"] != "":
-        print(f"manifest.json artifacts.{name}.source_path={entry['source_path']!r}, want empty string (honest-not-wired marker)", file=sys.stderr)
+    recomputed = digest_of_path(os.path.join(rep_dir, name))
+    if recomputed != entry.get("sha256"):
+        print(f"manifest.json artifacts.{name}.sha256={entry.get('sha256')!r} does not match recomputed digest {recomputed!r}", file=sys.stderr)
         raise SystemExit(1)
 
-# evidence/: the schema's THIRD state -- i05_bundle_dir ($WORKDIR/scratch-
-# template) is itself a real, checked, existing directory (copy_dir_artifact's
-# FOUND branch, not the not-found branch transcripts/ hit above), but it
-# holds zero files. digest_of_path returns the SAME empty-directory digest
-# as transcripts/ above -- digest_of_path cannot and must not distinguish
-# these two states -- but source_path here MUST be the real, non-empty
-# checked path, never "", because a real source WAS inspected and found
-# empty (round-1 finding 3's original concern: a required artifact that
-# was never actually populated). This is what makes state (a) [source_path
-# == "", accepted] and state (b) [source_path != "", a producer-defect
-# signal worth flagging] distinguishable downstream even though their
-# digests are identical.
-evidence = artifacts.get("evidence")
-if evidence is None or evidence.get("sha256") is None:
-    print("manifest.json artifacts.evidence.sha256 is null/None -- an existing-but-empty directory must never digest as missing", file=sys.stderr)
-    raise SystemExit(1)
-if evidence["sha256"] != EMPTY_DIR_DIGEST:
-    print(f"manifest.json artifacts.evidence.sha256={evidence['sha256']!r} does not match the canonical empty-directory digest {EMPTY_DIR_DIGEST!r}", file=sys.stderr)
-    raise SystemExit(1)
-if not evidence["source_path"]:
-    print("manifest.json artifacts.evidence.source_path is empty, want the real checked i05_bundle_dir path (a real source was inspected and found empty, distinct from transcripts/'s honest not-found case)", file=sys.stderr)
-    raise SystemExit(1)
-if evidence["source_path"] == transcripts["source_path"]:
-    print("manifest.json artifacts.evidence.source_path must differ from transcripts/'s empty source_path -- the two empty states are not the same state", file=sys.stderr)
-    raise SystemExit(1)
-
-print("honest-empty artifact digests verified real, non-null, schema-documented; found-but-empty (evidence/) distinguishable from not-found-empty (transcripts/) via source_path")
+print("every required artifact carries a real, non-empty source_path and a byte-preserved digest")
 PY
-honest_empty_rc=$?
+real_source_rc=$?
 set -e
-[[ "$honest_empty_rc" -eq 0 ]] || fail "honest-empty artifact digest verification failed (findings 1/7)"
+[[ "$real_source_rc" -eq 0 ]] || fail "real-source artifact digest verification failed (UAT-R3-01)"
 
-echo "TC-079(rework: honest-empty transcripts/entity-history.json/oracle.json digest as real, non-missing, per schema digest_rules.empty_artifact_semantics) PASS"
+echo "TC-079(rework: every required artifact carries a real, non-empty source_path -- UAT-R3-01) PASS"
+
+# ---------------------------------------------------------------------------
+# UAT-R3-01 (round 3) counterfactual: when a required artifact's source is
+# genuinely absent (i05_bundle_dir has no transcripts/ subtree, AND the
+# evaluate stub never writes a ".oracle.json" sidecar -- exactly the two
+# "honest empty" shapes the pre-fix fabrication used to accept as retained),
+# the WHOLE pair MUST be refused -- not retained with a fabricated
+# placeholder. This test fails against the pre-fix fabrication behavior
+# (which retained the pair successfully with source_path=="" placeholders)
+# and passes only now that retain_pair/dispatch_pair refuse closed.
+# ---------------------------------------------------------------------------
+cat >"$WORKDIR/stubbin/evaluate-lifecycle-no-oracle-stub.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+done
+echo '{"eligibility":{"aggregate_eligible":true}}' >"$out"
+# Deliberately never writes "${out}.oracle.json" -- the real
+# evaluate-lifecycle.sh shape when no agent fixture checkout is configured.
+exit 0
+EOF
+chmod +x "$WORKDIR/stubbin/evaluate-lifecycle-no-oracle-stub.sh"
+
+MISSING_SOURCE_ROOT="$WORKDIR/missing-source-retention"
+mkdir -p "$MISSING_SOURCE_ROOT"
+cat >"$WORKDIR/missing-source-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenarios:
+  py-bug-due-date-boundary:
+    root_key: "ROOT-001"
+    scratch_root: "$WORKDIR/scratch-template"
+    i05_bundle_dir: "$WORKDIR/scratch-template"
+EOF
+
+set +e
+RUN_LIFECYCLE_BIN="$WORKDIR/stubbin/run-lifecycle-stub.sh" \
+	EVALUATE_LIFECYCLE_BIN="$WORKDIR/stubbin/evaluate-lifecycle-no-oracle-stub.sh" \
+	ENTITY_HISTORY_EXPORT_BIN="$WORKDIR/stubbin/entity-history-stub.sh" \
+	"$BATCH" --batch "$WORKDIR/missing-source-policy.yaml" --retention-root "$MISSING_SOURCE_ROOT" \
+	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--scenarios py-bug-due-date-boundary --reps 1 >"$WORKDIR/missing-source.out" 2>&1
+missing_source_rc=$?
+set -e
+[[ "$missing_source_rc" -eq 4 ]] || fail "missing-source dispatch expected exit 4 (batch completed with a failed pair), got $missing_source_rc: $(cat "$WORKDIR/missing-source.out")"
+[[ ! -f "$MISSING_SOURCE_ROOT/scenarios/py-bug-due-date-boundary/1/manifest.json" ]] || fail "missing-source dispatch retained manifest.json -- expected the whole pair refused, never a fabricated placeholder"
+grep -q '"classification": "failed"' "$MISSING_SOURCE_ROOT/batch.json" || fail "missing-source dispatch not classified failed: $(cat "$MISSING_SOURCE_ROOT/batch.json")"
+grep -q "required_artifact_source_unavailable" "$MISSING_SOURCE_ROOT/invalid/index.jsonl" || fail "missing-source dispatch invalid/index.jsonl missing required_artifact_source_unavailable: $(cat "$MISSING_SOURCE_ROOT/invalid/index.jsonl")"
+
+echo "TC-079(UAT-R3-01 counterfactual: batch driver refuses the whole pair, no fabricated placeholder, when required transcripts/oracle sources are absent) PASS"
 
 set +e
 run_ac_t2_batch >"$WORKDIR/ac-t2-second.out" 2>&1
@@ -442,6 +508,7 @@ EOF
 set +e
 RUN_LIFECYCLE_BIN="$WORKDIR/stubbin/run-lifecycle-stub.sh" \
 	EVALUATE_LIFECYCLE_BIN="$WORKDIR/stubbin/evaluate-lifecycle-oracle-stub.sh" \
+	ENTITY_HISTORY_EXPORT_BIN="$WORKDIR/stubbin/entity-history-stub.sh" \
 	"$BATCH" --batch "$WORKDIR/retain-content-policy.yaml" --retention-root "$RETAIN_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \

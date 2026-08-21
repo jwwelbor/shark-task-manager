@@ -80,6 +80,9 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUN_LIFECYCLE_BIN="${RUN_LIFECYCLE_BIN:-$SCRIPT_DIR/run-lifecycle.sh}"
 EVALUATE_LIFECYCLE_BIN="${EVALUATE_LIFECYCLE_BIN:-$SCRIPT_DIR/evaluate-lifecycle.sh}"
 COMPARATOR_BIN="${COMPARATOR_BIN:-$SCRIPT_DIR/compare-lifecycle-evaluations.sh}"
+# UAT-R3-01 fix (T-E40-F10-005): the real producer for retain_pair's
+# entity-history.json artifact -- see export-entity-history.sh's own header.
+ENTITY_HISTORY_EXPORT_BIN="${ENTITY_HISTORY_EXPORT_BIN:-$SCRIPT_DIR/export-entity-history.sh}"
 
 usage() {
 	cat >&2 <<'EOF'
@@ -555,8 +558,12 @@ gate_rep() {
 }
 
 retain_gate() {
-	# retain_gate <scenario_id> <rep> <gate> <package_path> <lifecycle_jsonl> <evaluation_jsonl> <i05_bundle_dir>
-	local scenario_id="$1" rep="$2" gate="$3" package_path="$4" lifecycle_jsonl="$5" evaluation_jsonl="$6" i05_bundle_dir="$7"
+	# retain_gate <scenario_id> <rep> <gate> <package_path> <lifecycle_jsonl> <evaluation_jsonl> <entity_history_json> <i05_bundle_dir>
+	# UAT-R3-01 (round 3): lib/retain_pair now refuses (nonzero exit, no
+	# manifest.json written) rather than fabricating a placeholder when any
+	# required artifact's source is absent -- dispatch_gate below checks
+	# this function's return status.
+	local scenario_id="$1" rep="$2" gate="$3" package_path="$4" lifecycle_jsonl="$5" evaluation_jsonl="$6" entity_history_json="$7" i05_bundle_dir="$8"
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
 	# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding
@@ -575,7 +582,7 @@ retain_gate() {
 		return 1
 	fi
 	mkdir -p "$dest"
-	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$i05_bundle_dir" "$dest" "$gate"
+	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$entity_history_json" "$i05_bundle_dir" "$dest" "$gate"
 }
 
 gate_dest_provenance_ok() {
@@ -717,7 +724,23 @@ dispatch_gate() {
 		return 1
 	fi
 
-	if ! retain_gate "$scenario_id" "$rep" "$gate" "$package_path" "$lifecycle_out" "$evaluation_out" "$i05_bundle_dir"; then
+	# UAT-R3-01 (T-E40-F10-005 fix): export the ephemeral scratch project's
+	# REAL entity_history before it is rm -rf'd below -- the real producer
+	# retain_pair's entity-history.json now requires instead of the
+	# hardcoded "" it used to pass. A failure here refuses the whole gate,
+	# same discipline as run-lifecycle.sh/evaluate-lifecycle.sh above.
+	local entity_history_out="$pair_work/entity-history.json"
+	set +e
+	"$ENTITY_HISTORY_EXPORT_BIN" --scratch-root "$ephemeral" --root-key "$root_key" --output "$entity_history_out" </dev/null
+	local entity_history_rc=$?
+	set -e
+	if [[ "$entity_history_rc" -ne 0 ]]; then
+		echo "run-review-comparison: $gate gate FAILED (export-entity-history.sh exit $entity_history_rc)" >&2
+		rm -rf "$pair_work"
+		return 1
+	fi
+
+	if ! retain_gate "$scenario_id" "$rep" "$gate" "$package_path" "$lifecycle_out" "$evaluation_out" "$entity_history_out" "$i05_bundle_dir"; then
 		rm -rf "$pair_work"
 		return 1
 	fi

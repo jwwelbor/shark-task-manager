@@ -917,8 +917,29 @@ while [[ \$# -gt 0 ]]; do
 	esac
 done
 cp "$E2E_EV_FIXTURE" "\$output"
+# UAT-R3-01 rework: retain_pair now requires a real oracle.json source
+# (evaluate-lifecycle.sh's own ".oracle.json" sidecar naming convention).
+python3 -c 'import json,sys; obj={"held_back": True, "observed_result": "pass"}; open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "\$output.oracle.json"
 EOF
 chmod +x "$E2E_EVAL_STUB"
+
+# UAT-R3-01 rework: entity-history.json's real producer stub, matching the
+# ENTITY_HISTORY_EXPORT_BIN sibling-path override convention
+# RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN already use.
+E2E_ENTITY_HISTORY_STUB="$E2E_WORKDIR/entity-history-stub.sh"
+cat >"$E2E_ENTITY_HISTORY_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+root_key=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+	if [[ "${args[$i]}" == "--root-key" ]]; then root_key="${args[$((i + 1))]}"; fi
+done
+python3 -c 'import json,sys; obj={"entity_type":"task","entity_key":sys.argv[1],"history":[{"timestamp":"2026-01-01T00:00:00Z","old_status":"todo","new_status":"in_progress","agent":"stub"}],"total":1}; open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "$root_key" "$out"
+EOF
+chmod +x "$E2E_ENTITY_HISTORY_STUB"
 
 # --- Drive the REAL run-review-comparison.sh --mode pilot. Neither gate's
 # evaluation.jsonl exists yet under $E2E_ROOT, so this is the real dispatch
@@ -927,6 +948,7 @@ chmod +x "$E2E_EVAL_STUB"
 E2E_ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
 e2e_comparison_rc=0
 RUN_LIFECYCLE_BIN="$E2E_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$E2E_EVAL_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$E2E_ENTITY_HISTORY_STUB" \
 	"$COMPARISON" --candidate "$E2E_WORKDIR/candidate.yaml" --retention-root "$E2E_ROOT" \
 	--mode pilot --comparison-mode independent_frozen_candidate "${E2E_ACK_FLAGS[@]}" \
 	>"$E2E_WORKDIR/comparison.stdout" 2>"$E2E_WORKDIR/comparison.stderr" || e2e_comparison_rc=$?
@@ -968,6 +990,7 @@ EOF
 
 e2e_batch_rc=0
 RUN_LIFECYCLE_BIN="$E2E_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$E2E_EVAL_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$E2E_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$E2E_BATCH_POLICY" --retention-root "$E2E_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \

@@ -73,14 +73,13 @@ REP="1"
 # (source_path_missing) can delete exactly one of them on purpose. Laid out
 # to match lib/retain_pair's own positional-argument shape exactly: a
 # package.yaml, a lifecycle.jsonl, an evaluation.jsonl, an
-# "<evaluation.jsonl>.oracle.json" sidecar (evaluate-lifecycle.sh's own
-# naming convention retain_pair reuses, never re-derived), and an I-05
-# bundle directory holding evidence content plus a transcripts/ subtree.
-# entity-history.json has no source parameter in lib/retain_pair (no
-# producer exists anywhere in this codebase today -- retain_pair always
-# retains it as an honest empty placeholder, source_path=""); that is real
-# production behavior, not a fixture gap, so this golden root reproduces it
-# exactly rather than fabricating a source for it.
+# entity-history.json (UAT-R3-01 rework: retain_pair now REQUIRES a real
+# source for this artifact -- see export-entity-history.sh; fabricating an
+# empty placeholder with source_path=="" is no longer accepted anywhere in
+# this codebase), an "<evaluation.jsonl>.oracle.json" sidecar
+# (evaluate-lifecycle.sh's own naming convention retain_pair reuses, never
+# re-derived), and an I-05 bundle directory holding evidence content plus a
+# transcripts/ subtree.
 # ---------------------------------------------------------------------------
 SOURCES="$WORKDIR/sources"
 I05_BUNDLE="$SOURCES/i05-bundle"
@@ -116,6 +115,16 @@ obj = {"held_back": True, "observed_result": "pass"}
 with open("'"$ORACLE_SOURCE"'", "w", encoding="utf-8") as f:
     f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
 '
+# UAT-R3-01 rework: entity-history.json's real source -- export-entity-
+# history.sh's own output shape (shark history <key> --json), never an
+# empty placeholder.
+ENTITY_HISTORY_SOURCE="$SOURCES/entity-history.json"
+python3 -c '
+import json
+obj = {"entity_type": "task", "entity_key": "ROOT-TC082", "history": [{"timestamp": "2026-01-01T00:00:00Z", "old_status": "todo", "new_status": "in_progress", "agent": "tc082-fixture"}], "total": 1}
+with open("'"$ENTITY_HISTORY_SOURCE"'", "w", encoding="utf-8") as f:
+    f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
+'
 
 # ---------------------------------------------------------------------------
 # Golden retention root, built by driving the REAL bench/scripts/lib/
@@ -132,7 +141,7 @@ build_golden() {
 	local dest="$root/scenarios/$SCENARIO_ID/$REP"
 	mkdir -p "$dest"
 	python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$REP" "$SOURCES/package.yaml" \
-		"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$dest"
+		"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$dest"
 }
 
 GOLDEN_ROOT="$WORKDIR/golden"
@@ -256,9 +265,28 @@ python3 -c 'import json,sys; obj={"held_back": True, "observed_result": "pass"};
 EOF
 chmod +x "$DRIVER_EVAL_STUB"
 
+# UAT-R3-01 rework: entity-history.json's real producer stub, matching the
+# ENTITY_HISTORY_EXPORT_BIN sibling-path override convention
+# RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN already use.
+DRIVER_ENTITY_HISTORY_STUB="$DRIVER_WORKDIR/entity-history-stub.sh"
+cat >"$DRIVER_ENTITY_HISTORY_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+root_key=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+	if [[ "${args[$i]}" == "--root-key" ]]; then root_key="${args[$((i + 1))]}"; fi
+done
+python3 -c 'import json,sys; obj={"entity_type":"task","entity_key":sys.argv[1],"history":[{"timestamp":"2026-01-01T00:00:00Z","old_status":"todo","new_status":"in_progress","agent":"stub"}],"total":1}; open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "$root_key" "$out"
+EOF
+chmod +x "$DRIVER_ENTITY_HISTORY_STUB"
+
 DRIVER_ROOT="$WORKDIR/driver-retention-root"
 driver_batch_rc=0
 RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$DRIVER_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$DRIVER_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
@@ -328,7 +356,7 @@ ln -s "$SYMLINK_OUTSIDE/dir-target" "$SYMLINK_DEST/evidence"
 
 symlink_rc=0
 python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$REP" "$SOURCES/package.yaml" \
-	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$SYMLINK_DEST" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$SYMLINK_DEST" \
 	>"$WORKDIR/symlink-case.out" 2>"$WORKDIR/symlink-case.err" || symlink_rc=$?
 
 # (1) The external content the symlinks pointed to is untouched, regardless
@@ -386,6 +414,43 @@ done
 grep -q "manifest.json: missing" "$WORKDIR/missing-manifest.json.err" || fail "AC-T2: manifest.json-missing case did not name manifest.json as missing"
 
 # ===========================================================================
+# UAT-R3-01 (round 3) counterfactual: each of the seven required artifacts
+# WITH a source_path field (all but manifest.json), with its manifest entry's
+# source_path rewritten to "" while the artifact's own bytes and recorded
+# digest are left untouched (so the digest still MATCHES), fails distinctly
+# as missing_source_provenance -- never accepted just because the digest
+# agrees. This is exactly the shape retain_pair's pre-fix fabrication
+# produced (a real, deterministic digest with source_path==""); this test
+# fails against that pre-fix behavior (which verify-retention-root.sh used
+# to accept on digest match alone) and passes only now that source_path is
+# checked before the digest-equality fast path.
+# ===========================================================================
+REQUIRED_WITH_SOURCE=(package.yaml evidence transcripts entity-history.json lifecycle.jsonl evaluation.jsonl oracle.json)
+for artifact in "${REQUIRED_WITH_SOURCE[@]}"; do
+	root="$(damaged_root "empty-source-path-$artifact")"
+	dir="$(pair_dir "$root")"
+	python3 -c '
+import json, sys
+manifest_path, artifact = sys.argv[1:3]
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+manifest["artifacts"][artifact]["source_path"] = ""
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+' "$dir/manifest.json" "$artifact"
+
+	out=""
+	rc=0
+	out="$("$VERIFIER" --retention-root "$root" --schema "$SCHEMA" 2>"$WORKDIR/empty-source-path-$artifact.err")" || rc=$?
+	[[ "$rc" -ne 0 ]] || fail "empty source_path $artifact: expected nonzero exit, got 0"
+	grep -q "$artifact: missing_source_provenance" "$WORKDIR/empty-source-path-$artifact.err" || fail "empty source_path $artifact: stderr did not name the artifact and 'missing_source_provenance': $(cat "$WORKDIR/empty-source-path-$artifact.err")"
+	echo "$out" | grep -q '"verdict":"fail"' || fail "empty source_path $artifact: expected a fail verdict, got: $out"
+	echo "$out" | grep -q "\"reason\":\"missing_source_provenance\"" || fail "empty source_path $artifact: stdout verdict missing missing_source_provenance reason: $out"
+done
+
+echo "TC-082(UAT-R3-01 counterfactual: all seven required-with-source artifacts fail as missing_source_provenance when their manifest source_path is empty, even though their digest still matches) PASS"
+
+# ===========================================================================
 # (j) One artifact's bytes mutated (not valid JSON) -> digest_mismatch,
 # naming the artifact and reason.
 # ===========================================================================
@@ -405,13 +470,11 @@ echo "$out_j" | grep -q '"reason":"digest_mismatch"' || fail "(j) digest-mismatc
 # the discriminator is a canonical-content recompute that still matches the
 # manifest-recorded digest even though the raw bytes differ.
 # ===========================================================================
-# evaluation.jsonl, not entity-history.json: lib/retain_pair always retains
-# entity-history.json as an honest empty placeholder (no producer exists for
-# it anywhere in this codebase -- digest_rules.empty_artifact_semantics), so
-# it has no real re-serializable content to mutate. evaluation.jsonl is a
-# real, JSON-shaped retained artifact (JSON_ARTIFACTS in
-# verify-retention-root.sh) copied byte-for-byte from a real I-08 fixture by
-# retain_pair, giving this case genuine content to re-encode.
+# evaluation.jsonl (any JSON_ARTIFACTS member would do -- entity-history.json
+# now also has real, re-serializable content since UAT-R3-01 wired a real
+# producer for it): a real, JSON-shaped retained artifact copied byte-for-
+# byte from a real I-08 fixture by retain_pair, giving this case genuine
+# content to re-encode.
 root_k="$(damaged_root "re-serialized")"
 dir_k="$(pair_dir "$root_k")"
 ORIGINAL_DIGEST_K="$(sha256sum "$SOURCES/evaluation.jsonl" | awk '{print $1}')"
@@ -597,9 +660,9 @@ QA_DEST="$COEXIST_ROOT/scenarios/$CMP_SCENARIO_ID/1"
 DEEP_REVIEW_DEST="$COEXIST_ROOT/scenarios/$CMP_SCENARIO_ID/2"
 mkdir -p "$QA_DEST" "$DEEP_REVIEW_DEST"
 python3 "$RETAIN_PAIR" "$CMP_SCENARIO_ID" 1 "$SOURCES/package.yaml" \
-	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$QA_DEST" "qa"
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$QA_DEST" "qa"
 python3 "$RETAIN_PAIR" "$CMP_SCENARIO_ID" 2 "$SOURCES/package.yaml" \
-	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$DEEP_REVIEW_DEST" "deep_review"
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$DEEP_REVIEW_DEST" "deep_review"
 echo '{"verdict":"accepted","divergences":[]}' >"$DEEP_REVIEW_DEST/comparison.json"
 
 grep -q '"gate":"qa"' "$QA_DEST/manifest.json" || fail "coexistence: fixture setup did not record the qa gate field -- test is not exercising the additive gate key"
@@ -1171,8 +1234,25 @@ exit 0
 EOF
 chmod +x "$SCRATCH_SYMLINK_EVAL_STUB"
 
+# UAT-R3-01 rework: entity-history.json's real producer stub.
+SCRATCH_SYMLINK_ENTITY_HISTORY_STUB="$WORKDIR/scratch-symlink-entity-history-stub.sh"
+cat >"$SCRATCH_SYMLINK_ENTITY_HISTORY_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+root_key=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+	if [[ "${args[$i]}" == "--root-key" ]]; then root_key="${args[$((i + 1))]}"; fi
+done
+python3 -c 'import json,sys; obj={"entity_type":"task","entity_key":sys.argv[1],"history":[{"timestamp":"2026-01-01T00:00:00Z","old_status":"todo","new_status":"in_progress","agent":"stub"}],"total":1}; open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "$root_key" "$out"
+EOF
+chmod +x "$SCRATCH_SYMLINK_ENTITY_HISTORY_STUB"
+
 scratch_symlink_rc=0
 RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_SYMLINK_EVAL_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$SCRATCH_SYMLINK_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$WORKDIR/scratch-symlink-batch-policy.yaml" --retention-root "$SCRATCH_SYMLINK_ROOT" \
 	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-symlink.out" 2>&1 || scratch_symlink_rc=$?
 [[ "$scratch_symlink_rc" -eq 0 ]] || fail "dispatch_pair scratch_root TOP-LEVEL symlink (round-6 generalization): expected exit 0 (a symlinked scratch_root is now dereferenced and dispatched, not refused), got $scratch_symlink_rc: $(cat "$WORKDIR/scratch-symlink.out")"
@@ -1297,8 +1377,25 @@ exit 0
 EOF
 chmod +x "$SCRATCH_NESTED_EVAL_STUB"
 
+# UAT-R3-01 rework: entity-history.json's real producer stub.
+SCRATCH_NESTED_ENTITY_HISTORY_STUB="$WORKDIR/scratch-nested-entity-history-stub.sh"
+cat >"$SCRATCH_NESTED_ENTITY_HISTORY_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+root_key=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [[ "${args[$i]}" == "--output" ]]; then out="${args[$((i + 1))]}"; fi
+	if [[ "${args[$i]}" == "--root-key" ]]; then root_key="${args[$((i + 1))]}"; fi
+done
+python3 -c 'import json,sys; obj={"entity_type":"task","entity_key":sys.argv[1],"history":[{"timestamp":"2026-01-01T00:00:00Z","old_status":"todo","new_status":"in_progress","agent":"stub"}],"total":1}; open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "$root_key" "$out"
+EOF
+chmod +x "$SCRATCH_NESTED_ENTITY_HISTORY_STUB"
+
 scratch_nested_rc=0
 RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_NESTED_EVAL_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$SCRATCH_NESTED_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$WORKDIR/scratch-nested-batch-policy.yaml" --retention-root "$SCRATCH_NESTED_ROOT_OUT" \
 	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-nested.out" 2>&1 || scratch_nested_rc=$?
 [[ "$scratch_nested_rc" -eq 0 ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): expected exit 0 (a real scratch_root with a nested symlink must be dispatched, not refused), got $scratch_nested_rc: $(cat "$WORKDIR/scratch-nested.out")"
