@@ -167,3 +167,42 @@ assert_source_not_symlink() {
 	fi
 	return 0
 }
+
+# copy_tree_dereferenced <src> <dst> -- STRUCTURAL FIX,
+# code-review-2026-08-21T1141-E40-F10.md (round 6) finding 1. Copies <src>
+# to <dst>, dereferencing EVERY symlink encountered anywhere in the copied
+# tree, not just a top-level symlink source argument.
+#
+# Why assert_source_not_symlink above was not enough: it correctly refuses a
+# top-level symlinked scratch_root (round-5 finding 2), but the two drivers'
+# own `cp -a "$scratch_root" "$ephemeral"` call preserves any symlink NESTED
+# inside an otherwise-real scratch_root directory tree as-is -- `cp -a`'s
+# --no-dereference behavior applies to every symlink it walks during a
+# recursive copy, not just a top-level source argument. A worker write
+# through the believed-isolated "ephemeral" copy's corresponding path (e.g.
+# a nested `prompts/` symlink) would silently reach whatever that nested
+# symlink targets, violating both drivers' own "this driver never mutates
+# the template" guarantee -- the identical defect class as finding 2, one
+# symlink position deeper, that `assert_source_not_symlink` alone cannot
+# close by refusing only the top-level path.
+#
+# Reuses shutil.copytree(..., symlinks=False) -- the exact primitive already
+# proven safe by this codebase in the preview-mode scratch_root copy (both
+# drivers' own preview print loops), which lists the resolved directory's
+# entries and dereferences every symlink it encounters, producing a
+# genuinely independent tree -- rather than inventing a third copy strategy
+# (e.g. `cp -aL`).
+#
+# Caller contract: <dst> MUST NOT already exist (shutil.copytree's own
+# contract) -- every current caller passes a fresh path under a
+# just-created `mktemp -d` directory, so this is never violated.
+copy_tree_dereferenced() {
+	local src="$1" dst="$2"
+	python3 -c '
+import shutil
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+shutil.copytree(src, dst, symlinks=False)
+' "$src" "$dst"
+}

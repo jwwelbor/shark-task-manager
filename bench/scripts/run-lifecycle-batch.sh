@@ -648,14 +648,9 @@ dispatch_pair() {
 	fi
 	# Source-side symlink policy (code-review-2026-08-21T1335-E40-F10.md
 	# round-5 finding 2): `[[ -d "$scratch_root" ]]` above follows a symlink
-	# and reports true for a symlink-to-directory. `cp -a` below implies
-	# --no-dereference for a TOP-LEVEL symlink source argument, so the
-	# "ephemeral" copy would actually be a NEW symlink to the SAME real
-	# template -- every write run-lifecycle.sh makes into what it believes
-	# is an isolated scratch copy would silently mutate the operator's real
-	# scratch_root template, violating this file's own header-comment
-	# guarantee ("This driver never mutates the template"). Refuse before
-	# cp -a ever runs, never dereference-and-proceed.
+	# and reports true for a symlink-to-directory. A TOP-LEVEL symlinked
+	# scratch_root would otherwise silently defeat template isolation.
+	# Refuse before any copy ever runs, never dereference-and-proceed.
 	if ! assert_source_not_symlink "$scratch_root" "scratch_root"; then
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "scratch_root_is_symlink"
@@ -666,7 +661,15 @@ dispatch_pair() {
 	local pair_work
 	pair_work="$(mktemp -d)"
 	local ephemeral="$pair_work/scratch"
-	cp -a "$scratch_root" "$ephemeral"
+	# Nested-symlink source safety (code-review-2026-08-21T1141-E40-F10.md
+	# round-6 finding 1): `assert_source_not_symlink` above only refuses a
+	# top-level symlinked scratch_root; a real scratch_root directory
+	# containing a NESTED symlink survives `cp -a` as a live symlink at the
+	# same relative path in "ephemeral", and a worker write through it
+	# silently mutates whatever that nested symlink targets.
+	# copy_tree_dereferenced (lib/path-safety.sh) dereferences every symlink
+	# in the copied tree, producing a genuinely independent ephemeral copy.
+	copy_tree_dereferenced "$scratch_root" "$ephemeral"
 	local lifecycle_out="$pair_work/lifecycle.jsonl"
 
 	echo "run-lifecycle-batch: dispatching $scenario_id rep $rep" >&2

@@ -611,6 +611,98 @@ SCRATCH_TEMPLATE_K_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE_K/marker.txt" | aw
 echo "TC-087(case K, round-5 finding 2): dispatch_gate refuses a symlinked scratch_root before cp -a -- the real template is provably untouched, the stub lifecycle worker is never invoked"
 
 # ---------------------------------------------------------------------------
+# Case L (round-6 finding 1, code-review-2026-08-21T1141-E40-F10.md): a REAL
+# (non-symlink) scratch_root directory containing a NESTED symlinked
+# subdirectory used to survive `cp -a` as a live symlink at the same
+# relative path in the "ephemeral" copy -- unlike case K's top-level
+# symlinked scratch_root (refused outright before any copy runs), this
+# scratch_root is real, so assert_source_not_symlink correctly allows
+# dispatch to proceed, and copy_tree_dereferenced must dereference the
+# nested symlink into a genuinely independent copy. i05_bundle_dir is left
+# unconfigured so the gate ultimately fails AFTER the copy+dispatch step
+# (mirroring this file's own "never fully drives a successful RUN_LIFECYCLE_
+# BIN dispatch" discipline) -- the point of this case is proving the STUB
+# WAS invoked (dispatch proceeded, unlike case K) and that its write through
+# the nested-symlink-shaped path never reached the external target, not
+# proving a full successful publish.
+# ---------------------------------------------------------------------------
+ROOT_L="$WORKDIR/root-l"
+mkdir -p "$ROOT_L"
+QA_ONLY_DIR_L="$ROOT_L/scenarios/$SCENARIO_ID/$QA_REP"
+mkdir -p "$QA_ONLY_DIR_L"
+cp "$WORKDIR/indep-compatible-qa.jsonl" "$QA_ONLY_DIR_L/evaluation.jsonl"
+python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$QA_REP" qa "$QA_ONLY_DIR_L/manifest.json"
+
+SCRATCH_NESTED_EXTERNAL_L="$WORKDIR/scratch-nested-external-l"
+mkdir -p "$SCRATCH_NESTED_EXTERNAL_L"
+echo "ORIGINAL EXTERNAL CONTENT -- must never be mutated" >"$SCRATCH_NESTED_EXTERNAL_L/marker.txt"
+SCRATCH_NESTED_EXTERNAL_L_BEFORE="$(sha256sum "$SCRATCH_NESTED_EXTERNAL_L/marker.txt" | awk '{print $1}')"
+
+# scratch_root itself is a REAL directory (not a symlink) -- only a
+# subdirectory nested inside it ("prompts") is a symlink to the external
+# target, mirroring the shape production `run-lifecycle.sh` writes into
+# (scratch/prompts/<ordinal>).
+SCRATCH_NESTED_ROOT_L="$WORKDIR/scratch-nested-root-l"
+mkdir -p "$SCRATCH_NESTED_ROOT_L"
+echo "real readme, not a symlink" >"$SCRATCH_NESTED_ROOT_L/readme.txt"
+ln -s "$SCRATCH_NESTED_EXTERNAL_L" "$SCRATCH_NESTED_ROOT_L/prompts"
+
+CANDIDATE_L_YAML="$WORKDIR/candidate-l.yaml"
+cat >"$CANDIDATE_L_YAML" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCENARIO_ID"
+gates:
+  qa:
+    root_key: ""
+    scratch_root: ""
+  deep_review:
+    root_key: "ROOT-TC087-SCRATCH-NESTED-SYMLINK"
+    scratch_root: "$SCRATCH_NESTED_ROOT_L"
+EOF
+
+# The stub touches a sentinel OUTSIDE its own --scratch-root argument (a
+# fixed WORKDIR path, not under pair_work, which gets rm -rf'd once
+# dispatch_gate's later i05_bundle_dir check fails) to prove it was
+# genuinely invoked -- unlike case K, where the stub must NEVER run. It also
+# writes through the nested "prompts" path, mirroring what a real lifecycle
+# worker does.
+STUB_INVOKED_SENTINEL_L="$WORKDIR/stub-invoked-sentinel-l"
+SCRATCH_NESTED_STUB_L="$WORKDIR/scratch-nested-stub-l.sh"
+cat >"$SCRATCH_NESTED_STUB_L" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+scratch_root=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--scratch-root) scratch_root="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+touch "$STUB_INVOKED_SENTINEL_L"
+echo "WRITTEN BY STUB THROUGH NESTED PATH" >>"\$scratch_root/prompts/marker.txt"
+exit 0
+EOF
+chmod +x "$SCRATCH_NESTED_STUB_L"
+
+rc_l=0
+RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB_L" \
+	"$COMPARISON" --candidate "$CANDIDATE_L_YAML" --retention-root "$ROOT_L" \
+	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
+	>"$ROOT_L.out" 2>&1 || rc_l=$?
+[[ "$rc_l" -eq 4 ]] || fail "case L (round-6 finding 1): expected exit 4 (deep_review gate fails after dispatch, since i05_bundle_dir is deliberately unconfigured; comparison never attempted), got $rc_l: $(cat "$ROOT_L.out")"
+[[ -f "$STUB_INVOKED_SENTINEL_L" ]] || fail "case L (round-6 finding 1): the stub lifecycle worker was never invoked -- a real (non-symlink) scratch_root with a nested symlink must NOT be refused before dispatch (unlike case K's top-level symlink)"
+SCRATCH_NESTED_EXTERNAL_L_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL_L/marker.txt" | awk '{print $1}')"
+[[ "$SCRATCH_NESTED_EXTERNAL_L_AFTER" == "$SCRATCH_NESTED_EXTERNAL_L_BEFORE" ]] \
+	|| fail "case L (round-6 finding 1): the external target of the nested symlink was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_NESTED_EXTERNAL_L/marker.txt")"
+[[ -L "$SCRATCH_NESTED_ROOT_L/prompts" ]] || fail "case L (round-6 finding 1): the original scratch_root's own nested symlink was unexpectedly removed/replaced"
+[[ ! -f "$ROOT_L/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case L (round-6 finding 1): a comparison must never be published when the deep_review gate's evaluation failed"
+
+echo "TC-087(case L, round-6 finding 1): dispatch_gate dispatches (does not refuse) a real scratch_root containing a nested symlink -- the stub lifecycle worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+
+# ---------------------------------------------------------------------------
 # AC-T3 (T-E40-F10-014's future static-grep target, proven here too):
 # run-review-comparison.sh contains none of the comparator's own
 # candidate/policy digest field names -- delegates identity adjudication

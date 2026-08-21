@@ -1159,6 +1159,133 @@ SCRATCH_TEMPLATE_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE/marker.txt" | awk '{
 echo "TC-082(dispatch_pair scratch_root symlink, round-5 finding 2): a symlinked scratch_root is refused before cp -a -- the real template is provably untouched, the stub lifecycle worker is never invoked"
 
 # ---------------------------------------------------------------------------
+# dispatch_pair scratch_root NESTED symlink (round-6 finding 1,
+# code-review-2026-08-21T1141-E40-F10.md): a REAL (non-symlink) scratch_root
+# directory containing a NESTED symlinked subdirectory used to survive
+# `cp -a` as a live symlink at the same relative path in the "ephemeral"
+# copy -- `cp -a` preserves every symlink it encounters during a recursive
+# copy, not just a top-level symlink source argument, so a worker write
+# through the believed-isolated ephemeral copy would silently reach
+# whatever the nested symlink targets. Unlike the top-level case above
+# (round-5 finding 2, which is refused outright before any copy runs),
+# this case is a REAL scratch_root -- assert_source_not_symlink correctly
+# allows it through -- and the driver is now expected to PROCEED
+# (copy_tree_dereferenced dereferences the nested symlink into a real,
+# independent copy) rather than refuse. Proves: the dispatch succeeds, the
+# stub lifecycle worker's write through the nested-symlink-shaped path in
+# its ephemeral scratch-root argument lands only in the ephemeral copy, and
+# the external target the nested symlink points to is provably untouched.
+# ---------------------------------------------------------------------------
+SCRATCH_NESTED_ROOT="$WORKDIR/scratch-nested-root"
+mkdir -p "$SCRATCH_NESTED_ROOT"
+
+SCRATCH_NESTED_EXTERNAL="$WORKDIR/scratch-nested-external"
+mkdir -p "$SCRATCH_NESTED_EXTERNAL"
+echo "ORIGINAL EXTERNAL CONTENT -- must never be mutated" >"$SCRATCH_NESTED_EXTERNAL/marker.txt"
+SCRATCH_NESTED_EXTERNAL_BEFORE="$(sha256sum "$SCRATCH_NESTED_EXTERNAL/marker.txt" | awk '{print $1}')"
+
+# The scratch_root itself is a REAL directory (not a symlink) -- only a
+# subdirectory nested inside it ("prompts") is a symlink to the external
+# target, mirroring the shape production `run-lifecycle.sh` writes into
+# (scratch/prompts/<ordinal>).
+mkdir -p "$SCRATCH_NESTED_ROOT"
+echo "real readme, not a symlink" >"$SCRATCH_NESTED_ROOT/readme.txt"
+ln -s "$SCRATCH_NESTED_EXTERNAL" "$SCRATCH_NESTED_ROOT/prompts"
+
+# i05_bundle_dir must be configured for dispatch_pair to reach a genuine
+# exit-0 success (not "i05_bundle_not_configured") -- mirrors (a2)'s
+# DRIVER_I05_BUNDLE above.
+SCRATCH_NESTED_I05_BUNDLE="$WORKDIR/scratch-nested-i05-bundle"
+mkdir -p "$SCRATCH_NESTED_I05_BUNDLE/transcripts"
+echo '{"stage": "code", "note": "tc082 nested-symlink evidence"}' >"$SCRATCH_NESTED_I05_BUNDLE/stage.json"
+echo "tc082 nested-symlink transcript" >"$SCRATCH_NESTED_I05_BUNDLE/transcripts/stage.txt"
+
+SCRATCH_NESTED_SCENARIO="scenario-tc082-scratch-nested-symlink"
+SCRATCH_NESTED_INDEX="$WORKDIR/scratch-nested-index"
+mkdir -p "$SCRATCH_NESTED_INDEX/packages/$SCRATCH_NESTED_SCENARIO"
+cat >"$SCRATCH_NESTED_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCRATCH_NESTED_SCENARIO
+EOF
+cat >"$SCRATCH_NESTED_INDEX/packages/$SCRATCH_NESTED_SCENARIO/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCRATCH_NESTED_SCENARIO"
+scenario_version: "1"
+entity_family: "family-tc082-scratch-nested-symlink"
+EOF
+cat >"$WORKDIR/scratch-nested-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SCRATCH_NESTED_INDEX/scenarios.yaml"
+scenarios:
+  $SCRATCH_NESTED_SCENARIO:
+    root_key: "ROOT-TC082-SCRATCH-NESTED-SYMLINK"
+    scratch_root: "$SCRATCH_NESTED_ROOT"
+    i05_bundle_dir: "$SCRATCH_NESTED_I05_BUNDLE"
+    reps: 1
+EOF
+
+SCRATCH_NESTED_ROOT_OUT="$WORKDIR/scratch-nested-root-out"
+mkdir -p "$SCRATCH_NESTED_ROOT_OUT"
+
+# A stub RUN_LIFECYCLE_BIN that writes through its own --scratch-root
+# argument's nested "prompts" path (mirroring what a real lifecycle worker
+# does), and also produces a well-formed lifecycle.jsonl (via cp of the
+# committed I-07 fixture) plus a matching EVALUATE_LIFECYCLE_BIN stub so
+# this run reaches retain_pair and a full, real success path -- proving
+# isolation holds all the way through a genuine dispatch, not merely up to
+# a refusal.
+SCRATCH_NESTED_STUB="$WORKDIR/scratch-nested-stub.sh"
+cat >"$SCRATCH_NESTED_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+scratch_root=""
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--scratch-root) scratch_root="\$2"; shift 2 ;;
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+echo "WRITTEN BY STUB THROUGH NESTED PATH" >>"\$scratch_root/prompts/marker.txt"
+cp "$I07_FIXTURE" "\$output"
+exit 0
+EOF
+chmod +x "$SCRATCH_NESTED_STUB"
+
+SCRATCH_NESTED_EVAL_STUB="$WORKDIR/scratch-nested-eval-stub.sh"
+cat >"$SCRATCH_NESTED_EVAL_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+cp "$I08_FIXTURE" "\$output"
+touch "\$output.oracle.json"
+exit 0
+EOF
+chmod +x "$SCRATCH_NESTED_EVAL_STUB"
+
+scratch_nested_rc=0
+RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_NESTED_EVAL_STUB" \
+	"$BATCH" --batch "$WORKDIR/scratch-nested-batch-policy.yaml" --retention-root "$SCRATCH_NESTED_ROOT_OUT" \
+	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-nested.out" 2>&1 || scratch_nested_rc=$?
+[[ "$scratch_nested_rc" -eq 0 ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): expected exit 0 (a real scratch_root with a nested symlink must be dispatched, not refused), got $scratch_nested_rc: $(cat "$WORKDIR/scratch-nested.out")"
+
+SCRATCH_NESTED_EXTERNAL_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL/marker.txt" | awk '{print $1}')"
+[[ "$SCRATCH_NESTED_EXTERNAL_AFTER" == "$SCRATCH_NESTED_EXTERNAL_BEFORE" ]] \
+	|| fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): the external target of the nested symlink was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_NESTED_EXTERNAL/marker.txt")"
+[[ -L "$SCRATCH_NESTED_ROOT/prompts" ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): the original scratch_root's own nested symlink was unexpectedly removed/replaced"
+
+echo "TC-082(dispatch_pair scratch_root NESTED symlink, round-6 finding 1): a real scratch_root containing a nested symlink is dispatched successfully (not refused), the worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+
+# ---------------------------------------------------------------------------
 # Unit-level proof (round-5 report, Section E "Missing boundary cases" and
 # this dispatch's own explicit instruction): assert_no_symlink_in_chain
 # must reject a symlink at an ARBITRARY INTERMEDIATE path component -- not
