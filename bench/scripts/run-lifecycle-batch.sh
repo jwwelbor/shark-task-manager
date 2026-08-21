@@ -486,6 +486,14 @@ for row in rows:
         continue
 
     ephemeral = os.path.join(work_dir, re.sub(r"[^A-Za-z0-9._-]", "_", row["scenario_id"]))
+    # No source-side symlink guard needed here (round-5 sweep,
+    # code-review-2026-08-21T1335-E40-F10.md finding 2): unlike dispatch_pair's
+    # `cp -a`, shutil.copytree does NOT preserve a top-level symlink source --
+    # it lists the resolved directory's entries via os.scandir and creates a
+    # genuinely new, independent `ephemeral` directory (empirically verified
+    # for this fix: a symlinked scratch_root here produces a real directory
+    # at `ephemeral`, never a symlink to the template). Different copy
+    # primitive, not vulnerable to the finding-2 defect class.
     shutil.copytree(scratch_root, ephemeral)
     output_path = os.path.join(work_dir, f"{row['scenario_id']}-preview-lifecycle.jsonl")
 
@@ -600,17 +608,19 @@ retain_pair() {
 	local scenario_id="$1" rep="$2" package_path="$3" lifecycle_jsonl="$4" evaluation_jsonl="$5" i05_bundle_dir="$6"
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
-	# Symlink write-through, dest-level (code-review-2026-08-21T0330-E40-F10.md
-	# finding 2, swept to this call site's sibling of run-review-comparison.sh's
-	# retain_gate(), the SAME defect class at the SAME shared assumption):
-	# assert_within_out_root refuses a `dest` symlink that escapes
-	# out_root_canon, but a symlink redirected to ANOTHER retained pair's
-	# directory INSIDE the same root still passes containment, and mkdir -p
-	# would silently no-op against it -- every artifact lib/retain_pair
-	# writes would then land in that unrelated in-root directory. Refuse
+	# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding
+	# 2; STRUCTURALLY closed round-5, code-review-2026-08-21T1335-E40-F10.md
+	# finding 1): assert_within_out_root refuses a `dest` symlink that
+	# escapes out_root_canon, but a symlink redirected to ANOTHER retained
+	# pair's directory INSIDE the same root -- whether AT dest itself or at
+	# an ANCESTOR of dest (e.g. scenarios/$scenario_id itself) -- still
+	# passes containment, and mkdir -p would silently no-op against it. Walk
+	# the WHOLE chain from out_root_canon down to dest, not just dest's own
+	# leaf -L status, so an ancestor-level redirect can never slip past this
+	# guard the way it did round 5's leaf-only symlink_dest() check. Refuse
 	# loudly before mkdir -p ever runs.
-	if symlink_dest "$dest"; then
-		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to retain -- $dest is a pre-existing symlink, not a real directory" >&2
+	if ! assert_no_symlink_in_chain "$out_root_canon" "$dest"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to retain -- a symlink was found in the path to $dest" >&2
 		return 1
 	fi
 	mkdir -p "$dest"
@@ -626,6 +636,29 @@ dispatch_pair() {
 		echo "run-lifecycle-batch: $scenario_id rep $rep: root_key/scratch_root not configured; recorded failed, batch proceeds" >&2
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "root_key_or_scratch_root_not_configured"
+		overall_bad="true"
+		return 0
+	fi
+	if [[ ! -d "$scratch_root" ]]; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: configured scratch_root does not exist: $scratch_root" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "scratch_root_not_found"
+		overall_bad="true"
+		return 0
+	fi
+	# Source-side symlink policy (code-review-2026-08-21T1335-E40-F10.md
+	# round-5 finding 2): `[[ -d "$scratch_root" ]]` above follows a symlink
+	# and reports true for a symlink-to-directory. `cp -a` below implies
+	# --no-dereference for a TOP-LEVEL symlink source argument, so the
+	# "ephemeral" copy would actually be a NEW symlink to the SAME real
+	# template -- every write run-lifecycle.sh makes into what it believes
+	# is an isolated scratch copy would silently mutate the operator's real
+	# scratch_root template, violating this file's own header-comment
+	# guarantee ("This driver never mutates the template"). Refuse before
+	# cp -a ever runs, never dereference-and-proceed.
+	if ! assert_source_not_symlink "$scratch_root" "scratch_root"; then
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "scratch_root_is_symlink"
 		overall_bad="true"
 		return 0
 	fi
@@ -712,19 +745,24 @@ sys.exit(0 if (str(manifest.get("scenario_id", "")) == scenario_id and str(manif
 # classify_pair <scenario_id> <rep> -- prints symlinked_dest /
 # provenance_mismatch / skipped_complete / incomplete_prior_attempt /
 # pending, mirroring run-batch.sh classify_pair (extended with the two new
-# read-side provenance classifications, round-4 finding 2).
+# read-side provenance classifications, round-4 finding 2; STRUCTURALLY
+# extended round-5, code-review-2026-08-21T1335-E40-F10.md finding 1, to
+# walk the whole chain rather than the leaf-level directory alone).
 classify_pair() {
 	local scenario_id="$1" rep="$2"
 	local dir="$out_root_canon/scenarios/$scenario_id/$rep"
-	# Symlink-at-rep-directory (round-4 finding 2): the pre-round-4 checks
-	# below tested artifact PRESENCE through `dir` before retain_pair()'s
-	# own -L guard (reached only on the "not yet retained, must create"
-	# branch) ever ran. A pre-existing symlink AT the rep-level directory
-	# itself -- never covered by that guard -- would silently alias this
-	# scenario's retained pair to whatever the symlink resolves to. Refuse
-	# to classify it as complete (or as a normal incomplete/pending
-	# directory) before ever trusting its presence.
-	if symlink_dest "$dir"; then
+	# Symlink anywhere from out_root_canon down to $dir, inclusive (round-4
+	# finding 2 closed the LEAF case; round-5 finding 1 found the identical
+	# gap one level up: a symlink at scenarios/$scenario_id itself -- fully
+	# inside out_root_canon, so assert_within_out_root's containment check
+	# alone does not catch it -- silently aliases this scenario's retained
+	# pair to whatever the symlink resolves to. The pre-round-5 checks below
+	# tested artifact PRESENCE through `dir` before retain_pair()'s own -L
+	# guard (reached only on the "not yet retained, must create" branch)
+	# ever ran, and that guard itself only ever inspected the LEAF. Refuse
+	# to classify ANY chain-compromised path as complete (or as a normal
+	# incomplete/pending directory) before ever trusting its presence.
+	if ! assert_no_symlink_in_chain "$out_root_canon" "$dir"; then
 		echo "symlinked_dest"
 		return 0
 	fi
@@ -755,23 +793,30 @@ quarantine_pair() {
 	local incomplete_root="$incomplete_top/$scenario_id"
 	assert_within_out_root "$dir" || return 1
 	assert_within_out_root "$incomplete_root" || return 1
-	# Symlink-at-mkdir-target (round-4 sweep, code-review-2026-08-21T0459-
-	# E40-F10.md): `mkdir -p` treats a pre-existing symlink-to-directory at
-	# EITHER path component as "already there, fine" and silently no-ops
+	# Symlink-anywhere-in-chain (round-4 sweep, code-review-2026-08-21T0459-
+	# E40-F10.md; STRUCTURALLY extended round-5, code-review-2026-08-21T1335-
+	# E40-F10.md finding 1, to walk the full chain rather than two named leaf
+	# components): `mkdir -p` treats a pre-existing symlink-to-directory at
+	# ANY path component as "already there, fine" and silently no-ops
 	# against it, exactly the same defect class as retain_pair()/
-	# retain_gate()'s own `dest` guard above -- the subsequent `mv "$dir"
-	# "$dest"` below would then relocate a quarantined prior attempt INTO
-	# whatever the symlink resolves to (still in-root, so
-	# assert_within_out_root alone does not catch it) instead of this
-	# scenario's own `.incomplete/` area. Checked at both the leaf
-	# (`.incomplete/<scenario_id>`) and its parent (`.incomplete`), since
-	# `mkdir -p` walks and would silently accept a symlink at either.
-	if symlink_dest "$incomplete_top"; then
-		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to quarantine -- $incomplete_top is a pre-existing symlink, not a real directory" >&2
+	# retain_gate()'s own `dest` guard -- the subsequent `mv "$dir" "$dest"`
+	# below would then relocate a quarantined prior attempt INTO whatever
+	# the symlink resolves to (still in-root, so assert_within_out_root
+	# alone does not catch it) instead of this scenario's own `.incomplete/`
+	# area. A single chain walk from out_root_canon down to incomplete_root
+	# structurally covers every component `mkdir -p` would otherwise walk
+	# past (.incomplete, .incomplete/<scenario_id>, and any future nesting),
+	# not just the two components named by round 4's own fix. Also walked
+	# on `dir` itself (the source directory about to be moved): classify_pair
+	# already chain-checks this same path before quarantine_pair is ever
+	# reached, but re-checking here removes any implicit dependency on
+	# caller ordering.
+	if ! assert_no_symlink_in_chain "$out_root_canon" "$dir"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to quarantine -- a symlink was found in the path to $dir" >&2
 		return 1
 	fi
-	if symlink_dest "$incomplete_root"; then
-		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to quarantine -- $incomplete_root is a pre-existing symlink, not a real directory" >&2
+	if ! assert_no_symlink_in_chain "$out_root_canon" "$incomplete_root"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to quarantine -- a pre-existing symlink was found in the path to $incomplete_root" >&2
 		return 1
 	fi
 	mkdir -p "$incomplete_root"
@@ -811,7 +856,15 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "skipped_complete"
 			;;
 		symlinked_dest)
-			echo "run-lifecycle-batch: $scenario_id rep $rep: $dir is a pre-existing symlink, not a real directory; refusing to treat as complete or dispatch into it" >&2
+			# round-5 finding 1: $dir itself is not necessarily the literal
+			# symlink -- a symlink at any ANCESTOR component (e.g.
+			# scenarios/$scenario_id itself) between out_root_canon and $dir
+			# also lands here now that classify_pair() walks the whole
+			# chain. classify_pair()'s own assert_no_symlink_in_chain call
+			# already printed the exact symlinked path component above this
+			# line; this message stays accurate for both the leaf and
+			# ancestor shapes by not claiming $dir itself is the symlink.
+			echo "run-lifecycle-batch: $scenario_id rep $rep: a symlink was found in the path to $dir; refusing to treat as complete or dispatch into it" >&2
 			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 			record_invalid "$scenario_id" "$rep" "pre_existing_symlink_at_rep_directory"
 			overall_bad="true"
@@ -970,6 +1023,16 @@ batch = {
     "pairs": pairs,
 }
 batch_json_bytes = (json.dumps(batch, indent=2, sort_keys=True) + "\n").encode("utf-8")
+# No ancestor-chain check needed here (round-5 sweep, code-review-
+# 2026-08-21T1335-E40-F10.md finding 1): batch.json/invalid/ are direct,
+# single-level children of retention_root itself (the SAME trusted,
+# already-canonicalized anchor out_root_canon establishes) -- there is no
+# intermediate ancestor component between root and these two leaves for a
+# chain walk to add coverage for. install_atomic_file's tempfile+os.replace
+# already handles a pre-existing symlink AT batch.json itself (replaced
+# atomically, matching lib/retain_pair's own file-artifact convention); the
+# os.path.islink check below does the same for invalid/ as a directory
+# (refused, matching lib/retain_pair's directory-artifact convention).
 install_atomic_file(f"{retention_root}/batch.json", batch_json_bytes)
 
 invalid_dir = f"{retention_root}/invalid"

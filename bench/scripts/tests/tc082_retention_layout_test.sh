@@ -989,3 +989,216 @@ AFTER_QUARANTINE_DIGEST="$(sha256sum "$QUARANTINE_INCOMPLETE_DIR/package.yaml" |
 [[ "$AFTER_QUARANTINE_DIGEST" == "$QUARANTINE_BEFORE_DIGEST" ]] || fail "quarantine_pair symlink: the original incomplete prior attempt's bytes were modified"
 
 echo "TC-082(quarantine_pair symlink, round-4 sweep): quarantine_pair refuses to move an incomplete prior attempt through a pre-existing symlink at .incomplete/<scenario_id> -- foreign directory untouched, original attempt left in place"
+
+# ===========================================================================
+# STRUCTURAL FIX regression (code-review-2026-08-21T1335-E40-F10.md round 5,
+# user decision 2026-08-21): three new cases proving the shared
+# assert_no_symlink_in_chain / assert_source_not_symlink primitives
+# (bench/scripts/lib/path-safety.sh) close the two gaps round 5 found in
+# round 4's own "full audit sweep" -- an ANCESTOR-level symlink (not the
+# rep-directory leaf every prior case here plants), a symlinked scratch_root
+# defeating `cp -a` isolation, and a direct unit-level proof that the new
+# primitive rejects a symlink at an arbitrary INTERMEDIATE chain component,
+# not just the leaf or its immediate parent (the shape no existing test --
+# including this suite's own leaf-level and ancestor-level cases -- exercises,
+# since both of those only ever plant a symlink exactly one level above their
+# own leaf).
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# (round-5 finding 1) classify_pair: symlink at an ANCESTOR of the
+# rep-level directory -- scenarios/<scenario_id> itself, NOT
+# scenarios/<scenario_id>/<rep> (every symlink case above, including
+# "classify_pair symlink", plants the symlink exactly at the rep
+# directory). This redirect lands fully inside out_root_canon
+# (assert_within_out_root's containment check passes) and the rep-level
+# directory ENTRY reached through it is real, not itself a symlink --
+# invisible to a leaf-only -L test, since only the ANCESTOR redirects.
+# Live-reproduced exactly as code-review-2026-08-21T1335-E40-F10.md's own
+# "Confirmed reproduction, finding 1" section did against the real,
+# unmodified (pre-fix) driver: a real run-lifecycle-batch.sh --mode pilot
+# run silently reported "skipped_complete" for a scenario never actually
+# retained.
+# ---------------------------------------------------------------------------
+SYMLINK_ANCESTOR_ROOT="$WORKDIR/symlink-ancestor"
+mkdir -p "$SYMLINK_ANCESTOR_ROOT"
+
+FOREIGN_SCENARIO_ANCESTOR="scenario-tc082-ancestor-foreign"
+FOREIGN_DIR_ANCESTOR="$SYMLINK_ANCESTOR_ROOT/scenarios/$FOREIGN_SCENARIO_ANCESTOR"
+mkdir -p "$FOREIGN_DIR_ANCESTOR/1"
+cp "$SOURCES/evaluation.jsonl" "$FOREIGN_DIR_ANCESTOR/1/evaluation.jsonl"
+# Manifest forged to claim the VICTIM scenario_id/rep -- content that would
+# PASS pair_provenance_ok() if this directory were ever reached at all,
+# isolating the ancestor-symlink gap specifically (not a provenance gap).
+python3 -c 'import json,sys
+scenario_id, rep, dest = sys.argv[1:4]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$REP" "$FOREIGN_DIR_ANCESTOR/1/manifest.json"
+
+mkdir -p "$SYMLINK_ANCESTOR_ROOT/scenarios"
+# The ANCESTOR symlink itself: scenarios/$SCENARIO_ID (one level above the
+# rep directory), pointing at the foreign scenario's own real directory.
+ln -s "$FOREIGN_DIR_ANCESTOR" "$SYMLINK_ANCESTOR_ROOT/scenarios/$SCENARIO_ID"
+
+SYMLINK_ANCESTOR_INDEX="$WORKDIR/symlink-ancestor-index"
+mkdir -p "$SYMLINK_ANCESTOR_INDEX/packages/$SCENARIO_ID"
+cat >"$SYMLINK_ANCESTOR_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$SYMLINK_ANCESTOR_INDEX/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/symlink-ancestor-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SYMLINK_ANCESTOR_INDEX/scenarios.yaml"
+EOF
+
+symlink_ancestor_rc=0
+"$BATCH" --batch "$WORKDIR/symlink-ancestor-batch-policy.yaml" --retention-root "$SYMLINK_ANCESTOR_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/symlink-ancestor.out" 2>&1 || symlink_ancestor_rc=$?
+[[ "$symlink_ancestor_rc" -eq 4 ]] || fail "classify_pair ancestor symlink (round-5 finding 1): expected exit 4 (pair recorded failed, never treated as complete), got $symlink_ancestor_rc: $(cat "$WORKDIR/symlink-ancestor.out")"
+grep -q "skipped_complete" "$WORKDIR/symlink-ancestor.out" && fail "classify_pair ancestor symlink (round-5 finding 1): the pair reached through an ancestor-level symlink was classified skipped_complete -- expected a refusal instead: $(cat "$WORKDIR/symlink-ancestor.out")"
+grep -qi "symlink" "$WORKDIR/symlink-ancestor.out" || fail "classify_pair ancestor symlink (round-5 finding 1): expected a diagnostic naming the symlink: $(cat "$WORKDIR/symlink-ancestor.out")"
+[[ -L "$SYMLINK_ANCESTOR_ROOT/scenarios/$SCENARIO_ID" ]] || fail "classify_pair ancestor symlink (round-5 finding 1): the pre-existing ANCESTOR symlink was unexpectedly removed/replaced"
+[[ "$(cat "$FOREIGN_DIR_ANCESTOR/1/evaluation.jsonl")" == "$(cat "$SOURCES/evaluation.jsonl")" ]] \
+	|| fail "classify_pair ancestor symlink (round-5 finding 1): the foreign scenario's own retained evaluation.jsonl was modified"
+grep -q "pre_existing_symlink_at_rep_directory" "$SYMLINK_ANCESTOR_ROOT/invalid/index.jsonl" \
+	|| fail "classify_pair ancestor symlink (round-5 finding 1): invalid/index.jsonl did not record the pre_existing_symlink_at_rep_directory reason: $(cat "$SYMLINK_ANCESTOR_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+
+echo "TC-082(classify_pair ancestor-level symlink, round-5 finding 1): classify_pair now refuses to treat a scenario reached through an ANCESTOR-level symlink (scenarios/<scenario_id> itself, one level above the rep directory) as skipped_complete -- structurally closed via assert_no_symlink_in_chain"
+
+# ---------------------------------------------------------------------------
+# (round-5 finding 2) dispatch_pair: a symlinked scratch_root must be
+# refused BEFORE `cp -a`, not silently copied. GNU `cp -a` implies
+# --no-dereference for a TOP-LEVEL symlink source argument, so a symlinked
+# scratch_root would previously have produced an "ephemeral" copy that is
+# itself a symlink to the SAME real template -- any write a worker makes
+# into what it believes is an isolated copy mutates the operator's real
+# template. This drives the REAL dispatch_pair() path (stubbed
+# RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN, same TD-077 substitution
+# convention as (a2) above) with a scratch_root that is a symlink to a real
+# template directory, and proves: the batch refuses the pair (never
+# silently proceeds), the stub is never invoked (no lifecycle/evaluation
+# output is produced), and the real template's own content is provably
+# untouched.
+# ---------------------------------------------------------------------------
+SCRATCH_SYMLINK_ROOT="$WORKDIR/scratch-symlink-root"
+mkdir -p "$SCRATCH_SYMLINK_ROOT"
+
+SCRATCH_REAL_TEMPLATE="$WORKDIR/scratch-real-template"
+mkdir -p "$SCRATCH_REAL_TEMPLATE"
+echo "ORIGINAL TEMPLATE CONTENT -- must never be mutated" >"$SCRATCH_REAL_TEMPLATE/marker.txt"
+SCRATCH_TEMPLATE_BEFORE="$(sha256sum "$SCRATCH_REAL_TEMPLATE/marker.txt" | awk '{print $1}')"
+
+SCRATCH_SYMLINK="$WORKDIR/scratch-symlink"
+ln -s "$SCRATCH_REAL_TEMPLATE" "$SCRATCH_SYMLINK"
+
+SCRATCH_SYMLINK_SCENARIO="scenario-tc082-scratch-symlink"
+SCRATCH_SYMLINK_INDEX="$WORKDIR/scratch-symlink-index"
+mkdir -p "$SCRATCH_SYMLINK_INDEX/packages/$SCRATCH_SYMLINK_SCENARIO"
+cat >"$SCRATCH_SYMLINK_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCRATCH_SYMLINK_SCENARIO
+EOF
+cat >"$SCRATCH_SYMLINK_INDEX/packages/$SCRATCH_SYMLINK_SCENARIO/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCRATCH_SYMLINK_SCENARIO"
+scenario_version: "1"
+entity_family: "family-tc082-scratch-symlink"
+EOF
+cat >"$WORKDIR/scratch-symlink-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SCRATCH_SYMLINK_INDEX/scenarios.yaml"
+scenarios:
+  $SCRATCH_SYMLINK_SCENARIO:
+    root_key: "ROOT-TC082-SCRATCH-SYMLINK"
+    scratch_root: "$SCRATCH_SYMLINK"
+    reps: 1
+EOF
+
+# A stub that, if it were EVER invoked, proves this test would have caught a
+# regression: it writes into its own --scratch-root argument (mirroring what
+# a real lifecycle worker does) so a mutation would be observable on the
+# real template if isolation were broken. Never expected to run at all
+# (dispatch is refused before cp -a), but present so a future regression
+# that removed the refusal (rather than merely making it non-loud) would
+# still be caught by the digest assertion below, not just by an exit-code
+# check.
+SCRATCH_SYMLINK_STUB="$WORKDIR/scratch-symlink-stub.sh"
+cat >"$SCRATCH_SYMLINK_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+scratch_root=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--scratch-root) scratch_root="$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+echo "WRITTEN BY STUB (should never run)" >>"$scratch_root/marker.txt"
+exit 0
+EOF
+chmod +x "$SCRATCH_SYMLINK_STUB"
+
+scratch_symlink_rc=0
+RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB" \
+	"$BATCH" --batch "$WORKDIR/scratch-symlink-batch-policy.yaml" --retention-root "$SCRATCH_SYMLINK_ROOT" \
+	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-symlink.out" 2>&1 || scratch_symlink_rc=$?
+[[ "$scratch_symlink_rc" -eq 4 ]] || fail "dispatch_pair scratch_root symlink (round-5 finding 2): expected exit 4 (pair recorded failed, batch proceeds), got $scratch_symlink_rc: $(cat "$WORKDIR/scratch-symlink.out")"
+grep -qi "symlink" "$WORKDIR/scratch-symlink.out" || fail "dispatch_pair scratch_root symlink (round-5 finding 2): expected a diagnostic naming the symlink: $(cat "$WORKDIR/scratch-symlink.out")"
+grep -q "scratch_root_is_symlink" "$SCRATCH_SYMLINK_ROOT/invalid/index.jsonl" \
+	|| fail "dispatch_pair scratch_root symlink (round-5 finding 2): invalid/index.jsonl did not record the scratch_root_is_symlink reason: $(cat "$SCRATCH_SYMLINK_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+SCRATCH_TEMPLATE_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE/marker.txt" | awk '{print $1}')"
+[[ "$SCRATCH_TEMPLATE_AFTER" == "$SCRATCH_TEMPLATE_BEFORE" ]] \
+	|| fail "dispatch_pair scratch_root symlink (round-5 finding 2): the real template's content was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_REAL_TEMPLATE/marker.txt")"
+[[ -L "$SCRATCH_SYMLINK" ]] || fail "dispatch_pair scratch_root symlink (round-5 finding 2): the scratch_root symlink itself was unexpectedly removed/replaced"
+
+echo "TC-082(dispatch_pair scratch_root symlink, round-5 finding 2): a symlinked scratch_root is refused before cp -a -- the real template is provably untouched, the stub lifecycle worker is never invoked"
+
+# ---------------------------------------------------------------------------
+# Unit-level proof (round-5 report, Section E "Missing boundary cases" and
+# this dispatch's own explicit instruction): assert_no_symlink_in_chain
+# must reject a symlink at an ARBITRARY INTERMEDIATE path component -- not
+# just the leaf (the "classify_pair symlink" case above) or the leaf's
+# immediate parent/ancestor (the "ancestor symlink" case above) -- since
+# both of THOSE cases only ever plant a symlink exactly one level above
+# their own leaf. This drives bench/scripts/lib/path-safety.sh's shared
+# primitive directly (sourced in a subshell, no driver invocation needed)
+# against a synthetic root/leaf pair four levels deep, with the symlink
+# planted at level 2 of 4 -- neither the leaf (level 4) nor its immediate
+# parent (level 3).
+# ---------------------------------------------------------------------------
+CHAIN_UNIT_ROOT="$WORKDIR/chain-unit-root"
+mkdir -p "$CHAIN_UNIT_ROOT/level1"
+CHAIN_UNIT_FOREIGN="$WORKDIR/chain-unit-foreign"
+mkdir -p "$CHAIN_UNIT_FOREIGN"
+echo "leftover" >"$CHAIN_UNIT_FOREIGN/leftover.txt"
+# level2 (an INTERMEDIATE component: two levels below root, two levels
+# above the leaf) is the symlink -- neither the leaf nor its immediate
+# parent.
+ln -s "$CHAIN_UNIT_FOREIGN" "$CHAIN_UNIT_ROOT/level1/level2"
+
+chain_unit_rc=0
+bash -c '
+	source "'"$SCRIPTS_DIR"'/lib/path-safety.sh"
+	assert_no_symlink_in_chain "'"$CHAIN_UNIT_ROOT"'" "'"$CHAIN_UNIT_ROOT"'/level1/level2/level3/level4"
+' >"$WORKDIR/chain-unit.out" 2>&1 || chain_unit_rc=$?
+[[ "$chain_unit_rc" -ne 0 ]] || fail "assert_no_symlink_in_chain unit test: expected a nonzero (refused) exit for a symlink at an intermediate chain component (level2 of a 4-level path), got 0: $(cat "$WORKDIR/chain-unit.out")"
+grep -q "level1/level2" "$WORKDIR/chain-unit.out" || fail "assert_no_symlink_in_chain unit test: expected the diagnostic to name the exact intermediate symlinked path (level1/level2): $(cat "$WORKDIR/chain-unit.out")"
+
+# Counter-proof: the identical chain WITHOUT the intermediate symlink (a
+# genuinely deep, real path) must be reported safe -- proving the refusal
+# above is caused by the planted symlink, not by chain depth itself.
+CHAIN_UNIT_ROOT_CLEAN="$WORKDIR/chain-unit-root-clean"
+mkdir -p "$CHAIN_UNIT_ROOT_CLEAN/level1/level2/level3"
+chain_unit_clean_rc=0
+bash -c '
+	source "'"$SCRIPTS_DIR"'/lib/path-safety.sh"
+	assert_no_symlink_in_chain "'"$CHAIN_UNIT_ROOT_CLEAN"'" "'"$CHAIN_UNIT_ROOT_CLEAN"'/level1/level2/level3/level4"
+' >"$WORKDIR/chain-unit-clean.out" 2>&1 || chain_unit_clean_rc=$?
+[[ "$chain_unit_clean_rc" -eq 0 ]] || fail "assert_no_symlink_in_chain unit test counter-proof: a genuinely deep path with no symlink anywhere must be reported safe, got exit $chain_unit_clean_rc: $(cat "$WORKDIR/chain-unit-clean.out")"
+
+echo "TC-082(assert_no_symlink_in_chain intermediate-component unit test, round-5 structural fix): the shared primitive rejects a symlink at an arbitrary intermediate path component (neither the leaf nor its immediate parent), and does not falsely reject an equally deep symlink-free path"

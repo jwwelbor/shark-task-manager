@@ -388,6 +388,14 @@ for row in rows:
         continue
 
     ephemeral = os.path.join(work_dir, re.sub(r"[^A-Za-z0-9._-]", "_", row["gate"]))
+    # No source-side symlink guard needed here (round-5 sweep,
+    # code-review-2026-08-21T1335-E40-F10.md finding 2): unlike dispatch_gate's
+    # `cp -a`, shutil.copytree does NOT preserve a top-level symlink source --
+    # it lists the resolved directory's entries via os.scandir and creates a
+    # genuinely new, independent `ephemeral` directory (empirically verified
+    # for this fix: a symlinked scratch_root here produces a real directory
+    # at `ephemeral`, never a symlink to the template). Different copy
+    # primitive, not vulnerable to the finding-2 defect class.
     shutil.copytree(scratch_root, ephemeral)
     output_path = os.path.join(work_dir, f"{row['gate']}-preview-lifecycle.jsonl")
 
@@ -506,18 +514,19 @@ retain_gate() {
 	local scenario_id="$1" rep="$2" gate="$3" package_path="$4" lifecycle_jsonl="$5" evaluation_jsonl="$6" i05_bundle_dir="$7"
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
-	# Symlink write-through, dest-level (code-review-2026-08-21T0330-E40-F10.md
-	# finding 2, swept to this call site's own "rep/gate-provenance
-	# assumption"): assert_within_out_root resolves an existing symlink at
+	# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding
+	# 2; STRUCTURALLY closed round-5, code-review-2026-08-21T1335-E40-F10.md
+	# finding 1): assert_within_out_root resolves an existing symlink at
 	# `dest` and refuses it if it escapes out_root_canon, but a symlink
 	# redirected to ANOTHER retained pair's directory INSIDE the same root
-	# still passes containment -- mkdir -p would then silently no-op
-	# against it, and every artifact lib/retain_pair writes would land in
-	# that unrelated in-root directory instead of this gate's own. Refuse
-	# loudly before mkdir -p ever runs, rather than let a symlinked `dest`
-	# masquerade as this gate's real directory.
-	if symlink_dest "$dest"; then
-		echo "run-review-comparison: $gate gate: refusing to retain -- $dest is a pre-existing symlink, not a real directory" >&2
+	# -- whether AT dest itself or at an ANCESTOR of dest (e.g.
+	# scenarios/$scenario_id itself) -- still passes containment, and
+	# mkdir -p would then silently no-op against it. Walk the WHOLE chain
+	# from out_root_canon down to dest, not just dest's own leaf -L status,
+	# so an ancestor-level redirect can never slip past this guard the way
+	# it did round 5's leaf-only symlink_dest() check.
+	if ! assert_no_symlink_in_chain "$out_root_canon" "$dest"; then
+		echo "run-review-comparison: $gate gate: refusing to retain -- a symlink was found in the path to $dest" >&2
 		return 1
 	fi
 	mkdir -p "$dest"
@@ -566,19 +575,24 @@ dispatch_gate() {
 	rep="$(gate_rep "$gate")" || return 1
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 
-	# Symlink-at-rep-directory (code-review-2026-08-21T0459-E40-F10.md
-	# round-4 finding 2): the "already retained, skip real dispatch" fast
-	# path below used to test artifact PRESENCE (-f "$dest/evaluation.jsonl")
-	# through `dest` before this driver's own -L guard (retain_gate(),
-	# reached only on the "not yet retained, must create" branch) or the
-	# provenance check ever ran. A pre-existing symlink AT the rep-level
-	# directory itself -- never covered by either guard, since both only
-	# fire on the create path -- would silently alias this scenario's gate
-	# pair to whatever the symlink resolves to. Refuse before ever trusting
-	# `dest`'s presence, on both branches (already-retained skip AND
-	# pending-dispatch), using the same shared predicate retain_gate() uses.
-	if symlink_dest "$dest"; then
-		echo "run-review-comparison: $gate gate: refusing to reuse or dispatch -- $dest is a pre-existing symlink, not a real directory" >&2
+	# Symlink-anywhere-in-chain (code-review-2026-08-21T0459-E40-F10.md
+	# round-4 finding 2; STRUCTURALLY extended round-5, code-review-
+	# 2026-08-21T1335-E40-F10.md finding 1, to walk the full chain rather
+	# than the leaf-level directory alone): the "already retained, skip real
+	# dispatch" fast path below used to test artifact PRESENCE
+	# (-f "$dest/evaluation.jsonl") through `dest` before this driver's own
+	# -L guard (retain_gate(), reached only on the "not yet retained, must
+	# create" branch) or the provenance check ever ran. round 5 found the
+	# identical gap one directory level up: a symlink at
+	# scenarios/$scenario_id itself (fully inside out_root_canon, so
+	# assert_within_out_root's containment check alone does not catch it)
+	# would silently alias this scenario's gate pair to whatever it resolves
+	# to, invisible to a leaf-only -L test since `dest` itself is a real
+	# directory entry. Refuse before ever trusting `dest`'s presence, on
+	# both branches (already-retained skip AND pending-dispatch), using the
+	# same shared chain-walking predicate retain_gate() uses.
+	if ! assert_no_symlink_in_chain "$out_root_canon" "$dest"; then
+		echo "run-review-comparison: $gate gate: refusing to reuse or dispatch -- a symlink was found in the path to $dest" >&2
 		return 1
 	fi
 
@@ -598,6 +612,17 @@ dispatch_gate() {
 	fi
 	if [[ ! -d "$scratch_root" ]]; then
 		echo "run-review-comparison: $gate gate: configured scratch_root does not exist: $scratch_root" >&2
+		return 1
+	fi
+	# Source-side symlink policy (code-review-2026-08-21T1335-E40-F10.md
+	# round-5 finding 2): `[[ -d "$scratch_root" ]]` above follows a symlink
+	# and reports true for a symlink-to-directory. `cp -a` below implies
+	# --no-dereference for a TOP-LEVEL symlink source argument, so the
+	# "ephemeral" copy would actually be a NEW symlink to the SAME real
+	# template -- every write run-lifecycle.sh makes into what it believes
+	# is an isolated scratch copy would silently mutate the operator's real
+	# scratch_root template. Refuse before cp -a ever runs.
+	if ! assert_source_not_symlink "$scratch_root" "scratch_root"; then
 		return 1
 	fi
 
@@ -720,6 +745,22 @@ case "$comparator_rc" in
 	comparison_dest_dir="$out_root_canon/scenarios/$scenario_id_global/$comparison_rep"
 	comparison_dest="$comparison_dest_dir/comparison.json"
 	assert_within_out_root "$comparison_dest" || exit 1
+	# Ancestor-chain check (code-review-2026-08-21T1335-E40-F10.md round-5
+	# finding 1), scoped to comparison_dest_dir -- deliberately NOT to
+	# comparison_dest itself (the comparison.json FILE), whose own
+	# pre-existing-symlink-at-the-leaf case is handled below by design (the
+	# `mv -T --` atomic replace tolerates and REPLACES a symlink AT this
+	# exact leaf, per TC-087 cases F/G -- that is correct, intended
+	# behavior, not a gap). What round 5 found is a DIFFERENT path: a
+	# symlink at an ANCESTOR of comparison_dest_dir (e.g.
+	# scenarios/$scenario_id_global itself), redirecting the whole directory
+	# this file is about to be installed into. dispatch_gate() above already
+	# chain-checked this identical directory (comparison_dest_dir ==
+	# dispatch_gate's own `dest` for the deep_review gate) earlier in this
+	# same single-threaded run, but re-checking here removes any implicit
+	# dependency on call-order reasoning between two independent write call
+	# sites in this file.
+	assert_no_symlink_in_chain "$out_root_canon" "$comparison_dest_dir" || exit 1
 	# Symlink write-through (code-review-2026-08-21T0459-E40-F10.md round-4
 	# finding 1; originally flagged code-review-2026-08-21T0330-E40-F10.md
 	# finding 2): assert_within_out_root above already refuses a symlink at

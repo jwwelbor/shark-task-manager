@@ -182,6 +182,17 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     source_path = Path(source_dir) if source_dir else None
     has_source = source_path is not None and source_path.is_dir()
 
+    # Source-side symlink safety (round-5 sweep, code-review-2026-08-21T1335-
+    # E40-F10.md finding 2, "any other source-side directory a driver copies
+    # FROM ... e.g. i05_bundle_dir"): unlike the two drivers' own `cp -a
+    # scratch_root ephemeral` (a directory-level copy that preserves a
+    # top-level symlink SOURCE argument as a symlink at the destination),
+    # this walks source_path file-by-file via os.walk + shutil.copyfile into
+    # a FRESH temp_dir, never copying source_path itself as a unit.
+    # Empirically verified for this fix: a symlinked i05_bundle_dir produces
+    # independent byte copies at `target`, and a write into `target`
+    # afterward does not touch the source. Different, already-safe
+    # primitive -- no additional guard needed.
     def populate(temp_dir: Path):
         if not has_source:
             return

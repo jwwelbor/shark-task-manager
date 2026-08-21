@@ -480,6 +480,136 @@ grep -q "already occupied" "$ROOT_I.out" || fail "case I: expected the already-o
 
 echo "TC-087(case I, finding 2 round-4): gate_dest_provenance_ok refuses a rep directory whose manifest.json 'gate' field matches but scenario_id does not -- the confused-deputy shape a gate-only check missed"
 
+# ===========================================================================
+# STRUCTURAL FIX regression (code-review-2026-08-21T1335-E40-F10.md round 5,
+# user decision 2026-08-21): the two new round-5 shapes, mirroring tc082's
+# own new sections. Case H above (round 4) already covers a symlink AT the
+# rep-level directory itself; round 5 found the identical class one
+# directory level higher (case J) and on the source/copy side, never
+# covered by any prior round (case K).
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Case J (round-5 finding 1): a symlink at an ANCESTOR of the rep-level
+# directory -- scenarios/<scenario_id> itself, NOT
+# scenarios/<scenario_id>/<rep> (case H above plants the symlink exactly at
+# the rep directory). This redirects BOTH gates' rep directories at once
+# (they share the same scenario_id ancestor), landing fully inside
+# out_root_canon and invisible to a leaf-only -L test. dispatch_gate() now
+# walks the whole chain via assert_no_symlink_in_chain, which catches the
+# ancestor redirect before ever reaching the evaluation.jsonl-presence
+# check for EITHER gate.
+# ---------------------------------------------------------------------------
+ROOT_J="$WORKDIR/root-j"
+mkdir -p "$ROOT_J"
+
+FOREIGN_ANCESTOR_J="$ROOT_J/foreign-scenario-ancestor"
+mkdir -p "$FOREIGN_ANCESTOR_J/$QA_REP" "$FOREIGN_ANCESTOR_J/$DR_REP"
+cp "$WORKDIR/indep-compatible-qa.jsonl" "$FOREIGN_ANCESTOR_J/$QA_REP/evaluation.jsonl"
+cp "$WORKDIR/indep-compatible-dr.jsonl" "$FOREIGN_ANCESTOR_J/$DR_REP/evaluation.jsonl"
+# Manifests forged to claim THIS scenario_id/rep/gate -- content that would
+# PASS gate_dest_provenance_ok() if this directory were ever reached at
+# all, isolating the ancestor-symlink gap specifically (not a provenance
+# gap, matching case H's own isolation discipline).
+python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$QA_REP" qa "$FOREIGN_ANCESTOR_J/$QA_REP/manifest.json"
+python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$DR_REP" deep_review "$FOREIGN_ANCESTOR_J/$DR_REP/manifest.json"
+
+mkdir -p "$ROOT_J/scenarios"
+# The ANCESTOR symlink itself: scenarios/$SCENARIO_ID (one level above
+# EITHER gate's rep directory), pointing at the foreign directory above.
+ln -s "$FOREIGN_ANCESTOR_J" "$ROOT_J/scenarios/$SCENARIO_ID"
+
+RC_J="$(run_case "case-j" "$ROOT_J" "independent_frozen_candidate")"
+[[ "$RC_J" -eq 4 ]] || fail "case J (round-5 finding 1): expected exit 4 (dispatch refused, comparison never attempted) when scenarios/<scenario_id> itself is a pre-existing ANCESTOR-level symlink, got $RC_J: $(cat "$ROOT_J.out")"
+grep -qi "symlink" "$ROOT_J.out" || fail "case J (round-5 finding 1): expected a diagnostic naming the symlink: $(cat "$ROOT_J.out")"
+[[ -L "$ROOT_J/scenarios/$SCENARIO_ID" ]] || fail "case J (round-5 finding 1): the pre-existing ANCESTOR symlink at scenarios/<scenario_id> was unexpectedly removed/replaced"
+[[ "$(cat "$FOREIGN_ANCESTOR_J/$DR_REP/evaluation.jsonl")" == "$(cat "$WORKDIR/indep-compatible-dr.jsonl")" ]] \
+	|| fail "case J (round-5 finding 1): the foreign target's own deep_review evaluation.jsonl was modified"
+[[ ! -f "$FOREIGN_ANCESTOR_J/$DR_REP/comparison.json" ]] || fail "case J (round-5 finding 1): a comparison must never be published through an ancestor-symlink-redirected path"
+
+echo "TC-087(case J, round-5 finding 1): dispatch_gate now refuses when scenarios/<scenario_id> itself (an ANCESTOR of the rep-level directory, not the rep directory itself) is a pre-existing symlink -- structurally closed via assert_no_symlink_in_chain"
+
+# ---------------------------------------------------------------------------
+# Case K (round-5 finding 2): a symlinked scratch_root must be refused
+# BEFORE `cp -a`, not silently copied -- GNU `cp -a` implies
+# --no-dereference for a TOP-LEVEL symlink source argument, so a symlinked
+# scratch_root would previously have produced an "ephemeral" copy that is
+# itself a symlink to the SAME real template. The qa gate is pre-retained
+# (skip path, mirroring every other case's fixture discipline) so only the
+# deep_review gate actually dispatches; its scratch_root is a symlink to a
+# real template directory. RUN_LIFECYCLE_BIN is overridden with a stub that
+# would write into its own --scratch-root argument if it were EVER invoked
+# (mirroring tc082's identical discipline) -- proving both that dispatch is
+# refused before cp -a AND that the real template is untouched, not merely
+# that the exit code is nonzero.
+# ---------------------------------------------------------------------------
+ROOT_K="$WORKDIR/root-k"
+mkdir -p "$ROOT_K"
+QA_ONLY_DIR_K="$ROOT_K/scenarios/$SCENARIO_ID/$QA_REP"
+mkdir -p "$QA_ONLY_DIR_K"
+cp "$WORKDIR/indep-compatible-qa.jsonl" "$QA_ONLY_DIR_K/evaluation.jsonl"
+python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$QA_REP" qa "$QA_ONLY_DIR_K/manifest.json"
+
+SCRATCH_REAL_TEMPLATE_K="$WORKDIR/scratch-real-template-k"
+mkdir -p "$SCRATCH_REAL_TEMPLATE_K"
+echo "ORIGINAL TEMPLATE CONTENT -- must never be mutated" >"$SCRATCH_REAL_TEMPLATE_K/marker.txt"
+SCRATCH_TEMPLATE_K_BEFORE="$(sha256sum "$SCRATCH_REAL_TEMPLATE_K/marker.txt" | awk '{print $1}')"
+SCRATCH_SYMLINK_K="$WORKDIR/scratch-symlink-k"
+ln -s "$SCRATCH_REAL_TEMPLATE_K" "$SCRATCH_SYMLINK_K"
+
+CANDIDATE_K_YAML="$WORKDIR/candidate-k.yaml"
+cat >"$CANDIDATE_K_YAML" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCENARIO_ID"
+gates:
+  qa:
+    root_key: ""
+    scratch_root: ""
+  deep_review:
+    root_key: "ROOT-TC087-SCRATCH-SYMLINK"
+    scratch_root: "$SCRATCH_SYMLINK_K"
+EOF
+
+SCRATCH_SYMLINK_STUB_K="$WORKDIR/scratch-symlink-stub-k.sh"
+cat >"$SCRATCH_SYMLINK_STUB_K" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+scratch_root=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--scratch-root) scratch_root="$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+echo "WRITTEN BY STUB (should never run)" >>"$scratch_root/marker.txt"
+exit 0
+EOF
+chmod +x "$SCRATCH_SYMLINK_STUB_K"
+
+rc_k=0
+RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB_K" \
+	"$COMPARISON" --candidate "$CANDIDATE_K_YAML" --retention-root "$ROOT_K" \
+	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
+	>"$ROOT_K.out" 2>&1 || rc_k=$?
+[[ "$rc_k" -eq 4 ]] || fail "case K (round-5 finding 2): expected exit 4 (dispatch refused, comparison never attempted) for a symlinked scratch_root, got $rc_k: $(cat "$ROOT_K.out")"
+grep -qi "symlink" "$ROOT_K.out" || fail "case K (round-5 finding 2): expected a diagnostic naming the symlink: $(cat "$ROOT_K.out")"
+SCRATCH_TEMPLATE_K_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE_K/marker.txt" | awk '{print $1}')"
+[[ "$SCRATCH_TEMPLATE_K_AFTER" == "$SCRATCH_TEMPLATE_K_BEFORE" ]] \
+	|| fail "case K (round-5 finding 2): the real template's content was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_REAL_TEMPLATE_K/marker.txt")"
+[[ -L "$SCRATCH_SYMLINK_K" ]] || fail "case K (round-5 finding 2): the scratch_root symlink itself was unexpectedly removed/replaced"
+[[ ! -f "$ROOT_K/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case K (round-5 finding 2): a comparison must never be published when the deep_review gate's dispatch was refused"
+
+echo "TC-087(case K, round-5 finding 2): dispatch_gate refuses a symlinked scratch_root before cp -a -- the real template is provably untouched, the stub lifecycle worker is never invoked"
+
 # ---------------------------------------------------------------------------
 # AC-T3 (T-E40-F10-014's future static-grep target, proven here too):
 # run-review-comparison.sh contains none of the comparator's own
