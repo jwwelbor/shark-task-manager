@@ -15,18 +15,24 @@
 # directory and manifest.json with its own from-scratch digest_of_path/
 # python inline script, never invoking any real production code path -- the
 # exact gap that hid the empty-artifact digest divergence (finding 1) from
-# this suite for two rework rounds. build_golden() now drives
-# `bench/scripts/lib/retain_pair` directly -- the SAME shared manifest
-# builder run-lifecycle-batch.sh's own retain_pair() (and
-# run-review-comparison.sh's retain_gate()) call, byte-for-byte, since its
-# extraction in commit 63a7605a. This satisfies the contract's real-retention
-# requirement without re-driving the full batch orchestrator (spend gate,
-# scenario-matrix dispatch, RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN
-# provider calls) that produces retain_pair's lifecycle.jsonl/evaluation.jsonl
-# inputs in the first place -- those inputs are themselves real, committed
-# I-07/I-08 fixtures here, exactly as before. The bottom of this file
-# separately drives "$BATCH" for real for the reclaim-incomplete assertions,
-# which do require the driver's own classify_pair/quarantine_pair logic.
+# this suite for two rework rounds. Two changes close it:
+#   1. Test (a2) below drives the REAL "$BATCH" ("$BATCH --mode pilot ...")
+#      end to end via stub RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN (real
+#      matrix enumeration, real spend-gate.sh sourcing, real dispatch_pair/
+#      retain_pair), satisfying the contract's literal text directly, and
+#      asserts the REAL verifier accepts the result.
+#   2. build_golden() (used for every damage-class case below, (b) through
+#      (m)) now drives `bench/scripts/lib/retain_pair` directly -- the SAME
+#      shared manifest builder run-lifecycle-batch.sh's own retain_pair()
+#      (and run-review-comparison.sh's retain_gate()) call, byte-for-byte,
+#      since its extraction in commit 63a7605a -- rather than a second,
+#      hand-rolled digest/manifest implementation. This keeps the damage-
+#      case matrix on real production retention logic without re-driving
+#      the full batch orchestrator once per case; (a2) above independently
+#      proves that orchestrator itself produces a root this validator
+#      accepts. The bottom of this file separately drives "$BATCH" for real
+#      a second time for the reclaim-incomplete assertions, which exercise
+#      the driver's own classify_pair/quarantine_pair logic specifically.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -155,6 +161,119 @@ out_a="$("$VERIFIER" --retention-root "$GOLDEN_ROOT" --schema "$SCHEMA" 2>"$WORK
 echo "$out_a" | grep -q '"verdict":"pass"' || fail "(a) complete root: expected a pass verdict, got: $out_a"
 echo "$out_a" | grep -q '"failures":\[\]' || fail "(a) complete root: expected an empty failures array, got: $out_a"
 [[ ! -s "$WORKDIR/a.err" ]] || fail "(a) complete root: expected no stderr diagnostics, got: $(cat "$WORKDIR/a.err")"
+
+# ===========================================================================
+# (a2) Caller-Path Contract literal satisfaction (test-plan.md TC-082: "a
+# root produced by one real run-lifecycle-batch.sh --mode pilot retention"):
+# drives the REAL "$BATCH" end to end -- real matrix enumeration, real
+# spend-gate.sh sourcing, real dispatch_pair/retain_pair -- via stub
+# RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN that write real, valid I-07/I-08
+# fixture content to the exact --output paths the driver hands them
+# (mirroring the report's own finding-1 repro invocation shape), then
+# verifies the resulting root with the REAL verifier. This is IN ADDITION
+# to (not a replacement for) the retain_pair-driven golden root above: that
+# root drives every damage-class case below through a single shared
+# fixture-building call, while this section proves the full, unmodified
+# driver path (batch-policy parsing, root_key/scratch_root plumbing,
+# dispatch_pair, retain_pair) independently produces a root this validator
+# accepts, per Section I's loop-guard.
+# ===========================================================================
+DRIVER_WORKDIR="$WORKDIR/driver"
+DRIVER_I05_BUNDLE="$DRIVER_WORKDIR/i05-bundle"
+mkdir -p "$DRIVER_I05_BUNDLE/transcripts"
+echo '{"stage": "code", "note": "tc082 driver-path evidence"}' >"$DRIVER_I05_BUNDLE/stage.json"
+echo "tc082 driver-path transcript" >"$DRIVER_I05_BUNDLE/transcripts/stage.txt"
+
+DRIVER_SCRATCH="$DRIVER_WORKDIR/scratch-template"
+mkdir -p "$DRIVER_SCRATCH"
+echo "placeholder scratch project (never mutated -- run-lifecycle-batch.sh copies it)" >"$DRIVER_SCRATCH/marker.txt"
+
+DRIVER_INDEX_DIR="$DRIVER_WORKDIR/index"
+DRIVER_SCENARIO_ID="scenario-tc082-driver"
+mkdir -p "$DRIVER_INDEX_DIR/packages/$DRIVER_SCENARIO_ID"
+cat >"$DRIVER_INDEX_DIR/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$DRIVER_SCENARIO_ID
+EOF
+cat >"$DRIVER_INDEX_DIR/packages/$DRIVER_SCENARIO_ID/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$DRIVER_SCENARIO_ID"
+scenario_version: "1"
+entity_family: "family-tc082-driver"
+EOF
+cat >"$DRIVER_WORKDIR/policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$DRIVER_INDEX_DIR/scenarios.yaml"
+scenarios:
+  $DRIVER_SCENARIO_ID:
+    root_key: "ROOT-TC082-DRIVER"
+    scratch_root: "$DRIVER_SCRATCH"
+    i05_bundle_dir: "$DRIVER_I05_BUNDLE"
+    reps: 1
+EOF
+
+# Stubs write REAL, valid committed fixture content to the --output path the
+# driver hands them (TD-077 defect-class precedent: substituted via
+# RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN, the same sibling-path override
+# convention the driver's own header documents -- never a bare PATH
+# substitution). No provider/network call is made; these are the same
+# committed I-07/I-08 fixtures the retain_pair-driven golden root above
+# uses, so phase 4's real upstream-delegate check has genuinely valid
+# content to accept.
+DRIVER_RUN_STUB="$DRIVER_WORKDIR/run-lifecycle-stub.sh"
+cat >"$DRIVER_RUN_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+cp "$I07_FIXTURE" "\$output"
+EOF
+chmod +x "$DRIVER_RUN_STUB"
+
+DRIVER_EVAL_STUB="$DRIVER_WORKDIR/evaluate-lifecycle-stub.sh"
+cat >"$DRIVER_EVAL_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ \$# -gt 0 ]]; do
+	case "\$1" in
+	--output) output="\$2"; shift 2 ;;
+	*) shift ;;
+	esac
+done
+jq -c '.metrics={quality:{},elapsed_time:{},provider_cost:{},rework:{},artifact_use:{}}' "$I08_FIXTURE" >"\$output"
+# evaluate-lifecycle.sh's own oracle sidecar naming convention
+# (<output>.oracle.json), which lib/retain_pair's copy_artifact("oracle.json",
+# evaluation_jsonl + ".oracle.json") reads verbatim -- never re-derived here.
+python3 -c 'import json,sys; obj={"held_back": True, "observed_result": "pass"}; open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "\$output.oracle.json"
+EOF
+chmod +x "$DRIVER_EVAL_STUB"
+
+DRIVER_ROOT="$WORKDIR/driver-retention-root"
+RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" \
+	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$DRIVER_ROOT" \
+	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	>"$WORKDIR/driver-batch.out" 2>"$WORKDIR/driver-batch.err"
+driver_batch_rc=$?
+[[ "$driver_batch_rc" -eq 0 ]] || fail "(a2) driver-path: real run-lifecycle-batch.sh --mode pilot invocation failed: exit $driver_batch_rc; stderr: $(cat "$WORKDIR/driver-batch.err")"
+[[ -f "$DRIVER_ROOT/scenarios/$DRIVER_SCENARIO_ID/1/manifest.json" ]] || fail "(a2) driver-path: real driver did not retain the expected pair directory"
+
+out_a2=""
+rc_a2=0
+out_a2="$("$VERIFIER" --retention-root "$DRIVER_ROOT" --schema "$SCHEMA" 2>"$WORKDIR/a2.err")" || rc_a2=$?
+[[ "$rc_a2" -eq 0 ]] || fail "(a2) driver-path: verify-retention-root.sh rejected a real run-lifecycle-batch.sh --mode pilot retention: exit $rc_a2; stderr: $(cat "$WORKDIR/a2.err")"
+echo "$out_a2" | grep -q '"verdict":"pass"' || fail "(a2) driver-path: expected a pass verdict over a real driver-produced root, got: $out_a2"
+echo "$out_a2" | grep -q '"failures":\[\]' || fail "(a2) driver-path: expected an empty failures array, got: $out_a2"
+
+echo "TC-082: a root produced by one real run-lifecycle-batch.sh --mode pilot retention verifies cleanly (Caller-Path Contract)"
 
 # ===========================================================================
 # (b)-(i): each of the eight retained artifacts, deleted in turn, fails
