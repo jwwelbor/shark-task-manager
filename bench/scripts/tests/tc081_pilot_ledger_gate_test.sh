@@ -261,15 +261,25 @@ echo "TC-081: pass (pilot-ledger attestation gate refuses --mode baseline as a w
 LEDGER_LINES_BEFORE_REWORK="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
 
 # ---------------------------------------------------------------------------
-# Defect 1 (finding 3): a required directory artifact (evidence/,
-# transcripts/) that exists but holds zero files must be treated as MISSING
-# by --record's check, not recorded with a valid "empty" digest. Two cases:
-# both directories empty, and only one empty (proving the check is
-# per-artifact, not an all-or-nothing directory presence check).
+# Findings 1 and 7 (code-review-2026-08-20T2138-E40-F10.md;
+# bench/reports/lifecycle-baseline-schema.yaml digest_rules.
+# empty_artifact_semantics): this section REPLACES the round-1 "defect 1"
+# assertions that used to live here. Round-1's finding-3 fix (refusing to
+# record over a genuinely empty, but real and present, directory artifact)
+# turned out to be the WRONG rule -- finding 1's live repro showed it made
+# --record unconditionally refuse every real `run-lifecycle-batch.sh
+# --mode pilot` retention (no committed I-05 bundle populates
+# transcripts/). The canonical rule going forward: an existing-but-empty
+# artifact is ALWAYS present, never missing; only manifest.json's
+# source_path field distinguishes an honest "not yet wired" gap
+# (source_path=="") from a real source that was checked and found empty
+# (source_path!="", a genuine defect signal) -- and only --verify's
+# cross-check (not --record) surfaces the latter.
 # ---------------------------------------------------------------------------
 retain_fixture_dirs() {
-	# retain_fixture_dirs <scenario_id> <family> <evidence_has_content> <transcripts_has_content>
+	# retain_fixture_dirs <scenario_id> <family> <evidence_has_content> <transcripts_has_content> [<evidence_source_path> <transcripts_source_path>]
 	local scenario_id="$1" family="$2" evidence_has_content="$3" transcripts_has_content="$4"
+	local evidence_source_path="${5-}" transcripts_source_path="${6-}"
 	local dest="$ROOT/scenarios/$scenario_id/1"
 	mkdir -p "$dest/evidence" "$dest/transcripts"
 	cat >"$dest/package.yaml" <<EOF
@@ -284,38 +294,55 @@ EOF
 	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/lifecycle.jsonl"
 	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/evaluation.jsonl"
 	echo '{"held_back": true}' >"$dest/oracle.json"
-	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1, \"artifacts\": {}}" >"$dest/manifest.json"
+	cat >"$dest/manifest.json" <<EOF
+{"scenario_id": "$scenario_id", "rep": 1, "artifacts": {"evidence": {"source_path": "$evidence_source_path", "sha256": "placeholder"}, "transcripts": {"source_path": "$transcripts_source_path", "sha256": "placeholder"}}}
+EOF
 }
 
-# Case (i): both evidence/ and transcripts/ genuinely empty (the T-004-fixed
-# producer's own honest "checked, not fabricated" state when no I-05 bundle
-# content was available -- not a defect in the producer, but --record must
-# still refuse to attest it as if it were real, digestible content).
-retain_fixture_dirs scenario-empty-both family-empty-both 0 0
+# Case (i): both evidence/ and transcripts/ genuinely empty, with
+# manifest.json honestly recording source_path=="" for both (state (a):
+# retain_pair's own "not found" branch -- no source was ever available to
+# check). --record must SUCCEED: an existing-but-empty directory digests
+# to a real, non-None value and is never treated as missing. --verify must
+# then report the family as cleanly verified -- an honest gap is accepted,
+# not flagged.
+retain_fixture_dirs scenario-empty-both family-empty-both 0 0 "" ""
 rc=0
 out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-empty-both --rep 1 \
 	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
-[[ "$rc" -eq 2 ]] || fail "defect 1 (both empty): recording over zero-file evidence/transcripts should be refused (exit 2), got rc=$rc: $out"
-echo "$out" | grep -q "evidence" || fail "defect 1 (both empty): missing-artifact message did not name 'evidence': $out"
-echo "$out" | grep -q "transcripts" || fail "defect 1 (both empty): missing-artifact message did not name 'transcripts': $out"
+[[ "$rc" -eq 0 ]] || fail "findings 1/7 (both empty, honest gap): recording over zero-file evidence/transcripts with source_path=='' should succeed, got rc=$rc: $out"
 
-# Case (ii): only evidence/ empty, transcripts/ has real content -- proves
-# the fix is per-artifact (names ONLY the genuinely-empty one), not a
-# directory-presence check that would also wrongly flag the populated one.
-retain_fixture_dirs scenario-empty-evidence family-empty-evidence 0 1
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-empty-both 2>&1)" || rc=$?
+[[ "$rc" -eq 0 ]] || fail "findings 1/7 (both empty, honest gap): --verify should accept an honest source_path=='' empty artifact as verified, got rc=$rc: $out"
+echo "$out" | grep -q "family=family-empty-both: verified" || fail "findings 1/7 (both empty, honest gap): expected verified, got: $out"
+
+# Case (ii): evidence/ is empty but manifest.json records a REAL,
+# non-empty source_path for it (state (b): a real source WAS checked and
+# found empty -- round-1 finding 3's original concern, now caught via a
+# different axis than digest_of_path). transcripts/ has real content, so
+# its emptiness check never applies regardless of its own source_path.
+# --record still succeeds (present, non-None digest is never a --record
+# refusal); --verify must FAIL, naming evidence with a reason distinct
+# from stale_digest/no_attestation/incomplete_attestation.
+retain_fixture_dirs scenario-empty-evidence family-empty-evidence 0 1 "$WORKDIR/checked-i05-bundle" ""
 rc=0
 out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-empty-evidence --rep 1 \
 	--operator "operator-3@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
-[[ "$rc" -eq 2 ]] || fail "defect 1 (evidence only empty): recording over a zero-file evidence/ should be refused (exit 2), got rc=$rc: $out"
-echo "$out" | grep -q "evidence" || fail "defect 1 (evidence only empty): missing-artifact message did not name 'evidence': $out"
-echo "$out" | grep -q "transcripts" && fail "defect 1 (evidence only empty): message wrongly named 'transcripts' (which has real content): $out"
+[[ "$rc" -eq 0 ]] || fail "findings 1/7 (evidence empty, real source checked): recording should succeed (present, not missing), got rc=$rc: $out"
 
-# Neither refused --record call above should have appended anything to the
-# ledger -- a refusal must be a genuine no-op on shared state.
-LEDGER_LINES_AFTER_DEFECT1="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
-[[ "$LEDGER_LINES_AFTER_DEFECT1" -eq "$LEDGER_LINES_BEFORE_REWORK" ]] || fail "defect 1: a refused --record appended to pilot-ledger.jsonl anyway (before=$LEDGER_LINES_BEFORE_REWORK, after=$LEDGER_LINES_AFTER_DEFECT1)"
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-empty-evidence 2>&1)" || rc=$?
+[[ "$rc" -ne 0 ]] || fail "findings 1/7 (evidence empty, real source checked): --verify should flag the found-but-empty evidence/ as a defect, got rc=0: $out"
+echo "$out" | grep -q "family=family-empty-evidence: FAILED" || fail "findings 1/7 (evidence empty, real source checked): expected a FAILED verdict, got: $out"
+echo "$out" | grep -q "empty_source_artifact" || fail "findings 1/7 (evidence empty, real source checked): expected the empty_source_artifact reason, got: $out"
+echo "$out" | grep -q "evidence" || fail "findings 1/7 (evidence empty, real source checked): reason did not name 'evidence', got: $out"
+echo "$out" | grep -q "stale_digest" && fail "findings 1/7 (evidence empty, real source checked): should not ALSO report stale_digest (digest matches; the defect is source_path-based, not staleness): $out"
 
-echo "TC-081 (rework, defect 1): pass (a required directory artifact with zero files is treated as missing, per-artifact, and a refusal never mutates the ledger)"
+LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
+[[ "$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES" -eq "$((LEDGER_LINES_BEFORE_REWORK + 2))" ]] || fail "findings 1/7: expected exactly 2 new ledger rows (both --record calls above succeeded and appended once each), before=$LEDGER_LINES_BEFORE_REWORK after=$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES"
+
+echo "TC-081 (rework, findings 1/7): pass (an existing-but-empty artifact records and verifies cleanly when its source_path is honestly empty; a real-source-checked-but-empty artifact is a --verify defect, distinct from staleness)"
 
 # ---------------------------------------------------------------------------
 # Defect 13 (codex red-team finding 13): --scenario must be validated
@@ -339,7 +366,7 @@ for bad_scenario in "Scenario-A" "scenario_a" "scenario/a" "../scenario-a" "/etc
 	echo "$out" | grep -qi "grammar\|lowercase-kebab" || fail "defect 13: --scenario '$bad_scenario' refusal did not name the grammar/lowercase-kebab reason: $out"
 done
 LEDGER_LINES_AFTER_GRAMMAR="$(wc -l <"$ROOT/pilot-ledger.jsonl")"
-[[ "$LEDGER_LINES_AFTER_GRAMMAR" -eq "$LEDGER_LINES_AFTER_DEFECT1" ]] || fail "defect 13: a grammar-refused --record appended to pilot-ledger.jsonl anyway"
+[[ "$LEDGER_LINES_AFTER_GRAMMAR" -eq "$LEDGER_LINES_AFTER_EMPTY_ARTIFACT_CASES" ]] || fail "defect 13: a grammar-refused --record appended to pilot-ledger.jsonl anyway"
 
 # (b) Containment check catches what the grammar check structurally cannot:
 # a scenario_id that IS valid lowercase-kebab but whose retention-relative
