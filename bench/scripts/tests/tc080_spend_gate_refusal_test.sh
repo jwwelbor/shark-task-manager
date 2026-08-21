@@ -699,3 +699,51 @@ verify_operator_limits_won "uat-r2-01 comparison" \
 	"$UAT_R2_01_WORKDIR/cmp-captured-limits.yaml" "$UAT_R2_01_WORKDIR/cmp-captured-lifecycle.jsonl"
 
 echo "TC-080(UAT-R2-01 regression, comparison driver, T-E40-F10-005): real run-review-comparison.sh --mode pilot invocations (both qa and deep_review gates) of the real run-lifecycle.sh carry the operator's CLI ceilings via --limits, and the real I-07 record's limits reflect those operator values -- not the scenario's own (much larger) resource_policy default -- PASS"
+
+# ===========================================================================
+# UAT-R2-01 follow-up (advisor review, this same round): the first fix draft
+# materialized OPERATOR_LIMITS_FILE from a SECOND, independent argv parser
+# added to this file's own arg-parsing loop -- one that assigns on every
+# match, so a REPEATED ceiling flag resolves to the LAST occurrence. But
+# spend_gate_check_all's own _spend_gate_flag_value (lib/spend-gate.sh)
+# returns the FIRST occurrence, and so does this file's own python
+# flag_value() helper that records the "ceilings" block into batch.json.
+# Three parsers, two different tie-break rules, on the exact same argv --
+# a duplicated flag would make the ACKNOWLEDGED ceiling (first, what
+# spend-gate validated and batch.json records) diverge from the EXECUTED
+# ceiling (last, what would have been materialized) -- UAT-R2-01's own
+# defect class recurring through a second parser. The shipped fix instead
+# re-reads ORIGINAL_ARGV through spend-gate.sh's own _spend_gate_flag_value
+# (the identical function, same array) rather than a second parser -- closed
+# by construction. This proves it: a deliberately duplicated --max-cost-usd
+# with a very different second value must resolve to the FIRST (the
+# spend-gate-validated, batch.json-recorded) value everywhere.
+# ===========================================================================
+UAT_R2_01_DUP_RETENTION="$UAT_R2_01_WORKDIR/batch-dup-retention"
+: >"$UAT_R2_01_WORKDIR/batch-dup-spy-argv.log"
+batch_dup_rc=0
+PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
+	LIFECYCLE_ADAPTER="$UAT_R2_01_WORKDIR/adapter.sh" \
+	RUN_LIFECYCLE_BIN="$UAT_R2_01_WORKDIR/run-lifecycle-wrapper.sh" \
+	REAL_RUN_LIFECYCLE_BIN="$SCRIPTS_DIR/run-lifecycle.sh" \
+	SPY_ARGV_LOG="$UAT_R2_01_WORKDIR/batch-dup-spy-argv.log" \
+	CAPTURED_LIMITS_FILE="$UAT_R2_01_WORKDIR/batch-dup-captured-limits.yaml" \
+	CAPTURED_LIFECYCLE_OUT="$UAT_R2_01_WORKDIR/batch-dup-captured-lifecycle.jsonl" \
+	"$BATCH" --batch "$BATCH_R2_WORKDIR/policy.yaml" --retention-root "$UAT_R2_01_DUP_RETENTION" \
+	--mode pilot --acknowledge-provider-spend \
+	--max-cost-usd "$UAT_R2_01_OPERATOR_COST" --max-wall-clock-seconds "$UAT_R2_01_OPERATOR_WALL" \
+	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
+	--max-cost-usd 777 \
+	>"$UAT_R2_01_WORKDIR/batch-dup.out" 2>"$UAT_R2_01_WORKDIR/batch-dup.err" || batch_dup_rc=$?
+[[ "$batch_dup_rc" -eq 4 ]] || fail "uat-r2-01 duplicate-flag: expected exit 4 (real dispatch reached, i05_bundle_dir deliberately unconfigured), got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
+
+# batch.json's own recorded "ceilings" block (this file's pre-existing
+# flag_value() python helper, also first-match) must record the FIRST
+# occurrence -- proving the acknowledged/recorded value is 5, not 777.
+grep -q '"max_cost_usd": "5"' "$UAT_R2_01_WORKDIR/batch-dup.out" \
+	|| fail "uat-r2-01 duplicate-flag: batch.json ceilings block did not record the first (validated) --max-cost-usd occurrence (5): $(cat "$UAT_R2_01_WORKDIR/batch-dup.out")"
+
+verify_operator_limits_won "uat-r2-01 duplicate-flag" \
+	"$UAT_R2_01_WORKDIR/batch-dup-captured-limits.yaml" "$UAT_R2_01_WORKDIR/batch-dup-captured-lifecycle.jsonl"
+
+echo "TC-080(UAT-R2-01 duplicate-flag regression, batch driver, T-E40-F10-004): a repeated --max-cost-usd resolves to the FIRST (spend-gate-validated, batch.json-recorded) occurrence in the materialized --limits file and the real I-07 record, not the last -- PASS"

@@ -113,16 +113,6 @@ dry_run="false"
 reps_flag=""
 scenarios_filter=""
 reclaim_incomplete="false"
-# UAT-R2-01 (uat-2026-08-21T185059Z-E40-F10.md): captured here (rather than
-# discarded by the former bare `shift 2`) so the operator-acknowledged
-# ceilings spend_gate_check_all validates below can also be materialized as
-# run-lifecycle.sh's own --limits policy for every dispatch -- the single
-# validation authority is spend-gate.sh's presence/positivity check; these
-# variables just carry its already-validated values forward to the
-# executor that actually enforces and records them.
-max_cost_usd_flag=""
-max_wall_clock_seconds_flag=""
-max_generated_tasks_flag=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -148,19 +138,8 @@ while [[ $# -gt 0 ]]; do
 	--acknowledge-provider-spend)
 		shift
 		;;
-	--max-cost-usd)
+	--max-cost-usd | --max-wall-clock-seconds | --max-generated-tasks)
 		[[ $# -ge 2 ]] || usage
-		max_cost_usd_flag="$2"
-		shift 2
-		;;
-	--max-wall-clock-seconds)
-		[[ $# -ge 2 ]] || usage
-		max_wall_clock_seconds_flag="$2"
-		shift 2
-		;;
-	--max-generated-tasks)
-		[[ $# -ge 2 ]] || usage
-		max_generated_tasks_flag="$2"
 		shift 2
 		;;
 	--reps)
@@ -252,20 +231,31 @@ if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
 		exit "$gate_rc"
 	fi
 	# UAT-R2-01 fix (uat-2026-08-21T185059Z-E40-F10.md): spend_gate_check_all
-	# just proved max_cost_usd_flag/max_wall_clock_seconds_flag/
-	# max_generated_tasks_flag are present, numeric, and strictly positive --
-	# the ONLY thing missing before this fix was carrying those same,
-	# already-validated values forward to run-lifecycle.sh's own --limits
-	# policy (the sole execution-time enforcer/recorder, run-lifecycle.sh's
-	# limits_from()/lines ~299-314). Without this, every dispatch below fell
-	# through to the scenario package's resource_policy default instead,
-	# making the acknowledgement gate above pure theater. One file,
-	# materialized once per batch invocation (the ceilings are constant
-	# across every (scenario, rep) pair in this run) and reused by every
-	# dispatch_pair() call -- never a second, divergent per-pair policy.
+	# just proved the operator's ceilings are present, numeric, and strictly
+	# positive -- the ONLY thing missing before this fix was carrying those
+	# same, already-validated values forward to run-lifecycle.sh's own
+	# --limits policy (the sole execution-time enforcer/recorder,
+	# run-lifecycle.sh's limits_from()/lines ~299-314). Without this, every
+	# dispatch below fell through to the scenario package's resource_policy
+	# default instead, making the acknowledgement gate above pure theater.
+	#
+	# Re-reads ORIGINAL_ARGV via spend-gate.sh's OWN _spend_gate_flag_value
+	# accessor -- the exact function spend_gate_check_ceiling just used to
+	# validate these three flags -- rather than a second, independent argv
+	# parser in this file's own arg-parsing loop above. A second parser with
+	# different first-vs-last-duplicate-flag semantics would silently
+	# reintroduce this same defect class (validated value != materialized
+	# value) the moment an operator's argv repeats a ceiling flag; calling
+	# the identical function against the identical array is closed by
+	# construction instead. One file, materialized once per batch invocation
+	# (the ceilings are constant across every (scenario, rep) pair in this
+	# run) and reused by every dispatch_pair() call -- never a second,
+	# divergent per-pair policy.
 	OPERATOR_LIMITS_FILE="$(mktemp)"
 	printf 'max_cost_usd: %s\nmax_wall_clock_seconds: %s\nmax_generated_tasks: %s\n' \
-		"$max_cost_usd_flag" "$max_wall_clock_seconds_flag" "$max_generated_tasks_flag" \
+		"$(_spend_gate_flag_value "--max-cost-usd" "${ORIGINAL_ARGV[@]}")" \
+		"$(_spend_gate_flag_value "--max-wall-clock-seconds" "${ORIGINAL_ARGV[@]}")" \
+		"$(_spend_gate_flag_value "--max-generated-tasks" "${ORIGINAL_ARGV[@]}")" \
 		>"$OPERATOR_LIMITS_FILE"
 fi
 
@@ -282,7 +272,7 @@ source "$SCRIPT_DIR/lib/path-safety.sh"
 # (REQ-F-001's "scenario matrix (scenario id, version, family, reps)").
 # ---------------------------------------------------------------------------
 MATRIX_TMP="$(mktemp)"
-cleanup_matrix() { rm -f "$MATRIX_TMP"; }
+cleanup_matrix() { rm -f "$MATRIX_TMP" "$OPERATOR_LIMITS_FILE"; }
 trap cleanup_matrix EXIT
 
 set +e
