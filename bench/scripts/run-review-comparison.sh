@@ -103,6 +103,16 @@ candidate_decl=""
 retention_root=""
 mode=""
 comparison_mode=""
+# UAT-R2-01 (uat-2026-08-21T185059Z-E40-F10.md): captured here (rather than
+# discarded by the former bare `shift 2`) so the operator-acknowledged
+# ceilings spend_gate_check_all validates below can also be materialized as
+# run-lifecycle.sh's own --limits policy for every gate dispatch -- the
+# single validation authority is spend-gate.sh's presence/positivity check;
+# these variables just carry its already-validated values forward to the
+# executor that actually enforces and records them.
+max_cost_usd_flag=""
+max_wall_clock_seconds_flag=""
+max_generated_tasks_flag=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -129,8 +139,19 @@ while [[ $# -gt 0 ]]; do
 	--acknowledge-provider-spend)
 		shift
 		;;
-	--max-cost-usd | --max-wall-clock-seconds | --max-generated-tasks)
+	--max-cost-usd)
 		[[ $# -ge 2 ]] || usage
+		max_cost_usd_flag="$2"
+		shift 2
+		;;
+	--max-wall-clock-seconds)
+		[[ $# -ge 2 ]] || usage
+		max_wall_clock_seconds_flag="$2"
+		shift 2
+		;;
+	--max-generated-tasks)
+		[[ $# -ge 2 ]] || usage
+		max_generated_tasks_flag="$2"
 		shift 2
 		;;
 	--help)
@@ -176,6 +197,7 @@ command -v python3 >/dev/null 2>&1 || {
 # dispatch. A refusal therefore costs zero subprocesses (REQ-F-002,
 # REQ-F-003).
 # ---------------------------------------------------------------------------
+OPERATOR_LIMITS_FILE=""
 if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
 	# shellcheck source=lib/spend-gate.sh
 	source "$SCRIPT_DIR/lib/spend-gate.sh"
@@ -184,6 +206,21 @@ if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
 	if [[ "$gate_rc" -ne 0 ]]; then
 		exit "$gate_rc"
 	fi
+	# UAT-R2-01 fix (uat-2026-08-21T185059Z-E40-F10.md): spend_gate_check_all
+	# just proved max_cost_usd_flag/max_wall_clock_seconds_flag/
+	# max_generated_tasks_flag are present, numeric, and strictly positive --
+	# the ONLY thing missing before this fix was carrying those same,
+	# already-validated values forward to run-lifecycle.sh's own --limits
+	# policy (the sole execution-time enforcer/recorder). Without this, both
+	# gate dispatches below fell through to the scenario package's
+	# resource_policy default instead, making the acknowledgement gate above
+	# pure theater. One file, materialized once per invocation (the ceilings
+	# are constant across both gates of one candidate) and reused by every
+	# dispatch_gate() call -- never a second, divergent per-gate policy.
+	OPERATOR_LIMITS_FILE="$(mktemp)"
+	printf 'max_cost_usd: %s\nmax_wall_clock_seconds: %s\nmax_generated_tasks: %s\n' \
+		"$max_cost_usd_flag" "$max_wall_clock_seconds_flag" "$max_generated_tasks_flag" \
+		>"$OPERATOR_LIMITS_FILE"
 fi
 
 out_root_canon="$(realpath -m -- "$retention_root")"
@@ -198,7 +235,7 @@ source "$SCRIPT_DIR/lib/path-safety.sh"
 # I-04 scenario index only -- no subprocess, no Shark call.
 # ---------------------------------------------------------------------------
 CANDIDATE_TMP="$(mktemp)"
-cleanup_candidate() { rm -f "$CANDIDATE_TMP"; }
+cleanup_candidate() { rm -f "$CANDIDATE_TMP" "$OPERATOR_LIMITS_FILE"; }
 trap cleanup_candidate EXIT
 
 set +e
@@ -638,8 +675,14 @@ dispatch_gate() {
 
 	echo "run-review-comparison: dispatching $gate gate" >&2
 	set +e
+	# UAT-R2-01: --limits carries the operator-acknowledged ceilings
+	# (OPERATOR_LIMITS_FILE, materialized above from the same values
+	# spend_gate_check_all already validated) through to run-lifecycle.sh's
+	# own execution-time enforcement/recording -- never left to fall through
+	# to the scenario package's resource_policy default.
 	"$RUN_LIFECYCLE_BIN" --scenario "$package_path" --run-id "cmp-${scenario_id}-${gate}" \
-		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out" </dev/null
+		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out" \
+		--limits "$OPERATOR_LIMITS_FILE" </dev/null
 	local run_rc=$?
 	set -e
 	if [[ "$run_rc" -ne 0 ]]; then
