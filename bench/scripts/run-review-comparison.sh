@@ -516,7 +516,7 @@ retain_gate() {
 	# that unrelated in-root directory instead of this gate's own. Refuse
 	# loudly before mkdir -p ever runs, rather than let a symlinked `dest`
 	# masquerade as this gate's real directory.
-	if [[ -L "$dest" ]]; then
+	if symlink_dest "$dest"; then
 		echo "run-review-comparison: $gate gate: refusing to retain -- $dest is a pre-existing symlink, not a real directory" >&2
 		return 1
 	fi
@@ -525,24 +525,37 @@ retain_gate() {
 }
 
 gate_dest_provenance_ok() {
-	# gate_dest_provenance_ok <dest> <gate> -- REQ-NF-007 (append-and-verify,
-	# never a silent overwrite/reuse): a bare "evaluation.jsonl exists"
-	# check is not proof THIS gate retained it -- the same (scenario_id,
-	# rep) path could be occupied by an unrelated run-lifecycle-batch.sh
-	# pair, or by the OTHER gate if gate_rep() were ever misconfigured.
-	# manifest.json's additive `gate` field (lib/retain_pair) is the
-	# provenance check; a mismatch or absence refuses loudly instead of
-	# silently adopting someone else's retained evaluation.jsonl as this
-	# gate's comparator input.
-	local dest="$1" gate="$2"
+	# gate_dest_provenance_ok <dest> <gate> <scenario_id> <rep> -- REQ-NF-007
+	# (append-and-verify, never a silent overwrite/reuse): a bare
+	# "evaluation.jsonl exists" check is not proof THIS gate retained it for
+	# THIS scenario/rep -- the same (scenario_id, rep) path could be
+	# occupied by an unrelated run-lifecycle-batch.sh pair, by the OTHER
+	# gate if gate_rep() were ever misconfigured, or (code-review-
+	# 2026-08-21T0459-E40-F10.md round-4 finding 2, the wider half of the
+	# gap: a `gate`-only check passes a cross-scenario confused-deputy read
+	# -- a symlink or stray directory pointed at ANOTHER scenario's own
+	# legitimately-retained gate pair with a matching `gate` field but a
+	# different scenario_id/rep) by a symlink or stray directory at this
+	# exact path. manifest.json's scenario_id/rep/gate fields (all written
+	# by lib/retain_pair) are therefore checked together; any mismatch or
+	# absence refuses loudly instead of silently adopting someone else's
+	# retained evaluation.jsonl as this gate's comparator input.
+	local dest="$1" gate="$2" scenario_id="$3" rep="$4"
 	[[ -f "$dest/manifest.json" ]] || return 1
-	local recorded_gate
-	recorded_gate="$(python3 -c 'import json,sys
+	python3 -c '
+import json, sys
+gate, scenario_id, rep, path = sys.argv[1:5]
 try:
-    print(json.load(open(sys.argv[1])).get("gate",""))
+    manifest = json.load(open(path))
 except Exception:
-    print("")' "$dest/manifest.json" 2>/dev/null || true)"
-	[[ "$recorded_gate" == "$gate" ]]
+    sys.exit(1)
+ok = (
+    manifest.get("gate", "") == gate
+    and str(manifest.get("scenario_id", "")) == scenario_id
+    and str(manifest.get("rep", "")) == rep
+)
+sys.exit(0 if ok else 1)
+' "$gate" "$scenario_id" "$rep" "$dest/manifest.json"
 }
 
 dispatch_gate() {
@@ -553,9 +566,25 @@ dispatch_gate() {
 	rep="$(gate_rep "$gate")" || return 1
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 
+	# Symlink-at-rep-directory (code-review-2026-08-21T0459-E40-F10.md
+	# round-4 finding 2): the "already retained, skip real dispatch" fast
+	# path below used to test artifact PRESENCE (-f "$dest/evaluation.jsonl")
+	# through `dest` before this driver's own -L guard (retain_gate(),
+	# reached only on the "not yet retained, must create" branch) or the
+	# provenance check ever ran. A pre-existing symlink AT the rep-level
+	# directory itself -- never covered by either guard, since both only
+	# fire on the create path -- would silently alias this scenario's gate
+	# pair to whatever the symlink resolves to. Refuse before ever trusting
+	# `dest`'s presence, on both branches (already-retained skip AND
+	# pending-dispatch), using the same shared predicate retain_gate() uses.
+	if symlink_dest "$dest"; then
+		echo "run-review-comparison: $gate gate: refusing to reuse or dispatch -- $dest is a pre-existing symlink, not a real directory" >&2
+		return 1
+	fi
+
 	if [[ -f "$dest/evaluation.jsonl" ]]; then
-		if ! gate_dest_provenance_ok "$dest" "$gate"; then
-			echo "run-review-comparison: $gate gate: retention path $dest is already occupied by a retained pair this driver did not produce for gate '$gate' (missing/mismatched manifest.json 'gate' field) -- refusing to reuse or overwrite" >&2
+		if ! gate_dest_provenance_ok "$dest" "$gate" "$scenario_id" "$rep"; then
+			echo "run-review-comparison: $gate gate: retention path $dest is already occupied by a retained pair this driver did not produce for gate '$gate'/scenario '$scenario_id'/rep '$rep' (missing/mismatched manifest.json provenance) -- refusing to reuse or overwrite" >&2
 			return 1
 		fi
 		echo "run-review-comparison: $gate gate already retained under $dest; skipped_complete" >&2
@@ -691,26 +720,42 @@ case "$comparator_rc" in
 	comparison_dest_dir="$out_root_canon/scenarios/$scenario_id_global/$comparison_rep"
 	comparison_dest="$comparison_dest_dir/comparison.json"
 	assert_within_out_root "$comparison_dest" || exit 1
-	# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding
-	# 2, swept into every write call this driver owns): assert_within_out_root
-	# above already refuses a symlink at comparison_dest that escapes
-	# out_root_canon entirely (realpath -m resolves an existing symlink's
-	# final component, so an outside target already fails containment). It
-	# canNOT catch the narrower "confused deputy" variant: a symlink at
-	# comparison_dest redirected to ANOTHER retained artifact inside the
-	# SAME root -- that resolves within out_root_canon and passes
-	# containment, yet a plain `cp --` would still silently overwrite that
-	# unrelated in-root file. Staging into a temp file inside the SAME
-	# directory (guaranteeing the same filesystem, so the install below is
-	# a real atomic rename) and installing with `mv --` replaces WHATEVER
-	# is at comparison_dest -- symlink or not, in-root target or out --
-	# instead of writing through it, matching lib/retain_pair's
-	# install_atomic_file/install_atomic_dir pattern and this codebase's
+	# Symlink write-through (code-review-2026-08-21T0459-E40-F10.md round-4
+	# finding 1; originally flagged code-review-2026-08-21T0330-E40-F10.md
+	# finding 2): assert_within_out_root above already refuses a symlink at
+	# comparison_dest that escapes out_root_canon entirely (realpath -m
+	# resolves an existing symlink's final component, so an outside target
+	# already fails containment). It canNOT catch the narrower "confused
+	# deputy" variant: a symlink at comparison_dest redirected to ANOTHER
+	# retained artifact inside the SAME root -- that resolves within
+	# out_root_canon and passes containment.
+	#
+	# The PREVIOUS fix here staged into a temp file in the same directory
+	# and installed with plain `mv -- tmp dest`. That was still wrong: GNU
+	# coreutils `mv <src> <dst>` (no `-T`) FIRST checks (via a `stat()` that
+	# FOLLOWS symlinks) whether `<dst>` is or resolves through a directory;
+	# if so, it treats the call as "move <src> INTO the directory named
+	# <dst>/basename(<src>)" rather than "replace whatever directory entry
+	# is named <dst>" -- so a symlink-to-directory at comparison_dest was
+	# never replaced at all: the temp file was silently deposited INSIDE
+	# the symlink's target directory, and the driver reported success
+	# (empirically confirmed: exit 0, "comparison ACCEPTED and published",
+	# while comparison_dest remained a symlink and a stray temp file was
+	# planted inside whatever it pointed at -- a direct REQ-NF-007
+	# violation). `mv -T --` disables that directory-following stat/detour
+	# entirely and goes straight to a rename()-equivalent atomic
+	# replacement of the DIRECTORY ENTRY named comparison_dest, regardless
+	# of whether that entry is a plain file, a symlink-to-file, or a
+	# symlink-to-directory (verified empirically for this fix, both shapes)
+	# -- matching POSIX rename(2)/os.replace() semantics, which never
+	# dereference the final path component of either operand. This mirrors
+	# lib/retain_pair's install_atomic_file pattern and this codebase's
 	# established tempfile+os.replace atomic-install convention
-	# (lifecycle-prelude.sh, review-capture.sh, lifecycle-worker-adapter.sh).
+	# (lifecycle-prelude.sh, review-capture.sh, lifecycle-worker-adapter.sh)
+	# without a second, differently-behaved primitive.
 	comparison_install_tmp="$(mktemp "$comparison_dest_dir/.comparison.json.XXXXXX")"
 	cp -- "$COMPARISON_ATTEMPT" "$comparison_install_tmp"
-	mv -- "$comparison_install_tmp" "$comparison_dest"
+	mv -T -- "$comparison_install_tmp" "$comparison_dest"
 	echo "run-review-comparison: comparison ACCEPTED and published: $comparison_dest" >&2
 	cat "$COMPARISON_ATTEMPT"
 	rm -f "$COMPARISON_ATTEMPT"

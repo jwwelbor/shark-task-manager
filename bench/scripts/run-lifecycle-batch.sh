@@ -188,9 +188,23 @@ esac
 if [[ "$mode" == "preview" ]]; then
 	[[ -n "$retention_root" ]] || usage
 fi
+# GATE_REP_BASE mirrors run-review-comparison.sh's own reserved gate-rep
+# band (code-review-2026-08-21T0330-E40-F10.md finding 1: gate reps live at
+# GATE_REP_BASE+1/+2 precisely so this driver's sequential rep allocation
+# below, `for ((rep = 1; rep <= reps; rep++))`, can never collide with
+# them). codex R4-1 (code-review-2026-08-21T0459-E40-F10.md, downgraded to
+# non-blocker tech-debt: reaching this requires an operator-supplied --reps
+# five to six orders of magnitude beyond any plausible retained-pilot reps
+# count) -- a one-line defensive validation costs nothing and removes the
+# theoretical gap outright.
+GATE_REP_BASE=900000
 if [[ -n "$reps_flag" ]]; then
 	[[ "$reps_flag" =~ ^[0-9]+$ && "$reps_flag" -ge 1 ]] || {
 		echo "run-lifecycle-batch: --reps must be a positive integer, got '$reps_flag'" >&2
+		exit 2
+	}
+	[[ "$reps_flag" -lt "$GATE_REP_BASE" ]] || {
+		echo "run-lifecycle-batch: --reps must be less than the reserved gate-rep band ($GATE_REP_BASE, run-review-comparison.sh's gate_rep()), got '$reps_flag'" >&2
 		exit 2
 	}
 fi
@@ -243,6 +257,27 @@ import yaml
 
 bench_dir, batch_policy_path, scenarios_filter, reps_override = sys.argv[1:5]
 
+# GATE_REP_BASE mirrors the bash-level constant above and run-review-
+# comparison.sh's own reserved gate-rep band (code-review-2026-08-21T0459-
+# E40-F10.md round-4 tech-debt item 4): the bash-level --reps flag check
+# above only covers ONE of the three inputs that feed the effective
+# per-scenario reps count below -- a batch policy's own top-level
+# `min_reps` or a per-scenario `scenarios.<id>.reps` override can reach the
+# reserved band just as easily as --reps, and reps defaults to min_reps
+# when a scenario declares no override, so min_reps is checked too.
+GATE_REP_BASE = 900000
+
+
+def check_reps_bound(value, label):
+    if value >= GATE_REP_BASE:
+        print(
+            f"run-lifecycle-batch: {label} must be less than the reserved gate-rep band "
+            f"({GATE_REP_BASE}, run-review-comparison.sh's gate_rep()), got {value!r}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+
 with open(batch_policy_path) as f:
     policy = yaml.safe_load(f) or {}
 if not isinstance(policy, dict):
@@ -257,6 +292,7 @@ try:
 except (TypeError, ValueError):
     print(f"run-lifecycle-batch: batch policy min_reps must be a positive integer, got {min_reps_raw!r}", file=sys.stderr)
     raise SystemExit(1)
+check_reps_bound(min_reps, "batch policy min_reps")
 
 scenario_index_field = policy.get("scenario_index") or "scenarios/scenarios.yaml"
 scenario_index_path = scenario_index_field if os.path.isabs(scenario_index_field) else os.path.join(bench_dir, scenario_index_field)
@@ -327,6 +363,7 @@ for scenario_id, pkg_path, pkg in selected:
         except (TypeError, ValueError):
             print(f"run-lifecycle-batch: scenarios.{scenario_id}.reps must be a positive integer, got {reps_raw!r}", file=sys.stderr)
             raise SystemExit(1)
+        check_reps_bound(reps, f"scenarios.{scenario_id}.reps")
     root_key = str(entry.get("root_key") or "")
     scratch_root = str(entry.get("scratch_root") or "")
     if scratch_root and not os.path.isabs(scratch_root):
@@ -572,7 +609,7 @@ retain_pair() {
 	# would silently no-op against it -- every artifact lib/retain_pair
 	# writes would then land in that unrelated in-root directory. Refuse
 	# loudly before mkdir -p ever runs.
-	if [[ -L "$dest" ]]; then
+	if symlink_dest "$dest"; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to retain -- $dest is a pre-existing symlink, not a real directory" >&2
 		return 1
 	fi
@@ -645,12 +682,57 @@ dispatch_pair() {
 	rm -rf "$pair_work"
 }
 
-# classify_pair <scenario_id> <rep> -- prints skipped_complete /
-# incomplete_prior_attempt / pending, mirroring run-batch.sh classify_pair.
+# pair_provenance_ok <scenario_id> <rep> <dir> -- REQ-NF-007 (append-and-
+# verify, never a silent overwrite/reuse): classify_pair's "already
+# retained, skip real dispatch" fast path used to trust bare
+# evaluation.jsonl presence as proof THIS exact (scenario_id, rep) pair was
+# ever retained here at all (code-review-2026-08-21T0459-E40-F10.md round-4
+# finding 2, the wider half of the gap: classify_pair had NO provenance
+# check of any kind, unlike run-review-comparison.sh's gate_dest_
+# provenance_ok, which at least checked the `gate` field). A pre-existing
+# symlink or stray directory pointed at some OTHER scenario's own
+# legitimately-retained pair would pass a bare presence check and be
+# silently adopted as this scenario's own retained rep, with no diagnostic.
+# manifest.json's scenario_id/rep fields (lib/retain_pair's own required
+# manifest keys, both drivers) are the provenance check.
+pair_provenance_ok() {
+	local scenario_id="$1" rep="$2" dir="$3"
+	[[ -f "$dir/manifest.json" ]] || return 1
+	python3 -c '
+import json, sys
+scenario_id, rep, path = sys.argv[1:4]
+try:
+    manifest = json.load(open(path))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if (str(manifest.get("scenario_id", "")) == scenario_id and str(manifest.get("rep", "")) == rep) else 1)
+' "$scenario_id" "$rep" "$dir/manifest.json"
+}
+
+# classify_pair <scenario_id> <rep> -- prints symlinked_dest /
+# provenance_mismatch / skipped_complete / incomplete_prior_attempt /
+# pending, mirroring run-batch.sh classify_pair (extended with the two new
+# read-side provenance classifications, round-4 finding 2).
 classify_pair() {
 	local scenario_id="$1" rep="$2"
 	local dir="$out_root_canon/scenarios/$scenario_id/$rep"
+	# Symlink-at-rep-directory (round-4 finding 2): the pre-round-4 checks
+	# below tested artifact PRESENCE through `dir` before retain_pair()'s
+	# own -L guard (reached only on the "not yet retained, must create"
+	# branch) ever ran. A pre-existing symlink AT the rep-level directory
+	# itself -- never covered by that guard -- would silently alias this
+	# scenario's retained pair to whatever the symlink resolves to. Refuse
+	# to classify it as complete (or as a normal incomplete/pending
+	# directory) before ever trusting its presence.
+	if symlink_dest "$dir"; then
+		echo "symlinked_dest"
+		return 0
+	fi
 	if [[ -f "$dir/evaluation.jsonl" ]]; then
+		if ! pair_provenance_ok "$scenario_id" "$rep" "$dir"; then
+			echo "provenance_mismatch"
+			return 0
+		fi
 		echo "skipped_complete"
 		return 0
 	fi
@@ -669,9 +751,29 @@ classify_pair() {
 quarantine_pair() {
 	local scenario_id="$1" rep="$2"
 	local dir="$out_root_canon/scenarios/$scenario_id/$rep"
-	local incomplete_root="$out_root_canon/.incomplete/$scenario_id"
+	local incomplete_top="$out_root_canon/.incomplete"
+	local incomplete_root="$incomplete_top/$scenario_id"
 	assert_within_out_root "$dir" || return 1
 	assert_within_out_root "$incomplete_root" || return 1
+	# Symlink-at-mkdir-target (round-4 sweep, code-review-2026-08-21T0459-
+	# E40-F10.md): `mkdir -p` treats a pre-existing symlink-to-directory at
+	# EITHER path component as "already there, fine" and silently no-ops
+	# against it, exactly the same defect class as retain_pair()/
+	# retain_gate()'s own `dest` guard above -- the subsequent `mv "$dir"
+	# "$dest"` below would then relocate a quarantined prior attempt INTO
+	# whatever the symlink resolves to (still in-root, so
+	# assert_within_out_root alone does not catch it) instead of this
+	# scenario's own `.incomplete/` area. Checked at both the leaf
+	# (`.incomplete/<scenario_id>`) and its parent (`.incomplete`), since
+	# `mkdir -p` walks and would silently accept a symlink at either.
+	if symlink_dest "$incomplete_top"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to quarantine -- $incomplete_top is a pre-existing symlink, not a real directory" >&2
+		return 1
+	fi
+	if symlink_dest "$incomplete_root"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to quarantine -- $incomplete_root is a pre-existing symlink, not a real directory" >&2
+		return 1
+	fi
 	mkdir -p "$incomplete_root"
 	local seq=1
 	while [[ -e "$incomplete_root/rep-$rep-$seq" ]]; do
@@ -708,6 +810,18 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			echo "run-lifecycle-batch: $scenario_id rep $rep already retained; skipped_complete" >&2
 			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "skipped_complete"
 			;;
+		symlinked_dest)
+			echo "run-lifecycle-batch: $scenario_id rep $rep: $dir is a pre-existing symlink, not a real directory; refusing to treat as complete or dispatch into it" >&2
+			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+			record_invalid "$scenario_id" "$rep" "pre_existing_symlink_at_rep_directory"
+			overall_bad="true"
+			;;
+		provenance_mismatch)
+			echo "run-lifecycle-batch: $scenario_id rep $rep: retention path $dir is already occupied by a retained pair whose manifest.json scenario_id/rep does not match this pair -- refusing to reuse or overwrite" >&2
+			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+			record_invalid "$scenario_id" "$rep" "provenance_mismatch"
+			overall_bad="true"
+			;;
 		incomplete_prior_attempt)
 			if [[ "$reclaim_incomplete" == "true" ]]; then
 				quarantine_rc=0
@@ -738,12 +852,50 @@ python3 - "$SUMMARY_TMP" "$INVALID_TMP" "$mode" "$out_root_canon" "$batch_policy
 	"${ORIGINAL_ARGV[*]}" <<'PYEOF'
 import hashlib
 import json
+import os
 import sys
+import tempfile
 import time
 
 import yaml
 
 summary_path, invalid_path, mode, retention_root, batch_policy_path, reclaim, argv_joined = sys.argv[1:8]
+
+
+# ---------------------------------------------------------------------------
+# Top-level retention-root writes (code-review-2026-08-21T0459-E40-F10.md
+# round-4 finding 3): batch.json and invalid/index.jsonl used to be plain
+# `open(path, "w")` (which follows a pre-existing FILE symlink at that exact
+# path and truncates whatever it points at) and `os.makedirs(...,
+# exist_ok=True)` (which treats a pre-existing symlink-to-directory as
+# "already there, fine" and lets the subsequent open() write through it).
+# This is the SAME defect class lib/retain_pair's install_atomic_file
+# closed for every per-pair artifact -- these two writers just sit outside
+# that shared script entirely (they are this driver's own top-level
+# aggregate outputs, not a (scenario, rep) pair artifact), so they were
+# never brought under the sweep despite living in the same file. Reusing
+# the identical tempfile-sibling + os.replace() primitive here (never a
+# second, differently-behaved mechanism) means a pre-existing symlink at
+# either destination is REPLACED atomically as a directory entry, never
+# opened for writing/followed, matching lib/retain_pair's own
+# install_atomic_file (files) and the loud-refusal-on-directory-shaped-
+# collision posture for `invalid/` (directories) below.
+def install_atomic_file(target_path: str, data: bytes):
+    parent = os.path.dirname(target_path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{os.path.basename(target_path)}.", dir=parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target_path)
+    except OSError:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
 
 
 def flag_value(argv_str, flag):
@@ -817,16 +969,20 @@ batch = {
     "counts": counts,
     "pairs": pairs,
 }
-with open(f"{retention_root}/batch.json", "w") as f:
-    json.dump(batch, f, indent=2, sort_keys=True)
-    f.write("\n")
+batch_json_bytes = (json.dumps(batch, indent=2, sort_keys=True) + "\n").encode("utf-8")
+install_atomic_file(f"{retention_root}/batch.json", batch_json_bytes)
 
-import os
-
-os.makedirs(f"{retention_root}/invalid", exist_ok=True)
-with open(f"{retention_root}/invalid/index.jsonl", "w") as f:
-    for row in invalid:
-        f.write(json.dumps(row, sort_keys=True) + "\n")
+invalid_dir = f"{retention_root}/invalid"
+if os.path.islink(invalid_dir):
+    print(
+        f"run-lifecycle-batch: refusing to write invalid/index.jsonl -- {invalid_dir} is a "
+        "pre-existing symlink, not a real directory",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+os.makedirs(invalid_dir, exist_ok=True)
+invalid_jsonl_bytes = "".join(json.dumps(row, sort_keys=True) + "\n" for row in invalid).encode("utf-8")
+install_atomic_file(f"{invalid_dir}/index.jsonl", invalid_jsonl_bytes)
 
 print(json.dumps(batch, indent=2, sort_keys=True))
 PYEOF

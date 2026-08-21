@@ -678,3 +678,314 @@ QUARANTINE_DIGEST="$(sha256sum "$QUARANTINE_DIR/package.yaml" | awk '{print $1}'
 [[ "$QUARANTINE_DIGEST" == "$BEFORE_DIGEST" ]] || fail "reclaim: quarantined bytes do not match the original prior attempt (REQ-NF-007: never silently deleting/mutating)"
 
 echo "TC-082: reclaim-incomplete classification (plain skip vs. quarantine-and-rerun) passes"
+
+# ===========================================================================
+# classify_pair: symlink AT the rep-level directory itself (code-review-
+# 2026-08-21T0459-E40-F10.md round-4 finding 2, Section E's "missing
+# boundary case"): every prior symlink case in this suite plants the
+# symlink at an ARTIFACT path inside an otherwise-real directory -- never
+# at the directory-that-decides-skip-vs-dispatch itself. classify_pair's
+# pre-round-4 "already retained, skip" fast path tested artifact PRESENCE
+# (-f "$dir/evaluation.jsonl") through the rep directory before ever
+# checking whether that directory is itself a symlink -- a pre-existing
+# symlink pointed at a FOREIGN scenario's own legitimately-retained pair
+# would be silently classified skipped_complete, with no diagnostic.
+# ===========================================================================
+SYMLINK_CLASSIFY_ROOT="$WORKDIR/symlink-classify"
+mkdir -p "$SYMLINK_CLASSIFY_ROOT"
+
+FOREIGN_SCENARIO_CLASSIFY="scenario-tc082-foreign"
+FOREIGN_DIR_CLASSIFY="$SYMLINK_CLASSIFY_ROOT/scenarios/$FOREIGN_SCENARIO_CLASSIFY/1"
+mkdir -p "$FOREIGN_DIR_CLASSIFY"
+cp "$SOURCES/evaluation.jsonl" "$FOREIGN_DIR_CLASSIFY/evaluation.jsonl"
+python3 -c 'import json,sys
+scenario_id, rep, dest = sys.argv[1:4]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$FOREIGN_SCENARIO_CLASSIFY" 1 "$FOREIGN_DIR_CLASSIFY/manifest.json"
+
+mkdir -p "$SYMLINK_CLASSIFY_ROOT/scenarios/$SCENARIO_ID"
+ln -s "$FOREIGN_DIR_CLASSIFY" "$SYMLINK_CLASSIFY_ROOT/scenarios/$SCENARIO_ID/$REP"
+
+SYMLINK_CLASSIFY_INDEX="$WORKDIR/symlink-classify-index"
+mkdir -p "$SYMLINK_CLASSIFY_INDEX/packages/$SCENARIO_ID"
+cat >"$SYMLINK_CLASSIFY_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$SYMLINK_CLASSIFY_INDEX/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/symlink-classify-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SYMLINK_CLASSIFY_INDEX/scenarios.yaml"
+EOF
+
+classify_symlink_rc=0
+"$BATCH" --batch "$WORKDIR/symlink-classify-batch-policy.yaml" --retention-root "$SYMLINK_CLASSIFY_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/classify-symlink.out" 2>&1 || classify_symlink_rc=$?
+[[ "$classify_symlink_rc" -eq 4 ]] || fail "classify_pair symlink: expected exit 4 (pair recorded failed, never treated as complete), got $classify_symlink_rc: $(cat "$WORKDIR/classify-symlink.out")"
+grep -q "skipped_complete" "$WORKDIR/classify-symlink.out" && fail "classify_pair symlink: the symlinked rep directory was classified skipped_complete -- expected a refusal instead: $(cat "$WORKDIR/classify-symlink.out")"
+grep -q "pre-existing symlink" "$WORKDIR/classify-symlink.out" || fail "classify_pair symlink: expected a diagnostic naming the pre-existing symlink: $(cat "$WORKDIR/classify-symlink.out")"
+[[ -L "$SYMLINK_CLASSIFY_ROOT/scenarios/$SCENARIO_ID/$REP" ]] || fail "classify_pair symlink: the pre-existing symlink at the rep directory was unexpectedly removed/replaced"
+[[ "$(cat "$FOREIGN_DIR_CLASSIFY/evaluation.jsonl")" == "$(cat "$SOURCES/evaluation.jsonl")" ]] \
+	|| fail "classify_pair symlink: the foreign scenario's own retained evaluation.jsonl was modified"
+grep -q "pre_existing_symlink_at_rep_directory" "$SYMLINK_CLASSIFY_ROOT/invalid/index.jsonl" \
+	|| fail "classify_pair symlink: invalid/index.jsonl did not record the pre_existing_symlink_at_rep_directory reason: $(cat "$SYMLINK_CLASSIFY_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+
+echo "TC-082(classify_pair symlink, finding 2 round-4): classify_pair refuses to treat a symlinked rep directory as skipped_complete, before ever trusting evaluation.jsonl presence through it"
+
+# ===========================================================================
+# classify_pair: provenance mismatch (real directory, not a symlink, but
+# manifest.json's scenario_id/rep does not match) -- the read-side
+# "confused deputy" shape codex's R4-5 reproduced. classify_pair had NO
+# provenance check of any kind before this round's fix (the wider half of
+# finding 2: run-review-comparison.sh's gate_dest_provenance_ok at least
+# checked the `gate` field; classify_pair checked nothing at all).
+# ===========================================================================
+PROVENANCE_ROOT="$WORKDIR/provenance-mismatch"
+mkdir -p "$PROVENANCE_ROOT"
+PROVENANCE_DIR="$PROVENANCE_ROOT/scenarios/$SCENARIO_ID/$REP"
+mkdir -p "$PROVENANCE_DIR"
+cp "$SOURCES/evaluation.jsonl" "$PROVENANCE_DIR/evaluation.jsonl"
+python3 -c 'import json,sys
+dest = sys.argv[1]
+manifest = {"scenario_id": "scenario-tc082-WRONG-OWNER", "rep": 999, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$PROVENANCE_DIR/manifest.json"
+PROVENANCE_BEFORE="$(cat "$PROVENANCE_DIR/evaluation.jsonl")"
+
+PROVENANCE_INDEX="$WORKDIR/provenance-index"
+mkdir -p "$PROVENANCE_INDEX/packages/$SCENARIO_ID"
+cat >"$PROVENANCE_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$PROVENANCE_INDEX/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/provenance-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$PROVENANCE_INDEX/scenarios.yaml"
+EOF
+
+provenance_rc=0
+"$BATCH" --batch "$WORKDIR/provenance-batch-policy.yaml" --retention-root "$PROVENANCE_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/provenance-mismatch.out" 2>&1 || provenance_rc=$?
+[[ "$provenance_rc" -eq 4 ]] || fail "classify_pair provenance mismatch: expected exit 4 (pair recorded failed, never treated as complete), got $provenance_rc: $(cat "$WORKDIR/provenance-mismatch.out")"
+grep -q "skipped_complete" "$WORKDIR/provenance-mismatch.out" && fail "classify_pair provenance mismatch: the mismatched-provenance pair was classified skipped_complete: $(cat "$WORKDIR/provenance-mismatch.out")"
+grep -q "does not match this pair" "$WORKDIR/provenance-mismatch.out" || fail "classify_pair provenance mismatch: expected the provenance-mismatch diagnostic: $(cat "$WORKDIR/provenance-mismatch.out")"
+grep -q "provenance_mismatch" "$PROVENANCE_ROOT/invalid/index.jsonl" \
+	|| fail "classify_pair provenance mismatch: invalid/index.jsonl did not record the provenance_mismatch reason: $(cat "$PROVENANCE_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+[[ "$(cat "$PROVENANCE_DIR/evaluation.jsonl")" == "$PROVENANCE_BEFORE" ]] \
+	|| fail "classify_pair provenance mismatch: the pre-existing (wrong-owner) evaluation.jsonl was modified"
+
+echo "TC-082(classify_pair provenance mismatch, finding 2 round-4): classify_pair refuses to treat a rep directory as skipped_complete when its manifest.json scenario_id/rep does not match, even though it is a real (non-symlink) directory"
+
+# ===========================================================================
+# batch.json / invalid/index.jsonl symlink write-through (code-review-
+# 2026-08-21T0459-E40-F10.md round-4 finding 3): these two top-level
+# retention-root writers used to be plain open(path, "w")/os.makedirs(...,
+# exist_ok=True) -- neither rejects a pre-existing symlink at that exact
+# path, the same defect class this round's fix closed for every per-pair
+# artifact via lib/retain_pair's install_atomic_file/install_atomic_dir.
+# These two writers sit OUTSIDE lib/retain_pair entirely (they are this
+# driver's own top-level aggregate outputs, not a (scenario, rep) pair
+# artifact), so they were never brought under any prior round's sweep
+# despite living in the SAME file the round-4 commit message claimed to
+# have fully swept.
+# ===========================================================================
+SYMLINK_WRITE_INDEX_DIR="$WORKDIR/symlink-write-index"
+mkdir -p "$SYMLINK_WRITE_INDEX_DIR/packages/$SCENARIO_ID"
+cat >"$SYMLINK_WRITE_INDEX_DIR/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$SYMLINK_WRITE_INDEX_DIR/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/symlink-write-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SYMLINK_WRITE_INDEX_DIR/scenarios.yaml"
+EOF
+
+# --- batch.json: pre-existing symlink to an OUTSIDE-root file ---
+BATCH_JSON_ROOT="$WORKDIR/symlink-write-batch-json"
+mkdir -p "$BATCH_JSON_ROOT"
+BATCH_JSON_OUTSIDE="$WORKDIR/outside-batch-json-target.txt"
+echo "SECRET CONTENT OUTSIDE THE RETENTION ROOT -- must never be overwritten" >"$BATCH_JSON_OUTSIDE"
+ln -s "$BATCH_JSON_OUTSIDE" "$BATCH_JSON_ROOT/batch.json"
+
+batch_json_rc=0
+"$BATCH" --batch "$WORKDIR/symlink-write-batch-policy.yaml" --retention-root "$BATCH_JSON_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/batch-json-symlink.out" 2>&1 || batch_json_rc=$?
+# root_key/scratch_root are not configured for this minimal fixture, so the
+# pair is recorded failed and the batch itself exits 4 (overall_bad) --
+# the SAME "clean run still writes batch.json/invalid" shape (a2) above
+# already relies on, just with a failing pair instead of a succeeding one;
+# what this section asserts is the WRITE SAFETY of that write, not the
+# pair's own success/failure.
+[[ "$batch_json_rc" -eq 4 ]] || fail "batch.json symlink: expected exit 4 (batch completed, pair recorded failed), got $batch_json_rc: $(cat "$WORKDIR/batch-json-symlink.out")"
+[[ "$(cat "$BATCH_JSON_OUTSIDE")" == "SECRET CONTENT OUTSIDE THE RETENTION ROOT -- must never be overwritten" ]] \
+	|| fail "batch.json symlink: the external file the symlink pointed to was overwritten -- $(cat "$BATCH_JSON_OUTSIDE")"
+[[ -L "$BATCH_JSON_ROOT/batch.json" ]] && fail "batch.json symlink: batch.json is still a symlink after the run -- expected it replaced with real retained content"
+[[ -f "$BATCH_JSON_ROOT/batch.json" ]] || fail "batch.json symlink: batch.json missing after the run"
+grep -q '"phase": *"lifecycle_v2"' "$BATCH_JSON_ROOT/batch.json" || fail "batch.json symlink: batch.json does not contain real retained content: $(cat "$BATCH_JSON_ROOT/batch.json")"
+
+echo "TC-082(batch.json symlink, finding 3 round-4): batch.json's writer replaces a pre-existing destination symlink instead of writing through it -- external content untouched"
+
+# --- invalid/: pre-existing symlink to an OUTSIDE-root directory ---
+INVALID_ROOT="$WORKDIR/symlink-write-invalid"
+mkdir -p "$INVALID_ROOT"
+INVALID_OUTSIDE="$WORKDIR/outside-invalid-target"
+mkdir -p "$INVALID_OUTSIDE"
+echo "leftover" >"$INVALID_OUTSIDE/leftover.txt"
+ln -s "$INVALID_OUTSIDE" "$INVALID_ROOT/invalid"
+
+invalid_rc=0
+"$BATCH" --batch "$WORKDIR/symlink-write-batch-policy.yaml" --retention-root "$INVALID_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/invalid-symlink.out" 2>&1 || invalid_rc=$?
+[[ "$invalid_rc" -ne 0 ]] || fail "invalid/ symlink: expected a nonzero exit (loud refusal) when invalid/ is a pre-existing symlink, got 0: $(cat "$WORKDIR/invalid-symlink.out")"
+grep -q "pre-existing symlink" "$WORKDIR/invalid-symlink.out" || fail "invalid/ symlink: expected a diagnostic naming the pre-existing symlink at invalid/: $(cat "$WORKDIR/invalid-symlink.out")"
+[[ -L "$INVALID_ROOT/invalid" ]] || fail "invalid/ symlink: the pre-existing symlink at invalid/ was unexpectedly removed/replaced"
+[[ "$(ls "$INVALID_OUTSIDE")" == "leftover.txt" ]] \
+	|| fail "invalid/ symlink: the external directory the symlink pointed to had content planted into it -- $(ls "$INVALID_OUTSIDE")"
+
+echo "TC-082(invalid/ symlink, finding 3 round-4): the invalid/index.jsonl writer refuses to write through a pre-existing symlink at invalid/ -- external directory untouched"
+
+# ===========================================================================
+# --reps upper-bound validation (code-review-2026-08-21T0459-E40-F10.md
+# round-4 tech-debt item 4 / downgraded codex R4-1): --reps must stay below
+# the reserved gate-rep band run-review-comparison.sh's gate_rep() uses
+# (GATE_REP_BASE=900000), so the two drivers' rep allocations structurally
+# cannot collide regardless of the --reps value an operator supplies.
+# ===========================================================================
+reps_bound_rc=0
+"$BATCH" --batch "$WORKDIR/reclaim-batch-policy.yaml" --retention-root "$WORKDIR/reps-bound-unused" \
+	--mode preview --reps 900000 >"$WORKDIR/reps-bound.out" 2>&1 || reps_bound_rc=$?
+[[ "$reps_bound_rc" -eq 2 ]] || fail "--reps upper bound: expected exit 2 (usage error) for --reps at the reserved gate-rep band, got $reps_bound_rc: $(cat "$WORKDIR/reps-bound.out")"
+grep -q "reserved gate-rep band" "$WORKDIR/reps-bound.out" || fail "--reps upper bound: expected a diagnostic naming the reserved gate-rep band: $(cat "$WORKDIR/reps-bound.out")"
+
+reps_ok_rc=0
+"$BATCH" --batch "$WORKDIR/reclaim-batch-policy.yaml" --retention-root "$WORKDIR/reps-bound-ok" \
+	--mode preview --reps 899999 >"$WORKDIR/reps-ok.out" 2>&1 || reps_ok_rc=$?
+[[ "$reps_ok_rc" -eq 0 ]] || fail "--reps upper bound: a value just under the reserved band must still be accepted, got $reps_ok_rc: $(cat "$WORKDIR/reps-ok.out")"
+
+echo "TC-082(--reps upper bound, tech-debt item 4): --reps at or above the reserved gate-rep band is rejected as a usage error; just under it is accepted"
+
+# ===========================================================================
+# --reps upper-bound validation, the two SIBLING inputs (advisor review
+# after this pass's own completion, before declaring done): the --reps
+# FLAG is only one of three inputs that feed the effective per-scenario
+# reps count -- a batch policy's own top-level `min_reps` (reps defaults to
+# min_reps when a scenario declares no override) and a per-scenario
+# `scenarios.<id>.reps` override can reach the reserved GATE_REP_BASE band
+# exactly as easily as --reps. Checking only the flag and leaving these two
+# YAML-declared inputs unchecked would have been the SAME half-swept
+# pattern this whole pass exists to close, just relocated one level down.
+# ===========================================================================
+MIN_REPS_BOUND_INDEX="$WORKDIR/min-reps-bound-index"
+mkdir -p "$MIN_REPS_BOUND_INDEX/packages/$SCENARIO_ID"
+cat >"$MIN_REPS_BOUND_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$MIN_REPS_BOUND_INDEX/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/min-reps-bound-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 900000
+scenario_index: "$MIN_REPS_BOUND_INDEX/scenarios.yaml"
+EOF
+
+min_reps_bound_rc=0
+"$BATCH" --batch "$WORKDIR/min-reps-bound-policy.yaml" --retention-root "$WORKDIR/min-reps-bound-unused" \
+	--mode preview >"$WORKDIR/min-reps-bound.out" 2>&1 || min_reps_bound_rc=$?
+[[ "$min_reps_bound_rc" -eq 1 ]] || fail "min_reps upper bound: expected exit 1 (matrix enumeration refused), got $min_reps_bound_rc: $(cat "$WORKDIR/min-reps-bound.out")"
+grep -q "reserved gate-rep band" "$WORKDIR/min-reps-bound.out" || fail "min_reps upper bound: expected a diagnostic naming the reserved gate-rep band: $(cat "$WORKDIR/min-reps-bound.out")"
+grep -q "min_reps" "$WORKDIR/min-reps-bound.out" || fail "min_reps upper bound: expected the diagnostic to name min_reps specifically: $(cat "$WORKDIR/min-reps-bound.out")"
+
+echo "TC-082(min_reps upper bound, round-4 sweep): a batch policy's top-level min_reps at the reserved gate-rep band is rejected"
+
+PER_SCENARIO_REPS_BOUND_INDEX="$WORKDIR/per-scenario-reps-bound-index"
+mkdir -p "$PER_SCENARIO_REPS_BOUND_INDEX/packages/$SCENARIO_ID"
+cat >"$PER_SCENARIO_REPS_BOUND_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$PER_SCENARIO_REPS_BOUND_INDEX/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/per-scenario-reps-bound-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$PER_SCENARIO_REPS_BOUND_INDEX/scenarios.yaml"
+scenarios:
+  $SCENARIO_ID:
+    reps: 900000
+EOF
+
+per_scenario_reps_bound_rc=0
+"$BATCH" --batch "$WORKDIR/per-scenario-reps-bound-policy.yaml" --retention-root "$WORKDIR/per-scenario-reps-bound-unused" \
+	--mode preview >"$WORKDIR/per-scenario-reps-bound.out" 2>&1 || per_scenario_reps_bound_rc=$?
+[[ "$per_scenario_reps_bound_rc" -eq 1 ]] || fail "per-scenario reps upper bound: expected exit 1 (matrix enumeration refused), got $per_scenario_reps_bound_rc: $(cat "$WORKDIR/per-scenario-reps-bound.out")"
+grep -q "reserved gate-rep band" "$WORKDIR/per-scenario-reps-bound.out" || fail "per-scenario reps upper bound: expected a diagnostic naming the reserved gate-rep band: $(cat "$WORKDIR/per-scenario-reps-bound.out")"
+grep -q "scenarios.$SCENARIO_ID.reps" "$WORKDIR/per-scenario-reps-bound.out" || fail "per-scenario reps upper bound: expected the diagnostic to name the specific scenario's reps override: $(cat "$WORKDIR/per-scenario-reps-bound.out")"
+
+echo "TC-082(per-scenario reps upper bound, round-4 sweep): a batch policy's scenarios.<id>.reps override at the reserved gate-rep band is rejected"
+
+# ===========================================================================
+# quarantine_pair: pre-existing symlink at .incomplete/<scenario_id> (round-4
+# sweep, found while auditing every "does this already exist" trust
+# decision in run-lifecycle-batch.sh per code-review-2026-08-21T0459-
+# E40-F10.md's escalation): `mkdir -p "$incomplete_root"` used to treat a
+# pre-existing symlink-to-directory at .incomplete/<scenario_id> (or its
+# parent, .incomplete) as "already there, fine" and silently no-op against
+# it -- the subsequent `mv "$dir" "$dest"` in quarantine_pair() would then
+# relocate a quarantined prior attempt INTO whatever the symlink resolved
+# to (still in-root, so assert_within_out_root's containment check alone
+# never caught it) instead of this scenario's own .incomplete/ area. Same
+# defect class as retain_pair()'s own `dest` guard, at a write call this
+# round's sweep found unswept by any prior round.
+# ===========================================================================
+QUARANTINE_SYMLINK_ROOT="$WORKDIR/quarantine-symlink"
+mkdir -p "$QUARANTINE_SYMLINK_ROOT"
+
+QUARANTINE_INCOMPLETE_DIR="$QUARANTINE_SYMLINK_ROOT/scenarios/$SCENARIO_ID/$REP"
+mkdir -p "$QUARANTINE_INCOMPLETE_DIR"
+echo "prior attempt marker" >"$QUARANTINE_INCOMPLETE_DIR/package.yaml"
+QUARANTINE_BEFORE_DIGEST="$(sha256sum "$QUARANTINE_INCOMPLETE_DIR/package.yaml" | awk '{print $1}')"
+
+# A foreign, unrelated real directory that .incomplete/<scenario_id> will
+# be pre-symlinked to point at -- the "confused deputy" target the
+# quarantine MOVE must never write into.
+QUARANTINE_FOREIGN="$QUARANTINE_SYMLINK_ROOT/foreign-incomplete-target"
+mkdir -p "$QUARANTINE_FOREIGN"
+echo "leftover" >"$QUARANTINE_FOREIGN/leftover.txt"
+mkdir -p "$QUARANTINE_SYMLINK_ROOT/.incomplete"
+ln -s "$QUARANTINE_FOREIGN" "$QUARANTINE_SYMLINK_ROOT/.incomplete/$SCENARIO_ID"
+
+QUARANTINE_INDEX="$WORKDIR/quarantine-symlink-index"
+mkdir -p "$QUARANTINE_INDEX/packages/$SCENARIO_ID"
+cat >"$QUARANTINE_INDEX/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$SCENARIO_ID
+EOF
+cp "$SOURCES/package.yaml" "$QUARANTINE_INDEX/packages/$SCENARIO_ID/package.yaml"
+cat >"$WORKDIR/quarantine-symlink-batch-policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$QUARANTINE_INDEX/scenarios.yaml"
+EOF
+
+quarantine_symlink_rc=0
+"$BATCH" --batch "$WORKDIR/quarantine-symlink-batch-policy.yaml" --retention-root "$QUARANTINE_SYMLINK_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" --reclaim-incomplete >"$WORKDIR/quarantine-symlink.out" 2>&1 || quarantine_symlink_rc=$?
+[[ "$quarantine_symlink_rc" -eq 4 ]] || fail "quarantine_pair symlink: expected exit 4 (quarantine refused, pair recorded failed), got $quarantine_symlink_rc: $(cat "$WORKDIR/quarantine-symlink.out")"
+grep -q "pre-existing symlink" "$WORKDIR/quarantine-symlink.out" || fail "quarantine_pair symlink: expected a diagnostic naming the pre-existing symlink: $(cat "$WORKDIR/quarantine-symlink.out")"
+[[ -L "$QUARANTINE_SYMLINK_ROOT/.incomplete/$SCENARIO_ID" ]] || fail "quarantine_pair symlink: the pre-existing symlink at .incomplete/<scenario_id> was unexpectedly removed/replaced"
+[[ "$(ls "$QUARANTINE_FOREIGN")" == "leftover.txt" ]] \
+	|| fail "quarantine_pair symlink: the foreign directory the symlink pointed to had content planted into it -- $(ls "$QUARANTINE_FOREIGN")"
+[[ -f "$QUARANTINE_INCOMPLETE_DIR/package.yaml" ]] || fail "quarantine_pair symlink: the original incomplete prior attempt directory was removed -- REQ-NF-007 forbids delete"
+AFTER_QUARANTINE_DIGEST="$(sha256sum "$QUARANTINE_INCOMPLETE_DIR/package.yaml" | awk '{print $1}')"
+[[ "$AFTER_QUARANTINE_DIGEST" == "$QUARANTINE_BEFORE_DIGEST" ]] || fail "quarantine_pair symlink: the original incomplete prior attempt's bytes were modified"
+
+echo "TC-082(quarantine_pair symlink, round-4 sweep): quarantine_pair refuses to move an incomplete prior attempt through a pre-existing symlink at .incomplete/<scenario_id> -- foreign directory untouched, original attempt left in place"

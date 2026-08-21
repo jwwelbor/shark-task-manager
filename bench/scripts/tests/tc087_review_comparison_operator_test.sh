@@ -372,6 +372,114 @@ grep -q '"accepted":true' "$ROOT_F/scenarios/$SCENARIO_ID/$DR_REP/comparison.jso
 
 echo "TC-087(case F, finding 2): the accepted-comparison publish path replaces a pre-existing destination symlink instead of writing through it -- an unrelated in-root retained artifact untouched"
 
+# ===========================================================================
+# Case G (code-review-2026-08-21T0459-E40-F10.md round-4 finding 1, Section
+# E's "missing boundary case"): a DIRECTORY-shaped symlink at
+# comparison_dest -- case F above only planted a symlink pointing at a
+# FILE (the qa gate's own evaluation.jsonl). GNU coreutils `mv <src> <dst>`
+# (no `-T`) special-cases a destination that STATs (follows symlinks) as a
+# directory by moving <src> INTO it rather than replacing the directory
+# entry named <dst> -- a behavior the file-symlink case never exercises
+# (stat() of a symlink-to-file is not a directory, so the pre-fix `mv --`
+# happened to work for case F's shape by accident, not by any real
+# symlink-replacement guarantee). This is the actual gap the round-4 report
+# reproduced live against the real driver: exit 0, "accepted+published",
+# while comparison_dest remained a symlink and a stray temp file landed
+# INSIDE the symlinked-to directory.
+# ===========================================================================
+ROOT_G="$WORKDIR/root-g"
+mkdir -p "$ROOT_G"
+retain_pair_fixtures "$ROOT_G" "indep-compatible-qa" "indep-compatible-dr"
+
+QA_DIR_G="$ROOT_G/scenarios/$SCENARIO_ID/$QA_REP"
+QA_DIR_G_LISTING_BEFORE="$(ls -A "$QA_DIR_G" | sort)"
+ln -s "$QA_DIR_G" "$ROOT_G/scenarios/$SCENARIO_ID/$DR_REP/comparison.json"
+
+RC_G="$(run_case "case-g" "$ROOT_G" "independent_frozen_candidate")"
+[[ "$RC_G" -eq 0 ]] || fail "case G: expected exit 0 (accepted+published) despite a pre-existing DIRECTORY-shaped symlink at comparison_dest, got $RC_G: $(cat "$ROOT_G.out")"
+
+QA_DIR_G_LISTING_AFTER="$(ls -A "$QA_DIR_G" | sort)"
+[[ "$QA_DIR_G_LISTING_AFTER" == "$QA_DIR_G_LISTING_BEFORE" ]] \
+	|| fail "case G: the qa gate's own retained directory (symlink target) had content planted into it via comparison_dest's pre-existing directory-shaped symlink -- before: [$QA_DIR_G_LISTING_BEFORE] after: [$QA_DIR_G_LISTING_AFTER]"
+[[ -L "$ROOT_G/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] && fail "case G: comparison.json is still a symlink after publish -- expected it replaced with real content"
+[[ -f "$ROOT_G/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case G: comparison.json missing after publish"
+grep -q '"accepted":true' "$ROOT_G/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" \
+	|| fail "case G: published comparison.json does not report accepted:true (real content was not installed in place of the directory-shaped symlink)"
+
+echo "TC-087(case G, finding 1 round-4): the accepted-comparison publish path replaces a pre-existing DIRECTORY-shaped destination symlink instead of moving content into it -- an unrelated in-root retained directory untouched"
+
+# ===========================================================================
+# Case H (code-review-2026-08-21T0459-E40-F10.md round-4 finding 2, Section
+# E's "missing boundary case"): a pre-existing symlink AT the rep-level
+# directory itself (not at an artifact path inside an otherwise-real
+# directory, which every prior symlink case here and in TC-082 covers).
+# dispatch_gate()'s "already retained, skip" fast path used to test
+# artifact presence (-f "$dest/evaluation.jsonl") through `dest` before
+# retain_gate()'s own -L guard -- reached only on the create path -- ever
+# ran, so a symlinked rep directory would be silently adopted.
+#
+# The foreign target's manifest.json deliberately carries the CORRECT
+# scenario_id/rep/gate -- content that would PASS gate_dest_provenance_ok
+# on its own -- so this case isolates the -L guard specifically: it must
+# refuse a pre-existing symlink at the rep directory even when the content
+# reached through it would otherwise look provenance-valid. (Verified while
+# building this fix: without the -L guard but with the scenario_id/rep
+# check from case I below, this exact fixture is instead accepted by
+# `-f "$dest/evaluation.jsonl"` -> gate_dest_provenance_ok, which is
+# precisely why the -L guard must run BEFORE that presence check, not
+# instead of it.)
+# ===========================================================================
+ROOT_H="$WORKDIR/root-h"
+mkdir -p "$ROOT_H"
+retain_pair_fixtures "$ROOT_H" "indep-compatible-qa" "indep-compatible-dr"
+
+FOREIGN_DIR_H="$ROOT_H/foreign-deep-review-target"
+mkdir -p "$FOREIGN_DIR_H"
+cp "$WORKDIR/indep-compatible-dr.jsonl" "$FOREIGN_DIR_H/evaluation.jsonl"
+python3 -c 'import json,sys
+scenario_id, rep, gate, dest = sys.argv[1:5]
+manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
+open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$DR_REP" deep_review "$FOREIGN_DIR_H/manifest.json"
+
+rm -rf "$ROOT_H/scenarios/$SCENARIO_ID/$DR_REP"
+ln -s "$FOREIGN_DIR_H" "$ROOT_H/scenarios/$SCENARIO_ID/$DR_REP"
+
+RC_H="$(run_case "case-h" "$ROOT_H" "independent_frozen_candidate")"
+[[ "$RC_H" -eq 4 ]] || fail "case H: expected exit 4 (dispatch refused, comparison never attempted) when the deep_review rep directory itself is a pre-existing symlink, even to a provenance-valid-looking target, got $RC_H: $(cat "$ROOT_H.out")"
+grep -q "pre-existing symlink" "$ROOT_H.out" || fail "case H: expected a diagnostic naming the pre-existing symlink at the rep-level directory: $(cat "$ROOT_H.out")"
+[[ -L "$ROOT_H/scenarios/$SCENARIO_ID/$DR_REP" ]] || fail "case H: symlink at the rep-level directory itself was unexpectedly removed/replaced"
+[[ "$(cat "$FOREIGN_DIR_H/evaluation.jsonl")" == "$(cat "$WORKDIR/indep-compatible-dr.jsonl")" ]] \
+	|| fail "case H: the foreign target's own evaluation.jsonl was modified"
+
+echo "TC-087(case H, finding 2 round-4): dispatch_gate refuses when the rep-level directory ITSELF is a pre-existing symlink, before ever reaching the evaluation.jsonl-presence skip check -- even when the symlinked-to content would otherwise pass provenance"
+
+# ===========================================================================
+# Case I (code-review-2026-08-21T0459-E40-F10.md round-4 finding 2, the
+# cross-scenario confused-deputy read codex's R4-5 reproduced): the
+# rep-level directory is real (not a symlink), but its manifest.json
+# belongs to a DIFFERENT scenario_id despite a matching `gate` field --
+# gate_dest_provenance_ok() used to check only the `gate` field, so this
+# shape passed provenance and was silently adopted. This is a narrower
+# case than a symlink: no filesystem redirection at all, just a
+# manifest.json whose declared identity does not match the caller's own.
+# ===========================================================================
+ROOT_I="$WORKDIR/root-i"
+mkdir -p "$ROOT_I"
+retain_pair_fixtures "$ROOT_I" "indep-compatible-qa" "indep-compatible-dr"
+
+python3 -c 'import json,sys
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["scenario_id"] = "py-bug-a-completely-different-scenario"
+open(path, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$ROOT_I/scenarios/$SCENARIO_ID/$DR_REP/manifest.json"
+
+RC_I="$(run_case "case-i" "$ROOT_I" "independent_frozen_candidate")"
+[[ "$RC_I" -eq 4 ]] || fail "case I: expected exit 4 (dispatch refused) when the deep_review rep's manifest.json scenario_id does not match the caller's own scenario_id despite a matching gate field, got $RC_I: $(cat "$ROOT_I.out")"
+grep -q "already occupied" "$ROOT_I.out" || fail "case I: expected the already-occupied-by-unmatched-provenance diagnostic: $(cat "$ROOT_I.out")"
+[[ ! -f "$ROOT_I/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case I: a provenance-refused dispatch must never publish a comparison"
+
+echo "TC-087(case I, finding 2 round-4): gate_dest_provenance_ok refuses a rep directory whose manifest.json 'gate' field matches but scenario_id does not -- the confused-deputy shape a gate-only check missed"
+
 # ---------------------------------------------------------------------------
 # AC-T3 (T-E40-F10-014's future static-grep target, proven here too):
 # run-review-comparison.sh contains none of the comparator's own
