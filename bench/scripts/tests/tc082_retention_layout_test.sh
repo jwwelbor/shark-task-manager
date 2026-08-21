@@ -285,6 +285,77 @@ echo "$out_a2" | grep -q '"failures":\[\]' || fail "(a2) driver-path: expected a
 echo "TC-082: a root produced by one real run-lifecycle-batch.sh --mode pilot retention verifies cleanly (Caller-Path Contract)"
 
 # ===========================================================================
+# (a3) Symlink write-through refusal (code-review-2026-08-21T0330-E40-F10.md
+# finding 2, both codex-independent and this reviewer's own live repro):
+# neither copy_artifact (single-file case) nor copy_dir_artifact (directory
+# case) used to reject a pre-existing symlink planted at a destination
+# artifact path before writing -- shutil.copyfile/Path.write_text followed
+# the symlink and wrote through it, and Path.mkdir(exist_ok=True) treated a
+# pre-existing symlink-to-directory as "already there, fine" and let the
+# directory-walk copy real files INTO whatever the symlink resolved to.
+# assert_within_out_root (the caller's only containment check) is never
+# even called on individual artifact paths -- only on the rep-level `dest`
+# directory -- so a symlink at a syntactically contained artifact name was
+# never checked by anyone.
+#
+# Drives the REAL bench/scripts/lib/retain_pair binary directly (the exact
+# production caller shape build_golden() above already uses) against a
+# dest with a pre-existing symlink planted at BOTH a file-artifact path
+# (package.yaml) and a directory-artifact path (evidence) pointing OUTSIDE
+# the retention root, and proves:
+#   1. the external file/directory the symlink pointed to is byte-for-byte
+#      untouched (the actual attack this finding demonstrates: silent
+#      overwrite of arbitrary filesystem content outside the retention
+#      root);
+#   2. the file case installs real retained content in place of the
+#      symlink (retain_pair's normal job still gets done, just safely);
+#   3. the directory case fails loudly (non-zero exit, a named diagnostic)
+#      rather than silently writing into the symlinked-to directory --
+#      rename() cannot atomically substitute a directory for a pre-existing
+#      symlink, so install_atomic_dir's refusal is a structural property of
+#      the fix, not a special-cased check that could itself drift.
+# ===========================================================================
+SYMLINK_OUTSIDE="$WORKDIR/symlink-outside"
+mkdir -p "$SYMLINK_OUTSIDE/dir-target"
+echo "SECRET FILE CONTENT OUTSIDE THE RETENTION ROOT -- must never be overwritten" >"$SYMLINK_OUTSIDE/secret-file.txt"
+echo "SECRET DIR CONTENT OUTSIDE THE RETENTION ROOT -- must never be planted into" >"$SYMLINK_OUTSIDE/dir-target/leftover.txt"
+
+SYMLINK_CASE_ROOT="$WORKDIR/symlink-case"
+SYMLINK_DEST="$(pair_dir "$SYMLINK_CASE_ROOT")"
+mkdir -p "$SYMLINK_DEST"
+ln -s "$SYMLINK_OUTSIDE/secret-file.txt" "$SYMLINK_DEST/package.yaml"
+ln -s "$SYMLINK_OUTSIDE/dir-target" "$SYMLINK_DEST/evidence"
+
+symlink_rc=0
+python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$REP" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$I05_BUNDLE" "$SYMLINK_DEST" \
+	>"$WORKDIR/symlink-case.out" 2>"$WORKDIR/symlink-case.err" || symlink_rc=$?
+
+# (1) The external content the symlinks pointed to is untouched, regardless
+# of how retain_pair itself reacted to the directory-case refusal.
+[[ "$(cat "$SYMLINK_OUTSIDE/secret-file.txt")" == "SECRET FILE CONTENT OUTSIDE THE RETENTION ROOT -- must never be overwritten" ]] \
+	|| fail "(a3) symlink write-through: external file outside the retention root was overwritten -- $(cat "$SYMLINK_OUTSIDE/secret-file.txt")"
+[[ "$(ls "$SYMLINK_OUTSIDE/dir-target")" == "leftover.txt" ]] \
+	|| fail "(a3) symlink write-through: external directory outside the retention root had content planted into it: $(ls "$SYMLINK_OUTSIDE/dir-target")"
+
+# (2) The file case: the symlink is REPLACED with real retained content
+# (never left as a symlink, never silently skipped).
+[[ -L "$SYMLINK_DEST/package.yaml" ]] && fail "(a3) symlink write-through: dest/package.yaml is still a symlink after retain_pair -- expected it replaced with real content"
+[[ -f "$SYMLINK_DEST/package.yaml" ]] || fail "(a3) symlink write-through: dest/package.yaml missing after retain_pair"
+diff -u "$SOURCES/package.yaml" "$SYMLINK_DEST/package.yaml" >/dev/null \
+	|| fail "(a3) symlink write-through: dest/package.yaml content is not the real retained source: $(diff -u "$SOURCES/package.yaml" "$SYMLINK_DEST/package.yaml")"
+
+# (3) The directory case: rename() cannot atomically replace a symlink with
+# a directory, so retain_pair MUST fail loudly (non-zero exit, a named
+# diagnostic) rather than silently succeed by writing through it -- the
+# symlink itself is left exactly as planted, never followed.
+[[ "$symlink_rc" -ne 0 ]] || fail "(a3) symlink write-through: retain_pair exited 0 with a pre-existing symlink at a directory-artifact path -- expected a loud refusal"
+grep -q "evidence" "$WORKDIR/symlink-case.err" || fail "(a3) symlink write-through: expected a diagnostic naming the refused artifact (evidence), got: $(cat "$WORKDIR/symlink-case.err")"
+[[ -L "$SYMLINK_DEST/evidence" ]] || fail "(a3) symlink write-through: dest/evidence symlink was removed/replaced instead of left in place by the refusal"
+
+echo "TC-082(a3): lib/retain_pair refuses to write through a pre-existing destination symlink -- external content untouched, file case installs real content in its place, directory case fails loudly (finding 2)"
+
+# ===========================================================================
 # (b)-(i): each of the eight retained artifacts, deleted in turn, fails
 # distinctly naming that artifact and "missing" -- not one representative
 # case (TC-082's own instruction).

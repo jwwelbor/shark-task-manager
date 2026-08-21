@@ -46,6 +46,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 scenario_id, rep, package_path, lifecycle_jsonl, evaluation_jsonl, i05_bundle_dir, dest = sys.argv[1:8]
@@ -53,6 +54,71 @@ producer_gate = sys.argv[8] if len(sys.argv) > 8 else ""
 dest = Path(dest)
 
 artifacts = {}
+
+
+# ---------------------------------------------------------------------------
+# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding 2):
+# neither copy_artifact nor copy_dir_artifact used to reject a pre-existing
+# symlink at a destination artifact path before writing -- shutil.copyfile
+# and Path.write_text both follow a symlink and write through it;
+# Path.mkdir(exist_ok=True) treats a pre-existing symlink-to-directory as
+# "already exists, fine" and lets the directory-walk copy real files INTO
+# whatever the symlink resolves to. The caller's assert_within_out_root
+# only ever validates the rep-level `dest` directory string, never each
+# artifact path inside it, so a symlink planted at a syntactically
+# contained artifact name (package.yaml, evidence, ...) was never checked
+# by anyone.
+#
+# Fix: every write in this file goes through install_atomic_file /
+# install_atomic_dir below -- build the new content in a fresh temp
+# sibling (never the real artifact name, so no symlink is ever opened for
+# writing), then atomically install with os.replace()/os.rename(). Per
+# POSIX rename(2) semantics (verified empirically for this fix): a
+# pre-existing symlink at the destination name is REPLACED as a directory
+# entry, never followed/written through, for the single-file case; for the
+# directory case, rename() cannot substitute a directory for a symlink (or
+# a non-empty directory) at all and raises OSError, so a directory-shaped
+# attack (or a stale non-empty destination from an interrupted prior
+# attempt) fails loudly instead of silently writing into it. This mirrors
+# the tempfile.mkstemp + os.replace atomic-install convention already
+# established elsewhere in this codebase (lifecycle-prelude.sh's
+# write_record, review-capture.sh, lifecycle-worker-adapter.sh) rather than
+# inventing a second pattern.
+# ---------------------------------------------------------------------------
+def install_atomic_file(target: Path, data: bytes):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target)
+    except OSError:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def install_atomic_dir(target: Path, populate):
+    # populate(temp_dir: Path) -> None -- fills the fresh temp directory;
+    # only after it returns do we attempt the atomic install.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=str(target.parent)))
+    try:
+        populate(temp_dir)
+        os.replace(temp_dir, target)
+    except OSError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(
+            f"retain_pair: refusing to install {target} -- destination is occupied by "
+            f"something rename() cannot atomically replace with a directory (a "
+            f"pre-existing symlink, file, or non-empty stale directory): {exc}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
 
 
 def digest_of_path(path: Path):
@@ -84,8 +150,9 @@ def copy_artifact(name, source):
     source_path = Path(source)
     target = dest / name
     if source_path.is_file():
-        shutil.copyfile(source_path, target)
-        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        data = source_path.read_bytes()
+        install_atomic_file(target, data)
+        digest = hashlib.sha256(data).hexdigest()
         artifacts[name] = {"source_path": str(source_path), "sha256": digest}
     else:
         # Not yet available from this driver's own inputs (e.g.
@@ -97,7 +164,7 @@ def copy_artifact(name, source):
         # digest_rules.empty_artifact_semantics (schema): a present-but-empty
         # artifact is never "missing" -- only source_path == "" marks it as
         # not yet wired.
-        target.write_text("", encoding="utf-8")
+        install_atomic_file(target, b"")
         artifacts[name] = {"source_path": "", "sha256": hashlib.sha256(b"").hexdigest()}
 
 
@@ -107,20 +174,30 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     # digested with digest_of_path() above -- the schema-owned digest_rules
     # (and digest_rules.empty_artifact_semantics for the honestly-empty
     # case below). Never an unconditionally-empty mkdir standing in for
-    # real content while still claiming a manifest entry.
+    # real content while still claiming a manifest entry. Built entirely in
+    # a fresh temp sibling and atomically installed (install_atomic_dir) so
+    # a pre-existing symlink or stale content at `target` is never opened
+    # for writing (finding 2).
     target = dest / name
-    target.mkdir(parents=True, exist_ok=True)
     source_path = Path(source_dir) if source_dir else None
-    if source_path is not None and source_path.is_dir():
+    has_source = source_path is not None and source_path.is_dir()
+
+    def populate(temp_dir: Path):
+        if not has_source:
+            return
         for root, dirs, files in os.walk(source_path):
             if Path(root) == source_path:
                 dirs[:] = [d for d in dirs if d not in exclude_top_level]
             for fname in files:
                 fpath = Path(root) / fname
                 rel = fpath.relative_to(source_path)
-                dest_file = target / rel
+                dest_file = temp_dir / rel
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(fpath, dest_file)
+
+    install_atomic_dir(target, populate)
+
+    if has_source:
         artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
     else:
         # No source directory configured/found for this artifact -- a real,
@@ -157,4 +234,7 @@ manifest = {
 }
 if producer_gate:
     manifest["gate"] = producer_gate
-(dest / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+install_atomic_file(
+    dest / "manifest.json",
+    (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
+)

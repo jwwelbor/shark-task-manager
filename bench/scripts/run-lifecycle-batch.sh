@@ -563,6 +563,19 @@ retain_pair() {
 	local scenario_id="$1" rep="$2" package_path="$3" lifecycle_jsonl="$4" evaluation_jsonl="$5" i05_bundle_dir="$6"
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
+	# Symlink write-through, dest-level (code-review-2026-08-21T0330-E40-F10.md
+	# finding 2, swept to this call site's sibling of run-review-comparison.sh's
+	# retain_gate(), the SAME defect class at the SAME shared assumption):
+	# assert_within_out_root refuses a `dest` symlink that escapes
+	# out_root_canon, but a symlink redirected to ANOTHER retained pair's
+	# directory INSIDE the same root still passes containment, and mkdir -p
+	# would silently no-op against it -- every artifact lib/retain_pair
+	# writes would then land in that unrelated in-root directory. Refuse
+	# loudly before mkdir -p ever runs.
+	if [[ -L "$dest" ]]; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: refusing to retain -- $dest is a pre-existing symlink, not a real directory" >&2
+		return 1
+	fi
 	mkdir -p "$dest"
 	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$i05_bundle_dir" "$dest"
 }

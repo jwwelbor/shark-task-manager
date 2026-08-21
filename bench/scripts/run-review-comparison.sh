@@ -453,14 +453,47 @@ fi
 # distinct retained pairs of the SAME scenario_id, and REQ-F-004 already
 # treats "for each (scenario, rep): ... any review-comparison record" as
 # one retention model shared by both drivers.
+#
+# Rep-namespace collision (code-review-2026-08-21T0330-E40-F10.md finding
+# 1): this driver and run-lifecycle-batch.sh both write into the SAME
+# `scenarios/<scenario_id>/<rep>/` namespace for a scenario_id they
+# legitimately share, but each allocates `rep` independently.
+# run-lifecycle-batch.sh allocates sequentially from rep 1
+# (`for ((rep = 1; rep <= reps; rep++))`, run-lifecycle-batch.sh:683) with
+# no configured upper bound. gate_rep() previously hardcoded qa=rep 1,
+# deep_review=rep 2 -- inside that exact low range -- so whichever driver
+# wrote a given (scenario_id, rep) slot SECOND collided with the other:
+# a gate dispatched before a batch run silently satisfied the batch's
+# classify_pair() "skipped_complete" check for a pair the batch itself
+# never produced, with no diagnostic (the confirmed-live-repro direction;
+# the reverse order was already caught loudly by
+# gate_dest_provenance_ok() below). GATE_REP_BASE reserves a numbering
+# band no realistic `--reps` value reaches, so the two producers' rep
+# allocations structurally cannot collide regardless of dispatch order --
+# the narrowest fix, entirely on this driver's side, with no change to
+# run-lifecycle-batch.sh's classify_pair() or aggregate-lifecycle.sh's pair
+# enumeration required.
+#
+# OPEN QUESTION (not resolved here, flagged for spec.md/schema): whether a
+# gate-produced rep SHOULD count toward a scenario's ordinary
+# quality/time/cost/noise-band aggregate statistics at all, since it is a
+# different kind of artifact (a review-comparison gate run, not an
+# ordinary pilot/baseline rep) than a real batch rep. REQ-F-016's "three
+# separate dimensions, no blending" spirit argues it should not; nothing in
+# spec.md says so explicitly today, and this fix deliberately leaves that
+# question open rather than silently deciding it as a side effect.
 # ---------------------------------------------------------------------------
+GATE_REP_BASE=900000
+
 gate_rep() {
-	# gate_rep <gate> -- fixed, documented mapping (never operator-supplied):
-	# qa=1 (feature-QA gate, REQ-F-014's "left" side), deep_review=2
+	# gate_rep <gate> -- fixed, documented mapping within the reserved
+	# GATE_REP_BASE band (never operator-supplied, never in the low
+	# sequential range run-lifecycle-batch.sh allocates from): qa=BASE+1
+	# (feature-QA gate, REQ-F-014's "left" side), deep_review=BASE+2
 	# (finish-feature deep-review gate, the "right"/terminal side).
 	case "$1" in
-	qa) echo 1 ;;
-	deep_review) echo 2 ;;
+	qa) echo "$((GATE_REP_BASE + 1))" ;;
+	deep_review) echo "$((GATE_REP_BASE + 2))" ;;
 	*)
 		echo "run-review-comparison: internal error: unknown gate '$1'" >&2
 		return 1
@@ -473,6 +506,20 @@ retain_gate() {
 	local scenario_id="$1" rep="$2" gate="$3" package_path="$4" lifecycle_jsonl="$5" evaluation_jsonl="$6" i05_bundle_dir="$7"
 	local dest="$out_root_canon/scenarios/$scenario_id/$rep"
 	assert_within_out_root "$dest" || return 1
+	# Symlink write-through, dest-level (code-review-2026-08-21T0330-E40-F10.md
+	# finding 2, swept to this call site's own "rep/gate-provenance
+	# assumption"): assert_within_out_root resolves an existing symlink at
+	# `dest` and refuses it if it escapes out_root_canon, but a symlink
+	# redirected to ANOTHER retained pair's directory INSIDE the same root
+	# still passes containment -- mkdir -p would then silently no-op
+	# against it, and every artifact lib/retain_pair writes would land in
+	# that unrelated in-root directory instead of this gate's own. Refuse
+	# loudly before mkdir -p ever runs, rather than let a symlinked `dest`
+	# masquerade as this gate's real directory.
+	if [[ -L "$dest" ]]; then
+		echo "run-review-comparison: $gate gate: refusing to retain -- $dest is a pre-existing symlink, not a real directory" >&2
+		return 1
+	fi
 	mkdir -p "$dest"
 	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$i05_bundle_dir" "$dest" "$gate"
 }
@@ -641,9 +688,29 @@ case "$comparator_rc" in
 	# in, so publishing to one location keeps one comparator verdict as
 	# exactly one row.
 	comparison_rep="$(gate_rep "deep_review")"
-	comparison_dest="$out_root_canon/scenarios/$scenario_id_global/$comparison_rep/comparison.json"
+	comparison_dest_dir="$out_root_canon/scenarios/$scenario_id_global/$comparison_rep"
+	comparison_dest="$comparison_dest_dir/comparison.json"
 	assert_within_out_root "$comparison_dest" || exit 1
-	cp -- "$COMPARISON_ATTEMPT" "$comparison_dest"
+	# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding
+	# 2, swept into every write call this driver owns): assert_within_out_root
+	# above already refuses a symlink at comparison_dest that escapes
+	# out_root_canon entirely (realpath -m resolves an existing symlink's
+	# final component, so an outside target already fails containment). It
+	# canNOT catch the narrower "confused deputy" variant: a symlink at
+	# comparison_dest redirected to ANOTHER retained artifact inside the
+	# SAME root -- that resolves within out_root_canon and passes
+	# containment, yet a plain `cp --` would still silently overwrite that
+	# unrelated in-root file. Staging into a temp file inside the SAME
+	# directory (guaranteeing the same filesystem, so the install below is
+	# a real atomic rename) and installing with `mv --` replaces WHATEVER
+	# is at comparison_dest -- symlink or not, in-root target or out --
+	# instead of writing through it, matching lib/retain_pair's
+	# install_atomic_file/install_atomic_dir pattern and this codebase's
+	# established tempfile+os.replace atomic-install convention
+	# (lifecycle-prelude.sh, review-capture.sh, lifecycle-worker-adapter.sh).
+	comparison_install_tmp="$(mktemp "$comparison_dest_dir/.comparison.json.XXXXXX")"
+	cp -- "$COMPARISON_ATTEMPT" "$comparison_install_tmp"
+	mv -- "$comparison_install_tmp" "$comparison_dest"
 	echo "run-review-comparison: comparison ACCEPTED and published: $comparison_dest" >&2
 	cat "$COMPARISON_ATTEMPT"
 	rm -f "$COMPARISON_ATTEMPT"
