@@ -206,11 +206,28 @@ if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
 	# ceilings are constant across both gates of one candidate) and reused
 	# by every dispatch_gate() call -- never a second, divergent per-gate
 	# policy.
+	# `|| ...=""` on each: _spend_gate_flag_value returns 1 with no output
+	# when a flag is absent, and under this script's `set -e` a bare
+	# `var="$(possibly-failing-cmd)"` would abort the whole script right
+	# here with no diagnostic -- before the named-diagnostic check below
+	# ever ran. Capturing empty-on-failure instead lets that check do its
+	# job.
+	uat_r2_01_cost="$(_spend_gate_flag_value "--max-cost-usd" "${ORIGINAL_ARGV[@]}")" || uat_r2_01_cost=""
+	uat_r2_01_wall="$(_spend_gate_flag_value "--max-wall-clock-seconds" "${ORIGINAL_ARGV[@]}")" || uat_r2_01_wall=""
+	uat_r2_01_tasks="$(_spend_gate_flag_value "--max-generated-tasks" "${ORIGINAL_ARGV[@]}")" || uat_r2_01_tasks=""
+	# Structural, not merely positional: spend_gate_check_all above already
+	# guarantees all three resolve non-empty (it would have refused/exited
+	# otherwise), but re-asserting it here means a future reordering of this
+	# block fails loudly with a named diagnostic instead of silently writing
+	# an empty --limits field that run-lifecycle.sh's own limits_from() would
+	# then reject far downstream with a much less specific error.
+	if [[ -z "$uat_r2_01_cost" || -z "$uat_r2_01_wall" || -z "$uat_r2_01_tasks" ]]; then
+		echo "run-review-comparison: internal error: spend gate passed but a ceiling did not resolve from ORIGINAL_ARGV" >&2
+		exit 2
+	fi
 	OPERATOR_LIMITS_FILE="$(mktemp)"
 	printf 'max_cost_usd: %s\nmax_wall_clock_seconds: %s\nmax_generated_tasks: %s\n' \
-		"$(_spend_gate_flag_value "--max-cost-usd" "${ORIGINAL_ARGV[@]}")" \
-		"$(_spend_gate_flag_value "--max-wall-clock-seconds" "${ORIGINAL_ARGV[@]}")" \
-		"$(_spend_gate_flag_value "--max-generated-tasks" "${ORIGINAL_ARGV[@]}")" \
+		"$uat_r2_01_cost" "$uat_r2_01_wall" "$uat_r2_01_tasks" \
 		>"$OPERATOR_LIMITS_FILE"
 fi
 
