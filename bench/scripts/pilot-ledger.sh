@@ -315,6 +315,17 @@ def digest_of_path(path):
     return None
 
 
+def symlink_in_path(path):
+    current = os.path.abspath(path)
+    while True:
+        if os.path.islink(current):
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
 # T-E40-F10-006 rework finding 13: --scenario is already validated against
 # REQ-F-002's lowercase-kebab grammar and containment-checked by the caller
 # (assert_within_out_root) before this subprocess is even started -- both
@@ -337,6 +348,10 @@ if not within_retention_root(scenario_dir):
 if not os.path.isdir(scenario_dir):
     print(f"pilot-ledger: no retained scenario directory found: {scenario_dir}", file=sys.stderr)
     raise SystemExit(2)
+for name in RETAINED_ARTIFACTS:
+    if symlink_in_path(os.path.join(scenario_dir, name)):
+        print(f"pilot-ledger: retained artifact path contains a symlink: {name}", file=sys.stderr)
+        raise SystemExit(2)
 
 package_path = os.path.join(scenario_dir, "package.yaml")
 if not os.path.isfile(package_path):
@@ -537,6 +552,17 @@ def digest_of_path(path):
     return None
 
 
+def symlink_in_path(path):
+    current = os.path.abspath(path)
+    while True:
+        if os.path.islink(current):
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
 # The two canonical "empty" digests per digest_rules.empty_artifact_semantics:
 # a directory with zero files (canonicalization applied to the empty file
 # list `[]`), and a zero-byte file (file_encoding of the empty byte
@@ -592,6 +618,10 @@ for fam in targets:
     scenario_dir = os.path.join(retention_root, "scenarios", scenario_id, str(rep))
     if not within_retention_root(scenario_dir):
         print(f"family={fam}: FAILED (unsafe_scenario_reference)")
+        any_fail = True
+        continue
+    if any(symlink_in_path(os.path.join(scenario_dir, name)) for name in RETAINED_ARTIFACTS):
+        print(f"family={fam}: FAILED (schema_invalid: retained artifact path contains a symlink)")
         any_fail = True
         continue
     recorded_digests = entry.get("inspected_artifact_digests") or {}

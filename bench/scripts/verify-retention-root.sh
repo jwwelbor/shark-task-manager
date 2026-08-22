@@ -347,6 +347,17 @@ def digest_of_path(path):
     return None
 
 
+def symlink_in_path(path):
+    current = os.path.abspath(path)
+    while True:
+        if os.path.islink(current):
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
 def canonical_json_digest(path):
     # Secondary check for JSON/JSONL artifacts only: re-serialize the
     # parsed content compactly with sorted keys, matching this
@@ -402,6 +413,11 @@ with open(pending_path, encoding="utf-8") as f:
 
 for scenario_id, rep, rep_dir in pairs:
     failures = []
+    if symlink_in_path(rep_dir):
+        failures.append({"artifact": "retention_directory", "reason": "schema_invalid", "detail": "retention paths must not contain symlinks"})
+    for required_name in REQUIRED_ARTIFACTS_WITH_SOURCE + ["manifest.json"]:
+        if symlink_in_path(os.path.join(rep_dir, required_name)):
+            failures.append({"artifact": required_name, "reason": "schema_invalid", "detail": "retained artifact paths must not contain symlinks"})
     manifest_path = os.path.join(rep_dir, "manifest.json")
     manifest_loaded = False
     try:

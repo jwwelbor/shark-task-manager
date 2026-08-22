@@ -1929,3 +1929,19 @@ set -e
 grep -q "schema_invalid:manifest.json" "$PAIR_ROOT_SHAPE_OUT" || fail "round-14 non-object pair manifest: missing machine-readable schema refusal: $(cat "$PAIR_ROOT_SHAPE_OUT")"
 grep -q "JSON object" "$PAIR_ROOT_SHAPE_ERR" || fail "round-14 non-object pair manifest: missing named shape refusal: $(cat "$PAIR_ROOT_SHAPE_ERR")"
 echo "TC-082 (round 14): production pair-reuse helper refuses parseable non-object manifest roots"
+
+# Retained artifact paths themselves must not be trusted through symlinks,
+# even when the target bytes still match the manifest digest.
+SYMLINK_ROOT="$WORKDIR/retained-artifact-symlink"
+cp -a "$root_l" "$SYMLINK_ROOT"
+SYMLINK_TARGET="$WORKDIR/external-evaluation.jsonl"
+cp "$SYMLINK_ROOT/scenarios/scenario-tc082/1/evaluation.jsonl" "$SYMLINK_TARGET"
+rm "$SYMLINK_ROOT/scenarios/scenario-tc082/1/evaluation.jsonl"
+ln -s "$SYMLINK_TARGET" "$SYMLINK_ROOT/scenarios/scenario-tc082/1/evaluation.jsonl"
+set +e
+"$VERIFIER" --retention-root "$SYMLINK_ROOT" --schema "$SCHEMA" >"$WORKDIR/retained-symlink.out" 2>"$WORKDIR/retained-symlink.err"
+RC_RETAINED_SYMLINK=$?
+set -e
+[[ "$RC_RETAINED_SYMLINK" -ne 0 ]] || fail "retained artifact symlink: expected verifier refusal, got 0"
+grep -q "symlink" "$WORKDIR/retained-symlink.err" || fail "retained artifact symlink: missing named refusal: $(cat "$WORKDIR/retained-symlink.err")"
+echo "TC-082 (round 6 UAT): offline retention verification refuses symlinked retained artifact paths"

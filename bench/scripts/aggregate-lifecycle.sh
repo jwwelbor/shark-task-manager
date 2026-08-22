@@ -550,6 +550,17 @@ def sha256_file(path):
         return sha256_bytes(fh.read())
 
 
+def symlink_in_path(path):
+    current = os.path.abspath(path)
+    while True:
+        if os.path.islink(current):
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
 def require(d, key, ctx, expected_type=None):
     if not isinstance(d, dict) or key not in d or d[key] in (None, ""):
         fail(f"{ctx}: missing required field {key!r}")
@@ -714,6 +725,8 @@ for scenario_id, rep, rep_dir in pair_dirs:
         ("evaluation.jsonl", evaluation_path),
         ("manifest.json", manifest_path),
     ):
+        if symlink_in_path(path):
+            fail(f"{pair_label}: {name}: retained artifact paths must not contain symlinks")
         if not os.path.isfile(path):
             fail(f"{pair_label}: required retained artifact missing: {name}")
 

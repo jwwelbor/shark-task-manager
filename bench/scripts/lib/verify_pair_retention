@@ -101,6 +101,16 @@ def refuse(reason: str, artifact: str, detail: str):
     raise SystemExit(1)
 
 
+def symlink_in_path(path: Path) -> bool:
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
 def digest_of_path(path: Path):
     # MUST implement the exact same rule as lib/retain_pair's own
     # digest_of_path and verify-retention-root.sh's own digest_of_path --
@@ -131,7 +141,11 @@ def digest_of_path(path: Path):
 # present on disk. A manifest that merely CLAIMS an artifact (an `artifacts`
 # entry) is never sufficient on its own; the artifact must actually exist at
 # dest_dir/<name>.
+if symlink_in_path(dest):
+    refuse("schema_invalid", "retention_directory", "retention paths must not contain symlinks")
 for name in REQUIRED_ARTIFACTS:
+    if symlink_in_path(dest / name):
+        refuse("schema_invalid", name, "retained artifact paths must not contain symlinks")
     if not (dest / name).exists():
         refuse("missing", name, "required retained artifact is absent from the retention directory")
 
