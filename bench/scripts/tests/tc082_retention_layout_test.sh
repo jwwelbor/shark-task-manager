@@ -1945,3 +1945,24 @@ set -e
 [[ "$RC_RETAINED_SYMLINK" -ne 0 ]] || fail "retained artifact symlink: expected verifier refusal, got 0"
 grep -q "symlink" "$WORKDIR/retained-symlink.err" || fail "retained artifact symlink: missing named refusal: $(cat "$WORKDIR/retained-symlink.err")"
 echo "TC-082 (round 6 UAT): offline retention verification refuses symlinked retained artifact paths"
+
+# UAT round 7 defect-class counterexample: a real artifact directory must not
+# incorporate bytes through a nested file symlink. Root-only checks are
+# insufficient because os.walk otherwise lists the link as a file and the
+# digest routine reads its target.
+NESTED_SYMLINK_ROOT="$WORKDIR/retained-nested-symlink"
+cp -a "$GOLDEN_ROOT" "$NESTED_SYMLINK_ROOT"
+NESTED_EVIDENCE="$NESTED_SYMLINK_ROOT/scenarios/scenario-tc082/1/evidence"
+mkdir -p "$NESTED_EVIDENCE/nested"
+printf 'outside retained tree\n' >"$WORKDIR/outside-retained.txt"
+ln -s "$WORKDIR/outside-retained.txt" "$NESTED_EVIDENCE/nested/linked.txt"
+set +e
+"$VERIFIER" --retention-root "$NESTED_SYMLINK_ROOT" --schema "$SCHEMA" \
+    >"$WORKDIR/retained-nested-symlink.out" \
+    2>"$WORKDIR/retained-nested-symlink.err"
+RC_NESTED_SYMLINK=$?
+set -e
+[[ "$RC_NESTED_SYMLINK" -ne 0 ]] || fail "nested retained artifact symlink: expected verifier refusal, got 0"
+grep -q "symlink\|digest_mismatch\|missing" "$WORKDIR/retained-nested-symlink.err" \
+    || fail "nested retained artifact symlink: missing named refusal: $(cat "$WORKDIR/retained-nested-symlink.err")"
+echo "TC-082 (round 7 UAT): offline retention verification refuses nested file symlinks inside retained directory artifacts"

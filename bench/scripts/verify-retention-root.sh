@@ -333,8 +333,12 @@ def digest_of_path(path):
         entries = []
         for root, dirs, files in os.walk(path):
             dirs.sort()
+            if any(os.path.islink(os.path.join(root, dirname)) for dirname in dirs):
+                return None
             for fname in sorted(files):
                 fpath = os.path.join(root, fname)
+                if os.path.islink(fpath):
+                    return None
                 relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
                 with open(fpath, "rb") as fh:
                     entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})

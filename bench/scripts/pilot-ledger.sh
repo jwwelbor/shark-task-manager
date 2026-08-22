@@ -301,8 +301,12 @@ def digest_of_path(path):
         entries = []
         for root, dirs, files in os.walk(path):
             dirs.sort()
+            if any(os.path.islink(os.path.join(root, dirname)) for dirname in dirs):
+                return None
             for fname in sorted(files):
                 fpath = os.path.join(root, fname)
+                if os.path.islink(fpath):
+                    return None
                 relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
                 with open(fpath, "rb") as fh:
                     entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
@@ -322,8 +326,13 @@ def symlink_in_path(path):
             return True
         parent = os.path.dirname(current)
         if parent == current:
-            return False
+            break
         current = parent
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path, followlinks=False):
+            if any(os.path.islink(os.path.join(root, name)) for name in dirs + files):
+                return True
+    return False
 
 
 # T-E40-F10-006 rework finding 13: --scenario is already validated against
@@ -538,8 +547,12 @@ def digest_of_path(path):
         entries = []
         for root, dirs, files in os.walk(path):
             dirs.sort()
+            if any(os.path.islink(os.path.join(root, dirname)) for dirname in dirs):
+                return None
             for fname in sorted(files):
                 fpath = os.path.join(root, fname)
+                if os.path.islink(fpath):
+                    return None
                 relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
                 with open(fpath, "rb") as fh:
                     entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
@@ -559,8 +572,13 @@ def symlink_in_path(path):
             return True
         parent = os.path.dirname(current)
         if parent == current:
-            return False
+            break
         current = parent
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path, followlinks=False):
+            if any(os.path.islink(os.path.join(root, name)) for name in dirs + files):
+                return True
+    return False
 
 
 # The two canonical "empty" digests per digest_rules.empty_artifact_semantics:

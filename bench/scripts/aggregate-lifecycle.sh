@@ -557,8 +557,13 @@ def symlink_in_path(path):
             return True
         parent = os.path.dirname(current)
         if parent == current:
-            return False
+            break
         current = parent
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path, followlinks=False):
+            if any(os.path.islink(os.path.join(root, name)) for name in dirs + files):
+                return True
+    return False
 
 
 def require(d, key, ctx, expected_type=None):
