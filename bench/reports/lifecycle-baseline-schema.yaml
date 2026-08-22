@@ -362,6 +362,30 @@ review_value_gate_time_cost_upstream_gap_reason: >-
   elapsed_seconds/provider_cost_usd (only whole-evaluation elapsed_time and
   provider_cost sums) and no resolution_cost concept anywhere (REQ-F-008)
 
+# T-E40-F10-011 (feature-level tech-lead code-review kickback, REQ-F-008,
+# REQ-F-016). REQ-F-016 requires quality, elapsed time, and provider cost
+# each carry a paired-delta rendering, but I-08's comparison object
+# (evaluate-lifecycle.sh's own `comparison` block and
+# compare-lifecycle-evaluations.sh's own output shape -- checked, both
+# confirmed) carries only `quality_delta`; no `time_delta`/`cost_delta`
+# field exists anywhere upstream for the elapsed_time/provider_cost
+# dimensions. This is the SAME class of gap as
+# `review_value_gate_time_cost_upstream_gap_reason` above -- a permanent
+# I-08 contract gap, not a per-run absence -- so it MUST render this
+# distinct, named reason rather than the bare "unavailable" string the
+# legitimate no-comparison case uses. report-lifecycle.sh is a pure
+# function of one aggregate.json (ADR-F10-06) and reads no second file at
+# runtime, so it cannot call `schema.get()` the way aggregate-lifecycle.sh
+# does; this value is instead hardcoded there as a private literal that
+# MUST equal this schema value verbatim (TC-088 asserts the two never
+# drift), matching this file's own `report_view` CLI-allowlist precedent
+# (hardcoded in report-lifecycle.sh, shape documented here) for the same
+# purity-over-restatement tradeoff.
+dimension_paired_delta_time_cost_upstream_gap_reason: >-
+  upstream_contract_gap: I-08's comparison object carries only
+  quality_delta -- no time_delta or cost_delta field exists for the
+  elapsed_time/provider_cost dimensions (REQ-F-008)
+
 # ---------------------------------------------------------------------------
 # Report views (REQ-F-009, ADR-F10-07). `stage_diagnostic` is structurally
 # subordinate to `headline` and MUST NOT be published standalone.

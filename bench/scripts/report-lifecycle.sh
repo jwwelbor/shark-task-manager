@@ -91,13 +91,19 @@
 #                                    per-dimension delta field for time or
 #                                    provider cost (`compare-lifecycle-
 #                                    evaluations.sh`'s own comparison object
-#                                    carries only `quality_delta`); this
-#                                    script renders those two `unavailable`
-#                                    rather than computing a delta itself by
-#                                    subtracting two evaluations' own
-#                                    elapsed_time/provider_cost -- an honest,
-#                                    named upstream gap, matching AC-T2's
-#                                    "no new statistic" rule.
+#                                    carries only `quality_delta`); T-011
+#                                    round 2 (feature-level tech-lead
+#                                    code-review kickback, REQ-F-008): this is
+#                                    a PERMANENT I-08 contract gap, not a
+#                                    per-run absence, so these two dimensions
+#                                    render the distinct, named
+#                                    `DIMENSION_PAIRED_DELTA_TIME_COST_
+#                                    UPSTREAM_GAP` reason -- never the bare
+#                                    `unavailable` string the legitimate
+#                                    no-comparison case uses, and never a
+#                                    value computed here by subtracting two
+#                                    evaluations' own elapsed_time/
+#                                    provider_cost, which AC-T2 forbids.
 #
 # Exit status (mirrors report-baseline.sh's own contract):
 #   0        report printed to stdout (including a not-correct verdict --
@@ -170,6 +176,25 @@ DIMENSION_METRICS = (
     ("Quality", "confirmed_findings"),
     ("Time", "elapsed_time"),
     ("Cost", "provider_cost"),
+)
+
+# T-E40-F10-011 round 2 (feature-level tech-lead code-review kickback,
+# REQ-F-008, REQ-F-016). Shape source:
+# bench/reports/lifecycle-baseline-schema.yaml's
+# `dimension_paired_delta_time_cost_upstream_gap_reason` -- I-08's
+# comparison object carries only `quality_delta`, never a `time_delta`/
+# `cost_delta` field (checked: compare-lifecycle-evaluations.sh and
+# evaluate-lifecycle.sh's own `comparison` block), a PERMANENT I-08
+# contract gap rather than a per-run absence. Hardcoded here rather than
+# read from the schema file at runtime -- report-lifecycle.sh is a pure
+# function of exactly the one file named by `--aggregate` (ADR-F10-06) and
+# reads no second file, the same purity-over-restatement tradeoff already
+# made for the `--view` allowlist above. TC-088 asserts this literal never
+# drifts from the schema value it mirrors.
+DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP = (
+    "upstream_contract_gap: I-08's comparison object carries only "
+    "quality_delta -- no time_delta or cost_delta field exists for the "
+    "elapsed_time/provider_cost dimensions (REQ-F-008)"
 )
 
 
@@ -682,9 +707,10 @@ for sid in sorted(bands_by_scenario):
         band = per_metric.get(metric_name)
         emit_band(band)
         if metric_name != "confirmed_findings":
-            # No upstream per-dimension delta field exists for time or
-            # cost -- an honest gap, never a value computed here.
-            emit("  - Paired delta: unavailable")
+            # T-E40-F10-011 round 2 (REQ-F-008): a permanent I-08 contract
+            # gap, not the legitimate no-comparison case below -- rendered
+            # with the distinct, named reason, never bare "unavailable".
+            emit("  - Paired delta: %s" % DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP)
             emit()
             continue
         if quality_delta is None:
