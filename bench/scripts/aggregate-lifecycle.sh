@@ -765,8 +765,14 @@ for scenario_id, rep, rep_dir in pair_dirs:
         entry = artifacts_manifest.get(name)
         if not isinstance(entry, dict):
             fail(f"{pair_label}: manifest.json has no artifacts entry for required artifact {name!r}")
-        source_path = entry.get("source_path") or ""
-        if not source_path:
+        # Code-review round-2 fix (T-E40-F10-004 sweep, sibling of
+        # lib/verify_pair_retention's own `entry.get(...) or ""` bug): a
+        # truthy-check alone lets a non-string truthy value (a list, dict,
+        # or number) survive `not source_path` unchanged, exactly the type-
+        # checking gap this same rework already closed via require()'s
+        # own expected_type parameter above.
+        source_path = entry.get("source_path")
+        if not isinstance(source_path, str) or not source_path:
             fail(f"{pair_label}: manifest.json artifacts.{name!r}.source_path is missing or empty")
         recorded_digest = entry.get("sha256")
         current_digest = sha256_file(path)

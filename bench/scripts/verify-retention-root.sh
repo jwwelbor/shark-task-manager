@@ -454,7 +454,18 @@ for scenario_id, rep, rep_dir in pairs:
                 failures.append({"artifact": name, "reason": "digest_mismatch", "detail": "manifest artifact entry is not an object"})
                 continue
             recorded_digest = entry.get("sha256")
-            source_path = entry.get("source_path") or ""
+            # Code-review round-2 fix (T-E40-F10-004 sweep site, sibling of
+            # lib/verify_pair_retention's own `source_path = entry.get(...)
+            # or ""` bug): a truthy-check alone lets a non-string truthy
+            # value (a list, dict, or number) survive as "a recorded
+            # source_path" -- worse here, `os.path.exists(source_path)`
+            # below would raise TypeError on such a value instead of ever
+            # reaching the missing_source_provenance/source_path_missing
+            # classification. isinstance(str) is checked first so any
+            # non-string value collapses to "" and is refused exactly like
+            # an empty one.
+            raw_source_path = entry.get("source_path")
+            source_path = raw_source_path if isinstance(raw_source_path, str) else ""
 
             current_digest = digest_of_path(os.path.join(rep_dir, name))
             if current_digest is None:

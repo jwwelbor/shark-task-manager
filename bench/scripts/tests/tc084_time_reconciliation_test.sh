@@ -606,4 +606,47 @@ grep -q "publication_eligible" "$WORKDIR/h.err" || fail "(h) wrong-typed eligibi
 grep -qi "type" "$WORKDIR/h.err" || fail "(h) wrong-typed eligibility: stderr did not name a type-validation reason: $(cat "$WORKDIR/h.err")"
 echo "TC-084(h): a wrong-typed nested eligibility value (string instead of boolean) fails closed at the producer boundary, matching the aggregate.json contract's own wrong-type rejection"
 
-echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), both AC-T1 refusal cases, and the UAT round 5 digest-recomputation/type-validation refusal cases pass"
+# ===========================================================================
+# (i) Code-review round-2 (T-E40-F10-004 sweep): a non-string TRUTHY
+# manifest.json artifacts.<name>.source_path (a JSON list) must be refused
+# exactly like an empty/missing one -- `entry.get("source_path") or ""`'s
+# truthy-check alone cannot tell "a real path string" from "some other
+# truthy JSON value that can never be a filesystem path", the identical
+# defect class T-E40-F10-004's lib/verify_pair_retention had at
+# manifest.json artifact read time. The digest is left correct (matching
+# the real retained bytes) so this isolates the type check from (g)'s
+# digest-mismatch check.
+# ===========================================================================
+ROOT_I="$WORKDIR/root-i"
+mkdir -p "$ROOT_I"
+build_root "$ROOT_I" "auto" "0" >/dev/null
+python3 - "$ROOT_I" <<'PYEOF'
+import json
+import os
+import sys
+
+root = sys.argv[1]
+manifest_path = os.path.join(root, "scenarios", "scenario-tc084", "1", "manifest.json")
+
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+# Non-string TRUTHY value -- the digest and every other field are left
+# untouched so a pre-fix `entry.get(...) or ""` truthy-check would accept
+# this as "a recorded source_path".
+manifest["artifacts"]["lifecycle.jsonl"]["source_path"] = ["not", "a", "string"]
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+    f.write("\n")
+PYEOF
+
+set +e
+OUT_I="$("$AGGREGATOR" --retention-root "$ROOT_I" 2>"$WORKDIR/i.err")"
+RC_I=$?
+set -e
+[[ "$RC_I" -ne 0 ]] || fail "(i) list-typed source_path: expected non-zero exit when manifest.json source_path is a non-string truthy value, got 0"
+[[ -z "$OUT_I" ]] || fail "(i) list-typed source_path: expected empty stdout on refusal, got: $OUT_I"
+grep -q "lifecycle.jsonl" "$WORKDIR/i.err" || fail "(i) list-typed source_path: stderr did not name the affected artifact: $(cat "$WORKDIR/i.err")"
+grep -qi "source_path" "$WORKDIR/i.err" || fail "(i) list-typed source_path: stderr did not name the source_path field: $(cat "$WORKDIR/i.err")"
+echo "TC-084(i): a manifest.json artifact entry whose source_path is a non-string truthy value (a list) fails closed exactly like an empty one, never accepted on a truthy-check alone"
+
+echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), both AC-T1 refusal cases, the UAT round 5 digest-recomputation/type-validation refusal cases, and the code-review round-2 source_path type-check refusal case pass"

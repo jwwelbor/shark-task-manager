@@ -170,8 +170,18 @@ for name in REQUIRED_WITH_SOURCE:
     # value happens to be present -- a real, deterministic empty-content
     # digest with source_path == "" is exactly what a fabricated
     # placeholder looks like.
-    source_path = entry.get("source_path") or ""
-    if not source_path:
+    #
+    # Code-review round-2 fix (T-E40-F10-004, sibling of aggregate-
+    # lifecycle.sh's require(expected_type=) discipline): `entry.get(...)
+    # or ""` alone is a truthy-check, not a type-check -- a non-string
+    # truthy value (a list, dict, or number) survives `not source_path`
+    # unchanged and would be accepted as "a recorded source_path" even
+    # though it can never be a real filesystem path. isinstance(str) is
+    # checked FIRST so any non-string value refuses exactly like an empty
+    # one, matching pilot-ledger.sh's own already-correct
+    # `not isinstance(source_path, str) or not source_path` pattern.
+    source_path = entry.get("source_path")
+    if not isinstance(source_path, str) or not source_path:
         refuse("missing_source_provenance", name, "manifest.json artifact entry has no recorded source_path")
 
     recorded_digest = entry.get("sha256")

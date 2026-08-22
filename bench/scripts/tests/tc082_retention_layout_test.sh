@@ -451,6 +451,51 @@ done
 echo "TC-082(UAT-R3-01 counterfactual: all seven required-with-source artifacts fail as missing_source_provenance when their manifest source_path is empty, even though their digest still matches) PASS"
 
 # ===========================================================================
+# Code-review round-2 (T-E40-F10-004) counterfactual: a non-string TRUTHY
+# source_path (a JSON list) is refused exactly like an empty one -- not
+# silently accepted because `entry.get("source_path") or ""`'s truthy-check
+# alone cannot tell "a real path string" from "some other truthy JSON value
+# that can never be a filesystem path". Proven directly against BOTH
+# lib/verify_pair_retention (the cited instance) and, driven through the
+# full binary, verify-retention-root.sh (the sibling sweep-site fix in its
+# own from-scratch per-artifact loop) -- a pair-dir/digest fixture is reused
+# from the empty-source-path loop above so this isolates the type check
+# from every other check.
+# ===========================================================================
+for artifact in "${REQUIRED_WITH_SOURCE[@]}"; do
+	root="$(damaged_root "list-source-path-$artifact")"
+	dir="$(pair_dir "$root")"
+	python3 -c '
+import json, sys
+manifest_path, artifact = sys.argv[1:3]
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+manifest["artifacts"][artifact]["source_path"] = ["not", "a", "string"]
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+' "$dir/manifest.json" "$artifact"
+
+	# (1) lib/verify_pair_retention directly.
+	lib_out=""
+	lib_rc=0
+	lib_out="$(python3 "$SCRIPTS_DIR/lib/verify_pair_retention" "$SCENARIO_ID" "$REP" "$dir" "$SCHEMA" 2>"$WORKDIR/list-source-path-lib-$artifact.err")" || lib_rc=$?
+	[[ "$lib_rc" -ne 0 ]] || fail "list-typed source_path $artifact: expected lib/verify_pair_retention to refuse a non-string source_path, got exit 0"
+	echo "$lib_out" | grep -q "^missing_source_provenance:$artifact$" || fail "list-typed source_path $artifact: lib/verify_pair_retention did not report missing_source_provenance:$artifact on stdout, got: $lib_out"
+
+	# (2) the same fixture driven through the full verify-retention-root.sh
+	# binary, exercising its own from-scratch per-artifact loop.
+	out=""
+	rc=0
+	out="$("$VERIFIER" --retention-root "$root" --schema "$SCHEMA" 2>"$WORKDIR/list-source-path-$artifact.err")" || rc=$?
+	[[ "$rc" -ne 0 ]] || fail "list-typed source_path $artifact: expected verify-retention-root.sh nonzero exit, got 0"
+	grep -q "$artifact: missing_source_provenance" "$WORKDIR/list-source-path-$artifact.err" || fail "list-typed source_path $artifact: stderr did not name the artifact and 'missing_source_provenance': $(cat "$WORKDIR/list-source-path-$artifact.err")"
+	echo "$out" | grep -q '"verdict":"fail"' || fail "list-typed source_path $artifact: expected a fail verdict, got: $out"
+	echo "$out" | grep -q "\"reason\":\"missing_source_provenance\"" || fail "list-typed source_path $artifact: stdout verdict missing missing_source_provenance reason: $out"
+done
+
+echo "TC-082(code-review round-2 counterfactual: all seven required-with-source artifacts fail as missing_source_provenance when their manifest source_path is a non-string truthy value (a list), both directly against lib/verify_pair_retention and through verify-retention-root.sh) PASS"
+
+# ===========================================================================
 # UAT round 6 (2026-08-21T233606Z, uat-2026-08-21T233606Z-E40-F10.md,
 # T-E40-F10-007) sweep site 1: each of the seven required-with-source
 # artifacts, with its manifest.json `artifacts` ENTRY REMOVED ENTIRELY (not
