@@ -373,8 +373,19 @@ if missing:
 # RETAINED_ARTIFACTS) carries the per-artifact source_path provenance
 # retain_pair wrote; read it here before recording anything.
 manifest_path = os.path.join(scenario_dir, "manifest.json")
-with open(manifest_path, encoding="utf-8") as f:
-    manifest_artifacts = (json.load(f) or {}).get("artifacts") or {}
+try:
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+except (OSError, json.JSONDecodeError) as exc:
+    print(f"pilot-ledger: cannot read manifest.json: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+if not isinstance(manifest, dict):
+    print("pilot-ledger: manifest.json must contain a JSON object", file=sys.stderr)
+    raise SystemExit(2)
+manifest_artifacts = manifest.get("artifacts") or {}
+if not isinstance(manifest_artifacts, dict):
+    print("pilot-ledger: manifest.json artifacts must be a JSON object", file=sys.stderr)
+    raise SystemExit(2)
 missing_source_provenance = []
 for name in RETAINED_ARTIFACTS:
     if name == "manifest.json":

@@ -649,4 +649,19 @@ grep -q "lifecycle.jsonl" "$WORKDIR/i.err" || fail "(i) list-typed source_path: 
 grep -qi "source_path" "$WORKDIR/i.err" || fail "(i) list-typed source_path: stderr did not name the source_path field: $(cat "$WORKDIR/i.err")"
 echo "TC-084(i): a manifest.json artifact entry whose source_path is a non-string truthy value (a list) fails closed exactly like an empty one, never accepted on a truthy-check alone"
 
+# Round-13 regression: parseable non-object manifests are bounded refusals.
+python3 - "$ROOT_I/scenarios/scenario-tc084/1/manifest.json" <<'PYEOF'
+import sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    f.write("[1]\n")
+PYEOF
+set +e
+OUT_J="$($AGGREGATOR --retention-root "$ROOT_I" 2>"$WORKDIR/j.err")"
+RC_J=$?
+set -e
+[[ "$RC_J" -ne 0 ]] || fail "(j) non-object manifest: expected non-zero exit, got 0"
+[[ -z "$OUT_J" ]] || fail "(j) non-object manifest: expected empty stdout, got: $OUT_J"
+grep -q "JSON object" "$WORKDIR/j.err" || fail "(j) non-object manifest: missing named shape refusal: $(cat "$WORKDIR/j.err")"
+echo "TC-084(j): parseable non-object manifest roots refuse cleanly"
+
 echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), both AC-T1 refusal cases, the UAT round 5 digest-recomputation/type-validation refusal cases, and the code-review round-2 source_path type-check refusal case pass"

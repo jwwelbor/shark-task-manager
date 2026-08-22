@@ -838,3 +838,15 @@ echo "$out" | grep -q "stale_digest" && fail "UAT round 6 (forged manifest, --ve
 echo "$out" | grep -q "missing_source_provenance" && fail "UAT round 6 (forged manifest, --verify): should not ALSO report missing_source_provenance (every source_path is a non-empty string): $out"
 
 echo "TC-081 (UAT round 6, forged manifest at --verify): pass (a hand-forged ledger row whose digests match the real current bytes -- defeating pilot-ledger's own staleness check -- is still caught by cross-checking manifest.json's own recorded per-artifact digest against those same bytes)"
+
+# Round-13 regression: parseable non-object JSON roots refuse cleanly.
+python3 - "$ROOT/scenarios/scenario-a/1/manifest.json" <<'PYEOF'
+import sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    f.write("[]\n")
+PYEOF
+rc=0
+out="$($PILOT_LEDGER --retention-root "$ROOT" --record --scenario scenario-a --rep 1 --operator operator@example.com --checklist "$CHECKLIST" 2>&1)" || rc=$?
+[[ "$rc" -eq 2 ]] || fail "round-13 non-object manifest: expected bounded refusal, got rc=$rc: $out"
+echo "$out" | grep -q "JSON object" || fail "round-13 non-object manifest: missing named shape refusal: $out"
+echo "TC-081 (round 13): parseable non-object manifest roots refuse cleanly"

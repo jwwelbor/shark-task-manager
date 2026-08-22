@@ -1901,3 +1901,13 @@ bash -c '
 [[ "$chain_unit_clean_rc" -eq 0 ]] || fail "assert_no_symlink_in_chain unit test counter-proof: a genuinely deep path with no symlink anywhere must be reported safe, got exit $chain_unit_clean_rc: $(cat "$WORKDIR/chain-unit-clean.out")"
 
 echo "TC-082(assert_no_symlink_in_chain intermediate-component unit test, round-5 structural fix): the shared primitive rejects a symlink at an arbitrary intermediate path component (neither the leaf nor its immediate parent), and does not falsely reject an equally deep symlink-free path"
+
+# Round-13 regression: parseable non-object JSON roots refuse cleanly.
+printf '%s\n' null >"$root_l/scenarios/scenario-tc082/1/manifest.json"
+set +e
+"$VERIFIER" --retention-root "$root_l" --schema "$SCHEMA" >"$WORKDIR/root-shape.out" 2>"$WORKDIR/root-shape.err"
+RC_ROOT_SHAPE=$?
+set -e
+[[ "$RC_ROOT_SHAPE" -ne 0 ]] || fail "round-13 non-object manifest: expected verifier refusal, got 0"
+grep -q "JSON object" "$WORKDIR/root-shape.err" || fail "round-13 non-object manifest: missing named shape refusal"
+echo "TC-082 (round 13): parseable non-object manifest roots refuse cleanly"

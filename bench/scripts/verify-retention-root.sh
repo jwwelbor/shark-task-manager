@@ -403,11 +403,17 @@ with open(pending_path, encoding="utf-8") as f:
 for scenario_id, rep, rep_dir in pairs:
     failures = []
     manifest_path = os.path.join(rep_dir, "manifest.json")
+    manifest_loaded = False
     try:
         with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
+        manifest_loaded = True
     except (OSError, json.JSONDecodeError) as exc:
         failures.append({"artifact": "manifest.json", "reason": "digest_mismatch", "detail": f"manifest.json is not valid JSON: {exc}"})
+        manifest = None
+
+    if manifest_loaded and not isinstance(manifest, dict):
+        failures.append({"artifact": "manifest.json", "reason": "schema_invalid", "detail": "manifest.json must contain a JSON object"})
         manifest = None
 
     if manifest is not None:

@@ -765,7 +765,11 @@ for scenario_id, rep, rep_dir in pair_dirs:
             manifest = json.load(fh)
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"{pair_label}: manifest.json is not valid JSON: {exc}")
+    if not isinstance(manifest, dict):
+        fail(f"{pair_label}: manifest.json must contain a JSON object")
     artifacts_manifest = manifest.get("artifacts") or {}
+    if not isinstance(artifacts_manifest, dict):
+        fail(f"{pair_label}: manifest.json artifacts must be a JSON object")
 
     # UAT round 5 (T-E40-F10-008, defect class: "treating a present file,
     # digest field, or non-empty provenance string as proof of verified
