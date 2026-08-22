@@ -1,0 +1,2 @@
+TC-092: AC-T2 pass (62 pre-F10 tests present in run-all.sh, relative order unchanged)
+TC-092: every pre-F10 test still declares a discoverable pass marker
