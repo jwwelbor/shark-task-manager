@@ -345,6 +345,23 @@ share_partition_cell:
 
 share_partition_residual: unattributed
 
+# T-E40-F10-009 round 2 (feature-level tech-lead code-review kickback,
+# REQ-F-008, REQ-F-012). review_value.gates[] elapsed_seconds/
+# provider_cost_usd/resolution_cost_usd have no upstream join key in I-07
+# review_gates[] or I-08 metrics AT ALL -- a permanent gap in the I-07/I-08
+# contract itself, not a per-run absence like a missing seeded truth set.
+# REQ-F-008 requires an apparent I-07/I-08 gap be reported as a distinct,
+# named upstream-contract-defect reason, not worked around; rendering the
+# bare "unavailable" string here (design decision 8's precision/recall
+# rule) would make this permanent structural gap indistinguishable from an
+# ordinary run that merely lacks a truth set. Schema-owned (REQ-F-018) so
+# aggregate-lifecycle.sh and its tests read one copy rather than maintaining
+# private duplicates of the literal text.
+review_value_gate_time_cost_upstream_gap_reason: >-
+  upstream_contract_gap: I-08 has no per-gate breakdown for
+  elapsed_seconds/provider_cost_usd (only whole-evaluation elapsed_time and
+  provider_cost sums) and no resolution_cost concept anywhere (REQ-F-008)
+
 # ---------------------------------------------------------------------------
 # Report views (REQ-F-009, ADR-F10-07). `stage_diagnostic` is structurally
 # subordinate to `headline` and MUST NOT be published standalone.

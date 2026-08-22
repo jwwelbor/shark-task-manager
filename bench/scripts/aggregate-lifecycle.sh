@@ -510,11 +510,12 @@ REPLAYED_PROXY_LABEL = (
 # the bare "unavailable" string design decision 8's precision/recall fields
 # use for the legitimate "this run had no seeded truth set" case -- collapsing
 # the two would make a permanent contract gap indistinguishable from an
-# ordinary, run-specific absence.
-GATE_TIME_COST_UPSTREAM_GAP = (
-    "upstream_contract_gap: I-08 carries no per-gate "
-    "elapsed_seconds/provider_cost_usd/resolution_cost_usd breakdown (REQ-F-008)"
-)
+# ordinary, run-specific absence. Schema-owned (REQ-F-018) rather than a
+# private literal, matching this file's own GATE_STATES/UNATTRIBUTED/
+# NOISE_BAND_DERIVATION_RULE precedent.
+GATE_TIME_COST_UPSTREAM_GAP = schema.get("review_value_gate_time_cost_upstream_gap_reason")
+if not GATE_TIME_COST_UPSTREAM_GAP:
+    usage_fail("schema review_value_gate_time_cost_upstream_gap_reason is empty or missing")
 
 # REQ-F-011's exact share-assignment rule.
 WAIT_INTERVALS = {"queue_or_claim_wait", "replay_or_human_gate_wait", "retry_or_backoff"}

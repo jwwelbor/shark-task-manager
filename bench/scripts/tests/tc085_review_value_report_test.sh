@@ -198,12 +198,18 @@ PYEOF
 AGG_OUT="$WORKDIR/aggregate.json"
 "$AGGREGATOR" --retention-root "$ROOT" >"$AGG_OUT" 2>"$WORKDIR/err.log" || fail "aggregator exited non-zero; stderr: $(cat "$WORKDIR/err.log")"
 OUT="$(cat "$AGG_OUT")"
+LIFECYCLE_SCHEMA="$SCRIPTS_DIR/../reports/lifecycle-baseline-schema.yaml"
+[[ -f "$LIFECYCLE_SCHEMA" ]] || fail "bench/reports/lifecycle-baseline-schema.yaml missing"
 
-python3 - "$OUT" <<'PYEOF'
+python3 - "$OUT" "$LIFECYCLE_SCHEMA" <<'PYEOF'
 import json
 import sys
 
+import yaml
+
 agg = json.loads(sys.argv[1])
+with open(sys.argv[2], encoding="utf-8") as f:
+    schema = yaml.safe_load(f) or {}
 
 
 def fail(msg):
@@ -286,10 +292,11 @@ if code_review["counts_by_defect_class"] != expected_by_defect_class:
 # no-truth-set case above) -- REQ-F-008 requires this render as a distinct,
 # named upstream-contract-defect reason, never the bare "unavailable"
 # string the legitimate no-truth-set case above uses, and never zero.
-UPSTREAM_GAP_REASON = (
-    "upstream_contract_gap: I-08 carries no per-gate "
-    "elapsed_seconds/provider_cost_usd/resolution_cost_usd breakdown (REQ-F-008)"
-)
+# REQ-F-018: read the schema-owned reason rather than duplicating the
+# literal text privately in this test.
+UPSTREAM_GAP_REASON = schema.get("review_value_gate_time_cost_upstream_gap_reason")
+if not UPSTREAM_GAP_REASON:
+    fail("schema review_value_gate_time_cost_upstream_gap_reason is empty or missing")
 for gate_id in gates:
     g = gates[gate_id]
     for field in ("elapsed_seconds", "provider_cost_usd", "resolution_cost_usd"):
@@ -323,11 +330,15 @@ echo "TC-085 (aggregator half): PASS"
 REPORT_OUT="$WORKDIR/headline.md"
 "$REPORTER" --aggregate "$AGG_OUT" --view headline >"$REPORT_OUT" 2>"$WORKDIR/report.err" || fail "reporter exited non-zero; stderr: $(cat "$WORKDIR/report.err")"
 
-python3 - "$REPORT_OUT" <<'PYEOF'
+python3 - "$REPORT_OUT" "$LIFECYCLE_SCHEMA" <<'PYEOF'
 import sys
+
+import yaml
 
 with open(sys.argv[1], encoding="utf-8") as f:
     report = f.read()
+with open(sys.argv[2], encoding="utf-8") as f:
+    schema = yaml.safe_load(f) or {}
 
 
 def fail(msg):
@@ -401,11 +412,11 @@ if "`correctness`:" not in code_review_section or "`style`:" not in code_review_
 # --- elapsed/cost per gate: I-08 carries no per-gate join key AT ALL (a
 # permanent upstream contract gap) -- REQ-F-008 requires the distinct,
 # named upstream-contract-defect reason, never the bare "unavailable"
-# string the no-truth-set case above uses.
-UPSTREAM_GAP_REASON = (
-    "upstream_contract_gap: I-08 carries no per-gate "
-    "elapsed_seconds/provider_cost_usd/resolution_cost_usd breakdown (REQ-F-008)"
-)
+# string the no-truth-set case above uses. REQ-F-018: read the schema-owned
+# reason rather than duplicating the literal text privately in this test.
+UPSTREAM_GAP_REASON = schema.get("review_value_gate_time_cost_upstream_gap_reason")
+if not UPSTREAM_GAP_REASON:
+    fail("schema review_value_gate_time_cost_upstream_gap_reason is empty or missing")
 for gate_id in ("code_review", "second_pass_review", "qa_zero", "qa_failed", "uat_gate"):
     section = section_for(gate_id)
     for prefix in ("elapsed_seconds", "provider_cost_usd", "resolution_cost_usd"):
