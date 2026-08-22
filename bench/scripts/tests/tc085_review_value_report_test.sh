@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TC-085 / T-E40-F10-009 (aggregator half): review-value reporting per gate
-# (spec.md REQ-F-012, REQ-F-015, ADR-F10-04, ADR-F10-10; test-plan.md
+# (spec.md REQ-F-008, REQ-F-012, REQ-F-015, ADR-F10-04, ADR-F10-10; test-plan.md
 # TC-085 full body; AC-008, AC-T1, AC-T2).
 #
 # Exercises the REAL aggregate-lifecycle.sh binary over a hand-built
@@ -12,6 +12,13 @@
 # `collection_failure` gate, a `not_reached` gate, and NO truth set. This
 # is the aggregator half only -- report-lifecycle.sh --view headline
 # rendering is T-E40-F10-011's slice.
+#
+# T-E40-F10-009 round 2 (feature-level tech-lead code-review kickback,
+# REQ-F-008): per-gate elapsed_seconds/provider_cost_usd/resolution_cost_usd
+# have no upstream join key in I-07/I-08 AT ALL -- a permanent contract gap,
+# not a per-run absence -- so they MUST render a distinct, named
+# upstream-contract-defect reason, never the bare "unavailable" string the
+# legitimate no-truth-set case (precision/recall) uses.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -274,13 +281,22 @@ expected_by_defect_class = {
 if code_review["counts_by_defect_class"] != expected_by_defect_class:
     fail(f"code_review.counts_by_defect_class = {code_review['counts_by_defect_class']}, expected {expected_by_defect_class}")
 
-# --- elapsed/cost per gate: no upstream join key exists -> unavailable,
-# never zero, for every gate (including the findings gate).
+# --- elapsed/cost per gate: I-08 carries no per-gate join key AT ALL (a
+# permanent upstream contract gap, not a per-run absence like the
+# no-truth-set case above) -- REQ-F-008 requires this render as a distinct,
+# named upstream-contract-defect reason, never the bare "unavailable"
+# string the legitimate no-truth-set case above uses, and never zero.
+UPSTREAM_GAP_REASON = (
+    "upstream_contract_gap: I-08 carries no per-gate "
+    "elapsed_seconds/provider_cost_usd/resolution_cost_usd breakdown (REQ-F-008)"
+)
 for gate_id in gates:
     g = gates[gate_id]
     for field in ("elapsed_seconds", "provider_cost_usd", "resolution_cost_usd"):
-        if g[field] != "unavailable":
-            fail(f"{gate_id}.{field} = {g[field]!r}, expected the literal string 'unavailable'")
+        if g[field] != UPSTREAM_GAP_REASON:
+            fail(f"{gate_id}.{field} = {g[field]!r}, expected the distinct upstream-contract-defect reason {UPSTREAM_GAP_REASON!r}")
+        if g[field] == "unavailable":
+            fail(f"{gate_id}.{field} must NOT render the bare 'unavailable' string used for the legitimate no-truth-set case")
 
 # --- quality.first_pass_yield: reached gates = code_review(r1),
 # second_pass_review(r2), qa_zero(r1), qa_failed(r1) = 4; round==1 count = 3.
@@ -295,7 +311,7 @@ by_scenario = {(q["scenario_id"], q["rep"]): q for q in agg["quality"]["by_scena
 if ("scenario-tc085a", 1) not in by_scenario or ("scenario-tc085b", 1) not in by_scenario:
     fail(f"quality.by_scenario missing expected pairs: {sorted(by_scenario)}")
 
-print("TC-085: all seven finding measures render correctly broken out by severity/defect class; zero_findings and collection_failure render as distinct never-collapsed states; precision/recall render 'unavailable' (never 0) without a seeded truth set and numeric with one; per-gate elapsed/cost render 'unavailable' (no upstream join key); first_pass_yield reconciles against retained gate rounds")
+print("TC-085: all seven finding measures render correctly broken out by severity/defect class; zero_findings and collection_failure render as distinct never-collapsed states; precision/recall render 'unavailable' (never 0) without a seeded truth set and numeric with one; per-gate elapsed/cost render the distinct upstream-contract-defect reason (never bare 'unavailable', never 0); first_pass_yield reconciles against retained gate rounds")
 PYEOF
 
 echo "TC-085 (aggregator half): PASS"
@@ -382,20 +398,30 @@ if "`high`:" not in code_review_section or "`low`:" not in code_review_section:
 if "`correctness`:" not in code_review_section or "`style`:" not in code_review_section or "`security`:" not in code_review_section:
     fail("code_review: headline does not break counts out by defect class (correctness/style/security)")
 
-# --- elapsed/cost per gate: no upstream join key exists -> "unavailable"
-# printed for every gate.
+# --- elapsed/cost per gate: I-08 carries no per-gate join key AT ALL (a
+# permanent upstream contract gap) -- REQ-F-008 requires the distinct,
+# named upstream-contract-defect reason, never the bare "unavailable"
+# string the no-truth-set case above uses.
+UPSTREAM_GAP_REASON = (
+    "upstream_contract_gap: I-08 carries no per-gate "
+    "elapsed_seconds/provider_cost_usd/resolution_cost_usd breakdown (REQ-F-008)"
+)
 for gate_id in ("code_review", "second_pass_review", "qa_zero", "qa_failed", "uat_gate"):
     section = section_for(gate_id)
-    for field in ("elapsed_seconds: unavailable", "provider_cost_usd: unavailable", "resolution_cost_usd: unavailable"):
+    for prefix in ("elapsed_seconds", "provider_cost_usd", "resolution_cost_usd"):
+        field = f"{prefix}: {UPSTREAM_GAP_REASON}"
         if field not in section:
             fail(f"{gate_id}: headline missing {field!r}")
+        if f"{prefix}: unavailable" in section:
+            fail(f"{gate_id}: headline must not print the bare '{prefix}: unavailable' -- expected the distinct upstream-contract-defect reason")
 
 print(
     "TC-085 (report half): review_value block renders all seven finding "
     "measures broken out by severity/defect class; zero_findings and "
     "collection_failure render visibly distinct; precision/recall render "
     "exactly 'unavailable' without a seeded truth set and numeric with one; "
-    "per-gate elapsed/cost render 'unavailable'"
+    "per-gate elapsed/cost render the distinct upstream-contract-defect "
+    "reason, never bare 'unavailable'"
 )
 PYEOF
 

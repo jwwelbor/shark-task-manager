@@ -168,18 +168,32 @@
 #      `0`; the metric's own `available` flag decides `unavailable`.
 #
 #      `elapsed_seconds`/`provider_cost_usd`/`resolution_cost_usd` per gate
-#      render `unavailable` unconditionally: neither I-07 `review_gates[]`
-#      (gate_id, state, round, findings, candidate_ref, policy_ref -- no
-#      time/cost field) nor I-08 `metrics` carries a gate-level time/cost
-#      figure, and `review_gates[].candidate_ref` is an opaque reference, not
-#      a join key into `stages[].candidate` -- checked and confirmed absent
-#      (grep across `bench/scripts/*.sh` and `i07-schema.yaml`). Attributing
-#      a `review`/`qa`/`uat` stage's cost to "the" gate would invent a
-#      one-to-one mapping I-07 does not assert (a run may carry several
-#      review-category stages and several gates with no declared
-#      correspondence), which ADR-F10-04 forbids. ADR-F10-10's rule --
-#      absent measures render `unavailable`, never zero -- is stated
-#      generally, not scoped to precision/recall alone, and applies here.
+#      render `GATE_TIME_COST_UPSTREAM_GAP` unconditionally: neither I-07
+#      `review_gates[]` (gate_id, state, round, findings, candidate_ref,
+#      policy_ref -- no time/cost field) nor I-08 `metrics` carries a
+#      gate-level time/cost figure, and `review_gates[].candidate_ref` is an
+#      opaque reference, not a join key into `stages[].candidate` -- checked
+#      and confirmed absent (grep across `bench/scripts/*.sh` and
+#      `i07-schema.yaml`). Attributing a `review`/`qa`/`uat` stage's cost to
+#      "the" gate would invent a one-to-one mapping I-07 does not assert (a
+#      run may carry several review-category stages and several gates with no
+#      declared correspondence), which ADR-F10-04 forbids.
+#
+#      T-E40-F10-009 round 2 (feature-level tech-lead code-review kickback,
+#      REQ-F-008): this is NOT the same case as an ordinary run reporting no
+#      seeded truth set (design decision 8's `precision`/`recall` bare
+#      `unavailable`, ADR-F10-10) -- it is a PERMANENT gap in the I-07/I-08
+#      contract itself, present for every gate of every run, because the
+#      upstream shape has no per-gate time/cost field to read at all. REQ-F-008
+#      requires an apparent I-07/I-08 gap be "reported as an upstream contract
+#      defect, not worked around"; rendering the bare `unavailable` string
+#      here would make this permanent structural gap indistinguishable from a
+#      run that merely lacks a truth set, which is exactly the ambiguity
+#      REQ-F-008 forbids. These three fields therefore render the distinct,
+#      named `GATE_TIME_COST_UPSTREAM_GAP` reason instead -- never the bare
+#      `unavailable` string, and never zero (ADR-F10-10's "absent measures
+#      render unavailable, never zero" rule is satisfied by this more
+#      specific reason, not overridden by it).
 #
 #   9. `artifact_use` produced/consumed/reused/orphan counts and typed
 #      producer/consumer `edges` are computed directly from every pair's
@@ -486,6 +500,20 @@ NOISE_BAND_DERIVATION_RULE = NOISE_BAND_DERIVATION_RULES[0]
 REPLAYED_PROXY_LABEL = (
     "replayed_interaction_proxy: a replayed D01-D05 product-design "
     "interaction count, never an observed-interaction measurement (REQ-F-013)"
+)
+
+# T-E40-F10-009 round 2 (code-review kickback, REQ-F-008): review_value.gates[]
+# elapsed_seconds/provider_cost_usd/resolution_cost_usd have no upstream join
+# key in I-07 review_gates[] or I-08 metrics AT ALL -- a permanent structural
+# gap in the upstream contract, never a per-run absence. REQ-F-008 requires
+# this be reported as a distinct, named upstream-contract-defect reason, not
+# the bare "unavailable" string design decision 8's precision/recall fields
+# use for the legitimate "this run had no seeded truth set" case -- collapsing
+# the two would make a permanent contract gap indistinguishable from an
+# ordinary, run-specific absence.
+GATE_TIME_COST_UPSTREAM_GAP = (
+    "upstream_contract_gap: I-08 carries no per-gate "
+    "elapsed_seconds/provider_cost_usd/resolution_cost_usd breakdown (REQ-F-008)"
 )
 
 # REQ-F-011's exact share-assignment rule.
@@ -1328,10 +1356,11 @@ quality_block = {
 
 if gate_records:
     print(
-        "aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-012): "
+        "aggregate-lifecycle: UPSTREAM CONTRACT DEFECT (REQ-F-008, REQ-F-012): "
         "review_value.gates[].elapsed_seconds/provider_cost_usd/resolution_cost_usd have no "
-        "upstream join key in I-07 review_gates[] or I-08 metrics -- rendered as unavailable, "
-        "never zero (ADR-F10-10)",
+        "upstream join key in I-07 review_gates[] or I-08 metrics -- rendered with the "
+        f"distinct reason {GATE_TIME_COST_UPSTREAM_GAP!r}, never bare 'unavailable' and never "
+        "zero (ADR-F10-10)",
         file=sys.stderr,
     )
 
@@ -1360,9 +1389,9 @@ for gate_id in sorted(gate_records):
             "counts": counts,
             "counts_by_severity": counts_by_severity,
             "counts_by_defect_class": counts_by_defect_class,
-            "elapsed_seconds": "unavailable",
-            "provider_cost_usd": "unavailable",
-            "resolution_cost_usd": "unavailable",
+            "elapsed_seconds": GATE_TIME_COST_UPSTREAM_GAP,
+            "provider_cost_usd": GATE_TIME_COST_UPSTREAM_GAP,
+            "resolution_cost_usd": GATE_TIME_COST_UPSTREAM_GAP,
             "truth_set_available": record["truth_set_available"],
             "precision": record["precision"],
             "recall": record["recall"],
