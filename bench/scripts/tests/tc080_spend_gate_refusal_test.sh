@@ -198,6 +198,16 @@ assert_no_spy_calls "fully-satisfied-pilot"
 # TC-080's own body, which TC-081 will exercise end-to-end once
 # pilot-ledger.sh exists in T-E40-F10-006): the --mode baseline
 # pilot-ledger presence gate hook.
+#
+# This block's argv carries neither --batch nor --candidate -- neither real
+# driver's own invocation shape -- so spend_gate_check_pilot_ledger_families
+# below has no family set to derive and correctly no-ops, leaving this
+# coarse "does a ledger file exist at all" check as the only signal. That
+# is a deliberately narrow fallback for an argv shape neither real driver
+# ever produces, NOT a claim that file presence alone is sufficient
+# attestation proof for an actual --batch or --candidate invocation -- the
+# UAT-R5-HIGH-2 regression section below proves the opposite for both real
+# driver argv shapes.
 # ---------------------------------------------------------------------------
 assert_refusal "baseline-no-pilot-ledger" "missing_pilot_attestation" baseline \
 	"$ACK" "${ROOT_FLAG[@]}" "${GOOD_CEILINGS[@]}"
@@ -205,7 +215,7 @@ assert_refusal "baseline-no-pilot-ledger" "missing_pilot_attestation" baseline \
 : >"$ROOT/pilot-ledger.jsonl"
 rc=0
 spend_gate_check_all baseline "$ACK" "${ROOT_FLAG[@]}" "${GOOD_CEILINGS[@]}" || rc=$?
-[[ "$rc" -eq 0 ]] || fail "baseline invocation with a present pilot-ledger.jsonl refused unexpectedly (rc=$rc, reason=$SPEND_GATE_REFUSAL_REASON)"
+[[ "$rc" -eq 0 ]] || fail "baseline invocation (no --batch/--candidate in argv) with a present pilot-ledger.jsonl refused unexpectedly (rc=$rc, reason=$SPEND_GATE_REFUSAL_REASON)"
 assert_no_spy_calls "baseline-with-pilot-ledger"
 
 # ---------------------------------------------------------------------------
@@ -216,7 +226,7 @@ assert_no_spy_calls "baseline-with-pilot-ledger"
 for reason in missing_acknowledgement missing_max_cost_usd non_positive_max_cost_usd \
 	missing_max_wall_clock_seconds non_positive_max_wall_clock_seconds \
 	missing_max_generated_tasks non_positive_max_generated_tasks \
-	missing_retention_root missing_pilot_attestation; do
+	missing_retention_root missing_pilot_attestation stale_pilot_attestation_digest; do
 	grep -qE "^\s*-\s*${reason}\s*\$" "$SCHEMA" || fail "refusal reason '$reason' is not present in $SCHEMA's refusal_reason vocabulary"
 done
 
@@ -747,3 +757,274 @@ verify_operator_limits_won "uat-r2-01 duplicate-flag" \
 	"$UAT_R2_01_WORKDIR/batch-dup-captured-limits.yaml" "$UAT_R2_01_WORKDIR/batch-dup-captured-lifecycle.jsonl"
 
 echo "TC-080(UAT-R2-01 duplicate-flag regression, batch driver, T-E40-F10-004): a repeated --max-cost-usd resolves to the FIRST (spend-gate-validated, batch.json-recorded) occurrence in the materialized --limits file and the real I-07 record, not the last -- PASS"
+
+# ===========================================================================
+# UAT-R5-HIGH-2 regression (uat-2026-08-21T233606Z-E40-F10.md, T-E40-F10-003):
+# spend_gate_check_pilot_ledger (the coarse "does pilot-ledger.jsonl exist at
+# all" check tested above) used to be the ONLY thing gating --mode baseline
+# whenever the driver's argv had no --batch flag -- the real per-family
+# digest-verification path (spend_gate_check_pilot_ledger_families) was a
+# no-op unless --batch was present, so a present-but-empty/unattested ledger
+# file satisfied the gate. run-review-comparison.sh never passes --batch (it
+# passes --candidate), so EVERY --mode baseline comparison-driver invocation
+# was gated by file presence alone, regardless of whether the requested
+# family was ever actually attested. The fix makes per-family verification
+# unconditional: it now derives the requested family set from EITHER --batch
+# (run-lifecycle-batch.sh's own signature, already covered end-to-end by
+# TC-081/T-E40-F10-006) OR --candidate (run-review-comparison.sh's own
+# signature, new coverage below) and always asks the real pilot-ledger.sh
+# --verify --family authority, never accepting mere ledger-file presence as
+# proof for either driver shape.
+# ===========================================================================
+PILOT_LEDGER_REAL="$SCRIPTS_DIR/pilot-ledger.sh"
+[[ -x "$PILOT_LEDGER_REAL" ]] || fail "bench/scripts/pilot-ledger.sh missing or not executable"
+
+R5_WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$DRIVER_WORKDIR" "$CMP_DRIVER_WORKDIR" "$UAT_R2_01_WORKDIR" "$R5_WORKDIR"' EXIT
+
+R5_INDEX_DIR="$R5_WORKDIR/scenario-index"
+mkdir -p "$R5_INDEX_DIR/packages/scenario-r5"
+cat >"$R5_INDEX_DIR/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/scenario-r5
+EOF
+cat >"$R5_INDEX_DIR/packages/scenario-r5/package.yaml" <<'EOF'
+schema_version: "1.0"
+scenario_id: "scenario-r5"
+scenario_version: "1"
+entity_family: "family-r5"
+EOF
+
+R5_ROOT="$R5_WORKDIR/retention"
+mkdir -p "$R5_ROOT"
+
+# Builds all eight canonical retained artifacts (bench/reports/
+# lifecycle-baseline-schema.yaml retention_required_artifacts) under
+# $R5_ROOT/scenarios/scenario-r5/1, each manifest entry carrying a real,
+# non-empty source_path (UAT-R3-01 precedent) so a real `pilot-ledger.sh
+# --record` accepts the fixture, mirroring tc081_pilot_ledger_gate_test.sh's
+# own retain_fixture helper.
+r5_retain_fixture() {
+	local dest="$R5_ROOT/scenarios/scenario-r5/1"
+	mkdir -p "$dest/evidence" "$dest/transcripts"
+	cp "$R5_INDEX_DIR/packages/scenario-r5/package.yaml" "$dest/package.yaml"
+	echo '{"stage": "code", "note": "fixture evidence"}' >"$dest/evidence/stage.json"
+	echo "fixture transcript for scenario-r5" >"$dest/transcripts/stage.txt"
+	echo '{"root_key": "ROOT-001", "entries": []}' >"$dest/entity-history.json"
+	echo '{"scenario_id": "scenario-r5", "rep": 1}' >"$dest/lifecycle.jsonl"
+	echo '{"scenario_id": "scenario-r5", "rep": 1}' >"$dest/evaluation.jsonl"
+	echo '{"held_back": true}' >"$dest/oracle.json"
+	python3 - "$dest" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+dest = sys.argv[1]
+
+
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+artifacts = {}
+for name in ("package.yaml", "evidence", "transcripts", "entity-history.json", "lifecycle.jsonl", "evaluation.jsonl", "oracle.json"):
+    artifacts[name] = {
+        "source_path": f"/fixture-source/{name}",
+        "sha256": digest_of_path(os.path.join(dest, name)),
+    }
+
+manifest = {"scenario_id": "scenario-r5", "rep": 1, "artifacts": artifacts}
+with open(os.path.join(dest, "manifest.json"), "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+PY
+}
+r5_retain_fixture
+
+R5_CHECKLIST="$R5_WORKDIR/checklist.json"
+echo '{"items": [{"id": "structural-spotcheck", "result": "pass"}]}' >"$R5_CHECKLIST"
+
+R5_CANDIDATE="$R5_WORKDIR/candidate.yaml"
+cat >"$R5_CANDIDATE" <<EOF
+schema_version: "1.0"
+scenario_id: "scenario-r5"
+scenario_index: "$R5_INDEX_DIR/scenarios.yaml"
+gates:
+  qa:
+    root_key: "ROOT-001"
+    scratch_root: "$R5_WORKDIR/scratch-template"
+  deep_review:
+    root_key: "ROOT-001"
+    scratch_root: "$R5_WORKDIR/scratch-template"
+EOF
+
+# ---------------------------------------------------------------------------
+# (1) Library-level, --candidate argv, NO attestation recorded at all: the
+# per-family check must refuse -- proving family derivation now runs for a
+# --candidate invocation, not only a --batch one.
+# ---------------------------------------------------------------------------
+rc=0
+spend_gate_check_pilot_ledger_families baseline \
+	--candidate "$R5_CANDIDATE" --retention-root "$R5_ROOT" || rc=$?
+[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] \
+	|| fail "r5:candidate-no-attestation: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $rc"
+[[ "$SPEND_GATE_REFUSAL_REASON" == "missing_pilot_attestation" ]] \
+	|| fail "r5:candidate-no-attestation: expected missing_pilot_attestation, got '$SPEND_GATE_REFUSAL_REASON'"
+
+# ---------------------------------------------------------------------------
+# (2) Library-level, --candidate argv, a verified CURRENT attestation: must
+# pass -- proving the fix is real verification, not a blanket refusal.
+# ---------------------------------------------------------------------------
+"$PILOT_LEDGER_REAL" --retention-root "$R5_ROOT" --record --scenario scenario-r5 --rep 1 \
+	--operator "operator-r5@example.com" --checklist "$R5_CHECKLIST" \
+	>/dev/null || fail "r5: pilot-ledger.sh --record failed"
+
+rc=0
+spend_gate_check_pilot_ledger_families baseline \
+	--candidate "$R5_CANDIDATE" --retention-root "$R5_ROOT" || rc=$?
+[[ "$rc" -eq 0 ]] \
+	|| fail "r5:candidate-verified: expected pass (rc=0), got $rc (reason=$SPEND_GATE_REFUSAL_REASON)"
+[[ -z "$SPEND_GATE_REFUSAL_REASON" ]] \
+	|| fail "r5:candidate-verified: left a stale refusal reason: $SPEND_GATE_REFUSAL_REASON"
+
+# ---------------------------------------------------------------------------
+# (3) Library-level, --candidate argv, the attestation is invalidated by
+# mutating a retained artifact after recording it (ADR-F10-09): must refuse
+# with the stale-digest reason, proving --candidate reaches the SAME real
+# digest-recomputation authority --batch does, not a weaker check.
+# ---------------------------------------------------------------------------
+echo '{"mutated": true}' >>"$R5_ROOT/scenarios/scenario-r5/1/lifecycle.jsonl"
+
+rc=0
+spend_gate_check_pilot_ledger_families baseline \
+	--candidate "$R5_CANDIDATE" --retention-root "$R5_ROOT" || rc=$?
+[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] \
+	|| fail "r5:candidate-stale: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $rc"
+[[ "$SPEND_GATE_REFUSAL_REASON" == "stale_pilot_attestation_digest" ]] \
+	|| fail "r5:candidate-stale: expected stale_pilot_attestation_digest, got '$SPEND_GATE_REFUSAL_REASON'"
+
+echo "TC-080(UAT-R5-HIGH-2 regression, library level): spend_gate_check_pilot_ledger_families performs real per-family digest verification for a --candidate invocation (missing/verified/stale), not a --batch-only no-op -- PASS"
+
+# ---------------------------------------------------------------------------
+# (3b) Fail-closed when a --candidate flag IS present but no family can be
+# derived from it at all (a malformed declaration -- here, one missing the
+# required scenario_id -- the same fails-OPEN-on-parse-problem shape
+# _spend_gate_families_from_candidate documents on itself). Once a source
+# flag is present this function commits to verifying something: it must
+# never fall back to the "no source flag" no-op just because derivation
+# from a PRESENT source flag came back empty -- that would be the exact
+# same-predicate-opposite-outcome inconsistency the fail-closed helper
+# check below fixes for a different cause.
+# ---------------------------------------------------------------------------
+R5_MALFORMED_CANDIDATE="$R5_WORKDIR/candidate-malformed.yaml"
+cat >"$R5_MALFORMED_CANDIDATE" <<EOF
+schema_version: "1.0"
+gates:
+  qa:
+    root_key: "ROOT-001"
+    scratch_root: "$R5_WORKDIR/scratch-template"
+  deep_review:
+    root_key: "ROOT-001"
+    scratch_root: "$R5_WORKDIR/scratch-template"
+EOF
+
+rc=0
+spend_gate_check_pilot_ledger_families baseline \
+	--candidate "$R5_MALFORMED_CANDIDATE" --retention-root "$R5_ROOT" || rc=$?
+[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] \
+	|| fail "r5:candidate-no-derivable-family: expected refusal exit $SPEND_GATE_EXIT_REFUSAL (fail closed), got $rc"
+[[ "$SPEND_GATE_REFUSAL_REASON" == "missing_pilot_attestation" ]] \
+	|| fail "r5:candidate-no-derivable-family: expected missing_pilot_attestation, got '$SPEND_GATE_REFUSAL_REASON'"
+
+# Same shape, missing --retention-root instead: a --candidate flag IS
+# present, so this must still refuse rather than fall back to the
+# no-source-flag no-op (unreachable from a real driver anyway --
+# run-review-comparison.sh's own usage() only skips this check for
+# --mode preview -- but this function must be safe standing alone too).
+rc=0
+spend_gate_check_pilot_ledger_families baseline \
+	--candidate "$R5_CANDIDATE" || rc=$?
+[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] \
+	|| fail "r5:candidate-no-retention-root: expected refusal exit $SPEND_GATE_EXIT_REFUSAL (fail closed), got $rc"
+[[ "$SPEND_GATE_REFUSAL_REASON" == "missing_pilot_attestation" ]] \
+	|| fail "r5:candidate-no-retention-root: expected missing_pilot_attestation, got '$SPEND_GATE_REFUSAL_REASON'"
+
+echo "TC-080(UAT-R5-HIGH-2 regression, fail-closed derivation): a --candidate flag present with no derivable family, or with no --retention-root, refuses instead of falling back to the no-source-flag no-op -- PASS"
+
+# ---------------------------------------------------------------------------
+# (4) Fail-closed on a missing/non-executable pilot-ledger.sh helper (the
+# UAT's third cited defect: this branch used to fail OPEN -- silently
+# returning a pass -- when PILOT_LEDGER_BIN could not be executed). A
+# family the pre-check can derive but the helper cannot verify must refuse,
+# never silently proceed.
+# ---------------------------------------------------------------------------
+R5_STUB_DIR="$R5_WORKDIR/no-exec-helper"
+mkdir -p "$R5_STUB_DIR"
+: >"$R5_STUB_DIR/pilot-ledger.sh"
+# Deliberately NOT chmod +x: proves the fail-closed path, not merely a
+# missing-file path.
+
+rc=0
+PILOT_LEDGER_BIN="$R5_STUB_DIR/pilot-ledger.sh" \
+	spend_gate_check_pilot_ledger_families baseline \
+	--candidate "$R5_CANDIDATE" --retention-root "$R5_ROOT" || rc=$?
+[[ "$rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] \
+	|| fail "r5:non-executable-helper: expected refusal exit $SPEND_GATE_EXIT_REFUSAL (fail closed), got $rc"
+[[ "$SPEND_GATE_REFUSAL_REASON" == "missing_pilot_attestation" ]] \
+	|| fail "r5:non-executable-helper: expected missing_pilot_attestation, got '$SPEND_GATE_REFUSAL_REASON'"
+
+echo "TC-080(UAT-R5-HIGH-2 regression, fail-closed helper): a missing/non-executable pilot-ledger.sh helper refuses the gate instead of silently passing it -- PASS"
+
+# ---------------------------------------------------------------------------
+# (5) Driver level: the REAL run-review-comparison.sh CLI, --mode baseline,
+# with a present-but-empty pilot-ledger.jsonl (the exact UAT-reported shape:
+# a ledger file exists, but carries no attestation for the requested
+# family) -- must refuse before any dispatch, proving the comparison
+# driver's own end-to-end path is covered with NO change to
+# run-review-comparison.sh itself (spend_gate_check_all was always its
+# single gate entrypoint; only this library's internals changed).
+# ---------------------------------------------------------------------------
+R5_CMP_ROOT="$R5_WORKDIR/cmp-retention"
+mkdir -p "$R5_CMP_ROOT"
+: >"$R5_CMP_ROOT/pilot-ledger.jsonl"
+
+R5_CMP_SPY_LOG="$R5_WORKDIR/cmp-spy.log"
+: >"$R5_CMP_SPY_LOG"
+mkdir -p "$R5_WORKDIR/spybin"
+for bin in shark run-lifecycle.sh evaluate-lifecycle.sh compare-lifecycle-evaluations.sh git; do
+	cat >"$R5_WORKDIR/spybin/$bin" <<SPY
+#!/usr/bin/env bash
+echo "$bin \$*" >>"$R5_CMP_SPY_LOG"
+exit 1
+SPY
+	chmod +x "$R5_WORKDIR/spybin/$bin"
+done
+
+r5_cmp_rc=0
+r5_cmp_out="$(PATH="$R5_WORKDIR/spybin:$PATH" "$COMPARISON" \
+	--candidate "$R5_CANDIDATE" --retention-root "$R5_CMP_ROOT" \
+	--mode baseline --comparison-mode independent_frozen_candidate \
+	"$ACK" --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 2>&1)" || r5_cmp_rc=$?
+[[ "$r5_cmp_rc" -eq "$SPEND_GATE_EXIT_REFUSAL" ]] \
+	|| fail "r5:cmp-driver-baseline: expected refusal exit $SPEND_GATE_EXIT_REFUSAL, got $r5_cmp_rc: $r5_cmp_out"
+echo "$r5_cmp_out" | grep -q "missing_pilot_attestation" \
+	|| fail "r5:cmp-driver-baseline: expected missing_pilot_attestation in refusal output: $r5_cmp_out"
+if [[ -s "$R5_CMP_SPY_LOG" ]]; then
+	fail "r5:cmp-driver-baseline: unexpected subprocess/checkout/Shark/comparator call recorded: $(cat "$R5_CMP_SPY_LOG")"
+fi
+
+echo "TC-080(UAT-R5-HIGH-2 regression, comparison driver, T-E40-F10-005 coordination): real run-review-comparison.sh --mode baseline refuses on an unattested family even with a present pilot-ledger.jsonl, with no change required to run-review-comparison.sh itself -- PASS"

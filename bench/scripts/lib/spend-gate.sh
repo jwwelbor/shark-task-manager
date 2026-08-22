@@ -17,24 +17,24 @@
 #     *shape*);
 #   - the --retention-root presence check;
 #   - the pilot-ledger gate hook for --mode baseline (REQ-F-005).
-#     spend_gate_check_pilot_ledger (T-E40-F10-003) is presence-only (does
-#     a pilot-ledger.jsonl exist under the retention root) and is called
-#     unconditionally from spend_gate_check_all, unchanged, so every
-#     existing caller keeps its exact prior behavior (including
-#     tc080_spend_gate_refusal_test.sh's direct spend_gate_check_all
-#     assertions). spend_gate_check_pilot_ledger_families (T-E40-F10-006)
-#     is the REAL per-family, digest-current verification ADR-F10-09
-#     requires; it is layered on top, also called unconditionally from
-#     spend_gate_check_all, but only ACTS when the caller's argv contains
-#     a --batch flag (run-lifecycle-batch.sh's own signature) -- it
-#     derives the requested scenario matrix's family set independently
-#     from that --batch policy + scenario index (mirroring, but never
-#     calling into, run-lifecycle-batch.sh's own matrix enumeration) so
-#     REQ-F-005's whole-command refusal runs at this file's existing
-#     pre-matrix call site with no change to run-lifecycle-batch.sh
-#     itself. A caller with no --batch flag (e.g. run-review-comparison.sh)
-#     falls through unchanged -- still gated by the presence-only check
-#     above only, per that driver's own scope.
+#     spend_gate_check_pilot_ledger (T-E40-F10-003) is a coarse, cheap
+#     pre-check only -- does a pilot-ledger.jsonl file exist under the
+#     retention root at all -- and is NEVER sufficient on its own to let a
+#     baseline invocation proceed: it is always followed, unconditionally,
+#     by spend_gate_check_pilot_ledger_families (T-E40-F10-006), the REAL
+#     per-family, digest-current verification ADR-F10-09 requires. (UAT
+#     round 5, uat-2026-08-21T233606Z-E40-F10.md: file presence used to be
+#     treated as sufficient proof by itself whenever the per-family check
+#     below was a no-op; it no longer is.)
+#     spend_gate_check_pilot_ledger_families derives the requested
+#     family set from whichever real driver signature is present in argv --
+#     --batch (run-lifecycle-batch.sh) or --candidate
+#     (run-review-comparison.sh) -- and always asks the real
+#     pilot-ledger.sh --verify --family authority for each one; it is a
+#     no-op ONLY when argv carries neither flag (an invocation shape
+#     neither real driver ever produces). This runs at this file's existing
+#     pre-matrix/pre-dispatch call site with no change required to either
+#     driver file itself.
 #
 # Refusal-reason strings and exit statuses mirror
 # bench/reports/lifecycle-baseline-schema.yaml `refusal_reason` /
@@ -44,9 +44,16 @@
 # this is a `MODES`-style precedent already used by
 # bench/scripts/compare-lifecycle-evaluations.sh).
 #
-# AC-T1: every check below is pure bash (regex/string comparison only) --
-# no subprocess, scenario checkout, or Shark call is made anywhere in this
-# file, so a refusal is unconditionally pre-dispatch.
+# AC-T1: no DISPATCH subprocess -- shark, run-lifecycle.sh,
+# evaluate-lifecycle.sh, or git (the subprocesses tc080's spy harness
+# covers) -- is ever invoked anywhere in this file, so a refusal is
+# unconditionally pre-dispatch. Most checks below are pure bash
+# (regex/string comparison only); spend_gate_check_pilot_ledger_families
+# is the one exception, and only ever invokes two LOCAL, OFFLINE
+# subprocesses: python3 (family derivation from a --batch/--candidate
+# declaration) and $PILOT_LEDGER_BIN --verify (the real digest-verification
+# authority, itself pure local file I/O, no network/provider call) --
+# neither contacts a provider or mutates a scenario checkout.
 #
 # Caller contract: source this file, then call spend_gate_check_all with
 # the driver's *raw, unmodified* argv (mode first). Passing anything other
@@ -182,8 +189,11 @@ spend_gate_check_retention_root() {
 
 # spend_gate_check_pilot_ledger <mode> <retention_root>
 # REQ-F-005: only --mode baseline requires a verified attestation; preview
-# and pilot are ungated here. Presence-only for now (see file header);
-# T-E40-F10-006 extends this with per-family digest verification.
+# and pilot are ungated here. This is a coarse, cheap ("does a ledger file
+# exist at all") pre-check ONLY -- it never by itself proves an attestation
+# is current or per-family, and a caller MUST also run
+# spend_gate_check_pilot_ledger_families (spend_gate_check_all does, always,
+# unconditionally) for the real verification. See file header.
 spend_gate_check_pilot_ledger() {
 	local mode="$1" retention_root="$2"
 	if [[ "$mode" != "baseline" ]]; then
@@ -277,10 +287,87 @@ for fam in sorted(families):
 PYEOF
 }
 
+# _spend_gate_families_from_candidate <candidate_decl_path>
+# Prints the single family name (the entity_family of the candidate
+# declaration's one scenario_id, per admitted I-04 package.yaml) a
+# run-review-comparison.sh-style --candidate declaration requests -- this
+# MIRRORS, but does not call into, that driver's own candidate.yaml ->
+# scenario_index -> package.yaml resolution (scenario_id/entity_family
+# derivation only; gates/root_key/scratch_root/i05_bundle_dir are
+# irrelevant here). Kept independent so REQ-F-005's whole-command refusal
+# can run at this file's existing pre-dispatch call site with no change to
+# run-review-comparison.sh.
+#
+# Deliberately fails OPEN (prints nothing, never a hard error) on any
+# parse problem: a malformed candidate declaration or scenario index is
+# run-review-comparison.sh's own candidate-parsing step's failure to
+# report (it re-parses the same file moments later and exits with a usage
+# error before any dispatch), not this library's.
+_spend_gate_families_from_candidate() {
+	local candidate_path="$1"
+	[[ -f "$candidate_path" ]] || return 0
+	command -v python3 >/dev/null 2>&1 || return 0
+	python3 - "$SPEND_GATE_BENCH_DIR" "$candidate_path" <<'PYEOF' 2>/dev/null || true
+import os
+import sys
+
+try:
+    import yaml
+except ImportError:
+    raise SystemExit(0)
+
+bench_dir, candidate_path = sys.argv[1:3]
+
+try:
+    with open(candidate_path) as f:
+        decl = yaml.safe_load(f) or {}
+except Exception:
+    raise SystemExit(0)
+if not isinstance(decl, dict):
+    raise SystemExit(0)
+
+scenario_id = str(decl.get("scenario_id", ""))
+if not scenario_id:
+    raise SystemExit(0)
+
+scenario_index_field = decl.get("scenario_index") or "scenarios/scenarios.yaml"
+scenario_index_path = (
+    scenario_index_field if os.path.isabs(scenario_index_field) else os.path.join(bench_dir, scenario_index_field)
+)
+if not os.path.isfile(scenario_index_path):
+    raise SystemExit(0)
+
+try:
+    with open(scenario_index_path) as f:
+        index = yaml.safe_load(f) or {}
+except Exception:
+    raise SystemExit(0)
+scenario_dirs = index.get("scenarios") or []
+index_dir = os.path.dirname(scenario_index_path)
+
+for rel in scenario_dirs:
+    pkg_path = os.path.join(index_dir, rel, "package.yaml")
+    if not os.path.isfile(pkg_path):
+        continue
+    try:
+        with open(pkg_path) as f:
+            pkg = yaml.safe_load(f) or {}
+    except Exception:
+        continue
+    if str(pkg.get("scenario_id", "")) != scenario_id:
+        continue
+    family = str(pkg.get("entity_family") or "")
+    if family:
+        print(family)
+    break
+PYEOF
+}
+
 # spend_gate_check_pilot_ledger_families <mode> <argv...>
 # REQ-F-005 whole-command refusal (AC-T1), ADR-F10-09: for --mode baseline
-# invocations whose argv contains --batch (run-lifecycle-batch.sh's own
-# signature), derive the requested matrix's family set and ask the single
+# invocations, derive the requested matrix's family set from whichever real
+# driver signature is present in argv -- --batch (run-lifecycle-batch.sh)
+# or --candidate (run-review-comparison.sh) -- and ask the single
 # digest-verification authority (pilot-ledger.sh --verify --family) once
 # per family. ANY failing family fails the WHOLE command -- this runs
 # before matrix enumeration/dispatch, never as a per-family dispatch
@@ -290,9 +377,29 @@ PYEOF
 # the two (missing_pilot_attestation takes precedence when ANY family has
 # no attestation at all; stale_pilot_attestation_digest otherwise).
 #
-# A caller whose argv has no --batch flag (e.g. run-review-comparison.sh)
-# is a no-op pass here -- gated only by the presence-only check above,
-# which remains this file's sole owner of that driver's baseline gate.
+# UAT round 5 (uat-2026-08-21T233606Z-E40-F10.md, HIGH finding
+# "comparison baseline can proceed without a verified family attestation"):
+# this check used to ACT only when --batch was present, making it a no-op
+# for run-review-comparison.sh (which passes --candidate, never --batch) --
+# every comparison-mode baseline invocation was then gated by
+# spend_gate_check_pilot_ledger's file-presence-only check alone. This is
+# fixed by deriving the family set from EITHER driver signature, so the
+# same real verification now runs unconditionally for both.
+#
+# Every "can this check determine what to verify" failure below now fails
+# the SAME way (refuse), except exactly one: argv carries NEITHER --batch
+# NOR --candidate at all. That specific shape is a genuine no-op, not a
+# fail-open bypass, because both real drivers usage()-exit (exit 2, before
+# ever calling spend_gate_check_all) when their own required flag is
+# absent (run-lifecycle-batch.sh's `[[ -n "$batch_policy" ]] || usage`,
+# run-review-comparison.sh's `[[ -n "$candidate_decl" ]] || usage`) -- so
+# this argv shape can never reach here from a real driver. Once a --batch
+# or --candidate flag IS present, this function commits to verifying
+# something and never again treats "couldn't determine X" as "assume X is
+# fine": no --retention-root, no family derivable from the supplied
+# declaration (malformed policy/candidate, unresolvable scenario index,
+# missing python3/pyyaml), and a missing/non-executable PILOT_LEDGER_BIN
+# all refuse with missing_pilot_attestation rather than silently passing.
 spend_gate_check_pilot_ledger_families() {
 	local mode="$1"
 	shift
@@ -305,7 +412,11 @@ spend_gate_check_pilot_ledger_families() {
 
 	local batch_policy
 	batch_policy="$(_spend_gate_flag_value "--batch" "${argv[@]}")" || batch_policy=""
-	if [[ -z "$batch_policy" ]]; then
+
+	local candidate_decl
+	candidate_decl="$(_spend_gate_flag_value "--candidate" "${argv[@]}")" || candidate_decl=""
+
+	if [[ -z "$batch_policy" && -z "$candidate_decl" ]]; then
 		SPEND_GATE_REFUSAL_REASON=""
 		return 0
 	fi
@@ -313,27 +424,35 @@ spend_gate_check_pilot_ledger_families() {
 	local retention_root
 	retention_root="$(_spend_gate_flag_value "--retention-root" "${argv[@]}")" || retention_root=""
 	if [[ -z "$retention_root" ]]; then
-		SPEND_GATE_REFUSAL_REASON=""
-		return 0
+		spend_gate_refuse "missing_pilot_attestation" \
+			"--retention-root was not supplied; cannot verify the pilot attestation a --batch/--candidate baseline invocation requires"
+		return $?
 	fi
-
-	local scenarios_filter
-	scenarios_filter="$(_spend_gate_flag_value "--scenarios" "${argv[@]}")" || scenarios_filter=""
 
 	local families=()
 	local fam
-	while IFS= read -r fam; do
-		[[ -n "$fam" ]] && families+=("$fam")
-	done < <(_spend_gate_families_from_batch "$batch_policy" "$scenarios_filter")
+	if [[ -n "$batch_policy" ]]; then
+		local scenarios_filter
+		scenarios_filter="$(_spend_gate_flag_value "--scenarios" "${argv[@]}")" || scenarios_filter=""
+		while IFS= read -r fam; do
+			[[ -n "$fam" ]] && families+=("$fam")
+		done < <(_spend_gate_families_from_batch "$batch_policy" "$scenarios_filter")
+	else
+		while IFS= read -r fam; do
+			[[ -n "$fam" ]] && families+=("$fam")
+		done < <(_spend_gate_families_from_candidate "$candidate_decl")
+	fi
 
 	if [[ "${#families[@]}" -eq 0 ]]; then
-		SPEND_GATE_REFUSAL_REASON=""
-		return 0
+		spend_gate_refuse "missing_pilot_attestation" \
+			"could not derive a scenario family set from the supplied --batch/--candidate declaration; refusing rather than assuming no family requires attestation"
+		return $?
 	fi
 
 	if [[ ! -x "$PILOT_LEDGER_BIN" ]]; then
-		SPEND_GATE_REFUSAL_REASON=""
-		return 0
+		spend_gate_refuse "missing_pilot_attestation" \
+			"pilot-ledger verification helper not found or not executable at '$PILOT_LEDGER_BIN'; cannot verify attestation for the requested families: ${families[*]}"
+		return $?
 	fi
 
 	local failing=() any_missing="false"
