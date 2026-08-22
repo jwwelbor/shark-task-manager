@@ -629,7 +629,7 @@ PYEOF
 REPORT_OUT="$WORKDIR/handbuilt-headline.md"
 "$REPORTER" --aggregate "$HANDBUILT" --view headline >"$REPORT_OUT" 2>"$WORKDIR/handbuilt.err" || fail "reporter exited non-zero on hand-built aggregate; stderr: $(cat "$WORKDIR/handbuilt.err")"
 
-python3 - "$REPORT_OUT" "$SCHEMA" "$REPORTER" <<'PYEOF'
+python3 - "$REPORT_OUT" "$SCHEMA" <<'PYEOF'
 import sys
 
 import yaml
@@ -638,8 +638,6 @@ with open(sys.argv[1], encoding="utf-8") as f:
     report = f.read()
 with open(sys.argv[2], encoding="utf-8") as f:
     schema = yaml.safe_load(f) or {}
-with open(sys.argv[3], encoding="utf-8") as f:
-    reporter_source = f.read()
 
 
 def fail(msg):
@@ -686,33 +684,25 @@ UPSTREAM_GAP_REASON = schema.get("dimension_paired_delta_time_cost_upstream_gap_
 if not UPSTREAM_GAP_REASON:
     fail("schema dimension_paired_delta_time_cost_upstream_gap_reason is empty or missing")
 
+# REQ-F-018 drift guard: report-lifecycle.sh cannot read the schema file at
+# runtime (ADR-F10-06 single-file purity), so it holds a private literal
+# copy (module-level DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP)
+# instead. This exact-text count() match against the schema-loaded
+# UPSTREAM_GAP_REASON is what makes "schema-owned" a checked property
+# rather than a comment: it can only pass if report-lifecycle.sh's
+# hardcoded literal is byte-for-byte identical to the schema value -- any
+# drift between the two (a wording edit on one side but not the other)
+# fails this count, not just a "some reason was rendered" substring check.
 for section, label in ((inside, "scenario-inside-band"), (outside, "scenario-outside-band")):
     count = section.count(f"Paired delta: {UPSTREAM_GAP_REASON}")
     if count != 2:
         fail(
             f"{label}: expected exactly 2 occurrences (time, cost) of the schema-owned "
-            f"upstream-contract-defect reason, found {count}"
+            f"upstream-contract-defect reason, found {count} -- report-lifecycle.sh's "
+            f"hardcoded literal may have drifted from the schema value"
         )
     if "Paired delta: unavailable" in section:
         fail(f"{label}: time/cost dimensions must never render the bare 'unavailable' string")
-
-# REQ-F-018: report-lifecycle.sh cannot read the schema file at runtime
-# (ADR-F10-06 single-file purity), so it holds a private literal copy by
-# design (module-level DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP). The
-# assertions above already prove that copy renders byte-for-byte identical
-# to the schema-owned value (the count() match against UPSTREAM_GAP_REASON
-# can only pass if the hardcoded literal equals this schema text exactly)
-# -- this is the drift guard: "schema-owned" is a checked property here,
-# not just a comment. A direct source-text scan of reporter_source is
-# deliberately NOT used, since the literal is built from concatenated
-# string fragments whose boundaries are an implementation detail this test
-# should not pin.
-if "DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP" not in reporter_source:
-    fail(
-        "report-lifecycle.sh no longer defines "
-        "DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP -- the rendered-output "
-        "drift check above depends on this named constant existing"
-    )
 
 print(
     "TC-088 (no-detectable-effect check): an in-band quality paired delta "
